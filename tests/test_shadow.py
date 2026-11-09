@@ -1,16 +1,20 @@
-"""tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of six fake
+"""tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of seven fake
 Gos, Python's ak with one thing more, is named by the kind of that one thing; the Home keeps
-every byte and modification time; and where no box can be built, nothing runs."""
+every byte and modification time; a box's HOME starts as the home is; and where no box can be
+built, nothing runs."""
 
+import os
 from pathlib import Path
 import shlex
 import shutil
+import struct
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REPO, Home, boxable
+import shadow
 
 SHADOW = REPO / "tests" / "shadow.py"
 COMMAND = ("usage",)    # one that writes under HOME: ak's folders and its probes' locks
@@ -26,6 +30,9 @@ MORE = (
     # an extended attribute alone, of a file Python leaves be: its mode, time and bytes stay
     ("home", shlex.quote(sys.executable) + " -c 'import os, sys; os.setxattr(sys.argv[1], "
              '"user.acme", b"go")\' "$HOME/.gitconfig"'),
+    # ... and of HOME itself, whose mode the box's upper layer does not share unless made to
+    ("home", shlex.quote(sys.executable) + " -c 'import os, sys; os.setxattr(sys.argv[1], "
+             '"user.acme", b"go")\' "$HOME"'),
     ("page", 'echo "a page only go sent" >>"$AK_NOTIFY_SINK_LOG"'),
     ("call", "tmux send-keys -t acme Enter 2>/dev/null"),
 )
@@ -87,6 +94,25 @@ class Shadowed(unittest.TestCase):
                 more = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
                 code, found, said = self.shadow("--go", self.fake(name, GO.format(more)), env=env)
                 self.assertEqual((code, found), outcome, said)
+
+    def test_a_box_starts_its_home_as_the_home_is(self):
+        def acl(*entries):  # each (tag, permissions, id), as Linux keeps a POSIX ACL
+            return struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *each) for each in entries)
+
+        home, scratch = (Path(tempfile.mkdtemp(dir=self.fakes)) for _ in range(2))
+        anyone = 0xFFFFFFFF
+        # a read-only home with an access ACL naming its user, listed before an attribute of the
+        # user's own ...
+        os.setxattr(home, "system.posix_acl_access", acl(
+            (1, 5, anyone), (2, 5, os.getuid()), (4, 0, anyone), (16, 5, anyone), (32, 0, anyone)))
+        home.chmod(0o700)
+        os.setxattr(home, "user.acme", b"home")
+        home.chmod(0o550)
+        # ... boxed in a folder whose default ACL each folder made in it inherits
+        os.setxattr(scratch, "system.posix_acl_default", acl(*((tag, 7, anyone)
+                                                               for tag in (1, 4, 32))))
+        _, _, folder = shadow.box(home, scratch)
+        self.assertEqual(shadow.touched(folder / "upper", home), set())
 
     def test_where_no_box_can_be_built_nothing_runs(self):
         ran = self.fakes / "ran"

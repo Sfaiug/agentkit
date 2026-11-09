@@ -1332,12 +1332,13 @@ def _pane(session):
 def pinned(session):
     """That seat held to its pane (`_pane`), by id: what is read and typed for one line goes
     to that pane, whichever pane the owner selects meanwhile; as it was where tmux cannot say.
-    With it, in the same ask, the pane's process (`pid`), where tmux says it: a harness started
-    there since, respawned in place or its session made again within the second, runs under
-    another, and so matches no mark of a line typed before (`type_at_prompt`)."""
+    With it, in the same ask, the pane's process (`pid`), where this ask has tmux say it: a
+    harness started there since, respawned in place or its session made again within the second,
+    runs under another, and so matches no mark of a line typed before (`type_at_prompt`)."""
     rc, out = orch.tmux_out("display-message", "-p", "-t", _pane(session),
                             "#{pane_id}\t#{pane_pid}", socket=orch.seat_socket(session))
     pane, _, pid = out.partition("\t")
+    session = {key: value for key, value in session.items() if key != "pid"}
     if rc != 0 or not re.fullmatch(r"%[0-9]+", pane):
         return session
     return dict(session, pane=pane, **({"pid": int(pid)} if pid.isdigit() else {}))
@@ -4548,6 +4549,13 @@ def _mark(session, text):
             **({"pid": session["pid"]} if "pid" in session else {})}
 
 
+def _respawned(session, stale):
+    """`stale`, or that pinned seat's pane (`pinned`) not running the process it was pinned
+    with, by tmux's word, asked under the send lock: a launch holding the lock may respawn the
+    pane while a pass waits for it, and the harness started there has none of the pass's line."""
+    return lambda held: stale(held) or pinned(session) != session
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
                    source="ak", stale=lambda held: False):
     """One line into a seat, and only while its harness sits at its own prompt.
@@ -4570,8 +4578,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     composer empty, runs under another and matches no mark, so the line is typed again; one
     that lives on keeps it.  A mark naming no process, from before marks named one, matches
     no seat whose process tmux says.  `stale` is asked under the send lock
-    too, with the name the seat goes by then, before each key: a line that has stopped being
-    this seat's to have is typed no further.  Every Enter, the first, its retry and a mark's,
+    too, with the name the seat goes by then, before each key and a mark's confirmation: a line
+    that has stopped being this seat's to have, or a pane whose process changed since its pin
+    (`_respawned`), is typed no further.  Every Enter, the first, its retry and a mark's,
     goes only while the composer holds the line alone (`composer_holds`): what the owner typed
     in the gap before it is never sent.  The line is delivered only once its composer reads
     empty with no unread terminal input, the first pass's as a mark's: one the owner edited
@@ -4594,9 +4603,10 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         # it is that pane's process the mark names
         there = pinned(dict(session, pane=typed["pane"]))
         if typed == dict(_mark(there, text), pane=typed["pane"]):
-            return _line_left(there, text, log, cfg, stale)
+            return _line_left(there, text, log, cfg, _respawned(there, stale))
     session = pinned(session)
     mark = _mark(session, text)
+    stale = _respawned(session, stale)
     if typed == mark:
         with notify.session_lock(session["name"]) as held:
             if stale(held):
@@ -5764,7 +5774,9 @@ def note_freeze(run_dir, frozen, now):
 
 def run_last_write(run_dir, skip=(".lock", ".tmp")):
     """The newest write under the run directory: the run's last sign of life.  Locks and temp
-    files are the tick's own bookkeeping, not the run's life; `skip` names what is not counted."""
+    files are the tick's own bookkeeping, not the run's life; `skip` names what is not counted.
+    A link counts as written when it was made: a box's copy of /run links to the host's own
+    files, whose writes were never the run's."""
     latest = 0.0
     try:
         for root, _, files in os.walk(run_dir):
@@ -5772,7 +5784,7 @@ def run_last_write(run_dir, skip=(".lock", ".tmp")):
                 if name.endswith(skip):
                     continue
                 try:
-                    stamp = Path(root, name).stat().st_mtime
+                    stamp = Path(root, name).lstat().st_mtime
                 except OSError:
                     continue
                 if stamp > latest:
@@ -6329,6 +6341,8 @@ def resume_dead_jobs(dry_run=False, log=print, now=None):
             log(f"WARN cannot relaunch job {job_dir.name}: {exc}")
 
 
+# Kept, the owner, 9 Nov 2026: this ladder frees a hung turn (58 stalls from 19 to 30 Oct), so no
+# heartbeat or 60 s reconciler replaces it and the tick stays every 3 minutes (write-up rows 43, 44).
 def recover_runs(cfg=None, dry_run=False, log=print, now=None):
     """One bounded pass over silent runs: detect from outside the loop, climb the ladder.
 

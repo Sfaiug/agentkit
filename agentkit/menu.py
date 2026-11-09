@@ -3374,12 +3374,16 @@ def models_bars(found, role, used, room=None, marked=True, why=True):
     # the heading, the dearest's cost over it and what stands under the bars take their lines
     taken = len(lines) + 1 + sum(max(map(len, part)) for part in zip(*unders))
     tall = TALL if room is None else max(1, min(TALL, room - taken))
-    step = 1 if utf8 else 8           # an eighth of a cell, or without UTF-8 a whole one
     dearest = max((row["cost"] for row, _ in rows), default=0) or 1
-    kinds, columns = [], []
+    kinds, columns, eighths = [], [], 0
     for (row, fill), (cost, *_), under in zip(rows, labels, unders):
         kinds.append("accent" if row is used else None)
-        eighths = max(step, step * round(8 * tall * row["cost"] / dearest / step))
+        # an eighth of a cell; a whole one without UTF-8, and on a shaded bar, as no glyph shades
+        # a part of a cell: its top would stand solid on its shade
+        step = 1 if utf8 and fill == solid else 8
+        # and never under the cheaper bar on its left, which a whole shaded cell may overtake
+        eighths = max(step, step * round(8 * tall * row["cost"] / dearest / step),
+                      -(-eighths // step) * step)
         top = -(-eighths // 8)
         columns.append([[cost if level == top + 1 else "" if level > top else
                          (fill if eighths >= 8 * level else EIGHTHS[eighths % 8]) * size
@@ -5412,7 +5416,8 @@ def config_done_check(cfg):
 
 def machines_value():
     """`Machines`' count and the tick's cloud spending, with no probe or Google call."""
-    return f"{len(machines.known())} machines · Google Cloud {google_cloud.summary(count=False)}"
+    count, cloud = len(machines.known()), google_cloud.summary(count=False)
+    return f"{count} machine{'' if count == 1 else 's'} · Google Cloud {cloud}"
 
 
 def machine_value(machine, rented, cfg):

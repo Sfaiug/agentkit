@@ -91,7 +91,12 @@ def follow(launched, payload, pid):
     from .. import orch
     from . import claim
     if isinstance(payload, dict) and payload.get("hook_event_name") == "UserPromptSubmit":
-        claim(launched, "grokbuild", payload.get("session_id"), payload.get("transcript_path"),
+        session, transcript = payload.get("session_id"), payload.get("transcript_path")
+        # A session's first prompt names none in 1.0.46, its updates.jsonl not yet written:
+        # the session's file in the directory it was typed in is the one it is about to write.
+        if transcript is None and isinstance(session, str) and isinstance(payload.get("cwd"), str):
+            transcript = str(session_dir(payload["cwd"], session) / "updates.jsonl")
+        claim(launched, "grokbuild", session, transcript,
               lambda record, session: session_dir(record["cwd"], session) / "updates.jsonl",
               pid, lambda words: orch.program(words) == "grok", id_source=SOURCE)
 

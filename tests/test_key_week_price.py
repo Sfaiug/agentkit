@@ -1,7 +1,8 @@
 """`ak usage --json` gives each login under `providers.<provider>.accounts` its `plan`, as
 state/logins.json names it now, and what a week of that plan holds in listed dollars,
 `week_listed_usd`: 100 over the plan's points of a week a listed dollar takes, null where its
-rises or spend sum to 0, with those two sums, `plan_points` and `plan_listed_usd`.
+rises sum to under ten points or its spend to 0, with those two sums, `plan_points` and
+`plan_listed_usd`.
 
 A plan's sums are read from the last seven days of every login of its provider: the readings
 its probes kept of its shared week, a reading with no plan its login's plan now's, grouped by
@@ -168,6 +169,20 @@ class WeekPrice(unittest.TestCase):
         weeks = self.weeks()
         self.assertWeek(weeks["default"], "Max", 25, 20, 5)
         self.assertWeek(weeks["second"], "Pro", None, 0, 0)
+
+    def test_a_plan_read_from_fewer_than_ten_points_holds_no_week(self):
+        self.plans(default="Max", second="Pro")
+        # 10 -> 19 for $3: nine points, too few to name a week
+        self.read("default", 10, 40 * HOUR, WEEK, plan="Max")
+        self.spent("default", 3, 35 * HOUR)
+        self.read("default", 19, 30 * HOUR, WEEK, plan="Max")
+        # 10 -> 20 for $2: ten, enough
+        self.read("second", 10, 40 * HOUR, WEEK, plan="Pro")
+        self.spent("second", 2, 35 * HOUR)
+        self.read("second", 20, 30 * HOUR, WEEK, plan="Pro")
+        weeks = self.weeks()
+        self.assertWeek(weeks["default"], "Max", None, 9, 3)
+        self.assertWeek(weeks["second"], "Pro", 20, 10, 2)
 
 
 if __name__ == "__main__":

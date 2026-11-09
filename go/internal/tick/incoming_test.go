@@ -47,3 +47,44 @@ func TestIncomingReviewsOnlyOthersOpenPRsOnOwnedCheckouts(t *testing.T) {
 		})
 	}
 }
+
+// A dry incoming pass decides each head as the real one does, on the same answers: it says which
+// head it would review and starts none, and where gh's word on a head's reviews cannot be read as
+// Python reads it, it hands the review over to Python as the real one does.
+func TestDryIncomingPreservesRealReviewHandover(t *testing.T) {
+	const url = "https://github.com/acme/api/pull/1"
+	what := url + " (#1 by beta: Fix parser) at abc"
+	for name, each := range map[string]struct {
+		reviews       string
+		owed, carried bool
+	}{
+		"new head":   {`echo '{"reviews": []}'`, true, true},
+		"reviewed":   {`echo '{"reviews": [{"author": {"login": "acme"}, "body": "agentkit review of abc", "commit": {"oid": "abc"}}]}'`, false, true},
+		"unreadable": {`printf '\377'`, false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, checkout := checkoutHome(t, "# acme\n")
+			if err := exec.Command("git", "-C", checkout, "remote", "set-url", "origin", "git@github.com:acme/api.git").Run(); err != nil {
+				t.Fatal(err)
+			}
+			bin := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
+			put(t, filepath.Join(bin, "gh"), fmt.Sprintf("#!/bin/sh\ncase \"$*\" in\n\"pr view %s --json reviews\") %s;;\n"+
+				"*repos/acme/api/pulls/1*) echo '{\"state\":\"open\",\"number\":1,\"title\":\"Fix parser\",\"html_url\":\"%s\",\"head\":{\"sha\":\"abc\"},\"user\":{\"login\":\"beta\"}}';;\n"+
+				"*) echo '{\"items\":[{\"number\":1,\"pull_request\":{\"html_url\":\"%s\"}}]}';;\nesac\n", url, each.reviews, url, url))
+			for _, dry := range []bool{true, false} {
+				want, started := "", 0
+				if each.owed && dry {
+					want = "would review " + what + "\n"
+				} else if each.owed {
+					want, started = "review "+what+" -> review\n", 1
+				}
+				state, _ := loadState()
+				var said strings.Builder
+				tick := &ticking{state: state, log: newLog(&said, io.Discard), clock: time.Now, dry: dry}
+				if tick.incoming("acme") != each.carried || said.String() != want || len(launches(t)) != started {
+					t.Fatalf("dry %v: carried %v, saying %q, starting %v", dry, !each.carried, said.String(), launches(t))
+				}
+			}
+		})
+	}
+}

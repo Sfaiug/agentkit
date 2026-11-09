@@ -6,7 +6,6 @@ import (
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
-	"agentkit/internal/helper"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
@@ -14,11 +13,12 @@ import (
 
 // Merge is `ak run merge <id>` past the refusals its record makes (loop.MergeRefused), Python's
 // cmd_merge: its refusals in its words, `ak run`'s exit status, and why it refused.  A run or a
-// host Go does not deliver on is Python's (ErrPython), decided before anything is written.
+// host Go does not deliver on is Python's (ErrPython), decided before anything is written.  A
+// seat's merge is anyone's: cmd_merge reads no seat.
 func Merge(id string, out, errOut io.Writer) (int, string, error) {
 	dir := filepath.Join(run.Runs(), id)
 	record, _ := run.Read(dir)
-	if record == nil || elsewhere(id) || !loop.Mergeable(record) || config.Check() != nil || box.Check() != nil || helper.May() {
+	if record == nil || surroundings(id) || !loop.Mergeable(record) || config.Check() != nil || box.Check() != nil || machined() {
 		return 0, "", ErrPython
 	}
 	// a delivery from integration checks the task's own commands once more

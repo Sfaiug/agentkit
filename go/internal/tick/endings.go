@@ -19,7 +19,9 @@ func (t *ticking) endings() error {
 		record *run.Object
 	}
 	var owed []ending
+	var census []*run.Object // this pass's one read of every run, each offer's other runs
 	carried := run.Every(func(dir string, record *run.Object) bool {
+		census = append(census, record)
 		if run.Active(record) {
 			return run.GoesOn(record, epoch(t.clock()))
 		}
@@ -55,7 +57,7 @@ func (t *ticking) endings() error {
 	}
 	sort.SliceStable(owed, func(i, j int) bool { return !owed[i].record.Truthy("merged") && owed[j].record.Truthy("merged") })
 	for _, each := range owed {
-		if err := loop.OfferEnding(each.dir, t.log.line); err != nil {
+		if err := loop.OfferEnding(each.dir, census, t.log.line); err != nil {
 			return err
 		}
 		current, _ := run.Read(each.dir)
