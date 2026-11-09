@@ -29,7 +29,9 @@ func TestDryHealthSaysItWouldContinueAnOpenPlan(t *testing.T) {
 	} {
 		t.Run(own, func(t *testing.T) {
 			home := sandbox(t)
-			write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+"[models.test]\nharness='"+own+"'\nmodel='test'\neffort='high'\nprovider='test'\n")
+			// with the done check on, whether a finished plan of a harness Go does not read strictly
+			// is done is Python's (plan.checkOwed)
+			write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+"[models.test]\nharness='"+own+"'\nmodel='test'\neffort='high'\nprovider='test'\n[done_check]\non = false\n")
 			record(t, home, "acme", map[string]any{"orchestrator": "test", "workers": []string{"test"}})
 			write(t, stateFile(home, "plan-acme.md"), openLine)
 			drawn(t, home, "acme", "The patch is ready.\n"+each.screen)

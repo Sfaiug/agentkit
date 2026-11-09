@@ -21,14 +21,15 @@ import (
 
 // ownReview launches a review from a session, Python's review_pr_main where the run has a session
 // name: Go's where it is the seat's own pull request, by this host's GitHub login, landed on PASS
-// unless launched with --no-merge.  One of somebody else's pull request it leaves to Python,
-// deciding so before it writes anything.
+// unless launched with --no-merge, waiting in line for its slot as a task's run does (admit),
+// however many of its seat's runs wait.  One of somebody else's pull request, or one whose first
+// poll Go leaves to Python, it leaves to Python, deciding so before it writes anything.
 func ownReview(url string, numbersIn config.Numbers, values map[string]string, flags map[string]bool, out, errOut io.Writer) (int, string, error) {
 	session, record, unnamed := config.CurrentSession()
 	_, pointer := record[config.Renamed]
 	bound, unbound := bind()
 	_, rules := pick.Within(names(bound.Workers), names(bound.Reviewers))
-	if unnamed != nil || pointer || unbound != nil || surroundings("") || len(bound.Workers) == 0 ||
+	if unnamed != nil || pointer || unbound != nil || ungated("") || len(bound.Workers) == 0 ||
 		!readable(slices.Collect(maps.Values(values))...) || values["--review"] != "" || !rules || !driverHere() || unreadRun() {
 		return 0, "", ErrPython
 	}
@@ -40,6 +41,14 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 	if err != nil {
 		return 0, "", err
 	}
+	// its first poll for a slot, as a task's, holds the slots lock until its receipt claims it;
+	// told --bg, nothing here follows it
+	depth, _ := runDepth()
+	admitted, err := admit(filepath.Base(dir), flags["--first"], session, depth, !flags["--bg"])
+	if err != nil {
+		return 0, "", err
+	}
+	defer admitted.release()
 	log, unstopped := logger(dir, out), guarded(dir, out)
 	taken := ""
 	for _, step := range []func() error{
@@ -47,14 +56,20 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 		func() error { return os.Mkdir(dir, 0o777) },
 		func() error { return os.WriteFile(filepath.Join(dir, "log.txt"), nil, 0o666) },
 		func() error {
-			slots, err := holdSlots()
-			if err != nil {
-				return err
+			if admitted == nil {
+				slots, err := holdSlots()
+				if err != nil {
+					return err
+				}
+				defer slots.Close()
 			}
-			defer slots.Close()
 			taken = runOn(url)
 			// a seat launched it, never the tick: its first record says no launch it descends from
-			return run.Create(dir, run.Capture(dir, "", values, flags, bound, session))
+			receipt := run.Capture(dir, "", values, flags, bound, session)
+			if admitted != nil {
+				return admitted.claim(dir, receipt)
+			}
+			return run.Create(dir, receipt)
 		},
 		func() error { recorded(dir); return nil },
 		func() error { seat.Redress(session); return nil }, // the seat's bar says it from the start
