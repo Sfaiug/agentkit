@@ -135,7 +135,7 @@ class OutOfUsageRow(Sandbox):
     def test_under_the_pointer_it_offers_waiting_or_going_on_now(self):
         cfg = {"providers": {"anthropic": {}}}
         info = self.info()
-        self.assertEqual(menu.detail(cfg, info, 80), ["Claude has no usage left until 19:20."])
+        self.assertEqual(menu.detail(info, 80), ["Claude has no usage left until 19:20."])
         [line] = menu.choices(info, 80)
         text = terminal.ANSI.sub("", line)
         self.assertEqual(text, "✓ Wait for 19:20   ⇄ Go on now with gpt-6.1-sol")
@@ -153,7 +153,7 @@ class OutOfUsageRow(Sandbox):
                           [(3, 6, menu.GO_ON)], [(3, 13, menu.GO_ON)]])
         # without an alternative, the line only says when usage comes back
         info = self.info(go_on=None)
-        self.assertEqual(menu.detail(cfg, info, 80),
+        self.assertEqual(menu.detail(info, 80),
                          ["Claude has no usage left until 19:20."])
         self.assertEqual(menu.choices(info, 80), [])
         self.assertEqual(menu.choices({"word": "working"}, 80), [])

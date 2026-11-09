@@ -37,7 +37,7 @@ def block(info, width=100, pointed=False):
     """The seat's lines as the menu draws them, the pointer on it where `pointed`."""
     widths = menu.v5o_column_widths([info], width)
     room = widths["room"] - (2 + widths["num"] + 2)
-    details = {info["name"]: menu.detail(None, info, room)} if pointed else None
+    details = {info["name"]: menu.detail(info, room)} if pointed else None
     return menu.v5o_seat_blocks([info], width, widths, details=details)[0]
 
 

@@ -37,7 +37,7 @@ def blocks(infos, width, most=None):
     its row (`menu.detail`)."""
     widths = menu.v5o_column_widths(infos, width)
     room = widths["room"] - (2 + widths["num"] + 2)
-    details = {info["name"]: menu.detail(None, info, room) for info in infos
+    details = {info["name"]: menu.detail(info, room) for info in infos
                if info["word"] in ("needs you", "done")}
     return menu.v5o_seat_blocks(infos, width, widths, most, details)
 

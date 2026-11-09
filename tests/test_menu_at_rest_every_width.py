@@ -209,14 +209,14 @@ class V5oMenu(Sandbox):
                 "orchestrator": "fable", "worker": "fable",
                 "sentence": "word " * 120, "bar": None, "running": 0,
                 "word": "needs you"}
-        said = {"atoll-job": menu.detail(None, info, 93)}
+        said = {"atoll-job": menu.detail(info, 93)}
         lines = menu.v5o_seat_blocks([info], 100, most=2, details=said)[0]
         self.assertEqual(len(lines), 2)
         self.assertTrue(lines[1].strip().endswith("…"))
         # Wrapping never splits a word: the break is at a space.
         self.assertNotRegex(lines[0], r"\S…$")
         narrow = menu.v5o_seat_blocks([info], 40, most=2,
-                                      details={"atoll-job": menu.detail(None, info, 33)})[0]
+                                      details={"atoll-job": menu.detail(info, 33)})[0]
         self.assertGreaterEqual(len(narrow), 2)
         self.assertTrue(any("…" in line for line in narrow))
 
