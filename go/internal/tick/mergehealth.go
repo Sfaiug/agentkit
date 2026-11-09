@@ -3,6 +3,7 @@ package tick
 import (
 	"cmp"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -34,9 +35,10 @@ type probe struct {
 // (handback.LiveLeft).  Each is decided before this merge's first write, and left there: the one
 // write, or where the probe keeps a row, written as it starts, the probe.  A seat that comes to owe
 // a pass after that has it recorded, as Python records it, and the next tick, reading it owed
-// first, hands its telling over.
-func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, say func(string)) error {
-	rows, err := mergeRows(each)
+// first, hands its telling over.  A dry tick decides the same, runs no probe and makes no write: it
+// says what it would check and record.
+func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, say func(string), dry bool) error {
+	rows, err := mergeRows(each, dry)
 	if err != nil {
 		return err
 	}
@@ -45,7 +47,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	if !record.Truthy("live_at") && (!record.Has("health") || !record.Has("deployed")) && inside && record.Truthy("repo") {
 		// a merge that could not read its commit, or one recorded before merges did: the commit
 		// it delivered decides, as it would have there, recorded once
-		if found, err = declared(record.Str("repo"), cmp.Or(record.Str("delivery_sha"), each.sha), each.pr); err != nil {
+		if found, err = declared(record.Str("repo"), cmp.Or(record.Str("delivery_sha"), each.sha), each.pr, dry); err != nil {
 			return err
 		}
 		for _, name := range found.Keys() {
@@ -77,6 +79,10 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 			}
 		}
 		verdict, each.check, each.at = "failed", "health: "+command, strings.Join(parts, "; ")
+	case dry:
+		// the probe is the project's own command, which may act
+		verdict = "pending"
+		say(fmt.Sprintf("would check run %s's live product: %s", each.name, command))
 	default:
 		said, ran := probes[[2]string{key, each.sha}]
 		if !ran {
@@ -94,7 +100,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	if verdict == "passed" && owed {
 		return errLeft
 	}
-	if len(found.Keys()) > 0 || record.Str("merge_sha") != each.sha || probed != nil {
+	if !dry && (len(found.Keys()) > 0 || record.Str("merge_sha") != each.sha || probed != nil) {
 		err := run.Change(dir, func(current *run.Object) error {
 			for _, name := range found.Keys() {
 				current.Set(name, found.Get(name))
@@ -121,7 +127,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	}
 	keepMerge(rows, record, verdict == "passed", say)
 	if verdict == "passed" {
-		if err := handback.Live(dir, record, now, say); err != nil {
+		if err := handback.Live(dir, record, now, say, dry); err != nil {
 			return err
 		}
 	}
@@ -132,15 +138,20 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 // declared is what the commit sha declares, Python's merge_record: its `health:`, {} where it
 // declares none, and its `deployed:`, null for none; read in repo, else from the repository of
 // the pull request pr on GitHub; nothing where neither holds the commit, and the next tick asks
-// again.
-func declared(repo, sha, pr string) (*run.Object, error) {
-	code, _, err := gitcall.Git{Repo: repo}.Out("cat-file", "-e", sha+"^{commit}")
+// again.  A read in a partial clone fetches what the clone lacks, which a dry tick does not: it
+// reads in repo only an AGENTS.md held there whole, and any other on GitHub.
+func declared(repo, sha, pr string, dry bool) (*run.Object, error) {
+	held, env := sha+"^{commit}", []string(nil)
+	if dry {
+		held, env = sha+":AGENTS.md", []string{"GIT_NO_LAZY_FETCH=1"}
+	}
+	code, _, err := gitcall.Git{Repo: repo, Env: env}.Out("cat-file", "-e", held)
 	if err != nil {
 		return nil, err
 	}
 	var health, deployed string
 	if code == 0 {
-		health, deployed = gitcall.DeclaredAt(repo, sha, "health"), gitcall.DeclaredAt(repo, sha, "deployed")
+		health, deployed = gitcall.DeclaredAt(repo, sha, "health", env...), gitcall.DeclaredAt(repo, sha, "deployed", env...)
 	} else {
 		text, found, err := agentsOnGitHub(sha, pr)
 		if !found || err != nil {
