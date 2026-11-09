@@ -465,13 +465,16 @@ def content_width(term_width=None):
 def header_line(screen, clock, term_width=None):
     """`agentkit` at the left, the screen name after it, the clock at the right.
 
-    The title gives way, never the clock: a name too long for the width is cut to leave
-    the clock and one space whole.
+    The title gives way, never the clock: a name too wide sheds its first parts, where you came
+    from, then what is left is cut, to leave the clock and one space whole.
     """
     room = layout_width(term_width)
     if room <= cells(clock):
         return cut(clock, room)
-    title = cut("agentkit" if not screen else f"agentkit · {screen}", room - cells(clock) - 1)
+    parts = ["agentkit", *(screen.split(" · ") if screen else [])]
+    while len(parts) > 2 and cells(" · ".join(parts)) > room - cells(clock) - 1:
+        del parts[1]
+    title = cut(" · ".join(parts), room - cells(clock) - 1)
     return title + " " * (room - cells(title) - cells(clock)) + clock
 
 
