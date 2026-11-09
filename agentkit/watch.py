@@ -6230,6 +6230,31 @@ def _arm_resume(state, deaths, now, role):
     return state
 
 
+def dead_loop(state, run_dir, now):
+    """What the dead-loop pass makes of a run's record, the one reading of whether its loop is
+    lost (`runs_health`): None where a process of it runs or something holds it, else
+    `_dead_plan`'s (action, deaths, reason).
+
+    What holds a run: an ending, or a wait its record names (a quota, a login, a merge, a park),
+    an interruption a person was told about, a launch inside its grace, a resume already
+    ordered, a death waiting out its backoff.  A slot or a suite turn is waited out by the
+    run's own process.
+    """
+    status = state.get("state")
+    if status not in (*run_record.ACTIVE, "interrupted"):
+        return None
+    if status == "interrupted" and not (state.get("deaths") or []):
+        # An interruption with no death recorded on it is not this pass's: a
+        # failed launch, a worktree that went, an older record a person was told
+        # about. Only a loop whose death was noticed -- here, or by the reap that
+        # got to it first -- is one the tick carries on.
+        return None
+    if _dead_parked(state) or _launch_grace(state, now) or run_record.process_active(state):
+        return None
+    plan = _dead_plan(state, run_dir, now)
+    return None if plan[0] in ("skip", "wait-quiet") else plan
+
+
 def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
     """Resume a run whose loop is gone, in this tick, without a card.
 
@@ -6248,29 +6273,15 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
     for run_dir in run_record.run_dirs():
         try:
             state = run_record.read_state(run_dir)
-            if not state:
-                continue
-            status = state.get("state")
-            if status == "stopped" or status not in (*run_record.ACTIVE, "interrupted"):
-                continue
-            if status == "interrupted" and not (state.get("deaths") or []):
-                # An interruption with no death recorded on it is not this pass's: a
-                # failed launch, a worktree that went, an older record a person was told
-                # about. Only a loop whose death was noticed -- here, or by the reap that
-                # got to it first -- is one the tick carries on.
-                continue
-            if _dead_parked(state):
-                continue
-            if _launch_grace(state, now):
-                continue
-            if run_record.process_active(state):
+            plan = state and dead_loop(state, run_dir, now)
+            if not plan:
                 continue
             if handback.memory_cap_reason(state):
                 # The kernel ended this scope on its own memory cap. That is a `fail` for
                 # reap to conclude, with the cap in the reason: resuming a leak repeats it.
                 continue
             wt = state.get("worktree")
-            if not wt and not (status == "queued" and state.get("slot_waiting")):
+            if not wt and not (state.get("state") == "queued" and state.get("slot_waiting")):
                 # Nothing to continue into: a launch that died before its workspace was
                 # allocated is reap's to hand back. A slot wait has no workspace yet by
                 # nature, and resuming one is resuming the wait itself.
@@ -6288,9 +6299,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                     "leaving it for an explicit resume")
                 continue
             role, rnd = _dead_where(state, run_dir)
-            action, deaths, reason = _dead_plan(state, run_dir, now)
-            if action == "skip":
-                continue
+            action, deaths, reason = plan
             if dry_run:
                 if action == "park":
                     log(f"would park {run_dir.name}: loop died ({reason})")
@@ -6304,13 +6313,11 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
             notice = False
             line = ""
             with run_record.record(run_dir) as state:
-                if (state.get("state") == "stopped" or _dead_parked(state)
-                        or _launch_grace(state, now) or run_record.process_active(state)):
+                plan = dead_loop(state, run_dir, now)
+                if not plan:
                     continue
-                action, deaths, reason = _dead_plan(state, run_dir, now)
+                action, deaths, reason = plan
                 role, rnd = _dead_where(state, run_dir)
-                if action == "skip" or action == "wait-quiet":
-                    continue
                 if action == "wait":
                     # The hold is on the record, not only in this pass's head: reap reads
                     # `resume_after` and leaves the dead pid alone until it passes, so the
@@ -8270,48 +8277,39 @@ def after_merge_checks(state, dry_run, log, now=None):
 
 
 def runs_health():
-    """The run census and whether any dead active run has outlasted the tick's recovery."""
+    """The runs started in the last day: how many ended, how many are going, and each lost by
+    name -- a dead loop (`dead_loop`) the tick's pass has had a tick to resume; then the endings
+    owed, however old; and whether any is lost."""
     now = time.time()
-    today = time.localtime(now)[:3]
     try:
         tick = load_state()["tick"]
         took = tick["ended_at"] - tick["started_at"]
     except (KeyError, TypeError):
         took = 0
     grace = max(180, 2 * took)   # cron's three-minute interval is the floor
-    going = ended = 0
-    owed, dead, stuck = [], [], False
-    processes = None
+    started = ended = 0
+    owed, lost = [], []
     for run_dir, state in run_record.runs():
-        word, finished = state.get("state"), state.get("finished_at")
-        going += word in run_record.GOING
+        finished = state.get("finished_at")
         dated = isinstance(finished, (int, float)) and not isinstance(finished, bool)
-        ended += word in run_record.ENDED and dated and time.localtime(finished)[:3] == today
         if handback.owes_ending(state):
             owed.append(now - (finished if dated else run_last_write(run_dir)))
-        if word not in run_record.ACTIVE or run_record.process_active(state):
+        begun = state.get("started_at")
+        if not isinstance(begun, (int, float)) or isinstance(begun, bool) or now - begun >= 86400:
             continue
-        if processes is None:
-            processes = {pid: args for pid, (_, status, args) in _proc_table().items()
-                         if status not in ("Z", "X")}
-        # Count ancestors too: doctor may be called by a surviving worker after its loop died.
-        if any(pid in processes for pid in worker.run_pids(str(run_dir))):
-            continue
-        resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
-        # The env python3 shebang leaves "python3" as argv[0].
-        if any(args in (resume, [sys.executable, *resume], ["python3", *resume])
-               for args in processes.values()):
-            continue
-        age = now - run_last_write(run_dir)
-        dead.append(f"{run_dir.name} ({terminal_mod.format_age(age)} since last write)")
-        stuck |= age >= grace
+        started += 1
+        if state.get("state") in run_record.ENDED:
+            ended += 1
+        elif dead_loop(state, run_dir, now) and (age := now - run_last_write(run_dir)) >= grace:
+            lost.append(f"{run_dir.name} ({terminal_mod.format_age(age)} since last write)")
     pending = f"{len(owed)} ending{'s' if len(owed) != 1 else ''} owed"
     if owed:
         pending += f", oldest {terminal_mod.format_age(max(owed))}"
-    line = f"{going} going · {ended} ended today · {pending}"
-    if dead:
-        line += f" · dead: {', '.join(dead)}"
-    return line, stuck
+    line = (f"{started} started in the last day · {ended} ended · "
+            f"{started - ended - len(lost)} going · {pending}")
+    if lost:
+        line += f" · lost: {', '.join(lost)}"
+    return line, bool(lost)
 
 
 def gates_health():
@@ -8362,8 +8360,8 @@ def doctor(argv):
     trouble -- which is the host this is typed on -- and come out before the efforts, which
     ask each harness for its models.  A model the owner set to an effort it does not take is
     named here and left as it is: the owner chose it, and the `c` screen is where it changes.
-    Exits 1 when the tick reads as hung or a dead run outlasts two ticks, after everything else
-    has been said. Endings owed to a busy seat are shown, however old, and never fail it.
+    Exits 1 when the tick reads as hung or a run started in the last day is lost, after everything
+    else has been said. Endings owed to a busy seat are shown, however old, and never fail it.
     """
     if command_help.show("doctor", argv):
         return 0
