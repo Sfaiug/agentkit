@@ -5393,7 +5393,8 @@ def config_done_check(cfg):
 
 def machines_value():
     """`Machines`' count and the tick's cloud spending, with no probe or Google call."""
-    return f"{len(machines.known())} machines · Google Cloud {google_cloud.summary(count=False)}"
+    count, cloud = len(machines.known()), google_cloud.summary(count=False)
+    return f"{count} machine{'' if count == 1 else 's'} · Google Cloud {cloud}"
 
 
 def machine_value(machine, rented, cfg):
