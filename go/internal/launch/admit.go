@@ -35,7 +35,9 @@ type admission struct {
 	reason, kind string        // why it waits and the gate that holds it, no kind for a wait none counts
 	running      int           // the other runs holding a slot
 	waiting      []*run.Object // the runs waiting for one, this one among them, first in line first
+	turns        []turn        // the seats' turns in that line
 	room         *room         // the host's gates, where decide left them to ask (ask)
+	stall        string        // the gate a run stalled first in line went past, Python's slot_stall
 }
 
 // A room is what the host's gates judge the run first in line by, asked where it reads history.db
@@ -48,11 +50,13 @@ type room struct {
 	minimum, maximum float64
 	saved            line
 	poll             float64
+	stalled          bool // its wait first in line a stall, judged as the poll saves the line
 }
 
 // admit is a launch's first poll for its slot, none for a launch no gate decides, ErrPython where
-// Go leaves that poll to Python (decide).
-func admit(id string, first bool, seat string, depth int) (*admission, error) {
+// Go leaves that poll to Python (decide), or, for a launch its own process follows, the wait that
+// poll leaves (leftToPython): its driver would hand that wait over at once.
+func admit(id string, first bool, seat string, depth int, followed bool) (*admission, error) {
 	if !gated(depth) {
 		return nil, nil
 	}
@@ -71,6 +75,9 @@ func admit(id string, first bool, seat string, depth int) (*admission, error) {
 		launching.Set("launched_session", seat)
 	}
 	admitted, err := decide(launching)
+	if err == nil && followed && admitted.leftToPython(launching) {
+		err = ErrPython
+	}
 	if err != nil {
 		slots.Close()
 		return nil, err
@@ -84,10 +91,8 @@ func admit(id string, first bool, seat string, depth int) (*admission, error) {
 // for those ahead of it in line and, unless it goes first, for the count, then for the host's room
 // (ask), on the host's readings, read only where it is asked, as Python's gate._host_admits reads
 // them.  ErrPython wherever Go would judge it otherwise, before anything is read that writes: a
-// seat's run in line beside another, or held, whose turns and place there are Python's; a run
-// outside a suite's home held, whose wait history.db counts, which Go writes none of; a run stalled
-// first in line, which Python lets past the gates; a queue, a poll, a config or a run Go reads
-// otherwise than Python.
+// seat's run in line once a check of the install was handed back to a seat (handedBack); a queue,
+// a poll, a config or a run Go reads otherwise than Python.
 func decide(record *run.Object) (*admission, error) {
 	if os.Getenv("AK_MAX_RUNS") == "0" || record.Truthy("run_depth") {
 		return &admission{in: true, outright: true}, nil
@@ -96,55 +101,57 @@ func decide(record *run.Object) (*admission, error) {
 	poll, polled := slotPoll()
 	limit, unread := config.MaxRuns()
 	saved, read := queued()
-	holders, waiting, alone := places(record)
+	holders, others, alone := places(record)
 	if !polled || unread != nil || !read || !alone {
 		return nil, ErrPython
 	}
-	waiting = append(waiting, record)
-	slices.SortStableFunc(waiting, inLine)
-	a := &admission{id: record.Str("run_id"), running: len(holders), waiting: waiting}
-	seated := slices.ContainsFunc(waiting, func(other *run.Object) bool { return other.Truthy("launched_session") })
+	waiting, turns := inTurns(append([]*run.Object{record}, others...), saved.turns)
+	if slices.ContainsFunc(waiting, func(other *run.Object) bool { return other.Truthy("launched_session") }) && handedBack() {
+		return nil, ErrPython
+	}
+	a := &admission{id: record.Str("run_id"), running: len(holders), waiting: waiting, turns: turns}
 	ahead := slices.Index(waiting, record)
 	first, green := !order(record)[0], greenDelivery(record)
 	switch {
-	case seated && len(waiting) > 1:
-		return nil, ErrPython
 	case ahead > 0 && !green || limit > 0 && len(holders) >= limit && !first:
 		a.reason, a.kind = slotLine(len(holders), ahead, limit, first), "count"
 	case green:
 		// it merges a tree its line checked already, spending no room a gate guards
 		a.in = true
-	case saved.stalled(a.id, at, poll):
-		return nil, ErrPython
 	default:
 		readings := host.Read()
 		minimum, maximum, err := readings.Limits(first)
 		if err != nil {
 			return nil, ErrPython
 		}
-		a.room = &room{readings, holders, first, minimum, maximum, saved, poll}
+		a.room = &room{readings, holders, first, minimum, maximum, saved, poll, saved.stalled(a.id, at, poll)}
 	}
 	if run.Historyless() {
 		a.ask() // the room is asked now where it reads no history.db, whose reading writes beside it
-	}
-	// Go goes on with such a run only let in, which beside a history.db only reading it tells
-	if (seated || !record.Truthy("notify_sink")) && !a.in {
-		return nil, ErrPython
 	}
 	return a, nil
 }
 
 // ask decides the run first in line by the host's room where decide left it, as Python's
-// gate._gates_admit: a recent run's peak against memory, less what the runs let in that show
-// nothing yet may still take, the load where pinned, a line's check waiting for a heavy-suite turn
-// while no other machine may take it, and, with no peak measured, a poll since the last run let
-// in, for steady readings.
+// gate._host_admits: by its gates, or as stalled there (pastStall).
 func (a *admission) ask() {
 	r := a.room
 	if r == nil {
 		return
 	}
 	a.room = nil
+	if r.stalled {
+		a.pastStall(r)
+		return
+	}
+	a.gates(r)
+}
+
+// gates decides the run first in line by the host's room, as Python's gate._gates_admit: a recent
+// run's peak against memory, less what the runs let in that show nothing yet may still take, the
+// load where pinned, a line's check waiting for a heavy-suite turn while no other machine may take
+// it, and, with no peak measured, a poll since the last run let in, for steady readings.
+func (a *admission) gates(r *room) {
 	at := now()
 	db := history.Look()
 	defer db.Close()
@@ -222,24 +229,29 @@ func places(record *run.Object) (holders, waiting []*run.Object, read bool) {
 	return holders, waiting, read
 }
 
-// order is the head of Python's gate.slot_order for a run of no seat Go carries: whether it waits
-// behind the runs going first (`--first`, a member's landing or fix), behind green deliveries, and
+// order is the head of Python's gate.slot_order for a run Go carries: whether it waits behind the
+// runs going first (`--first`, a member's landing or fix), behind green deliveries, and
 // behind finished work (a later round, or an orchestrator's own pull request).
 func order(record *run.Object) [3]bool {
 	return [3]bool{!(record.Truthy("first") || waitsOn(record, "land") || waitsOn(record, "fix")),
 		!greenDelivery(record), !(record.Truthy("round_summaries") || record.Truthy("own_pr"))}
 }
 
-// inLine is Python's gate.slot_order between two waiters, each seat's turn in line the first:
-// by order, then by when each entered the line, then by name.
+// inLine is Python's gate.slot_order between two waiters: by order, then by when each entered the
+// line, then by name.
 func inLine(a, b *run.Object) int {
+	return cmp.Or(heads(a, b), cmp.Compare(firstQueued(a), firstQueued(b)), cmp.Compare(a.Str("run_id"), b.Str("run_id")))
+}
+
+// heads is two waiters by order alone.
+func heads(a, b *run.Object) int {
 	x, y := order(a), order(b)
 	for i := range x {
 		if c := cmp.Compare(behind(x[i]), behind(y[i])); c != 0 {
 			return c
 		}
 	}
-	return cmp.Or(cmp.Compare(firstQueued(a), firstQueued(b)), cmp.Compare(a.Str("run_id"), b.Str("run_id")))
+	return 0
 }
 
 func behind(waits bool) int {
@@ -283,26 +295,31 @@ func slotLine(running, ahead, limit int, first bool) string {
 
 // settle writes the poll's decision on the run's record as Python's claim_slot leaves it, the
 // host's room asked first where the decision waits on it: let in, the run holds its slot from now;
-// held, it says why, and that it waited where a gate held it.
+// held, it says why, and that it waited where a gate held it; let in on a stall past one, both,
+// and the gate it went past.
 func (a *admission) settle(record *run.Object) {
 	a.ask()
+	if !a.outright && a.kind != "count" {
+		record.Delete("slot_stall") // each poll past the count judges the stall anew
+	}
 	switch {
-	case a.in:
-		run.SetAll(record, "state", "running", "slot_waiting", false, "slot_started_at", now())
-		record.Delete("resume_from")
-		if !a.outright {
-			for _, key := range []string{"reservation_pending", "slot_wait_reason", "slot_wait_kind", "slot_stall"} {
-				record.Delete(key)
-			}
-		}
-	case a.kind == "":
-		record.Delete("slot_stall")
-		record.Set("slot_wait_reason", a.reason)
-	default:
-		if a.kind != "count" {
-			record.Delete("slot_stall")
-		}
+	case a.kind != "":
 		run.SetAll(record, "slot_waited", true, "slot_wait_reason", a.reason, "slot_wait_kind", a.kind)
+	case a.reason != "":
+		record.Set("slot_wait_reason", a.reason)
+	}
+	if !a.in {
+		return
+	}
+	if a.stall != "" {
+		record.Set("slot_stall", a.stall)
+	}
+	run.SetAll(record, "state", "running", "slot_waiting", false, "slot_started_at", now())
+	record.Delete("resume_from")
+	if !a.outright {
+		for _, key := range []string{"reservation_pending", "slot_wait_reason", "slot_wait_kind"} {
+			record.Delete(key)
+		}
 	}
 }
 
@@ -312,11 +329,11 @@ func (a *admission) save() error {
 	if a.outright {
 		return nil
 	}
-	if err := saveLine(a.running, a.waiting, ""); err != nil || !a.in {
+	if err := saveLine(a.running, a.waiting, a.turns, nil); err != nil || !a.in {
 		return err
 	}
-	others := slices.DeleteFunc(slices.Clone(a.waiting), func(other *run.Object) bool { return other.Str("run_id") == a.id })
-	return saveLine(a.running+1, others, a.id)
+	let := slices.IndexFunc(a.waiting, func(other *run.Object) bool { return other.Str("run_id") == a.id })
+	return saveLine(a.running+1, slices.Delete(slices.Clone(a.waiting), let, let+1), a.turns, a.waiting[let])
 }
 
 // release lets the slots lock go, where the admission still holds it.
@@ -329,11 +346,12 @@ func (a *admission) release() {
 
 // A line is runs/.slots.queue as Python's gate.slot_queue reads it: when the last poll saved it,
 // the waiters first in line first, since when that first has waited there, the waits there of the
-// last firsts let in, and when the last run went in.
+// last firsts let in, each seat's turns, and when the last run went in.
 type line struct {
 	at, since, lastIn float64
 	queue             []string
 	took              []float64
+	turns             map[seatKey]turn
 }
 
 // queued is the line runs/.slots.queue holds, none where it holds no queue; false where it holds
@@ -356,7 +374,21 @@ func queued() (line, bool) {
 		slices.ContainsFunc(turns, malformedTurn) {
 		return line{}, false
 	}
-	read := line{at: at, since: since, lastIn: lastIn}
+	read := line{at: at, since: since, lastIn: lastIn, turns: map[seatKey]turn{}}
+	for _, listed := range turns {
+		parts := listed.([]any)
+		if len(parts) != 7 {
+			continue // which Python reads past
+		}
+		each := turn{seat: seatKey{[3]bool{parts[0].(bool), parts[1].(bool), parts[2].(bool)}, parts[3].(string), parts[4].(string)}}
+		each.count, _ = strconv.Atoi(string(parts[5].(run.Number)))
+		for _, id := range parts[6].([]any) {
+			if text, ok := id.(string); ok {
+				each.pending = append(each.pending, text)
+			}
+		}
+		read.turns[each.seat] = each // the last of a seat's, as Python's dict keeps it
+	}
 	for _, id := range queue {
 		read.queue = append(read.queue, id.(string))
 	}
@@ -394,15 +426,21 @@ func (l line) stalled(id string, now, poll float64) bool {
 }
 
 // saveLine writes runs/.slots.queue as Python's gate._save_queue does under the slots lock: the
-// runs holding a slot, those waiting first in line first, each with its seat's turns, since when
-// the first has waited there, the waits there of the last 20 firsts let in, and when the last went in.
-func saveLine(running int, waiting []*run.Object, letIn string) error {
+// runs holding a slot, those waiting first in line first, the seats' turns, the one let in counting
+// a turn of its seat's, since when the first has waited there, the waits there of the last 20
+// firsts let in, none let in on a stall, and when the last went in.
+func saveLine(running int, waiting []*run.Object, turns []turn, let *run.Object) error {
+	letIn := ""
+	if let != nil {
+		letIn = let.Str("run_id")
+	}
 	at := now()
 	poll, _ := slotPoll()
 	saved, _ := queued()
 	first, since, waits := saved.firstInLine(at, poll)
 	took := saved.took
-	if waits && letIn != "" && letIn == first {
+	// a stall's wait is no pace: counted, each one let in would raise the next one's bar
+	if waits && letIn != "" && letIn == first && !let.Truthy("slot_stall") {
 		took = append(took, at-since)
 		took = took[max(0, len(took)-20):]
 	}
@@ -413,21 +451,30 @@ func saveLine(running int, waiting []*run.Object, letIn string) error {
 	if letIn != "" {
 		lastIn = at
 	}
-	queue, turns, waited := []any{}, []any{}, []any{}
+	queue, kept, waited := []any{}, []any{}, []any{}
 	for _, other := range waiting {
-		id, seat := other.Str("run_id"), other.Str("launched_session")
-		head, own := order(other), id
-		if seat != "" {
-			own = ""
+		queue = append(queue, other.Str("run_id"))
+	}
+	for _, each := range turns {
+		pending := []any{}
+		for _, id := range each.pending {
+			if slices.Contains(queue, any(id)) {
+				pending = append(pending, id)
+			}
 		}
-		queue = append(queue, id)
-		turns = append(turns, []any{head[0], head[1], head[2], seat, own, run.Number("0"), []any{id}})
+		if let != nil && keyOf(let) == each.seat {
+			each.count++
+		}
+		if len(pending) > 0 {
+			head := each.seat.head
+			kept = append(kept, []any{head[0], head[1], head[2], each.seat.seat, each.seat.own, run.Number(strconv.Itoa(each.count)), pending})
+		}
 	}
 	for _, wait := range took {
 		waited = append(waited, run.Float(wait))
 	}
 	text := run.Line(run.Fields("at", at, "running", running, "queue", queue, "since", since,
-		"took", waited, "last_in", lastIn, "turns", turns))
+		"took", waited, "last_in", lastIn, "turns", kept))
 	temp := filepath.Join(run.Runs(), ".slots.queue.tmp")
 	if err := os.WriteFile(temp, []byte(text), 0o666); err != nil {
 		return err
@@ -451,7 +498,8 @@ func whole(value any) bool {
 }
 
 // malformedTurn is whether a seat's turns in the queue are other than Python writes them: a list,
-// whose seven-long ones key a seat by five plain values, then count its turns and list its waiters.
+// whose seven-long ones key a seat by its head's three switches, its seat and its own name, then
+// count its turns and list its waiters.
 func malformedTurn(turn any) bool {
 	parts, ok := turn.([]any)
 	if !ok {
@@ -461,12 +509,11 @@ func malformedTurn(turn any) bool {
 		return false
 	}
 	_, waiters := parts[6].([]any)
-	return !whole(parts[5]) || !waiters || slices.ContainsFunc(parts[:5], func(part any) bool {
-		switch part.(type) {
-		case nil, bool, string, run.Number:
-			return false
-		}
-		return true
+	_, seat := parts[3].(string)
+	_, own := parts[4].(string)
+	return !whole(parts[5]) || !waiters || !seat || !own || slices.ContainsFunc(parts[:3], func(part any) bool {
+		_, switched := part.(bool)
+		return !switched
 	})
 }
 

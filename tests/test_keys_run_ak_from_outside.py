@@ -17,8 +17,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 # The keys that imported agentkit when this check came (7 Nov 2026): the set only shrinks.
-BEFORE = {"test_key_no_line_is_typed_into_a_composer_ak_cannot_read_whole",
-          "test_key_red_tests_rerun_at_once", "test_key_seat_runs_the_live_ak"}
+BEFORE = {"test_key_seat_runs_the_live_ak"}
 
 
 def importers(tests):

@@ -1,4 +1,5 @@
-"""Go has named knowledge owners; fixtures are exempt, other Go product code is not."""
+"""Go has named knowledge owners; fixtures and the claimed keys' names are exempt, other Go
+product code is not."""
 
 import subprocess
 import tempfile
@@ -23,6 +24,7 @@ class GoBoundaries(unittest.TestCase):
             files["go/internal/config/duplicate.go"] = copies
             files["go/vendor/github.com/acme/regex/regex.go"] = copies
             files["go/internal/config/testdata/cases.json"] = copies
+            files["go/keys.txt"] = copies
             for name, text in files.items():
                 path = repo / name
                 path.parent.mkdir(parents=True, exist_ok=True)

@@ -17,6 +17,9 @@ func init() {
 		opens: true, interactive: museInteractive, seatWords: museSeatWords, owned: museConversation, reported: museReported, launched: museLaunched, retire: receiptRetired("muse"),
 		card: museCard, said: museSaid, typed: museTyping, answered: museAnswered, answer: museAnswer, resumable: museResumable, tokens: museTokens,
 		tokenSources: museTokenSources, tokenUsage: museTokenUsage,
+		// its launch receipt reads as no session where Python's strict read raises: a session
+		// that is not UTF-8, or an `earlier` Python's set() refuses
+		loose: true,
 		hookEvent: func(event *run.Object, _ io.Writer, _ func(string) (string, error), _ func(string)) (*run.Object, int) {
 			return museHookEvent(event), 0
 		}}

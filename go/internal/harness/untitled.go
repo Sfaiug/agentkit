@@ -4,5 +4,5 @@ package harness
 // `sync_title` or `session_title`: known only where Go opens its seats, whose plugin says so.
 func Untitled(name string) bool {
 	own, plugged := plugins[name]
-	return (!plugged || own.opens) && !own.titled && own.title == nil
+	return (!plugged || own.opens || own.anew) && !own.titled && own.title == nil
 }

@@ -662,17 +662,19 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
 
 
 def boxed(cmd, limit, *, env, cwd, cpu=None, only=None, failed=None, ran=None, flaky=None,
-          **kwargs):
+          absent=None, **kwargs):
     """The check watchdog and status, with worker walls and throwaway HOME writes.
 
     `cpu`, a list, gets the CPU seconds the command's processes spent, where the box says.
     `failed`, a list, gets the tests a command that ran to its end named as failed, one per
-    line in the file `AK_FAILED` names, `ran` those it named as run, in `AK_RAN`'s, and `flaky`
-    those it named as failing, then passing on a re-run, in `AK_FLAKY`'s; `only`, test names,
-    go one per line into the file `AK_ONLY` names, for a command that runs just those."""
+    line in the file `AK_FAILED` names, `ran` those it named as run, in `AK_RAN`'s, `flaky`
+    those it named as failing, then passing on a re-run, in `AK_FLAKY`'s, and `absent` those it
+    named as not there, in `AK_NOT_THERE`'s; `only`, test names, go one per line into the file
+    `AK_ONLY` names, for a command that runs just those."""
     with tempfile.TemporaryDirectory(dir=Path(kwargs["activity"]).parent) as out_dir:
         named = {key: (Path(out_dir) / key, into)
-                 for key, into in (("AK_FAILED", failed), ("AK_RAN", ran), ("AK_FLAKY", flaky))
+                 for key, into in (("AK_FAILED", failed), ("AK_RAN", ran), ("AK_FLAKY", flaky),
+                                   ("AK_NOT_THERE", absent))
                  if into is not None}
         env = {**env, **{key: str(path) for key, (path, _) in named.items()}}
         listed = Path(out_dir) / "only-tests"

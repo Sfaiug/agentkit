@@ -9,9 +9,9 @@ import (
 	"agentkit/internal/run"
 )
 
-// A seat may have as many runs waiting for a slot as holding one, and always one, counted from
-// run records as Python's gate.seat_full reads them: under the name the seat goes by now, a run
-// holding only while its loop lives, and none below another run.
+// A seat may have as many runs waiting for a slot as holding one, and always one, for every task a
+// launch starts, counted from run records as Python's gate.seat_full reads them: under the name the
+// seat goes by now, a run holding only while its loop lives, and none below another run.
 func TestASeatQueuesNoMoreThanItRuns(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -49,7 +49,7 @@ func TestASeatQueuesNoMoreThanItRuns(t *testing.T) {
 		"b-bravo-two":   holds("bravo", 2),
 		"c-bravo-waits": waits("bravo", 3),
 		// charlie: one waiting, none holding
-		"d-charlie-waits": append(waits("charlie", 9), "first_queued_at", 4),
+		"d-charlie-waits": waits("charlie", 9),
 	} {
 		dir := filepath.Join(run.Runs(), id)
 		if err := os.MkdirAll(dir, 0o777); err != nil {
@@ -59,14 +59,19 @@ func TestASeatQueuesNoMoreThanItRuns(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for seat, want := range map[string]string{
-		"acme":    "acme may have as many runs waiting for a slot as holding one, and always one: it has 2 waiting and 2 holding, so room for 0 more, not 1; `ak wait 2-acme-holds-first`, then launch again",
-		"bravo":   "",
-		"charlie": "charlie may have as many runs waiting for a slot as holding one, and always one: it has 1 waiting and 0 holding, so room for 0 more, not 1; `ak wait d-charlie-waits`, then launch again",
-		"delta":   "",
+	for asked, want := range map[struct {
+		seat     string
+		launches int
+	}]string{
+		{"acme", 1}:    "acme may have as many runs waiting for a slot as holding one, and always one: it has 2 waiting and 2 holding, so room for 0 more, not 1; `ak wait 2-acme-holds-first`, then launch again",
+		{"bravo", 1}:   "",
+		{"bravo", 2}:   "bravo may have as many runs waiting for a slot as holding one, and always one: it has 1 waiting and 2 holding, so room for 1 more, not 2; `ak wait a-bravo-one`, then launch again",
+		{"charlie", 1}: "charlie may have as many runs waiting for a slot as holding one, and always one: it has 1 waiting and 0 holding, so room for 0 more, not 1; `ak wait d-charlie-waits`, then launch again",
+		{"delta", 1}:   "",
+		{"delta", 2}:   "delta may have as many runs waiting for a slot as holding one, and always one: it has 0 waiting and 0 holding, so room for 1 more, not 2; launch one at a time",
 	} {
-		if got := seatFull(seat); got != want {
-			t.Errorf("%s:\n got %q\nwant %q", seat, got, want)
+		if got := seatFull(asked.seat, asked.launches); got != want {
+			t.Errorf("%v:\n got %q\nwant %q", asked, got, want)
 		}
 	}
 }

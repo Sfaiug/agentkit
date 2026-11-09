@@ -74,7 +74,7 @@ func TestSpendsReadEachWholeLineOnce(t *testing.T) {
 	if got := spends(t, "opencode", path, run.NewObject()); len(got) != 0 {
 		t.Fatalf("a harness with no reader counted %+v", got)
 	}
-	if found := TokenSources("opencode", run.NewObject()); found != nil {
+	if found, read := TokenSources("opencode", run.NewObject()); found != nil || read {
 		t.Fatal("a harness with no reader names sources")
 	}
 }
@@ -131,7 +131,7 @@ func TestCodexSourcesWithoutARemoteAreItsThreadAndItsSpawn(t *testing.T) {
 	own := []string{rollout("sessions", "t1", ""), rollout("archived_sessions", "t2", "t1"), rollout("sessions", "t3", "t2")}
 	rollout("sessions", "other", "")
 	rollout("sessions", "child-of-other", "other")
-	found := TokenSources("codex", run.Fields("conversation", "t1"))
+	found, _ := TokenSources("codex", run.Fields("conversation", "t1"))
 	slices.Sort(found)
 	slices.Sort(own)
 	if !slices.Equal(found, own) {
@@ -164,7 +164,7 @@ func TestMuseUsageIsWhatItsSessionsAttribute(t *testing.T) {
 	log := museLog("acme")
 	child := filepath.Join(filepath.Dir(log), "subagent", "explore", "session.jsonl")
 	put(t, child, "")
-	if found := TokenSources("muse", run.Fields("muse_launch", token)); !slices.Equal(found, []string{log, child}) {
+	if found, _ := TokenSources("muse", run.Fields("muse_launch", token)); !slices.Equal(found, []string{log, child}) {
 		t.Fatalf("%v", found)
 	}
 	got := spends(t, "muse", log, run.NewObject())

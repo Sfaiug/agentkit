@@ -12,7 +12,7 @@ var kinds = map[string]string{"accent": "working", "amber": "needs you"}
 
 // lightRGB is each word's colour on a light background: Catppuccin Latte, its yellow darkened until
 // it reads on white.
-var lightRGB = map[string]string{"needs you": "9c6314", "working": "1e66f5", "done": "338022", "idle": "6c6f85", "dim": "6c6f85"}
+var lightRGB = map[string]string{"needs you": "9c6314", "working": "1e66f5", "done": "338022", "FAIL": "d20f39", "idle": "6c6f85", "dim": "6c6f85"}
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
 

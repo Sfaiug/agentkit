@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/ncruces/go-sqlite3"
@@ -23,18 +24,24 @@ func seatRecord(t *testing.T, name, text string) {
 // gets them, its seat's harness reading nothing or not.
 func TestSeatTokensMakeTablesOnlyForSeats(t *testing.T) {
 	home(t)
-	if !SeatTokens() || !run.Historyless() {
+	if !readSeats() || !run.Historyless() {
 		t.Fatal("a home with no seat got a history")
 	}
 	older(t, "PRAGMA user_version=2")
 	seatRecord(t, "acme", `{"renamed": "beta"}`)
-	if !SeatTokens() || keepsSources() {
+	if !readSeats() || keepsSources() {
 		t.Fatal("a home with no seat got seat tables")
 	}
 	seatRecord(t, "beta", `{"orchestrator": "none"}`)
-	if !SeatTokens() || !keepsSources() {
-		t.Fatal("a seat's home got no seat tables")
+	if uncounted, read := SeatTokens(); !read || !keepsSources() || !slices.Equal(uncounted, []string{"beta (unknown harness)"}) {
+		t.Fatalf("a seat's home got no seat tables, or named %q", uncounted)
 	}
+}
+
+// readSeats is whether SeatTokens read the seats rather than leave them to Python.
+func readSeats() bool {
+	_, read := SeatTokens()
+	return read
 }
 
 // A source is read on after no seat names it any more, each event once, its cursor in the same
@@ -49,7 +56,7 @@ func TestSeatTokensReadASourceNoSeatNames(t *testing.T) {
 	older(t, "PRAGMA user_version=2", "CREATE TABLE seat_sources (path TEXT PRIMARY KEY, harness TEXT, repo TEXT, cursor TEXT)",
 		"INSERT INTO seat_sources VALUES ('"+conversation+"', 'claude', 'acme', '{}')")
 	for range 2 {
-		if !SeatTokens() {
+		if !readSeats() {
 			t.Fatal("left to Python")
 		}
 	}
@@ -83,12 +90,12 @@ func TestSeatTokensLeaveToPythonWhatTheyCannotWrite(t *testing.T) {
 	}
 	seatRecord(t, "acme", `{"orchestrator": "none"}`)
 	data := read(Path())
-	if SeatTokens() || !bytes.Equal(read(Path()), data) {
+	if readSeats() || !bytes.Equal(read(Path()), data) {
 		t.Fatal("wrote before Python's repair")
 	}
 	home(t)
 	seatRecord(t, "acme", `{"orchestrator": "none", "session_title": "\ud800"}`)
-	if SeatTokens() || !run.Historyless() {
+	if readSeats() || !run.Historyless() {
 		t.Fatal("read a record Python reads otherwise")
 	}
 }

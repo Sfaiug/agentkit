@@ -76,7 +76,7 @@ esac
 func TestAMovesLineGoCannotTypeIsLeftToPython(t *testing.T) {
 	home := sandbox(t)
 	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
-	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[models.mid]\nharness = 'opencode'\nmodel = 'acme/model-1'\n"+
+	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[models.mid]\nharness = 'acme'\nmodel = 'acme/model-1'\n"+
 		"effort = 'high'\nprovider = 'fuel'\n[providers.fuel]\nmode = 'subscription'\n")
 	record(t, home, "acme", map[string]any{"orchestrator": "mid", "workers": []string{"mid"}})
 	bin := filepath.Join(home, "bin")

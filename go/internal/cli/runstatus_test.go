@@ -30,10 +30,8 @@ func TestRunStatusRefusals(t *testing.T) {
 		"sweep owed": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"fail","scope":"ak-fix-api.scope"}`}, nil},
 		"lone surrogate": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
 			"runs/20261020-0900-add-beta/run.json": `{"state":"pass","title":"beta \ud800"}`}, []string{"--json"}},
-		"job":     {map[string]string{"jobs/batch/job.json": `{"tasks":[]}`}, nil},
-		"history": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended, "history.db": ""}, []string{"--json"}},
-		"seat": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
-			"state/session-acme.json": `{"name":"acme"}`}, []string{"--history"}},
+		"job":                                 {map[string]string{"jobs/batch/job.json": `{"tasks":[]}`}, nil},
+		"history":                             {map[string]string{"runs/20261020-0900-fix-api/run.json": ended, "history.db": ""}, []string{"--json"}},
 		"seat renamed to what Go cannot keep": {map[string]string{"state/session-acme.json": `{"renamed":"\ud800"}`}, []string{"--history"}},
 	} {
 		t.Run(name, func(t *testing.T) {

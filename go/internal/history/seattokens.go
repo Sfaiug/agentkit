@@ -1,8 +1,11 @@
 package history
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -34,26 +37,35 @@ var errUntold = errors.New("a file Go cannot tell as Python does")
 // source is read on from its cursor, each line its harness counts a row of seat_usage once by its
 // event, a row seen again keeping its larger count; the rows and the cursors they were read to in
 // one commit, so a retry counts nothing twice.  A home with no seat and no sources gets no tables.
-// False, having written nothing, where Python ak's is to do: a record Go cannot read as Python
-// does, a source it cannot tell, or tokens waiting for Python's one-time repair.
-func SeatTokens() bool {
+// Its seats counted nothing of, sorted, each with its harness, as Python's read names them: one
+// whose harness has no reader, one holding a conversation its harness names no file for, and one
+// whose file does not open; "seat usage unreadable" alone where the write fails.  False, having
+// written nothing, where Python ak's is to do: a record Go cannot read as Python does, a source it
+// cannot tell, or tokens waiting for Python's one-time repair.
+func SeatTokens() (uncounted []string, read bool) {
 	type source struct {
 		path, harness string
 		repo, account any
 	}
 	var sources []source
+	owners := map[string]string{} // each source's seat, the last in name order
 	seated := false
 	for _, path := range config.SeatFiles() {
 		record, err := run.ReadJSON(path)
 		if errors.Is(err, run.ErrLoneSurrogate) {
-			return false
+			return nil, false
 		}
 		if record == nil || record.Has(config.Renamed) {
 			continue
 		}
 		seated = true
+		seat := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "session-"), ".json")
 		model, _ := config.ModelNamed(record.Str("orchestrator"))
-		paths := harness.TokenSources(model.Harness, record)
+		paths, reader := harness.TokenSources(model.Harness, record)
+		if !reader || len(paths) == 0 && record.Truthy("conversation") {
+			uncounted = append(uncounted, seat+" ("+cmp.Or(model.Harness, "unknown harness")+")")
+			continue
+		}
 		repo, account := any(""), record.Get("account")
 		if record.Truthy("repo") {
 			repo = name(record.Get("repo"))
@@ -63,10 +75,11 @@ func SeatTokens() bool {
 		}
 		for _, each := range paths {
 			sources = append(sources, source{config.Resolve(each), model.Harness, repo, account})
+			owners[config.Resolve(each)] = seat
 		}
 	}
 	if !seated && !keepsSources() {
-		return true
+		return nil, true
 	}
 	err := commit(func(db *DB) error {
 		for _, table := range seatTables {
@@ -108,8 +121,11 @@ func SeatTokens() bool {
 			if !told {
 				return errUntold
 			}
-			if err != nil {
-				continue // gone, or not yet written
+			if err != nil { // gone, or not yet written
+				if seat, owned := owners[path]; owned {
+					uncounted = append(uncounted, seat+" ("+own+")")
+				}
+				continue
 			}
 			for _, spend := range spends {
 				event := spend.Event
@@ -139,10 +155,13 @@ func SeatTokens() bool {
 		return nil
 	})
 	if errors.Is(err, errUntold) || errors.Is(err, errOwed) {
-		return false
+		return nil, false
 	}
-	warned(nil, err)
-	return true
+	if !warned(nil, err) {
+		return []string{"seat usage unreadable"}, true
+	}
+	slices.Sort(uncounted)
+	return slices.Compact(uncounted), true
 }
 
 // keepsSources is whether history.db keeps seats' sources, as Python's read asks where no seat
