@@ -94,6 +94,18 @@ func TestEqualPositiveLineDistancesChooseCheaper(t *testing.T) {
 	}
 }
 
+// The best row lies on its own line, exactly as Python reckons it, however the products round.
+func TestTheBestRowTiesTheCheapest(t *testing.T) {
+	var rows []*Rating
+	for _, pair := range [][2]float64{{8.175, 90}, {31.065000000000005, 99}, {32.7, 100}} {
+		cost := pair[0]
+		rows = append(rows, &Rating{Cost: &cost, Quality: pair[1], SE: 1})
+	}
+	if pick(rows, "execute") != rows[0] {
+		t.Error("the best row did not tie the cheapest")
+	}
+}
+
 // A measure another effort has is carried, a higher effort's plus what the index loses and a lower
 // one's as it is; one no effort has counts as the row's furthest behind; one measure alone rates
 // nothing.

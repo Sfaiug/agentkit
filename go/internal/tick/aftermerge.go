@@ -22,12 +22,13 @@ import (
 // newest passing one is handed back to fix, once.  The break is kept in watch.json until a seat
 // at its prompt is told it, however long past its window, with its composer mark, so a line whose
 // Enter did not land gets its Enter and is never typed twice; one told stays told until a later
-// merge passes, or no red is left.
+// merge passes, or no red is left.  A dry tick writes no run and types nothing: it says the break
+// it would hand back.
 func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 	episodes := t.state.Dict("after_merge")
 	var expired []string
 	for _, each := range merges {
-		if each.verdict == "failed" && !inWindow(each.record, now) {
+		if each.verdict == "failed" && !inWindow(each.record, now) && !t.dry {
 			expired = append(expired, each.name)
 		}
 	}
@@ -92,7 +93,7 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 		switch {
 		case pending.Str("source") != "health" || pending.Str("line") == "" || pending.Str("sha") == "" || !ok || pending.Str("run") == "":
 			// a line typed before is finished before its receipt goes
-			if mark := pending.Dict("typed"); mark != nil && mark.Truthy("line") {
+			if mark := pending.Dict("typed"); mark != nil && mark.Truthy("line") && !t.dry {
 				if name := marked(seat.Up(), mark); name != "" {
 					switch handback.Tell(name, mark.Str("line"), mark, func(*run.Object) error { return nil }, t.log.line) {
 					case "":
@@ -155,17 +156,20 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 			return nil
 		}
 	}
-	keeps, err := keepsHistory()
+	keeps, err := keepsHistory(t.dry)
 	if err != nil {
 		return err
 	}
-	name := pending.Str("run")
+	name, check, target := pending.Str("run"), pending.Get("check"), cmp.Or(pending.Str("target"), "main")
+	if t.dry {
+		t.log.line(fmt.Sprintf("would hand run %s back for %s on %s: %s", name, run.Text(check), target, pending.Str("line")))
+		return nil
+	}
 	told, err := t.tellBreak(name, pending.Str("session"), key, pending.Str("line"), pending.Dict("typed"), func(mark *run.Object) error {
 		pending.Set("typed", mark)
 		t.keep()
 		return nil
 	})
-	check, target := pending.Get("check"), cmp.Or(pending.Str("target"), "main")
 	switch {
 	case err != nil:
 		return err
@@ -185,11 +189,9 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 	return closeHealth()
 }
 
-// tellBreak is after_merge_deliver: the break, in its NOT LIVE line, goes through the hand-back
-// into the seat its line was typed into while that one is up, else its own seat, woken where it
-// sleeps and none until then, else the newest seat up whose runs merged into the same repository;
-// only at that seat's prompt, under the run's delivery lock.  A merge whose own seat took it is
-// settled by it.  Whether a seat was told.
+// tellBreak is after_merge_deliver for a run's break: its NOT LIVE line, under the run's
+// delivery lock, goes to the seat tellSeat picks, the run's own seat its own.  A merge whose own
+// seat took it is settled by it.  Whether a seat was told.
 func (t *ticking) tellBreak(name, session, key, line string, typed *run.Object, receipt func(*run.Object) error) (bool, error) {
 	dir := filepath.Join(run.Runs(), name)
 	if err := os.MkdirAll(dir, 0o777); err != nil {
@@ -205,23 +207,34 @@ func (t *ticking) tellBreak(name, session, key, line string, typed *run.Object, 
 	if err != nil {
 		return false, err
 	}
-	tell := func(name string) (string, error) {
-		told := handback.Tell(name, line, typed, receipt, t.log.line)
-		if told == "" {
+	told, err := t.tellSeat(session, key, line, typed, receipt)
+	if told != "" && record != nil && record.Truthy("merged") && run.Seat(record) == told {
+		handback.Told(dir, record) // its NOT LIVE decision settles the merge held for it
+	}
+	return told != "", err
+}
+
+// tellSeat is after_merge_seat and its telling: the line goes through the hand-back into the
+// seat its mark names while that one is up, else session's own, woken where it sleeps and none
+// until then, else the newest seat up whose runs merged into the repository key names; only at
+// that seat's prompt.  The seat told, "" for none.
+func (t *ticking) tellSeat(session, key, line string, typed *run.Object, receipt func(*run.Object) error) (string, error) {
+	tell := func(name string) string { return handback.Tell(name, line, typed, receipt, t.log.line) }
+	told := func(name, said string) (string, error) {
+		switch said {
+		case "":
 			return "", errLeft
+		case handback.Sent:
+			return name, nil
 		}
-		if told == handback.Sent && record != nil && record.Truthy("merged") && run.Seat(record) == name {
-			handback.Told(dir, record) // its NOT LIVE decision settles the merge held for it
-		}
-		return told, nil
+		return "", nil
 	}
 	if name := marked(seat.Up(), typed); name != "" {
-		told, err := tell(name)
-		return told == handback.Sent, err
+		return told(name, tell(name))
 	}
 	if own, _, err := config.ResolveSession(session); session != "" && err == nil {
-		if told, err := tell(own); told != handback.Gone {
-			return told == handback.Sent, err
+		if said := tell(own); said != handback.Gone {
+			return told(own, said)
 		}
 	}
 	newest, found := "", 0
@@ -236,19 +249,19 @@ func (t *ticking) tellBreak(name, session, key, line string, typed *run.Object, 
 		pr, _ := merged.Get("pr").(string)
 		name := run.Seat(merged)
 		born, there := live[name]
-		if merged.Truthy("merged") && there && repoKey(pr) == key && (born > found || born == found && name > newest) {
+		on := repoKey(pr) // a run with no pull request is on no repository
+		if merged.Truthy("merged") && there && on != "" && on == key && (born > found || born == found && name > newest) {
 			newest, found = name, born
 		}
 		return true
 	})
 	if !read {
-		return false, errLeft
+		return "", errLeft
 	}
 	if newest == "" {
-		return false, nil
+		return "", nil
 	}
-	told, err := tell(newest)
-	return told == handback.Sent, err
+	return told(newest, tell(newest))
 }
 
 // marked is the seat up whose tmux birth a typed line's mark names, "" for none.
