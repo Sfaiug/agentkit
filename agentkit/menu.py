@@ -3307,8 +3307,9 @@ def packed(parts, gap, room):
 
 def models_body(said, at=None):
     """The models screen's lines and {line: (("row", role), [])}: per role (models_said) `▸` at
-    `at`, its word, its row and what follows, under `quality` and its unit where that changes;
-    a row too wide beside the words goes under its word, only the name cut."""
+    `at`, its word, its row and what follows, under `quality` and its unit where that changes.
+    A row too wide beside the words goes on the lines under its word, wrapped at its words, what
+    follows it staying on the word's line: a model is named in full (docs/cli-design.md)."""
     room = terminal.layout_width()
     mark = terminal.styled("▸" if terminal.utf8() else ">", "accent")
     word = max(terminal.cells(matrix.CONFIG_ROLES[role]) for role, *_ in said)
@@ -3319,40 +3320,48 @@ def models_body(said, at=None):
     def follows(after):
         return (f"  {after[0]:>{widths[0]}}  {after[1]:>{widths[1]}}" if isinstance(after, tuple)
                 else "  " + terminal.styled(after, "dim") if after else "")
-    full = max(terminal.cells(named(row, room)) for _, row, *_ in said)
+    models = [row["name"] + (f" {row['effort']}" if row["effort"] else "") for _, row, *_ in said]
+    full = max(map(terminal.cells, models))
     tail = max(terminal.cells(follows(after)) for _, _, after, _ in said)
     wide = 2 + 2 + word + 2 + full + tail <= room
-    before = 2 + 2 + word + 2 if wide else 4     # folded, the row under its role's word
-    size = min(full, room - before - tail)        # the rows' column, only a name cut to fit it
+    column = 2 + 2 + word + (2 + full if wide else 0)      # where what follows a row begins
     lines, places, unit = [], {}, None
-    for role, row, after, its in said:
+    for (role, row, after, its), model in zip(said, models):
         if isinstance(after, tuple) and its != unit:     # a role with no numbers heads nothing
             unit = its
-            lines.append(" " * (before + size + 2) + terminal.styled(
+            lines.append(" " * (column + 2) + terminal.styled(
                 f"{'quality':>{widths[0]}}  {its:>{widths[1]}}", "dim"))
         lead = f"  {mark if role == at else ' '} {terminal.pad(matrix.CONFIG_ROLES[role], word)}"
-        if not wide:
+        own = [lead + "  " + model] if wide else [
+            lead, *("    " + part for part in columned(model, room - 4))]
+        own[0] += " " * (column - terminal.cells(own[0])) + follows(after)
+        for line in own:
             places[len(lines)] = (("row", role), [])
-            lines.append(lead.rstrip())
-        places[len(lines)] = (("row", role), [])
-        lines.append(((lead + "  " if wide else " " * before)
-                      + terminal.pad(named(row, size), size) + follows(after)).rstrip())
+            lines.append(line.rstrip())
     return lines, places
 
 
 # The bars, the owner's design of 5 Nov 2026: the dearest TALL cells high, a column WIDE cells
-# wide and a name on NAMED lines of it, each at most
-TALL, WIDE, NAMED = 7, 12, 3
+# wide, each at most
+TALL, WIDE = 7, 12
 COUNTS = ("no", "one", "two", "three", "four", "five")      # up to matrix.PLACES
 EIGHTHS = " ▁▂▃▄▅▆▇"     # a bar's top, the eighths of a cell it fills
 
 
-def columned(text, room, most=NAMED):
-    """`text` wrapped at its words onto `most` lines of `room` cells, a word longer than a line
-    cut with `…`; where more would follow, the last line's whole words that leave it a cell."""
-    lines = terminal.wrap(" ".join(terminal.cut(word, room) for word in text.split()), room)
-    return lines if len(lines) <= most else [
-        *lines[:most - 1], terminal.wrap(lines[most - 1], room - 1)[0] + "…"]
+def columned(text, room, after=" -."):
+    """`text` on lines of `room` cells, never cut (docs/cli-design.md): wrapped at its spaces, a
+    word wider than a line broken after each hyphen in it, a part still wider after each dot
+    (`GPT-` over `6.1`, a version kept whole where it can be), and a part with neither left
+    whole, wider than `room`, as models_bars widens its column to it."""
+    if terminal.cells(text) <= room or not after:
+        return [text]
+    lines = []
+    for part in filter(None, re.split(f"(?<={re.escape(after[0])})", text)):
+        if lines and terminal.cells((lines[-1] + part).rstrip()) <= room:
+            lines[-1] += part
+        else:
+            lines.append(part)
+    return [piece for line in lines for piece in columned(line.rstrip(), room, after[1:])]
 
 
 def models_bars(found, role, used, room=None, marked=True, why=True):
@@ -3364,26 +3373,38 @@ def models_bars(found, role, used, room=None, marked=True, why=True):
     `░`, its `why` under it led by `░`, so one too short to show its shade still says it is one;
     `used`, the row the role uses, is in the accent colour, `━` under its name.  No axis line:
     heights and costs say which is dearer, as a shaded bar on the right is dearer, not better.
-    On a narrow screen the two-cell gutters, then the indent, give way to the labels.  Given
+    On a narrow screen the two-cell gutters, then the indent, give way to the labels, and where
+    a word too wide for its column widens it past the screen, fewer bars stand: the shaded ones
+    go first, then the cheapest choices, as matrix._choices keeps the costliest.  Given
     `room` lines, the dearest stands as tall as the rest leaves room for, TALL cells at most and
     one at least, else TALL; `marked` false leaves the `━` out, `why` false the whys."""
     utf8, width, choices = terminal.utf8(), terminal.layout_width(), found["choices"]
     solid, shade, mark = "█░━" if utf8 else "#:="
     shaded = found["others"][:matrix.PLACES - len(choices)]
-    rows = sorted([(row, solid) for row in choices] + [(row, shade) for row in shaded],
-                  key=lambda one: one[0]["cost"])
-    size = max(1, min(WIDE, (width - 2 * len(rows)) // max(1, len(rows))))
-    labels = [(cost_said(found, row), f"{row['quality']:.1f}", row["effort"] or "")
-              for row, _ in rows]
-    widths = [max(size, *map(terminal.cells, three)) for three in labels]
+    while True:
+        rows = sorted([(row, solid) for row in choices] + [(row, shade) for row in shaded],
+                      key=lambda one: one[0]["cost"])
+        size = max(1, min(WIDE, (width - 2 * len(rows)) // max(1, len(rows))))
+        labels = [(cost_said(found, row), f"{row['quality']:.1f}", row["effort"] or "")
+                  for row, _ in rows]
+        words = [[row["name"], *([f"{shade} {row['why']}"] if why and fill == shade else [])]
+                 for row, fill in rows]
+        # a column as wide as its labels and its words' widest part (columned)
+        widths = [max(size, *map(terminal.cells, [*three, *(
+            line for text in texts for line in columned(text, size))]))
+                  for three, texts in zip(labels, words)]
+        if sum(widths) + len(rows) - 1 <= width:      # one-cell gutters and no indent hold them
+            break
+        choices, shaded = (choices, shaded[:-1]) if shaded else (choices[1:], shaded)
     gap = 2 if sum(widths) + 2 * len(rows) <= width else 1
     lead = max(0, min(2, width - sum(widths) - gap * (len(rows) - 1)))
     lines = ["", *("  " + line for line in packed([
         matrix.CONFIG_ROLES[role], f"{COUNTS[len(choices)]} choice{'s' * (len(choices) != 1)}",
         *([f"{COUNTS[len(shaded)]} more shaded"] if shaded else [])], " · ", width - 2))]
-    unders = [[[quality], columned(row["name"], wide) + [mark * size] * (marked and row is used),
-               [effort], columned(f"{shade} {row['why']}", wide) if why and fill == shade else []]
-              for (row, fill), (_, quality, effort), wide in zip(rows, labels, widths)]
+    unders = [[[quality], columned(name, wide) + [mark * size] * (marked and row is used),
+               [effort], [line for text in whys for line in columned(text, wide)]]
+              for (row, _), (_, quality, effort), (name, *whys), wide
+              in zip(rows, labels, words, widths)]
     # the heading, the dearest's cost over it and what stands under the bars take their lines
     taken = len(lines) + 1 + sum(max(map(len, part)) for part in zip(*unders))
     tall = TALL if room is None else max(1, min(TALL, room - taken))
@@ -4042,6 +4063,9 @@ def matrix_page(body, places, here, top, under, keys, over=(), lead=None, keyed=
     column `keyed`, or with none any of its lines, else moves the least that makes it so, and
     never past the last page; a cell that is a row of its own (terminal.under) is on its line."""
     room = max(1, page_room(under, keys, over, lead))
+    # A page too short for every row follows `here` rather than keep its top, which a review of
+    # 7 Nov 2026 asked for: on 40×12 no layout of the models screen shows every role's line, so
+    # a page kept at its top would hide the role `▸` moves to.
     drawn = [number for number, (row, cells) in places.items()
              if row == here or any(here in cell[3:] for cell in cells)] or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
