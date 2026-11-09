@@ -9,6 +9,9 @@ harness started since does not share.  With a line's mark kept and the seat's co
 
 - a pane respawned since the line was typed gets it again, with its Enter, and only then is the
   line delivered, its mark naming the new process;
+- a pane respawned after the tick asks tmux its process, as a launch holding the seat's send
+  lock does while the tick waits for it, is not taken for the line delivered: nothing is typed
+  and the line is not delivered, and the next tick types it, with its Enter, and delivers it;
 - a pane whose process is the one its mark names is typed nothing, and the line is delivered.
 
 Black-box, as tests/test_key_audit_line_delivered.py is: the program `AK_BIN` names runs from
@@ -20,13 +23,14 @@ against `/bin/false`.
 
 import json
 from pathlib import Path
+import shlex
 import sys
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home, boxable
+from fixtures.akbin import REAL_TMUX, SOCKET, Home, boxable
 from fixtures.akseat import PANE, Seat
 
 TOLD = "audit: told the audit seat about week {}"
@@ -82,6 +86,56 @@ class Respawned(Marked, unittest.TestCase):
         self.assertToldOnce()
         self.assertEqual(self.seat.lines(), [self.line])
         self.assertEqual(self.state.get("typed"), self.seat.mark(self.line))
+
+
+@unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
+class RespawnedAfterItsPin(Marked, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.first, cls.first_typed = (cls.done, cls.state), cls.seat.typed()
+        cls.done = cls.home.tick()
+        cls.state = cls.audit()
+
+    @classmethod
+    def since(cls, home, seat):
+        """Its harness started again in place, once, right after the tick's first ask of the
+        pane's process has its answer, and drawn before the tick goes on: the title its frame
+        sets says so."""
+        q = shlex.quote
+        shim = home.root / "tmux-shim"
+        (home.bin / "tmux").replace(shim)
+        armed = home.root / "respawn-armed"
+        armed.touch()
+        tmux = shlex.join([str(shim), "-L", SOCKET])
+        harness = shlex.join([sys.executable, str(PANE), str(seat.screen_file),
+                              str(seat.typed_file), seat.composer])
+        home.fake("tmux", f"""#!/bin/sh
+{q(str(shim))} "$@"; said=$?
+case "$*" in
+  *display-message*'#{{pane_pid}}'*)
+    if rm {q(str(armed))} 2>/dev/null; then
+      {tmux} select-pane -t {q(seat.pane)} -T respawned
+      {tmux} respawn-pane -k -t {q(seat.pane)} {q(harness)}
+      tries=600
+      while [ "$({tmux} display-message -p -t {q(seat.pane)} '#{{pane_title}}')" = respawned ] \
+          && [ $((tries -= 1)) -gt 0 ]; do sleep 0.05; done
+    fi ;;
+esac
+exit $said
+""")
+
+    def test_the_old_mark_delivers_nothing_and_the_next_tick_types_the_line(self):
+        done, state = self.first
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertFalse((self.home.root / "respawn-armed").exists(), "the pane was not respawned")
+        self.assertFalse(state.get("delivered"), state)
+        self.assertEqual(self.first_typed, "")
+        self.assertToldOnce()
+        self.assertEqual(self.seat.lines(), [self.line])
+        now = self.seat.mark(self.line)
+        self.assertNotEqual(now["pid"], self.typed["pid"])
+        self.assertEqual(self.state.get("typed"), now)
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")

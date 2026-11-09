@@ -2,7 +2,8 @@
 // rounds, execute, verify_work, review, write_result and finish do: a PASS, a round budget spent, the
 // same failure twice, and a worker that goes silent, fails on its provider or is blocked.
 // Its interface is small: Start gives a launched run a driver process of its own, Follow shows a
-// terminal what that driver does until it is gone, Drive is that driver, End is its ending in
+// terminal what that driver does until it is gone, Await waits that out as a job does, Drive is
+// that driver, End is its ending in
 // error, Clean takes a run's checkout, StopRun ends a run, Pickup and Woken say which dead or
 // woken one Reopen hands to a new driver, CheckLine is a landing line's lander, and Logging says a
 // process writes into a run's log.  A review of somebody else's pull request takes the same
@@ -97,7 +98,6 @@ func Start(dir string, out io.Writer, detached bool) error {
 			run.SetAll(record, "state", "queued", "slot_waiting", true)
 		}
 		record.Delete("reservation_pending")
-		record.Delete("resume_from")
 		return nil
 	})
 	if errors.Is(started, ErrStopped) {
@@ -147,27 +147,7 @@ func Follow(dir string, offset int64, out, errOut io.Writer) int {
 	}
 	defer log.Close()
 	log.Seek(offset, io.SeekStart)
-	asked := time.Now()
-	for {
-		io.Copy(out, log)
-		record, _ := run.Read(dir)
-		if record == nil || !run.ProcessActive(record) && !parkedInLine(record) {
-			// the process a record names writes it before it ends, as a driver parking in its line
-			// and a resume starting the next driver do, so it can end between that read and this
-			// check: only a record unchanged since says its process is gone
-			if again, _ := run.Read(dir); again == nil || record != nil && run.Equal(again, record) {
-				break
-			}
-			continue
-		}
-		// its lander is started again now and then, as Python's job_await does: the one its run
-		// started on leaving can die, and a sandbox runs no tick at all
-		if parkedInLine(record) && time.Since(asked) >= landerAgain {
-			asked = time.Now()
-			startLine(filepath.Join(run.Runs(), landingLine(record)), io.Discard)
-		}
-		time.Sleep(followEvery)
-	}
+	Await(dir, func() { io.Copy(out, log) })
 	io.Copy(out, log)
 	record, _ := run.Read(dir)
 	if record != nil && run.Active(record) {
@@ -179,6 +159,32 @@ func Follow(dir string, offset int64, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "ak run: "+record.Str("error"))
 	}
 	return exitStatus(record)
+}
+
+// Await follows the run at dir until its driver is gone and it waits in no landing line, calling
+// look before each look at it, and answers its record then, nil for none.  Its lander is started
+// again now and then, as Python's job_await does: the one its run started on leaving can die, and
+// a sandbox runs no tick at all.
+func Await(dir string, look func()) *run.Object {
+	asked := time.Now()
+	for {
+		look()
+		record, _ := run.Read(dir)
+		if record == nil || !run.ProcessActive(record) && !parkedInLine(record) {
+			// the process a record names writes it before it ends, as a driver parking in its line
+			// and a resume starting the next driver do, so it can end between that read and this
+			// check: only a record unchanged since says its process is gone
+			if again, _ := run.Read(dir); again == nil || record != nil && run.Equal(again, record) {
+				return record
+			}
+			continue
+		}
+		if parkedInLine(record) && time.Since(asked) >= landerAgain {
+			asked = time.Now()
+			startLine(filepath.Join(run.Runs(), landingLine(record)), io.Discard)
+		}
+		time.Sleep(followEvery)
+	}
 }
 
 func launchOpts(record *run.Object) *run.Object {
@@ -232,6 +238,7 @@ type loop struct {
 	findings      string    // the last review's whole text, for its fixer
 	findingsFile  string    // and where it is
 	prior         bool      // the record already names its workplace: this driver carries the run on
+	resumed       bool      // its receipt is a resume's (takeResume)
 	pull          string    // the pull request this run reviews alone, "" for a run of a task
 	voice         io.Writer // where the loop speaks, the run's log where none: a lander checks a run in its line's
 	marker        string    // what marks the processes it starts, the process's own where none: a check beside the review has its own
@@ -244,8 +251,7 @@ type loop struct {
 func Drive(dir string) int {
 	return drive(dir, func(l *loop) error {
 		switch {
-		case l.prior:
-			l.say(fmt.Sprintf("resume %s: %s", l.id, filepath.Join(dir, "task.md")))
+		case l.resumed: // said as it took its receipt up (takeResume)
 		case l.pull != "":
 			l.say(fmt.Sprintf("run %s: review of %s", l.id, l.pull))
 		default:
@@ -281,6 +287,7 @@ func drive(dir string, job func(*loop) error) (code int) {
 	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
 	defer gh.Serve(l.say, l.wait)()
+	l.takeResume()
 	err := WaitSlot(ctx, dir)
 	if err == nil {
 		err = l.adopt()
@@ -721,7 +728,7 @@ func conclude(dir string) int {
 		return 2
 	}
 	said := stampedLog{dir}
-	if handback.Give(dir, func(line string) { fmt.Fprintln(said, line) }) {
+	if handback.Give(dir, nil, func(line string) { fmt.Fprintln(said, line) }) {
 		dropTold(dir, said)
 	}
 	if record.Str("state") == "error" {
