@@ -3081,7 +3081,7 @@ NEW_SEATS = "new seats"
 MOVE_ASK = "Restart {} on {}?"     # what another model's orchestrator mark asks, and what it means
 MOVE_MEANS = {True: "It keeps its conversation.",
               False: "It starts a new conversation, handed the one it had."}
-RESTART_ASK = "Restart {} on {} at {}?"   # what a step of a seat's orchestrator effort asks
+RESTART_ASK = "Restart {} on {} at {}?"   # what a move of a seat's orchestrator at an effort asks
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -3129,52 +3129,54 @@ def model_heading(harness):
     return terminal.styled(config.harness_name(harness), config.harness_colour(harness) or "accent")
 
 
-# the roles `r` takes, each with its group in a record (its config role: matrix.CONFIG_ROLES); a
-# seat's own `r` leaves its orchestrator, which only its mark moves (session_mark)
+# each role's group in a record (its config role: matrix.CONFIG_ROLES), which a take sets
 TAKEN = {"orchestrate": "orchestrator", "execute": "workers", "review": "reviewers"}
 
 
-def takes(cfg, answer):
-    """What `r` takes per role off `answer` (matrix.answer) and `cfg` as it stands: {role: (the
-    first configured model running its take, the take's effort)}, a take none runs left out."""
-    found = {}
-    for role, said in answer.items():
-        yours = (said["take"] or {}).get("yours") or []
-        name = next((name for name in config.offered(cfg) if {
-            "harness": cfg["models"][name]["harness"], "model": cfg["models"][name]["model"]}
-            in yours), None)
-        if name:
-            found[role] = (name, said["take"]["effort"])
-    return found
+def runner(cfg, row):
+    """The configured model a take of `row` takes: the first of config.offered running it."""
+    return next((name for name in config.offered(cfg) if {
+        "harness": cfg["models"][name]["harness"], "model": cfg["models"][name]["model"]}
+        in row["yours"]), None)
 
 
-def take_advice(cfg, name, selected, providers, found):
-    """`r`: seat `name`'s executors and reviewers become the models `found` takes (takes), each
-    at its effort as the seat's own for that role (`exec_effort`, `review_effort`; a row
-    at the model's effort or at none leaves it following the effort, _follows), saved to the
-    seat's record (efforts_saved) and then its marks at once as a flipped mark is (marks_saved);
-    efforts that cannot be saved change no mark and say why.  The orchestrator is only
-    said, since moving the seat is its orchestrator mark's.  With no `name`, `selected` being
-    [defaults], the orchestrator is taken too, at the row's effort as the entry's `effort`, and
-    the efforts and [defaults] are saved in one write (defaults_saved), no open seat changing.
-    What to say under the rows, or ""."""
-    taken = {role: found.get(role, (None, None)) for role in TAKEN
-             if name is None or role != "orchestrate"}
-    if not any(model for model, _ in taken.values()):
-        return "nothing to take: no configured model runs a take"
+def next_choice(cfg, found, row, step):
+    """What ← (`step` -1) or → (1) takes off `row`, the row a role uses, of its answer `found`
+    (matrix.answer), the owner's design of 5 Nov 2026: (model, effort) of the nearest of its
+    `choices` cheaper or dearer than `row`, one with no cost standing as its best choice, that a
+    configured model runs (runner), passing the others; None past either end.  No two choices
+    cost the same (matrix._choices), so from a choice that is the next one."""
+    choices = found["choices"]
+    cost = row["cost"] if row and row["cost"] is not None else max(
+        (one["cost"] for one in choices), default=0)
+    return next(((name, one["effort"]) for one in choices[::step]        # the nearest first
+                 if (one["cost"] - cost) * step > 0 for name in [runner(cfg, one)] if name), None)
+
+
+def take_choice(cfg, name, selected, providers, role, model, effort, around):
+    """A take (next_choice): seat `name`'s `role` becomes `model` at `effort`.  An executor or
+    reviewer takes it as the seat's own effort for that role (`exec_effort`, `review_effort`;
+    one at the model's effort or at none leaves it following the effort, _follows), saved to
+    the seat's record (efforts_saved) and then its marks at once as a flipped mark is
+    (marks_saved); efforts that cannot be saved change no mark and say why.  The orchestrator
+    moves the seat, asked first on the card `around` draws where that restarts it
+    (seat_effort).  With no `name`, `selected` being [defaults], the role is taken there, the
+    orchestrator at `effort` as the entry's `effort`, and the entry and [defaults] are saved in
+    one write (defaults_saved), no open seat changing.  What to say under the rows, or ""."""
+    if name is not None and role == "orchestrate":
+        return seat_effort(cfg, name, selected, model, effort, around)
     changed, note = orch.role_groups(cfg, selected, providers, **{
-        TAKEN[role]: model if role == "orchestrate" else [model]
-        for role, (model, _) in taken.items() if model})
+        TAKEN[role]: model if role == "orchestrate" else [model]})
     if note:
         return note
-    # the orchestrator's `effort` first, so a worker's set to it then follows it (_follows)
-    steps = [(model, config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]], effort)
-             for role, (model, effort) in taken.items() if model]
+    key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
     if name is not None:
-        return efforts_saved(cfg, name, selected, steps) or marks_saved(name, selected, changed)
+        return (efforts_saved(cfg, name, selected, [(model, key, effort)])
+                or marks_saved(name, selected, changed))
     before = copy.deepcopy(cfg)
-    for model, key, effort in steps:
-        _set_effort(cfg["models"][model], key, effort)
+    # the orchestrator's effort leaves the model's builds and reviews where they stood, as a
+    # seat's move does (config.orchestrating_at)
+    _set_effort(cfg["models"][model], key, effort, config.ROLE_EFFORTS.values())
     return defaults_saved(cfg, selected, changed, before)
 
 
@@ -3477,9 +3479,10 @@ def models_screen(cfg, session, selected, providers):
     of `selected` uses (models_body), the bars of the role `▸` is on (models_bars) as tall as the
     page leaves room for, over models_read until Esc, the boards read as it opens
     (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
-    bottom (matrix_key).  ↑/↓ move `▸`; ⏎ or a click opens the why (models_why) of
-    the row the role uses, else of its first choice.  `p` lists companies (company_list); `r`
-    takes (take_advice)."""
+    bottom (matrix_key).  ↑/↓ move `▸`, and ← and → take the next cheaper or better choice
+    for its role at once (next_choice, take_choice), the owner's design of 5 Nov 2026; ⏎ or a
+    click opens the why (models_why) of the row the role uses, else of its first choice.  `p`
+    lists companies (company_list)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note = ("row", "orchestrate"), 0, ""
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -3496,10 +3499,13 @@ def models_screen(cfg, session, selected, providers):
         if answer is None:
             compared, total = matrix.compared(cfg), len(matrix.ours(cfg))
             answer = matrix.answer(held.get("lineup") or [], compared, cfg=cfg)
-            used = matrix.uses(cfg, selected, answer)
-            said = models_said(cfg, answer, used)
+        # a take changes what each role uses, never the answer, which takes seconds to price
+        used = matrix.uses(cfg, selected, answer)
+        said = models_said(cfg, answer, used)
         body, places = models_body(said, None if terminal.away() else here[1])
-        keys = terminal.keys("p models", "r take", "esc back", enter="why", move=("role",))
+        cheaper, better = ("←", "→") if terminal.utf8() else ("<", ">")
+        keys = terminal.keys(f"{cheaper} cheaper", f"better {better}", "p models", "esc back",
+                             enter="why", move=("role",))
         read = ["", *models_read(compared, total, held.get("fetched_at"))]
         # where one-cell bars leave too little room these give way whole, in turn: the comparing
         # line, the `━` (the accent and the role's line still name the row in use), the whys
@@ -3516,10 +3522,17 @@ def models_screen(cfg, session, selected, providers):
         if act is None:
             continue                  # a resize, the pointer or the boards landing: drawn again
         note = ""
+
+        def around(card, keys):   # the role lines, the question under them
+            lines = models_body(said, here[1])[0]
+            terminal.frame(title, [*lines, *card], keys)
+            return 3 + len(lines)
         if act == "back":
             return
-        if act == "r":
-            note, answer = take_advice(cfg, session, selected, providers, takes(cfg, answer)), None
+        if act in ("left", "right"):
+            found = next_choice(cfg, answer[here[1]], used[here[1]][2], 1 if act == "right" else -1)
+            if found:
+                note = take_choice(cfg, session, selected, providers, here[1], *found, around)
         elif act == "p":
             note, answer = company_list(cfg, title), None
         elif act == "enter":
@@ -3917,14 +3930,15 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
 
 
 def seat_effort(cfg, name, selected, model, effort, around):
-    """Seat `name` moved to `model` with its orchestrator at `effort`, a restart once `Restart` is
-    picked on the card `around` draws (terminal.confirm), the owner's 24 Oct words about the
-    orchestrator: "it should ask me to confirm. As this restarts the session."  The move
-    alone writes the record (orch.switch_orchestrator), and `selected` then holds it as it is.
-    What to say under the rows, or ""."""
+    """Seat `name` moved to `model` with its orchestrator at `effort`, or at the one it runs
+    `model` at for None, a restart once `Restart` is picked on the card `around` draws
+    (terminal.confirm), the owner's 24 Oct words about the orchestrator: "it should ask me to
+    confirm. As this restarts the session."  The move alone writes the record
+    (orch.switch_orchestrator), and `selected` then holds it as it is.  What to say under the
+    rows, or ""."""
     note = orch.switch_orchestrator(cfg, name, model, effort=effort, asked=lambda kept: (
-        terminal.confirm(RESTART_ASK.format(name, config.model_name(cfg, model), effort),
-                         MOVE_MEANS[kept], "Restart", around)))
+        terminal.confirm((RESTART_ASK if effort else MOVE_ASK).format(
+            name, config.model_name(cfg, model), effort), MOVE_MEANS[kept], "Restart", around)))
     try:
         selected.update(config.load_session(cfg, name, required=False) or {})
     except (config.Error, OSError) as exc:
@@ -4142,8 +4156,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     replays after another screen.
     A click on a model's label puts the highlight on its first mark.  `r`, or a click on
     `r recommended`, opens the models screen (models_screen), what each role uses for whom the
-    marks are, where `r` takes each role's take for them.  Enter or a click
-    on `Models` opens its page (models_page), and on `Subscriptions` its page
+    marks are, where ← and → take a role's next cheaper or better choice for them.  Enter or a
+    click on `Models` opens its page (models_page), and on `Subscriptions` its page
     (config_subscriptions), and on `Limits` its page (config_limits).  ↑ past the
     first model, and the pointer, reach
     the meters over the page: one is lit as the main screen lights it, its colour washing in
