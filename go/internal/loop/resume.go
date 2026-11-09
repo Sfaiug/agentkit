@@ -63,16 +63,17 @@ func cutOff(dir string, record *run.Object) bool {
 
 // Woken is whether the run waits in its landing line on a verdict its lander wrote, which Go
 // carries on into its landing: one it holds no verdict for is the lander's, as Python's resume
-// refuses it.  A seat's own PR goes on where Go carries its landing (ownLands).  A unit that
-// held it is no reason to leave it: its driver parked it there, and the wake goes in a unit of
-// its own (place), as Python's launch_resume puts it.
+// refuses it.  A seat's own PR goes on where Go carries its landing (ownLands), and a job's run as
+// any other, its job following it to its end.  A unit that held it is no reason to leave it: its
+// driver parked it there, and the wake goes in a unit of its own (place), as Python's
+// launch_resume puts it.
 func Woken(record *run.Object) bool {
 	wait := record.Dict("waiting_on")
 	if !parkedInLine(record) || !wait.Has("land") && !wait.Has("fix") || run.ProcessActive(record) {
 		return false
 	}
 	for _, key := range pythonRoads {
-		if key != "waiting_on" && record.Truthy(key) && !(key == "review_pr" && ownLands(record)) {
+		if key != "waiting_on" && key != "job_id" && record.Truthy(key) && !(key == "review_pr" && ownLands(record)) {
 			return false
 		}
 	}

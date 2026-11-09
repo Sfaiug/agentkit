@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"os"
 
 	"agentkit/internal/run"
 )
@@ -21,16 +20,25 @@ type Card struct {
 // A Choice is one a question card offered.
 type Choice struct{ Label, Description string }
 
-// Answered is the conversation that seat's record owns as its harness shows it, oldest first
-// (Said), and each answer its owner gave on its question cards: an error where the conversation
-// is there and cannot be read; false where Go reads neither for that harness yet.
-func Answered(name string, record map[string]any) ([]Turn, []Card, bool, error) {
-	hook := plugins[name].answered
-	if hook == nil {
-		return nil, nil, false, nil
+// Reads is whether Go reads the owner's words in that harness's conversations, their messages and
+// their answers on its question cards (Answered), and, strictly, as strictly as Python's done
+// check does (harness.strictly): a harness that brings no Python reads none, as its default hooks.
+func Reads(name string, strictly bool) bool {
+	own, plugged := plugins[name]
+	if own.answered == nil {
+		return !plugged && seatDefaults(name).seats
 	}
-	said, cards, err := hook(record)
-	return said, cards, true, err
+	return !strictly || !own.loose
+}
+
+// Answered is the conversation that seat's record owns as its harness shows it, oldest first
+// (Said), and each answer its owner gave on its question cards, of a harness Go reads (Reads): an
+// error where the conversation is there and cannot be read.
+func Answered(name string, record map[string]any) ([]Turn, []Card, error) {
+	if hook := plugins[name].answered; hook != nil {
+		return hook(record)
+	}
+	return nil, nil, nil
 }
 
 // Entries calls each with every JSON object the file at path holds a line, first line first, as
@@ -40,7 +48,13 @@ func Entries(path string, each func(*run.Object)) error {
 	if path == "" {
 		return nil
 	}
-	file, err := os.Open(path)
+	return EntriesBy([]string{path}, each)
+}
+
+// EntriesBy is Entries of a record read by those names, by the first of them there as it is opened
+// (Open).
+func EntriesBy(names []string, each func(*run.Object)) error {
+	file, err := Open(names...)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}

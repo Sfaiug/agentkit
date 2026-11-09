@@ -22,8 +22,9 @@ through `home.tmux`, never by the commands ak sent it, which another build may s
 
 `home.tick()` runs one `ak watch` in a box (`boxable()` says whether bubblewrap can build
 one here) and waits out what it detached there, so nothing of it outlives the test.
-A test whose ticks act on processes it started, which that box cannot see, ends with
-`rerun_boxed()` before `unittest.main()`: the whole file then runs in one such box, `BOXED`.
+A test whose ticks run another copy of the program, or act on processes it started, which that
+box cannot see, ends with `rerun_boxed()` before `unittest.main()`: the whole file then runs in
+one such box, `BOXED`.
 """
 
 from collections import namedtuple
