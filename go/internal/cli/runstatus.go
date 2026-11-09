@@ -62,6 +62,15 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "ak run: %s\n", err)
 		return 2
 	}
+	var db *history.DB
+	defer func() { db.Close() }()
+	// read before anything is written: history.db Go cannot read as Python's machine form does
+	// leaves it the command
+	if machine {
+		if db, err = history.Reader(); err != nil {
+			return notImplemented(errOut, "run status")
+		}
+	}
 	looked := false
 	if wanted != "" {
 		if _, _, no := listing(seat, wanted, showHistory, machine, now); no {
@@ -86,9 +95,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 	}
 	every, entries, no := listing(seat, wanted, showHistory, machine, now)
-	var db *history.DB
 	var uncounted []string
-	defer func() { db.Close() }()
 	// opened before a line is printed: a database Go leaves to Python ak leaves it the command;
 	// decided on while the reap holds its runs, so neither is written where the other refuses
 	if no || !reaped(entries, func() (err error) {
@@ -135,9 +142,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	if machine {
 		rows := []any{}
 		for _, entry := range found {
-			row := entry.record.Copy()
-			row.Set("paths", resultPaths(entry))
-			rows = append(rows, row)
+			rows = append(rows, machineRow(db, entry))
 		}
 		fmt.Fprintln(out, run.Encode(rows))
 		return 0
@@ -283,12 +288,9 @@ func actedOn(record *run.Object) bool {
 }
 
 // refused is whether Python ak would write or act on what the listing reads: a job it shows,
-// a run its reap or a look at it acts on, and with --json what history.db would add; one run
-// named shows no job.  The scoreboard's own reads are boardHistory's.
+// or a run its reap or a look at it acts on; one run named shows no job.  The scoreboard's own
+// reads are boardHistory's, the machine form's history.Reader's.
 func refused(entries []listed, seat, wanted string, showHistory, machine bool, now time.Time) bool {
-	if exists(history.Path()) && machine {
-		return true
-	}
 	if wanted == "" && jobShown(seat, showHistory, machine, now) {
 		return true
 	}
