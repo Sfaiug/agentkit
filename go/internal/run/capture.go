@@ -43,8 +43,9 @@ func Capture(dir, path string, values map[string]string, flags map[string]bool, 
 	if seat != "" {
 		owner = seat
 	}
+	// the plan line a seat's task serves is its launch's to name (launch.Task)
 	first := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
-		"launched_session", owner, "started_at", at, "queued_at", at, "slot_waiting", false,
+		"launched_session", owner, "plan_line", nil, "started_at", at, "queued_at", at, "slot_waiting", false,
 		"run_depth", depth, "parent_run", parent, "reservation_pending", true,
 		"unattended", seat == "" && os.Getenv("AGENTKIT_UNATTENDED") != "", "pid", os.Getpid(),
 		"process_identity", identity, "launch_opts", launched}

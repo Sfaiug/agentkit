@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -46,6 +48,131 @@ func TestMergeChecksKeepTheCommitOnce(t *testing.T) {
 	if checking(t, io.Discard).mergeChecks() != nil || read(t, path) != first {
 		t.Fatal("a kept commit was written again")
 	}
+}
+
+// A dry tick's merge checks decide each merge as the real ones do, its commit read off GitHub, and
+// say what they would probe, record and hand back: they save no commit, run no probe and write
+// nothing, not even the objects a partial clone would fetch, reading on GitHub what that lacks.  A
+// merge Go does not follow, or a home keeping history, which the dry tick cannot open without
+// writing beside it, hands the whole dry tick over, nothing printed.
+func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
+	const pr = "https://github.com/acme/api/pull/1"
+	declares := base64.StdEncoding.EncodeToString([]byte("---\nhealth: true\n---\n"))
+	for name, each := range map[string]struct {
+		fields, watch, said, lacks string
+		ago                        int64
+		left, history              bool
+	}{
+		"undeclared": {fields: `"health": {}, "deployed": null`},
+		"probe": {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": null, "repo": "/"`,
+			said: `would check run fix-api's live product: touch "$HOME/probed"` + "\n"},
+		"live": {fields: `"live_at": 1, "health": {}, "deployed": null`, said: "would record, not type: run fix-api is live: " + pr + ".\n"},
+		"break": {fields: `"health": {"command": "false", "output": "down\n\nstill down"}`, ago: 4 * 3600,
+			said: "would hand run fix-api back for health: false on main: health: false failed on main after this merge. " + pr + "; down; still down. Fix the target.\n"},
+		// told already: the real tick lets its run's failure go
+		"told break": {fields: `"health": {"command": "false", "output": "down"}`, ago: 4 * 3600,
+			watch: `{"after_merge": {"github.com/acme/api": {"notified": "abc", "at": 1, "run": "fix-api"}}}`},
+		"deployment":    {fields: `"health": {}, "deployed": "true"`, left: true},
+		"blob lacked":   {lacks: "blob", said: "would check run fix-api's live product: true\n"},
+		"commit lacked": {lacks: "commit", said: "would check run fix-api's live product: true\n"},
+		"kept probe":    {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": null, "repo": "/"`, history: true, left: true},
+		// a break waiting in watch.json alone, its run's merge no longer followed
+		"kept break": {history: true, left: true, watch: `{"after_merge": {"github.com/acme/api": {"pending": {"source": "health", "sha": "abc", ` +
+			`"line": "health: true failed on main", "run": "fix-api", "finished": 1, "check": "health: true", "target": "main"}}}}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';;
+				*contents/AGENTS.md*) echo '{"encoding": "base64", "content": "`+declares+`"}';; *) `+loggedOut+`;; esac`)
+			fields := each.fields
+			if each.lacks != "" {
+				sha, checkout := partialClone(t, filepath.Dir(ak), each.lacks == "commit")
+				fields = fmt.Sprintf(`"merge_sha": %q, "repo": %q`, sha, checkout)
+			}
+			if fields != "" {
+				put(t, filepath.Join(ak, "runs", "fix-api", "run.json"), fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": %q, %s}`,
+					time.Now().Unix()-each.ago, pr, fields))
+			}
+			if each.watch != "" {
+				put(t, filepath.Join(ak, "state", "watch.json"), each.watch)
+			}
+			if each.history {
+				older(t, "PRAGMA user_version")
+			}
+			before := files(t, filepath.Dir(ak))
+			want := "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\n" + each.said +
+				"gh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n"
+			if each.left {
+				want = ""
+			}
+			var out bytes.Buffer
+			if left := Dry(&out); (left != "") != each.left || out.String() != want {
+				t.Fatalf("left %q, printing %q", left, &out)
+			}
+			if !reflect.DeepEqual(files(t, filepath.Dir(ak)), before) {
+				t.Fatal("the dry tick changed HOME")
+			}
+		})
+	}
+}
+
+// A history.db appearing right after a dry tick's merge checks found none, as another tick's or a
+// seat's first write makes it, is never opened: nothing but it is written under HOME.
+func TestDryHistoryAppearingOpensNothing(t *testing.T) {
+	ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';; *) `+loggedOut+`;; esac`)
+	put(t, filepath.Join(ak, "runs", "fix-api", "run.json"), fmt.Sprintf(
+		`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {}, "deployed": null}`, time.Now().Unix()))
+	older(t, "PRAGMA user_version")
+	staged := filepath.Join(t.TempDir(), "history.db")
+	if err := os.Rename(history.Path(), staged); err != nil || !run.Historyless() {
+		t.Fatalf("history.db not set aside whole: %v", err)
+	}
+	before := files(t, filepath.Dir(ak))
+	before[history.Path()] = read(t, staged)
+	still := historyless
+	t.Cleanup(func() { historyless = still })
+	historyless = func() bool {
+		historyless = still
+		none := still()
+		if err := os.Rename(staged, history.Path()); err != nil {
+			t.Error(err)
+		}
+		return none
+	}
+	Dry(io.Discard)
+	if !reflect.DeepEqual(files(t, filepath.Dir(ak)), before) {
+		t.Fatal("the dry tick wrote under HOME")
+	}
+}
+
+// partialClone is a clone under dir filtered of every blob, and the commit declaring `health: true`
+// whose AGENTS.md it lacks, or, where whole, one it lacks altogether.
+func partialClone(t *testing.T, dir string, whole bool) (sha, checkout string) {
+	t.Helper()
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %s", args, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	seed, origin, checkout := filepath.Join(dir, "seed"), filepath.Join(dir, "origin.git"), filepath.Join(dir, "checkout")
+	commit := func(name, content string) string {
+		put(t, filepath.Join(seed, name), content)
+		git("-C", seed, "add", name)
+		git("-C", seed, "-c", "user.name=acme", "-c", "user.email=acme@example.com", "commit", "-qm", name)
+		return git("-C", seed, "rev-parse", "HEAD")
+	}
+	git("init", "-q", "-b", "main", seed)
+	sha = commit("AGENTS.md", "---\nhealth: true\n---\n")
+	git("clone", "-q", "--bare", seed, origin)
+	git("--git-dir="+origin, "config", "uploadpack.allowFilter", "true")
+	git("clone", "-q", "--filter=blob:none", "--no-checkout", "file://"+origin, checkout)
+	if whole {
+		sha = commit("README.md", "A later merge.\n")
+		git("--git-dir="+origin, "fetch", "-q", seed, "HEAD:refs/heads/main")
+	}
+	return sha, checkout
 }
 
 // A deployment, on the run or declared at its merge's commit, and a pass its seat may be owed,

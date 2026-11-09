@@ -3,9 +3,11 @@
 package tick
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +57,7 @@ func TestWaitingReadsAtItsTurnThenStandsStillByteForByte(t *testing.T) {
 }
 
 func TestWaitingDoesNotInventAMoveOrTakeAnUnadmittedEnding(t *testing.T) {
-	for _, scenario := range []string{"fetch failed", "ref failed", "ref unresolved", "spent", "told", "old", "job", "no integration log", "dry", "dry wait"} {
+	for _, scenario := range []string{"fetch failed", "ref failed", "ref unresolved", "spent", "told", "old", "job", "no integration log"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir, record, tick := waiter(t)
 			switch scenario {
@@ -75,23 +77,6 @@ func TestWaitingDoesNotInventAMoveOrTakeAnUnadmittedEnding(t *testing.T) {
 				record.Set("job_id", "batch")
 			case "no integration log":
 				put(t, filepath.Join(dir, "log.txt"), "review failed\n")
-			case "dry", "dry wait":
-				// a fetch that ran would fail the row's fetch-free promise
-				t.Setenv("FETCH_CODE", "1")
-				tick.dry = true
-				var said strings.Builder
-				tick.log = newLog(&said, io.Discard)
-				defer func() {
-					want := map[string]string{"dry": "would park fix-api waiting on origin/main",
-						"dry wait": "would resume fix-api after the next merge to origin/main"}[scenario]
-					if !strings.HasSuffix(said.String(), want+"\n") {
-						t.Fatalf("a dry tick said %q", said.String())
-					}
-				}()
-			}
-			if scenario == "dry wait" {
-				record.Set("state", "waiting")
-				record.Set("waiting_on", run.Fields("ref", "origin/main", "sha", "base"))
 			}
 			if err := run.Create(dir, record); err != nil {
 				t.Fatal(err)
@@ -102,6 +87,48 @@ func TestWaitingDoesNotInventAMoveOrTakeAnUnadmittedEnding(t *testing.T) {
 			}
 			if after := read(t, filepath.Join(dir, "run.json")); after != before {
 				t.Fatal("row rewrote the ending")
+			}
+		})
+	}
+}
+
+// A dry tick says which run the row would park, resume or interrupt, a resume paced or not, and
+// fetches nothing: a fetch that ran fails here, leaving the row silent.  HOME stays as it was, and
+// a wait on a repair, which the real tick hands over, it hands over too.
+func TestDryWaitingReportsWithoutFetchingOrChangingTheRun(t *testing.T) {
+	for scenario, want := range map[string]string{
+		"fail":   "would park fix-api waiting on origin/main\n",
+		"wait":   "would resume fix-api after the next merge to origin/main\n",
+		"paced":  "would resume fix-api after the next merge to origin/main\n",
+		"gone":   "would interrupt fix-api: waiting on a merge, but its worktree (none) is gone\n",
+		"repair": "",
+	} {
+		t.Run(scenario, func(t *testing.T) {
+			dir, record, tick := waiter(t)
+			t.Setenv("FETCH_CODE", "1")
+			var said strings.Builder
+			tick.dry, tick.log = true, newLog(&said, io.Discard)
+			if scenario != "fail" {
+				run.SetAll(record, "state", "waiting", "waiting_on", run.Fields("ref", "origin/main", "sha", "base"))
+			}
+			switch scenario {
+			case "paced":
+				record.Set("waiting_resume_at", epoch(time.Now()))
+			case "gone":
+				record.Delete("worktree")
+			case "repair":
+				record.Dict("waiting_on").Set("repair", "fix-main")
+			}
+			if err := run.Create(dir, record); err != nil {
+				t.Fatal(err)
+			}
+			home := filepath.Dir(filepath.Dir(filepath.Dir(dir)))
+			before := files(t, home)
+			if err := tick.waiting(); (err == nil) != (want != "") || err != nil && !errors.Is(err, errLeft) || said.String() != want {
+				t.Fatalf("%v, saying %q", err, said.String())
+			}
+			if !reflect.DeepEqual(files(t, home), before) {
+				t.Fatal("the dry row changed HOME")
 			}
 		})
 	}

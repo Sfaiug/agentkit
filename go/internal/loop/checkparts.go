@@ -21,16 +21,19 @@ import (
 // A testReport is what a run named of its tests: failed (AK_FAILED), and of those run alone the
 // ones that failed again (confirmed); the tests that failed, then passed (flaky: AK_FLAKY, or
 // failed tests that passed run again); and every test its red repeated (reds), Python's confirmed
-// by share: each red piece's confirmed, or a whole command's failed when it failed twice.
+// by share: each red piece's confirmed, or a whole command's failed when it failed twice; and
+// whether a red piece repeated none (unnamed), so no test explains its red.
 type testReport struct {
 	piece                          string
 	failed, confirmed, flaky, reds []string
+	unnamed                        bool
 }
 
 // A checkSelection is what a landing check is asked to run, and what it saw: the tests that
 // failed, then passed, every command's repeated reds (as `.flakes` keeps them, but for tree, time
-// and log), each command that passed with the tests it ran, nil for all, and each piece's goes'
-// exits; and the history rows it left, taken back where it is handed on.
+// and log), whether a red piece repeated none, each command that passed with the tests it ran, nil
+// for all, and each piece's goes' exits; and the history rows it left, taken back where it is
+// handed on.
 type checkSelection struct {
 	shard   string
 	tests   []string
@@ -39,6 +42,7 @@ type checkSelection struct {
 	rows    *history.Checked
 	flaky   []string
 	reds    []*run.Object
+	unnamed bool
 	passed  map[string][]string
 	exits   [][]*int
 }
@@ -63,7 +67,7 @@ func (s *checkSelection) observe(command string, result ran) {
 	if s == nil {
 		return
 	}
-	s.flaky, s.exits = append(s.flaky, result.flaky...), append(s.exits, result.exits...)
+	s.flaky, s.exits, s.unnamed = append(s.flaky, result.flaky...), append(s.exits, result.exits...), s.unnamed || result.unnamed
 	if len(result.reds) > 0 {
 		s.reds = append(s.reds, run.Fields("command", command, "tests", toList(result.reds)))
 	}

@@ -30,20 +30,6 @@ func noDeadLoops() bool {
 	})
 }
 
-// Silent running loops need Python's stall clocks, and a slot waiter that died its restart; a
-// parked run's notice is tellParked's.
-func noStallRecovery() bool {
-	return run.Every(func(dir string, record *run.Object) bool {
-		switch record.Str("state") {
-		case "running":
-			return notSilent(dir, record) || run.ResumeOrdered(record, epoch(time.Now())) && !run.ProcessActive(record)
-		case "queued":
-			return !record.Truthy("slot_waiting") || run.ProcessActive(record) || run.ResumeOrdered(record, epoch(time.Now()))
-		}
-		return true
-	})
-}
-
 // The tick's resume of an exhausted run picks within a seat's own selection where the tick runs
 // in one, which Go does not read yet.
 func unseated() bool { return os.Getenv("AGENTKIT_SESSION") == "" }

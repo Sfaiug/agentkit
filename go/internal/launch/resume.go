@@ -10,7 +10,6 @@ import (
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
-	"agentkit/internal/helper"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
@@ -18,13 +17,31 @@ import (
 )
 
 func resume(id string, bg bool, expected *run.Object, order func(*run.Object), noted func(), out, errOut io.Writer) (int, string, error) {
+	took, code, why, err := take(id, expected, order, false)
+	if took == nil {
+		return code, why, err
+	}
+	return took.carry(order, noted, bg, out, errOut)
+}
+
+// A taken is a resume Go carries out: the run's directory and its record as read and as the
+// resume's order leaves it.
+type taken struct {
+	dir          string
+	read, record *run.Object
+}
+
+// take is whether Go's resume takes the run up, decided before anything is written: nil with its
+// refusal, or ErrPython where the resume is Python's.  live is a loop the caller ends once it is
+// taken, which refuses nothing.
+func take(id string, expected *run.Object, order func(*run.Object), live bool) (*taken, int, string, error) {
 	dir := filepath.Join(run.Runs(), id)
 	record, _ := run.Read(dir)
 	if expected != nil && !run.Equal(record, expected) {
-		return 2, loop.ErrChanged.Error(), nil
+		return nil, 2, loop.ErrChanged.Error(), nil
 	}
 	if !reached(dir, record) {
-		return 0, "", ErrPython
+		return nil, 0, "", ErrPython
 	}
 	read := record
 	if order != nil {
@@ -33,16 +50,23 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 		order(record)
 	}
 	switch state := record.Str("state"); {
-	case run.Active(record) && run.ProcessActive(record):
-		return 2, fmt.Sprintf("%s is still running as pid %s", id, run.Field(record, "pid", "None")), nil
+	case !live && run.Active(record) && run.ProcessActive(record):
+		return nil, 2, fmt.Sprintf("%s is still running as pid %s", id, run.Field(record, "pid", "None")), nil
 	case state == "blocked":
-		return 2, "blocked runs are not resumed; the orchestrator writes a new task", nil
+		return nil, 2, "blocked runs are not resumed; the orchestrator writes a new task", nil
 	case state == "stopped":
-		return 2, "stopped runs are not resumed; start a new task from its branch", nil
+		return nil, 2, "stopped runs are not resumed; start a new task from its branch", nil
 	}
 	if !goesOn(dir, read, record) {
-		return 0, "", ErrPython
+		return nil, 0, "", ErrPython
 	}
+	return &taken{dir, read, record}, 0, "", nil
+}
+
+// carry carries the taken resume out, order landing with its write.
+func (took taken) carry(order func(*run.Object), noted func(), bg bool, out, errOut io.Writer) (int, string, error) {
+	dir, read, record := took.dir, took.read, took.record
+	id := filepath.Base(dir)
 	if dry := loop.Dry(record); dry != "" {
 		return parkDry(dir, read, order, dry, out)
 	}
@@ -100,7 +124,7 @@ func goesOn(dir string, read, record *run.Object) bool {
 	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil {
 		return false
 	}
-	return driverHere() && !(record.Truthy("repo") && helper.May()) && pollsHere(record) &&
+	return driverHere() && !(record.Truthy("repo") && machined()) && pollsHere(record) &&
 		(loop.Pickup(dir, record) || loop.Woken(record) || loop.Unstarted(record) && launchStands(dir, record) ||
 			loop.Raised(dir, read, record))
 }

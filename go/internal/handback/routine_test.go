@@ -42,7 +42,7 @@ func TestRoutineEndingsRecordOrRideWithoutTyping(t *testing.T) {
 					os.MkdirAll(other, 0o700)
 					run.Create(other, run.Fields("state", "running", "launched_session", "acme", "plan_line", "API ships · written 2026-10-23 09:00"))
 				}
-				Give(dir, func(string) {})
+				Give(dir, nil, func(string) {})
 				_, typed := os.Stat(filepath.Join(home, "typed"))
 				if (typed == nil) != (route == "ends wait") {
 					t.Fatalf("route %s attempted typing: %v", route, typed == nil)

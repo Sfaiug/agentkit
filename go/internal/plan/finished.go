@@ -39,10 +39,11 @@ func open(line string) bool {
 	return boxed(line) && !(strings.HasPrefix(line, "- [x] ") && !planned.MatchString(line))
 }
 
-// Finished is whether the seat's plan holds done work and owes none, as plan.finished reads it:
-// the seat's work is done, which ak reads and nobody declares.  No plan, one nothing can read
-// and one owing an open line are not; ErrUnread where only open deferred lines stand in the way,
-// which Python owes only while no run has them (`taken`).
+// Finished is whether the seat's plan holds done work and owes none, nor the done check a plan
+// with every line done owes (checkOwed), as plan.finished reads it: the seat's work is done, which
+// ak reads and nobody declares.  No plan, one nothing can read and one owing an open line or its
+// check are not; ErrUnread where only open deferred lines stand in the way, which Python owes only
+// while no run has them (`taken`), or where Go cannot weigh the check.
 func Finished(name string) (bool, error) {
 	lines, err := read(name)
 	if err != nil {
@@ -63,5 +64,6 @@ func Finished(name string) (bool, error) {
 	if done && deferred {
 		return false, ErrUnread
 	}
-	return done, nil
+	owes, err := checkOwed(name, lines)
+	return done && !owes && err == nil, err
 }

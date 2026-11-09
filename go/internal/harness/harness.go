@@ -36,9 +36,10 @@ type plugin struct {
 	// it reads the owner's own status command from where Go prints the line (StatusFiles).
 	report func(model string) (string, error)
 	status []string
-	// conversation is the file a seat's record says its conversation is kept in, "" for none, and
-	// sources TokenSources'.
+	// conversation is the file a seat's record says its conversation is kept in, "" for none,
+	// readBy ReadBy's where ak gives that file a name of its own beside, and sources TokenSources'.
 	conversation func(record map[string]any) string
+	readBy       func(record map[string]any) []string
 	sources      func(record map[string]any) ([]string, bool)
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns), and
 	// resumable whether the seat owns one it may resume, where its own evidence says so, not its
@@ -82,8 +83,10 @@ type plugin struct {
 	card  func(conversation string) (hookfact.Fact, bool)
 	said  func(conversation string) []Turn
 	typed func(conversation string) []Prompt
-	// answered is Answered's: nil where Go reads neither that conversation nor its cards' answers.
+	// answered is Answered's: nil where Go reads neither that conversation nor its cards' answers,
+	// and loose where it reads a record naming them less strictly than Python's done check does.
 	answered func(record map[string]any) ([]Turn, []Card, error)
+	loose    bool
 	// anew is whether Go opens only new seats of this harness, leaving reopening them to Python.
 	anew bool
 	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title

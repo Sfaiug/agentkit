@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agentkit/internal/history"
+	"agentkit/internal/launch"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
@@ -23,7 +24,7 @@ func gateLine() (string, bool) {
 	if !read {
 		return "", false
 	}
-	behind, read := run.SlotQueue()
+	behind, read := launch.SlotQueue()
 	if !read {
 		return "", false
 	}

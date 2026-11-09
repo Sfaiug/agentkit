@@ -38,19 +38,23 @@ func OwnerMessages(name string) (string, []transcript.Prompt, error) {
 	if record == nil {
 		return "", nil, nil
 	}
-	return ownerIn(current, config.SeatHarness(current), record, "")
+	return ownerIn(current, config.SeatHarness(current), record, "", false)
 }
 
 // ownerIn is OwnerMessages of the conversation the seat's record names, as that harness keeps it:
-// the named one where the caller knows it (transcript.Typed).
-func ownerIn(current, kind string, record map[string]any, named string) (string, []transcript.Prompt, error) {
-	owned, messages, known := transcript.Typed(kind, record, named)
+// the named one where the caller knows it (transcript.Typed).  Strictly, a conversation that is
+// there and cannot be read is the error, never the owner saying nothing (harness.unread).
+func ownerIn(current, kind string, record map[string]any, named string, strictly bool) (string, []transcript.Prompt, error) {
+	owned, messages, known, err := transcript.Typed(kind, record, named)
 	if !known {
 		return "", nil, ErrUnread
 	}
+	if strictly && err != nil {
+		return "", nil, err
+	}
 	conversation, _ := owned.(string)
 	matched, ours := make([]bool, len(messages)), make([]bool, len(messages))
-	err := harness.Entries(filepath.Join(config.Home(), "state", config.SeatFileNames(current)["input"]), func(sent *run.Object) {
+	err = harness.Entries(filepath.Join(config.Home(), "state", config.SeatFileNames(current)["input"]), func(sent *run.Object) {
 		after, dated := sent.Num("after")
 		if !dated || sent.Str("harness") != kind || harness.WentInto(kind, sent) != conversation {
 			return

@@ -142,20 +142,38 @@ def need(mb_per_cpu, work="tests"):
 
 
 def said(mb_per_cpu):
-    """`ak doctor`'s lines: the tick's last answer while ak may rent, else `best`'s."""
+    """`ak doctor`'s lines: the tick's last answer while ak may rent, else `best`'s of the price
+    list the tick last kept, Google's own only while it kept none: a listing takes a minute, more
+    than ak's live probe, which runs `ak doctor`, may take."""
     active, cap = _setting()
     if not active:
-        fits = best(mb_per_cpu, offers())
-        return [f"best now {fits[0]}" if fits else "nothing offered"]
+        at, offered = _kept()
+        if not offered or not _amount(at):
+            at, offered = _now(), offers()
+        fits = best(mb_per_cpu, offered)
+        return [f"best now {fits[0]}{_as_of(at, FRESH_FOR)}" if fits else "nothing offered"]
     ledger, late = _ledger(), config._read_json(config.STATE / LATE) or []
     if ledger is None:
         return [f"cannot read {config.tilde(config.STATE / LEDGER)}: all machines go back", *late]
     if not (at := ledger["answered"]):
         return ["Google has not answered the tick yet"]
-    since = f" as of {time.strftime('%-d %b %H:%M', time.localtime(at))}"
     running = sum("from" not in one for one in ledger["machines"].values())
     return [f"{running} running · €{ledger['spent']:.2f} of €{cap:.2f} this "
-            f"month{since * (_now() - at > 2 * PASS)}", *late]
+            f"month{_as_of(at, 2 * PASS)}", *late]
+
+
+def _as_of(at, fresh):
+    """When an answer was given, for one given more than `fresh` seconds ago."""
+    return f" as of {time.strftime('%-d %b %H:%M', time.localtime(at))}" * (_now() - at > fresh)
+
+
+def _kept():
+    """When the tick last kept the price list, and its offers: (0, []) for none it can read."""
+    try:
+        kept = json.loads((config.STATE / OFFERS).read_text())
+        return kept["at"], [Offer(*one) for one in kept["offers"]]
+    except (OSError, ValueError, TypeError, KeyError):
+        return 0, []
 
 
 def summary(count=True):
@@ -184,11 +202,7 @@ def watch():
     if (not active or not work) and not (config.SECRETS / KEY).exists():
         return
     listed, now = rented(), _now()
-    try:
-        kept = json.loads((config.STATE / OFFERS).read_text())
-        at, offered = kept["at"], [Offer(*one) for one in kept["offers"]]
-    except (OSError, ValueError, TypeError, KeyError):
-        at, offered = 0, []
+    at, offered = _kept()
     prices = {(one.name, one.region): one.hourly for one in offered if _amount(one.hourly)}
     ledger, late = (read := _ledger()) and _moved(read, listed, now, prices), []
     try:

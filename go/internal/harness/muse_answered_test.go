@@ -66,9 +66,9 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 		museLogs(t, "acme", append(each.entries, museEvent("kind", "started", "prompt", "Lay out acme."))...)
 		// the seat's receipt names the session, and a record of one the seat left names it itself
 		for _, record := range []map[string]any{record, {"conversation": "acme"}} {
-			said, cards, known, err := Answered("muse", record)
-			if !known || err != nil || !reflect.DeepEqual(cards, each.want) || !reflect.DeepEqual(said, []Turn{{"user", "Lay out acme."}}) {
-				t.Errorf("%s %v: %v %v %+v %+v, want %+v", each.why, record, known, err, said, cards, each.want)
+			said, cards, err := Answered("muse", record)
+			if !Reads("muse", false) || Reads("muse", true) || err != nil || !reflect.DeepEqual(cards, each.want) || !reflect.DeepEqual(said, []Turn{{"user", "Lay out acme."}}) {
+				t.Errorf("%s %v: %v %+v %+v, want %+v", each.why, record, err, said, cards, each.want)
 			}
 		}
 	}
@@ -81,7 +81,7 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if said, _, _, err := Answered("muse", record); err != nil || len(said) != 1 {
+	if said, _, err := Answered("muse", record); err != nil || len(said) != 1 {
 		t.Errorf("a stray file: %+v %v", said, err)
 	}
 	for _, hidden := range []string{log, filepath.Dir(log), filepath.Dir(filepath.Dir(log)), sessions} {
@@ -89,7 +89,7 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, readable := os.ReadFile(log)
-		_, _, _, err := Answered("muse", record)
+		_, _, err := Answered("muse", record)
 		if err := os.Chmod(hidden, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -103,7 +103,7 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 	if err := os.Mkdir(log, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := Answered("muse", record); err == nil {
+	if _, _, err := Answered("muse", record); err == nil {
 		t.Error("a log that cannot be read holds nothing")
 	}
 }

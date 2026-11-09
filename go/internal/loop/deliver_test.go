@@ -14,7 +14,7 @@ func TestARepositoryIsOneDeliveryLockHoweverItsCloneSpellsIt(t *testing.T) {
 		"file:///srv/r.git":                   "file:///srv/r.git",
 		`C:\r\x`:                              `c/\r\x`,
 	} {
-		if got := remoteKey(url); got != key {
+		if got := RemoteKey(url); got != key {
 			t.Errorf("%s: %s, not %s", url, got, key)
 		}
 	}

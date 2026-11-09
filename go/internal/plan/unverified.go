@@ -44,8 +44,9 @@ func owe(current string, more int) error {
 // unless another process verifies: that one settles once it lets go.  Every process asks once it
 // lets go of the lock, and a delivery once it counted itself owed, so none is left owed with
 // nobody verifying.  A verification that errs or could not check a line leaves the count to the
-// next delivery or `ak plan`: trying again at once would only repeat what failed.
-func settle(ctx context.Context, name string) error {
+// next delivery or `ak plan`: trying again at once would only repeat what failed.  Each
+// verification sees ready as verify gives it.
+func settle(ctx context.Context, name string, ready func(current string, lines []string) error) error {
 	for {
 		due := false
 		if err := notify.Held(ctx, name, func(current string) error {
@@ -56,7 +57,7 @@ func settle(ctx context.Context, name string) error {
 		}
 		whole := false
 		if err := verifying(ctx, name, false, func() (err error) {
-			whole, err = verify(ctx, name, "")
+			whole, err = verify(ctx, name, "", ready)
 			return err
 		}); err != nil || !whole {
 			return err

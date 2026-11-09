@@ -3,9 +3,7 @@ package cli
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -95,13 +93,6 @@ func orchCheck(args []string, out, errOut io.Writer) int {
 	return 1
 }
 
-// ownerWords is one message or answer of the owner's: when, their words, and the file of the
-// workspace that shows them.
-type ownerWords struct {
-	at           float64
-	words, shown string
-}
-
 // ownerGaps is the seat's name and the findings of one model's turn over what the seat was asked
 // and did that quote a message or answer of its owner's word for word (done_check.gaps): whether
 // a quote is the owner's is decided here, never by the model.  errLeft is a case Python carries.
@@ -127,7 +118,9 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 // gaps is ownerGaps of a seat resolved, with the fingerprint of what a check that found no gap
 // read ("" for any other end).
 func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, string, error) {
-	had, err := notify.Conversations(name)
+	// a record a harness's reader reads loosely is read, as before: only the reader deciding whether
+	// a check is owed, which ends a seat it reads as done, waits for one as strict as Python's
+	had, err := notify.Conversations(name, false)
 	if errors.Is(err, notify.ErrUnread) {
 		return nil, "", errLeft
 	} else if err != nil {
@@ -136,27 +129,12 @@ func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, 
 	if len(had) == 0 || had[len(had)-1].Name == "" {
 		return nil, "", fmt.Errorf("no seat named %s whose conversation ak can read", name)
 	}
-	// the owner's messages in each conversation, then their answers in each, oldest first
-	var owner []ownerWords
-	for _, each := range had {
-		for _, message := range each.Messages {
-			owner = append(owner, ownerWords{message.At, message.Text, message.Text})
-		}
+	said, owner, err := plan.OwnerWords(had)
+	if errors.Is(err, notify.ErrUnread) {
+		return nil, "", errLeft
+	} else if err != nil {
+		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
 	}
-	said := make([][]harness.Turn, len(had))
-	for i, each := range had {
-		turns, cards, known, err := harness.Answered(each.Harness, each.Record)
-		if !known {
-			return nil, "", errLeft
-		} else if err != nil {
-			return nil, "", fmt.Errorf("could not check %s: %w", name, err)
-		}
-		said[i] = turns
-		for _, card := range cards {
-			owner = append(owner, ownerWords{card.At, card.Answer, cardShown(card)})
-		}
-	}
-	slices.SortStableFunc(owner, func(a, b ownerWords) int { return cmp.Compare(a.at, b.at) })
 	if len(owner) == 0 {
 		return nil, "", nil // asked nothing, so nothing is missing
 	}
@@ -222,8 +200,8 @@ func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, 
 	var found []*run.Object
 	for _, row := range review.Of("finding") {
 		quote := row.Dict("evidence").Str("quote")
-		if strings.TrimFunc(quote, config.Space) != "" && slices.ContainsFunc(owner, func(each ownerWords) bool {
-			return strings.Contains(each.words, quote)
+		if strings.TrimFunc(quote, config.Space) != "" && slices.ContainsFunc(owner, func(each plan.Said) bool {
+			return strings.Contains(each.Words, quote)
 		}) {
 			found = append(found, row)
 		}
@@ -231,22 +209,7 @@ func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, 
 	if len(found) > 0 {
 		return found, "", nil
 	}
-	return nil, fingerprint(owner, lines), nil
-}
-
-// fingerprint is what a check of the owner's words against the plan's lines read, for a later
-// one to be compared with (done_check.fingerprint): each word of theirs with when it was said,
-// and the plan's box lines as plan.Checked holds them, hashed as Python's json.dumps writes them.
-func fingerprint(owner []ownerWords, lines []string) string {
-	said, checked := []any{}, []any{}
-	for _, each := range owner {
-		said = append(said, []any{run.Float(each.at), each.words})
-	}
-	for _, line := range plan.Checked(lines) {
-		checked = append(checked, line)
-	}
-	sum := sha256.Sum256([]byte(run.Line([]any{said, checked})))
-	return hex.EncodeToString(sum[:])
+	return nil, plan.Fingerprint(owner, lines), nil
 }
 
 // keep keeps what a check that found no gap read, or with "" forgets what one kept
@@ -276,10 +239,10 @@ func keep(name, read string) error {
 // file each, each conversation of the seat's, its plan's lines, each picture it kept and each run
 // it launched, read without writing anything.  errLeft where Go does not read the pictures or the
 // runs as Python does.
-func checkFiles(name string, owner []ownerWords, said [][]harness.Turn, lines []string) (map[string]string, error) {
+func checkFiles(name string, owner []plan.Said, said [][]harness.Turn, lines []string) (map[string]string, error) {
 	files := map[string]string{}
 	for n, each := range owner {
-		files[fmt.Sprintf("owner/%d.md", n+1)] = each.shown
+		files[fmt.Sprintf("owner/%d.md", n+1)] = each.Shown
 	}
 	var conversations []string
 	for _, turns := range said {
@@ -445,18 +408,4 @@ func readyReviewer(name string, record map[string]any) (string, error) {
 		return "", fmt.Errorf("none of %s's reviewers can run now", name)
 	}
 	return order[0], nil
-}
-
-// cardShown is an answer's file: the question and choices the seat wrote, each choice's
-// description after its label where it has one, then the owner's answer.
-func cardShown(card harness.Card) string {
-	shown := "The seat asked on its question card: " + card.Question + "\n"
-	for _, choice := range card.Choices {
-		shown += "- " + choice.Label
-		if choice.Description != "" {
-			shown += ": " + choice.Description
-		}
-		shown += "\n"
-	}
-	return shown + "\nThe owner answered:\n" + card.Answer + "\n"
 }

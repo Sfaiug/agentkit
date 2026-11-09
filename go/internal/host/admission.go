@@ -74,8 +74,8 @@ func (r Readings) Unsteady() string {
 // against both memory gates.  An unreadable gate holds nothing.  peak is asked only where the
 // slice's or a unit's memory is read.
 func (r Readings) wait(minimum, maximum float64, peak func() (float64, bool, error), frozen int, starting Starting) (string, string, error) {
-	if free, ok := r.Number("free_mb", "mem_available_mb", "mem_available"); minimum != 0 && ok && free-starting.MB < minimum {
-		return fmt.Sprintf("waiting for memory · %s G free%s, needs %s G", G(free, true), starting.still(), G(minimum, true)), "memory", nil
+	if reason, kind := r.short(minimum, starting); reason != "" {
+		return reason, kind, nil
 	}
 	if load, ok := r.Number("load", "load1", "load_1m"); maximum != 0 && ok && load+float64(frozen) > maximum {
 		if frozen == 0 {
@@ -87,9 +87,8 @@ func (r Readings) wait(minimum, maximum float64, peak func() (float64, bool, err
 		}
 		return fmt.Sprintf("waiting for the host to calm · load %s + %d frozen %s, limit %s", Short(load), frozen, noun, Short(maximum)), "load", nil
 	}
-	if pressure, ok := r.Number("slice_memory_pressure"); ok && pressure > memoryPressureLimit {
-		ours, _ := r.sliceOrUnitMemory()
-		return fmt.Sprintf("waiting for ak's memory · pressure %s%%, limit %d%%%s", Short(pressure), memoryPressureLimit, ours.inSwap()), "unit memory", nil
+	if reason, kind := r.pressed(); reason != "" {
+		return reason, kind, nil
 	}
 	unit, ok := r.sliceOrUnitMemory()
 	if !ok {

@@ -100,15 +100,33 @@ func removeEntry(path string) (bool, error) {
 }
 
 // takeConversation ends a conversation its harness's own way, nil where that way is Python's.
-func takeConversation(name, path string) func(*collection) (bool, error) {
+func takeConversation(name, path, conversation string) func(*collection) (bool, error) {
 	if _, ours, err := harness.ConversationParts(name, path); !ours || err != nil {
 		return nil
 	}
+	return balking(name, func() (bool, error) { return endConversation(name, path, conversation) })
+}
+
+// takeIdle ends a conversation kept as rows of its harness's database its harness's own way, only
+// while that database is ours, reached through no link, names it idle still and no seat holds it,
+// the seats read again now (gc.cmd_gc).
+func takeIdle(idle harness.Idle) func(*collection) (bool, error) {
+	return balking(idle.Harness, func() (bool, error) {
+		return harness.EndIdle(idle, func(database string) bool {
+			now, known := harness.IdleConversations(epoch() - runAge)
+			return safe(database) && known && slices.Contains(now, idle) && (&reads{}).free(idle.Harness, idle.ID)
+		})
+	})
+}
+
+// balking is that end of a conversation of that harness, skipped once its harness's own way
+// failed this pass.
+func balking(name string, end func() (bool, error)) func(*collection) (bool, error) {
 	return func(c *collection) (bool, error) {
 		if c.balked[name] {
 			return false, nil
 		}
-		done, err := endConversation(name, path)
+		done, err := end()
 		if err != nil {
 			c.balked[name] = true // one failure a pass, not one a conversation
 		}
@@ -117,16 +135,16 @@ func takeConversation(name, path string) func(*collection) (bool, error) {
 }
 
 // endConversation takes what the harness keeps of a conversation, then the conversation, only
-// while it is still stale and each part ours, reached through no link and held by nobody
-// (harness.end_conversation, gc.conversation_ends).
-func endConversation(name, path string) (bool, error) {
+// while it is still stale, no seat holds it, the seats read again now, and each part is ours,
+// reached through no link and held by nobody (harness.end_conversation, gc.conversation_ends).
+func endConversation(name, path, conversation string) (bool, error) {
 	parts, ours, err := harness.ConversationParts(name, path)
 	if !ours || err != nil {
 		return false, err
 	}
 	r := &reads{now: epoch()}
 	paths := r.every()
-	if r.conversationStale(path, paths) == "" || slices.ContainsFunc(parts, func(part string) bool {
+	if r.conversationStale(path, paths) == "" || !r.free(name, conversation) || slices.ContainsFunc(parts, func(part string) bool {
 		return !safe(part) || busy(part, paths)
 	}) {
 		return false, nil

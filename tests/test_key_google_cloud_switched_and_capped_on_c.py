@@ -1,4 +1,5 @@
-"""Cloud settings on c save at once; switching off drains rentals without losing their work.
+"""Cloud settings on c save at once; switching off drains rentals without losing their work,
+and `ak doctor` then prices from the list the tick last kept.
 
 Black-box: AK_BIN in a terminal and a boxed tick, with a fake Google and SSH idle readings.
 """
@@ -153,6 +154,21 @@ class CloudSettings(unittest.TestCase):
         self.assertEqual((google.made, google.asks), ([], []))
         self.assertIn("acme-busy listed no work marked, given back", json.loads(
             (home.path / ".agentkit/state/google-cloud-late.json").read_text()))
+
+    def test_off_doctor_names_the_kept_lists_best_and_asks_google_nothing(self):
+        # a listing takes a minute, more than ak's live probe, which runs `ak doctor`, may take
+        google = Google(self.home, [[]], [{}])
+        self.addCleanup(google.close)
+        google.key()
+        for age in (60, 90_000):
+            self.home.write(".agentkit/state/google-cloud-offers.json", {"at": NOW - age, "offers": [
+                ["c4a-standard-8", "europe-west4", 8, 32768, 0.064, ["europe-west4-a"],
+                 "projects/debian-cloud/global/images/family/debian-13-arm64", "hyperdisk-balanced"]]})
+            [line] = google.rented()
+            self.assertEqual((line.split(" as of ")[0], " as of " in line), (
+                "rented machines: best now c4a-standard-8 in europe-west4 · 8 cores · 32 GB · "
+                "€0.064 an hour", age > 86_400))
+        self.assertEqual(google.asked, [])
 
     def test_off_sends_no_new_work_to_a_rental(self):
         self.config.write_text(self.config.read_text().replace("active = true", "active = false"))

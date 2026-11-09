@@ -15,16 +15,16 @@ import (
 	"agentkit/internal/run"
 )
 
-// signedOut is a home holding a project whose night failed one test, its suite tests, marked to
-// run on one model whose claude is signed out, and the night reads row read there under env: so
-// whatever this host is signed in to, Go carries the fix's launch up to its pick, which refuses
-// the run, starting no driver.  What the row logged, and its error.
-func signedOut(t *testing.T, tests string, env map[string]string) (ak, said string, err error) {
+// signedOut is a home holding a project whose night failed one test, its config.toml ending in
+// more, marked to run on one model whose claude is signed out, and the night reads row read there
+// under env: so whatever this host is signed in to, Go carries the fix's launch up to its pick,
+// which refuses the run, starting no driver.  What the row logged, and its error.
+func signedOut(t *testing.T, more string, env map[string]string) (ak, said string, err error) {
 	t.Helper()
-	ak, _ = checkoutHome(t, "---\ntests: "+tests+"\nnightly: printf '%s' "+
+	ak, _ = checkoutHome(t, "---\ntests: true\nnightly: printf '%s' "+
 		`'{"started":"night-1","passed":false,"failed":["tests/a.py::b"]}'`+"\n---\n# acme\n")
 	put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[defaults]\norchestrator = 'opus'\nworkers = ['opus']\nreviewers = ['opus']\n"+
-		"[models.opus]\nharness = 'claude'\nmodel = 'opus'\neffort = 'high'\nprovider = 'acme'\n[providers.acme]\nmode = 'subscription'\n")
+		"[models.opus]\nharness = 'claude'\nmodel = 'opus'\neffort = 'high'\nprovider = 'acme'\n[providers.acme]\nmode = 'subscription'\n"+more)
 	tool := filepath.Join(t.TempDir(), "claude")
 	put(t, tool, "#!/bin/sh\nexit 1\n")
 	if err := os.Chmod(tool, 0o700); err != nil {
@@ -43,10 +43,10 @@ func signedOut(t *testing.T, tests string, env map[string]string) (ak, said stri
 	return ak, out.String(), err
 }
 
-// A night whose fix Go leaves to Python (its suite, the fix's landing check, run in pieces) hands
-// the tick over with nothing written: no task, no file of names, no stamp.
+// A night whose fix Go leaves to Python (a machine ak may rent could take its work) hands the
+// tick over with nothing written: no task, no file of names, no stamp.
 func TestANightLeftToPythonWritesNothing(t *testing.T) {
-	ak, _, err := signedOut(t, "export AK_SHARD; true", map[string]string{"AK_RUN_DEPTH": "0", "AK_PARENT_RUN": ""})
+	ak, _, err := signedOut(t, "[google_cloud]\nactive = true\n", map[string]string{"AK_RUN_DEPTH": "0", "AK_PARENT_RUN": ""})
 	if !errors.Is(err, errLeft) {
 		t.Fatalf("carried it: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestANightLeftToPythonWritesNothing(t *testing.T) {
 // A night's fix descends from nothing that made it, whatever run the tick is under: its receipt
 // is at depth 0 with no parent, as Python's records a seat launch, refused at its pick or not.
 func TestANightFixDescendsFromNothing(t *testing.T) {
-	_, said, _ := signedOut(t, "true", map[string]string{"AK_RUN_DEPTH": "2", "AK_PARENT_RUN": "parent-run"})
+	_, said, _ := signedOut(t, "", map[string]string{"AK_RUN_DEPTH": "2", "AK_PARENT_RUN": "parent-run"})
 	found := 0
 	for _, dir := range run.Dirs() {
 		if record, _ := run.Read(dir); record != nil && record.Truthy("night") {

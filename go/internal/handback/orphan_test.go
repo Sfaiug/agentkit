@@ -41,7 +41,7 @@ func TestAnEndingOfASeatNothingIsLeftOfAsksTheOwner(t *testing.T) {
 		}
 		before, _ := run.Read(dir)
 		var said []string
-		if Give(dir, func(line string) { said = append(said, line) }) {
+		if Give(dir, nil, func(line string) { said = append(said, line) }) {
 			t.Fatal("the gone seat was told")
 		}
 		after, _ := run.Read(dir)

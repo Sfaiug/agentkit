@@ -28,7 +28,7 @@ func TestALaunchReadsItsNumbersFirstRefusingATaskWhileExecutorsAreOff(t *testing
 		{"executor_lines=0\n", off, "python"},
 		{"executor_lines=0\nreview_rounds=0\n", off, "python"},
 		{"review_rounds=0\n", "python", "python"},
-		{"orchestrator_lines='no limit'\n", "python", "python"},
+		{"executor_lines='no limit'\norchestrator_lines='no limit'\n", "", ""},
 		{"review_rounds=-1\n", "(got -1)", "(got -1)"},
 		{"rounds=2\n", "use review_rounds instead of rounds", "use review_rounds instead of rounds"},
 	} {

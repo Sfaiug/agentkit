@@ -525,12 +525,12 @@ func (r *repoPlace) mergeLock(l *loop, upstream string) (*os.File, error) {
 // is named for it.
 func (r *repoPlace) turn(upstream string) (string, error) {
 	url, err := r.git().Try("remote", "get-url", "origin")
-	return filepath.Join(run.Runs(), fmt.Sprintf(".merge-%x.lock", sha256.Sum256([]byte(remoteKey(cmp.Or(url, r.repo))+"\n"+upstream)))), err
+	return filepath.Join(run.Runs(), fmt.Sprintf(".merge-%x.lock", sha256.Sum256([]byte(RemoteKey(cmp.Or(url, r.repo))+"\n"+upstream)))), err
 }
 
-// remoteKey is `host/owner/repo` for a clone URL however it spells the repository, Python's
+// RemoteKey is `host/owner/repo` for a clone URL however it spells the repository, Python's
 // remote_key: no user, port, trailing `.git` or the case GitHub ignores.  A local path is itself.
-func remoteKey(url string) string {
+func RemoteKey(url string) string {
 	host, path := "", ""
 	if parts := scpURL.FindStringSubmatch(url); parts != nil && !strings.HasPrefix(parts[2], "//") {
 		host, path = parts[1], parts[2]

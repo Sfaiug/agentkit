@@ -83,12 +83,17 @@ type Away struct {
 
 // Start sends the suite to the machine with the most room that takes it, and on to the next where
 // one turns it away, Python's start: the Away there, or nil and why its pieces run here.  command
-// is what each piece runs there, cpus and memoryMB one piece's cost; what it has to say goes to
-// say.  A model turn's, with its own files for the parcel (turnFiles), is one piece that goes to
-// the machine with the least room that takes turns, holding its cpus there until it starts, not
-// half the machine.  Work a machine ak may rent could take is ErrPython's, before anything is sent.
-func Start(cwd string, cpus, memoryMB float64, command string, turn map[string]file, say func(string)) (*Away, string, error) {
-	return start(cwd, cpus, memoryMB, pinned(command), turn, false, say)
+// is what each piece runs there, handed times and the paths of the file changed names, "" for none
+// (pinned); cpus and memoryMB one piece's cost; what it has to say goes to say.  A model turn's,
+// with its own files for the parcel (turnFiles), is one piece that goes to the machine with the
+// least room that takes turns, holding its cpus there until it starts, not half the machine.  Work
+// a machine ak may rent could take is ErrPython's, before anything is sent.
+func Start(cwd string, cpus, memoryMB float64, command, times, changed string, turn map[string]file, say func(string)) (*Away, string, error) {
+	line, err := pinned(command, times, changed, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	return start(cwd, cpus, memoryMB, line, turn, false, say)
 }
 
 // start is Start of the line command each piece runs there, as pinned; with one, a probe's, it
@@ -120,7 +125,7 @@ func start(cwd string, cpus, memoryMB float64, command string, turn map[string]f
 	if code, base, err := g.Out("rev-parse", "--abbrev-ref", "origin/HEAD"); err == nil && code == 0 {
 		away.base = strings.TrimPrefix(base, "origin/")
 	}
-	if size := len(line("run", away.args(wide+"/"+wide, wide, wide)...)); size >= maxArg {
+	if size := len(Line("run", away.args(wide+"/"+wide, wide, wide)...)); size >= maxArg {
 		return nil, fmt.Sprintf("a piece's line to the suite helper would take %d bytes, more than one argument holds (%d, Linux's MAX_ARG_STRLEN)", size, maxArg), nil
 	}
 	if config.MayRent() {
@@ -322,22 +327,15 @@ func ask(alias string, limit time.Duration, stdin *os.File, verb string, args ..
 
 // remote is ssh running one verb there, never asking for a password, ended with ctx.
 func remote(ctx context.Context, alias, verb string, args ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", alias, line(verb, args...))
+	return exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", alias, Line(verb, args...))
 }
 
-func line(verb string, args ...string) string {
+// Line is the shell line running one verb on a machine: the remote script, every kind's functions,
+// handed to bash as mac.sh, which picks its own by `uname`.
+func Line(verb string, args ...string) string {
 	linux, _ := carried.ReadFile("linux.sh")
 	mac, _ := carried.ReadFile("mac.sh")
 	return commandhelp.ShellJoin(append([]string{"bash", "-c", string(linux) + string(mac), "mac.sh", verb}, args...))
-}
-
-// pinned is command as a piece runs it there, Python's gate.pinned with no file times or changed
-// files, as Go hands its pieces here neither: in a clone the lander's look at its checkout never
-// sees, so it checks that clone itself, and fails where it changed.
-func pinned(command string) string {
-	return "head=$(git rev-parse HEAD) && bash -c " + commandhelp.ShellJoin([]string{command}) + " || exit\n" +
-		`[ "$(git rev-parse HEAD)" = "$head" ] && git diff --quiet HEAD ||` +
-		` { echo "the piece changed the checkout it tests" >&2; exit 1; }`
 }
 
 // programs are the harness programs this host has, which piece.sh stands in for there.

@@ -33,16 +33,25 @@ func NewPainter(out io.Writer) *Painter { return &Painter{out: out} }
 // Write puts lines up on that screen, then each span over them.  Only the rows that differ from those
 // up go out, with the rows a span left or came to, and what is below is cleared after any; every
 // row, the screen below cleared, where what is up is unknown or on another screen, or once a Tick
-// has passed.  Each row is addressed, so a frame filling the screen never scrolls.  A span goes out
-// where it is not up as it is, or the row under it went out.
+// has passed.  Each row is addressed, so a frame filling the screen never scrolls.  A frame taller
+// than it goes out whole, each row ended by a newline, so the screen scrolls and keeps its last rows,
+// which addressing would stack on the last; what is up after it is unknown.  A span goes out where
+// it is not up as it is, or the row under it went out.
 func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
-	whole := !p.known || screen != p.of || time.Since(p.whole) >= Tick
+	tall := len(lines) > screen.Height()
+	whole := !p.known || screen != p.of || tall || time.Since(p.whole) >= Tick
 	left := moved(p.over, over)
 	held := func(at int) bool {
 		return !whole && at < len(lines) && at < len(p.up) && lines[at] == p.up[at] && !left[at+1]
 	}
 	var frame strings.Builder
-	if rows := differing(lines, held, screen); whole || rows != "" || len(lines) < len(p.up) {
+	if tall {
+		frame.WriteString("\x1b[H")
+		for _, line := range lines {
+			frame.WriteString(cleared(line, screen) + "\n")
+		}
+		frame.WriteString("\x1b[J")
+	} else if rows := differing(lines, held, screen); whole || rows != "" || len(lines) < len(p.up) {
 		frame.WriteString(rows)
 		// Addressing a row past the last lands on the last, where a clear would erase it.
 		if len(lines) < screen.Height() {
@@ -61,7 +70,7 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	if whole {
 		p.whole = time.Now()
 	}
-	p.up, p.over, p.of, p.known = slices.Clone(lines), slices.Clone(over), screen, true
+	p.up, p.over, p.of, p.known = slices.Clone(lines), slices.Clone(over), screen, !tall
 }
 
 // Forget has the next Write go out whatever is up: a resize or a return from a stop leaves the

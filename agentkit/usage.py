@@ -1847,13 +1847,20 @@ def render(cfg, providers, order, *, repo=None):
                       terminal.wrap(line, width)))
 
 
-def plan_weeks(cfg, providers, now, over=SPENT_OVER):
+def plan_weeks(cfg, providers, now):
     """{provider: {account: `spend.weeks`'s fit}} of each login of `providers` (`_accounts`), from
-    the readings of its shared week over the `over` seconds up to `now`."""
+    the readings of its shared week over the SPENT_OVER seconds up to `now`."""
+    fits = _weeks(cfg, providers, [(now - SPENT_OVER, now)])
+    return {name: week for name, [week] in fits.items()}
+
+
+def _weeks(cfg, providers, windows):
+    """{provider: [`plan_weeks`'s {account: fit} of each of `windows`, (since, until) each, from
+    the readings in it]}, every window of a provider priced in one `spend.weeks`."""
     logins = [(name, account, (shared_week(cfg, name, prov) or {}).get("name"))
               for _, name, prov, account in _accounts(cfg, providers)]
     return {name: spend.weeks(cfg, name, {account: meter for of, account, meter in logins
-                                          if of == name}, now - over, now)
+                                          if of == name}, windows)
             for name in providers}
 
 
@@ -1863,13 +1870,14 @@ def plan_checks(cfg, providers, now):
     (`plan_weeks` over that day) and had a week in the seven days before -- the points it rose
     by, `rose`, against those that week foretold for what bought them, `predicted`.  Each is
     the plan's number as ak knew it then, against a day it had not seen."""
+    days = [(now - (n + 1) * 86400, now - n * 86400) for n in range(6, -1, -1)]
+    windows = [window for since, until in days
+               for window in ((since - SPENT_OVER, since), (since, until))]
     checks = {}
-    for days in range(6, -1, -1):
-        until = now - days * 86400
-        before = plan_weeks(cfg, providers, until - 86400)
-        for name, fits in plan_weeks(cfg, providers, until, 86400).items():
-            for account, (_, _, rose, spent) in fits.items():
-                week = before[name][account][1]
+    for name, fits in _weeks(cfg, providers, windows).items():
+        for (_, until), before, day in zip(days, fits[::2], fits[1::2]):
+            for account, (_, _, rose, spent) in day.items():
+                week = before[account][1]
                 found = checks.setdefault(name, {}).setdefault(account, [])
                 if rose and week is not None:
                     found.append({"until": until, "rose": rose, "predicted": 100 * spent / week})

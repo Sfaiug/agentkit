@@ -17,7 +17,7 @@ import (
 func TestADeclinedResumeLeavesPythonAnUnthrottledWait(t *testing.T) {
 	dir, record, tick := waiter(t)
 	ak := filepath.Dir(filepath.Dir(dir))
-	put(t, filepath.Join(ak, "config.toml"), "suite_helper='builder'\n[defaults]\nworkers=['opus','astra']\n[models.opus]\nharness='claude'\nmodel='opus'\neffort='high'\nprovider='anthropic'\n[models.astra]\nharness='codex'\nmodel='astra'\neffort='high'\nprovider='openai'\n[providers.anthropic]\nmode='subscription'\n[providers.openai]\nmode='subscription'\n")
+	put(t, filepath.Join(ak, "config.toml"), "[defaults]\nworkers=['opus','astra']\n[models.opus]\nharness='claude'\nmodel='opus'\neffort='high'\nprovider='anthropic'\n[models.astra]\nharness='codex'\nmodel='astra'\neffort='high'\nprovider='openai'\n[providers.anthropic]\nmode='subscription'\n[providers.openai]\nmode='subscription'\n[google_cloud]\nactive=true\n")
 	t.Setenv("AK_MAX_RUNS", "0")
 	t.Setenv("AK_RUN_DEPTH", "0")
 	t.Setenv("AGENTKIT_RUN_DIR", "")
@@ -46,7 +46,7 @@ func TestADeclinedResumeLeavesPythonAnUnthrottledWait(t *testing.T) {
 	put(t, filepath.Join(dir, "run.json"), run.Line(record))
 	put(t, filepath.Join(dir, "task.md"), "# Add retry\n\n## Done when\n```bash\ntrue\n```\n")
 	if !loop.Pickup(dir, record) {
-		t.Fatal("the merge wait must be eligible before launch checks its helper")
+		t.Fatal("the merge wait must be eligible before launch checks its machines")
 	}
 	before := read(t, filepath.Join(dir, "run.json"))
 	start := time.Now()
@@ -54,7 +54,7 @@ func TestADeclinedResumeLeavesPythonAnUnthrottledWait(t *testing.T) {
 		now := start.Add(time.Duration(attempt) * 601 * time.Second)
 		tick.clock = func() time.Time { return now }
 		if err := tick.waiting(); !errors.Is(err, errLeft) {
-			t.Fatalf("did not hand the helper's resume to Python: %v", err)
+			t.Fatalf("did not hand the rentable machine's resume to Python: %v", err)
 		}
 		if read(t, filepath.Join(dir, "run.json")) != before {
 			t.Fatal("declined resume rewrote or throttled Python's wait")

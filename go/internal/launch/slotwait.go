@@ -58,6 +58,9 @@ func waitSlot(ctx context.Context, dir string) error {
 			if decided, err = decide(waiting); err != nil {
 				return err
 			}
+			if decided.leftToPython(waiting) {
+				return ErrPython
+			}
 			decided.settle(waiting)
 			record = waiting
 			return decided.save()
@@ -80,14 +83,19 @@ func waitSlot(ctx context.Context, dir string) error {
 	}
 }
 
-// waited puts first in the run's log that it waited for its slot, where a gate held it, and how
-// long, and says so: the log's start is the launch's own, and its driver writes to it as it goes.
+// waited puts first in the run's log that it waited for its slot, where a gate held it, how long,
+// and the gate it went past on a stall, and says so: the log's start is the launch's own, and its
+// driver writes to it as it goes.
 func waited(dir string, record *run.Object, kind string) error {
 	if !record.Truthy("slot_waited") {
 		return nil
 	}
 	queued, _ := record.Num("queued_at")
-	line := fmt.Sprintf("waited %d min for a slot (%s)\n", max(0, int((now()-queued)/60)), kind)
+	stall := ""
+	if record.Truthy("slot_stall") {
+		stall = " · " + record.Str("slot_stall")
+	}
+	line := fmt.Sprintf("waited %d min for a slot (%s)%s\n", max(0, int((now()-queued)/60)), kind, stall)
 	log, err := os.OpenFile(filepath.Join(dir, "log.txt"), os.O_RDWR, 0)
 	if err != nil {
 		return err

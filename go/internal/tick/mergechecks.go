@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
@@ -90,17 +89,9 @@ func pythons(record *run.Object, now float64) bool {
 	return !passedBefore(record, now) && (record.Truthy("deployed") || record.Truthy("health") && record.Dict("health") == nil)
 }
 
-// noMergeWork is a dry tick's read: no episode kept, and no merge but passes told before.
-func noMergeWork() bool {
-	state, ok := loadState()
-	now := epoch(time.Now())
-	return ok && len(state.Dict("after_merge").Keys()) == 0 && run.Every(func(_ string, record *run.Object) bool {
-		return followed(record, now) == "" || passedBefore(record, now) || toldInside(record, now)
-	})
-}
-
 // mergeChecks reads each followed merge's verdict off its run, keeping its commit there once,
-// under the run's lock, and then each repository's break (breaks).
+// under the run's lock, and then each repository's break (breaks). A dry tick decides the same,
+// and says what it would probe, record and hand back.
 func (t *ticking) mergeChecks() error {
 	now := epoch(t.clock())
 	grouped := map[string][]*merge{}
@@ -164,7 +155,7 @@ func (t *ticking) verdict(each *merge, key string, now float64, probes map[[2]st
 			return nil
 		}
 	}
-	return mergeHealth(each, key, now, probes, t.log.line)
+	return mergeHealth(each, key, now, probes, t.log.line, t.dry)
 }
 
 // recordedSHA is the merge commit the run holds, "" for none (after_merge_sha).

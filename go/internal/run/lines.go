@@ -114,14 +114,14 @@ func clock(at float64, layout string) string {
 	return time.Unix(0, int64(at*1e9)).Format(layout)
 }
 
-// AgeSeconds is what the age column reads: an interruption's age, a live run's, else how
-// long it ran.
+// AgeSeconds is what the age column reads: an interruption's age, a live run's or one's waiting
+// in its landing line, else how long it ran.
 func AgeSeconds(record *Object, now time.Time) float64 {
 	started := FirstNumber(record, "started_at")
 	switch {
 	case NeedsRecovery(record):
 		return max(0, seconds(now)-firstNonZero(FirstNumber(record, "interrupted_at"), started, seconds(now)))
-	case Active(record):
+	case Active(record) || LandingLine(record) != "":
 		return max(0, seconds(now)-firstNonZero(started, seconds(now)))
 	case started == 0:
 		return 0

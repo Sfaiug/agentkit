@@ -78,6 +78,10 @@ func TestAnAntigravityClaimIsWrittenOnlyByACommandGoCarries(t *testing.T) {
 		path, token, agy := launch(t)
 		t.Setenv("AGENTKIT_SESSION", "acme")
 		write(t, filepath.Join(filepath.Dir(path), "plan-acme.md"), "- [x] Merge the parser\n")
+		// with the done check on, whether a finished plan is done is Python's (plan.checkOwed)
+		settings := filepath.Join(filepath.Dir(filepath.Dir(path)), "config.toml")
+		kept, _ := os.ReadFile(settings)
+		write(t, settings, string(kept)+"[done_check]\non = false\n")
 		var out, errOut bytes.Buffer
 		// a done plan refuses the question once the owner's words in the conversation are read
 		if code := Main([]string{"notify", "needs", "Merge it?"}, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), "Your plan is done") {

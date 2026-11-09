@@ -30,11 +30,11 @@ func Reaches(record *run.Object) bool {
 		unread == nil
 }
 
-// Announce offers an ending through the run's own hand-back, keeping its pending mark
-// when its seat cannot take the line yet.
-func Announce(dir string, say func(string)) bool {
+// Announce offers an ending through the run's own hand-back, from census as Give reads it, keeping
+// its pending mark when its seat cannot take the line yet.
+func Announce(dir string, census []*run.Object, say func(string)) bool {
 	record, _ := run.Read(dir)
-	if record == nil || !Awaiting(record, time.Now()) || !Give(dir, say) {
+	if record == nil || !Awaiting(record, time.Now()) || !Give(dir, census, say) {
 		return false
 	}
 	if recoveryEnding(record) {

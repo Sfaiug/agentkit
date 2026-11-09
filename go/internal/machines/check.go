@@ -1,14 +1,10 @@
 package machines
 
 import (
-	"context"
 	_ "embed"
-	"fmt"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"agentkit/internal/commandhelp"
@@ -19,10 +15,7 @@ import (
 	"agentkit/internal/run"
 )
 
-const (
-	timeout = 10      // the seconds a machine that does not answer holds the tick, all of them
-	kept    = 3 * day // the checks "always on" is judged on; older ones go
-)
+const kept = 3 * day // the checks "always on" is judged on; older ones go
 
 // probe is tools/machine.sh, carried so a copied program needs no checkout beside it.
 //
@@ -78,43 +71,21 @@ func Check() error {
 func Owns(name string) bool { return name == "machines.json" || name == "machines.tmp" }
 
 // ask is what each machine printed of the probe, all asked at once, here or over ssh: "" where it
-// failed or had not answered whole by the timeout, which ends everything it started.
+// failed or had not answered whole within the tick's wait.
 func ask(names []string) []string {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Second)
-	defer cancel()
-	answers := make([]string, len(names))
-	var asking sync.WaitGroup
+	commands := make([][]string, len(names))
 	for i, name := range names {
-		command := []string{"bash", "-c", probe}
+		commands[i] = []string{"bash", "-c", probe}
 		if name != Here {
-			command = append(append([]string{"ssh", "-o", "BatchMode=yes", "-o", fmt.Sprintf("ConnectTimeout=%d", timeout)},
-				googlecloud.SSHConfig(name)...), "--", name, commandhelp.ShellJoin(command))
+			commands[i] = host.SSH(name, commandhelp.ShellJoin(commands[i]), googlecloud.SSHConfig(name)...)
 		}
-		cmd := exec.CommandContext(ctx, command[0], command[1:]...)
-		stop := host.Group(cmd)
-		var out strings.Builder
-		cmd.Stdout = &out
-		if cmd.Start() != nil {
-			continue
-		}
-		waited := make(chan error, 1)
-		go func() { waited <- cmd.Wait() }()
-		asking.Add(1)
-		go func() {
-			defer asking.Done()
-			select {
-			case err := <-waited:
-				if err == nil {
-					answers[i] = out.String()
-				}
-			// exec stops watching the deadline once the first process is gone, and a child it
-			// left holding the output would hold Wait for as long as it lives
-			case <-ctx.Done():
-				stop()
-			}
-		}()
 	}
-	asking.Wait()
+	answers := make([]string, len(names))
+	for i, said := range host.Ask(commands) {
+		if said != nil {
+			answers[i] = *said
+		}
+	}
 	return answers
 }
 

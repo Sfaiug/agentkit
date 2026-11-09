@@ -110,7 +110,7 @@ func (t *ticking) deadLoops() error {
 		}
 		t.log.line(line)
 		if action == "park" {
-			failed = loop.OfferEnding(dir, t.log.line)
+			failed = loop.OfferEnding(dir, nil, t.log.line)
 			return failed == nil
 		}
 		return true

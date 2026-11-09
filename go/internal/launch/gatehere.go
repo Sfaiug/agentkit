@@ -11,10 +11,10 @@ func gateHere(record *run.Object) bool {
 	return !gated(depth) || record.Str("state") == "queued" && record.Truthy("slot_waiting")
 }
 
-// pollsHere is whether Go decides the resumed run's next poll for its slot as Python would, asked
-// under the slots lock before the resume reads anything that writes, as its launch's preflight
-// finding origin/HEAD does.  A line that moves after is the driver's to leave to Python at that
-// poll, as at any later one (waitSlot).
+// pollsHere is whether Go decides the resumed run's next poll for its slot as Python would, and
+// carries the wait that poll leaves (leftToPython), asked under the slots lock before the resume
+// reads anything that writes, as its launch's preflight finding origin/HEAD does.  A line that
+// moves after is the driver's to leave to Python at that poll, as at any later one (waitSlot).
 func pollsHere(record *run.Object) bool {
 	if depth, _ := runDepth(); !gated(depth) {
 		return true
@@ -24,6 +24,6 @@ func pollsHere(record *run.Object) bool {
 		return false
 	}
 	defer slots.Close()
-	_, err = decide(record)
-	return err == nil
+	decided, err := decide(record)
+	return err == nil && !decided.leftToPython(record)
 }

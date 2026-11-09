@@ -24,7 +24,7 @@ func TestEachConversationASeatLeftIsTheOneItsEntryNames(t *testing.T) {
 	write(filepath.Join(home, ".agentkit", "state", "session-acme.json"), `{"orchestrator": "gemini",
 		"antigravity_launch": "token-now", "antigravity_open": {"launch": "token-now", "conversation": "c-now"},
 		"left": [{"harness": "antigravity", "conversation": "c-before"}]}`)
-	had, err := Conversations("acme")
+	had, err := Conversations("acme", false)
 	var names []string
 	for _, each := range had {
 		names = append(names, each.Name)

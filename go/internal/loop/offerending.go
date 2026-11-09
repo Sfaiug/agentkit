@@ -7,9 +7,10 @@ import (
 	"agentkit/internal/run"
 )
 
-// OfferEnding is the tick's offer through the driver's hand-back and checkout cleanup.
-// An interruption gets its own result before the line points its seat there.
-func OfferEnding(dir string, say func(string)) error {
+// OfferEnding is the tick's offer through the driver's hand-back and checkout cleanup, from census
+// as handback.Give reads it.  An interruption gets its own result before the line points its seat
+// there.
+func OfferEnding(dir string, census []*run.Object, say func(string)) error {
 	release, err := run.Hold(dir)
 	if err != nil {
 		return err
@@ -24,7 +25,7 @@ func OfferEnding(dir string, say func(string)) error {
 			return err
 		}
 	}
-	if handback.Announce(dir, say) {
+	if handback.Announce(dir, census, say) {
 		dropTold(dir, stampedLog{dir})
 	}
 	return nil

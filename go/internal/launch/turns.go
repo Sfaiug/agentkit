@@ -2,10 +2,8 @@ package launch
 
 import (
 	"cmp"
-	"path/filepath"
 	"slices"
 
-	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -74,11 +72,4 @@ func inTurns(waiting []*run.Object, saved map[seatKey]turn) ([]*run.Object, []tu
 		return cmp.Or(heads(a, b), cmp.Compare(rank[a], rank[b]), inLine(a, b))
 	})
 	return line, turns
-}
-
-// handedBack is whether a check of the install was handed back to a seat, whose run Python's
-// update.first_place may then put first in line: Go puts a seat's run in line only while none was.
-func handedBack() bool {
-	handed, err := filepath.Glob(filepath.Join(config.Home(), "state", "live-checks", "*-*", "handed"))
-	return err != nil || len(handed) > 0
 }

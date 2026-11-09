@@ -12,6 +12,7 @@ import (
 	"agentkit/internal/gitcall"
 	"agentkit/internal/helper"
 	"agentkit/internal/history"
+	"agentkit/internal/suitetimes"
 )
 
 // roundChecks is a round's checks, Python's gate.run_round: on the suite helper first, as one
@@ -49,7 +50,7 @@ func (l *loop) onePiece(cwd string, cmds []string, path string, rows *history.Ch
 		// each command's header is no record (`$ cmd`, then its exit): those are counted
 		lines[i] = fmt.Sprintf("printf '%%s\\n' %s && bash -c %s || exit", commandhelp.ShellJoin([]string{"--- $ " + cmd + " ---"}), commandhelp.ShellJoin([]string{cmd}))
 	}
-	away, why, err := helper.Start(cwd, cpus, memory, strings.Join(lines, "\n"), nil, func(string) {})
+	away, why, err := helper.Start(cwd, cpus, memory, strings.Join(lines, "\n"), suitetimes.Handed(cwd), "", nil, func(string) {})
 	if away == nil || err != nil {
 		return false, "", why, err
 	}

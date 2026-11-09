@@ -104,12 +104,11 @@ func TestAFixCapturesTheCurrentDefaultBranchPolicy(t *testing.T) {
 }
 
 // A fix whose project turned executors off since is refused in those words, and one that turned
-// review off or a line limit to none is Python's: Go writes no receipt for either.
+// review off is Python's: Go writes no receipt for either.
 func TestAFixGoDoesNotCarryGetsNoReceipt(t *testing.T) {
 	_, repo := repoRig(t)
 	seatLaunchFixture(t)
-	for front, why := range map[string]string{"executor_lines: 0": config.ExecutorsOff, "review_rounds: 0": "Python's to carry",
-		"executor_lines: no limit": "Python's to carry", "orchestrator_lines: no limit": "Python's to carry"} {
+	for front, why := range map[string]string{"executor_lines: 0": config.ExecutorsOff, "review_rounds: 0": "Python's to carry"} {
 		os.WriteFile(filepath.Join(repo.repo, "AGENTS.md"), []byte("---\n"+front+"\n---\n"), 0o600)
 		shell(t, repo.repo, "git add AGENTS.md && git commit -qm policy && git update-ref refs/remotes/origin/main HEAD && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main")
 		child := filepath.Join(run.Runs(), "fix")
