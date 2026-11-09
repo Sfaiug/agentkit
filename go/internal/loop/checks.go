@@ -23,6 +23,7 @@ import (
 	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
+	"agentkit/internal/suitetimes"
 )
 
 // The bound on what a model is handed of a check's output, every handing-on of it reading these:
@@ -132,7 +133,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 			shard, only := selection.request()
 			row := history.Check(rows, cmd, asked, "", l.say)
 			kills := host.MemoryEvent("oom_kill")
-			outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, at.holds(), only)
+			outcome, err = l.boxed(cwd, cmd, shard, suitetimes.Handed(cwd), remaining, progress, path, false, at.holds(), only)
 			row.End(exitOf(outcome, err))
 			goes = went(goes, outcome, err)
 			if err != nil {
@@ -235,10 +236,10 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 
 // boxed runs one command in cwd in a box, its output into progress and activity being where that
 // lands, until it ends, says nothing for the run's silence or spends limit; with a shard, as that
-// piece of its suite.  A proof keeps its bytecode apart: same-size revisions can share a
-// timestamp, making ignored bytecode look valid.  One holding a heavy-suite turn is told so, as
-// Python's suite_env tells it.
-func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.File, activity string, proof, held bool, only ...[]string) (ran, error) {
+// piece of its suite, handed times (AK_TIMES).  A proof keeps its bytecode apart: same-size
+// revisions can share a timestamp, making ignored bytecode look valid.  One holding a heavy-suite
+// turn is told so, as Python's suite_env tells it.
+func (l *loop) boxed(cwd, cmd, shard, times string, limit time.Duration, progress *os.File, activity string, proof, held bool, only ...[]string) (ran, error) {
 	out, err := os.MkdirTemp(filepath.Dir(activity), "")
 	if err != nil {
 		return ran{}, err
@@ -251,7 +252,7 @@ func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.F
 	// where a check names the tests that failed, as any command that takes part is told
 	env["AK_FAILED"] = filepath.Join(out, "AK_FAILED")
 	if shard != "" {
-		env["AK_SHARD"] = shard
+		env["AK_SHARD"], env["AK_TIMES"] = shard, times
 	}
 	if l.changed != "" {
 		env["AK_CHANGED"] = l.changed

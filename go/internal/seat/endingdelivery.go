@@ -12,9 +12,9 @@ import (
 
 // EndingDelivery is whether an ending is recorded and never typed (handback.routine_ending), or
 // rides on the seat's next prompt (handback.ending_rides); neither, it is typed.  The hand-back, a
-// look and a maintainer's merge use the same read of its plan and wait, the look with the census
-// its runs were read in.  A line already in the composer, or a read Go cannot make, leaves it
-// pending.
+// look and a maintainer's merge use the same read of its plan and wait, the look and the tick's
+// offer with the census its runs were read in.  A line already in the composer, or a read Go
+// cannot make, leaves it pending.
 func EndingDelivery(record *run.Object, census []*run.Object, session string) (recordOnly, pending bool) {
 	if inOrder(record) {
 		return true, false // its job's one line says it
