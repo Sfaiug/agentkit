@@ -313,7 +313,7 @@ test_key_no_run_is_parked
 test_key_nothing_cut
 test_key_notice_hook
 test_key_notify_dry_run
-test_key_notify_from_worker
+test_key_notify_from_worker AWorkersNotify
 test_key_notify_mentions
 test_key_notify_needs_card
 test_key_notify_other_seat
