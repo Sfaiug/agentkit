@@ -57,16 +57,8 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	if !typable(own) {
 		return false
 	}
-	if pane == "" {
-		pane = "=" + name + ":"
-	}
-	pin := func(target string) ([]string, error) {
-		said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", target, "#{pane_id}\t#{session_created}\t#{pane_pid}")
-		return append(strings.Split(said, "\t"), "", ""), err
-	}
-	fields, err := pin(pane)
-	pane = fields[0]
-	if err != nil || !paneID.MatchString(pane) {
+	pane, born, pid, found := linePane(name, pane)
+	if !found {
 		return false
 	}
 	// A launch holding the send lock may respawn the pane while this pass waits for it: under the
@@ -74,27 +66,27 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	// pane linked into two sessions may answer with the other's.
 	held := stale
 	stale = func(current string) bool {
-		now, err := pin(pane)
-		return held(current) || err != nil || now[0] != pane || now[2] != fields[2]
+		now, _, running, found := linePane(name, pane)
+		return held(current) || !found || now != pane || running != pid
 	}
 	text := keyed(line)
 	// The birth is in whole seconds and a pane respawned in place keeps it: the pane's process
 	// tells a harness started since, its composer empty, from the one the line went into.
-	mark := run.Fields("line", text, "seat", created(fields[1]))
-	if pid, err := strconv.Atoi(fields[2]); err == nil {
-		mark.Set("pid", pid)
+	mark := run.Fields("line", text, "seat", created(born))
+	if process, err := strconv.Atoi(pid); err == nil {
+		mark.Set("pid", process)
 	}
 	at := seatAt{name, own, pane}
 	if typed != nil && run.Equal(typed, mark) {
 		return at.finishTyped(text, stale, log)
 	}
-	if held, drawn := at.composer(); !drawn || held != "" || !at.takesLine() {
+	if !at.open() {
 		return false
 	}
 	ready := func() bool { return at.holds(text) == "line" }
-	err = notify.Held(context.Background(), name, func(current string) error {
+	err := notify.Held(context.Background(), name, func(current string) error {
 		at.name = current
-		if stale(current) || !at.quiet() || at.unasked() || at.editorKept() || at.unread() || at.offComposer() {
+		if stale(current) || !at.settled() {
 			return errUntyped
 		}
 		entry := typingReceipt(own, record, text)
@@ -145,6 +137,29 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 		}
 	}
 	return at.holds(text) == "empty" && !at.unread()
+}
+
+// linePane is the pane a line goes into, "" naming the seat's window's own, as tmux says it now: its
+// id, when its session was made and the process it runs; false where tmux names none.
+func linePane(name, pane string) (string, string, string, bool) {
+	if pane == "" {
+		pane = "=" + name + ":"
+	}
+	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_id}\t#{session_created}\t#{pane_pid}")
+	fields := append(strings.Split(said, "\t"), "", "")
+	return fields[0], fields[1], fields[2], err == nil && paneID.MatchString(fields[0])
+}
+
+// open is whether the seat's composer reads empty at a prompt that takes a line.
+func (at seatAt) open() bool {
+	held, drawn := at.composer()
+	return drawn && held == "" && at.takesLine()
+}
+
+// settled is whether a line typed now goes in whole: the seat quiet, no question kept back for it,
+// no text of it in ak's editor, no input its reader has not read, and the cursor on its composer.
+func (at seatAt) settled() bool {
+	return at.quiet() && !at.unasked() && !at.editorKept() && !at.unread() && !at.offComposer()
 }
 
 // typable is a harness Go types into: one whose screen it reads as Python does, and whose
