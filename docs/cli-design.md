@@ -8,8 +8,7 @@ own.
 ## Frame
 
 Every screen has the same frame. The header is one line: `agentkit` at the left with the
-screen's name after it, and the clock at the right. A name too wide sheds its first parts,
-where you came from, before what is left is cut. Under it comes one dim rule, then the
+screen's name after it, and the clock at the right. Under it comes one dim rule, then the
 screen's rows, one blank line, and the key line, always last. On the main screen and on
 `c`, the usage sits under the header.
 The rule is ak's one progress indicator. It fills while ak updates itself, and a segment
