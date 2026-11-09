@@ -1,6 +1,7 @@
 """A live check of a commit shadows Go on its home before its suite: tests/live.sh runs
 tests/shadow.py's previews there, writes what each found to the check's shadow.json, and exits as
-its suite does; run as a harness gate, it shadows nothing.
+its suite does; run as a harness gate, or with `AK_LIVE_FAILED` naming anything but
+`<check>/failed`, it shadows nothing.
 
 On an akinstall Home, each case commits this checkout's tests/live.sh and tests/shadow.py, with
 what they import, beside a stand-in tests/smoke.sh exiting as the case picks, and runs the check
@@ -48,10 +49,10 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
         self.addCleanup(self.home.close)
         self.seed = Install(self.home).seed
 
-    def live(self, suite, more, failed=None):
+    def live(self, suite, more, failed="failed"):
         """Run the live check of a commit whose suite exits `suite`, its Go built with `more`
-        (None: no Go builds), and `AK_LIVE_FAILED` at `failed` if named: what it did, and the
-        check's folder."""
+        (None: no Go builds), and `AK_LIVE_FAILED` at `failed` within the check's folder: what it
+        did, and the check's folder."""
         for name in CARRIED:
             copy = self.seed / "tests" / name
             copy.parent.mkdir(parents=True, exist_ok=True)
@@ -66,7 +67,7 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
                             log=shlex.quote(str(self.home.log("go"))))
         self.home.fake("go", logged + ("exit 1\n" if more is None else BUILD.format(more=more)))
         done = self.home.run(*self.home.box(OUTER), "bash", "tests/live.sh", cwd=check / "tree",
-                             env={"AK_LIVE_FAILED": str(failed or check / "failed")},
+                             env={"AK_LIVE_FAILED": str(check / failed)},
                              timeout=900)
         return done, check
 
@@ -109,6 +110,13 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
     def test_a_harness_gate(self):
         log = self.home.path / ".agentkit" / "update.log"
         done, _ = self.live(1, "", failed=f"{log}.failed")
+        said = done.out + done.err
+        self.assertEqual(done.code, 1, said)
+        self.assertEqual(self.home.calls("go"), [])
+        self.assertEqual(list(self.home.path.rglob("shadow.json")), [])
+
+    def test_the_check_folder_itself(self):
+        done, _ = self.live(1, "", failed=".")
         said = done.out + done.err
         self.assertEqual(done.code, 1, said)
         self.assertEqual(self.home.calls("go"), [])

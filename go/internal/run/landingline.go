@@ -2,10 +2,14 @@ package run
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"agentkit/internal/config"
 )
 
 // A LineMember is a run holding a place in its landing line (Member), as read.
@@ -23,7 +27,6 @@ func LineMembers(name string) []LineMember {
 			members = append(members, LineMember{dir, record})
 		}
 	}
-	green := func(wait *Object) bool { return wait.Has("land") && !wait.Has("fix") }
 	deliveries := map[string]string{}
 	for _, m := range members {
 		if wait := m.Record.Dict("waiting_on"); green(wait) {
@@ -60,22 +63,72 @@ func LineMembers(name string) []LineMember {
 	return members
 }
 
+// green is whether a member's wait is a green delivery (land.green_delivery), which only needs
+// delivering before its target moves.
+func green(wait *Object) bool { return wait.Has("land") && !wait.Has("fix") }
+
+// LandingLine is the line a waiting run waits in, "" for none (transitions.landing_line).
+func LandingLine(record *Object) string {
+	if wait := record.Dict("waiting_on"); wait != nil && record.Str("state") == "waiting" {
+		return wait.Str("line")
+	}
+	return ""
+}
+
 // LinePlace is the line under a run waiting in its landing line (status.parked_line): where it
 // stands there by its directory's name, and what it lands on; "" for one in no line.
 func LinePlace(record *Object, name string) string {
-	wait := record.Dict("waiting_on")
-	if record.Str("state") != "waiting" || wait == nil || wait.Str("line") == "" {
-		return ""
+	place, _ := LinePlaces()(record, name)
+	return place
+}
+
+// LinePlaces is LinePlace for the runs of one read, each line's members read once, and whether
+// that place is landing.line's: not in a line holding a member that is no green delivery while a
+// seat was told its next run goes first (FirstPlaceTold), as landing.line orders such a fix.
+func LinePlaces() func(record *Object, name string) (string, bool) {
+	type order struct {
+		names []string // first in line first
+		read  bool
 	}
-	members := LineMembers(wait.Str("line"))
-	place := 1 + slices.IndexFunc(members, func(m LineMember) bool { return filepath.Base(m.Dir) == name })
-	if place == 0 {
-		place = len(members) + 1
+	lines := map[string]order{}
+	return func(record *Object, name string) (string, bool) {
+		line := LandingLine(record)
+		if line == "" {
+			return "", true
+		}
+		found, seen := lines[line]
+		if !seen {
+			members := LineMembers(line)
+			found.read = !FirstPlaceTold() || !slices.ContainsFunc(members, func(m LineMember) bool {
+				return !green(m.Record.Dict("waiting_on"))
+			})
+			for _, m := range members {
+				found.names = append(found.names, filepath.Base(m.Dir))
+			}
+			lines[line] = found
+		}
+		place := 1 + slices.Index(found.names, name)
+		if place == 0 {
+			place = len(found.names) + 1
+		}
+		suffix := map[int]string{1: "st", 2: "nd", 3: "rd"}[place%10]
+		if suffix == "" || 10 <= place%100 && place%100 <= 20 {
+			suffix = "th"
+		}
+		target := strings.TrimPrefix(firstText(record, "main", "target", "base"), "origin/")
+		return fmt.Sprintf("waiting · %d%s in line to land on %s", place, suffix, target), found.read
 	}
-	suffix := map[int]string{1: "st", 2: "nd", 3: "rd"}[place%10]
-	if suffix == "" || 10 <= place%100 && place%100 <= 20 {
-		suffix = "th"
-	}
-	target := strings.TrimPrefix(firstText(record, "main", "target", "base"), "origin/")
-	return fmt.Sprintf("waiting · %d%s in line to land on %s", place, suffix, target)
+}
+
+// FirstPlaceTold is whether a check of tests/live.sh told a seat of its red that holds the
+// install, whose next run then goes first in line as its fix (Python's update.first_place, read
+// from the install's git, which Go leaves to Python); a hand-back Go cannot read may have told one.
+func FirstPlaceTold() bool {
+	// listed, not globbed: a HOME may hold a pattern's characters
+	checks := filepath.Join(config.Home(), "state", "live-checks")
+	entries, _ := os.ReadDir(checks)
+	return slices.ContainsFunc(entries, func(check os.DirEntry) bool {
+		record, err := ReadJSON(filepath.Join(checks, check.Name(), "handed"))
+		return strings.Contains(check.Name(), "-") && (record != nil && record.Has("seat") || errors.Is(err, ErrLoneSurrogate))
+	})
 }

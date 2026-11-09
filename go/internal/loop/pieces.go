@@ -118,7 +118,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 				held.Unlock()
 				at.ended, err = alone.there(at.there, at.shard, left, out)
 			} else {
-				at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, on.holds(), only)
+				at.ended, err = alone.boxed(cwd, cmd, at.shard, on.times, left, out, out.Name(), false, on.holds(), only)
 			}
 			row.End(exitOf(at.ended, err))
 			at.asked, at.exits = clock(), went(at.exits, at.ended, err)
@@ -190,7 +190,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		started.Add(1)
 		go func() {
 			defer started.Done()
-			joined = alone.grow(cwd, cpus, memory, cmd, waiting, place)
+			joined = alone.grow(cwd, cpus, memory, cmd, on.times, waiting, place)
 		}()
 	}
 	if on.holds() {
@@ -312,7 +312,7 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 			if ended.code == 0 || redRank(at.ended) < redRank(ended) {
 				ended.piece, ended.confirmed, ended.starved = at.shard, at.ended.confirmed, at.ended.starved
 			}
-			ended.code = cmp.Or(ended.code, at.ended.code)
+			ended.code, ended.unnamed = cmp.Or(ended.code, at.ended.code), ended.unnamed || len(at.ended.confirmed) == 0
 		}
 		if at.ended.starved {
 			status = "ran out of memory"
