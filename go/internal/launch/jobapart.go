@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
@@ -25,31 +24,23 @@ func detach(dir string, out io.Writer) (int, string, error) {
 	if err != nil {
 		return 0, "", err
 	}
-	capMB, err := run.MemoryCapMB(host.SliceMemoryMax())
-	if err != nil {
-		return 0, "", err
-	}
 	release, err := run.Hold(dir)
 	if err != nil {
 		return 0, "", err
 	}
 	defer release()
+	id := filepath.Base(dir)
 	receipt, err := job.Read(dir)
 	if receipt == nil {
-		return 0, "", cmp.Or(err, errors.New("job.json cannot be read"))
+		return 0, "", cmp.Or(err, errors.New(job.ReceiptPath(id)+" cannot be read"))
 	}
-	id := filepath.Base(dir)
 	child := exec.Command(self, "run", "resume", id)
 	child.Env = append(os.Environ(), "AGENTKIT_JOB_DIR="+dir)
-	pid, scope, reason, err := host.Place(child, filepath.Join(dir, "log.txt"), "agentkit-job-"+id, host.Limits(capMB, host.RunWeight), true)
+	pid, err := loop.Place(child, filepath.Join(dir, "log.txt"), "agentkit-job-"+id, true, receipt)
 	if err != nil {
 		return 2, "could not launch the job: " + err.Error(), nil
 	}
-	run.SetAll(receipt, "pid", pid, "process_identity", loop.Identity(pid), "scope", scope, "scope_reason", nil, "memory_cap_mb", capMB)
-	if scope == "none" {
-		receipt.Set("scope_reason", reason)
-		receipt.Delete("memory_cap_mb")
-	}
+	run.SetAll(receipt, "pid", pid, "process_identity", loop.Identity(pid))
 	if err := job.Write(dir, receipt); err != nil {
 		return 0, "", err
 	}
