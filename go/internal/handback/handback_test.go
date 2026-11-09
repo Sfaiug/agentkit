@@ -91,7 +91,7 @@ func TestAnEndingGoDoesNotTypeIsMarkedPendingAndSaidSo(t *testing.T) {
 			t.Fatal(err)
 		}
 		var said []string
-		if Give(dir, func(line string) { said = append(said, line) }) {
+		if Give(dir, nil, func(line string) { said = append(said, line) }) {
 			t.Fatalf("%s: told", ending.Str("state"))
 		}
 		after, _ := run.Read(dir)
@@ -134,7 +134,7 @@ func TestAnErrorTheTickWillRetryHasNoEndingToTell(t *testing.T) {
 		t.Fatal(err)
 	}
 	var said []string
-	if Give(dir, func(line string) { said = append(said, line) }) || len(said) != 0 {
+	if Give(dir, nil, func(line string) { said = append(said, line) }) || len(said) != 0 {
 		t.Fatal("a scheduled retry was handed back", said)
 	}
 }
