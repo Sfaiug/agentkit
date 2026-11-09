@@ -48,11 +48,12 @@ var (
 // composer holding text among them, which Python's own editor types past, it puts nothing in and
 // the line is the tick's.  No key goes in while the cursor is off its composer (offComposer).
 func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
-	return typeAtPane(name, "", line, typed, receipt, log, stale)
+	return typeAtPane(name, "", line, typed, receipt, log, stale, true)
 }
 
-// typeAtPane is typeAtPrompt into that pane, "" for the seat's window's own.
-func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
+// typeAtPane is typeAtPrompt into that pane, "" for the seat's window's own; alone is whether each
+// Enter waits for the composer to hold the line alone, as all but typeInto's do.
+func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool, alone bool) bool {
 	own, record := seatHarness(name)
 	if !typable(own) {
 		return false
@@ -83,7 +84,7 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	if !at.open() {
 		return false
 	}
-	ready := func() bool { return at.holds(text) == "line" }
+	ready := func() bool { return !alone || at.holds(text) == "line" }
 	err := notify.Held(context.Background(), name, func(current string) error {
 		at.name = current
 		if stale(current) || !at.settled() {

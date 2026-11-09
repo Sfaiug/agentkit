@@ -62,7 +62,7 @@ func (seat Seat) nudgeQuestion(state string, found sight, log func(string)) (sig
 		return current != seat.Name || err != nil || unread != nil || !back || !run.Equal(now, episode) ||
 			latest.found.interrupted || stopWords(eyeOf(seat.own).rules, screen.Tail(pane)) != facts.file.Str("stop_said")
 	}
-	if !typeAtPrompt(seat.Name, reminder, nil, func(*run.Object) error { return nil }, log, stale) {
+	if !typeInto(seat.Name, reminder, log, stale) {
 		return found, nil
 	}
 	if err := Write(seat.Name, "stop_nudged", episode); err != nil {
