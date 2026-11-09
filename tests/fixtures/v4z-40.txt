@@ -11,13 +11,16 @@ agentkit                           14:02
 ATOLL
   1  atoll-fix   Fable 5.1  ● working
     ──────────────────────── no plan yet
+     Opus 5.5 xhigh ⚒◎   ■□□
   2  atoll-plan  Fable 5.1  ! needs you
-     waiting for you
+     Opus 5.5 xhigh ⚒◎
 
 agentkit
   3  menu        Fable 5.1  ○ idle
+     Opus 5.5 xhigh ⚒◎
 
 newsletter-tool
   4  rent        Fable 5.1  ○ idle
+     Opus 5.5 xhigh ⚒◎
 
   n new   c config   esc leave
