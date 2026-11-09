@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -21,8 +20,6 @@ import (
 	"agentkit/internal/task"
 	"agentkit/internal/usage"
 )
-
-var namesShard = regexp.MustCompile(`\bAK_SHARD\b`)
 
 // drivable is nil where Go can drive this task's run to its end, else ErrPython, decided
 // before anything is written: a reviewer named outright, an executor no worker of its groups, a
