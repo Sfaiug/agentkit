@@ -345,6 +345,21 @@ def job_verdict_line(task, run_state=None):
     return f"{name}: FAIL after {rounds} rounds: needs you"
 
 
+def seat_line(job_dir, line):
+    """The job's `line` as its seat can be handed it (`watch.too_long`), cut as a run's notice is
+    (`handback.seat_notice`): as it is while it fits, else its reason cut at a word and the whole
+    of it in `ending.txt`, which the cut line names as its result."""
+    if not watch.too_long(line):
+        return line
+    whole = job_dir / "ending.txt"
+    whole.write_text(line + "\n")
+    tail = f"… Result: {config.tilde(whole)}. Decide the next step."
+    said = line.rpartition(". Result: ")[0][:watch.longest()]
+    while said and watch.too_long(said + tail):
+        said = said.rpartition(" ")[0]
+    return said + tail
+
+
 def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
     """Type a finished job's line into its seat: `sent`, `busy` or `gone`.
 
@@ -354,8 +369,13 @@ def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
     on the job's record and the tick types it at the next quiet prompt, because a seat still in
     its chair is never a reason to ask the owner instead.  Only `gone` is.  `typed` and
     `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the composer is
-    never typed a second time.
+    never typed a second time.  A line `watch.too_long` refuses is never typed, so it wakes no
+    seat either.
     """
+    refusal = watch.too_long(line)
+    if refusal:
+        log(f"WARN {line[:60]}… not handed to {seat}: {refusal}")
+        return "busy"
     if not sleep.wake(seat, log):
         return "busy"
     with handback.launcher_world(seat) as live:
@@ -407,6 +427,7 @@ def deliver_job_handbacks(log):
             seat = (job or {}).get("seat")
             if not line or not seat:
                 continue
+            line = seat_line(job_dir, line)
             answer = job_hand_back(seat, line, log, job.get("handback_typed"),
                                    lambda mark: mark_job_delivery(job_dir, job, handback_typed=mark))
             if answer == "busy":
@@ -1451,7 +1472,7 @@ def run_job_loop(cfg, job_dir, job):
         unstarted = ", ".join(task["name"] for task in job["tasks"] if task["state"] == "skipped")
         text = (f"job {job['job_id']}: {ender['verdict_line']}"
                 + (f"; not started: {unstarted}" if unstarted else ""))
-    line = (f"{text}. Result: {job_dir / 'log.txt'}. Decide the next step.")
+    line = seat_line(job_dir, f"{text}. Result: {job_dir / 'log.txt'}. Decide the next step.")
     # the seat that launched the job is there, so its end is the seat's to act on -- its
     # failures, and the done it says itself once the whole of its work is -- and the owner is
     # asked only once it is gone, the same rule a single run's ending obeys.  Under the job's
