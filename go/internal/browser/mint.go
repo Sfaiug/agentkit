@@ -47,10 +47,6 @@ func mint(out io.Writer, address string) (int, error) {
 	if config.EnsureDirs() != nil {
 		return 0, ErrPython // undone, for Python to fail on as it does
 	}
-	if _, err := os.Stat(filepath.Join(config.Home(), "secrets", rfbauth)); err == nil &&
-		!show(out, rfbauth+" is here but the plaintext is not, and it cannot be read back out; minting a new password") {
-		return 0, nil
-	}
 	password := ""
 	for range 16 {
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
@@ -59,10 +55,18 @@ func mint(out io.Writer, address string) (int, error) {
 		}
 		password += string(alphabet[n.Int64()])
 	}
+	sealed, err := vncauth(password)
+	if err != nil {
+		return 0, ErrPython // Python's libvncserver encrypts where Go's DES is refused
+	}
+	if _, err := os.Stat(filepath.Join(config.Home(), "secrets", rfbauth)); err == nil &&
+		!show(out, rfbauth+" is here but the plaintext is not, and it cannot be read back out; minting a new password") {
+		return 0, nil
+	}
 	if err := keep(passwords[0], []byte(password+"\n")); err != nil {
 		return 0, err
 	}
-	if err := keep(rfbauth, vncauth(password)); err != nil {
+	if err := keep(rfbauth, sealed); err != nil {
 		return 0, err
 	}
 	if restart {
@@ -92,16 +96,19 @@ func libvncserver() bool {
 // vncauth is x11vnc's file for password, libvncserver's rfbEncryptAndStorePasswd's 8 bytes: the
 // password's first 8, NUL-padded, DES-encrypted under libvncserver's fixed key.  Written here, the
 // password is on no command line, as it would be given to `x11vnc -storepasswd`.
-func vncauth(password string) []byte {
+func vncauth(password string) ([]byte, error) {
 	key := []byte{23, 82, 107, 6, 35, 78, 88, 7}
 	for i := range key {
 		key[i] = bits.Reverse8(key[i]) // libvncserver's DES reads each key byte lowest bit first
 	}
-	block, _ := des.NewCipher(key) // an 8-byte key is never refused
+	block, err := des.NewCipher(key)
+	if err != nil {
+		return nil, err // DES refused outright, as under GODEBUG=fips140=only
+	}
 	sealed := make([]byte, 8)
 	copy(sealed, password)
 	block.Encrypt(sealed, sealed)
-	return sealed
+	return sealed, nil
 }
 
 // keep puts data in the named secret as Python's browser.mint does: written owner-only beside

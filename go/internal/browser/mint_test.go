@@ -17,7 +17,11 @@ func TestAMintedPasswordIsWhatLibvncserverWrites(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := keep(rfbauth, vncauth("Kq7mW2xRt9Lp4ZaB")); err != nil {
+	sealed, err := vncauth("Kq7mW2xRt9Lp4ZaB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := keep(rfbauth, sealed); err != nil {
 		t.Fatal(err)
 	}
 	written, err := os.ReadFile(path)
