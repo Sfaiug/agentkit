@@ -111,7 +111,7 @@ RULES = [
      "home": ("adapters/", "agentkit/harness/", "config.default.toml",
               "go/internal/config/default.toml", "go/internal/config/adapters/",
               "go/internal/harness/"),
-     "max": 186},
+     "max": 184},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     # Every provider word counts, in code or comment, but none of ak's own names: the
