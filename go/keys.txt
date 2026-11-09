@@ -496,6 +496,7 @@ test_key_seat_name_normalised
 test_key_seat_pr_size_at_create
 test_key_seat_reads_waiting_ending
 test_key_seat_relay
+test_key_seat_runs_the_live_ak
 test_key_seat_shims_installed
 test_key_seat_status_bar
 test_key_seat_switches_in_place
