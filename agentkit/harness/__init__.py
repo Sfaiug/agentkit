@@ -764,10 +764,10 @@ class Harness:
         """Owner messages, oldest first, as {at: Unix seconds, text: original words}.
 
         The plugin rejects its own synthetic input. The seat's typing receipts remove
-        ak's input, each one line once, in whichever of the seat's conversations it went into
+        ak's input, a line each at most, in whichever of the seat's conversations it went into
         (`notify.conversations_of`): the one it names, else the first after it in another, as
-        a screen showing another than its record names takes it (`grokbuild.follow`).  Relayed
-        owner replies and identical later prompts stay.
+        a screen showing another than the seat's record names takes it (`grokbuild.follow`).
+        Relayed owner replies and identical later prompts stay.
         A native answer may include `replies`, the opaque ids of the questions it answers.
         """
         hook = self._hook("user_messages")
@@ -793,10 +793,12 @@ class Harness:
             if sent.get("harness") != self.name:
                 continue
             named = self.went_into(sent)
+            # another only where the one it names was read: one the seat no longer holds, or
+            # that cannot be read, may hold its line
             fits = [(into, index) for at, into, index in lines
                     if (into, index) not in taken and said[into][index]["text"] == sent.get("text")
                     and (index >= sent.get("after", math.inf) if into == named
-                         else at >= sent.get("at", math.inf))]
+                         else named in said and at >= sent.get("at", math.inf))]
             # the first in the conversation it names, else the first after it
             line = min(fits, key=lambda fit: fit[0] != named, default=None)
             if line:
