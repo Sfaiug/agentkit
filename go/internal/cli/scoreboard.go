@@ -44,11 +44,13 @@ var (
 )
 
 // A board is two weeks of history.db's ended work, as Python's scoreboard.compute reads it.
-// Seats' tokens count in none of its rows: Go reads no history where a seat keeps any.
+// Seats' tokens count in none of its rows: Go reads the board only before a seat has spent any it
+// could count (boardHistory), and names the seats it counts nothing of.
 type board struct {
 	db                                 *history.DB
 	now                                float64
 	own                                map[string]bool // what ak's own checkout is named
+	uncounted                          []string        // the seats whose tokens it counts none of
 	rows, checks, findings, conflicts  []history.Row
 	parks, owner, dones                []history.Row
 	parksKnown, ownerKnown, donesKnown bool
@@ -62,9 +64,11 @@ type measure struct {
 }
 
 // scoreboard is `--history`'s two weeks side by side, as Python's scoreboard renders them, db
-// nil where no history.db stands.
-func scoreboard(screen terminal.Screen, db *history.DB, now time.Time) []string {
-	return readScoreboard(db, now).render(screen)
+// nil where no history.db stands, beside the seats whose tokens it counts none of.
+func scoreboard(screen terminal.Screen, db *history.DB, uncounted []string, now time.Time) []string {
+	board := readScoreboard(db, now)
+	board.uncounted = uncounted
+	return board.render(screen)
 }
 
 // The tick receives the same report the history screen renders, keeping its measures here.  It
@@ -179,6 +183,9 @@ func (b *board) cells(end float64) []string {
 	tokensCell := "no tokens recorded"
 	if tokens != 0 {
 		tokensCell = thousands(tokens) + " tokens; 0 from seats"
+	}
+	if len(b.uncounted) > 0 {
+		tokensCell += "; not counted: " + strings.Join(b.uncounted, ", ")
 	}
 	return []string{b.delivered(ended, false, tokens), b.delivered(ended, true, tokens), tokensCell, b.intent(end),
 		b.asked(end), built(ended), waited(finished), b.split(changes), b.checked(changes), b.parked(end),
