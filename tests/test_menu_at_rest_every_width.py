@@ -204,10 +204,10 @@ class V5oMenu(Sandbox):
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
         self.assertRegex(job, r"[━╸]+─+ 3 of 7$")
         self.assertNotIn("2 running", job)
-        # A last column too long for a page's lines is cut with … on the last of them.
+        # Lines too long for a page's are cut with … on the last of them.
         info = {"number": "1", "name": "atoll-job", "count": "needs you",
                 "orchestrator": "fable", "worker": "fable",
-                "sentence": "word " * 120, "bar": None, "running": 0,
+                "unsent": "word " * 120, "bar": None, "running": 0,
                 "word": "needs you"}
         said = {"atoll-job": menu.detail(info, 93)}
         lines = menu.v5o_seat_blocks([info], 100, most=2, details=said)[0]

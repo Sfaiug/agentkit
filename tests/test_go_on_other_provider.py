@@ -44,13 +44,12 @@ class GoOnOtherProvider(Sandbox):
             "zed": {"meters": [meter("weekly", zeta_used)]}}}))
         return menu.v5o_seat_info(self.cfg, 1, {"name": "acme-api"}, [], {}, {}, 10000)
 
-    def test_room_on_the_same_provider_leaves_only_the_reset_sentence(self):
+    def test_room_on_the_same_provider_offers_no_choice(self):
         info = self.cache(100)
         providers = staffing._cached_providers()
         self.assertTrue(usage.model_spent(self.cfg, "acme-big", providers)[0])
         self.assertFalse(usage.model_spent(self.cfg, "acme-small", providers)[0])
         self.assertIsNone(info["go_on"])
-        self.assertEqual(menu.detail(info, 80), ["Acme has no usage left until 19:59."])
         for width in (80, 40, 12):
             with self.subTest(width=width):
                 self.assertEqual(menu.choice_lines(info, width), [])
@@ -62,7 +61,6 @@ class GoOnOtherProvider(Sandbox):
     def test_room_on_another_provider_keeps_both_choices(self):
         info = self.cache(20)
         self.assertEqual(info["go_on"], "zeta")
-        self.assertEqual(menu.detail(info, 80), ["Acme has no usage left until 19:59."])
         self.assertEqual(menu.choice_lines(info, 80), [[
             ("✓ Wait for 19:59", menu.WAIT), ("⇄ Go on now with zeta", menu.GO_ON)]])
         self.assertEqual([terminal.ANSI.sub("", line) for line in menu.choices(info, 80)],

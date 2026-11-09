@@ -1,11 +1,10 @@
-"""A seat's question is whole under its row, on whichever harness it runs.
+"""Text the owner left unsent is whole under its row, and a page keeps room for it.
 
-A seat's bar shows a question from its start and cuts the rest, and the seat's own screen shows
-only what its harness and its model put there.  So the one place every seat's question can be
-read whole is ak's own screen: its sentence wraps onto as many lines as it takes, there and in
-the popup over a seat, and only a block taller than its page is cut to it, ending in `…`.  The
-highlight changes no block, so no row moves and no page turns as it moves.  Offline: the real
-renderer on invented rows.
+A seat's bar shows only that text is unsent, and the seat's own screen holds it in a composer its
+harness may cut.  So the one place it can be read whole is ak's own screen: it wraps onto as many
+lines as it takes, there and in the popup over a seat, and only a block taller than its page is
+cut to it, ending in `…`.  The highlight changes no block, so no row moves and no page turns as
+it moves.  Offline: the real renderer on invented rows.
 """
 
 from contextlib import redirect_stdout
@@ -17,49 +16,47 @@ from unittest.mock import patch
 from fixtures.sandbox import Sandbox
 from agentkit import menu, terminal
 
-QUESTION = ("Which schema should acme use? " + " ".join(
+TEXT = ("Switch acme to the new schema. " + " ".join(
     f"Reason {n}: the parser reads both, and v2 drops the legacy fields the importer needs."
-    for n in range(1, 9)) + " Recommend v2.")
+    for n in range(1, 9)) + " Keep v2.")
 
 
-def seat(number, name, word="needs you", sentence=QUESTION, **extra):
+def seat(number, name, word="needs you", unsent=TEXT, **extra):
     return {"number": str(number), "name": name, "count": word, "orchestrator": "opus",
-            "worker": "opus", "sentence": sentence, "bar": None, "running": 0, "word": word,
+            "worker": "opus", "unsent": unsent, "bar": None, "running": 0, "word": word,
             "runs": (), **extra}
 
 
-ROWS = [seat(1, "fix-api"), seat(2, "acme-web", sentence="Merge PR #7 by bob? yes/no")] + [
-    seat(n, f"acme-{n}", word="done", sentence=f"Shipped part {n}.") for n in range(3, 13)]
+ROWS = [seat(1, "fix-api"), seat(2, "acme-web", unsent="Merge PR #7 by bob")] + [
+    seat(n, f"acme-{n}", word="done", unsent="") for n in range(3, 13)]
 
 
 def blocks(infos, width, most=None):
-    """The seats' blocks as a pipe draws them: what each seat asking or done says opens under
-    its row (`menu.detail`)."""
+    """The seats' blocks as a pipe draws them: every row opens its lines (`menu.detail`)."""
     widths = menu.v5o_column_widths(infos, width)
     room = widths["room"] - (2 + widths["num"] + 2)
-    details = {info["name"]: menu.detail(info, room) for info in infos
-               if info["word"] in ("needs you", "done")}
+    details = {info["name"]: menu.detail(info, room) for info in infos}
     return menu.v5o_seat_blocks(infos, width, widths, most, details)
 
 
 def said(block):
-    """A seat's block as one sentence: its lines after the row's own columns, joined."""
-    lines = [terminal.plain(line) for line in block]
-    head, _, first = lines[0].partition("needs you")
-    return " ".join(" ".join([first] + lines[1:]).split())
+    """The text a seat's block opens, its lines joined: what follows the last `✎ `, the row's own
+    mark going under it where the row has no room."""
+    lines = [terminal.plain(line) for line in block[1:]]
+    return " ".join(" ".join(lines).split()).rpartition("✎ ")[2]
 
 
-class SeatQuestionWhole(Sandbox):
+class UnsentTextWhole(Sandbox):
     def setUp(self):
         super().setUp()
         self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
                                                          "NO_COLOR": "1"}))
 
-    def test_a_seats_question_takes_the_lines_it_needs(self):
+    def test_the_text_takes_the_lines_it_needs(self):
         for width in (100, 60, 40):
             with self.subTest(width=width):
                 for block in blocks([seat(1, "fix-api"), seat(2, "acme-web")], width):
-                    self.assertEqual(said(block), QUESTION)
+                    self.assertEqual(said(block), TEXT)
                     self.assertGreater(len(block), 2)
                     self.assertTrue(all(terminal.cells(terminal.plain(line)) <= width
                                         for line in block))
@@ -72,10 +69,10 @@ class SeatQuestionWhole(Sandbox):
                 self.assertTrue(block[-1].endswith("…"))
                 # the cut line stays under its row, as the lines before it
                 self.assertEqual(*[len(line) - len(line.lstrip()) for line in block[-2:]])
-                self.assertTrue(QUESTION.startswith(said(block)[:-1].rstrip()))
+                self.assertTrue(TEXT.startswith(said(block)[:-1].rstrip()))
         # a block that fits is as it is, a tasks bar among them
-        rows = [seat(1, "fix-api", sentence="Merge PR #7 by bob? yes/no"),
-                seat(2, "acme-web", word="working", sentence="", bar=(1, 3))]
+        rows = [seat(1, "fix-api", unsent="Merge PR #7 by bob"),
+                seat(2, "acme-web", word="working", unsent="", bar=(1, 3))]
         self.assertEqual(blocks(rows, 100, most=2), blocks(rows, 100))
 
     def draw(self, cursor, width, height, keyboard=True, seats=ROWS):
@@ -96,30 +93,30 @@ class SeatQuestionWhole(Sandbox):
                 with self.subTest(width=width, keyboard=keyboard):
                     # with the keyboard it opens under its row once that row is highlighted
                     screen, _, _ = self.draw("fix-api", width, 60, keyboard)
-                    self.assertIn(QUESTION, screen)
+                    self.assertIn(f"✎ {TEXT}", screen)
                     screen, _, _ = self.draw("acme-web", width, 60, keyboard)
-                    self.assertEqual(QUESTION in screen, not keyboard)
+                    self.assertEqual(f"✎ {TEXT}" in screen, not keyboard)
 
-    def test_in_the_popup_over_a_seat_a_question_past_its_page_is_cut_to_it(self):
+    def test_in_the_popup_over_a_seat_text_past_its_page_is_cut_to_it(self):
         # the popup over an 80x27 terminal: 80% by 70%, less its border
         screen, _, _ = self.draw("fix-api", 62, 19)
-        self.assertNotIn(QUESTION, screen)
+        self.assertNotIn(TEXT, screen)
         # its lines under the row are half the screen at most, the last ending in `…`,
         # and the rows after it stay on the page
-        self.assertIn("Reason 5: the parser reads… 2 acme-web", screen)
+        self.assertIn("Reason 5: the parser… 2 acme-web", screen)
         self.assertIn("2 acme-web opus ! needs you", screen)
         self.assertTrue(screen.endswith("← 1 / 3 → n new c config esc leave"), screen)
 
-    def test_the_usage_keeps_its_form_however_long_a_question(self):
-        # the usage's form is the screen's size alone: a seat asking at length takes its lines
-        # from the rows, never the usage's (the owner, 29 Oct 2026)
-        short = [seat(1, "fix-api", sentence="Merge PR #8 by bob? yes/no")] + ROWS[1:]
+    def test_the_usage_keeps_its_form_however_long_the_text(self):
+        # the usage's form is the screen's size alone: a seat's long text takes its lines from
+        # the rows, never the usage's (the owner, 29 Oct 2026)
+        short = [seat(1, "fix-api", unsent="Merge PR #8 by bob")] + ROWS[1:]
         for width in (30, 44, 62, 100):
             for height in (*range(8, 30), 50):
                 with self.subTest(width=width, height=height):
                     forms = set()
                     for seats in (ROWS, short, ROWS[:2], ROWS[:1],
-                                  *([seat(1, "fix-api", sentence=said)] for said in ("Proceed?", ""))):
+                                  *([seat(1, "fix-api", unsent=said)] for said in ("Proceed", ""))):
                         screen, _, _ = self.draw("fix-api", width, height, seats=seats)
                         forms.add((screen.startswith("agentkit"),
                                    screen[screen.index("Claude"):screen.index(" acme ")]))
@@ -143,10 +140,10 @@ class SeatQuestionWhole(Sandbox):
                     self.assertTrue(lines[0].startswith("  Claude"), lines)
                     self.assertIn("esc leave", lines[-1])
 
-    def test_a_long_question_takes_lines_from_its_own_page_only(self):
-        # one seat asking at length shrinks its own page, never the others (the owner, 29 Oct
-        # 2026: "sometimes its also only 2 shown here, even though it could be more")
-        short = [seat(1, "fix-api", sentence="Merge PR #8 by bob? yes/no")] + ROWS[1:]
+    def test_a_long_text_takes_lines_from_its_own_page_only(self):
+        # one seat's long text shrinks its own page, never the others (the owner, 29 Oct 2026:
+        # "sometimes its also only 2 shown here, even though it could be more")
+        short = [seat(1, "fix-api", unsent="Merge PR #8 by bob")] + ROWS[1:]
         for width, height in ((62, 19), (64, 28), (100, 30)):
             with self.subTest(width=width, height=height):
                 _, (_, long_pages), _ = self.draw("fix-api", width, height)

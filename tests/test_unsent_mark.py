@@ -3,8 +3,8 @@
 The owner's choice of 20 Oct 2026: a seat holding text it never sent keeps its row as it would
 be without it -- a working seat's progress line and `N of M` -- and the row ends in `✎ unsent`
 in the needs-you colour; the row the pointer is on opens the text under itself, `✎` first,
-before what it opens today, and past half the screen cuts it with `…` as it does a question, so
-the usage and the keys stay on screen (the owner's rule of 14 Oct).  The reason never carries
+before what it opens today, and past half the screen cuts it with `…`, so the usage and the keys
+stay on screen (the owner's rule of 14 Oct).  The reason never carries
 the text.  Offline: the menu's own drawing functions on a seat info built here.
 """
 
@@ -22,10 +22,9 @@ TEXT = ("Fix the login redirect for acme, then check that the session cookie sur
 AMBER = "\033[1;38;2;246;196;0m"      # needs you, on a dark true-colour terminal
 
 
-def seat(word, bar=None, sentence=""):
+def seat(word, bar=None):
     return {"number": "1", "name": "fix-api", "count": word, "word": word, "orchestrator": "opus",
-            "sentence": sentence, "unsent": TEXT, "bar": bar, "crew": (("opus",), ("astra",)),
-            "tasks": []}
+            "unsent": TEXT, "bar": bar, "crew": (("opus",), ("astra",)), "tasks": []}
 
 
 def bare(line):
@@ -69,7 +68,7 @@ class UnsentMark(Sandbox):
         self.assertIn(f"{AMBER}✎ Fix", opened)
 
     def test_an_idle_seat_shows_the_mark_and_never_the_old_sentence(self):
-        info = seat("idle", sentence="nothing running")
+        info = seat("idle")
         for pointed in (False, True):
             with self.subTest(pointed=pointed):
                 lines = [bare(line) for line in block(info, pointed=pointed)]
@@ -78,11 +77,11 @@ class UnsentMark(Sandbox):
         self.assertEqual(menu.last_column("idle", 0, 0, unsent=TEXT),
                          f"{AMBER}✎ unsent\033[0m")
 
-    def test_text_past_half_the_screen_is_cut_as_a_question_is(self):
+    def test_text_past_half_the_screen_is_cut(self):
         long = seat("working", bar=(3, 7))
         long["unsent"] = "word " * 330 + "LAST"
-        question = dict(seat("needs you"), name="acme-web", number="2", unsent="",
-                        sentence="question " * 180 + "LAST")
+        other = dict(seat("needs you"), name="acme-web", number="2",
+                     unsent="other " * 330 + "LAST")
 
         def drawn(infos, cursor):
             out = io.StringIO()
@@ -101,9 +100,9 @@ class UnsentMark(Sandbox):
             return lines[at:next(n for n, line in enumerate(lines) if line.endswith("…")) + 1]
 
         self.assertEqual(len(opened(drawn([long], "fix-api"), "✎ word")), 40 // 2)
-        # another seat's text lifts no question's limit
-        self.assertEqual(opened(drawn([long, question], "acme-web"), "question"),
-                         opened(drawn([question], "acme-web"), "question"))
+        # another seat's text lifts no seat's limit
+        self.assertEqual(opened(drawn([long, other], "acme-web"), "✎ other"),
+                         opened(drawn([other], "acme-web"), "✎ other"))
 
     def test_without_utf8_the_mark_is_an_asterisk(self):
         with patch.dict(os.environ, {"LANG": "C", "LC_ALL": ""}):
