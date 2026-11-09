@@ -218,53 +218,48 @@ func (j *jobRun) carry() (int, error) {
 // begin starts the task as Python's job_start_task does, its file read again and judged as it
 // reads now, refusals and round budget too: a run of its own, its receipt naming the job, filed
 // on the job's before its driver starts apart, and followed until it ends.  False where it starts
-// no run: the task settled, blocked where its file now refuses it, failed where it cannot start
-// and stopped where a stop ended it, or, saying why, left queued where Go does not start it.
+// no run: the task settled, blocked where its file now refuses it, stopped where a stop ended it
+// and failed where it cannot start for any other reason, or, saying why, left queued where Go does
+// not start it.  The job's own receipt that cannot be written ends this launcher.
 func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
 	name := task.Str("name")
 	l, _, why, err := j.task(task.Str("task_file"))
 	refused := ""
-	if l != nil {
+	switch {
+	case l != nil:
 		refused, err = Refusal(l.path, l.meta, l.cmds)
+	case why != "":
+		err = errors.New(why)
 	}
 	switch {
 	case errors.Is(err, ErrPython):
-		why = "not started"
+		j.say(name + ": not started")
+		return false, nil
 	case err != nil:
-		return false, err
-	case why != "":
-		return false, j.end(task, "failed", "verdict_line", name+": FAIL: needs you ("+why+")")
-	case parks(l):
-		why = "waiting for budget" // Python's job waits before it reads the file's refusal
+	case parks(l): // Python's job waits for budget before it reads the file's refusal
+		j.say(name + ": waiting for budget")
+		return false, nil
 	case refused != "":
 		return false, j.end(task, "blocked", "findings", refused, "verdict_line", name+": BLOCKED: "+refused)
-	case l.reason != "":
-		why = l.reason
-	}
-	if why != "" {
-		j.say(name + ": " + why)
-		return false, nil
-	}
-	run.SetAll(task, "state", "running", "started_at", run.Float(seconds()))
-	if err := job.Save(j.dir, j.receipt); err != nil {
-		return false, err
-	}
-	log, unstopped, err := l.make(j.out)
-	if err == nil {
-		err = prepare(l.dir, l.meta, l.place, l.warning, l.flags, l.seat, unstopped, log)
-	}
-	if err == nil {
-		j.say(name + " start: " + filepath.Base(l.dir))
-		task.Set("run_id", filepath.Base(l.dir))
-		if err = job.Save(j.dir, j.receipt); err == nil {
+	default:
+		run.SetAll(task, "state", "running", "started_at", run.Float(seconds()))
+		if err := job.Save(j.dir, j.receipt); err != nil {
+			return false, err
+		}
+		if err = j.ready(l); err == nil {
+			j.say(name + " start: " + filepath.Base(l.dir))
+			task.Set("run_id", filepath.Base(l.dir))
+			if err := job.Save(j.dir, j.receipt); err != nil {
+				return false, err
+			}
 			err = start(l.dir, j.out, true)
 		}
 	}
-	if errors.Is(err, ErrStopped) || errors.Is(err, loop.ErrStopped) {
+	switch {
+	case errors.Is(err, ErrStopped) || errors.Is(err, loop.ErrStopped):
 		return false, j.end(task, "stopped", "verdict_line", name+": stopped")
-	}
-	if err != nil {
-		return false, err
+	case err != nil:
+		return false, j.end(task, "failed", "verdict_line", name+": FAIL: needs you ("+err.Error()+")")
 	}
 	go func() { ended <- ending{task, l.dir, loop.Await(l.dir, func() {}), names(l.bound.Workers)} }()
 	return true, nil

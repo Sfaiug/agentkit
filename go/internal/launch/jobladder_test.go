@@ -18,7 +18,9 @@ import (
 // blocked BLOCKED with its error; a FAIL its reviews failed, one short of its round budget and one
 // at it with no other worker to rerun it on fail with their findings or error, as an exhausted run
 // no budget fixes fails with its error; a task its file now refuses at its start is BLOCKED, the
-// refusal its findings, and one that cannot start fails.  A step Python's ladder takes first, a
+// refusal its findings, and one that cannot start fails, one preflight refuses with its run ended
+// in error, one whose run cannot be made and one executors are off for.  A step Python's ladder
+// takes first, a
 // wait, a PASS still to deliver or the rerun, leaves the task as it was.  Once every task settled
 // the job logs each one's findings and that it needs you, and exits 1; a job whose only
 // undelivered task was stopped needs nobody and is done, and exits 1 too.
@@ -26,7 +28,7 @@ func TestAJobsUndeliveredTasksEndItNeedingYou(t *testing.T) {
 	home, worktree := jobHome(t), t.TempDir()
 	one, both := []string{"opus"}, []string{"opus", "astra"}
 	atBudget := `"state": "fail", "rounds": 3, "round_summaries": [{}, {}, {}], "worktree": "` + worktree + `", "executor": "opus"`
-	j := createdJob(t, "stopped.md", "blocked.md", "reviewed.md", "early.md", "alone.md", "tool.md", "refused.md", "off.md")
+	j := createdJob(t, "stopped.md", "blocked.md", "reviewed.md", "early.md", "alone.md", "tool.md", "refused.md", "from.md", "unmade.md", "off.md")
 	tasks := j.receipt.List("tasks")
 	for _, each := range []struct {
 		task    int
@@ -65,9 +67,22 @@ func TestAJobsUndeliveredTasksEndItNeedingYou(t *testing.T) {
 	if begun, err := j.begin(refused, ended); begun || err != nil {
 		t.Fatalf("began %v: %v", begun, err)
 	}
-	write(t, filepath.Join(home, ".agentkit", "config.toml"), "executor_lines = 0\n"+jobConfig)
-	if begun, err := j.begin(tasks[7].(*run.Object), ended); begun || err != nil {
-		t.Fatalf("began %v: %v", begun, err)
+	write(t, tasks[7].(*run.Object).Str("task_file"), "---\nrepo: none\nfrom: previous\n---\n# from\n\n## Done when\n```bash\ntrue\n```\n")
+	work := filepath.Join(home, ".agentkit", "work")
+	for i, broken := range []func(){func() {}, func() { os.RemoveAll(work); write(t, work, "") },
+		func() { write(t, filepath.Join(home, ".agentkit", "config.toml"), "executor_lines = 0\n"+jobConfig) }} {
+		broken()
+		if begun, err := j.begin(tasks[7+i].(*run.Object), ended); begun || err != nil {
+			t.Fatalf("began %v: %v", begun, err)
+		}
+	}
+	made, _ := filepath.Glob(filepath.Join(run.Runs(), "*-from"))
+	if len(made) != 1 {
+		t.Fatalf("from.md made the runs %v", made)
+	}
+	preflight := filepath.Join(made[0], "task.md") + ": from: needs a repository; a scratch run has no branch to start from"
+	if record, _ := run.Read(made[0]); record == nil || record.Str("state") != "error" || record.Str("error") != preflight {
+		t.Fatalf("the refused run ended %v", record)
 	}
 	if code, err := j.carry(); code != 1 || err != nil {
 		t.Fatalf("the job ended %d: %v", code, err)
@@ -83,6 +98,8 @@ func TestAJobsUndeliveredTasksEndItNeedingYou(t *testing.T) {
 		{"failed", "alone.md: FAIL after 3 rounds: needs you", ""},
 		{"failed", "tool.md: FAIL: needs you (git did not answer)", "git did not answer"},
 		{"blocked", "refused.md: BLOCKED: " + after, after},
+		{"failed", "from.md: FAIL: needs you (" + preflight + ")"},
+		{"failed", "unmade.md: FAIL: needs you (mkdir " + work + ": file exists)"},
 		{"failed", "off.md: FAIL: needs you (executor_lines = 0: Executors are off; the orchestrator builds every change itself.)"},
 	} {
 		task := receipt.List("tasks")[i].(*run.Object)

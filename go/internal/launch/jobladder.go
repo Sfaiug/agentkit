@@ -2,6 +2,7 @@ package launch
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -56,6 +57,23 @@ func (j *jobRun) end(task *run.Object, word string, kept ...any) error {
 	}
 	j.say(task.Str("verdict_line"))
 	return nil
+}
+
+// ready makes the task's run up to its driver, as Python's job_start_task does: one preflight
+// refuses ends in error, as Python's run.prepare ends it, and its refusal is what the task fails
+// with.
+func (j *jobRun) ready(l *launching) error {
+	log, unstopped, err := l.make(j.out)
+	switch {
+	case err != nil:
+		return err
+	case l.reason == "":
+		return prepare(l.dir, l.meta, l.place, l.warning, l.flags, l.seat, unstopped, log)
+	}
+	if _, _, err := refuse(l.dir, l.reason, l.warning, log); err != nil {
+		return err
+	}
+	return errors.New(l.reason)
 }
 
 // verdictLine is the line of a task its run settled on that word, Python's job_verdict_line for a
