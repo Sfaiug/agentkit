@@ -35,13 +35,15 @@ func TestOpenCodeOwnerWordsAreReadStrictly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// as OpenCode 2.2.6 keeps them, a card answered by keyboard as one tool part of an answer
+	// as OpenCode 2.2.6 keeps them, a card answered by keyboard as one tool part of an answer, beside
+	// a tool's output it cut mid-emoji, which Python reads too
+	cut := `{"type": "tool", "name": "bash", "state": {"status": "completed", "output": "acme \ud83d"}}`
 	card := `{"type": "tool", "name": "question", "state": {"status": "completed",` +
 		` "input": {"questions": [{"question": "Which format?", "options": [{"label": "PDF", "description": "for print"}]}]},` +
 		` "metadata": {"answers": [["PDF"]]}}, "time": {"completed": 1800000001500}}`
 	for _, row := range [][]any{
 		{"ses_Acme", "user", 0, 1_800_000_000_250, `{"text": "Build the acme report."}`},
-		{"ses_Acme", "assistant", 1, 1_800_000_001_000, `{"content": [{"type": "text", "text": "Which format?"}, ` + card + `]}`},
+		{"ses_Acme", "assistant", 1, 1_800_000_001_000, `{"content": [{"type": "text", "text": "Which format?"}, ` + cut + `, ` + card + `]}`},
 		{"ses_Acme", "idle", 2, 1_800_000_001_250, `{"outcome": "completed"}`},
 		{"ses_Acme", "user", 3, 1_800_000_002_000, `{"text": "Make it a PDF."}`},
 		{"ses_Other", "user", 0, 1_800_000_000_000, `{"text": "Another seat's."}`},

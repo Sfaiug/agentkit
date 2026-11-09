@@ -24,8 +24,7 @@ type opencodeMessage struct {
 // opencodeMessages is each user and assistant row of that session in order, as opencode.py's
 // `_session_rows` reads opencode.db, a row whose data is no JSON object holding nothing; none
 // where there is no database.  The error where it is there and Python's sqlite3 cannot read it,
-// which its `rows` raises reading strictly (harness.unread), and where a row's data is one Go reads
-// otherwise than Python does, beside the other rows.
+// which its `rows` raises reading strictly (harness.unread).
 func opencodeMessages(session string) ([]opencodeMessage, error) {
 	if !opencodeSession.MatchString(session) {
 		return nil, nil
@@ -50,7 +49,6 @@ func opencodeMessages(session string) ([]opencodeMessage, error) {
 		return nil, unread(err)
 	}
 	var read []opencodeMessage
-	var otherwise error
 	for stmt.Step() {
 		row := make([]any, 3)
 		if err := stmt.Columns(row...); err != nil {
@@ -61,10 +59,10 @@ func opencodeMessages(session string) ([]opencodeMessage, error) {
 				return nil, unread(errors.New("a value that is not UTF-8"))
 			}
 		}
-		data, known := opencodeData(row[2])
-		if !known {
-			otherwise = unread(errors.New("a row Go reads otherwise than Python does"))
-		}
+		// text or a blob, as json.loads reads either, a number decoding to no object; a lone
+		// surrogate, as a tool output OpenCode cut mid-emoji holds, is U+FFFD, as Claude's are
+		decoded, _ := run.DecodeShown(stmt.ColumnRawText(2))
+		data, _ := decoded.(*run.Object)
 		if data == nil {
 			continue
 		}
@@ -81,7 +79,7 @@ func opencodeMessages(session string) ([]opencodeMessage, error) {
 	if err := stmt.Err(); err != nil {
 		return nil, unread(err)
 	}
-	return read, otherwise
+	return read, nil
 }
 
 // opencodeAnswered reads the session the seat's receipt names, or the one a record of a session
