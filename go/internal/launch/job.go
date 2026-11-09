@@ -32,8 +32,8 @@ const jobTick = 2 * time.Second
 // needing you.  A step Python's ladder takes before such an ending it leaves as a launcher that
 // died leaves it, any run kept, for `ak run resume <job>`.  A seat's job, one told --bg, one a
 // gate decides and one with a task Go's own launch would hand over, whose preflight refuses it or
-// whose pick waits for budget, it leaves to Python whole (ErrPython), before anything is written.  `ak run`'s exit status, and why the job
-// is refused, "" for one that went on.
+// whose pick waits for budget, it leaves to Python whole (ErrPython), before anything is written.
+// `ak run`'s exit status, and why the job is refused, "" for one that went on.
 func Job(paths []string, values map[string]string, flags map[string]bool, out io.Writer) (int, string, error) {
 	limit, capped := config.MaxRuns()
 	depth, _ := runDepth()
