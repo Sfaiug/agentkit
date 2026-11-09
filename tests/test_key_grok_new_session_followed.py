@@ -7,7 +7,8 @@ a line ak types itself (owed, typed by the tick) into the session shown moves th
 prompt in a session another seat's record names leaves it where it was.  Black-box on `AK_BIN`,
 a fake model (fakeadapter.py), and in the seat's pane a fake `grok`, one process as 1.0.46's TUI,
 firing its adapter's hooks as that TUI did on 7 Nov 2026: SessionStart on /new, UserPromptSubmit
-and Stop on a prompt, naming its session and that session's updates.jsonl; /dashboard fires none.
+and Stop on a prompt, naming its session, and that session's updates.jsonl once it is written: a
+session's first prompt names none, recorded only once its hook has run; /dashboard fires none.
 """
 
 import json
@@ -43,9 +44,9 @@ def fire(event, session, **fields):
     end, held = os.pipe()
     for hook in [hook for group in hooks.get(event, ()) for hook in group["hooks"]]:
         subprocess.run(["sh", "-c", hook["command"]], pass_fds=(held,), input=json.dumps({
-            "hook_event_name": event, "session_id": session, "cwd": os.getcwd(),
-            "transcript_path": str(updates(session)), **fields}).encode(),
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            "hook_event_name": event, "session_id": session, "cwd": os.getcwd(), **fields,
+            **({"transcript_path": str(updates(session))} if updates(session).exists() else {})
+            }).encode(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     os.close(held)
     with os.fdopen(end, "rb") as pipe:
         while pipe.read(4096):
@@ -69,8 +70,8 @@ def listen(seen):
                 showing.write_text(session := str(uuid.uuid4()))
                 fire("SessionStart", session, source="new")
             else:
-                said(session, "user_message_chunk", line)
                 fire("UserPromptSubmit", session, prompt=line)
+                said(session, "user_message_chunk", line)
                 said(session, "agent_message_chunk", "Done.")
                 fire("Stop", session, lastAssistantMessage="Done.")
             with heard.open("a") as out:

@@ -55,7 +55,7 @@ func landingLine(record *run.Object) string {
 // parkedInLine is whether the run waits in its line with no process of its own, Python's
 // landing_line: the lander's to wake.
 func parkedInLine(record *run.Object) bool {
-	return record != nil && record.Str("state") == "waiting" && landingLine(record) != ""
+	return record != nil && run.LandingLine(record) != ""
 }
 
 // green is a verdict to deliver: the tree checked, and no fixer owed.

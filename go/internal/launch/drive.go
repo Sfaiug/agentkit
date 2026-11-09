@@ -45,11 +45,20 @@ func names(list []any) (found []string) {
 	return found
 }
 
-// drive is the rest of a launch: the receipt says what it will deliver, the log what Python's
-// preflight says, and the run goes on in a driver of its own, followed here unless told --bg.  Its
-// driver is what a stop ends; a foreground one shares this process's group, so a terminal that goes
-// away takes the run with it, leaving a dead loop for `ak run resume`.
+// drive is the rest of a launch: it is prepared, and the run goes on in a driver of its own,
+// followed here unless told --bg.  Its driver is what a stop ends; a foreground one shares this
+// process's group, so a terminal that goes away takes the run with it, leaving a dead loop for
+// `ak run resume`.
 func drive(dir string, meta map[string]string, at place, warning string, flags map[string]bool, seated string, unstopped func(func(*run.Object)) error, log func(string) error, out, errOut io.Writer) (int, error) {
+	if err := prepare(dir, meta, at, warning, flags, seated, unstopped, log); err != nil {
+		return 0, err
+	}
+	return goOn(dir, flags, out, errOut)
+}
+
+// prepare is a launch up to its driver: the receipt says what it will deliver, and the log what
+// Python's preflight says.
+func prepare(dir string, meta map[string]string, at place, warning string, flags map[string]bool, seated string, unstopped func(func(*run.Object)) error, log func(string) error) error {
 	title := ""
 	if err := unstopped(func(record *run.Object) {
 		title = record.Str("title")
@@ -64,12 +73,12 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 		}
 		run.SetAll(record, "repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
 	}); err != nil {
-		return 0, err
+		return err
 	}
 	if seated != "" {
 		// filed under the project most of its runs belong to, this one now among them
 		if err := seat.JoinProject(seated); err != nil {
-			return 0, err
+			return err
 		}
 	}
 	lines := []string{}
@@ -98,7 +107,7 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 			if flags["--no-worktree"] {
 				head, _, _, err := git(at.repo, "rev-parse", "--abbrev-ref", "HEAD")
 				if err != nil {
-					return 0, err
+					return err
 				}
 				branch = head
 			}
@@ -116,15 +125,23 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 	if seated != "" {
 		notification = "notification: " + seated + "; dead-seat fallback: needs to Discord if that seat is gone at the end (stderr if unconfigured)"
 	}
-	return underWay(dir, lines, notification, flags, log, out, errOut)
+	return sayRest(dir, lines, notification, log)
 }
 
 // underWay says the rest of what a launch's log says, and the run goes on in a driver of its own,
 // followed here unless told --bg.
 func underWay(dir string, lines []string, notification string, flags map[string]bool, log func(string) error, out, errOut io.Writer) (int, error) {
+	if err := sayRest(dir, lines, notification, log); err != nil {
+		return 0, err
+	}
+	return goOn(dir, flags, out, errOut)
+}
+
+// sayRest says the rest of what a launch's log says before its driver starts.
+func sayRest(dir string, lines []string, notification string, log func(string) error) error {
 	record, err := run.Read(dir)
 	if record == nil {
-		return 0, cmp.Or(err, errors.New("run.json cannot be read"))
+		return cmp.Or(err, errors.New("run.json cannot be read"))
 	}
 	for _, role := range []string{"workers", "reviewers"} {
 		if list := record.List(role); list != nil {
@@ -135,13 +152,22 @@ func underWay(dir string, lines []string, notification string, flags map[string]
 			lines = append(lines, role+": "+strings.Join(names, ", "))
 		}
 	}
+	scope := "pending"
+	if record.Truthy("job_id") {
+		scope = "none (foreground launch)" // a job's task runs where its job puts it, as Python's says
+	}
 	lines = append(lines, fmt.Sprintf("limits: silence %dm | done-when ceiling %dh | git/gh %ds", run.SilenceMinutes, run.CeilingHours, gitcall.CapSeconds),
-		"scope: pending", "result: "+filepath.Join(dir, "result.md")+" | log: "+filepath.Join(dir, "log.txt"), notification)
+		"scope: "+scope, "result: "+filepath.Join(dir, "result.md")+" | log: "+filepath.Join(dir, "log.txt"), notification)
 	for _, line := range lines {
 		if err := log(line); err != nil {
-			return 0, err
+			return err
 		}
 	}
+	return nil
+}
+
+// goOn starts the run's driver, followed here unless told --bg.
+func goOn(dir string, flags map[string]bool, out, errOut io.Writer) (int, error) {
 	info, err := os.Stat(filepath.Join(dir, "log.txt"))
 	if err != nil {
 		return 0, err
