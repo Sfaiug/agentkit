@@ -3,7 +3,6 @@ package googlecloud
 import (
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,38 +14,34 @@ import (
 const freshFor = 86400 // seconds offers are kept: a listing takes a minute
 
 // Watch is the tick's pass over the machines ak rents, as Python's google_cloud.watch, run while
-// ak may rent with work marked and wherever Google's key exists: the meter moved on to what Google
-// lists, and each machine listed past its end, with no price kept, past the cap or, with no work
-// marked, still starting given back, the first reason said; then, while ak may rent with work
-// marked, offers kept a day or without zones listed anew. A need noted while ak may not rent is
-// taken. False, nothing written, leaves the pass to Python: marks Go cannot read, a need noted
-// while ak may rent with work marked, or a machine listed with an address, which ssh reaches.
-func Watch() (bool, error) {
+// ak may rent with work marked and wherever Google's key exists, given the line asking a machine
+// how long it has held nothing (helper.Line's `idle`: package helper imports this one). The meter
+// moves on to what Google lists, ssh asks each machine listed with an address, and each listed past
+// its end, with no price kept, past the cap, with no work marked still starting or idle at all, or
+// idle idleFor goes back, the first reason said; the routes are written anew, those that answered
+// set up serving. Then, while ak may rent with work marked, offers kept a day or without zones are
+// listed anew, and a need noted where the cap leaves nothing says why no machine is rented. A need
+// noted is taken. False, nothing written, leaves the pass to Python: marks Go cannot read, or a
+// need noted while ak may rent with work marked and the cap leaves money, which may rent.
+func Watch(line string) (bool, error) {
 	active, cap := config.CloudBudget()
 	work, known := config.MachineWork("")
-	renting := active && len(work) > 0
-	need := filepath.Join(config.Home(), "state", "google-cloud-need")
-	if _, err := os.Lstat(need); !known || renting && err == nil {
+	if !known {
 		return false, nil
 	}
+	renting := active && len(work) > 0
 	_, unkeyed := os.Stat(filepath.Join(config.Home(), "secrets", key))
 	asked := renting || unkeyed == nil // Python's goes no further where neither
 	var listed []Machine
+	var at float64
 	var err error
 	if asked {
-		listed, err = Rented()
-		if slices.ContainsFunc(listed, func(one Machine) bool { return one.Address != "" }) {
-			return false, nil
+		if listed, err = Rented(); err == nil {
+			at, err = now()
 		}
 	}
-	if !renting {
-		os.Rename(need, need+".taken") // no rent comes of it: a suite noting next notes anew
-	}
 	if !asked || err != nil {
-		return true, err
-	}
-	at, err := now()
-	if err != nil {
+		noted(work)
 		return true, err
 	}
 	keptAt, offered := Kept()
@@ -57,14 +52,23 @@ func Watch() (bool, error) {
 		}
 	}
 	ledger, read := meter()
-	spent := math.Inf(1) // a meter that cannot be read is past any cap, and is kept as it is
+	// a meter that cannot be read is past any cap, leaves nothing, and is kept as it is
+	spent, money := math.Inf(1), math.Inf(-1)
 	if read {
 		ledger = moved(ledger, listed, at, prices)
 		spent, _ = ledger.Num("spent")
+		money = left(cap, spent, ledger, at)
 	}
-	sshKey()
+	if _, err := os.Lstat(needPath()); renting && err == nil && money > 0 {
+		return false, nil
+	}
+	wanted := noted(work)
+	held := idle(listed, line)
 	var late []any
+	var reached []Machine
 	for _, machine := range listed {
+		seconds := held[machine.ID] // 0 for one that did not answer
+		starting := machine.Address == "" || seconds < 0
 		why := ""
 		switch {
 		case at >= machine.Until:
@@ -73,9 +77,14 @@ func Watch() (bool, error) {
 			why = "with no price kept"
 		case spent > cap:
 			why = "past the cap"
-		case len(work) == 0: // none listed has an address: each is still starting
+		case len(work) == 0 && (starting || seconds > 0):
 			why = "no work marked"
+		case seconds >= idleFor:
+			why = "idle"
 		default:
+			if machine.Address != "" {
+				reached = append(reached, machine)
+			}
 			continue
 		}
 		said := machine.Name + " listed " + why + ", given back"
@@ -84,10 +93,9 @@ func Watch() (bool, error) {
 		}
 		late = append(late, said)
 	}
-	// no machine to reach: the routes are ssh's own config alone
-	err = save(routesPath(), "Host *\n  Include ~/.ssh/config\n")
+	err = serve(reached, held)
 	if err == nil {
-		err = save(filepath.Join(config.Home(), "state", "google-cloud-late.json"), run.Encode(late)+"\n")
+		err = save(latePath(), run.Encode(late)+"\n")
 	}
 	if err == nil && read {
 		err = save(meterPath(), run.Encode(ledger)+"\n")
@@ -100,17 +108,14 @@ func Watch() (bool, error) {
 			err = Keep(offered)
 		}
 	}
-	return true, err
-}
-
-// sshKey makes ak's ssh key where it is missing and forgets ssh-keygen's copy of the hosts it
-// knew, as Python's google_cloud._idle does before it asks the machines it reaches, here none.
-func sshKey() {
-	path := filepath.Join(config.Home(), "secrets", "google-cloud-ssh")
-	if _, err := os.Stat(path); err != nil && exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ak", "-f", path).Run() != nil {
-		return
+	if err != nil || wanted == 0 || !read || comingUp(ledger, listed, held, at) {
+		return true, err
 	}
-	os.Remove(filepath.Join(config.Home(), "secrets", "google-cloud-known-hosts.old"))
+	// as Python's rent reads the key a machine is made with before it asks Google anything more
+	if _, err := os.ReadFile(secret("google-cloud-ssh") + ".pub"); err != nil {
+		return true, err
+	}
+	return true, save(latePath(), run.Encode(append(late, unrented(wanted, offered, cap, money)))+"\n")
 }
 
 // save replaces a state file whole through its .tmp, as Python's config._write_json and _serve

@@ -713,13 +713,15 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None, kind="landing", exits=None, flaky=None):
+           only=None, kind="landing", exits=None, flaky=None, absent=None):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
     `suite` standing for a red no command showed); with `shard` every command runs as that
-    one piece alone, on one turn, and with `only` just those tests, on none.  Each command, or
+    one piece alone, on one turn, and with `only` just those tests, on none, `absent` getting
+    those not there where it passed the rest (`gate.passes_what_it_holds`).  Each command, or
     piece of one, leaves its `kind` row in history under the member's run, on the commit
     checked: `landing`, or `tip` for a probe of the target's. `exits` keeps each piece's attempt
-    exits and `flaky` the tests that failed, then passed; a moved checkout clears the exits."""
+    exits and `flaky` the tests that failed, then passed; a moved checkout clears the exits and
+    `absent`."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -731,6 +733,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     marks, pieces, confirmed = [], {}, {}
     timings = {}
     flaky = [] if flaky is None else flaky
+    absent = [] if absent is None else absent
     # Tests named alone cost what a model's own test does, which takes no turn: on a host out of
     # CPU none comes until it is idle, and the wait held whole lines up to an hour (30 Oct 2026).
     with nullcontext() if only else gate.gate_turn(None, log_path, log, sharded, scratch,
@@ -741,7 +744,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
             flaky=flaky, checked=(directory, None, kind, identity["head_sha"]), exits=exits,
-            timings=timings)
+            timings=timings, absent=absent)
     if ok and suite and kind == "landing" and not shard and not only:
         if failure := suite_times.refusal(scratch, _upstream(state), suite, timings):
             ok = False
@@ -753,6 +756,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
         if exits is not None:
             exits.clear()
         confirmed.clear()   # a test that failed on whatever it moved to says nothing of the pin
+        absent.clear()      # nor one that was not there
         text += ("\n\nCheckout changed during the final check; "
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
@@ -860,18 +864,21 @@ def _landing_checks(directory, state, scratch, tip):
 
 def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
     """The stack's answer from just `tests` of `command`'s `piece`, or with none that piece
-    alone ("" the command whole), or {} if inconclusive.  A pass, each test named as run,
-    moves the narrowing deeper and answers for nothing else; a failure, of the tests
-    confirmed, moves it earlier.  Anything else proves nothing -- a test a later member added
-    is not there -- so that stack gets its whole check on its original checkout.
+    alone ("" the command whole), or {} if inconclusive.  A pass, each test named as run or as
+    not there, one a later member adds (`gate.passes_what_it_holds`), moves the narrowing
+    deeper and answers for nothing else; a failure, of the tests confirmed, moves it earlier.
+    Anything else proves nothing -- a test the suite skips without naming it -- so that stack
+    gets its whole check on its original checkout.
     """
     from . import run
     head = run.git(scratch, "rev-parse", "HEAD")
     log_path = directory / f"lander-{tree}-tests.log"
+    absent = []
     ok, text, red = _check(directory, state, scratch, [command], log_path, log, suite=command,
-                           shard=piece or None, only=list(tests) if tests else None)
+                           shard=piece or None, only=list(tests) if tests else None,
+                           absent=absent)
     _put_back(scratch, head)
-    if ok:
+    if ok or absent:
         return {"land": tree}
     return {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
                     **red}} if red.get("tests") or not tests else {}
@@ -879,11 +886,12 @@ def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
 
 def _probe(directory, state, scratch, tree, command, tests, cost):
     """Whether just `tests` of `command` pass on the stack `scratch` holds, run once on a suite
-    helper as a piece of `cost` (CPUs, MiB): True where each was named as run (`AK_RAN`), False
-    where the run failed naming one of them both as run and as failed (`AK_FAILED`), and None
-    where it proved neither -- no helper took it, it hung, the helper lost it or had no room, a
-    test was not named as run.  It leaves its `checks` row and records nothing else, no flaky
-    sighting either: a red only a helper shows is no evidence (`_check_tests` decides)."""
+    helper as a piece of `cost` (CPUs, MiB): True where each was named as run (`AK_RAN`) or as
+    not there (`gate.passes_what_it_holds`), False where the run failed naming one of them both
+    as run and as failed (`AK_FAILED`), and None where it proved neither -- no helper took it,
+    it hung, the helper lost it, had no room or handed back no names, a test was not named as
+    run.  It leaves its `checks` row and records nothing else, no flaky sighting either: a red
+    only a helper shows is no evidence (`_check_tests` decides)."""
     from . import gate, helper, history, run, worker
     asked, head = time.time(), run.git(scratch, "rev-parse", "HEAD")
     there = gate.pinned(command, suite_times.handed(scratch), only=tests)
@@ -906,10 +914,13 @@ def _probe(directory, state, scratch, tree, command, tests, cost):
             ended.append(None if killed else code)
         if killed or code < 0 or code in (*helper.GONE, helper.FULL):
             return None
-        ran = helper.failed(away, "1/1", "ran")
-        if not code:
-            return all(test in ran for test in tests) or None
-        return False if set(tests) & set(ran) & set(helper.failed(away, "1/1")) else None
+        ran, failed, absent = (helper.failed(away, "1/1", named)
+                               for named in ("ran", "failed", "not-there"))
+        if None in (ran, failed, absent):
+            return None
+        if code and set(tests) & set(ran) & set(failed):
+            return False
+        return gate.passes_what_it_holds(code, tests, ran, failed, absent) or None
     finally:
         helper.finish(away)
 

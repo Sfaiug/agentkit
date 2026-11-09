@@ -348,8 +348,9 @@ func stopped(seat *run.Object) (bool, bool) {
 // quiet is whether watch.json holds nothing a seat's word reads but what Go reads, the logins the
 // tick found among it, which the ladder reads itself (tickLogins): what watch.forget leaves where
 // the watch kept nothing else, every map but the alert generations, the heads the tick reviewed,
-// the PRs it follows, a merge's break and stalls nothing is typed past yet empty, beside the boot
-// the tick last saw, the record of how the last tick went and when the last tick ended whole.
+// the PRs it follows and a merge's break empty, and stalls only those a word reads as held and told
+// (wordStalls), beside the boot the tick last saw, the record of how the last tick went and when
+// the last tick ended whole.
 func quiet(path string) bool {
 	data, err := run.ReadJSON(path)
 	if err != nil || data == nil {
@@ -362,7 +363,7 @@ func quiet(path string) bool {
 		}
 		held := data.Dict(key)
 		if !slices.Contains(watchKeys, key) || held == nil || key != "seen_at" && key != "reviewed" && key != "own" && key != "after_merge" && len(held.Keys()) > 0 &&
-			!(key == "stalls" && PlainStalls(held)) {
+			!(key == "stalls" && wordStalls(held)) {
 			return false
 		}
 	}

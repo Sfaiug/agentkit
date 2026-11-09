@@ -1332,12 +1332,13 @@ def _pane(session):
 def pinned(session):
     """That seat held to its pane (`_pane`), by id: what is read and typed for one line goes
     to that pane, whichever pane the owner selects meanwhile; as it was where tmux cannot say.
-    With it, in the same ask, the pane's process (`pid`), where tmux says it: a harness started
-    there since, respawned in place or its session made again within the second, runs under
-    another, and so matches no mark of a line typed before (`type_at_prompt`)."""
+    With it, in the same ask, the pane's process (`pid`), where this ask has tmux say it: a
+    harness started there since, respawned in place or its session made again within the second,
+    runs under another, and so matches no mark of a line typed before (`type_at_prompt`)."""
     rc, out = orch.tmux_out("display-message", "-p", "-t", _pane(session),
                             "#{pane_id}\t#{pane_pid}", socket=orch.seat_socket(session))
     pane, _, pid = out.partition("\t")
+    session = {key: value for key, value in session.items() if key != "pid"}
     if rc != 0 or not re.fullmatch(r"%[0-9]+", pane):
         return session
     return dict(session, pane=pane, **({"pid": int(pid)} if pid.isdigit() else {}))
@@ -4548,6 +4549,13 @@ def _mark(session, text):
             **({"pid": session["pid"]} if "pid" in session else {})}
 
 
+def _respawned(session, stale):
+    """`stale`, or that pinned seat's pane (`pinned`) not running the process it was pinned
+    with, by tmux's word, asked under the send lock: a launch holding the lock may respawn the
+    pane while a pass waits for it, and the harness started there has none of the pass's line."""
+    return lambda held: stale(held) or pinned(session) != session
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
                    source="ak", stale=lambda held: False):
     """One line into a seat, and only while its harness sits at its own prompt.
@@ -4570,8 +4578,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     composer empty, runs under another and matches no mark, so the line is typed again; one
     that lives on keeps it.  A mark naming no process, from before marks named one, matches
     no seat whose process tmux says.  `stale` is asked under the send lock
-    too, with the name the seat goes by then, before each key: a line that has stopped being
-    this seat's to have is typed no further.  Every Enter, the first, its retry and a mark's,
+    too, with the name the seat goes by then, before each key and a mark's confirmation: a line
+    that has stopped being this seat's to have, or a pane whose process changed since its pin
+    (`_respawned`), is typed no further.  Every Enter, the first, its retry and a mark's,
     goes only while the composer holds the line alone (`composer_holds`): what the owner typed
     in the gap before it is never sent.  The line is delivered only once its composer reads
     empty with no unread terminal input, the first pass's as a mark's: one the owner edited
@@ -4594,9 +4603,10 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         # it is that pane's process the mark names
         there = pinned(dict(session, pane=typed["pane"]))
         if typed == dict(_mark(there, text), pane=typed["pane"]):
-            return _line_left(there, text, log, cfg, stale)
+            return _line_left(there, text, log, cfg, _respawned(there, stale))
     session = pinned(session)
     mark = _mark(session, text)
+    stale = _respawned(session, stale)
     if typed == mark:
         with notify.session_lock(session["name"]) as held:
             if stale(held):

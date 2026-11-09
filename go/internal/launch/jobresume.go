@@ -41,16 +41,7 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 	if !endsAtOnce(receipt) || config.Check() != nil || box.Check() != nil {
 		return 0, ErrPython
 	}
-	say := func(text string) {
-		line := time.Now().Format("15:04:05") + " " + text
-		fmt.Fprintln(out, line)
-		if !loop.Logging(dir) {
-			if file, err := os.OpenFile(filepath.Join(dir, "log.txt"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666); err == nil {
-				fmt.Fprintln(file, line)
-				file.Close()
-			}
-		}
-	}
+	say := jobLogger(dir, out)
 	tasks := receipt.List("tasks")
 	for _, each := range tasks {
 		if task := each.(*run.Object); !slices.Contains(job.Terminal, task.Str("state")) {
@@ -81,6 +72,27 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 	if saved != nil {
 		return 0, saved
 	}
+	return jobEnded(dir, receipt, say)
+}
+
+// jobLogger says a line on out and in the job's log, as Python's job_logger does.
+func jobLogger(dir string, out io.Writer) func(string) {
+	return func(text string) {
+		line := time.Now().Format("15:04:05") + " " + text
+		fmt.Fprintln(out, line)
+		if !loop.Logging(dir) {
+			if file, err := os.OpenFile(filepath.Join(dir, "log.txt"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666); err == nil {
+				fmt.Fprintln(file, line)
+				file.Close()
+			}
+		}
+	}
+}
+
+// jobEnded is the end of Python's run_job_loop for a job its receipt records finished: what its
+// tasks came to, said and handed back, and `ak run`'s exit status.
+func jobEnded(dir string, receipt *run.Object, say func(string)) (int, error) {
+	tasks := receipt.List("tasks")
 	undelivered, stopped, findings, failed := 0, 0, "", []*run.Object{}
 	for _, each := range tasks {
 		task := each.(*run.Object)

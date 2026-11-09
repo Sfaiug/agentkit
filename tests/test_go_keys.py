@@ -9,10 +9,11 @@ would cost every landing the deadlines of each key whose verb Go lacks.
 
     python3 tests/test_go_keys.py [test_key_name ...]
 
-Key file names keep it to those files' claims, and one go/keys.txt does not list fails, naming
-no failing part, as it ran nowhere; without names every claim runs, as the suite's pieces of it
-name theirs (every_file.py).  With AK_BIN set it judges that program, a relative name read from
-the checkout, instead of building; it builds nothing where no claim runs.
+Key file names keep it to those files' claims, and one go/keys.txt does not list fails, named
+in the file NOT_THERE names and as no failing part, as it ran nowhere; without names every claim
+runs, as the suite's pieces of it name theirs (every_file.py).  With AK_BIN set it judges that
+program, a relative name read from the checkout, instead of building; it builds nothing where no
+claim runs.
 Each failing claim is named by its key file's name in the file FAILED_PARTS names: a piece
 takes minutes, so every_file.py's re-run, and a narrowing step on that claim, run it alone.
 Each passing one's seconds are in the file PART_TIMES names: they cut the next suite's pieces.
@@ -77,6 +78,7 @@ class Claims(unittest.TestCase):
         # One it does not list ran nowhere, as one only a later change adds: it fails this file
         # naming no failing part, and those it lists still run.
         unlisted = set(asked) - {claim[0] for claim in listed}
+        name_failed(sorted(unlisted), "NOT_THERE")
         with checkout(build=bool(listed)) as (tree, program, built):
             if built and built.returncode:
                 # Go that does not build fails every claim asked of it, never as a skip: the

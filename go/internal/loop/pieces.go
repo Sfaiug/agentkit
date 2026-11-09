@@ -55,8 +55,8 @@ type piece struct {
 // alone once its turn was given back for a poll (again).  Each go leaves its row in history under
 // rows where it ran, those on the helper dropped where it hands the suite on.  Once the pieces
 // ended, before any go after them, the pass keeps what it held here as the suite's cost (measure).
-// The suite ends as its first red piece did, and hands on what handedOn says, its cost raised where
-// it ran out of memory, however it ended, but where it is handed on (overflowed).
+// The suite ends as the red piece redRank ranks first did, and hands on what handedOn says, its cost
+// raised where it ran out of memory, however it ended, but where it is handed on (overflowed).
 //
 // What Python does beyond that is not Go's yet and differs here: the suite's pace.
 func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
@@ -119,7 +119,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 				held.Unlock()
 				at.ended, err = alone.there(at.there, at.shard, left, out, on.holds())
 			} else {
-				at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, on.holds(), only)
+				at.ended, err = alone.boxed(cwd, cmd, at.shard, on.times, left, out, out.Name(), false, on.holds(), only)
 			}
 			row.End(exitOf(at.ended, err))
 			at.asked, at.exits = clock(), went(at.exits, at.ended, err)
@@ -182,11 +182,11 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 					held.Unlock()
 				}
 				lost := err == nil && there != nil && helper.Lost(at.ended.code)
+				if lost && helper.Dropped(at.ended.code) { // before done, which hands the piece on
+					l.say(fmt.Sprintf("the suite helper %s lost AK_SHARD=%s; it runs again on the first machine with room, this one included", there.Alias, at.shard))
+				}
 				waiting.done(at, lost)
 				if lost {
-					if helper.Dropped(at.ended.code) {
-						l.say(fmt.Sprintf("the suite helper %s lost AK_SHARD=%s; it runs again on the first machine with room, this one included", there.Alias, at.shard))
-					}
 					return // the VM's place ends with it
 				}
 			}
@@ -202,7 +202,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		started.Add(1)
 		go func() {
 			defer started.Done()
-			joined = alone.grow(cwd, cpus, memory, cmd, waiting, place)
+			joined = alone.grow(cwd, cpus, memory, cmd, on.times, waiting, place)
 		}()
 	}
 	if on.holds() {
@@ -321,11 +321,10 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 		most, into, status := share, &green, fmt.Sprintf("exit %d", at.ended.code)
 		if at.ended.code != 0 {
 			most, into = redShare, &red
-			// a piece out of memory hands on its red only where no other piece is red
-			if ended.code == 0 || ended.starved && !at.ended.starved {
+			if ended.code == 0 || redRank(at.ended) < redRank(ended) {
 				ended.piece, ended.confirmed, ended.starved = at.shard, at.ended.confirmed, at.ended.starved
 			}
-			ended.code = cmp.Or(ended.code, at.ended.code)
+			ended.code, ended.unnamed = cmp.Or(ended.code, at.ended.code), ended.unnamed || len(at.ended.confirmed) == 0
 		}
 		if at.ended.starved {
 			status = "ran out of memory"
