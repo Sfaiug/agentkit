@@ -9,7 +9,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -62,21 +61,21 @@ func stays(live seat.Live) bool {
 // asked again, then each seat looked at and its word published, as the later rows read it, while
 // the look is all the row does there, or keeps the stall its screen shows short of typing past it,
 // asking its owner about one an hour old and nothing more after, or keeps its own login refused,
-// asking its owner to log it in once, or clears that login's stall and notice once it passes; the
-// first it would do more at ends the tick there, before its publish.
-// A stall held of a seat whose record is gone is Python's to forget.  A dry tick's look acts on
-// nothing and says what it would type.
+// asking its owner to log it in once, or asks the login a stall of one is held for and clears that
+// stall and its notice once it passes; the first it would do more at ends the tick there, before
+// its publish.  A stall held of a seat whose record is gone is Python's to forget, and a login to
+// ask after at a seat whose panes have exited Python's to ask (unlooked).  A dry tick's look acts
+// on nothing and says what it would type.
 func (t *ticking) health() error {
 	if err := t.pollTokens(); err != nil {
 		return err
 	}
 	names, known := seat.Seats(time.Now())
 	stalls := t.state.Dict("stalls")
-	if !known || slices.ContainsFunc(stalls.Keys(), func(name string) bool { return missing(statePath("session-" + name + ".json")) }) {
+	if !known || slices.ContainsFunc(stalls.Keys(), func(name string) bool { return missing(statePath("session-" + name + ".json")) }) || t.unlooked(stalls) {
 		return errLeft
 	}
-	stale, err := t.askLogins()
-	if err != nil {
+	if err := t.askLogins(); err != nil {
 		return err
 	}
 	for _, name := range names {
@@ -89,11 +88,16 @@ func (t *ticking) health() error {
 				if out != nil { // kept by this seat's look, which asked its login once this pass
 					return ownerWaits(live)
 				}
-				stands, passed := t.loginHeld(live, held, stale)
-				if passed {
+				stands, passed, changed := t.loginHeld(live, held)
+				switch {
+				case passed:
 					out, back = &live, held
+				case stands && changed && ownerWaits(live): // its word reads that answer
+					out = &live
+				default:
+					return stands && ownerWaits(live)
 				}
-				return stands && ownerWaits(live)
+				return false
 			}
 			if login, decided := t.loginOut(live); decided {
 				if login != nil {
@@ -113,16 +117,19 @@ func (t *ticking) health() error {
 			return keeps
 		}
 		carried, err := seat.Health(name, look, t.log.line, t.dry)
-		// a login out is kept, and one back cleared, before the seat's word reads it, which a look
-		// again publishes
+		// a login out is kept, one back cleared, and the answer a stall stands on, before the seat's
+		// word reads it, which a look again publishes
 		if out != nil && err == nil {
-			if back != nil {
+			switch {
+			case back != nil:
 				carried, err = t.clearLogin(*out, back)
-			} else {
+			case answer != nil:
 				carried, err = t.keepLogin(*out, answer)
+			default:
+				carried, err = t.keepAnswers([]string{out.Own})
 			}
 			if carried && err == nil {
-				carried, err = seat.Health(name, look, t.log.line, t.dry)
+				carried, err = t.lookAgain(name, look, back)
 			}
 		}
 		if err != nil || !carried {
@@ -142,7 +149,7 @@ func (t *ticking) health() error {
 // (watch.health): one on a screen it reads, its own login fine and no notice standing, on the
 // account it stays on, where the row's catch-all takes it.
 func stalling(live seat.Live) bool {
-	return live.Stall != nil && live.Login == nil && looked(live) && notify.Last(live.Name) == nil && live.Refused == "" &&
+	return live.Stall != nil && live.Login == nil && looked(live) && standing(live.Name) == nil && live.Refused == "" &&
 		stays(live) && strings.TrimFunc(live.Pane, config.Space) != ""
 }
 

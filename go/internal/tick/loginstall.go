@@ -21,11 +21,11 @@ import (
 // kept: a dry tick, no screen to read, a notice standing, or the seat not then waiting on its
 // owner.  Undecided, quietLogin reads the seat.
 func (t *ticking) loginOut(live seat.Live) (*run.Object, bool) {
-	if t.dry || strings.TrimFunc(live.Pane, config.Space) == "" || notify.Last(live.Name) != nil || !ownerWaits(live) {
+	if t.dry || strings.TrimFunc(live.Pane, config.Space) == "" || standing(live.Name) != nil || !ownerWaits(live) {
 		return nil, t.loggedOut(live.Own) != nil
 	}
 	if live.Login != nil {
-		if t.recordAuth(live.Own); t.loggedIn(live.Own) {
+		if t.recordAuth(live.Own, true); t.loggedIn(live.Own) {
 			return nil, true
 		}
 	}
