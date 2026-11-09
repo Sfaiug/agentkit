@@ -17,12 +17,13 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import Home
+from fixtures.akbin import BOXED, Home, rerun_boxed
 from fixtures.akinstall import Install
 
 Tick = namedtuple("Tick", "code err said head installs pending clean")
 
 
+@unittest.skipUnless(BOXED, "no bwrap able to box the test here")
 class FastForward(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -76,4 +77,5 @@ class FastForward(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    rerun_boxed()
     unittest.main()

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
+	"agentkit/internal/launch"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 )
@@ -25,13 +27,15 @@ func init() { commands["run status"] = runStatus }
 
 var statusHeaders = []string{"id", "title", "state", "worker", "round", "age"}
 
-// A listed run is its directory and its record, or the unreadable row in its place.
+// A listed run is its directory and its record, or the unreadable row in its place, and its place
+// in its landing line, "" out of any.
 type listed struct {
 	dir          string
 	record       *run.Object
 	unreadable   bool
 	ending       string
 	recordEnding func()
+	place        string
 }
 
 func (l listed) name() string { return filepath.Base(l.dir) }
@@ -87,12 +91,13 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	}
 	every, entries, no := listing(seat, wanted, showHistory, machine, now)
 	var db *history.DB
+	var uncounted []string
 	defer func() { db.Close() }()
 	// opened before a line is printed: a database Go leaves to Python ak leaves it the command;
 	// decided on while the reap holds its runs, so neither is written where the other refuses
 	if no || !reaped(entries, func() (err error) {
 		if showHistory && wanted == "" && !machine {
-			db, err = history.Open()
+			db, uncounted, err = boardHistory()
 		}
 		return err
 	}) {
@@ -179,17 +184,27 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	}
 	fmt.Fprintf(out, "%d older run(s) hidden; ak run status --history [--json] shows full history\n", hidden)
 	if showHistory {
-		fmt.Fprintln(out, strings.Join(append(scoreboard(screen, db, now), sizeLines(db)...), "\n"))
+		fmt.Fprintln(out, strings.Join(append(scoreboard(screen, db, uncounted, now), sizeLines(db)...), "\n"))
 	}
 	return 0
 }
 
-// listing is every readable record and the runs a listing shows, or none, and true, where Go
-// leaves the listing to Python (`refused`).
+// listing is every readable record and the runs a listing shows, each line's places read once
+// where the listing prints them, or none, and true, where Go leaves the listing to Python
+// (`refused`, or a place not landing.line's).
 func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*run.Object, []listed, bool) {
 	every, entries := records(seat, wanted)
 	if every == nil || refused(entries, seat, wanted, showHistory, machine, now) {
 		return nil, nil, true
+	}
+	if !machine {
+		place := run.LinePlaces()
+		for i := range entries {
+			var read bool
+			if entries[i].place, read = place(entries[i].record, entries[i].name()); !read {
+				return nil, nil, true
+			}
+		}
 	}
 	return every, entries, false
 }
@@ -263,13 +278,11 @@ func look(record *run.Object) (bool, error) {
 
 // actedOn is whether Python's reap would act on the run as Go does not: end processes it left
 // behind, reap an active run whose loop is gone, offer a wait's recovery, or reap one neither
-// active, waiting, stalled, ended nor untold, past what handback.Reap does; or whether it holds a
-// place in a landing line, which Go leaves to Python.
+// active, waiting, stalled, ended nor untold, past what handback.Reap does.
 func actedOn(record *run.Object) bool {
 	_, owed := run.Reap(record)
-	wait := record.Dict("waiting_on")
 	switch state := record.Str("state"); {
-	case owed || run.InLine(record) || state == "waiting" && wait != nil && wait.Truthy("line"):
+	case owed:
 		return true
 	case run.Active(record):
 		// a launch waiting for its slot is the tick's to adopt
@@ -282,14 +295,10 @@ func actedOn(record *run.Object) bool {
 }
 
 // refused is whether Python ak would write or act on what the listing reads: a job it shows,
-// a run its reap or a look at it acts on, with --json what history.db would add, and with
-// --history the seats' tokens; one run named shows no job and no scoreboard.
+// a run its reap or a look at it acts on, and with --json what history.db would add; one run
+// named shows no job.  The scoreboard's own reads are boardHistory's.
 func refused(entries []listed, seat, wanted string, showHistory, machine bool, now time.Time) bool {
-	listing := showHistory && wanted == ""
 	if exists(history.Path()) && machine {
-		return true
-	}
-	if listing && seatRecorded() {
 		return true
 	}
 	if wanted == "" && jobShown(seat, showHistory, machine, now) {
@@ -302,12 +311,12 @@ func refused(entries []listed, seat, wanted string, showHistory, machine bool, n
 		if _, err := look(entry.record.Copy()); actedOn(entry.record) || wanted != "" && err != nil {
 			return true
 		}
-		// a run with review off or no limit is Python's whole, its status too
+		// a run with review off or executors off is Python's whole, its status too
 		if !run.Carries(entry.record) {
 			return true
 		}
 		if entry.record.Str("state") == "queued" {
-			if _, read := run.SlotNote(entry.record); !read {
+			if _, read := launch.SlotNote(entry.record); !read {
 				return true
 			}
 		}
@@ -318,17 +327,6 @@ func refused(entries []listed, seat, wanted string, showHistory, machine bool, n
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-// seatRecorded is whether any seat keeps a record, which the scoreboard reads.
-func seatRecorded() bool {
-	for _, path := range config.SeatFiles() {
-		record, err := run.ReadJSON(path)
-		if errors.Is(err, run.ErrLoneSurrogate) || record != nil && !record.Has(config.Renamed) {
-			return true
-		}
-	}
-	return false
 }
 
 // jobShown is whether the listing shows a job: the seat's or every one of the last seven
@@ -562,7 +560,7 @@ func brief(screen terminal.Screen, entry listed, index run.Index, now time.Time)
 	record := entry.record
 	var lines []string
 	dim := func(text string) string { return "  " + screen.Styled(text, "dim") }
-	switch wait, note := waitNote(record), run.ParkedLine(record, entry.name(), now); {
+	switch wait, note := waitNote(record), entry.parked(now); {
 	case entry.ending != "":
 		lines = append(lines, "  "+entry.ending)
 	case wait != "":
@@ -577,11 +575,17 @@ func brief(screen terminal.Screen, entry listed, index run.Index, now time.Time)
 	return append(lines, tail(screen, record)...)
 }
 
+// parked is Python's status.parked_line: the run's place in its landing line, else its retry or
+// who it waits for.
+func (l listed) parked(now time.Time) string {
+	return cmp.Or(l.place, run.ParkedLine(l.record, l.name(), now))
+}
+
 // waitNote is what a run waits for before it works on: a queued one its slot, a running one a
 // heavy suite turn.
 func waitNote(record *run.Object) string {
 	if record.Str("state") == "queued" {
-		note, _ := run.SlotNote(record)
+		note, _ := launch.SlotNote(record)
 		return note
 	}
 	return run.GateTurnNote(record)
@@ -673,7 +677,7 @@ func details(screen terminal.Screen, entry listed, index run.Index, now time.Tim
 		lines = append(lines, "  "+run.RecoveryReason(record)+"; ak run resume "+entry.name()+" offers recovery")
 	}
 	for _, note := range []string{run.BlockedNote(record, screen.Glyph(run.Word(record, index, now))),
-		run.ParkedLine(record, entry.name(), now), run.HandbackWaiting(record), run.Alive(record), run.StopNote(record)} {
+		entry.parked(now), run.HandbackWaiting(record), run.Alive(record), run.StopNote(record)} {
 		if note != "" {
 			lines = append(lines, dim(note))
 		}
@@ -739,7 +743,7 @@ func printPlain(out io.Writer, screen terminal.Screen, entry listed, why bool, m
 	if entry.ending != "" {
 		lines = append(lines, "  "+entry.ending)
 	}
-	if note := waitNote(record); note != "" {
+	if note := cmp.Or(entry.place, waitNote(record)); note != "" {
 		lines = append(lines, "  "+note)
 	}
 	lines = append(lines, tail(screen, record)...)

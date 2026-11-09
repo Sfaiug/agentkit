@@ -69,12 +69,13 @@ func (t *ticking) waiting() error {
 			return failed == nil || errors.Is(failed, errMovedRun)
 		}
 		id := filepath.Base(dir)
-		if t.dry {
-			t.log.line(wouldWait(id, record))
-			return true
-		}
 		if state == "waiting" && !directory(record.Str("worktree")) {
-			reason := fmt.Sprintf("this run's worktree %s is gone; it cannot be resumed where it stopped.", cmp.Or(record.Str("worktree"), "(none)"))
+			gone := cmp.Or(record.Str("worktree"), "(none)")
+			if t.dry {
+				t.log.line(fmt.Sprintf("would interrupt %s: waiting on a merge, but its worktree %s is gone", id, gone))
+				return true
+			}
+			reason := fmt.Sprintf("this run's worktree %s is gone; it cannot be resumed where it stopped.", gone)
 			ok := change(func(current *run.Object) error {
 				if directory(current.Str("worktree")) {
 					return errMovedRun
@@ -87,7 +88,8 @@ func (t *ticking) waiting() error {
 			}
 			return ok
 		}
-		if last, ok := dated(record, "waiting_resume_at"); state == "waiting" && ok && 0 <= epoch(now)-last && epoch(now)-last < 600 {
+		// a dry tick says what the run waits on, however its next try is paced
+		if last, ok := dated(record, "waiting_resume_at"); !t.dry && state == "waiting" && ok && 0 <= epoch(now)-last && epoch(now)-last < 600 {
 			return true
 		}
 		wait := record.Dict("waiting_on")
@@ -97,6 +99,14 @@ func (t *ticking) waiting() error {
 		ref := run.ConflictUpstream(record)
 		if wait != nil {
 			ref = cmp.Or(wait.Str("ref"), ref)
+		}
+		if t.dry {
+			would := fmt.Sprintf("would resume %s after the next merge to %s", id, ref)
+			if state == "fail" {
+				would = fmt.Sprintf("would park %s waiting on %s", id, ref)
+			}
+			t.log.line(would)
+			return true
 		}
 		sha := upstreamSHA(record.Str("worktree"), ref)
 		if sha == "" {
@@ -153,20 +163,3 @@ func (t *ticking) waiting() error {
 }
 
 var errMovedRun = errors.New("the run changed during the tick")
-
-// wouldWait is what a dry tick says of a run the row would park, interrupt or resume, as
-// resume_waiting's dry run says it: a fail parks on its conflict's upstream, a wait whose
-// worktree is gone is interrupted, and any other is resumed once its ref moves.
-func wouldWait(id string, record *run.Object) string {
-	ref := run.ConflictUpstream(record)
-	if record.Str("state") == "fail" {
-		return fmt.Sprintf("would park %s waiting on %s", id, ref)
-	}
-	if wt := record.Str("worktree"); !directory(wt) {
-		return fmt.Sprintf("would interrupt %s: waiting on a merge, but its worktree %s is gone", id, cmp.Or(wt, "(none)"))
-	}
-	if wait := record.Dict("waiting_on"); wait != nil {
-		ref = cmp.Or(wait.Str("ref"), ref)
-	}
-	return fmt.Sprintf("would resume %s after the next merge to %s", id, ref)
-}

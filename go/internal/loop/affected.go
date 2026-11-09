@@ -20,7 +20,7 @@ import (
 // again on that target alone (AK_ONLY) is the target's, not the change's: it passes, and says which.
 // A sibling that arrived during the checks and conflicts is landing's to bring in, in conflict rounds
 // outside the task budget: the round judges its own work merged onto the target it last integrated
-// with.  A suite in pieces is Python's, before anything is written.
+// with.
 func (r *repoPlace) affectedSuite(l *loop) (bool, string, error) {
 	upstream := r.upstream()
 	if upstream == "" || r.noMerge || !namesChanged.MatchString(gitcall.Suite(r.wt, upstream)) {
@@ -75,9 +75,6 @@ func (r *repoPlace) affectedSuite(l *loop) (bool, string, error) {
 	if code != 0 {
 		return false, fmt.Sprintf("$ %s\n[not run: %s does not merge cleanly]\n%s", suite, where, tree), nil
 	}
-	if namesShard.MatchString(suite) {
-		return false, "", notYet("the round's suite names AK_SHARD", "a round's suite in pieces")
-	}
 	tree, _, _ = strings.Cut(tree, "\n")
 	merged, err := l.git(checkout, gitcall.Stamp...).Must("commit-tree", tree, "-p", tip, "-p", head, "-m", where)
 	if err != nil {
@@ -122,8 +119,9 @@ func (r *repoPlace) affectedSuite(l *loop) (bool, string, error) {
 	if gone, err := moved(merged); err != nil || gone {
 		return false, text + "\n\nCheckout changed during the suite; it does not verify " + where + ".", err
 	}
+	// the target's red only where each red piece named tests of its own that fail there too
 	failed := failedTests(seen)
-	if ok || marks[0] == nil || len(failed) == 0 {
+	if ok || marks[0] == nil || seen.unnamed || len(failed) == 0 {
 		return ok, text, nil
 	}
 	if _, err := c.Must("checkout", "--quiet", "--force", "--detach", tip); err != nil {
