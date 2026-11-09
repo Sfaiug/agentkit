@@ -8,6 +8,7 @@ import (
 	"agentkit/internal/gc"
 	"agentkit/internal/googlecloud"
 	"agentkit/internal/handback"
+	"agentkit/internal/helper"
 	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/leftover"
@@ -35,7 +36,7 @@ var errLeft = errors.New("left to Python")
 func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
 	return []pass{
-		{"merge checks", true, t.dryly(noMergeWork), t.wet(t.mergeChecks)},
+		{"merge checks", true, nil, t.mergeChecks},
 		{"boot resume", true, configured, t.bootResume},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
@@ -46,7 +47,7 @@ func table(t *ticking) []pass {
 		{"switched turns", false, configured, continueTurns(true)},
 		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
 		{"dead jobs", true, noDeadJobs, nil},
-		{"stall recovery", true, all(configured, noStallRecovery, t.dryly(noneParked)), t.wet(t.tellParked)},
+		{"stall recovery", true, configured, t.stallRecovery},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
 		// a dry tick's reading is the snapshot as it stands, which no row Go carries reads
@@ -106,7 +107,7 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"rented machines", false, configured, func() error {
-			carried, err := googlecloud.Watch()
+			carried, err := googlecloud.Watch(helper.Line("idle"))
 			if !carried {
 				return errLeft
 			}

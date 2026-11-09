@@ -10,6 +10,7 @@ import (
 	"agentkit/internal/helper"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
+	"agentkit/internal/suitetimes"
 	"agentkit/internal/turn"
 )
 
@@ -25,6 +26,7 @@ type placement struct {
 	busied bool         // and that it did, said once
 	away   *helper.Away // the machine that took it, nil for none
 	here   string       // why it runs here
+	times  string       // the record each piece is handed (AK_TIMES), as it stood when the suite started
 }
 
 // holds is whether the command runs on a turn here, which it is told (host.HeavyTurn).
@@ -64,9 +66,10 @@ func (l *loop) placed(cwd, cmd string, selection *checkSelection, path string) (
 	if namesShard.MatchString(cmd) && !selection.pinned() {
 		cpus, memory := suiteCost(l.dir, cwd, cmd)
 		at.ask.Pieces, at.ask.CPUs, at.ask.MemoryMB = true, cpus, memory
+		at.times = suitetimes.Handed(cwd) // one record, so every piece, here or there, cuts the same shares
 		ask = at.ask
 		var err error
-		if at.away, at.here, err = helper.Start(cwd, cpus, memory, cmd, nil, l.say); err != nil || at.away != nil {
+		if at.away, at.here, err = helper.Start(cwd, cpus, memory, cmd, at.times, l.changed, nil, l.say); err != nil || at.away != nil {
 			return at, err
 		}
 		l.say("suite runs here: " + at.here)
@@ -76,7 +79,7 @@ func (l *loop) placed(cwd, cmd string, selection *checkSelection, path string) (
 			}
 			// what a look says is said once the suite goes there, not at each look
 			var said []string
-			away, _, err := helper.Start(cwd, cpus, memory, cmd, nil, func(line string) { said = append(said, line) })
+			away, _, err := helper.Start(cwd, cpus, memory, cmd, at.times, l.changed, nil, func(line string) { said = append(said, line) })
 			if away != nil {
 				for _, line := range said {
 					l.say(line)
