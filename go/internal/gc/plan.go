@@ -116,6 +116,7 @@ type reads struct {
 	held     []string        // what every process holds (gc.tmp_processes), once asked
 	heldRead bool
 	names    *seat.Names
+	holds    func(harness, conversation string) bool // what the seats hold, once asked
 }
 
 func (r *reads) leftovers() map[string]bool {
