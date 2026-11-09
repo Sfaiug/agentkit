@@ -8,7 +8,7 @@ entry's effort that its running harness cannot move to in place: Esc leaves ever
 it was; `Apply` gives each seat [defaults]'s executors and reviewers and the entries' efforts
 for those models in its record, restarts each one the card named on [defaults]'s orchestrator
 at that effort and types that move into each other one it moves, config.toml as it was.
-A seat asleep takes them too, and each seat's bar names them at once (the owner, 29 Oct 2026:
+A seat gone from tmux takes them too, and each seat's bar names them at once (the owner, 29 Oct 2026:
 "it should reflect what runs from now on, and not what is still running").
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) over
 four seats as ak leaves them (tests/fixtures/akseat.py), its harnesses the fakes of
@@ -32,7 +32,7 @@ from test_key_orch_list_rows import bar
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh"}, "opus": "claude",
           "astra": {"harness": "codex", "effort": "high", "review_effort": "medium"}}
-# on [defaults]'s orchestrator at its effort, so it restarts nowhere, asleep or not
+# on [defaults]'s orchestrator at its effort, so it restarts nowhere, gone from tmux or not
 CALM = {"workers": ["opus"], "reviewers": ["opus"], "efforts": {"fable": {"effort": "xhigh"}}}
 # made in the order the card names them, the main screen's, a tie going by name
 SEATS = {"acme-other": {"model": "astra", "screen": "codex-prompt-pane.txt",
@@ -43,8 +43,7 @@ SEATS = {"acme-other": {"model": "astra", "screen": "codex-prompt-pane.txt",
                                   "efforts": {"fable": {"effort": "max"},
                                               "opus": {"effort": "low"}}}},
          "acme-calm": {"model": "fable", "record": CALM},
-         "acme-asleep": {"model": "fable", "alive": False,
-                         "record": {**CALM, "asleep": time.time()}}}
+         "acme-gone": {"model": "fable", "alive": False, "record": CALM}}
 MOVING = ("acme-other", "acme-same")
 RESTARTING = ("acme-other",)     # acme-same's Claude Code takes Fable at xhigh in place
 ROLES = ("orchestrator", "workers", "reviewers", "efforts")
@@ -109,7 +108,7 @@ class DefaultsApplyToAll(unittest.TestCase):
         self.term.wait(lambda screen: key_line(screen) == KEYS)
         return self.records()
 
-    def test_apply_gives_every_seat_asleep_too_the_defaults_on_its_bar_at_once(self):
+    def test_apply_gives_every_seat_gone_too_the_defaults_on_its_bar_at_once(self):
         self.assertIn("Opus 5.5 xhigh ⚒◎", bar(self.home, self.seats["acme-calm"]))   # drawn before `a`
         for name, record in self.applied().items():
             with self.subTest(seat=name):

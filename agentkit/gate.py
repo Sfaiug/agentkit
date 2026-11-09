@@ -425,15 +425,6 @@ def _wait_reason(readings, minimum, maximum, peak=None, frozen=0, starting=(0, 0
     return None, None
 
 
-def memory_tight(readings=None):
-    """Why memory holds a run back now, else None; off under the tests' `AK_MAX_RUNS=0`."""
-    if os.environ.get("AK_MAX_RUNS") == "0":
-        return None
-    readings = _run_readings() if readings is None else readings
-    return _wait_reason(readings, resource_limits(readings)[0], 0,
-                        history.recent_peak_rss_mb())[0]
-
-
 def _host_admits(state, readings, is_first):
     """The host gates (`_gates_admit`): False, the wait written on `state`, while one holds.
 

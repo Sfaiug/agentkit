@@ -52,7 +52,6 @@ from . import (aside_editor, box, browser, command_help, config, front, gc, gitc
                seat_tokens, staffing, statusbar, transitions, turns, update, usage, versions,
                worker)
 from . import record as run_record
-from . import sleep
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
 from .lifecycle import LIVE, WATCH, facts as hook_facts, held_work, state as hook_state
@@ -688,6 +687,25 @@ def resume_after_boot(cfg, dry_run=False, log=print):
         if not dry_run:
             state["boot_id"] = boot
             _write_state(state)
+
+
+def reopen_slept(cfg, log):
+    """Each seat an older ak put to sleep (its record's `asleep`, after its launch) back on its
+    own conversation, as after a reboot, unless the owner closed it since.  The mark goes before
+    the launch, so one that fails is not tried again: the seat reopens with its number, as any
+    closed seat."""
+    for name, record in config.session_records().items():
+        if "asleep" not in record:
+            continue
+        config.update_session(name, asleep=None)
+        if ((record["asleep"] or 0) <= (record.get("launched") or 0)
+                or seat_closed_by_owner(name)):
+            continue
+        try:
+            orch.resume(cfg, name, log=lambda _: None, detached=True, hand_over=False)
+            log(f"reopened {name}, which an older ak had put to sleep")
+        except (config.Error, OSError) as exc:
+            log(f"WARN could not reopen {name}: {exc}")
 
 
 def relaunched(name, harness, line, at, boot=None, account=False):
@@ -2602,8 +2620,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
                   previous=None, auth_out=None, gh_out=None, token_out=None, card=False,
                   stalls=None, mine=None):
     """`working`, `needs you`, `done`, `idle` or `out of usage` -- why, and since when.  The one
-    decision.  `working` on its runs, its `ak wait` or its live check alone is marked `waits`
-    where nothing else ak moves would move the seat: no turn, usage wait, retry or line to type.
+    decision.
 
     Every screen reads this and says one of those five words: the menu row, the project
     heading, the top line, `ak orch list`, `ak orch why`, the seat's own status bar and its
@@ -3122,8 +3139,7 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             and not notify.resolved(last) and not seat_closed_by_owner(name)):
         return {"word": "needs you", "reason": " ".join(str(last["text"]).split()),
                 "since": last.get("time")}
-    # What ak moves in the seat besides what it waits on, each read at its own rung below; the
-    # owner's rungs between them stop the ladder, never these.
+    # What ak moves in the seat besides what it waits on, each read at its own rung below.
     def turn():
         """2b. a turn in flight, which only a seat somebody is still in has a screen to show"""
         flight, began = (_turn_in_flight(harness, found) if harness and not gone and not waiting
@@ -3160,11 +3176,6 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                   if not gone and found.get("state") in ("at_prompt", "draft") else None)
         return reason and {"word": "working", "reason": reason, "since": found.get("began")}
 
-    def waits(answer):
-        """`answer`, which only what the seat waits on gives it, marked `waits` where nothing
-        else moves it: `sleep` puts such a seat to sleep."""
-        return {**answer, "waits": not any(rung() for rung in (turn, usage, retry, telling))}
-
     # 2. a run of its own is unfinished and resumes itself: the seat is working.
     going = [(run_dir, state) for run_dir, state in mine if resumes_itself(state, at)]
     if going and not usage():
@@ -3191,13 +3202,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
                   and not isinstance(s.get("started_at"), bool)]
         reason = (status_mod.parked_line(newest[1]) if transitions.landing_line(newest[1])
                   else " · ".join(parts))
-        return waits({"word": "working", "reason": reason,
-                      "since": min(starts) if starts else None})
+        return {"word": "working", "reason": reason, "since": min(starts) if starts else None}
     # 2a. ... or it ended its turn on `ak wait`, and what it named is not over yet
     wait = waiting_on(name)
     if wait and not usage():
-        return waits({"word": "working", "reason": f"waiting on {wait['on']}",
-                      "since": wait["at"]})
+        return {"word": "working", "reason": f"waiting on {wait['on']}", "since": wait["at"]}
     # 2b. a turn is in flight: the seat is working, parked run or not.  Only a seat
     # somebody is still in has a screen to read.  The parked run below keeps its
     # word for the quiet prompt, but a turn answering him outranks it: the other
@@ -3258,9 +3267,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
             or last):
         newest = max(pending, key=lambda state: state.get("finished_at") or 0)
         title = " ".join(str(newest.get("title") or newest.get("run_id") or "").split())
-        return waits({"word": "working",
-                      "reason": f"waiting on the live check · {title}".rstrip(" ·"),
-                      "since": min(state["finished_at"] for state in pending)})
+        return {"word": "working", "reason": f"waiting on the live check · {title}".rstrip(" ·"),
+                "since": min(state["finished_at"] for state in pending)}
     # 4. nobody is in it: its number is the way back into the conversation.  A seat the
     # owner closed is `idle`: he ended it, so nothing in it is his to unblock, and a hand-back
     # waiting on it waits for him to want it back; one that went on its own is the owner's
@@ -3291,14 +3299,11 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         # One that went on its own is the owner's while it owes work: no ending is typed into a
         # seat nobody is in, so nothing moves it until it is opened.  With nothing owed it says
         # done where its plan is finished, or rests.
-        reason = closed(f"asleep: press {where} to wake it" if sleep.asleep(name)
-                        else f"session closed: press {where} to reopen")
+        reason = closed(f"session closed: press {where} to reopen")
         if owes_work(name, mine, index, at):
             return {"word": "needs you", "since": None, "reason": reason}
         if not plan_mod.finished(name):
             return {"word": "idle", "since": None, "reason": reason}
-        if sleep.asleep(name):
-            return {"word": "done", "since": None, "reason": reason}
     # 5. at its prompt with nothing running: a watcher's alert, a question on its screen, or
     # nothing at all
     if last:
@@ -7086,7 +7091,7 @@ def revive_seats(cfg, log):
                 # it).  Repeated deaths are bounded by time instead, as a run's are, below.
                 seat_write(name, reopened_at=None)   # live again: the next death is a new one
             continue
-        if (name not in going and name not in cut or sleep.asleep(name)
+        if (name not in going and name not in cut
                 or seat_closed(name) or marks.get("closed_by_owner")):
             continue
         died, deaths = time.time(), marks.get("reopened_at") or []
@@ -7377,10 +7382,9 @@ def say(dry_run, log, text, url, session, merged=False):
 
     Never to Discord.  The run learns it first, where the menu and `ak run status` were
     already showing `waiting for the maintainer` -- a seat that cannot be typed into never
-    holds that back -- and a live seat, one asleep once woken, is typed the line at its quiet
-    prompt, never into a running turn (`type_at_prompt`), exactly as a run's ending is, its
-    mark kept on the run (`decision_typed`) so a line typed and never seen sent gets its Enter,
-    not a second copy,
+    holds that back -- and a live seat is typed the line at its quiet prompt, never into a
+    running turn (`type_at_prompt`), exactly as a run's ending is, its mark kept on the run
+    (`decision_typed`) so a line typed and never seen sent gets its Enter, not a second copy,
     and is sent (`handback.finish_typed`) before a later decision is typed or a routine merge ends
     the following.  A merge is the exception: routine, recorded on the run and typed into no seat, unless its
     run's seat owes work (`handback.routine_ending`), as the follow-ups it put in that seat's plan that no run took.
@@ -7434,8 +7438,6 @@ def say(dry_run, log, text, url, session, merged=False):
             if handback.owes_ending(run_state):
                 handback.announce(run_state, run_dir, log)
         return True
-    if session and not sleep.wake(session, log):
-        return False        # its seat, asleep: the line is owed it, the next tick wakes it
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
         line = notice()
@@ -7976,7 +7978,7 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
         state = run_record.read_state(run_dir) if run_dir is not None else None
         if run_dir is not None:
             line = handback.not_live_line(line, run_dir)
-        seat = after_merge_seat(run_state, repo_key, typed, log)
+        seat = after_merge_seat(run_state, repo_key, typed)
         if seat is None or not type_at_prompt(seat, line, log, cfg=cfg, typed=typed, receipt=receipt):
             return None
         if state and state.get("merged") and transitions.launched_session(state) == seat["name"]:
@@ -7987,10 +7989,10 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
         return seat["name"]
 
 
-def after_merge_seat(run_state, repo_key, typed, log):
+def after_merge_seat(run_state, repo_key, typed):
     """The seat an after-merge notice goes to: the one its line was typed into (`typed`, the
-    mark naming it by its `created`) while that is live, else its own when live, woken if it
-    sleeps (none until it wakes), else the fallback."""
+    mark naming it by its `created`) while that is live, else its own when live, else the
+    fallback."""
     marked = typed.get("seat") if isinstance(typed, dict) else None
     if marked is not None:
         try:
@@ -8004,8 +8006,6 @@ def after_merge_seat(run_state, repo_key, typed, log):
     except config.Error:
         session = None
     if session:
-        if not sleep.wake(session, log):
-            return None     # its own seat, asleep: the notice is owed it, the next tick wakes it
         try:
             seat = orch.find(session)
         except (config.Error, OSError, ValueError, AttributeError):
@@ -8264,8 +8264,8 @@ def after_merge_checks(state, dry_run, log, now=None):
                        "check": check, "source": "health", "finished": finished,
                        "target": target, "session": session}
             if not dry_run:
-                # Kept until it is told or its repository goes green: a seat asleep or in a
-                # turn is told at its next prompt, past the window its merge leaves meanwhile
+                # Kept until it is told or its repository goes green: a seat in a turn is
+                # told at its next prompt, past the window its merge leaves meanwhile
                 episodes[key] = {"pending": pending}
                 _save()
         check = pending.get("check")
@@ -8510,6 +8510,10 @@ def local_passes(state, dry_run, log):
         # own gh calls fail on their own, and the next tick asks again.
         ("merge checks", lambda: after_merge_checks(state, dry_run, log), True),
         ("boot resume", lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
+        # The owner, 9 Nov 2026, removed seat sleeping: a seat stays open until the owner closes
+        # it, whatever its rest and whatever memory reads.  One an older ak put to sleep comes
+        # back here, as after a reboot.
+        ("slept seats", lambda: reopen_slept(config.load(), log), False),
         ("held lines", lambda: finish_own_lines(config.load(), log), False),
         ("draft return", lambda: drafts_back(config.load()), False),
         ("rebooted turns", lambda: continue_turns(config.load(), log), False),
@@ -8582,7 +8586,6 @@ def local_passes(state, dry_run, log):
         ("seat revival", lambda: revive_seats(config.load(), log), False),
         # A client's hook that was lost, or a weight systemd reset, heals here.
         ("seat weights", front.once, False),
-        ("idle sleep", lambda: sleep.tick(config.load(), log), False),
         ("git housekeeping", lambda: gc.git_housekeeping(log), False),
         # Expensive collection runs detached; malformed retention metadata cannot stop a tick.
         ("collection", lambda: gc.schedule_gc(log), False),

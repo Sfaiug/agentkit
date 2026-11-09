@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, orch, record, sleep, watch
+from agentkit import config, orch, record, watch
 
 T0, SEAT, WINDOW = 2000000, "fix-api", watch.AFTER_MERGE_WINDOW
 TAKES = {("slow", "health"): 30, ("live", "deployed"): 5}     # what a run's probe takes
@@ -90,7 +90,6 @@ class LiveFollower(Sandbox):
         the rest take it, up to the last look that finds the last window past."""
         # its seat up and working, so `three`'s ending is handed back at each look and never in
         for module, name, fake in ((orch, "watching", lambda _name: True),
-                                   (sleep, "wake", lambda *_a, **_kw: True),
                                    (watch, "untyped", lambda *_a, **_kw: ("working", False))):
             self.stack.enter_context(patch.object(module, name, fake))
         reads, every = [], record.runs
