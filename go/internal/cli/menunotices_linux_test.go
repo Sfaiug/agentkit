@@ -52,7 +52,8 @@ with Home() as home:
     assert notice.exists(), "a draft lost its keys to a notice"
     assert not (home.path / "restarted").exists(), "a draft was restarted"
     menu.keys("Escape")
-    menu.wait("esc back")
+    # the draft's own keys read "esc back" too: the notice is up once its words are
+    menu.wait("installed new code")
     assert not notice.exists()
     menu.keys("i")
     assert "esc back" in menu.screen(), "an unrelated key dismissed the notice"
