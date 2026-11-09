@@ -360,7 +360,7 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
         records = config.session_records()
         record = records.pop(name, {})
         theirs = {kept for other in records.values()
-                  for kept in (other.get("conversation"),
+                  for kept in (*recorded_conversations(other),
                                *(was.get("conversation") for was in other.get("left", [])))}
         if orch.seat_harness(record) != harness or not record.get("cwd"):
             return

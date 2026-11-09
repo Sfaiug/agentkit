@@ -5,7 +5,8 @@ agy's TUI cannot be handed an id for a new conversation, so a seat's is learned 
 issued: each launch carries a token of its own in its environment, and the conversation a
 process carrying it holds open is that launch's (agy 1.4.7 makes `<id>.db` within seconds and
 holds it, its -wal and -shm open while it runs).  A host whose processes' open files cannot be
-read gives a seat none, as before.
+read gives a seat none, as before.  From there the seat follows each conversation its agy takes
+a prompt in (`follow`), as /clear opens a new one in the same process.
 
 agy keeps each conversation as a SQLite database of its own, ~/.gemini/antigravity-cli/
 conversations/<id>.db, where every login's are (adapters/antigravity.sh links them): one row
@@ -31,6 +32,7 @@ from . import LAUNCHER, issued
 USER, MODEL, CARD = 14, 15, 132
 WORDS = {USER: ("user", 19, 2), MODEL: ("model", 20, 1)}
 LAUNCH_ENV = "AGENTKIT_ANTIGRAVITY_LAUNCH"
+SOURCE = "antigravity-hook"   # `id_source`: a conversation the seat's own agy took a prompt in
 PROC = Path("/proc")
 
 
@@ -74,8 +76,9 @@ def conversation(record, cwd=None):
 
 
 def owned(record):
-    """What that record alone says its seat owns: a launcher's id, or one its launch saw."""
-    if record.get("id_source") == LAUNCHER:
+    """What that record alone says its seat owns: a launcher's id, one its agy took a prompt in
+    (`follow`), or one its launch saw."""
+    if record.get("id_source") in (LAUNCHER, SOURCE):
         return record.get("conversation")
     seen = record.get("antigravity_open")
     if isinstance(seen, dict) and seen.get("launch") == record.get("antigravity_launch"):
@@ -83,9 +86,31 @@ def owned(record):
     return None
 
 
+def follow(launched, payload, pid):
+    """A prompt the seat's own agy took in another conversation than the seat's moves the seat
+    there (`claim`), whoever typed it: /clear opens a new one in the same process, and only its
+    next prompt names it.  The launch's PreInvocation hook hands on agy's `conversationId` as
+    `session_id` (adapters/antigravity.sh `interactive`), the id `--conversation` reopens
+    `<id>.db` by, so one with no database in agy's store is no conversation to follow."""
+    from .. import orch
+    from . import claim
+    if isinstance(payload, dict) and payload.get("hook_event_name") == "UserPromptSubmit":
+        found = store(payload.get("session_id"))
+        claim(launched, "antigravity", payload.get("session_id"),
+              str(found) if found and found.is_file() else None,
+              lambda record, conversation: store(conversation), pid,
+              lambda words: orch.program(words) == "agy", id_source=SOURCE)
+
+
 def resumable(record, cwd, conversation):
     """A conversation the seat owns is one `--conversation` reopens it on."""
     return bool(conversation)
+
+
+def reconcile(record):
+    """A conversation the record names and the seat does not own (`owned`) is not its to resume."""
+    return ({"conversation": None, "resumable": False}
+            if record.get("conversation") and owned(record) != record["conversation"] else {})
 
 
 def held_open(token):
