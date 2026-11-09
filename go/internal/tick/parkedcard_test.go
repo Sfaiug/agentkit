@@ -72,7 +72,7 @@ func TestARefusedParkedCardHandsOverWritingNothing(t *testing.T) {
 			beforeSeat := read(t, filepath.Join(ak, "state", "seat-acme.json"))
 			beforeSession := read(t, filepath.Join(ak, "state", "session-acme.json"))
 			tick := &ticking{log: newLog(io.Discard, io.Discard), clock: time.Now}
-			err := tick.tellParked()
+			err := tick.tellParked(filepath.Join(ak, "runs", "fix-api"))
 			if !errors.Is(err, errLeft) {
 				t.Fatalf("a refused card did not hand over: %v", err)
 			}

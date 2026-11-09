@@ -10,9 +10,10 @@ import (
 )
 
 // tellParked is the notice of a run the ladder parked as stalled that has not gone out
-// (watch.tell_parked): typed into the seat that launched it, under the run's lock, and marked told.
-// A notice Go does not type, to a run launched from no seat, a seat not up or not at its quiet
-// prompt, or a line too long to type whole, is Python's card, page or summary, as it stood.
+// (watch.tell_parked): typed into the seat that launched it, or its card where the line would join
+// text in the composer, under the run's lock, and marked told.  A run launched from no seat, a seat
+// not up, a line too long to type whole, or one neither typed nor carded, is Python's card, page
+// or summary, as it stood.
 func (t *ticking) tellParked(dir string) error {
 	return run.Change(dir, func(current *run.Object) error {
 		if current.Str("state") != "stalled" || current.Truthy("stalled_notified") {
