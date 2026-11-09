@@ -7,8 +7,8 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
+	"agentkit/internal/logins"
 	usages "agentkit/internal/usage"
-	"agentkit/internal/worker"
 )
 
 // moveLogin is the login a move from `was` onto `next`, the model config.toml calls `model`, runs
@@ -31,7 +31,7 @@ func moveLogin(model string, was, next config.Model, account, adapter string, re
 	}
 	login := func(account string) (answered, yes bool) {
 		env := append(host.Unmarked(os.Environ()), config.AccountEnv(account), "AGENTKIT_PROVIDER="+strings.Join(providers, " "))
-		answered, yes, _ = worker.Login(adapter, env, "seat")
+		answered, yes, _ = logins.Auth(adapter, env, "seat")
 		return answered, yes
 	}
 	if was.Provider != next.Provider {

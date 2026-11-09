@@ -87,7 +87,8 @@ type Away struct {
 // is what each piece runs there, handed times (pinned); cpus and memoryMB one piece's cost; what it has to say goes to say.  A model turn's,
 // with its own files for the parcel (turnFiles), is one piece that goes to the machine with the
 // least room that takes turns, holding its cpus there until it starts, not half the machine.  It
-// passes over a rental Google ends before the work would start there, and asks the tick for a
+// passes over a rental Google ends before the work would start there, a turn's before the hour
+// its login is lent for (lentFor) is out there too, and asks the tick for a
 // machine (need) where none took it, or none with room outlives the chosen one by a rent and a pass.
 func Start(cwd string, cpus, memoryMB float64, command, times string, turn map[string]file, say func(string)) (*Away, string, error) {
 	return start(cwd, cpus, memoryMB, pinned(command, times, nil), turn, false, say)
@@ -96,16 +97,16 @@ func Start(cwd string, cpus, memoryMB float64, command, times string, turn map[s
 // start is Start of the line command each piece runs there, as pinned; with one, a probe's, it
 // holds only the CPUs its one piece gets (Probe).
 func start(cwd string, cpus, memoryMB float64, command string, turn map[string]file, one bool, say func(string)) (*Away, string, error) {
-	work, first, holds := "tests", -1, []string(nil)
+	work, first, holds, lasting := "tests", -1, []string(nil), time.Duration(0)
 	if turn != nil {
-		work, first, holds = "turns", 1, []string{strconv.FormatFloat(cpus, 'f', -1, 64)}
+		work, first, holds, lasting = "turns", 1, []string{strconv.FormatFloat(cpus, 'f', -1, 64)}, lentFor*time.Second
 	}
 	aliases := takers(work)
 	if len(aliases) == 0 && !googlecloud.Rents(work) {
 		return nil, "no suite helper set up", nil
 	}
 	ends := googlecloud.Serving()
-	aliases = slices.DeleteFunc(aliases, func(alias string) bool { return !lasts(ends, alias, 0) })
+	aliases = slices.DeleteFunc(aliases, func(alias string) bool { return !lasts(ends, alias, lasting) })
 	away := &Away{key: token(), repo: gitcall.RepositoryID(cwd), command: command, programs: programs()}
 	image, files, err := recipeOf(cwd, away.repo)
 	if err != nil {
@@ -147,9 +148,9 @@ func start(cwd string, cpus, memoryMB float64, command string, turn map[string]f
 		}
 		sent := there.send(cwd, files, holds)
 		// asked again once prepared, which may take 30 minutes, as the work starts then
-		if sent == 0 && lasts(ends, there.Alias, 0) {
+		if sent == 0 && lasts(ends, there.Alias, lasting) {
 			say(fmt.Sprintf("suite on %s: %d pieces, %d CPUs and %d MiB each", there.Alias, there.Count, there.CPUs, there.MemoryMB))
-			if soon(aliases, fits, ends) {
+			if soon(aliases, fits, ends, lasting) {
 				need(cpus, memoryMB, away.repo, work)
 			}
 			return &there, "", nil

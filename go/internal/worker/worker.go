@@ -1,13 +1,12 @@
 // Package worker runs one turn of a model's harness, as Python's agentkit/worker.py does.  It
 // hides the turn's out directory with its hand-in file and its prompt, the role's opening and then
 // the task; the adapter's `auth` verb, asked before the turn and again after a quick turn that
-// streamed nothing; the harness's own logout words in the turn's log; the adapter's `run` in the
-// worker box with its environment, stopped on ^C or on those words; and the conversation the turn
-// leaves.
+// streamed nothing; the harness's own logout words in the turn's log; the adapter's `run` on a
+// machine that takes turns, else in the worker box, with its environment, stopped on ^C or on those
+// words; and the conversation the turn leaves.
 package worker
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"crypto/rand"
@@ -16,7 +15,6 @@ import (
 	"io"
 	"maps"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"slices"
@@ -28,6 +26,7 @@ import (
 	"agentkit/internal/handin"
 	"agentkit/internal/harness"
 	"agentkit/internal/host"
+	"agentkit/internal/logins"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -40,10 +39,7 @@ var ErrPython = errors.New("left to Python")
 // ErrInterrupted is a turn ^C or its Given's context ended, once the box it ran in has.
 var ErrInterrupted = errors.New("interrupted")
 
-const (
-	authCap   = 20 * time.Second // the `auth` verb reads a file; one still silent after this is not answering
-	authGrace = 60 * time.Second // a turn over this fast that streamed nothing never reached the model
-)
+const authGrace = 60 * time.Second // a turn over this fast that streamed nothing never reached the model
 
 // Turn runs one turn of the model name in role on the task's text, from the resolved workspace
 // into out, resuming session where one is given: its exit status as the box reports it, and the
@@ -112,6 +108,8 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if err := receipts(out, model.Harness, env); err != nil {
 		return 0, "", err
 	}
+	began := time.Now()
+	away := elsewhere(model, argv, workspace, out, env, session)
 	// The adapter's own stderr, a line it prints before it hands the harness stderr.log, is kept
 	// apart while the harness writes that log, and goes at its end once the turn is over.
 	own := filepath.Join(out, "adapter-stderr.log")
@@ -119,14 +117,19 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if err != nil {
 		return 0, "", err
 	}
-	began := time.Now()
 	words := loggedOut(model.Harness, out)
 	interrupt, restore := signal.NotifyContext(cmp.Or(given.Context, context.Background()), os.Interrupt)
 	ctx, unwatch := words.watch(interrupt)
 	heartbeats, _ := config.Words(model.Harness, "worker", "heartbeats")
 	ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Declared: host.Declared(env[host.Marker])}.Stop(ctx)
 	markLaunched()
-	code, left, err := box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
+	code, left, there := 0, map[int]string(nil), false
+	if away != nil {
+		code, session, there = away.Run(ctx, Conversation)
+	}
+	if !there {
+		code, left, err = box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
+	}
 	unwatch()
 	stopped := watched() != ""
 	interrupted := interrupt.Err() != nil
@@ -145,7 +148,9 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if err != nil {
 		return 0, "", err
 	}
-	session = Conversation(out)
+	if !there { // a machine's turn says which conversation it leaves
+		session = Conversation(out)
+	}
 	if interrupted {
 		return code, session, ErrInterrupted
 	}
@@ -167,36 +172,10 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 // refused is the line the adapter's `auth` verb says no with, else "": any other answer is no
 // answer, which lets a turn run.
 func refused(adapter string, env []string) string {
-	if answered, yes, line := Login(adapter, env); answered && !yes {
+	if answered, yes, line := logins.Auth(adapter, env); answered && !yes {
 		return line
 	}
 	return ""
-}
-
-// Login is what the adapter's `auth` verb says of the login env names, as Python's
-// worker.auth_ok reads it: answered where it said one line exiting 0 or 1, yes for 0, and that
-// line. The seat's probe adds "seat" to ask about its interactive login.
-func Login(adapter string, env []string, args ...string) (answered, yes bool, line string) {
-	ctx, cancel := context.WithTimeout(context.Background(), authCap)
-	defer cancel()
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, adapter, append([]string{"auth"}, args...)...)
-	// A stdin closed at once: asking opens no file of its own on a machine watching for that.
-	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.WaitDelay = env, strings.NewReader(""), &stdout, &stderr, time.Second
-	host.AdapterCall(cmd)
-	if err := cmd.Run(); err != nil && !errors.As(err, new(*exec.ExitError)) {
-		return false, false, ""
-	}
-	var lines []string
-	for _, line := range config.SplitLines(stdout.String() + stderr.String()) {
-		if line = strings.TrimFunc(line, config.Space); line != "" {
-			lines = append(lines, line)
-		}
-	}
-	if code := cmd.ProcessState.ExitCode(); len(lines) == 1 && (code == 0 || code == 1) {
-		return true, code == 0, lines[0]
-	}
-	return false, false, ""
 }
 
 // Conversation is the one the turn in out leaves: the id its adapter wrote, else the last its events
