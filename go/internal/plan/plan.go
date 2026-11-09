@@ -137,8 +137,9 @@ func verifying(ctx context.Context, name string, wait bool, fn func() error) err
 }
 
 // path is the seat's plan: of the files under its name and every name renamed into it, the
-// one written last, since a renamed seat still writes under the name it was launched with.
-// One nothing can look at is an error: an unread plan proves nothing done.
+// one written last, since a renamed seat still writes under the name it was launched with; of
+// equal times, the later path, as Python's max of (mtime, path) picks.  One nothing can look at
+// is an error: an unread plan proves nothing done.
 func path(current string) (string, error) {
 	found, newest := seatFile("plan", current, "md"), int64(-1)
 	for _, each := range Names(current) {
@@ -150,8 +151,8 @@ func path(current string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("cannot read the plan %s: %w", plan, err)
 		}
-		if info.ModTime().UnixNano() > newest {
-			found, newest = plan, info.ModTime().UnixNano()
+		if at := info.ModTime().UnixNano(); at > newest || at == newest && plan > found {
+			found, newest = plan, at
 		}
 	}
 	return found, nil
