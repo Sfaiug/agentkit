@@ -729,7 +729,7 @@ func conclude(dir string) int {
 		return 2
 	}
 	said := stampedLog{dir}
-	if handback.Give(dir, func(line string) { fmt.Fprintln(said, line) }) {
+	if handback.Give(dir, nil, func(line string) { fmt.Fprintln(said, line) }) {
 		dropTold(dir, said)
 	}
 	if record.Str("state") == "error" {
