@@ -1,7 +1,8 @@
 """The machines ak may use and what each one is: this one, each `[machines.<ssh alias>]` of
 config.toml, the `suite_helper` and those ak rents that serve.  Hidden here: the probe,
-tools/machine.sh, each tick's on all of them side by side, over ssh but for this one; its ssh
-options; and their answers, state/machines.json, the last three days' checks, the tick's alone.
+tools/machine.sh, each tick's on all of them side by side and one on a machine `c` adds, over ssh
+but for this one; its ssh options; and their answers, state/machines.json, the last three days'
+checks.
 """
 
 from collections import namedtuple
@@ -85,27 +86,56 @@ def work(name, cfg=None):
 
 def known():
     """Every machine ak may use, this one first, as the ticks found it."""
-    names = [HERE, *helpers()]
-    try:
-        record = json.loads(_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        record = {}
+    names, record = [HERE, *helpers()], _record()
     return [Machine(name, record.get(name, {}).get("checks", []),
                     record.get(name, {}).get("said")) for name in dict.fromkeys(names) if name]
 
 
 def check():
     """The tick's: asks each machine once, side by side, and records what it answered."""
-    script, now, machines = PROBE.read_text(), time.time(), known()
-    answers = ask([["bash", "-c", script] if machine.name == HERE else
-                   [*SSH, *google_cloud.ssh_config(machine.name), "--", machine.name,
-                    shlex.join(["bash", "-c", script])] for machine in machines])
+    now, machines = time.time(), known()
+    answers = ask([_probe(machine.name) for machine in machines])
     record = {}
-    for machine, answer in zip(machines, answers):
+    for machine, (answer, _) in zip(machines, answers):
         said = _said(answer)
         checks = [one for one in machine.checks if one[0] > now - KEPT]
         record[machine.name] = {"checks": [*checks, [now, bool(said)]],
                                 "said": {**said, "at": now} if said else machine.said}
+    _write(record)
+
+
+def add(name):
+    """`name`, an ssh address, asked once as `check` asks each machine, and its answer recorded:
+    "" for the caller to write its `[machines.<name>]`, else why not.  One ak may use already is
+    not asked."""
+    if name in (HERE, *helpers()):
+        return f"{name} is a machine already"
+    now = time.time()
+    [(answer, errors)] = ask([_probe(name)])
+    said = _said(answer)
+    if not said:
+        last = (errors or "").strip().splitlines()[-1:]     # ssh's own, or the probe's
+        return (f"{name} did not answer in {TIMEOUT} seconds" if errors is None
+                else f"{name} did not answer" + "".join(f": {line}" for line in last))
+    _write({**_record(), name: {"checks": [[now, True]], "said": {**said, "at": now}}})
+    return ""
+
+
+def _probe(name):
+    """The command asking `name` what it is."""
+    script = PROBE.read_text()
+    return (["bash", "-c", script] if name == HERE else
+            [*SSH, *google_cloud.ssh_config(name), "--", name, shlex.join(["bash", "-c", script])])
+
+
+def _record():
+    try:
+        return json.loads(_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _write(record):
     temp = _path().with_suffix(".tmp")
     temp.write_text(json.dumps(record) + "\n", encoding="utf-8")
     temp.replace(_path())
@@ -116,11 +146,12 @@ def _path():
 
 
 def ask(commands):
-    """What each of `commands`, run side by side, printed, or None: it failed or still ran TIMEOUT
-    on, and ends with all it started.  Their lines fit the pipe: waited for, then read."""
+    """Of each of `commands`, run side by side: what it printed, None if it failed or still ran
+    TIMEOUT on, and what it said on stderr, None if it still ran.  It ends with all it started.
+    Their lines fit the pipes: waited for, then read."""
     deadline = time.monotonic() + TIMEOUT
     procs = [subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                              stderr=subprocess.DEVNULL, text=True, errors="replace",
+                              stderr=subprocess.PIPE, text=True, errors="replace",
                               start_new_session=True) for command in commands]
     return [_answer(proc, deadline) for proc in procs]
 
@@ -128,12 +159,11 @@ def ask(commands):
 def _answer(proc, deadline):
     with proc:
         try:
-            if proc.wait(max(0, deadline - time.monotonic())):
-                return None
+            failed = proc.wait(max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
             os.killpg(proc.pid, signal.SIGKILL)     # unreaped, it still names its group
-            return None
-        return proc.stdout.read()
+            return None, None
+        return None if failed else proc.stdout.read(), proc.stderr.read()
 
 
 def _said(answer):
