@@ -114,8 +114,8 @@ class FreeLock(unittest.TestCase):
             log.write_bytes(b"x" * (3 * 1024 * 1024 // 2))
             done = home.ak("doctor")
             self.assertEqual(done.code, 1, done.err)
-            self.assertIn("tick  lock free · no tick has ended yet · watch.log 1.5 MB of 5 MB",
-                          done.out.splitlines())
+            self.assertIn("tick  lock free · no tick has ended yet · watch.log 1.5 MB of 5 MB"
+                          " · git housekeeping has not run yet", done.out.splitlines())
             # asking who holds it is no taking of it
             self.assertEqual((home.path / LOCK).read_text(), "4242\n")
 
