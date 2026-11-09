@@ -106,8 +106,12 @@ class WorkOnAkItself(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.home.env["AK_HOST_READINGS"] = ROOMY
-        # named as the checkout the program runs from, as bin/ak finds its own
-        own, acme = Rig(cls.home, Path(AK).resolve().parents[1].name), Rig(cls.home, "acme")
+        # named as the checkout the program was built in, the nearest folder above it holding
+        # orchestrator.md: bin/ak's is one up, go/bin/ak's two
+        program = Path(AK).resolve()
+        checkout = next((folder.name for folder in program.parents if (folder / "orchestrator.md").is_file()),
+                        program.parents[1].name)
+        own, acme = Rig(cls.home, checkout), Rig(cls.home, "acme")
         akconfig.write(cls.home, ["opus", "astra"])
         fakes = fakeadapter.install(cls.home, claude="work", codex="pass")
         events = {harness: report_tokens(fake) for harness, fake in fakes.items()}
