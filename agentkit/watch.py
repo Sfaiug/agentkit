@@ -439,7 +439,8 @@ def tick_ended():
 
 def tick_health():
     """The line `--dry-run` and `ak doctor` print: who holds the lock, when the last tick ended
-    and what it took, how big the log is; and whether the tick reads as hung."""
+    and what it took, how big the log is, when git housekeeping last ran; and whether the tick
+    reads as hung."""
     running = tick_running()
     lock = (f"lock held by pid {running[0]} for {int(running[1] // 60)} min" if running
             else "lock free")
@@ -449,7 +450,10 @@ def tick_health():
     except OSError:
         size = 0
     kept = f"{LOG_NAME} {size / 1048576:.1f} MB of {LOG_MAX / 1048576:.0f} MB"
-    return f"{lock} · {ended} · {kept}", hung
+    at = gc.stamped(gc.housekeeping_mark())
+    housekept = ("git housekeeping has not run yet" if at is None
+                 else f"git housekeeping ran {terminal_mod.format_age(time.time() - at)} ago")
+    return f"{lock} · {ended} · {kept} · {housekept}", hung
 
 
 def generation(value):

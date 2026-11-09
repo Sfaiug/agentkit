@@ -31,7 +31,7 @@ RUNNING = "tick already running (pid 4242, for {} min)\n"
 HUNG = ("WARN the tick holding the lock has been running for {} min; look at it, and kill it if "
         "it is hung\n")
 DOCTOR = ("tick  lock held by pid 4242 for {} min · no tick has ended yet · "
-          "watch.log 0.0 MB of 5 MB")
+          "watch.log 0.0 MB of 5 MB · git housekeeping has not run yet")
 
 
 def said(minutes):

@@ -42,6 +42,8 @@ class NoBackgroundGit(Sandbox):
         self.inventory = self.stack.enter_context(patch.object(
             gc.proc_snapshot, "collect", side_effect=lambda *_: (self.processes, {})))
         self.stack.enter_context(patch.object(watch, "gh_json", return_value=({}, "offline")))
+        # every tick here is a new hour's: test_key_housekeeping_hourly holds the hour
+        self.stack.enter_context(patch.object(gc, "HOUSEKEEPING_INTERVAL", 0))
         self.logs = []
 
     def git(self, repo, *args, **kw):
