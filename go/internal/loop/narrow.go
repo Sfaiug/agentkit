@@ -324,7 +324,7 @@ func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks
 		var err error
 		if cached == nil || cached.Str("tested") != stacks[index].tree || !covers(cached.List("checks"), checks) {
 			cached = nil
-			answer, err = stacks[index].check(checks, suite, "landing", &checkSelection{})
+			answer, err = stacks[index].check(checks, suite, "landing", &checkSelection{base: target.tip})
 		}
 		if err != nil || answer == nil {
 			return answer, err
@@ -444,7 +444,7 @@ func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks
 					runs = suite
 				}
 			}
-			selection := &checkSelection{shard: fix.Str("piece"), tests: tests}
+			selection := &checkSelection{shard: fix.Str("piece"), tests: tests, base: target.tip}
 			if runs == "" {
 				answer, err = whole(middle)
 			} else if valid(func() bool { return true }) {
