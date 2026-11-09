@@ -53,7 +53,7 @@ func (l *loop) onHelper(away *helper.Away, shard string, limit time.Duration, ou
 // or on a turn here, grows into what frees.  It never waits on an answer past the last waiting
 // piece: one that comes later finishes the helper it joined.  What it joined is finished once their
 // pieces end.
-func (l *loop) grow(cwd string, cpus, memory float64, cmd string, waiting chan *piece, start func(*helper.Away)) (joined []*helper.Away) {
+func (l *loop) grow(cwd string, cpus, memory float64, cmd, times string, waiting chan *piece, start func(*helper.Away)) (joined []*helper.Away) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	asked := time.Now()
@@ -88,7 +88,7 @@ func (l *loop) grow(cwd string, cpus, memory float64, cmd string, waiting chan *
 		if answer == nil && time.Since(asked) >= gatePoll {
 			asked, answer, said = time.Now(), make(chan *helper.Away, 1), &[]string{}
 			go func(answer chan *helper.Away, said *[]string) {
-				there, _, _ := helper.Start(cwd, cpus, memory, cmd, nil, func(line string) { *said = append(*said, line) })
+				there, _, _ := helper.Start(cwd, cpus, memory, cmd, times, l.changed, nil, func(line string) { *said = append(*said, line) })
 				answer <- there
 			}(answer, said)
 		}
