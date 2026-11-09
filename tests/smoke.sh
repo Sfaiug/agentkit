@@ -19,10 +19,11 @@
 set -uo pipefail
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # A mode runs only its own checks, and a piece of it only its share: suite_shares.py chooses.
-# A check the kernel killed for memory says nothing of the checkout, so a red share in whose
-# cgroup the kernel killed for memory while it ran ends as a killed piece does, 137: the gate,
-# counting the same kills, runs it again alone and blames no test (`gate._SuiteMeasure.starved`),
-# as a helper's piece.sh says 254 for its own.
+# A check the kernel killed for memory says nothing of the checkout, so a share whose every
+# failed check died by SIGKILL (acceptance.sh's NKILLED) while the kernel killed in its cgroup
+# for memory ends as a killed piece does, 137: the gate, counting the same kills, runs it again
+# alone and blames no test (`gate._SuiteMeasure.starved`), as a helper's piece.sh says 254 for
+# its own.  One failure of any other kind keeps the share's own red.
 if [ $# = 0 ]; then
   SMOKE_BODY=$(python3 "$REPO/tests/suite_shares.py" "$REPO/tests/smoke.sh") || exit $?
   memory_kills() {
@@ -31,7 +32,8 @@ if [ $# = 0 ]; then
   SMOKE_KILLS=$(memory_kills)
   eval "$SMOKE_BODY"
   SMOKE_RC=$?
-  [ "$SMOKE_RC" = 0 ] || [ "$(memory_kills)" = "$SMOKE_KILLS" ] || exit 137
+  [ "${NFAIL:-0}" = 0 ] || [ "$NFAIL" != "${NKILLED:-0}" ] || [ "$(memory_kills)" = "$SMOKE_KILLS" ] ||
+    exit 137
   exit "$SMOKE_RC"
 fi
 # --- shared setup ----------------------------------------------------------
