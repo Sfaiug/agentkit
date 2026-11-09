@@ -174,7 +174,7 @@ func (l *loop) suite(cwd, cmd, path, label string) (int, string, bool, error) {
 			if left <= 0 {
 				break // still busy once out of time, it hands that answer on, as Python's probe does
 			}
-			if outcome, err = l.boxed(cwd, cmd, "", left, progress, path, false, at.holds()); err == nil {
+			if outcome, err = l.boxed(cwd, cmd, "", "", left, progress, path, false, at.holds()); err == nil {
 				busy, err = l.again(at, cmd, outcome, &deadline)
 			}
 		}
