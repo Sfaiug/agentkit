@@ -5,6 +5,8 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -51,6 +53,39 @@ def plan_check(command, root=None):
     backticks or this checkout's path (`root`)."""
     return (len(command.strip().splitlines()) == 1 and "`" not in command
             and not (root and str(root) in command))
+
+
+def exit_guard(command):
+    """The exit-0 guard in `command`'s shell words, if any: `true` or `:` run right after `||`,
+    `exit 0` or `set +e`, each a path to success whatever the code does.  A command's word is
+    its first after any NAME=value words and redirections; quoted text is a word of its own and
+    holds none, and a command shlex cannot split is left to bash."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True    # `+e` is one word, as bash reads it
+    try:
+        words = [*lexer, ";"]
+    except ValueError:
+        return None
+    redirection = re.compile(r"&?[<>][<>&|]*")
+    after, simple = ";", []
+    for word in words:
+        if word not in (";", "&&", "||", "|", "&", "(", ")"):
+            simple.append(word)
+            continue
+        while simple:
+            if redirection.fullmatch(simple[0]):
+                del simple[:2]    # with its target
+            elif re.match(r"[A-Za-z_]\w*=", simple[0]) or (
+                    simple[0].isdigit() and redirection.fullmatch("".join(simple[1:2]))):
+                del simple[0]    # NAME=value, or the descriptor of a redirection
+            else:
+                break
+        if after == "||" and simple[:1] in (["true"], [":"]):
+            return f"|| {simple[0]}"
+        if simple[:2] in (["exit", "0"], ["set", "+e"]):
+            return " ".join(simple[:2])
+        after, simple = word, []
+    return None
 
 
 def item_text(row):
@@ -289,6 +324,11 @@ def checked(argv, workspace, role="reviewer", findings=(), disputes=()):
     if kind == "follow-up" and command and not plan_check(command, root):
         raise config.Error("write a follow-up's --run as one shell command, without backticks, "
                            "line breaks or this checkout's path: it becomes a plan check")
+    guard = command and exit_guard(command)
+    if guard:
+        raise config.Error(f"`{guard}` makes the command pass whatever the code does, so its replay "
+                           "could call a defect fixed, or win a dispute, without testing anything; "
+                           "write a command whose exit is the check's")
     if "--quote" in flags:
         evidence = {"quote": flags["--quote"]}
     else:
