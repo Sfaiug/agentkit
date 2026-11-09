@@ -2,11 +2,9 @@
 
 The owner, 9 Nov 2026: "when the user wants to see what the session said, he can just press on
 it, I think only models and the current runs should be shown."  Whatever a seat's word, its
-highlighted row opens who builds and who reviews its work and each task in flight as its squares
-(`menu.detail`): never the question of a seat that needs the owner, what a done one got done or
-an idle one's way back in.  Text the owner left unsent still opens first, whole.  From a pipe
-there is no highlight, so every row opens its line.  Offline: a temporary HOME, fake seats and
-run records, no tmux.
+highlighted row opens who builds and who reviews and each task in flight as its squares
+(`menu.detail`): never a question, what got done or an idle seat's way back in.  Text the owner
+left unsent still opens first, whole.  From a pipe every row opens its line.  Offline.
 """
 
 from contextlib import redirect_stdout

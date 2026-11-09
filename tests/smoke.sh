@@ -5079,7 +5079,6 @@ printed = io.StringIO()
 with redirect_stdout(printed):
     assert status.cmd_status([]) == 0
 assert SMOKE in printed.getvalue(), printed.getvalue()
-# each row opens who builds and reviews, never what its seat asked or got done
 assert "Merge the MOV helper" not in "\n".join(lines), lines
 assert "hero swapped" not in "\n".join(lines), lines
 assert not any("press r" in line for line in lines), lines

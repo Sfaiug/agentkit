@@ -313,8 +313,7 @@ class Pages(Sandbox):
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg), 0)
         marks = re.findall(r"(?m)^  (\d+) / 3\b", out.getvalue())
-        # three pages of five seats each, the last turning to the first: the usage's one line
-        # keeps its row on every page
+        # three pages of five seats, the last turning to the first: the usage keeps its row
         self.assertEqual(marks, ["1", "2", "1", "2", "3", "1", "1", "1"])
         self.assertEqual(opened, [LONG_NAME, "seat-03"])   # 12 answered from the first page
 

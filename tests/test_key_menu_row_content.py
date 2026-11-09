@@ -89,14 +89,15 @@ class SeatsTmuxLost(unittest.TestCase):
         menu = Terminal(self.home, size=SIZE)
         screen = menu.wait(shows(("ghost-a", "Fable 5.1 xhigh  ○ idle"),
                                  ("ghost-b", "Fable 5.1 xhigh  ! needs you")), bound=OPENS)
-        ghost_a, under = row(screen, "ghost-a")
-        self.assertEqual(ghost_a, "› 1  ghost-a  Fable 5.1 xhigh  ○ idle")
-        # nobody has pointed at a row yet: the next row follows it
-        self.assertTrue(under.startswith("  2  ghost-b  Fable 5.1 xhigh  ! needs you"), screen)
+        self.assertEqual(row(screen, "ghost-a")[0], "› 1  ghost-a  Fable 5.1 xhigh  ○ idle")
+        self.assertTrue(row(screen, "ghost-b")[0].startswith(
+            "  2  ghost-b  Fable 5.1 xhigh  ! needs you"))
+        self.assertNotIn(CREW, screen)    # nobody has pointed at a row yet
         menu.keys("j")
         screen = menu.wait(lambda screen: "› 2  ghost-b" in screen and CREW in screen)
-        self.assertEqual(row(screen, "ghost-b")[1], CREW)
-        self.assertNotIn("reopen", screen)
+        ghost_b = row(screen, "ghost-b")
+        self.assertTrue(ghost_b[0].startswith("› 2  ghost-b"), screen)
+        self.assertEqual(ghost_b[1], CREW)
         menu.keys("k")
         screen = menu.wait(lambda screen: "› 1  ghost-a" in screen and CREW in screen)
         self.assertEqual(row(screen, "ghost-a"), ("› 1  ghost-a  Fable 5.1 xhigh  ○ idle", CREW))

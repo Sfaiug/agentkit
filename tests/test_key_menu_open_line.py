@@ -92,8 +92,7 @@ def groups(cells):
 
 
 # The row the owner points at (pointer or ↑/↓) opens one line under it: who builds, who reviews
-# and each task in flight as three squares (build, review, land). [2, 14, 19, 23, 26 Oct,
-# 9 Nov 2026]
+# and each task in flight as squares (build, review, land). [2, 14, 19, 23, 26 Oct, 9 Nov 2026]
 @unittest.skipUnless(REAL_TMUX and LIVE.exists(), "no tmux, or no /proc to fingerprint a run")
 class OpenLine(unittest.TestCase):
     @classmethod
