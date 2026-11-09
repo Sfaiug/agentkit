@@ -917,6 +917,8 @@ def land(lp, upstream, verify, deliver):
             return deliver()
 
 
+# The lock spans the whole delivery, not only `gh pr merge`: the owner dropped narrowing it on
+# 9 Nov 2026 (write-up row 26), as it was busy under a tenth of the time over that week's 1,143 merges.
 @contextmanager
 def merge_lock(lp, upstream):
     """Serialize deliveries to one repository and target; the kernel releases a dead holder."""
