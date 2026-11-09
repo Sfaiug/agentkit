@@ -35,8 +35,8 @@ type probe struct {
 // its seat is Python's to tell (handback.LiveLeft).  Each is decided before this merge's first
 // write, and left there: the one write, or where the probe keeps a row, written as it starts, the
 // probe.  A seat that comes to owe a pass after that has it recorded, as Python records it, and the
-// next tick, reading it owed first, hands its telling over.  A dry tick decides the same, runs no probe and makes no write: it
-// says what it would check and record.
+// next tick, reading it owed first, hands its telling over.  A dry tick decides the same, runs no
+// probe and makes no write: it says what it would check and record.
 func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, say func(string), dry bool) error {
 	rows, err := mergeRows(each, dry)
 	if err != nil {

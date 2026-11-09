@@ -37,6 +37,8 @@ func reach(record *run.Object, census []*run.Object) (reaches, wakes bool) {
 		return false, false
 	case seat.Watching(session) || Orphaned(record):
 		return true, false
+	case !run.Ended(record):
+		return false, false // an interruption's notice to a seat not up is Python's (notify_recovery)
 	}
 	recordOnly, pending, err := seat.EndingDelivery(record, census, session)
 	switch {
@@ -45,7 +47,7 @@ func reach(record *run.Object, census []*run.Object) (reaches, wakes bool) {
 	case recordOnly || pending || held:
 		return true, false
 	}
-	wakes = run.Ended(record) && seat.Wakes(session)
+	wakes = seat.Wakes(session)
 	return wakes, wakes
 }
 
