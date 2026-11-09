@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"agentkit/internal/adapters"
 	"agentkit/internal/config"
 	usages "agentkit/internal/usage"
 )
@@ -29,8 +30,10 @@ func OpeningAccount(name string, model config.Model) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if account := workingAccount(model.Harness, ranked, listed); account != "" {
-		return account, nil
+	for _, account := range accountOrder(ranked, listed) {
+		if adapters.SeatAuth(model.Harness, account) {
+			return account, nil
+		}
 	}
 	if slices.Contains(listed, config.DefaultAccount) {
 		return config.DefaultAccount, nil

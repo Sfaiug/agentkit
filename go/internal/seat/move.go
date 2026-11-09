@@ -107,14 +107,16 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 	if !known || readings.SeatSpent(model) {
 		return nil, false
 	}
+	// Within its provider the account stays as the record holds it under the lock, so a recovery
+	// made since this read is not undone; a restart's launch writes the one it runs on.
 	moving := &seatMove{was: old, own: was.Harness, model: model, effort: effort, models: models,
-		chosen: []field{{"orchestrator", model}, {"account", record["account"]}}}
+		chosen: []field{{"orchestrator", model}}}
 	if was.Provider != entry.Provider { // the account it moved onto is its home
 		homed := any(nil)
 		if account != "" {
 			homed = account
 		}
-		moving.chosen = []field{{"orchestrator", model}, {"account", homed}, {"home_account", homed}}
+		moving.chosen = append(moving.chosen, field{"account", homed}, field{"home_account", homed})
 	}
 	entry, efforts := atOwnEfforts(entry, model, record)
 	if effort != "" {
