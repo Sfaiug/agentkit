@@ -32,10 +32,8 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handback"
-	"agentkit/internal/helper"
 	"agentkit/internal/history"
 	"agentkit/internal/lock"
-	"agentkit/internal/machines"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/task"
@@ -524,9 +522,6 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 	}
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
 	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))
-	if slices.ContainsFunc(at.once, namesShard.MatchString) {
-		return refuse("", "", ErrPython) // a landing check in pieces is Python's lander's
-	}
 	later := task.ChecksRefusal(at.every)
 	switch from := meta["from"]; {
 	case later != "" || from == "":
@@ -548,9 +543,7 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 		if err := drivable(values, l.bound); err != nil {
 			return refuse("", "", err)
 		}
-		// a repository run is Python's where its landing, a rented machine or a model turn may go to
-		// a machine: Go sends only a round's checks there
-		if at.repo != "" && (landing && helper.May() || config.MayRent() || machines.TakesTurns()) {
+		if at.repo != "" && machined() {
 			return refuse("", "", ErrPython)
 		}
 	}
