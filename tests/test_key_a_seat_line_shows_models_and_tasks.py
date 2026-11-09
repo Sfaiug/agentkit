@@ -52,7 +52,7 @@ class ASeatThatNeedsYou(unittest.TestCase):
             done = home.ak(input="\n", env={"COLUMNS": "100"})
         self.assertEqual(done.code, 0, done.err)
         lines = [line.rstrip() for line in done.out.splitlines()] + [""]
-        at = next((n for n, line in enumerate(lines) if re.match(r"  1  fix-api ", line)), None)
+        at = next((n for n, line in enumerate(lines) if re.match(r"[› ] 1  fix-api ", line)), None)
         self.assertIsNotNone(at, done.out)
         self.assertIn("! needs you", lines[at])
         # under the name: the builder, the reviewer, then one building and one in review

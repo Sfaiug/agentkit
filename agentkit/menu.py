@@ -32,8 +32,8 @@ A row is one line: number, name, orchestrator, state, and one last column, its p
 in the room the row has (`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under
 any name a rename led from, else from its unfinished jobs) while it is not at rest, its work
 waiting to land too, else empty -- and `✎ unsent` after it where the owner left text unsent.
-What a seat left unsent, then what it asks or did, else who builds and reviews and each task's
-squares (`crew`, `squares`), open under the row (`detail`).  Never two state words on one row,
+What the owner left unsent in a seat, then who builds and reviews and each task's squares
+(`crew`, `squares`), open under the row (`detail`), never what the seat said.  Never two state words on one row,
 never `N running`, and never a time estimate.
 
 `ak orch list` carries, after the word, a tally of the runs that seat launched, read from
