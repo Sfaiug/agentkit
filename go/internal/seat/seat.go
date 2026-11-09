@@ -61,6 +61,8 @@ type Seat struct {
 	reader harness.Reader
 	path   string
 	seen   sight
+
+	bars func() ([]barRow, bool) // the bars as the reading that read it listed them, once (statusbar's look.once)
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -139,7 +141,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 	renamed := map[string]bool{} // a rename's old names, which name no seat of their own (config.session_records)
 	for _, entry := range entries {
 		if name, ok := sessionFile(entry.Name()); ok {
-			if record, _ := run.ReadJSON(filepath.Join(state, entry.Name())); record != nil && record.Has(config.Renamed) {
+			if record, _ := run.Shared(filepath.Join(state, entry.Name())); record != nil && record.Has(config.Renamed) {
 				renamed[name] = true
 			} else {
 				names = append(names, name)
@@ -195,14 +197,14 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		return Home{}, false
 	}
 	home := Home{models: models, readers: recordReaders{}, runs: readRuns, found: found}
-	stands := sync.OnceValue(listed)
+	stands, bars := sync.OnceValue(listed), sync.OnceValues(barSessions)
 	for _, name := range names {
 		if server, ok := bare[name]; ok {
 			seat, ok := bareSeat(state, name, server, runs[name], now)
 			if !ok {
 				return Home{}, false
 			}
-			seat.home = homeKey("", stands)
+			seat.home, seat.bars = homeKey("", stands), bars
 			home.Seats = append(home.Seats, seat)
 			continue
 		}
@@ -212,7 +214,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		if !ok {
 			return Home{}, false
 		}
-		seat.held, seat.live = slices.Contains(held, name), isLive
+		seat.held, seat.live, seat.bars = slices.Contains(held, name), isLive, bars
 		if seat.live {
 			facts := climbingOf(state, seat, sight{}, seconds(now))
 			if deferred {
@@ -225,7 +227,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		if seat.held || seat.live {
 			// tmux offers its row whatever its record owns, dates it by its own start where the
 			// record does not, and its bar shows the squares of any run going
-			record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+			record, _ := run.Shared(filepath.Join(state, "session-"+name+".json"))
 			if at(record.Get("created")) == 0 {
 				return Home{}, false
 			}
@@ -297,7 +299,7 @@ func onServer(state string, names []string) (held, live []string, bare map[strin
 // read is the seat one record holds, from it, its seat file and its runs.  `live` is whether its
 // panes run on, whose look reads more of its seat file.
 func read(state, name string, models map[string]config.Model, offered []string, mine []ran, now time.Time, live bool, readers recordReaders, deferred bool) (Seat, bool) {
-	record, err := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+	record, err := run.Shared(filepath.Join(state, "session-"+name+".json"))
 	if err != nil || record == nil {
 		return Seat{}, false
 	}
@@ -408,8 +410,8 @@ func working(going []ran) (string, any) {
 			break
 		}
 	}
-	if place := run.LinePlace(newest.record, newest.name); place != "" {
-		return place, since
+	if newest.view != nil && newest.view.place != "" { // one read without its view runs or merged: in no line
+		return newest.view.place, since
 	}
 	title := newest.record.Str("title")
 	if title == "" {

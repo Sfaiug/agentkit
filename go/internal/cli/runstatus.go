@@ -198,7 +198,7 @@ func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*
 		return nil, nil, true
 	}
 	if !machine {
-		place := run.LinePlaces()
+		place := run.LinePlaces(run.Standing())
 		for i := range entries {
 			var read bool
 			if entries[i].place, read = place(entries[i].record, entries[i].name()); !read {
