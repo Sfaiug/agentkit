@@ -13,7 +13,7 @@
 # ends, the check exits as its suite does, an inherited errexit or not: Go is not yet what goes
 # live.
 here=$(dirname -- "${BASH_SOURCE[0]}")
-if [ -n "${AK_LIVE_FAILED:-}" ] && [ "${AK_LIVE_FAILED%/failed}/tree" -ef "$here/.." ]; then
+if [[ ${AK_LIVE_FAILED:-} == */failed ]] && [ "${AK_LIVE_FAILED%/failed}/tree" -ef "$here/.." ]; then
   python3 "$here/shadow.py" --record "${AK_LIVE_FAILED%/failed}/shadow.json" || true
 fi
 export AGENTKIT_SMOKE_LIVE=1

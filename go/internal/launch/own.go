@@ -41,9 +41,10 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 	if err != nil {
 		return 0, "", err
 	}
-	// its first poll for a slot, as a task's, holds the slots lock until its receipt claims it
+	// its first poll for a slot, as a task's, holds the slots lock until its receipt claims it;
+	// told --bg, nothing here follows it
 	depth, _ := runDepth()
-	admitted, err := admit(filepath.Base(dir), flags["--first"], session, depth)
+	admitted, err := admit(filepath.Base(dir), flags["--first"], session, depth, !flags["--bg"])
 	if err != nil {
 		return 0, "", err
 	}
