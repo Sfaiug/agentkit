@@ -10,7 +10,6 @@ import (
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
-	"agentkit/internal/helper"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
@@ -125,7 +124,7 @@ func goesOn(dir string, read, record *run.Object) bool {
 	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil {
 		return false
 	}
-	return driverHere() && !(record.Truthy("repo") && helper.May()) && pollsHere(record) &&
+	return driverHere() && !(record.Truthy("repo") && machined()) && pollsHere(record) &&
 		(loop.Pickup(dir, record) || loop.Woken(record) || loop.Unstarted(record) && launchStands(dir, record) ||
 			loop.Raised(dir, read, record))
 }
