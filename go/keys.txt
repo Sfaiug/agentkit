@@ -467,6 +467,7 @@ test_key_run_seat_flags
 test_key_run_serves_plan_line
 test_key_run_status_json
 test_key_run_status_one_id
+test_key_run_status_shows_each_job
 test_key_run_status_table
 test_key_run_status_window
 test_key_run_stop_branch
