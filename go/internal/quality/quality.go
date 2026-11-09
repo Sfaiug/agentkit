@@ -514,9 +514,11 @@ func pick(priced []*Rating, role string) *Rating {
 	}
 	rise := best.Quality - cheapest.Quality
 	chosen, largest := cheapest, 0.0
-	// Scale every distance by the same span: division can round equal gaps apart.
+	// Scale every distance by the same span: division can round equal gaps apart. Each product
+	// rounds on its own, as Python's do: fused into one multiply-add (arm64), a tie at the
+	// best row's end of the line reads a hair above it.
 	for _, row := range front[1:] {
-		above := (row.Quality-cheapest.Quality)*span - rise*(*row.Cost-*cheapest.Cost)
+		above := float64((row.Quality-cheapest.Quality)*span) - float64(rise*(*row.Cost-*cheapest.Cost))
 		if above > largest {
 			chosen, largest = row, above
 		}

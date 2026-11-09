@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ncruces/go-sqlite3"
 
@@ -43,15 +44,9 @@ type opencodeTurn struct {
 // connection with Python's queries (opencode.py `error`, `running`), the write-ahead log OpenCode
 // keeps while it runs included; false where Go reads it otherwise than Python does.
 func opencodeRead(session string) (opencodeTurn, bool) {
-	path := opencodeDatabase()
-	if info, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
-		return opencodeTurn{}, true
-	} else if err != nil || !info.Mode().IsRegular() { // Python's sqlite3 fails on it (`unread`); a pipe would hang the open
-		return opencodeTurn{}, false
-	}
-	conn, err := sqlite.Open(path, sqlite3.OPEN_READONLY)
-	if err != nil {
-		return opencodeTurn{}, false
+	conn, known := opencodeOpen()
+	if conn == nil {
+		return opencodeTurn{}, known
 	}
 	defer conn.Close()
 	ended, err := opencodeRow(conn, "SELECT type, time_created, data FROM session_message"+
@@ -71,6 +66,52 @@ func opencodeRead(session string) (opencodeTurn, bool) {
 		turn.model, turn.effort, turn.at, turn.answered = opencodeAnswer(data, answer[0])
 	}
 	return turn, known
+}
+
+// opencodeIdle is each top-level session opencode.db last updated before then, in Unix seconds,
+// read as opencodeRead reads it, with Python's query (opencode.py `idle_conversations`); false
+// where Go reads it otherwise than Python does.
+func opencodeIdle(before float64) ([]string, bool) {
+	conn, known := opencodeOpen()
+	if conn == nil {
+		return nil, known
+	}
+	defer conn.Close()
+	stmt, _, err := conn.Prepare("SELECT id FROM session_v2 WHERE parent_id IS NULL AND time_updated < ?")
+	if errors.Is(err, sqlite3.ERROR) { // no such table: Python's sqlite3.Error reads none
+		return nil, true
+	} else if err != nil {
+		return nil, false
+	}
+	defer stmt.Close()
+	if stmt.BindFloat(1, before*1000) != nil { // OpenCode stamps milliseconds
+		return nil, false
+	}
+	var found []string
+	for stmt.Step() {
+		// Python reads an id that is no text as another value, and none from text that is no UTF-8
+		if stmt.ColumnType(0) != sqlite3.TEXT || !utf8.ValidString(stmt.ColumnText(0)) {
+			return nil, false
+		}
+		found = append(found, stmt.ColumnText(0))
+	}
+	return found, stmt.Err() == nil
+}
+
+// opencodeOpen is opencode.db over a read-only connection, nil where there is none; false where
+// Go opens it otherwise than Python's sqlite3 does.
+func opencodeOpen() (*sqlite3.Conn, bool) {
+	path := opencodeDatabase()
+	if info, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil, true
+	} else if err != nil || !info.Mode().IsRegular() { // Python's sqlite3 fails on it (`unread`); a pipe would hang the open
+		return nil, false
+	}
+	conn, err := sqlite.Open(path, sqlite3.OPEN_READONLY)
+	if err != nil {
+		return nil, false
+	}
+	return conn, true
 }
 
 // opencodeRow is the first row the query answers for that session, each value as Python's sqlite3

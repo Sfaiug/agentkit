@@ -49,7 +49,7 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	}
 	if !run.Carried(policy) {
 		// no receipt: the line stays the seat's own to build, as where a launch fails
-		return nil, errors.New("review off or no limit is Python's to carry")
+		return nil, errors.New("review off is Python's to carry")
 	}
 	path := filepath.Join(dir, "task.md")
 	text, err := os.ReadFile(path)
