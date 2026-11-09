@@ -12,7 +12,7 @@ import (
 // process, and nothing would ever start one whose process died, so Go's own resume starts it again,
 // still waiting and its place in line kept, adopting only the record as read (spawn_bg's expected).
 // The dead-loops pass gets to most first; this one finds those it left, inside their launch's grace
-// or waiting out a death's backoff.
+// or waiting out a death's backoff, whose resume is Python's.
 func (t *ticking) restartWaiter(dir string, record *run.Object) error {
 	id := filepath.Base(dir)
 	if t.dry {
