@@ -62,7 +62,7 @@ itself. A terminal borrows any other from whatever font it finds, at another siz
 ## States
 
 Five words are the whole vocabulary for a seat (`terminal.STATES`): `● working`,
-`! needs you`, `✓ done`, `○ idle` and `◌ out of usage`. `watch.session_state` decides which one a seat is, and
+`! needs you`, `✓ done`, `○ idle` and `○ out of usage`. `watch.session_state` decides which one a seat is, and
 every screen reads that, the seat's own bar included. A whole row is never coloured: the word
 carries the colour (`terminal.state_text`, `terminal.state_colour`).
 

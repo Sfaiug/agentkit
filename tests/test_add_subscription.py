@@ -160,7 +160,7 @@ class RemoveSubscription(unittest.TestCase):
         self.assertIn("  Remove Claude III?", asked)
         self.assertIn("  " + menu.REMOVE_SUBSCRIPTION_ASK[1], asked)
         mark = screen.text().rindex("Remove Claude III?")
-        self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  ✗ Remove"])
+        self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  × Remove"])
         screen.press(ENTER, lambda lines: title(lines) == PAGE)            # Enter keeps
         self.assertEqual(screen.path.read_bytes(), before)
         removing(screen, lambda lines: lines[-1] == KEYS["ask"])

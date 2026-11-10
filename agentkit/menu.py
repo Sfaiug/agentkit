@@ -31,7 +31,7 @@ seat's own status bar and its window title.  `ak orch why <seat>` says what deci
 A row is one line: number, name, orchestrator, state, and one last column, its progress line
 in the room the row has (`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under
 any name a rename led from, else from its unfinished jobs) while it is not at rest, its work
-waiting to land too, else empty -- and `✎ unsent` after it where the owner left text unsent.
+waiting to land too, else empty -- and `¶ unsent` after it where the owner left text unsent.
 What the owner left unsent, then who builds and reviews and each task's squares (`crew`,
 `squares`), open under the row (`detail`), never what a seat said.  Never two state words on a row,
 never `N running`, and never a time estimate.
@@ -1167,7 +1167,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is its progress line from `seat_progress` -- its plan, else its
     unfinished jobs -- while it is not at rest, and for `working` its place in the landing
-    line (`_last_text`), else empty, then `✎ unsent` where the owner left text unsent -- never
+    line (`_last_text`), else empty, then `¶ unsent` where the owner left text unsent -- never
     two state words on one row; who builds, who reviews and its tasks open under it (`detail`).
     Every seat `orch.listing` offers gets a row: the ones tmux holds, and the ones only their
     record does -- a seat whose tmux instance is gone keeps its row and its number opens the
@@ -1501,9 +1501,9 @@ def back_at(when, now=None):
 
 
 def unsent_mark(text="unsent"):
-    """`✎ <text>`, `* <text>` without UTF-8: what the owner left unsent, which never changes the
+    """`¶ <text>`, `* <text>` without UTF-8: what the owner left unsent, which never changes the
     word (owner, 20 Oct 2026) -- the mark ends its row and its whole text opens under it."""
-    return f"{'✎' if terminal.utf8() else '*'} {text}"
+    return f"{'¶' if terminal.utf8() else '*'} {text}"
 
 
 def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", back=None):
@@ -1513,7 +1513,7 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     work waiting in the line to land too, which its squares say (`detail`); a `working` seat
     with neither draws that line with nothing done and `no plan yet`, a light going round it
     on the menu alone (`motion.circling`); else empty -- never `N running`, and no other
-    sentence.  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
+    sentence.  Where the owner left text `unsent`, `¶ unsent` follows two cells after,
     in the needs-you colour.  The line keeps 8 cells at least; where `room` is all there is
     (`narrow`) -- a row's last column, each width of a seat's bar -- it takes that room and
     never more, the count alone where no cell of line fits, the mark alone where both do not;
@@ -1548,7 +1548,7 @@ def _last_text(info, room, narrow=False):
 
 
 def detail(info, room):
-    """The lines under a seat's row, in `room` cells: first `✎` and the whole text the owner left
+    """The lines under a seat's row, in `room` cells: first `¶` and the whole text the owner left
     unsent, in the needs-you colour; then, whatever its word, who builds and who reviews (`crew`)
     and each task in flight as its squares (`squares`), never a task's name.  Never a sentence
     the seat, or ak about it, says: its row says its word and its progress, and the seat itself
@@ -1576,7 +1576,7 @@ GAP = "   "                       # between them, on a line both fit
 def choice_lines(info, room):
     """The choices under a seat out of usage's row (`detail`), with the keyboard or the pointer
     on it, where another provider has usage now: `✓ Wait for 19:20`, what happens unasked, and
-    `⇄ Go on now with gpt-6.1-sol`, which moves the seat and its conversation there.  Each drawn
+    `→ Go on now with gpt-6.1-sol`, which moves the seat and its conversation there.  Each drawn
     line in `room` cells, as its (text, choice) parts: both on one line where they fit, else
     each on lines of its own wrapped at words, so none runs past the edge of the screen and
     away from where a click finds it (`choice_cells`).  [] without an alternative or for any
@@ -1598,7 +1598,7 @@ def choices(info, room):
 
 def choice_text(choice, info):
     """One choice under a seat out of usage, whole (`choice_lines`)."""
-    mark = {WAIT: "✓", GO_ON: "⇄"}[choice] if terminal.utf8() else {WAIT: "v", GO_ON: ">"}[choice]
+    mark = {WAIT: "✓", GO_ON: "→"}[choice] if terminal.utf8() else {WAIT: "v", GO_ON: ">"}[choice]
     if choice == WAIT:
         return f"{mark} Wait for {back_at(info.get('back'))}"
     return f"{mark} Go on now with {info.get('go_on_name')}"
@@ -2142,7 +2142,7 @@ def stop_question(name):
 
 
 def go_on_now(cfg, name, model, dry_run=False):
-    """`⇄ Go on now` under a seat out of usage: it moves to `model`, its conversation and the
+    """`→ Go on now` under a seat out of usage: it moves to `model`, its conversation and the
     turn its usage cut off with it, as its orchestrator mark moved on its models screen does
     (`orch.switch_orchestrator`), never onto credits; a refusal is said."""
     if dry_run:
@@ -3034,7 +3034,7 @@ LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6
 # its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
 # Its list or line opens lit on the first, where offered, and on nothing else: `spend a reset`
 # spends at once (config_spend_reset), so Enter lands on it only after a move or a click there.
-SUBSCRIPTION_ACTS = (("↻ log in again", "log in again"), ("↻ spend a reset", "spend a reset"),
+SUBSCRIPTION_ACTS = (("→ log in again", "log in again"), ("→ spend a reset", "spend a reset"),
                      ("− remove", "- remove"))
 
 
@@ -3045,7 +3045,7 @@ def act_text(act):
 
 def act_word(text):
     """What Enter does on an act, as the key line names it: its text without its glyph, `log in
-    again` for `↻ log in again`."""
+    again` for `→ log in again`."""
     return " ".join(word for word in text.split() if word.isalpha())
 
 
@@ -4621,7 +4621,7 @@ def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None
 
 def sign_in(cfg, keyboard, picked):
     """`picked`'s login, its subscription as (provider, account, label), made afresh on the
-    terminal, its `↻ log in again` (`subscription_acts`): its harness's `login again`
+    terminal, its `→ log in again` (`subscription_acts`): its harness's `login again`
     (`logins.harness`), and the menu back as soon as that ends, one that failed once what it
     said has been read.  One that finished is asked its end at once (`logins.renewed`), so the
     menu comes back with its meter grey.  What to say under the screen, or ""."""
@@ -4809,7 +4809,7 @@ def _signed_out(harness, provider, account, label):
 
 @terminal.clicks_its_own
 def config_spend_reset(cfg, picked):
-    """`↻ spend a reset` on a meter or a subscription's row: one usage-limit reset spent,
+    """`→ spend a reset` on a meter or a subscription's row: one usage-limit reset spent,
     by hand, on `picked`, its subscription as (provider, account, label).  usage.replenish
     spends it where it still holds one and reads the meters back into the cache, so its meter
     shows the week that came back; Esc while it is spent lets it finish.  What to say under the

@@ -1,4 +1,4 @@
-"""A Gemini subscription of its own login ending soon offers `↻ log in again` first on `c` →
+"""A Gemini subscription of its own login ending soon offers `→ log in again` first on `c` →
 Subscriptions, as every other does; Antigravity's usual login does not (`[auth] again = false`):
 agy restores that one from the desktop keyring.  Black-box: `AK_BIN`'s menu in a terminal
 (tests/fixtures/akterm.py) over usage and logins in a temporary HOME, the harness faked
@@ -58,7 +58,7 @@ class GeminiSignsInAgain(unittest.TestCase):
                   and soon.format("default") + "   − remove" in lines(screen))
         term.keys("Down")
         term.wait(lambda screen: "› Gemini II " in screen and {
-            soon.format("two") + "   [↻ log in again]   − remove",
+            soon.format("two") + "   [→ log in again]   − remove",
             "  ↑↓←→ move   ⏎ log in again   esc back"} <= set(lines(screen)))
         term.keys("Enter")
         term.wait(lambda screen: PAGE in screen and fakes["antigravity"].calls("login"))

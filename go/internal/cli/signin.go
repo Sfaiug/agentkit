@@ -16,7 +16,7 @@ import (
 	"agentkit/internal/worker"
 )
 
-// signIn is a subscription's `↻ log in again` (menu.sign_in): its adapter's `login again` under its
+// signIn is a subscription's `→ log in again` (menu.sign_in): its adapter's `login again` under its
 // account and provider (adapterVerbs), its login left where it was by one that did not finish, which
 // is said under the page; one that finished is asked its end (logins.Renewed).  What to say under the
 // page, or "".

@@ -24,7 +24,7 @@ from fixtures.akterm import SERVER, Terminal
 PALETTE = {"0067c6": "ffffff", "be222a": "ffffff", "de6800": "2e1500", "f6c400": "3d2e00",
            "007e46": "ffffff", "007974": "ffffff", "7c44c3": "ffffff", "ad326e": "ffffff"}
 GREY = "6c7086"
-WORDS = ("● working", "! needs you", "✓ done", "○ idle", "◌ out of usage")
+WORDS = ("● working", "! needs you", "✓ done", "○ idle", "○ out of usage")
 STILL = 3      # seconds a cell keeps its look to be at rest: past a breath, which takes two
 
 
@@ -94,7 +94,7 @@ class Palette(unittest.TestCase):
         self.assertEqual(colour(look(screen, "›")), BLUE)
         for word, rgb, seat in (("working", BLUE, "acme"), ("! needs you", YELLOW, "beta"),
                                 ("✓ done", GREEN, "gamma"), ("○ idle", fg(GREY), "delta"),
-                                ("◌ out of usage", RED, "omega")):
+                                ("○ out of usage", RED, "omega")):
             with self.subTest(word):
                 self.assertEqual(colour(look(screen, word, on=seat)), rgb)
         for key in ("↑↓←→", "esc"):
@@ -105,7 +105,7 @@ class Palette(unittest.TestCase):
         self.assertEqual(colour(look(screen, "›")), BLUE)
         for word, rgb, seat in (("working", BLUE, "acme"), ("! needs you", ORANGE, "beta"),
                                 ("✓ done", GREEN, "gamma"), ("○ idle", fg(GREY), "delta"),
-                                ("◌ out of usage", RED, "omega")):
+                                ("○ out of usage", RED, "omega")):
             with self.subTest(word):
                 self.assertEqual(colour(look(screen, word, on=seat)), rgb)
 

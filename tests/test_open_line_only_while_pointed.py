@@ -32,7 +32,7 @@ class OpensOnlyWhilePointed(unittest.TestCase):
         self.assertNotIn(ASKED, "\n".join(lines), "a line open that nothing points at")
         menu.send(move(20, row(lines, "acme-plan")))
         lines = menu.frame(lambda lines: ASKED in "\n".join(lines))
-        self.assertEqual(lines[row(lines, "acme-plan")].strip(), f"✎ {ASKED}")     # under its row
+        self.assertEqual(lines[row(lines, "acme-plan")].strip(), f"¶ {ASKED}")     # under its row
         menu.send(move(1, 2))                                   # the rule: on no row
         menu.frame(lambda lines: ASKED not in "\n".join(lines)
                    and not any(line.startswith("›") for line in lines))

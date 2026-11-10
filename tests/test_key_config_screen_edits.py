@@ -107,7 +107,7 @@ class ConfigScreenEdits(unittest.TestCase):
         return self.term.wait(lambda screen: f"  Restart {SEAT} on {model}?" in rows(screen)
                               and "  It starts a new conversation, handed the one it had."
                               in rows(screen) and "› ✓ Keep" in rows(screen)
-                              and "  ✗ Move" in rows(screen))
+                              and "  × Move" in rows(screen))
 
     def test_another_model_s_orchestrator_mark_asks_and_moves_the_seat_on_move(self):
         # the command it opens astra with leaves the pane it runs in, writing nothing on it: a
