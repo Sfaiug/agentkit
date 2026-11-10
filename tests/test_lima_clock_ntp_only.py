@@ -19,11 +19,11 @@ SYSTEMD = '''#!{python}
 import os, pathlib, sys
 args, proc = sys.argv[1:], pathlib.Path(os.environ["AK_PROC"])
 dropin = pathlib.Path(os.environ["AK_SYSTEMD_SYSTEM"]) / "lima-guestagent.service.d/agentkit-clock.conf"
+if args[:1] == [os.environ.get("AK_SYSTEMD_FAILS")]:
+    sys.exit(1)
 if args == ["show", "-p", "MainPID", "--value", "lima-guestagent"]:
     print(7)
     sys.exit()
-if args[:1] == [os.environ.get("AK_SYSTEMD_FAILS")]:
-    sys.exit(1)
 if args == ["daemon-reload"]:
     (proc / "loaded").write_text(dropin.read_text() if dropin.exists() else "")
 if args == ["try-restart", "lima-guestagent"]:
@@ -91,9 +91,9 @@ class LimaClock(test_slice.Installer):
             self.assertEqual(self.again(), (0, []))
             self.in_force()
 
-    def test_an_install_whose_reload_or_restart_failed_is_finished_by_the_next(self):
+    def test_an_install_whose_reload_lookup_or_restart_failed_is_finished_by_the_next(self):
         self.lima()
-        for step in ("daemon-reload", "try-restart"):
+        for step in ("daemon-reload", "show", "try-restart"):  # show: the agent's MainPID
             with self.subTest(step):
                 self.agent.write_text(HOLDS_CLOCK)
                 restarts, notes = self.again(AK_SYSTEMD_FAILS=step)
