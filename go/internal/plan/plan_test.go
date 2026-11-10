@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestATickChangesOnlyTheBoxAndTheDone(t *testing.T) {
@@ -60,6 +61,24 @@ func TestOnlyTheRunningLaunchsTurnCountsAReachOfTheLiveHost(t *testing.T) {
 	put("live-old.txt", "200")
 	if !ReachedLive("acme") {
 		t.Fatal("the running launch's reach counts")
+	}
+}
+
+func TestARenamedSeatReadsThePlanPythonPicks(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", os.Getenv("HOME"))
+	state := filepath.Join(os.Getenv("HOME"), ".agentkit", "state")
+	stamp := time.Unix(1700000000, 0)
+	for name, record := range map[string]string{"ash": `{}`, "elm": `{"renamed": "ash"}`} {
+		plan := filepath.Join(state, "plan-"+name+".md")
+		if os.MkdirAll(state, 0o700) != nil || os.WriteFile(filepath.Join(state, "session-"+name+".json"), []byte(record), 0o600) != nil ||
+			os.WriteFile(plan, nil, 0o600) != nil || os.Chtimes(plan, stamp, stamp) != nil {
+			t.Fatal(name)
+		}
+	}
+	// written at the same time, the later path, as Python's max of (mtime, path)
+	if got, err := path("ash"); err != nil || got != filepath.Join(state, "plan-elm.md") {
+		t.Fatalf("%q, %v", got, err)
 	}
 }
 
