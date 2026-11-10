@@ -37,11 +37,12 @@ elif verb == 'failed' and args[2] == 'failed':
     print(*named.get('/'.join(args[1].rsplit('-', 2)[1:]), []), sep='\\n')
 """
 # Each go here marks its start and end around the line's runner, which logs the tests it runs
-# alone as its words; `{then}` may change its `code`.
+# alone as its words; `{then}` may change its `code`.  The marks are seconds of uptime, which no
+# correction of the realtime clock moves.
 GOES = """storage=$(git rev-parse --git-common-dir)
-echo "start $(date +%s)" >>"$storage/marks"
+echo "start $(cut -d. -f1 /proc/uptime)" >>"$storage/marks"
 sh run.sh $(cat "${AK_ONLY:-/dev/null}"); code=$?
-{then}echo "end $(date +%s)" >>"$storage/marks"
+{then}echo "end $(cut -d. -f1 /proc/uptime)" >>"$storage/marks"
 exit $code
 """
 BUSY = 'if mkdir "$storage/busy" 2>/dev/null; then code=75; fi\n'    # the first go says busy
