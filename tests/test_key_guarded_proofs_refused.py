@@ -17,11 +17,11 @@ from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
 GUARDED = {"python3 t.py || true": "|| true", "false || LC_ALL=C :": "|| :",
-           "set +e; false": "set +e"}
-TAKEN = "grep -q 'exit 0' t.sh"
+           "set +e; false": "set +e", "(false)||:": "|| :", "false;>/dev/null exit 0": "exit 0"}
+TAKEN = ["grep -q 'exit 0' t.sh", "printf '%s' '||' true; false"]
 REVIEWER = {"final": "Found one.", "hand_in": [
     *(["finding", "retry.txt:1", "fixture defect", "the fixture says so", "--run", run]
-      for run in [*GUARDED, TAKEN]), ["done"]]}
+      for run in [*GUARDED, *TAKEN]), ["done"]]}
 FIXER = {"final": "Disputed.", "hand_in": [
     ["dispute", "retry.txt:1", "it is right", "--run", "false; exit 0"],
     ["dispute", "retry.txt:1", "it is right", "--run", "true"], ["done"]]}
@@ -44,11 +44,12 @@ class GuardedProofsRefused(unittest.TestCase):
         return runs[call - 1]["hand_ins"]
 
     def test_a_finding_s_guarded_proof_is_refused_naming_its_guard(self):
-        *guarded, taken, done = self.hand_ins("codex", 1)
-        for row, guard in zip(guarded, GUARDED.values(), strict=True):
+        rows = self.hand_ins("codex", 1)
+        for row, guard in zip(rows, GUARDED.values()):
             self.assertNotEqual(row["code"], 0, row)
             self.assertIn(f"`{guard}`", row["err"])
-        self.assertEqual((taken["argv"][-1], taken["code"]), (TAKEN, 0), taken)
+        self.assertEqual([(row["argv"][-1], row["code"]) for row in rows[len(GUARDED):]],
+                         [*((run, 0) for run in TAKEN), ("done", 0)])
 
     def test_a_dispute_s_guarded_proof_is_refused_naming_its_guard(self):
         guarded, taken, done = self.hand_ins("claude", 2)
