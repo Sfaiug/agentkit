@@ -1505,7 +1505,8 @@ def quiet_window(command, cwd, run_dir, silence):
     where that fits in `silence` twice.  A command or piece it stops goes once more, alone,
     with the rest of `silence` (`run_suite`, `run_done_when`): a hang waits no longer than one
     window did, and a quiet stretch the suite never had passes on that second go.  None where
-    the suite has no such pace: `silence` holds, and stops a command for good."""
+    the suite has no such pace: `silence` holds, and stops a command for good; a piece still
+    goes once more (`run_suite`)."""
     quiet = quiet_runs(read_suite_cost(suite_cost(command, cwd, run_dir)[0]))
     window = max(QUIET_FLOOR, QUIET_TIMES * max(quiet, default=0))
     return window if len(quiet) >= QUIET_RUNS and 2 * window <= silence else None
