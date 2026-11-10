@@ -906,17 +906,21 @@ fi
 # --- (g2c) the clock is NTP's alone -----------------------------------------
 # Lima's guest agent sets the clock to the time the Mac sent when they differ by 100 ms: under load it
 # stepped back 344 times a day on the mini (10 Nov 2026), failing tests.  The Mac never sleeps (awake).
-# The file stands only once in force, so the next install, reading it unprivileged, skips it or tries again:
-# root writes it readable through this script's umask, and removes it when systemd did not take it.
+# Done is what the kernel holds the running agent to, not a file: until CAP_SYS_TIME (bit 25) leaves
+# its bounding set, every install writes, reloads and restarts again, whatever cut the last one short.
 LIMA_CLOCK="${AK_SYSTEMD_SYSTEM:-/etc/systemd/system}/lima-guestagent.service.d/agentkit-clock.conf"
 lima_clock=$'# Written by agentkit\'s install.sh: the clock is NTP\'s alone\n[Service]\nProtectClock=yes'
-if [ "$SANDBOX" = 1 ] || [ ! -e "${LIMA_CLOCK%.d/*}" ] || [ "$(cat -- "$LIMA_CLOCK" 2>/dev/null)" = "$lima_clock" ]; then
+lima_sets_clock() {
+  local caps
+  caps=$(sed -n 's/^CapBnd:[[:space:]]*//p' "${AK_PROC:-/proc}/$(systemctl show -p MainPID --value lima-guestagent 2>/dev/null)/status" 2>/dev/null)
+  [ -z "$caps" ] || (( 0x$caps >> 25 & 1 ))
+}
+if [ "$SANDBOX" = 1 ] || [ ! -e "${LIMA_CLOCK%.d/*}" ] || ! lima_sets_clock; then
   :
-elif sudo -n install -d -m 755 -- "${LIMA_CLOCK%/*}" && printf '%s\n' "$lima_clock" | sudo -n install -m 644 /dev/stdin "$LIMA_CLOCK" &&
+elif sudo -n mkdir -p -- "${LIMA_CLOCK%/*}" && printf '%s\n' "$lima_clock" | sudo -n tee "$LIMA_CLOCK" >/dev/null &&
      sudo -n systemctl daemon-reload && sudo -n systemctl try-restart lima-guestagent; then
   echo "clock: Lima's guest agent no longer sets the clock; NTP keeps it"
 else
-  sudo -n rm -f -- "$LIMA_CLOCK" 2>/dev/null || true
   note "clock: Lima's guest agent still steps the clock, as $LIMA_CLOCK is not in force; run \`sudo -v\` and re-run ./install.sh"
 fi
 
