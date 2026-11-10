@@ -4451,9 +4451,9 @@ HOOKD
 : >"$WORK/hook-posts.txt"
 python3 "$WORK/hookd.py" "$WORK/hook-posts.txt" >"$WORK/hook-url.txt" 2>"$WORK/hookd.err" &
 HOOKPID=$!
-HOOKURL=""
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  HOOKURL=$(head -1 "$WORK/hook-url.txt" 2>/dev/null); [ -n "$HOOKURL" ] && break; sleep 0.3
+# as long as the hook takes to start on a busy host; one that died has no URL to wait for
+until HOOKURL=$(head -1 "$WORK/hook-url.txt" 2>/dev/null); [ -n "$HOOKURL" ]; do
+  kill -0 "$HOOKPID" 2>/dev/null || break; sleep 0.1
 done
 cat >"$WORK/orphan-template.md" <<MD
 ---
