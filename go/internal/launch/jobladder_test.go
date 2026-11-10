@@ -4,6 +4,7 @@ package launch
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -137,19 +138,53 @@ func TestAJobsUndeliveredTasksEndItNeedingYou(t *testing.T) {
 	}
 }
 
+// A stop that lands as preflight's refusal ends a task's run keeps the run's word, which refuse
+// leaves standing: the task is stopped, not failed.
+func TestAStopAsPreflightRefusesKeepsItsWord(t *testing.T) {
+	jobHome(t)
+	j := createdJob(t, "fix-api.md")
+	path := j.receipt.List("tasks")[0].(*run.Object).Str("task_file")
+	write(t, path, "---\nrepo: none\nfrom: previous\n---\n# Fix api\n\n## Done when\n```bash\ntrue\n```\n")
+	l, _, _, err := j.task(path)
+	if l == nil || l.reason == "" {
+		t.Fatalf("preflight did not refuse it: %v", err)
+	}
+	// the stop lands as the refusal's warning is said, past every look make took
+	l.warning = "the base moved"
+	j.out = stopAt{l.dir, l.warning}
+	if err := j.ready(l); !errors.Is(err, ErrStopped) {
+		t.Fatalf("ready said %v", err)
+	}
+	if record, _ := run.Read(l.dir); record == nil || record.Str("state") != "stopped" {
+		t.Fatalf("the run ended %v", record)
+	}
+}
+
+// stopAt stops the run at dir once a line it is told says that.
+type stopAt struct{ dir, that string }
+
+func (s stopAt) Write(p []byte) (int, error) {
+	if strings.Contains(string(p), s.that) {
+		run.Change(s.dir, func(record *run.Object) error { record.Set("state", "stopped"); return nil })
+	}
+	return len(p), nil
+}
+
 const jobConfig = "[defaults]\nworkers = ['opus']\n[models.opus]\nharness = 'claude'\nmodel = 'opus'\neffort = 'high'\nprovider = 'anthropic'\n" +
 	"[providers.anthropic]\nmode = 'subscription'\n"
 
-// jobHome is a home a job launched from no seat starts its tasks in, its one worker's login ready.
+// jobHome is a home a job launched from no seat starts its tasks in, its one worker's harness
+// installed and its login ready, whatever the host has installed.
 func jobHome(t *testing.T) string {
 	home, adapters := t.TempDir(), t.TempDir()
 	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "XDG_CACHE_HOME": "", "XDG_RUNTIME_DIR": t.TempDir(),
 		"AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_DEPTH": "", "AK_PARENT_RUN": "", "AK_MAX_RUNS": "0",
-		"AGENTKIT_ADAPTER_DIR": adapters} {
+		"AGENTKIT_ADAPTER_DIR": adapters, "PATH": adapters + string(os.PathListSeparator) + os.Getenv("PATH")} {
 		t.Setenv(key, value)
 	}
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), jobConfig)
 	write(t, filepath.Join(adapters, "claude.sh"), "#!/bin/sh\nprintf 'ready\\n'\n")
+	write(t, filepath.Join(adapters, "claude"), "#!/bin/sh\n")
 	return home
 }
 

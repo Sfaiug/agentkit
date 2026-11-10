@@ -61,7 +61,7 @@ func (j *jobRun) end(task *run.Object, word string, kept ...any) error {
 
 // ready makes the task's run up to its driver, as Python's job_start_task does: one preflight
 // refuses ends in error, as Python's run.prepare ends it, and its refusal is what the task fails
-// with.
+// with, unless a stop landed first, which refuse leaves standing as the run's word.
 func (j *jobRun) ready(l *launching) error {
 	log, unstopped, err := l.make(j.out)
 	switch {
@@ -72,6 +72,9 @@ func (j *jobRun) ready(l *launching) error {
 	}
 	if _, _, err := refuse(l.dir, l.reason, l.warning, log); err != nil {
 		return err
+	}
+	if record, _ := run.Read(l.dir); record != nil && record.Str("state") == "stopped" {
+		return ErrStopped
 	}
 	return errors.New(l.reason)
 }
