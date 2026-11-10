@@ -1480,10 +1480,6 @@ def names_shard(command):
     return re.search(r"\bAK_SHARD\b", command) is not None
 
 
-def names_changed(command):
-    return re.search(r"\bAK_CHANGED\b", command) is not None
-
-
 def suite_cost(command, cwd, run_dir):
     """A repository and suite's measured scheduling cost, each part the initial estimate
     until a finished suite measured it."""

@@ -757,7 +757,7 @@ def join_line(lp, upstream, deliver):
 @contextmanager
 def landing_mark(lp):
     """Mark the run `landing` until this ends, however it ends: its checks wait as a lander's
-    (`gate`), and its rounds run no suite (`roundloop.round_suite`), as a landing check follows."""
+    (`gate`)."""
     from . import gate  # here, not at the top: it reaches run
     gate.clear_landing_wait(lp.run_dir)
     lp.state["landing"] = True

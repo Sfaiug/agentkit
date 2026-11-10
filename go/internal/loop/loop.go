@@ -243,7 +243,7 @@ type loop struct {
 	voice         io.Writer // where the loop speaks, the run's log where none: a lander checks a run in its line's
 	marker        string    // what marks the processes it starts, the process's own where none: a check beside the review has its own
 	line          string    // the landing line whose checker this is: its checks wait for a turn as the line's own
-	changed       string    // the file of paths AK_CHANGED names to each check, "" for none: a round's suite's (affected.go)
+	changed       string    // the file of paths AK_CHANGED names to each check, "" for none
 }
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so
