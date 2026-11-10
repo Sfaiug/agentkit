@@ -8,9 +8,10 @@ parks the run `stalled` and tells the seat that launched it, once.  A run silent
 left alone, and a dry run only says what a tick would do.  A run waiting for a slot whose
 process died is started again, still waiting.  Black-box: the program `AK_BIN` names runs from
 outside through tests/fixtures/akbin.py, its turns on a fake harness from fakeadapter.py that
-hangs, launched from a seat of akseat.py; silence is made by back-dating the run's files.  The
-file runs whole in one box (`rerun_boxed`): its ticks kill and resume loops it started, and a
-tick collects /tmp and tidies the browser on loopback, so it gets a /tmp and a loopback of its own.
+hangs, launched from a seat of akseat.py; silence is made by back-dating the run's files, a link
+among them dated by itself, whenever what it names was written.  The file runs whole in one box
+(`rerun_boxed`): its ticks kill and resume loops it started, and a tick collects /tmp and tidies
+the browser on loopback, so it gets a /tmp and a loopback of its own.
 """
 
 import json
@@ -87,6 +88,8 @@ class Ladder(unittest.TestCase):
         until("the first turn went silent", lambda: silent() == 1, running=loop)
         cls.run_dir = run_dir = taskfile.only_run(home)
         cls.addClassCleanup(home.ak, "run", "stop", run_dir.name)
+        # each turn writes what it names: a box's copy of /run links to the host's own files
+        (run_dir / "link").symlink_to(home.root / "adapters" / "entered")
         cls.launched = record(run_dir)
         silent_for(run_dir, 19)
         tick(home)
