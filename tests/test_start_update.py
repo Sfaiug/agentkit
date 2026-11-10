@@ -260,8 +260,11 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
     def finish_updates(self):
         for path in self.root.glob("*.hold"):
             path.unlink(missing_ok=True)
-        # An updater let go ends as slowly as the host's load makes it, so no clock cuts it off:
-        # one that never ends is a hang, which the suite's silence limit names.
+        # An updater let go ends as slowly as the host's load makes it -- the new code's own
+        # start-up check is often still asking origin here -- so no clock cuts it off: one that
+        # never ends is a hang, which the suite's silence limit names.  Nor is one killed: its
+        # ls-remote and version steps run in sessions of their own, which would go on writing
+        # in the HOME being deleted.
         while any(running(pid) for pid in self.updaters()):
             time.sleep(0.01)
 
