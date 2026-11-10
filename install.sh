@@ -903,6 +903,20 @@ EOF
   fi
 fi
 
+# --- (g2c) the clock is NTP's alone -----------------------------------------
+# Lima's guest agent sets the clock to the time the Mac sent when they differ by 100 ms: under load it
+# stepped back 344 times a day on the mini (10 Nov 2026), failing tests.  The Mac never sleeps (awake).
+LIMA_CLOCK="${AK_SYSTEMD_SYSTEM:-/etc/systemd/system}/lima-guestagent.service.d/agentkit-clock.conf"
+lima_clock=$'# Written by agentkit\'s install.sh: the clock is NTP\'s alone\n[Service]\nProtectClock=yes'
+if [ "$SANDBOX" = 1 ] || [ ! -e "${LIMA_CLOCK%.d/*}" ] || [ "$(cat -- "$LIMA_CLOCK" 2>/dev/null)" = "$lima_clock" ]; then
+  :
+elif sudo -n mkdir -p -- "${LIMA_CLOCK%/*}" && printf '%s\n' "$lima_clock" | sudo -n tee "$LIMA_CLOCK" >/dev/null &&
+     sudo -n systemctl daemon-reload && sudo -n systemctl try-restart lima-guestagent; then
+  echo "clock: Lima's guest agent no longer sets the clock; NTP keeps it"
+else
+  note "clock: Lima's guest agent still steps the clock, as $LIMA_CLOCK is not in force; run \`sudo -v\` and re-run ./install.sh"
+fi
+
 # --- (g3) the ceiling for everything the toolkit starts ---------------------
 # `ak orch` starts its tmux servers inside `agentkit.slice`, and tmux leaves every pane in a
 # scope under that slice, so one ceiling there holds every agent process on the machine --
