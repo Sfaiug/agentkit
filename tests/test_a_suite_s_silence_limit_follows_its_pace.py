@@ -1,7 +1,8 @@
 """A suite whose last 20 runs never went quiet for long is stopped sooner at its own pace, and
 what that stops goes once more, alone, with the rest of the silence limit: a hang waits no
 longer than one window did, and a piece that hung once passes on its second go while its
-siblings run on.
+siblings run on.  Without a pace a piece the silence limit stopped goes once more all the same,
+with the whole limit.
 
 Offline: temporary HOME, injected host readings, the check box faked except where one real
 command shows the watchdog measuring its quiet.
@@ -61,7 +62,7 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
         """The suite in two pieces whose first go of 1/2 says `first` ("silence" or an exit),
         and whose second go, if any, says `second`: the calls, the stops the caller was told
         of, the result, and whether 2/2 saw its siblings cancelled once 1/2 had stopped."""
-        calls, told, cancelled, stopped, begun = [], [], [], threading.Event(), threading.Event()
+        calls, told, cancelled, stopped = [], [], [], threading.Event()
         self.markers = {}
 
         def boxed(cmd, limit, env, output, silence=None, on_timeout=None, abort=None, quiet=None,
@@ -71,7 +72,6 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
             self.markers[shard] = env.get(worker.RUN_MARKER)
             output.write(f"piece {shard}\n".encode())
             if shard == "2/2":
-                begun.set()
                 stopped.wait(10)
                 cancelled.append(abort())
                 if quiet is not None:
@@ -79,7 +79,6 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
                 return 0, "", False
             said = first if len([c for c in calls if c[0] == "1/2"]) == 1 else second
             if said == "silence":
-                begun.wait(10 if later is None else 0)    # its stop cancels a running sibling
                 on_timeout("silence", NOBODY)
                 stopped.set()
                 return worker.TIMEOUT, "", True
@@ -162,11 +161,16 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
         self.assertEqual((code, killed, told), (worker.TIMEOUT, True, ["silence"]))
         self.assertIn("--- AK_SHARD=1/2 ---\n[killed at the limit]", text)
 
-    def test_without_a_pace_a_silent_piece_stops_its_siblings_and_goes_no_more(self):
-        calls, told, (code, _, killed), cancelled = self.pieces("silence", later=None)
-        self.assertEqual(len(calls), 2)
-        self.assertEqual((code, killed, told, cancelled),
-                         (worker.TIMEOUT, True, ["silence"], [True]))
+    def test_without_a_pace_a_silent_piece_goes_again_alone_with_the_whole_limit(self):
+        for second, outcome in ((0, (0, False, [])),
+                                ("silence", (worker.TIMEOUT, True, ["silence"]))):
+            with self.subTest(second=second):
+                calls, told, (code, text, killed), cancelled = self.pieces(
+                    "silence", second, later=None)
+                self.assertEqual(sorted(calls[:2]), [("1/2", 300), ("2/2", 300)])
+                self.assertEqual((calls[2:], cancelled), ([("1/2", 300)], [False]))
+                self.assertEqual((code, killed, told), outcome)
+                self.assertIn("--- AK_SHARD=2/2 ---\n[exit 0]", text)
 
     def test_a_failed_piece_s_retry_has_the_rest_of_the_limit(self):
         calls, told, (code, _, killed), _ = self.pieces(1, 0)

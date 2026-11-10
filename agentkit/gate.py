@@ -1505,7 +1505,7 @@ def quiet_window(command, cwd, run_dir, silence):
     where that fits in `silence` twice.  A command or piece it stops goes once more, alone,
     with the rest of `silence` (`run_suite`, `run_done_when`): a hang waits no longer than one
     window did, and a quiet stretch the suite never had passes on that second go.  None where
-    the suite has no such pace: `silence` holds, and its stop is final."""
+    the suite has no such pace: `silence` holds, and stops a command for good."""
     quiet = quiet_runs(read_suite_cost(suite_cost(command, cwd, run_dir)[0]))
     window = max(QUIET_FLOOR, QUIET_TIMES * max(quiet, default=0))
     return window if len(quiet) >= QUIET_RUNS and 2 * window <= silence else None
@@ -1738,9 +1738,11 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     `pieces`, a dict, gets each piece's exit as the runner saw it, by share -- None for one
     killed at the limit, `OUT_OF_MEMORY` for one the kernel killed for memory -- so a caller
     decides from codes, never from what a piece printed.
-    `later`, seconds, is set where the suite's pace stops its pieces sooner (`quiet_window`):
-    the silence each piece's later goes have; a piece its first go's silence stopped goes
-    again, alone, after its siblings, which run on.
+    A piece its first go's silence stopped goes again, alone, after its siblings, which run on:
+    a hang costs its piece, never the pieces that pass.  `later`, seconds, is set where the
+    suite's pace stops its pieces sooner (`quiet_window`): the silence each piece's later goes
+    have.  Without it each go has the whole silence: a suite has no pace where its pieces'
+    ordinary quiet outgrew a part of it, so a part would stop pieces only slow.
     `confirmed`, a dict, gets by share the tests a red piece named that failed again alone;
     with `shard` and `only`, those of them its run named both as run and as failed (`AK_FAILED`)
     where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing;
@@ -1856,7 +1858,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             def attempt(shard, only=None, first=False, there=None, turn=None):
                 """The piece of `shard`, or with `only` just those of its tests, as one share,
                 on the helper's `there` or on this host's `turn` (one taken when None);
-                a `first` go stopped for silence goes again where the suite has a pace."""
+                a `first` go stopped for silence goes again."""
                 run_record.stop_check(run_dir)
                 piece = files.enter_context(tempfile.NamedTemporaryFile(
                     dir=activity.parent, prefix=f"{activity.stem}-piece-", suffix=".log"))
@@ -1893,7 +1895,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                                 self.pending = b""
 
                 def stopped(why, pid):
-                    if why == "silence" and first and later:
+                    if why == "silence" and first:
                         silenced.add(shard)     # its siblings run on; it goes again after them
                     elif why != "abort":
                         cancel.set()
