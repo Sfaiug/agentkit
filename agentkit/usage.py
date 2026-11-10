@@ -1275,12 +1275,13 @@ def readable(prov, now):
 def shared_week(cfg, provider, prov, now=None):
     """The weekly meter every model of this provider draws on, or None when none can be read.
 
-    A `meter` in config.toml is one model's own cap -- Fable's `weekly_scoped` -- so the week
-    no model has claimed is the shared one, and that is the provider's number.  A scoped
-    meter's percentage is never shown as the provider's: a menu reading `Claude 41% left` off
-    Fable's cap while the account page says 52% is wrong on its face.  So when every week that
-    can be read is somebody's private cap there is no shared week at all, and this says None
-    rather than borrowing one of them: a row that cannot be drawn is better than a wrong one.
+    A meter whose provider names its owner (`scope`) or that a `meter` in config.toml claims is
+    one model's own cap -- Fable's `weekly_scoped` -- so the week that is neither is the shared
+    one, and that is the provider's number.  A scoped meter's percentage is never shown as the
+    provider's: a menu reading `Claude 41% left` off Fable's cap while the account page says
+    52% is wrong on its face.  So when every week that can be read is somebody's private cap
+    there is no shared week at all, and this says None rather than borrowing one of them: a row
+    that cannot be drawn is better than a wrong one.
     The picker is unaffected -- it ranks on the tightest meter, whoever owns it.
 
     The menu's row and the `resets` column of the table both read this one answer, so the two
@@ -1289,7 +1290,7 @@ def shared_week(cfg, provider, prov, now=None):
     meters = readable(prov, time.time() if now is None else now)
     claimed = {entry["meter"] for entry in cfg["models"].values()
                if entry.get("provider") == provider and entry.get("meter")}
-    return _worst([m for m in meters if m.get("name") not in claimed])
+    return _worst([m for m in meters if m.get("name") not in claimed and not m.get("scope")])
 
 
 def provider_headroom(prov, cfg, provider=None):
