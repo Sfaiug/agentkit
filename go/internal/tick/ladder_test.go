@@ -232,3 +232,26 @@ func TestNewOutputWhileTheResumeRungWaitsLeavesTheRunAlone(t *testing.T) {
 		t.Fatalf("loop alive=%v, record:\n%s", run.ProcessActive(record), read(t, filepath.Join(dir, "run.json")))
 	}
 }
+
+// A folder of the run the walk cannot open, as a box the loop is taking down, hides none of the
+// output written past it: a walk that gave up there counted a going loop silent and handed the
+// night key's tick to Python (7 Nov 2026).
+func TestAFolderTheWalkCannotOpenHidesNoOutput(t *testing.T) {
+	dir, record, tick := stalledRun(t, "exit 0")
+	before := silenced(t, dir, record)
+	output := filepath.Join(dir, "run.json") // walked after round-1
+	if err := os.Chtimes(output, tick.clock(), tick.clock()); err != nil {
+		t.Fatal(err)
+	}
+	box := filepath.Join(dir, "round-1", ".box-1")
+	if err := os.MkdirAll(box, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(box, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(box, 0o700) })
+	if err := tick.stallRecovery(); err != nil || !run.ProcessActive(record) || read(t, output) != before {
+		t.Fatalf("err=%v loop alive=%v, record:\n%s", err, run.ProcessActive(record), read(t, output))
+	}
+}

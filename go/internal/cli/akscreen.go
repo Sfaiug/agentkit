@@ -229,7 +229,15 @@ func akScreen(args []string, out, errOut io.Writer) int {
 					return code
 				}
 				if model.New == nil {
-					reread()
+					// back from the seat it made, the frame lists it as a restart's first frame does and
+					// writing every seat's word down follows behind it: that waits on each seat's
+					// announce lock, which another `ak` holds as long as its own look takes
+					keyboard.While(func() {
+						if found, known := readFrame(time.Now(), false); known {
+							show(&latest, &found)
+						}
+					})
+					go reread()
 				}
 			}
 			continue

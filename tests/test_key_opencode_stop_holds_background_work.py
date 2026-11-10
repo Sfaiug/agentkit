@@ -10,7 +10,8 @@ and holds nothing; a shell and a subagent a killed process left `running` there 
 held, as on a live OpenCode 2.1.1 seat ended under both on 27 Oct 2026, whose restarted process
 found their rows as they were, written before it began; and a seat whose Stop held a shell alone
 stays on an account with usage left, where a bare Stop moves it.
-Black-box: the plugin runs under Node as OpenCode loads it, handed one
+Black-box: the plugin beside the program `AK_BIN` names (or `AK_ROOT`'s) runs under Node as
+OpenCode loads it, handed one
 `session.execution.succeeded`; the fake OpenCode is its database, each table's schema and each
 row's shape copied from OpenCode 2.1.1 as installed (the kv table its KV service creates and
 the record Job.background writes, `Ll` in its bundle; session_v2, of it the columns a session
@@ -34,8 +35,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import REAL_TMUX, REPO, Home, boxable
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import PANE, Seat
+from fixtures.hookdrive import ROOT
 
 NODE = shutil.which("node")
 PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
@@ -155,7 +157,7 @@ class OpencodeStopHoldsBackgroundWork(unittest.TestCase):
         fake = self.home.root / "sqlite.mjs"
         fake.write_text(SQLITE)
         done = self.home.run(NODE, "--input-type=module", "-e", DRIVER,
-                             str(REPO / "hooks/opencode-seat/index.js"), str(fake), ended,
+                             str(ROOT / "hooks/opencode-seat/index.js"), str(fake), ended,
                              env={"AGENTKIT_SESSION": "acme", "FAKE_PYTHON": sys.executable})
         self.assertEqual(done.code, 0, done.err)
         return json.loads((self.home.path / ".agentkit/state/hook-acme.json").read_text())

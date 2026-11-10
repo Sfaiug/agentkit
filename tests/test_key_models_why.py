@@ -1,82 +1,113 @@
-"""⏎ on the models screen opens the why of the row the role `▸` is on uses: its quality and
-cost, how far behind the role's best it is, and
-each measure's points behind and how it was got; Esc returns with the pointer where it was.  On
-40 cells each measure's how takes a line under it.
+"""⏎ on the models screen opens the why of the row the role `▸` is on uses, as the owner drew it
+on 5 Nov 2026, a label column beside values that wrap at words in their own: its quality give
+or take 1.96 standard errors, the benchmarks that scored it and how far below the role's best
+choice it is; its cost, `≈` before one no runs measured, and where that comes from -- its runs,
+its board price times what runs on its provider or on every provider cost a board dollar, or
+its board price alone.  Esc returns with `▸` where it was, and a page taller than the screen
+turns with ↓ and ↑.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
-harnesses fakes listing invented models, the boards held as just asked with invented rows;
-judged by the screen.  Fails against /bin/false.
+harnesses fakes listing invented models, the boards held as just asked with invented rows, and
+finished builds and reviews as tests/test_key_role_cost_from_runs.py writes them; judged by the
+screen.  Fails against /bin/false.
 """
 
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
-from test_key_models_answer import ENV, EVALUATIONS, NOW, OLD, aa, lines
+from test_key_models_answer import ENV, EVALUATIONS, OLD, aa, lines
+from test_key_role_cost_from_runs import NOW, History
 
-# Per release and effort: intelligence index, frontier-code and terminal shares, Omniscience,
-# cost a task and Arena's agent share, none for Acme Max 5 high (carried from max) and Crux 2
-# (missing); AutomationBench on Acme Max 5 max alone, so the rest miss or carry it
-ROWS = [("acme-max-5", "Acme Max 5", "max", 70, 0.80, 50, 20.0, 0.80),
-        ("acme-max-5", "Acme Max 5", "high", 66, 0.74, 48, 10.0, None),
-        ("acme-mid-5", "Acme Mid 5", "high", 66, 0.77, 49, 15.0, 0.79),
-        ("bolt-3", "Bolt 3", "medium", 60, 0.70, 45, 3.0, 0.78),
-        ("crux-2", "Crux 2", "low", 50, 0.60, 42, 1.0, None)]
+# Per release and effort: intelligence index, frontier-code and terminal shares, Arena's agent
+# share, none for Acme Max 5 high (carried from max) and Crux 2 (missing), Omniscience and cost
+# a task, a dollar a million tokens; AutomationBench on Acme Max 5 max alone
+ROWS = [("acme-max-5", "Acme Max 5", "max", 70, .80, .80, 50, 20.0),
+        ("acme-max-5", "Acme Max 5", "high", 66, .74, None, 48, 10.0),
+        ("acme-mid-5", "Acme Mid 5", "high", 66, .72, .77, 49, 1.5),
+        ("bolt-3", "Bolt 3", "medium", 60, .64, .74, 45, 3.0),
+        ("crux-2", "Crux 2", "low", 50, .60, None, 42, 1.0),
+        ("dune-1", "Dune 1", "high", 64, .75, .775, 47, 4.0),
+        ("elm-1", "Elm 1", "high", 68, .78, .78, 46, 6.0)]
+MODELS = {"crux": {"harness": "codex", "model": "crux-2", "effort": "low"},
+          "mid": {"harness": "claude", "model": "acme-mid-5"},
+          "max": {"harness": "claude", "model": "acme-max-5", "review_effort": "max"}}
+
+MAX_HIGH_BUILDS = [
+    "  why Acme Max 5 high builds",
+    "",
+    "  quality    94.8   give or take 3.7, from three benchmarks",
+    "             FrontierCode 2.0, Arena Agent carried from max, Terminal-Bench 4.0",
+    "             5.2 below the best, Acme Max 5 max",
+    "",
+    "  cost       ≈ $10.00 a build   estimated: its board price, times what your runs on its provider",
+    "             cost a board dollar"]
+MAX_MAX_REVIEWS = [
+    "  why Acme Max 5 max reviews",
+    "",
+    "  quality    100.0   give or take 5.5, from two benchmarks",
+    "             FrontierCode 2.0, AA-Omniscience",
+    "             the best of these choices"]
+MID_BUILDS = [
+    "  why Acme Mid 5 high builds",
+    "",
+    "  quality    94.0   give or take 3.8, from three benchmarks",
+    "             FrontierCode 2.0, Arena Agent, Terminal-Bench 4.0",
+    "             6.0 below the best, Acme Max 5 max",
+    "",
+    "  cost       $1.50 a build   from 2 of your builds"]
+CRUX_REVIEWS = [
+    "  why Crux 2 low reviews",
+    "",
+    "  quality    82.4   give or take 6.7, from two benchmarks",
+    "             FrontierCode 2.0, AA-Omniscience",
+    "             17.6 below the best, Acme Max 5 max",
+    "",
+    "  cost       ≈ $1.00 a review   estimated: its board price, times what your runs on every provider",
+    "             cost a board dollar"]
+CRUX_BUILDS_40 = [
+    "  why Crux 2 low builds",
+    "",
+    "  quality    80.0   give or take 7.1,",
+    "             from two benchmarks",
+    "             FrontierCode 2.0, Arena",
+    "             Agent no score, counted as",
+    "             its worst, Terminal-Bench",
+    "             4.0",
+    "             20.0 below the best, Acme",
+    "             Max 5 max",
+    "",
+    "  cost       ≈ $1.00 a build   its board",
+    "             price alone: no build of",
+    "             yours priced a model"]
 
 
-def boards():
+def boards(priced):
+    """The boards holding `ROWS`, their costs where `priced`, and the rows keeping them from
+    being asked, just answered."""
     rows = {board: [{"model": "Old 1", "effort": "high", "values": dict.fromkeys(names.split(), 0)}]
             for board, names in OLD.items()}
     rows["artificialanalysis.ai"] = [aa("old-1", "Old 1", "high", rows["artificialanalysis.ai"][0]
                                         ["values"], retired=True)]
-    for release, name, effort, index, share, omni, cost, agent in ROWS:
+    for release, name, effort, index, share, agent, omni, cost in ROWS:
         rows["artificialanalysis.ai"].append(aa(release, name, effort, {
             "aa.briefcaseBreakdown.overall.elo": 1400, "aa.omniscience": omni,
             **({"aa.automationBenchPartialScore": 0.9} if effort == "max" else {}),
             "aa.intelligenceIndex": index, "aa.frontierCode20": share, "aa.terminalBench40": share,
-            **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost for slug in EVALUATIONS}}))
+            "aa.price1mInputTokens": 1, "aa.price1mOutputTokens": 1,
+            **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost
+               for slug in EVALUATIONS if priced}}))
         if agent:
             rows["arena.ai"].append({"model": name, "effort": effort,
                                      "values": {"arena.agent": agent}})
-    return {board: {"asked_at": NOW, "fetched_at": NOW, "error": None, "build": "", "rows": found}
+    now = time.time()
+    return {board: {"asked_at": now, "fetched_at": now, "error": None, "build": "", "rows": found}
             for board, found in rows.items()}
-
-
-CRUX_ORCH = ["  why Crux 2 low orchestrates",
-             "  quality 93.2 ± 0.0   $1.00 a AA-Briefcase task",
-             "  6.8 behind the best, Acme Max 5 max",
-             "",
-             "                   behind the best",
-             "  AutomationBench              8.0  no score, counted as its worst",
-             "  Arena Agent                  8.0  no score, counted as its worst",
-             "  AA-Omniscience               8.0  measured, 42",
-             "  AA-Briefcase                 0.0  measured, 1400",
-             "",
-             "  esc back"]
-MAX_HIGH_BUILDS = ["  why Acme Max 5 high builds",
-                   "  quality 94.8 ± 1.9   $10.00 a FrontierCode 2.0 task",
-                   "  5.2 behind the best, Acme Max 5 max",
-                   "",
-                   "                      behind the best",
-                   "  FrontierCode 2.0                6.0  measured, 74.0%",
-                   "  Arena Agent                     4.0  carried from max",
-                   "  Terminal-Bench 4.0              6.0  measured, 74.0%"]
-CRUX_BUILDS_40 = ["  why Crux 2 low builds",
-                  "  quality 80.0 ± 3.6",
-                  "  $1.00 a FrontierCode 2.0 task",
-                  "  20.0 behind the best, Acme Max 5 max",
-                  "",
-                  "                      behind the best",
-                  "  FrontierCode 2.0               20.0",
-                  "    measured, 60.0%",
-                  "  Arena Agent                    20.0",
-                  "    no score, counted as its worst",
-                  "  Terminal-Bench 4.0             20.0",
-                  "    measured, 60.0%"]
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -89,18 +120,37 @@ class ModelsWhy(unittest.TestCase):
         fakes["claude"].answer("models", "acme-mid-5\tAcme Mid 5\tlow medium high xhigh max\n"
                                          "acme-max-5\tAcme Max 5\thigh max\n")
         fakes["codex"].answer("models", "bolt-3\tBolt 3\tlow medium high\ncrux-2\tCrux 2\tlow\n")
+        home.write(".agentkit/state/usage.json", {"providers": {provider: {"meters": [
+            {"name": "weekly", "used": 40, "window_secs": 604800, "resets_at": NOW + 86400}]}
+            for provider in ("anthropic", "openai")}})
 
     def setUp(self):
-        self.write("max")
-        self.home.write(".agentkit/state/boards.json", boards())
+        History(self.home).save()        # no runs, until a case writes some
 
-    def write(self, worker):
-        """Crux 2 at low orchestrates new seats, and `worker` builds them."""
-        akconfig.write(self.home, {"crux": {"harness": "codex", "model": "crux-2", "effort": "low"},
-                                   "max": {"harness": "claude", "model": "acme-max-5"}},
-                       orchestrator="crux", workers=[worker])
+    def write(self, workers, reviewers=None, runs=False, priced=True):
+        """The boards holding `ROWS` (boards); Crux 2 at low orchestrates new seats, `workers` build
+        them and `reviewers` review, every plan $1300 a month, so a week of it $300 and a point
+        of that $3; with `runs`, two finished builds of Acme Mid 5 high and a review by it,
+        costing what its board does."""
+        self.home.write(".agentkit/state/boards.json", boards(priced))
+        # no answer an earlier case drew, so the screen counts its models once these are read
+        (self.home.path / ".agentkit/state/matrix.json").unlink(missing_ok=True)
+        akconfig.write(self.home, MODELS, orchestrator="crux", workers=workers,
+                       reviewers=reviewers, providers={
+                           provider: {"mode": "subscription", "price": 1300}
+                           for provider in ("anthropic", "openai", "acme")})
+        if not runs:
+            return
+        history = History(self.home)
+        # the login's week $100 at a dollar a million tokens: a million tokens is a point
+        history.week("anthropic", "default", "claude", "acme-mid-5", 50e6, 50)
+        spent = lambda model, millions: [[("default", model, (millions * 1e6, 0, 0, 0))]]
+        history.run(("mid", "high"), built=spent("acme-mid-5", .25))
+        history.run(("mid", "high"), "mid", ["high"], built=spent("acme-mid-5", .75),
+                    reviewed=spent("acme-mid-5", .5))
+        history.save()
 
-    def models(self, width=78, height=60):
+    def models(self, width=100, height=60):
         """`r` on `c` in a window of its own, once the answer is drawn: how many models it
         compares, or on a page too short to keep that, the orchestrator's quality."""
         term = Terminal(self.home, size=(width, height), env=ENV)
@@ -110,35 +160,57 @@ class ModelsWhy(unittest.TestCase):
         term.keys("c")
         term.wait("r recommended")
         term.keys("r")
-        return term, lines(term.wait(lambda screen: "comparing all 4 models" in screen
-                                     or " 93.2 " in screen))
+        term.wait(lambda screen: "comparing all 6 models" in screen or " 93.2 " in screen)
+        return term
 
     def why(self, term, *keys):
+        """The why `keys` then ⏎ open, from its heading to the line over its key line."""
         term.keys(*keys, "Enter")
         # drawn whole once its own key line, the last, stands under its heading
         shown = lines(term.wait(lambda screen: "\n  why " in screen and lines(
-            screen.rstrip())[-1] == "  esc back"))
-        return shown[shown.index(next(line for line in shown if line.startswith("  why "))):]
+            screen.rstrip())[-1] == "  esc back").rstrip())
+        return shown[shown.index(next(line for line in shown if line.startswith("  why "))):-2]
 
-    def test_enter_says_where_a_rows_quality_comes_from_and_esc_returns(self):
-        term, _ = self.models()
-        self.assertEqual(self.why(term)[:len(CRUX_ORCH)], CRUX_ORCH)
+    def test_enter_says_why_a_row_is_used_as_the_owner_drew_it_and_esc_returns(self):
+        self.write(["max"], runs=True)
+        term = self.models()
+        self.assertEqual(self.why(term, "Down"), MAX_HIGH_BUILDS)
         term.keys("Escape")
-        self.assertIn("\n  ▸ orchestrator  Crux 2 low ", term.wait("comparing all 4 models"))
-        self.assertEqual(self.why(term, "Down")[:len(MAX_HIGH_BUILDS)], MAX_HIGH_BUILDS)
+        self.assertIn("\n  ▸ executor      Acme Max 5 high ", term.wait("comparing all"))
+        self.assertEqual(self.why(term, "Down")[:len(MAX_MAX_REVIEWS)], MAX_MAX_REVIEWS)
 
-    def test_on_40_cells_each_measures_how_takes_a_line_under_it(self):
-        self.write("crux")
-        term, _ = self.models(40)
-        self.assertEqual(self.why(term, "Down")[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
+    def test_with_nothing_priced_its_cost_is_none_and_its_quality_still_below_the_best(self):
+        self.write(["max"], priced=False)
+        term = self.models()
+        self.assertEqual(self.why(term, "Down"), [*MAX_HIGH_BUILDS[:6], "  cost       no cost"])
 
-    def test_a_why_taller_than_the_screen_turns_its_pages(self):
-        term, _ = self.models(40, 14)
-        shown = self.why(term)
-        self.assertFalse(any(line.startswith("  AA-Briefcase") for line in shown), shown)
-        term.keys("Down")
-        term.wait("  AA-Briefcase")            # its last measure, under its fold
+    def test_a_cost_from_your_runs_says_how_many(self):
+        self.write(["mid"], ["crux"], runs=True)
+        term = self.models()
+        self.assertEqual(self.why(term, "Down"), MID_BUILDS)
+        term.keys("Escape")
+        term.wait("\n  ▸ executor ")
+        self.assertEqual(self.why(term, "Down"), CRUX_REVIEWS)
 
+    def test_on_40_cells_each_value_wraps_at_words_in_its_column(self):
+        self.write(["crux"])
+        term = self.models(40)
+        self.assertEqual(self.why(term, "Down"), CRUX_BUILDS_40)
+
+    def test_a_why_taller_than_the_screen_turns_its_pages_to_its_last_line_and_back(self):
+        # judged against the same why on a screen it fits: the page as it is drawn, whatever
+        # it says
+        self.write(["crux"])
+        whole = self.why(self.models(40), "Down")
+        term = self.models(40, 14)
+        first = self.why(term, "Down")
+        self.assertEqual(first, whole[:len(first)])
+        self.assertLess(len(first), len(whole))
+        term.keys(*["Down"] * len(whole))      # a page at a time, never past the last
+        # its last line, under its fold, then over its key line
+        term.wait(lambda screen: lines(screen.rstrip())[-3:] == [whole[-1], "", "  esc back"])
+        term.keys(*["Up"] * len(whole))        # and back to its heading
+        term.wait(lambda screen: whole[0] in lines(screen))
 
 if __name__ == "__main__":
     unittest.main()

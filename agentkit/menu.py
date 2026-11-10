@@ -3081,7 +3081,7 @@ NEW_SEATS = "new seats"
 MOVE_ASK = "Restart {} on {}?"     # what another model's orchestrator mark asks, and what it means
 MOVE_MEANS = {True: "It keeps its conversation.",
               False: "It starts a new conversation, handed the one it had."}
-RESTART_ASK = "Restart {} on {} at {}?"   # what a step of a seat's orchestrator effort asks
+RESTART_ASK = "Restart {} on {} at {}?"   # what a move of a seat's orchestrator at an effort asks
 # Every effort word, weakest first -- the widest list a manifest names (adapters/muse.toml) --
 # so a new model id that does not take its model's effort takes the nearest one it does.
 EFFORT_RANK = ("none", "minimal", *config.EFFORTS)
@@ -3129,52 +3129,54 @@ def model_heading(harness):
     return terminal.styled(config.harness_name(harness), config.harness_colour(harness) or "accent")
 
 
-# the roles `r` takes, each with its group in a record (its config role: matrix.CONFIG_ROLES); a
-# seat's own `r` leaves its orchestrator, which only its mark moves (session_mark)
+# each role's group in a record (its config role: matrix.CONFIG_ROLES), which a take sets
 TAKEN = {"orchestrate": "orchestrator", "execute": "workers", "review": "reviewers"}
 
 
-def takes(cfg, answer):
-    """What `r` takes per role off `answer` (matrix.answer) and `cfg` as it stands: {role: (the
-    first configured model running its take, the take's effort)}, a take none runs left out."""
-    found = {}
-    for role, said in answer.items():
-        yours = (said["take"] or {}).get("yours") or []
-        name = next((name for name in config.offered(cfg) if {
-            "harness": cfg["models"][name]["harness"], "model": cfg["models"][name]["model"]}
-            in yours), None)
-        if name:
-            found[role] = (name, said["take"]["effort"])
-    return found
+def runner(cfg, row):
+    """The configured model a take of `row` takes: the first of config.offered running it."""
+    return next((name for name in config.offered(cfg) if {
+        "harness": cfg["models"][name]["harness"], "model": cfg["models"][name]["model"]}
+        in row["yours"]), None)
 
 
-def take_advice(cfg, name, selected, providers, found):
-    """`r`: seat `name`'s executors and reviewers become the models `found` takes (takes), each
-    at its effort as the seat's own for that role (`exec_effort`, `review_effort`; a row
-    at the model's effort or at none leaves it following the effort, _follows), saved to the
-    seat's record (efforts_saved) and then its marks at once as a flipped mark is (marks_saved);
-    efforts that cannot be saved change no mark and say why.  The orchestrator is only
-    said, since moving the seat is its orchestrator mark's.  With no `name`, `selected` being
-    [defaults], the orchestrator is taken too, at the row's effort as the entry's `effort`, and
-    the efforts and [defaults] are saved in one write (defaults_saved), no open seat changing.
-    What to say under the rows, or ""."""
-    taken = {role: found.get(role, (None, None)) for role in TAKEN
-             if name is None or role != "orchestrate"}
-    if not any(model for model, _ in taken.values()):
-        return "nothing to take: no configured model runs a take"
+def next_choice(cfg, found, row, step):
+    """What ← (`step` -1) or → (1) takes off `row`, the row a role uses, of its answer `found`
+    (matrix.answer), the owner's design of 5 Nov 2026: (model, effort) of the nearest of its
+    `choices` cheaper or dearer than `row`, one with no cost standing as its best choice, that a
+    configured model runs (runner), passing the others; None past either end.  No two choices
+    cost the same (matrix._choices), so from a choice that is the next one."""
+    choices = found["choices"]
+    cost = row["cost"] if row and row["cost"] is not None else max(
+        (one["cost"] for one in choices), default=0)
+    return next(((name, one["effort"]) for one in choices[::step]        # the nearest first
+                 if (one["cost"] - cost) * step > 0 for name in [runner(cfg, one)] if name), None)
+
+
+def take_choice(cfg, name, selected, providers, role, model, effort, around):
+    """A take (next_choice): seat `name`'s `role` becomes `model` at `effort`.  An executor or
+    reviewer takes it as the seat's own effort for that role (`exec_effort`, `review_effort`;
+    one at the model's effort or at none leaves it following the effort, _follows), saved to
+    the seat's record (efforts_saved) and then its marks at once as a flipped mark is
+    (marks_saved); efforts that cannot be saved change no mark and say why.  The orchestrator
+    moves the seat, asked first on the card `around` draws where that restarts it
+    (seat_effort).  With no `name`, `selected` being [defaults], the role is taken there, the
+    orchestrator at `effort` as the entry's `effort`, and the entry and [defaults] are saved in
+    one write (defaults_saved), no open seat changing.  What to say under the rows, or ""."""
+    if name is not None and role == "orchestrate":
+        return seat_effort(cfg, name, selected, model, effort, around)
     changed, note = orch.role_groups(cfg, selected, providers, **{
-        TAKEN[role]: model if role == "orchestrate" else [model]
-        for role, (model, _) in taken.items() if model})
+        TAKEN[role]: model if role == "orchestrate" else [model]})
     if note:
         return note
-    # the orchestrator's `effort` first, so a worker's set to it then follows it (_follows)
-    steps = [(model, config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]], effort)
-             for role, (model, effort) in taken.items() if model]
+    key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
     if name is not None:
-        return efforts_saved(cfg, name, selected, steps) or marks_saved(name, selected, changed)
+        return (efforts_saved(cfg, name, selected, [(model, key, effort)])
+                or marks_saved(name, selected, changed))
     before = copy.deepcopy(cfg)
-    for model, key, effort in steps:
-        _set_effort(cfg["models"][model], key, effort)
+    # the orchestrator's effort leaves the model's builds and reviews where they stood, as a
+    # seat's move does (config.orchestrating_at)
+    _set_effort(cfg["models"][model], key, effort, config.ROLE_EFFORTS.values())
     return defaults_saved(cfg, selected, changed, before)
 
 
@@ -3225,16 +3227,20 @@ def marks_saved(name, selected, changed):
 
 UNITS = {"share": "week %", "money": "$ a task", "board_dollars": "a task"}   # matrix._costs's
 UNBOARDED, UNMARKED = "not on the boards", "none"     # a model no row is; a role marking none
-# the why's words: what a row does in each role, and each measure's evaluation by its name
+# the why's words: what a row does in each role and a run of it, each measure's evaluation by
+# its name, where each `cost_rule` says a cost comes from, and a count under ten
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
+RUN = {"orchestrate": "task", "execute": "build", "review": "review"}
 MEASURES = {"aa.automationBenchPartialScore": "AutomationBench", "arena.agent": "Arena Agent",
             "aa.omniscience": "AA-Omniscience", "aa.briefcaseBreakdown.overall.elo": "AA-Briefcase",
             "aa.frontierCode20": "FrontierCode 2.0", "aa.terminalBench40": "Terminal-Bench 4.0"}
-# a board cost is a task of the evaluation of the measure of that name
-TASKS = {quality.COSTS[role]: MEASURES[column] for role, column in (
-    ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.frontierCode20"),
-    ("review", "aa.frontierCode20"))}
-BEHIND = "behind the best"
+SOURCES = {"measured": "from {runs} of your {run}s",
+           "provider": "estimated: its board price, times what your runs on its provider cost "
+                       "a board dollar",
+           "global": "estimated: its board price, times what your runs on every provider cost "
+                     "a board dollar",
+           "board": "its board price alone: no {run} of yours priced a model"}
+NUMBERS = "zero one two three four five six seven eight nine".split()
 
 
 def model_cost(found, row):
@@ -3244,12 +3250,12 @@ def model_cost(found, row):
     return f"{cost}%" if found["cost_unit"] == "share" else f"${cost}"
 
 
-def cost_said(found, row):
-    """`row`'s cost in its role's answer `found`, `≈` before one no runs measured -- the owner,
-    3 Nov 2026: a cost on screen must never look more certain than it is."""
+def cost_said(found, row, gap=""):
+    """`row`'s cost in its role's answer `found`, `≈` and `gap` before one no runs measured --
+    the owner, 3 Nov 2026: a cost on screen must never look more certain than it is."""
     if row["cost"] is None:
         return "-"
-    about = "" if row["cost_rule"] == "measured" else "≈" if terminal.utf8() else "~"
+    about = "" if row["cost_rule"] == "measured" else ("≈" if terminal.utf8() else "~") + gap
     return about + model_cost(found, row)
 
 
@@ -3407,44 +3413,63 @@ def models_read(compared, total, fetched):
             for part in packed(parts, " · ", terminal.layout_width() - 2)]
 
 
-def scored(row, column, kind):
-    """How `row` got its score on `column`, a measure of kind `kind`, in plain words."""
-    one = row["measures"].get(column)
-    if one is None:
-        return "no score"
-    if one["how"] == "carried":
-        return f"carried from {one['from']}"
-    if one["how"] == "missing":
-        return "no score, counted as its worst"
-    value = row["values"][column]
-    return "measured, " + (f"{100 * value:.1f}%" if kind == "share" else f"{value:g}")
+def number(count):
+    """`count` as a word under ten, else in digits."""
+    return NUMBERS[count] if count < len(NUMBERS) else str(count)
+
+
+def scored(column, one):
+    """A measure's evaluation, and how a row scored there where the score is not its own."""
+    return MEASURES[column] + (f" carried from {one['from']}" if one["how"] == "carried" else
+                               " no score, counted as its worst" if one["how"] == "missing"
+                               else "")
+
+
+def flowed(parts, room):
+    """`parts` three cells apart on lines of `room` cells, each going on at its words beside the
+    one before it and the rest under the first, a word too long for a line split
+    (terminal.wrap)."""
+    lines = [""]
+    for part in parts:
+        gap = "   " if lines[-1] else ""
+        for word in " ".join(terminal.wrap(part, room)).split():
+            if lines[-1] and terminal.cells(lines[-1] + gap + word) > room:
+                lines.append(word)
+            else:
+                lines[-1] += gap + word
+            gap = " "
+    return lines
 
 
 def models_why(found, role, row):
-    """The why of `row` of `role`'s answer `found` (matrix.answer): its quality and cost, how
-    far it is behind the role's best, and each measure's points behind and how it was got.  Where
-    a measure's line is too wide for the screen, its how takes a line under it; only a model's
-    name is cut."""
+    """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
+    2026: a label column, each value going on at its words in its own (flowed).  Its quality,
+    give or take 1.96 standard errors, the measures that scored it and how far below the role's
+    best choice it is; its cost and where that comes from (SOURCES).  Only a model's name is
+    cut."""
     room = terminal.layout_width() - 2
-    top = max(found["rated"], key=lambda one: one["quality"])
-    hows = [(MEASURES[column], f"{one['points']:.1f}" if one else "", scored(row, column, kind))
-            for column, kind, *_ in quality.ROLES[role] for one in [row["measures"].get(column)]]
-    width = max(terminal.cells(name) for name, _, _ in hows)
-    wide = width + 2 + len(BEHIND) + 2 + max(terminal.cells(how) for _, _, how in hows) <= room
-    lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}",
-             *packed([f"quality {row['quality']:.1f} ± {row['se']:.1f}",
-                      model_cost(found, row) + (" a task" if found["cost_unit"] != "board_dollars"
-                                               else f" a {TASKS[quality.COSTS[role]]} task")
-                      if row["cost"] is not None else "no cost"], "   ", room),
-             *(["the best"] if row is top else packed(
-                 [f"{top['quality'] - row['quality']:.1f} {BEHIND},", named(top, room)], " ",
-                 room)), "", terminal.table_row(["", BEHIND], [width, len(BEHIND)],
-                                                kinds=(None, "dim"))]
-    for name, points, how in hows:
-        lines += ([terminal.table_row([name, points, how], [width, len(BEHIND), len(how)],
-                                      right=(1,))] if wide else
-                  [terminal.table_row([name, points], [width, len(BEHIND)], right=(1,)),
-                   "  " + how])
+    width = terminal.cells("not shown")     # the design's label column: its widest label
+    values = room - width - 2
+    # the best choice, else, with nothing priced to choose among, the best rated row
+    top = max(found["choices"] or found["rated"], key=lambda one: one["quality"])
+    measures = {column: one for column, *_ in quality.ROLES[role]
+                for one in [row["measures"].get(column)] if one}
+    counted = sum(one["how"] != "missing" for one in measures.values())
+    behind = top["quality"] - row["quality"]
+    said = {"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
+                                                  f"{number(counted)} benchmarks"],
+                        [", ".join(scored(column, one) for column, one in measures.items())],
+                        ["the best of these choices"] if row is top else
+                        [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
+                         f"{named(top, values)}"]],
+            "cost": [[f"{cost_said(found, row, ' ')} a {RUN[role]}",
+                      SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])]
+                     if row["cost"] is not None else ["no cost"]]}
+    lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}"]
+    for label, parts in said.items():
+        lines.append("")
+        for n, line in enumerate(line for part in parts for line in flowed(part, values)):
+            lines.append(f"{terminal.pad(label if n == 0 else '', width)}  {line}")
     return ["  " + line if line else line for line in lines]
 
 
@@ -3454,9 +3479,10 @@ def models_screen(cfg, session, selected, providers):
     of `selected` uses (models_body), the bars of the role `▸` is on (models_bars) as tall as the
     page leaves room for, over models_read until Esc, the boards read as it opens
     (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
-    bottom (matrix_key).  ↑/↓ move `▸`; ⏎ or a click opens the why (models_why) of
-    the row the role uses, else of its first choice.  `p` lists companies (company_list); `r`
-    takes (take_advice)."""
+    bottom (matrix_key).  ↑/↓ move `▸`, and ← and → take the next cheaper or better choice
+    for its role at once (next_choice, take_choice), the owner's design of 5 Nov 2026; ⏎ or a
+    click opens the why (models_why) of the row the role uses, else of its first choice.  `p`
+    lists companies (company_list)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note = ("row", "orchestrate"), 0, ""
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -3473,10 +3499,13 @@ def models_screen(cfg, session, selected, providers):
         if answer is None:
             compared, total = matrix.compared(cfg), len(matrix.ours(cfg))
             answer = matrix.answer(held.get("lineup") or [], compared, cfg=cfg)
-            used = matrix.uses(cfg, selected, answer)
-            said = models_said(cfg, answer, used)
+        # a take changes what each role uses, never the answer, which takes seconds to price
+        used = matrix.uses(cfg, selected, answer)
+        said = models_said(cfg, answer, used)
         body, places = models_body(said, None if terminal.away() else here[1])
-        keys = terminal.keys("p models", "r take", "esc back", enter="why", move=("role",))
+        cheaper, better = ("←", "→") if terminal.utf8() else ("<", ">")
+        keys = terminal.keys(f"{cheaper} cheaper", f"better {better}", "p models", "esc back",
+                             enter="why", move=("role",))
         read = ["", *models_read(compared, total, held.get("fetched_at"))]
         # where one-cell bars leave too little room these give way whole, in turn: the comparing
         # line, the `━` (the accent and the role's line still name the row in use), the whys
@@ -3493,10 +3522,17 @@ def models_screen(cfg, session, selected, providers):
         if act is None:
             continue                  # a resize, the pointer or the boards landing: drawn again
         note = ""
+
+        def around(card, keys):   # the role lines, the question under them
+            lines = models_body(said, here[1])[0]
+            terminal.frame(title, [*lines, *card], keys)
+            return 3 + len(lines)
         if act == "back":
             return
-        if act == "r":
-            note, answer = take_advice(cfg, session, selected, providers, takes(cfg, answer)), None
+        if act in ("left", "right"):
+            found = next_choice(cfg, answer[here[1]], used[here[1]][2], 1 if act == "right" else -1)
+            if found:
+                note = take_choice(cfg, session, selected, providers, here[1], *found, around)
         elif act == "p":
             note, answer = company_list(cfg, title), None
         elif act == "enter":
@@ -3894,14 +3930,15 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
 
 
 def seat_effort(cfg, name, selected, model, effort, around):
-    """Seat `name` moved to `model` with its orchestrator at `effort`, a restart once `Restart` is
-    picked on the card `around` draws (terminal.confirm), the owner's 24 Oct words about the
-    orchestrator: "it should ask me to confirm. As this restarts the session."  The move
-    alone writes the record (orch.switch_orchestrator), and `selected` then holds it as it is.
-    What to say under the rows, or ""."""
+    """Seat `name` moved to `model` with its orchestrator at `effort`, or at the one it runs
+    `model` at for None, a restart once `Restart` is picked on the card `around` draws
+    (terminal.confirm), the owner's 24 Oct words about the orchestrator: "it should ask me to
+    confirm. As this restarts the session."  The move alone writes the record
+    (orch.switch_orchestrator), and `selected` then holds it as it is.  What to say under the
+    rows, or ""."""
     note = orch.switch_orchestrator(cfg, name, model, effort=effort, asked=lambda kept: (
-        terminal.confirm(RESTART_ASK.format(name, config.model_name(cfg, model), effort),
-                         MOVE_MEANS[kept], "Restart", around)))
+        terminal.confirm((RESTART_ASK if effort else MOVE_ASK).format(
+            name, config.model_name(cfg, model), effort), MOVE_MEANS[kept], "Restart", around)))
     try:
         selected.update(config.load_session(cfg, name, required=False) or {})
     except (config.Error, OSError) as exc:
@@ -4119,8 +4156,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     replays after another screen.
     A click on a model's label puts the highlight on its first mark.  `r`, or a click on
     `r recommended`, opens the models screen (models_screen), what each role uses for whom the
-    marks are, where `r` takes each role's take for them.  Enter or a click
-    on `Models` opens its page (models_page), and on `Subscriptions` its page
+    marks are, where ← and → take a role's next cheaper or better choice for them.  Enter or a
+    click on `Models` opens its page (models_page), and on `Subscriptions` its page
     (config_subscriptions), and on `Limits` its page (config_limits).  ↑ past the
     first model, and the pointer, reach
     the meters over the page: one is lit as the main screen lights it, its colour washing in
@@ -5393,7 +5430,8 @@ def config_done_check(cfg):
 
 def machines_value():
     """`Machines`' count and the tick's cloud spending, with no probe or Google call."""
-    return f"{len(machines.known())} machines · Google Cloud {google_cloud.summary(count=False)}"
+    count, cloud = len(machines.known()), google_cloud.summary(count=False)
+    return f"{count} machine{'' if count == 1 else 's'} · Google Cloud {cloud}"
 
 
 def machine_value(machine, rented, cfg):

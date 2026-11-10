@@ -1,5 +1,5 @@
 """A sharded suite splits into twice the pieces the host's full derived limit fits, and its
-pieces take turns freed after it starts.
+pieces take turns freed after it starts; each suite of one check does, by its own piece's cost.
 
 Offline: temporary HOME, fake turn files under it, injected host readings, a fake box.
 """
@@ -86,13 +86,18 @@ class SuiteTakesFreedTurns(unittest.TestCase):
             self.running -= 1
         return 0, "", False
 
-    def suite(self, name):
+    def suite(self, name, cmds=(SUITE,), mem_mb=()):
+        """`cmds` as one check of the run `name`; `mem_mb`, by command, what a piece of it was
+        measured to hold."""
         run_dir = config.RUNS / name
         run_dir.mkdir()
         record.save_state(run_dir, {
             "run_id": name, "state": "running", "repo": str(self.root), "round_summaries": [],
             "pid": os.getpid(), "process_identity": host.process_identity(os.getpid())})
-        return gate.run_done_when([SUITE], self.root, run_dir / "gate.log", set(),
+        for cmd in mem_mb:
+            gate.write_suite_cost(gate.suite_cost(cmd, self.root, run_dir)[0],
+                                  {"mem_mb": mem_mb[cmd]})
+        return gate.run_done_when(list(cmds), self.root, run_dir / "gate.log", set(),
                                   limit=60, log=lambda line: None, run_dir=run_dir)
 
     def test_a_suite_admitted_on_one_free_turn_runs_pieces_on_turns_freed_after(self):
@@ -148,6 +153,21 @@ class SuiteTakesFreedTurns(unittest.TestCase):
                                                for index in range(1, 9)])
         # acme waited first: all its pieces start before any of widget's
         self.assertEqual([name for name, _ in self.shards[:8]], ["acme"] * 8)
+        self.assertEqual(gate._heavy_running(), 0)
+
+    def test_each_suite_of_one_check_takes_the_places_and_turns_its_own_pieces_fit(self):
+        # One piece of 1 GB fits where four of the first suite's do: the check's hold gives its
+        # second suite one place on one turn, and its third four on four again.  The slice's
+        # free room alone bounds them, the rest of it in use: the one turn kept between suites
+        # runs no piece, and counts as room.
+        costly = f"{SUITE} costly"
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(
+                {**ROOM, "slice_memory_high_mb": 8000, "slice_memory_used_mb": 6300})}):
+            ok, text = self.suite("acme", [SUITE, costly, SUITE], {costly: 1000})
+        self.assertTrue(ok, text)
+        self.assertEqual([(shard.partition("/")[2], held)
+                          for (_, shard), held in zip(self.shards, self.held)],
+                         [("8", 4)] * 8 + [("2", 1)] * 2 + [("8", 4)] * 8)
         self.assertEqual(gate._heavy_running(), 0)
 
 

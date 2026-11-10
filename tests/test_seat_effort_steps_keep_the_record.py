@@ -1,7 +1,7 @@
-"""A seat's build or review effort step and `r` on its `c` set their keys on its record as it
-stands, so a key saved since the screen opened is kept; a step of its orchestrator's effort
-writes nothing itself, handing the level to the seat's move; the open screen then holds what
-was saved.
+"""A seat's build or review effort step on its `c`, and a take on its models screen, set their
+keys on its record as it stands, so a key saved since the screen opened is kept; a step of its
+orchestrator's effort writes nothing itself, handing the level to the seat's move; the open
+screen then holds what was saved.
 
 In-process, in a throwaway HOME (tests/fixtures/sandbox.py): seat `fix-api` on the shipped
 config, its record changed behind an open screen's back.
@@ -65,9 +65,9 @@ class SeatEffortSteps(Sandbox):
                                       around=lambda card, keys: 0)
         self.assertIn("session-fix-api.json", note)
 
-    def test_r_keeps_a_key_saved_since_and_the_screen_holds_what_it_saved(self):
-        note = menu.take_advice(self.cfg, "fix-api", self.selected, {},
-                                {"execute": ("opus", "max")})
+    def test_a_take_keeps_a_key_saved_since_and_the_screen_holds_what_it_saved(self):
+        note = menu.take_choice(self.cfg, "fix-api", self.selected, {}, "execute", "opus", "max",
+                                None)
         self.assertEqual(note, "")
         self.assertEqual(self.held()["opus"],
                          {"effort": "xhigh", "review_effort": "high", "exec_effort": "max"})

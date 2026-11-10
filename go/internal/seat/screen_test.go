@@ -28,11 +28,17 @@ func drawn(t *testing.T, home, name, text string) func(string) {
 		t.Skip("no tmux installed")
 	}
 	t.Cleanup(func() { tmux.Ask(tmux.Own(), "kill-server") })
-	file := filepath.Join(home, "screen-"+name)
+	file, showing := filepath.Join(home, "screen-"+name), text
+	// A redraw clears the screen before it draws, and the frame it clears shows that text already
+	// where it is unchanged, so a wait could end before the clear and a look read the screen blank:
+	// a screen is redrawn only for another text, whose wait ends on the redraw's own frame.
 	show := func(text string) {
 		t.Helper()
-		write(t, file, text)
-		tmux.Ask(tmux.Own(), "send-keys", "-t", "="+name+":", "Enter")
+		if strings.TrimSpace(text) != strings.TrimSpace(showing) {
+			write(t, file, text)
+			tmux.Ask(tmux.Own(), "send-keys", "-t", "="+name+":", "Enter")
+			showing = text
+		}
 		for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 			shown, _ := tmux.Ask(tmux.Own(), "capture-pane", "-p", "-J", "-t", "="+name+":")
 			if strings.TrimSpace(shown) == strings.TrimSpace(text) {

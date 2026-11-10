@@ -136,8 +136,8 @@ class RankByTheAnswer(Sandbox):
         names = ["opus", "astra", "fable"]
         with patch.object(matrix, "_task_usage", return_value={}) as measured:
             before = matrix.rank(self.cfg, "execute", names)
-            measured.return_value = {"opus": {"high": {"executor": .01}},
-                                     "astra": {"high": {"executor": .5}}}
+            measured.return_value = {"opus": {"high": {"executor": (.01, 1)}},
+                                     "astra": {"high": {"executor": (.5, 1)}}}
             after = matrix.rank(self.cfg, "execute", names)
         self.assertEqual((before["fable"][0], after["opus"][0]), (0, 0))
         self.assertEqual((before["opus"][0], after["fable"][0]), (1, 1))

@@ -20,8 +20,12 @@ func LastWrite(dir string) float64 {
 		if err != nil || entry.IsDir() || strings.HasSuffix(path, ".lock") || strings.HasSuffix(path, ".tmp") {
 			return nil
 		}
-		// a link to a directory is one os.walk lists and never enters
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+		// a link to a directory is one os.walk lists and never enters; any other link counts
+		// as written when it was made, as a box's copy of /run links to the host's own files
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			return nil
+		}
+		if info, err := os.Lstat(path); err == nil {
 			latest = max(latest, seconds(info.ModTime()))
 		}
 		return nil

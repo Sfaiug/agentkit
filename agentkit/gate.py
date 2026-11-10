@@ -956,16 +956,29 @@ class _GateHold:
     The hold owns its files rather than the frame that waited for them, so a fixer
     or a reviewer lets it go from inside the frame that took it.  Releasing unlocks
     the slot and closes the files, as leaving the frame would have.
-    A sharded suite has `pieces` places here, the derived limit it was admitted at; each
-    takes a turn of its own (`take`), and turns the host frees join the hold (`more`).
+    A sharded suite has `pieces` places here, the derived limit it was admitted at by `cost`,
+    one piece's; each takes a turn of its own (`take`), and turns the host frees join the hold
+    (`more`).  A later suite of its check is admitted here by its own (`suite`).
     """
 
-    def __init__(self, files, slots, context=None, pieces=None, more=None, queued=None):
+    def __init__(self, files, slots, context=None, pieces=None, more=None, queued=None,
+                 cost=None):
         self.files, self.slots, self.context = files, slots, context
-        self.pieces, self.more, self.queued = pieces or len(slots), more, queued
+        self.pieces, self.more, self.queued, self.cost = pieces or len(slots), more, queued, cost
         self.idle, self.waiting, self.waited, self.shown = list(slots), 0, False, False
         # A turn a piece gives back wakes a waiting sibling at once, not at the next poll.
         self.lock, self.growing, self.queue = threading.Condition(), threading.Lock(), ExitStack()
+
+    def suite(self, cost):
+        """A suite's pieces start here.  One the hold was not admitted for, a later suite of
+        its check, is admitted now as the first was: its own piece's `cost` decides its places
+        and its turns, and those free now join the hold.  A hold taken for no pieces has no
+        way to ask for them (`more`) and stays one place."""
+        if self.more and cost != self.cost:
+            self.cost = cost
+            freed, self.pieces = self.more(self.slots, len(self.idle), cost)
+            self.slots += freed
+            self.idle += freed
 
     def take(self, stopped):
         """A held turn no other piece runs on, or None once `stopped()`; `give` it back.
@@ -987,9 +1000,9 @@ class _GateHold:
                     if self.queued and not self.shown:
                         self.queue.enter_context(self.queued())
                         self.shown = True
-                if self.more and self.growing.acquire(blocking=False):
+                if self.cost and self.growing.acquire(blocking=False):
                     try:
-                        freed = self.more(self.slots)
+                        freed = self.more(self.slots, len(self.idle), self.cost)[0]
                         # Joined before the next grower asks: its `more` must count them as its own.
                         with self.lock:
                             self.slots += freed
@@ -1016,10 +1029,12 @@ class _GateHold:
                 self.lock.notify_all()    # a place waiting for a turn sees the list end
 
     def alone(self):
+        """One turn kept once a suite's pieces end, and no other taken until a suite starts
+        here (`suite`): what runs on it meanwhile runs alone."""
         for slot in self.slots[1:]:
             fcntl.flock(slot, fcntl.LOCK_UN)
         self.slots = self.slots[:1]
-        self.idle, self.more = list(self.slots), None
+        self.idle, self.cost = list(self.slots), None
 
     def release(self):
         try:
@@ -1133,8 +1148,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
     if not repo or os.environ.get("AK_MAX_RUNS") == "0":
         return None
     pieces = names_shard(command or "")
-    _, job_cpus, job_mem_mb = suite_cost(command, cwd or repo, run_dir) if pieces else (
-        None, HEAVY_CPUS, HEAVY_MEM_MB)
+    cost = suite_cost(command, cwd or repo, run_dir)[1:] if pieces else (
+        HEAVY_CPUS, HEAVY_MEM_MB)
     said_bad = []
     config.RUNS.mkdir(parents=True, exist_ok=True)
     files = ExitStack()
@@ -1149,7 +1164,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             _seed_landing_wait(run_dir, me_since)
         waiting.enter_context(landing_wait(is_landing, me_since, self_id, line))
         slots = []
-        def admit(mine=()):
+        def admit(mine=(), idle=0, cost=cost):
+            """`idle` of `mine` run no piece: they are of those the headroom fits, not running."""
             try:
                 pinned = None if pieces else config.max_gates()
             except config.Error as exc:
@@ -1178,7 +1194,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     continue
                 temp.append(fh)
             new_limit = pinned if pinned is not None else derived_heavy_limit(
-                readings, held, job_cpus, job_mem_mb, unit=pieces)
+                readings, held - idle, *cost, unit=pieces)
             while len(slots) < new_limit:
                 slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
             candidates = []
@@ -1263,13 +1279,13 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
     if not pieces:
         return _GateHold(files, slot, context)
 
-    def more(mine):
-        freed = admit(mine)[0]
+    def more(mine, idle, cost):
+        freed, limit, _ = admit(mine, idle, cost)
         if freed and _gate_waiter_before(repo, self_id, place, is_landing, line):
             for fh in freed:
                 fcntl.flock(fh, fcntl.LOCK_UN)
-            return []
-        return freed
+            freed = []
+        return freed, limit
 
     @contextmanager
     def queued():
@@ -1284,7 +1300,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     mark_gate_wait(run_dir, None)
                 if run_dir or is_landing:
                     count_wait(self_id, "suite" if run_dir else "lander", counted)
-    return _GateHold(files, slot, context, limit, more, queued)
+    return _GateHold(files, slot, context, limit, more, queued, cost)
 
 
 @contextmanager
@@ -1806,6 +1822,8 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         hold = getattr(_GATE_HELD, "hold", None)
         away = getattr(_GATE_HELD, "away", None)
         path, cpu, mem = suite_cost(command, cwd, run_dir)
+        if hold:
+            hold.suite((cpu, mem))
         there_command = pinned(command, times, changed)
         # Twice the places it starts with, so a faster machine takes more and every place ends
         # near the others; without a turn every piece runs at once.  The helper's count as many

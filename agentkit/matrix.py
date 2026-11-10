@@ -160,7 +160,8 @@ def _costs(rated, lineup, cfg, shares):
     first such model measured; any other, its board price times the cost per board dollar of
     every measurement of its role, rated or not, on its provider where one is, else over all of
     them; a role with none, as no run measures an orchestrator, takes every role's.  Each row
-    keeps its `board_cost`, and `cost_rule` says which rule priced it."""
+    keeps its `board_cost`, the `runs` its measured cost is the mean of (0 for none), and
+    `cost_rule` says which rule priced it."""
     # ak's own runs price a role and never rate it: asked on 5 Nov 2026 what their runs should
     # decide, the owner answered "Costs only", as quality comes from the boards.
     from . import usage
@@ -168,7 +169,7 @@ def _costs(rated, lineup, cfg, shares):
     index = _release_index({row["release"]: {"slug": row["release"], "name": row.get("name")}
                             for row in lineup}.values())
     providers = {}  # each release's provider: its first offered model's
-    measured = {}   # (role, release, effort): [(provider, points)], a model's each, first first
+    measured = {}   # (role, release, effort): [(provider, points, runs)], a model's each, in order
     for name in config.offered(cfg):
         entry = cfg["models"][name]
         hits = {hit["release"]["slug"] for hit in found(index, entry["model"])}
@@ -180,10 +181,10 @@ def _costs(rated, lineup, cfg, shares):
             for role, word in CONFIG_ROLES.items():
                 if (release, effort) in rows and roles.get(word) is not None:
                     measured.setdefault((role, release, effort), []).append(
-                        (entry["provider"], roles[word]))
+                        (entry["provider"], *roles[word]))
     for each in rated.values():
         for row in each:
-            row.update(board_cost=row["cost"], cost_rule="board")
+            row.update(board_cost=row["cost"], cost_rule="board", runs=0)
     if not measured:
         return "board_dollars"
     # every provider your runs measured, though no row the boards rate is its measured model
@@ -197,7 +198,7 @@ def _costs(rated, lineup, cfg, shares):
         # a point is a hundredth of a week, and a week 12/52 of the month a price pays for
         return points if price is None else points / 100 * price * 12 / 52
     samples = [(role, provider, cost(provider, points), board)
-               for (role, release, effort), each in measured.items() for provider, points in each
+               for (role, release, effort), each in measured.items() for provider, points, _ in each
                for board in [rows[release, effort]["values"].get(quality.COSTS[role])]
                if board is not None and board > 0]     # (role, provider, cost, board dollars)
 
@@ -208,7 +209,8 @@ def _costs(rated, lineup, cfg, shares):
         for row in each:
             mine = measured.get((role, row["release"], row["effort"]))
             if mine:
-                row.update(cost=cost(*mine[0]), cost_rule="measured")
+                provider, points, runs = mine[0]
+                row.update(cost=cost(provider, points), cost_rule="measured", runs=runs)
                 continue
             provider = providers.get(row["release"]) or config.company(cfg, row.get("maker"))
             own = [one for one in pool if one[1] == provider]
@@ -579,7 +581,10 @@ def main(argv):
             **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
             "others": [{**drawn(row, said), "why": row["why"], "by": row["by"] and {
                 key: row["by"][key] for key in ("name", "effort")}} for row in said["others"]]}
-            for role, said in found.items()}, "live": own, "task_usage": shares},
+            for role, said in found.items()}, "live": own,
+            "task_usage": {name: {effort: {role: share for role, (share, _) in did.items()}
+                                  for effort, did in efforts.items()}
+                           for name, efforts in shares.items()}},
             sys.stdout, indent=2)
         print()
         return 0

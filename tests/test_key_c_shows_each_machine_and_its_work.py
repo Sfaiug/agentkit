@@ -173,6 +173,20 @@ class MachinesOnC(unittest.TestCase):
         self.assertNotIn("going once idle", shown)
         self.leave()
 
+    def test_one_machine_is_counted_as_one(self):
+        akconfig.write(self.home, ["fable"], extra="[google_cloud]\nactive = false\n")
+        self.home.write(".agentkit/state/machines.json",
+                        {"this one": self.machine("Linux", 8, 16, 9, 4.4)})
+        self.term = Terminal(self.home, "attach", "--overlay", size=(120, 40),
+                             env={"NO_COLOR": "1"})
+        self.term.wait("esc leave")
+        self.term.keys("c")
+        screen = self.term.wait(lambda screen: "agentkit · config " in screen
+                                and "Machines" in screen and "esc back" in screen)
+        self.assertIn("1 machine · Google Cloud off", " ".join(screen.split()))
+        self.term.keys("Escape", "Escape")
+        self.assertEqual(self.term.exit_code(), 0)
+
     def test_unreadable_missing_or_old_ledger_never_invents_spend(self):
         # 31 days back is always an earlier month
         for content in ("broken", None, '{"answered": 0, "spent": 0, "machines": {}}',

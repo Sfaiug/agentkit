@@ -16,8 +16,6 @@ import sys
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-# The keys that imported agentkit when this check came (7 Nov 2026): the set only shrinks.
-BEFORE = {"test_key_seat_runs_the_live_ak"}
 
 
 def importers(tests):
@@ -86,10 +84,8 @@ def importers(tests):
 
 class KeysRunAkFromOutside(unittest.TestCase):
     def test_no_key_imports_python_aks_own_package(self):
-        keys = importers(REPO / "tests")
-        self.assertEqual(keys - BEFORE, set(), "an answer key runs ak from outside, as "
-                         "tests/fixtures/akbin.py does, never Python ak's own modules")
-        self.assertEqual(BEFORE - keys, set(), "a key that runs ak from outside leaves BEFORE")
+        self.assertEqual(importers(REPO / "tests"), set(), "an answer key runs ak from outside, "
+                         "as tests/fixtures/akbin.py does, never Python ak's own modules")
 
     def test_no_folder_under_tests_runs_code_on_import(self):
         self.assertEqual(list((REPO / "tests").rglob("__init__.py")), [], "an __init__.py "

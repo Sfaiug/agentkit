@@ -172,7 +172,7 @@ class Screen:
                 lines = Lines(terminal.ANSI.sub("", line).rstrip("\r") for line in raw)
                 lines.lit = next(((number, line.split("\x1b[7m")[1].split("\x1b[")[0].strip())
                                   for number, line in enumerate(raw) if "\x1b[7m" in line), None)
-                if lines and "agentkit · config" in lines[0]:
+                if lines and lines[0].startswith("agentkit · "):   # a narrow one sheds `config`
                     return lines if where is None or where(lines) else None
             return None
         return self.until(ready, "the config screen")

@@ -506,13 +506,23 @@ class Terminal:
 
 
 class Synchronization(Sandbox):
+    # A stand-in process: says it runs, then lives until its stdin closes.
+    WAITS = "import sys; print(flush=True); sys.stdin.read()\n"
+
+    def running(self, *argv):
+        """Python on `argv`, once /proc shows its command line: Popen returns as the exec
+        begins, and the kernel fills that line in only a moment later."""
+        process = subprocess.Popen([sys.executable, *argv], env=self.env,
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        self.addCleanup(process.communicate)
+        process.stdout.readline()
+        return process
+
     def test_a_checkout_path_does_not_make_an_attached_client_a_popup(self):
         entry = self.root / "display-popup-checkout" / "bin" / "ak"
         entry.parent.mkdir(parents=True)
-        self.script(entry, "import sys; sys.stdin.read()\n")
-        client = subprocess.Popen([sys.executable, str(entry), "attach", "--client"],
-                                  env=self.env, stdin=subprocess.PIPE)
-        self.addCleanup(client.communicate)
+        self.script(entry, self.WAITS)
+        client = self.running(str(entry), "attach", "--client")
         phone = Terminal.__new__(Terminal)
         phone.case = self
         phone.settled(timeout=0)
@@ -521,9 +531,7 @@ class Synchronization(Sandbox):
     def test_the_tmux_popup_command_must_finish_after_the_menu_exits(self):
         # display-popup outlives its menu: no overlay process is left, but keys still go to
         # the closing popup. End that command only once settled has waited for it.
-        popup = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()",
-                                  "display-popup"], env=self.env, stdin=subprocess.PIPE)
-        self.addCleanup(popup.communicate)
+        popup = self.running("-c", self.WAITS, "display-popup")
         phone = Terminal.__new__(Terminal)
         phone.case = self
         with patch(f"{__name__}.time", Clock(lambda _: popup.communicate(timeout=HANG))):

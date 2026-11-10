@@ -5,11 +5,11 @@ Two runs on one project pass review, the second while the first is merging.  The
 `tests:` suite prints the commits under the tree it runs on, so what it printed shows how each
 change was tested in the line: the first alone, the second stacked on the first before the
 first has landed.  The GitHub here holds every `pr merge` until the test lets it go, and while
-the first is held the second, passed and tested, starts none: one merge per repository is a
-correctness lock, not capacity, as a merge beside another could land a tree no suite ran.  The
-second then merges rebased onto the first.  Black-box: the program `AK_BIN` names runs from
-outside through tests/fixtures/akbin.py, against the bare origin of gitrig.py and the GitHub of fakegh.py,
-with scripted harnesses from fakeadapter.py.
+the first is held the second, passed and tested, opens no PR and starts no merge: one delivery
+per repository is a correctness lock, not capacity, as a merge beside another could land a tree
+no suite ran.  The second then merges rebased onto the first.  Black-box: the program `AK_BIN`
+names runs from outside through tests/fixtures/akbin.py, against the bare origin of gitrig.py
+and the GitHub of fakegh.py, with scripted harnesses from fakeadapter.py.
 """
 
 import os
@@ -73,7 +73,7 @@ class LandingTrain(unittest.TestCase):
             lambda: any(line.count("add ") == 2 for line in cls.saw()), bound=60))
         # The second merge is given time to start beside the first; it must not.
         cls.until(lambda: len(cls.merged_log()) > 1, bound=5)
-        cls.held = cls.merged_log()
+        cls.held, cls.opened = cls.merged_log(), len(cls.gh.prs())
         go.write_text("")
         cls.codes = [cls.ended(proc) for proc in cls.runs]
 
@@ -150,6 +150,8 @@ class LandingTrain(unittest.TestCase):
         self.assertEqual(len(self.order()), 2, log)
         first, second = self.order()
         self.assertEqual(self.held, [("start", first)])
+        # the lock spans the whole delivery, its PR included (`deliver.merge_lock`)
+        self.assertEqual(self.opened, 1)
         self.assertNotEqual(first, second)
         self.assertEqual(log, [("start", first), ("end", first), ("start", second),
                                ("end", second)])
