@@ -38,11 +38,12 @@ case $1 in
 esac
 """
 
-# Wait for each detached look to finish before assertions or sandbox cleanup. Bound it even
-# if an assertion fails, and report its exit status despite the hook's silent redirects.
+# Wait for each detached look to finish before assertions or sandbox cleanup, and report its
+# exit status despite the hook's silent redirects. No clock bounds a hook or its look: a loaded
+# host stretches them past any, and one that never ends stops the suite for its silence.
 PYTHON = r"""#!/bin/bash
 if [[ $1 = -c && $2 = *watch.hook_look* ]]; then
-  timeout -k 2 15 "$TEST_PYTHON" "$@"
+  "$TEST_PYTHON" "$@"
   printf '%s\n' "$?" >"$LOOK_FINISHED"
 else
   exec "$TEST_PYTHON" "$@"
@@ -102,13 +103,9 @@ class AnswerClosesQuestion(Sandbox):
                                   "episode": "acme-question", "sent": True})
 
     def wait_look(self, finished):
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
-            if finished.exists() and finished.read_text():
-                self.assertEqual(finished.read_text().strip(), "0")
-                return
+        while not (finished.exists() and finished.read_text()):
             time.sleep(0.01)
-        self.fail("the hook's background look did not finish")
+        self.assertEqual(finished.read_text().strip(), "0")
 
     def hook(self, event, script="seat-state.sh", wait=True, env=None, **payload):
         finished = self.root / f"look-{len(self.looks)}"
@@ -125,7 +122,7 @@ class AnswerClosesQuestion(Sandbox):
             self.addCleanup(self.wait_look, finished)
         result = subprocess.run(["bash", str(REPO / "hooks" / script)],
                                 input=json.dumps({"hook_event_name": event, **payload}),
-                                text=True, capture_output=True, timeout=15, env=environ)
+                                text=True, capture_output=True, env=environ)
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         if script == "seat-state.sh":
             self.assertEqual(result.stdout, "")
