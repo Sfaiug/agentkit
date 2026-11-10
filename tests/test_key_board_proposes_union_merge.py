@@ -1,6 +1,6 @@
 """The board's conflicts row names, for each file whose conflicts only added lines, the
-`.gitattributes` line that lets git take both sides; a path that line would read as a pattern
-is listed without one.
+`.gitattributes` line that lets git take both sides; a path that line cannot name, as git or the
+screen reads it, is listed without one.
 
 Black-box: AK_BIN reads history.db in a temporary HOME, with no project checkout.
 """
@@ -51,12 +51,17 @@ class ProposesUnionMerge(unittest.TestCase):
             "2 conflicts (added lines only: `docs/notes.md merge=union` in acme's .gitattributes "
             "takes both sides)"))
 
-    def test_a_path_gitattributes_reads_as_a_pattern_gets_none(self):
-        self.conflicts(*[("to do.md", 1)] * 3)
-        self.assertEqual(self.row(), (
-            "100% of merged changes met a conflict; acme/to do.md: 3 conflicts (added lines only); "
-            "acme/app.py: 2 conflicts; acme/docs/notes.md: 2 conflicts (added lines only: "
-            "`docs/notes.md merge=union` in acme's .gitattributes takes both sides)"))
+    def test_a_path_the_line_cannot_name_gets_none(self):
+        # a space and a glob .gitattributes reads as a pattern's syntax, a format and a control
+        # character the screen drops, and a path whose line git ignores at 2048 bytes
+        for path in ("to do.md", "notes[1].md", "no\u200btes.md", "no\x01tes.md", "a" * 2033 + ".md"):
+            with self.subTest(path=path[:20]):
+                self.conflicts(*[(path, 1)] * 3)
+                row = self.row()
+                self.assertIn(": 3 conflicts (added lines only); acme/app.py: 2 conflicts; ", row)
+                self.assertEqual(row.count("merge=union"), 1, row)
+                with closing(sqlite3.connect(self.home.path / DATABASE)) as db, db:
+                    db.execute("DELETE FROM conflicts WHERE path = ?", (path,))
 
 
 if __name__ == "__main__":
