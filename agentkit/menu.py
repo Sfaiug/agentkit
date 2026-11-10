@@ -950,8 +950,7 @@ def _paint(text, kind, tmux=False):
     """`text` in `kind`'s colour, as `terminal.styled` draws it, or as tmux text."""
     if not tmux:
         return terminal.styled(text, kind)
-    rgb = terminal.STATE_STYLES[terminal.KINDS.get(kind, kind)][2]
-    return f"#[fg=#{rgb}]{orch.tmux_text(text)}#[default]" if text else ""
+    return f"#[fg=#{terminal.colour(kind).rgb}]{orch.tmux_text(text)}#[default]" if text else ""
 
 
 def grow_line(clock, row, line, span, moving, counted=None):
@@ -2753,7 +2752,7 @@ def hue(kind):
 
     A grey's hue is noise, so the greys go by how light they are instead.
     """
-    rgb = kind[1:] if kind.startswith("#") else terminal.STATE_STYLES["working"][2]
+    rgb = kind[1:] if kind.startswith("#") else terminal.colour("accent").rgb
     shade, saturation, value = colorsys.rgb_to_hsv(*(int(rgb[i:i + 2], 16) / 255
                                                      for i in (0, 2, 4)))
     return (True, -value) if saturation < terminal.GREY else (False, shade)
