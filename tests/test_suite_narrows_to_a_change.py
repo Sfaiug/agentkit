@@ -193,10 +193,11 @@ class SuiteNarrowsToAChange(unittest.TestCase):
         [(code, _, failed, _)] = self.pieces(1, changed=list(CHANGE), fails="a-dead-setup")
         self.assertEqual((code, failed), (1, ["tests/smoke.sh"]))
 
-    def test_agentkit_s_own_suite_opts_its_rounds_in(self):
+    def test_agentkit_s_own_suite_runs_at_landing_alone(self):
+        # Whole, on the commit to be merged: a round runs the task's own checks.
         line = next(line for line in (REPO / "AGENTS.md").read_text().splitlines()
                     if line.startswith("tests: "))
-        self.assertTrue(gate.names_changed(line))
+        self.assertFalse(gate.names_changed(line))
 
 
 if __name__ == "__main__":
