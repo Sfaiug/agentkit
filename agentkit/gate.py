@@ -765,8 +765,8 @@ def landing_wait(landing, since=None, run_id=None, line=False):
     check, so landing waits rank among themselves (`_landing_waiters`); the line's checkers
     mark no member's record.  `.heavy-landing.wait`, shared by every line's check, says one
     waits: round checks stay behind it (`landing_waits`), as they do behind a waiter on code from
-    before 29 Oct 2026, which holds it for any landing wait.  The kernel lets go with the holder, so a dead waiter holds nobody
-    back.
+    before 29 Oct 2026, which holds it for any landing wait.  The kernel lets go with the
+    holder, so a dead waiter holds nobody back.
     """
     if not landing:
         yield
