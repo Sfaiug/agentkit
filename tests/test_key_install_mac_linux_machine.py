@@ -9,9 +9,10 @@ has one; starts it with the Mac; and records it as the Mac's server, reached ove
 alias.  A second install finds it and changes nothing already right; a client stays a client.
 Black-box: install.sh of the checkout `AK_BIN` names runs in an answer-key Home that is the
 account's own (tests/fixtures/installer.py), on a Mac of fakes: `uname`, `df`, `brew`,
-`fdesetup`, a `sysctl` whose boot time is `<root>/boot`, a logging `launchctl`, a `pmset` keeping
-its settings in `<root>/pmset.json`, a `sudo` that runs only `pmset`, `tee` and `launchctl`, and a
-`limactl` whose machine is a directory, `<root>/guest`, running as `<root>/machine` says.
+`fdesetup`, a `sysctl` whose boot time is `<root>/boot`, a `launchctl` keeping what launchd has
+loaded in `<root>/launchd.json`, a `pmset` keeping its settings in `<root>/pmset.json`, a `sudo`
+that runs only `pmset`, `tee` and `launchctl`, and a `limactl` whose machine is a directory,
+`<root>/guest`, in the state `<root>/machine` names.
 """
 
 import json
@@ -30,7 +31,7 @@ GIB = 1024 ** 3
 # The machine is a directory: `shell` runs its command in the home there, but for ak's own
 # install, which it only records, with whether it had a terminal; `create` and `autostart` leave
 # the files Lima leaves.  `<root>/machine` says Running once it starts, Stopped once it stops; a
-# start clears a hang (`<root>/hung`), but not of one already running.
+# start clears a hang (`<root>/hung`), but not of one already running, and refuses a Broken one.
 LIMACTL = """#!{python}
 import json, os, subprocess, sys
 from pathlib import Path
@@ -49,6 +50,8 @@ if args[0] == "create":
 elif args[0] == "list":
     words = [word for arg in args for word in arg.split("=", 1)]
     print(words[words.index("--format") + 1].replace("{{{{.Status}}}}", status))
+elif args[0] == "start" and status == "Broken":
+    sys.exit("errors inspecting instance: failed to get Info from host agent")
 elif args[0] == "start" and status != "Running":
     machine.write_text("Running")
     (root / "hung").unlink(missing_ok=True)
@@ -95,6 +98,31 @@ path.write_text(json.dumps(sources))
 """
 SUDO = LOG + 'case $1 in pmset|tee|launchctl) ;;\n' \
     '  *) echo "sudo: not scripted in this test" >&2; exit 1 ;;\nesac\nSUDO_USER=acme exec "$@"\n'
+# launchd as launchctl shows it: `bootstrap DOMAIN PLIST` loads the service the plist labels,
+# which must parse and not be loaded yet; `bootout DOMAIN/LABEL` or `bootout DOMAIN PLIST` unloads
+# it; `print DOMAIN/LABEL` succeeds while it is loaded.
+LAUNCHCTL = """#!{python}
+import json, plistlib, sys
+from pathlib import Path
+(verb, *service), root = sys.argv[1:], Path({root!r})
+with open(root / "logs/launchctl.log", "a") as log:
+    log.write(json.dumps(sys.argv[1:]) + "\\n")
+path = root / "launchd.json"
+loaded = set(json.loads(path.read_text())) if path.exists() else set()
+if verb in ("bootstrap", "bootout") and len(service) == 2:
+    service = [service[0] + "/" + plistlib.loads(Path(service[1]).read_bytes())["Label"]]
+if verb == "bootstrap":
+    if service[0] in loaded:
+        sys.exit("Bootstrap failed: 5: Input/output error")
+    loaded.add(service[0])
+elif verb == "bootout":
+    if service[0] not in loaded:
+        sys.exit("Boot-out failed: 3: No such process")
+    loaded.remove(service[0])
+elif verb == "print":
+    sys.exit(0 if service[0] in loaded else 113)
+path.write_text(json.dumps(sorted(loaded)))
+"""
 FDESETUP = '#!/bin/sh\n[ "$1" = isactive ] && echo {on} && {on}\n'
 # A Mac mini as it ships: it sleeps once its display does and stays off after a power cut.
 MINI = {"AC Power": {"Sleep On Power Button": 1, "autorestart": 0, "disksleep": 10, "sleep": 1,
@@ -120,8 +148,7 @@ class Mac:
                                       limactl=shlex.quote(str(staged)),
                                       bin=shlex.quote(str(home.bin))))
         home.fake("uname", "#!/bin/sh\necho Darwin\n")
-        home.fake("launchctl", LOG.format(python=python,
-                                          log=shlex.quote(str(home.log("launchctl")))))
+        home.fake("launchctl", LAUNCHCTL.format(python=sys.executable, root=str(home.root)))
         home.fake("sysctl", SYSCTL.format(cpus=cpus, memory=memory_gib * GIB,
                                           boot=shlex.quote(str(home.root / "boot"))))
         home.fake("df", DF.format(free=free_gib * 1024 * 1024))

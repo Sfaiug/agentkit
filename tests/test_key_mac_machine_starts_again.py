@@ -1,16 +1,19 @@
 """On a Mac, ak's Linux machine starts again by itself when it stops or stops answering.
 
 Lima's own LaunchDaemon starts the machine only when the Mac boots.  So the install also puts a
-LaunchDaemon of ak's own, which checks the machine every minute as the account: one not running
-starts; one running that has not answered `ssh lima-ak true` for 10 minutes is stopped by force
-and starts; anything else changes nothing.  The time it last answered outlives each check, and
-silence counts only while the machine runs, so never from before the Mac started.  The install
-says so in one line, and a second install changes nothing.  Black-box on the Mac of fakes of
-tests/test_key_install_mac_linux_machine.py: each check runs the daemon's program as launchd
-would, with only its environment, on a clock of fakes (`date +%s` reads `<root>/now`, the Mac's
-boot time is `<root>/boot`) and an `ssh` that answers while the machine runs and is not hung.
+LaunchDaemon of ak's own, which checks the machine every minute as the account: one stopped
+starts; one running, or Broken as Lima says while its host agent does not answer, that has not
+answered `ssh lima-ak true` for 10 minutes is stopped by force and starts; anything else changes
+nothing.  The time it last answered or started outlives each check, and silence counts only while
+the machine runs, so never from before the Mac started.  The install says so in one line, a
+second changes nothing, and one after the daemon was booted out loads it again.  Black-box on the
+Mac of fakes of tests/test_key_install_mac_linux_machine.py: each check runs the daemon's program
+as launchd would, with only its environment, on a clock of fakes (`date +%s` reads `<root>/now`,
+the Mac's boot time is `<root>/boot`) and an `ssh` that answers while the machine runs and is
+not hung.
 """
 
+import json
 import plistlib
 import shlex
 import subprocess
@@ -43,6 +46,11 @@ class Watched(Mac):
         root = self.home.root
         self.home.fake("ssh", SSH.format(python=sys.executable, root=str(root)))
         self.home.fake("date", DATE.format(now=shlex.quote(str(root / "now"))))
+        (root / "boot").write_text(str(BOOT))
+        self.at(BOOT + 3600)
+
+    def at(self, now):
+        (self.home.root / "now").write_text(str(now))
 
     def started(self, at):
         """The Mac started at `at`, and Lima's daemon started the machine with it."""
@@ -57,13 +65,21 @@ class Watched(Mac):
         """As `limactl stop`, a power-off inside or a dead host agent leaves it."""
         (self.home.root / "machine").write_text("Stopped")
 
+    def breaks(self):
+        """Its host agent runs but does not answer Lima."""
+        (self.home.root / "machine").write_text("Broken")
+
     def answers(self):
         return subprocess.run([self.home.bin / "ssh", "lima-ak", "true"]).returncode == 0
 
-    def system_launchctl(self):
-        """launchctl's calls on the system's daemons, not the account's agents."""
+    def loaded(self):
+        """The services launchd has loaded, as `<domain>/<label>`."""
+        return json.loads((self.home.root / "launchd.json").read_text())
+
+    def loads(self):
+        """launchctl's calls that load or unload a service."""
         return [call for call in self.home.calls("launchctl")
-                if any(arg.split("/")[0] == "system" for arg in call)]
+                if call[0] in ("bootstrap", "bootout")]
 
     def daemons_of_ak(self):
         return [path for path in self.daemons.glob("*.plist")
@@ -72,7 +88,7 @@ class Watched(Mac):
     def check(self, at):
         """Run the daemon's program once at `at`, as launchd runs it; the limactl calls it made
         but to list the machine."""
-        (self.home.root / "now").write_text(str(at))
+        self.at(at)
         [plist] = self.daemons_of_ak()
         daemon = plistlib.loads(plist.read_bytes())
         before = len(self.lima())
@@ -96,8 +112,10 @@ class KeptUp(unittest.TestCase):
         cls.first = mac.install().out.splitlines()
         [cls.plist] = mac.daemons_of_ak()
         cls.daemon = cls.plist.read_bytes()
-        cls.loads = mac.system_launchctl()
+        cls.service = "system/" + plistlib.loads(cls.daemon)["Label"]
+        cls.loaded, cls.loads = mac.loaded(), mac.loads()
         cls.second = mac.install().out.splitlines()
+        cls.loads_again = mac.loads()[len(cls.loads):]
 
     def setUp(self):
         KeptUp.day += 1
@@ -114,7 +132,7 @@ class KeptUp(unittest.TestCase):
         self.assertEqual(daemon["StartInterval"], 60)
         self.assertEqual(daemon["UserName"], "acme")
         self.assertIs(daemon["AbandonProcessGroup"], True)
-        self.assertIn(["bootstrap", "system", str(self.plist)], self.loads)
+        self.assertIn(self.service, self.loaded)
 
     def test_the_install_says_so_in_one_line(self):
         [line] = [line for line in self.first if "stops answering" in line]
@@ -123,8 +141,18 @@ class KeptUp(unittest.TestCase):
     def test_a_second_install_keeps_the_one_daemon_as_it_was(self):
         self.assertEqual(self.mac.daemons_of_ak(), [self.plist])
         self.assertEqual(self.plist.read_bytes(), self.daemon)
-        self.assertEqual(self.mac.system_launchctl(), self.loads)
+        self.assertEqual(self.loads_again, [])
         self.assertEqual([line for line in self.second if "stops answering" in line], [])
+
+    def test_the_next_install_brings_back_a_machine_stopped_for_good(self):
+        subprocess.run([self.mac.home.bin / "launchctl", "bootout", self.service], check=True)
+        self.mac.stops()
+        self.mac.at(self.now)
+        self.mac.install()
+        self.assertIn(self.service, self.mac.loaded())
+        self.mac.hangs()
+        self.assertEqual(self.minutes(1, 9), [[]] * 9)
+        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
 
     def test_a_machine_not_running_starts(self):
         self.mac.stops()
@@ -155,6 +183,13 @@ class KeptUp(unittest.TestCase):
         self.assertEqual(self.minutes(0, 0) + self.minutes(5, 5), [[], []])
         self.mac.hangs()
         self.assertEqual(self.minutes(14, 15), [[], ["stop", "start"]])
+
+    def test_a_broken_machine_that_has_not_answered_for_ten_minutes_too(self):
+        self.minutes(0, 0)
+        self.mac.breaks()
+        self.assertEqual(self.minutes(1, 9), [[]] * 9)
+        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.assertTrue(self.mac.answers())
 
     def test_silence_from_before_the_mac_started_does_not_count(self):
         self.minutes(0, 0)
