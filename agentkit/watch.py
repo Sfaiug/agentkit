@@ -3271,7 +3271,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
         # One the owner closed rests: they closed it, and nothing in it is asking them anything.
         if seat_closed_by_owner(name):
-            waiting = sum(1 for _, st in mine if st.get("handback_pending"))
+            # the flag outlives delivery: only an ending still owed its seat waits for it
+            waiting = sum(1 for _, st in mine if handback.waits(st))
             reason = f"{OWNER_CLOSED_REASON}: reopen it from past sessions"
             if waiting:
                 reason += f" · {waiting} hand-backs waiting"
