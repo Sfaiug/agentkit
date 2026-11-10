@@ -100,11 +100,7 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	}
 	agentkit := "update: agentkit: skipped: no checkout at " + checkout
 	if held && dryRun {
-		said, err := agentkitVersion(env, checkout)
-		if err != nil {
-			return 0, err
-		}
-		agentkit = "update: agentkit " + cmp.Or(said, "?") +
+		agentkit = "update: agentkit " + cmp.Or(agentkitVersion(env, checkout), "?") +
 			": would move forward (the next version swapped in + `install.sh`)"
 	}
 	if config.EnsureDirs() != nil {
@@ -275,16 +271,19 @@ func version(each plan, env []string) (string, error) {
 	return identity, nil
 }
 
-// agentkitVersion is that checkout's short commit and its date, "" when git cannot say them.
-func agentkitVersion(env []string, checkout string) (string, error) {
-	stdout, _, code, err := output(env, time.Minute, "git", "-C", checkout, "log", "-1", "--format=%h · %cs")
-	if err != nil || code != 0 {
-		return "", nil
+// agentkitVersion is that checkout's version as Python's update.agentkit_version says it: how many
+// commits its history holds, then its date; the date alone where that history is cut short, whose
+// count would be wrong; "" when it is no checkout.
+func agentkitVersion(env []string, checkout string) string {
+	date, ok := git(env, checkout, "log", "-1", "--format=%cs")
+	if !ok {
+		return ""
 	}
-	if !utf8.Valid(stdout) {
-		return "", ErrPython // Python puts its own replacement in: its i18n.logOutputEncoding's bytes
+	if shallow, _ := git(env, checkout, "rev-parse", "--is-shallow-repository"); shallow != "false" {
+		return date
 	}
-	return strings.TrimFunc(string(stdout), config.Space), nil
+	count, _ := git(env, checkout, "rev-list", "--count", "HEAD")
+	return count + " · " + date
 }
 
 // output is what a command printed, as Python's subprocess.run captures it within a cap: its

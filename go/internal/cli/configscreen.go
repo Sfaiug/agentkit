@@ -26,7 +26,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 	if err != nil || len(c.Names) == 0 {
 		return false
 	}
-	view := menu.ConfigView{Matrix: c, Scope: "new seats", Fresh: session == "", Cells: cells, Version: update.Build()}
+	view := menu.ConfigView{Matrix: c, Scope: "new seats", Fresh: session == "", Cells: cells, Version: update.AgentkitVersion()}
 	if view.Version == "" {
 		view.Version = "?"
 	}
