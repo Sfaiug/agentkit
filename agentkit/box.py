@@ -623,8 +623,53 @@ def leftovers(out_dir):
 
 
 def cpu_seconds(out_dir):
-    """The CPU seconds the box's processes spent, or None where PID 1 reported none."""
+    """The CPU seconds the box's processes needed, those they spent and those they waited for a
+    core (`_waiting`), or None where PID 1 reported none."""
     return _report(out_dir).get("cpu_seconds")
+
+
+def _waiting():
+    """Start counting the seconds the box's processes but PID 1 were ready to run and waited for
+    a core, each thread's as Linux counts it, read every second; return what ends the count
+    and gives it, 0 where the host keeps none.  What a thread waited between its last read and
+    its end, or under an id another reused, is lost: the count is a floor.  Injected readings
+    (`AK_HOST_READINGS`) give it as `cpu_wait_seconds`, as they give the host's cores."""
+    try:
+        readings = json.loads(os.environ.get("AK_HOST_READINGS", ""))
+    except ValueError:
+        readings = None
+    if isinstance(readings, dict):
+        return lambda: readings.get("cpu_wait_seconds", 0)
+    waits, ended = {}, threading.Event()
+
+    def read():
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit() or int(pid) == os.getpid():
+                continue
+            try:
+                threads = os.listdir(f"/proc/{pid}/task")
+            except OSError:
+                continue
+            for thread in threads:
+                try:
+                    with open(f"/proc/{pid}/task/{thread}/schedstat") as stat:
+                        waited = int(stat.read().split()[1]) / 1e9
+                except (OSError, ValueError, IndexError):
+                    continue
+                waits[thread] = max(waits.get(thread, 0), waited)
+
+    def watch():
+        while not ended.wait(1):
+            read()
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+
+    def end():
+        ended.set()
+        watcher.join()
+        read()
+        return sum(waits.values())
+    return end
 
 
 def _supervise(report, argv, drain=False):
@@ -647,6 +692,7 @@ def _supervise(report, argv, drain=False):
         Path(report).write_text(json.dumps({"returncode": code, "processes": []}))
         return code
 
+    waiting = _waiting()
     wait_until = 0
 
     def term(signum, _frame):
@@ -714,6 +760,7 @@ def _supervise(report, argv, drain=False):
         except OSError:
             command = "command unavailable"
         left.append([int(entry.name), command])
+    waited = waiting()   # what is left waited too, read before it ends
     if os.getpid() == 1:
         # What PID 1's exit would end ends now and is reaped here, so every process's CPU,
         # a server's the command left running included, is in PID 1's children's, final.
@@ -725,7 +772,7 @@ def _supervise(report, argv, drain=False):
             pass
     spent = resource.getrusage(resource.RUSAGE_CHILDREN)
     Path(report).write_text(json.dumps({"returncode": code, "processes": left,
-                                        "cpu_seconds": spent.ru_utime + spent.ru_stime}))
+                                        "cpu_seconds": spent.ru_utime + spent.ru_stime + waited}))
     return 128 - code if code < 0 else code
 
 
