@@ -17,7 +17,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, handback, helper, history, host, machines, orch, stuck, suite_times
+from . import config, gitcall, handback, helper, history, host, orch, stuck, suite_times
 from . import transitions, turns
 from . import update
 from . import waiter
@@ -480,10 +480,6 @@ def _gates_admit(state, readings, is_first):
         reason, kind = _wait_reason(readings, minimum, maximum, peak, frozen, starting)
     else:
         reason, kind = _wait_reason(readings, minimum, 0, peak, starting=starting)
-    if reason is None and not is_first and landing_waits() and not machines.helpers():
-        # Finished work goes first: the headroom a new run would take is the suite's, which needs
-        # none here with a machine to go to (owner, 30 Oct 2026: nothing waits for compute).
-        reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
     if reason:
         return _held(state, reason, kind)
     if peak is None and 0 <= time.time() - slot_queue()[6] < SLOT_POLL:
@@ -768,9 +764,8 @@ def landing_wait(landing, since=None, run_id=None, line=False):
     Its own file says when its wait began, for which run and whether it is a line's own
     check, so landing waits rank among themselves (`_landing_waiters`); the line's checkers
     mark no member's record.  `.heavy-landing.wait`, shared by every line's check, says one
-    waits: round checks and, with no machine for suites, new runs stay behind it
-    (`landing_waits`), as they do behind a waiter on code from before 29 Oct 2026, which holds
-    it for any landing wait.  The kernel lets go with the holder, so a dead waiter holds nobody
+    waits: round checks stay behind it (`landing_waits`), as they do behind a waiter on code from
+    before 29 Oct 2026, which holds it for any landing wait.  The kernel lets go with the holder, so a dead waiter holds nobody
     back.
     """
     if not landing:
@@ -798,7 +793,7 @@ def _still_landing(context):
     """Whether the line still holds the member a checker's wait is for; True without one.
 
     A stopped or departed member leaves `landing.line`, and a check for it is no longer
-    finished work: it must not hold back every build and round check for its turn.
+    finished work: it must not hold back every round check for its turn.
     """
     line = (context or {}).get("line")
     if not line:
