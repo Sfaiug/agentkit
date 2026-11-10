@@ -4560,8 +4560,26 @@ def _respawned(session, stale):
     return lambda held: stale(held) or pinned(session) != session
 
 
+def _say_yes(session, name, text, log, cfg=None):
+    """Where that pinned seat's bottom rows, read once as drawn, end on what its harness asks
+    before it takes a line of its `[switch]` (`asks`), the keys that say yes (`yes`) go into its
+    pane: a card above a composer is the transcript's."""
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, name)[0]
+        block = config.manifest(harness).get("switch") or {}
+        asks = _pattern(block.get("asks") and f"(?:{block['asks']})\\Z",
+                        f"adapters/{harness}.toml", re.M)
+    except (config.Error, OSError):
+        return
+    rows = "\n".join(strip_sgr(row).rstrip() for row in pane_tail(pane_text(session)).split("\n"))
+    keys = [key for key in block.get("yes") or () if isinstance(key, str) and key]
+    if asks and keys and asks.search(rows):
+        orch.tmux_out("send-keys", "-t", _pane(session), *keys, socket=orch.seat_socket(session))
+        log(f"said yes to what {name} asked before it took {text}")
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
-                   source="ak", stale=lambda held: False):
+                   source="ak", stale=lambda held: False, switch=False):
     """One line into a seat, and only while its harness sits at its own prompt.
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
@@ -4577,7 +4595,10 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     the send lock, past any dialog -- and once that composer, read whole, is empty and the
     terminal reports no unread input, the seat has it.  A composer holding anything else, or
     one that cannot be read, says nothing yet: a line wrapped past the bottom rows still sits
-    there.  The mark names the seat by its tmux birth, in whole seconds and kept by a pane
+    there.  Except where it is a `switch` line (`orch.switch_lines`) its harness asks about in
+    the composer's place: the keys that say yes go in off that capture (`_say_yes`), and the
+    next pass reads the composer back; the owner's own move, with no such line, is theirs to
+    answer.  The mark names the seat by its tmux birth, in whole seconds and kept by a pane
     respawned in place, and the pane's process (`pinned`): a harness started since, its
     composer empty, runs under another and matches no mark, so the line is typed again; one
     that lives on keeps it.  A mark naming no process, from before marks named one, matches
@@ -4621,6 +4642,8 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             if holds == "line":
                 kept_asked_first(dict(session, name=held))
                 _send_enter(session, log)
+            elif switch:
+                _say_yes(session, held, text, log, cfg)
         return False            # the next pass reads whether that Enter sent it
     refusal = too_long(text)
     if refusal:     # its builder's fault: a folded line reads as the owner's paste
@@ -4919,7 +4942,7 @@ def tell_owed(name, log, cfg=None):
         return (seat_read(held).get("owed_lines") or [None])[0] != read[0]
 
     if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"), receipt=kept,
-                      stale=overtaken):
+                      stale=overtaken, switch=bool(owed.get("switch"))):
         if owed.get("switch"):
             seat_write(name, switched=time.time())     # written before its line is no longer owed
         owe_line(name, read[0])
