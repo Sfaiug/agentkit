@@ -929,17 +929,30 @@ class _Pieces:
             turn = self.hold.take(lambda: ended() or not self.waiting) if (
                 not there and self.hold) else True
             with self.cond:
-                if turn is not None and (mine := self.mine(there)):
+                mine = turn is not None and self.mine(there)
+                if mine:
                     self.waiting.remove(mine[0])
                     self.out += 1
-                    return mine[0], turn
-            if turn is not True:
-                self.hold.give(turn)
+            if mine:
+                self.spare()    # it may have been the last to start
+                return mine[0], turn
+            self.give(turn)
+
+    def give(self, turn):
+        """`turn` back to the hold, where the suite's next piece takes it."""
+        if turn is not True:
+            self.hold.give(turn)
+        self.spare()
+
+    def spare(self):
+        """Once every piece has started none is left to take a turn: the host has those no
+        piece runs on, but the one the suite keeps until it ends (`_GateHold.shed`)."""
+        if self.hold and not self.waiting:
+            self.hold.shed()
 
     def done(self, index, back, turn, there):
         """`back`, the exit of a piece `there` gave back, ends that place there."""
-        if turn is not True:
-            self.hold.give(turn)
+        self.give(turn)
         with self.cond:
             self.out -= 1
             if back:
@@ -1028,13 +1041,20 @@ class _GateHold:
                 self.idle.append(slot)
                 self.lock.notify_all()    # a place waiting for a turn sees the list end
 
+    def shed(self):
+        """Unlock each turn no piece runs on, so the first waiter in rank takes it, but the one
+        the suite keeps until it ends, for its reruns."""
+        with self.lock:
+            while self.idle and len(self.slots) > 1:
+                slot = self.idle.pop()
+                self.slots.remove(slot)
+                fcntl.flock(slot, fcntl.LOCK_UN)
+
     def alone(self):
         """One turn kept once a suite's pieces end, and no other taken until a suite starts
         here (`suite`): what runs on it meanwhile runs alone."""
-        for slot in self.slots[1:]:
-            fcntl.flock(slot, fcntl.LOCK_UN)
-        self.slots = self.slots[:1]
-        self.idle, self.cost = list(self.slots), None
+        self.cost = None
+        self.shed()
 
     def release(self):
         try:
@@ -1336,7 +1356,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
     A check running while this thread already holds a turn takes no second one.
     A command naming AK_SHARD gets as many places as the derived limit fits, using its
     repository's measured cost when available: it takes the turns free now, then those freed
-    while it ranks first, each running one piece at a time (`_GateHold`, `run_suite`).
+    while it ranks first, each running one piece at a time, and once its last piece has started
+    gives back each one a piece ends on, but one (`_GateHold`, `_Pieces.spare`, `run_suite`).
     A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
     again each poll, and goes there once it has room.
     `changed` is the file AK_CHANGED names, its paths in each piece's command there (`pinned`).

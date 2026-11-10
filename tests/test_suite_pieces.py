@@ -13,6 +13,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -374,17 +375,26 @@ class SuitePieces(unittest.TestCase):
         self.assertNotIn("flaky:", text)
 
     def test_each_piece_reserves_a_heavy_turn_and_retries_return_the_extra_turns(self):
-        seen = []
+        held, flags, red = {}, set(), {"1/4", "2/4"}
         def limited(cmd, limit, env, **_kw):
-            seen.append((env["AK_SHARD"], gate._heavy_running(), env.get("AK_HEAVY_TURN")))
-            return (1 if len(seen) <= 2 else 0), "", False
+            shard = env["AK_SHARD"]
+            if shard == "4/4":    # the last to start, which reads once its sibling has ended
+                deadline = time.monotonic() + 5
+                while gate._heavy_running() > 1 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+            held.setdefault(shard, []).append(gate._heavy_running())
+            flags.add(env.get("AK_HEAVY_TURN"))
+            code = int(shard in red)
+            red.discard(shard)
+            return code, "", False
         with patch.dict(os.environ, {"AK_MAX_RUNS": ""}), \
                 patch.object(worker, "boxed", side_effect=limited):
             (config.HOME / config.CONFIG_NAME).write_text("max_gates = 9\n")
             ok, text = self.check()
         self.assertTrue(ok, text)
-        self.assertEqual([held for _, held, _ in seen], [2, 2, 2, 2, 1, 1])    # 4 pieces on 2 turns
-        self.assertTrue(all(flag == "1" for _, _, flag in seen))
+        # 4 pieces on 2 turns, but the last once no piece is left to start, and retries alone
+        self.assertEqual(held, {"1/4": [2, 1], "2/4": [2, 1], "3/4": [2], "4/4": [1]})
+        self.assertEqual(flags, {"1"})
         self.assertEqual(gate._heavy_running(), 0)
 
     def test_isolated_cgroup_cost_is_saved_and_sizes_later_pieces(self):
