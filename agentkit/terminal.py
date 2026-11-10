@@ -465,13 +465,16 @@ def content_width(term_width=None):
 def header_line(screen, clock, term_width=None):
     """`agentkit` at the left, the screen name after it, the clock at the right.
 
-    The title gives way, never the clock: a name too long for the width is cut to leave
-    the clock and one space whole.
+    The title gives way, never the clock: a name too wide sheds its first parts, where you came
+    from, then what is left is cut, to leave the clock and one space whole.
     """
     room = layout_width(term_width)
     if room <= cells(clock):
         return cut(clock, room)
-    title = cut("agentkit" if not screen else f"agentkit · {screen}", room - cells(clock) - 1)
+    parts = ["agentkit", *(screen.split(" · ") if screen else [])]
+    while len(parts) > 2 and cells(" · ".join(parts)) > room - cells(clock) - 1:
+        del parts[1]
+    title = cut(" · ".join(parts), room - cells(clock) - 1)
     return title + " " * (room - cells(title) - cells(clock)) + clock
 
 
@@ -484,14 +487,19 @@ def rule_line(term_width=None, filled=0):
     return styled("━" * done, "accent") + styled("─" * (room - done), "dim")
 
 
+AFTER = ("→", ">")      # a key pointing right stands after its word, on the side it points to
+
+
 def key_parts(text):
-    """(key, word) pairs for the key line: each key dim, its word plain."""
+    """(key, word) pairs for the key line: each key dim, its word plain, a key of AFTER after
+    its word (`better →`) and any other before it."""
     parts = []
     for phrase in text.split("   "):
         phrase = phrase.strip()
         if not phrase:
             continue
-        key, _, word = phrase.partition(" ")
+        head, _, last = phrase.rpartition(" ")
+        key, word = (last, head) if head and last in AFTER else phrase.partition(" ")[::2]
         parts.append((key.strip(), word.strip()))
     return parts
 
@@ -524,7 +532,8 @@ def key_line(text, term_width=None, first=None):
     room = layout_width(term_width) - 2
     rendered = [first] if first else []
     for key, word in key_parts(text):
-        rendered.append(styled(key, "dim") + (f" {word}" if word else ""))
+        dim = styled(key, "dim")
+        rendered.append(dim if not word else f"{word} {dim}" if key in AFTER else f"{dim} {word}")
     lines, line = [], ""
     for piece in rendered:
         join = "   " + piece if line else piece
@@ -1240,7 +1249,7 @@ def key_spans(line):
     """(first column, last column, key) for each item of a drawn key line, counted from 1."""
     text = ANSI.sub("", line)
     return [(cells(text[:item.start()]) + 1, cells(text[:item.end()]),
-             item.group().split(" ")[0]) for item in re.finditer(r"\S+(?: \S+)*", text)]
+             key_parts(item.group())[0][0]) for item in re.finditer(r"\S+(?: \S+)*", text)]
 
 
 def key_spots(lines, row):
