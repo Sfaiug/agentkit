@@ -6238,7 +6238,7 @@ def dead_loop(state, run_dir, now):
     What holds a run: an ending, or a wait its record names (a quota, a login, a merge, a park),
     an interruption a person was told about, a launch inside its grace, a resume already
     ordered, a death waiting out its backoff.  A slot or a suite turn is waited out by the
-    run's own process.
+    run's own process, and a process of it may outlive its loop (`_run_working`).
     """
     status = state.get("state")
     if status not in (*run_record.ACTIVE, "interrupted"):
@@ -6249,10 +6249,25 @@ def dead_loop(state, run_dir, now):
         # about. Only a loop whose death was noticed -- here, or by the reap that
         # got to it first -- is one the tick carries on.
         return None
-    if _dead_parked(state) or _launch_grace(state, now) or run_record.process_active(state):
+    if (_dead_parked(state) or _launch_grace(state, now) or run_record.process_active(state)
+            or _run_working(run_dir)):
         return None
     plan = _dead_plan(state, run_dir, now)
     return None if plan[0] in ("skip", "wait-quiet") else plan
+
+
+def _run_working(run_dir):
+    """Whether a process of the run outlives its recorded loop: a worker carrying its marker --
+    this process or an ancestor too, as when that worker calls `ak doctor` -- or an `ak run
+    resume` of it that has not recorded its pid yet, which a second resume would race."""
+    processes = {pid: args for pid, (_, status, args) in _proc_table().items()
+                 if status not in ("Z", "X")}
+    if any(pid in processes for pid in worker.run_pids(str(run_dir))):
+        return True
+    resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
+    # The env python3 shebang leaves "python3" as argv[0].
+    return any(args in (resume, [sys.executable, *resume], ["python3", *resume])
+               for args in processes.values())
 
 
 def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):

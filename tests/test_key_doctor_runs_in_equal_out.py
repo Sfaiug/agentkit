@@ -7,11 +7,14 @@ last tick.  Doctor then exits 1.
 
 Black-box through AK_BIN in a temporary HOME, on the real clock and the real process table: the
 records and the tick's stamps are written set back from now, each boundary with a minute's
-margin on either side, and the process that keeps a run going is one this test starts and ends,
-as is the one a lost run recorded.  No tick resumes anything here: doctor only reads.
+margin on either side, and every process that keeps a run going, or does not, is one this test
+starts and ends.  No tick resumes anything here: doctor only reads.
 """
 
+import os
 from pathlib import Path
+import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -20,6 +23,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import AK, Home, owner
+
+MARKER = "AGENTKIT_RUN"     # carried by every process a run starts: its directory, or below it
 
 
 class DoctorRunsInEqualOut(unittest.TestCase):
@@ -49,21 +54,48 @@ class DoctorRunsInEqualOut(unittest.TestCase):
             record.update(self.ended())
         return self.home.write(f".agentkit/runs/{name}/run.json", record, ago=ago).parent
 
+    def start(self, *argv, run=None, executable=None):
+        """A process in this Home, carrying `run` as its run marker, its input a pipe the test
+        holds open; it ends with the test."""
+        proc = subprocess.Popen(argv, executable=executable, cwd=self.home.path,
+                                env={**self.home.env, **({MARKER: str(run)} if run else {})},
+                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: (proc.kill(), proc.communicate()))
+        return proc
+
     def going(self):
         """The pid and identity of a loop that runs until the test ends."""
-        proc = subprocess.Popen(["sleep", "600"], stdin=subprocess.DEVNULL)
-        self.addCleanup(lambda: (proc.kill(), proc.wait()))
-        return owner(proc.pid)
+        return owner(self.start("sleep", "600").pid)
 
-    def ended(self):
-        """The pid and identity a loop recorded for itself, that loop since ended."""
-        proc = subprocess.Popen(["true"])
-        proc.wait()
-        return {"pid": proc.pid, "process_identity": {"boot": "gone", "ticks": 0}}
+    def ended(self, reap=True):
+        """The pid and identity a loop recorded for itself, that loop since ended: reaped, or
+        else left unreaped, a zombie."""
+        proc = self.start("true")
+        os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+        recorded = owner(proc.pid)
+        if reap:
+            proc.wait()
+        return recorded
 
-    def doctor(self, code, line):
+    def resume(self, name):
+        """A real `ak run resume <name>`, held still at its first bwrap, the check of its box,
+        which comes before it records its pid; its command line, as `ps` shows it."""
+        called = self.home.root / "tmp" / "bwrap-called"
+        self.home.fake("bwrap", f"#!/bin/sh\n: > {shlex.quote(str(called))}\nexec sleep 600\n")
+        proc = self.home.spawn("run", "resume", name)
+        deadline = time.monotonic() + 60
+        while not called.exists():
+            self.assertIsNone(proc.poll(), f"ak run resume {name} ended before calling bwrap")
+            self.assertLess(time.monotonic(), deadline, f"ak run resume {name} never called bwrap")
+            time.sleep(0.05)
+        # stopped, not only waiting: ak gives its box's check seconds, then goes on without it
+        os.killpg(proc.pid, signal.SIGSTOP)
+        return Path(f"/proc/{proc.pid}/cmdline").read_text().split("\0")[:-1]
+
+    def doctor(self, code, line, under=None):
         """`ak doctor` exits `code`, with `line` as its runs line, after the full report, and
-        writes nothing."""
+        writes nothing; `under` is the run marker of a shell that calls it, as a worker's does."""
         tick = self.home.path / ".agentkit/state/watch.json"
 
         def kept():
@@ -71,7 +103,9 @@ class DoctorRunsInEqualOut(unittest.TestCase):
                     for path in [*self.runs.rglob("*"), tick] if path.is_file()}
 
         before = kept()
-        done = self.home.run(AK, "doctor")
+        # the shell waits for doctor rather than exec it, so it stays doctor's parent
+        argv = ("sh", "-c", '"$@"; exit $?', "sh") if under else ()
+        done = self.home.run(*argv, AK, "doctor", env={MARKER: str(under)} if under else None)
         self.assertEqual(done.code, code, done.out + done.err)
         self.assertIn(f"runs  {line}", done.out.splitlines())
         self.assertTrue(done.out.splitlines()[-1].startswith("rented machines: "), done.out)
@@ -119,6 +153,31 @@ class DoctorRunsInEqualOut(unittest.TestCase):
         self.run_record("days", started=2 * 86400, **self.going())
         self.doctor(0, "3 started in the last day · 3 ended · 0 going · "
                        "2 endings owed, oldest 2d")
+
+    def test_a_marked_worker_keeps_its_run_going_without_the_loop(self):
+        self.start("sleep", "600", run=self.run_record("moving"))
+        self.doctor(0, "1 started in the last day · 0 ended · 1 going · 0 endings owed")
+
+    def test_a_marked_parent_keeps_its_run_going_when_it_calls_doctor(self):
+        self.doctor(0, "1 started in the last day · 0 ended · 1 going · 0 endings owed",
+                    under=self.run_record("moving") / "turn-acme")
+
+    def test_a_resume_keeps_its_run_going_before_it_records_itself(self):
+        self.run_record("moving")
+        self.resume("moving")
+        self.doctor(0, "1 started in the last day · 0 ended · 1 going · 0 endings owed")
+
+    def test_unrelated_commands_zombies_and_other_runs_do_not_hide_a_lost_run(self):
+        directory = self.run_record("lost", **self.ended(reap=False))
+        self.run_record("lost-other")
+        resume = [*self.resume("lost-other")[:-1], "lost"]     # how lost's own would read
+        self.start("sleep", "600", run=f"{directory}-other")
+        self.start("tail", "-F", str(directory / "log.txt"))
+        self.start("tail", "-F", *resume)
+        # one reading as its resume with a word more: xargs, waiting on its input to run it
+        self.start(*resume, "--extra", executable="xargs")
+        self.doctor(1, "2 started in the last day · 0 ended · 1 going · 0 endings owed · "
+                       "lost: lost (4m since last write)")
 
 
 if __name__ == "__main__":
