@@ -1016,10 +1016,11 @@ class _GateHold:
                 self.lock.notify_all()    # a place waiting for a turn sees the list end
 
     def alone(self):
+        """One turn kept once a suite's pieces end; a suite after it here takes more again."""
         for slot in self.slots[1:]:
             fcntl.flock(slot, fcntl.LOCK_UN)
         self.slots = self.slots[:1]
-        self.idle, self.more = list(self.slots), None
+        self.idle = list(self.slots)
 
     def release(self):
         try:
