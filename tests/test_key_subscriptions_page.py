@@ -8,6 +8,7 @@ temporary HOME, harnesses faked (tests/fixtures/fakeadapter.py), NO_COLOR, so th
 bracketed.  This test fails against `/bin/false`.
 """
 
+import fcntl
 import json
 import re
 import sys
@@ -149,11 +150,14 @@ class SubscriptionsPage(unittest.TestCase):
         usage = self.home.path / ".agentkit/state/usage.json"
         self.term.wait(lambda _: all("probed_at" in prov for prov in json.loads(
             usage.read_text())["providers"]["anthropic"]["accounts"].values()))
-        self.home.write(".agentkit/state/usage.json", {"fetched_at": time.time(), "providers": {
-            "anthropic": {"accounts": {"default": {"meters": [{"name": "weekly", "used": 16,
-                                                                "window_secs": 604800}]},
-                                       "two": {"meters": [{"name": "weekly", "used": 50,
-                                                            "window_secs": 604800}]}}}}})
+        # under ak's own lock, or a write of the menu's under way puts back what it read before
+        with open(usage.with_name("usage.lock"), "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self.home.write(".agentkit/state/usage.json", {"fetched_at": time.time(), "providers": {
+                "anthropic": {"accounts": {"default": {"meters": [{"name": "weekly", "used": 16,
+                                                                    "window_secs": 604800}]},
+                                           "two": {"meters": [{"name": "weekly", "used": 50,
+                                                                "window_secs": 604800}]}}}}})
         self.term.wait("  Claude II  ▰▰▰▰▰▱▱▱▱▱  50% left")
 
 
