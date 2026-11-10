@@ -4506,13 +4506,14 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
             and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
 
 
-def _line_left(session, text, log, cfg, stale):
+def _line_left(session, text, log, cfg, stale, switch=False):
     """A mark's pass on a line ak's editor put in, on the pane it went into (`_line_through`):
     the line is that editor's to read, as the screen draws what it puts there late -- its Enter
     where it is still alone in the composer, and delivered once it has left, the text kept given
-    back into the composer it left empty."""
+    back into the composer it left empty -- once its harness asks nothing about it (`_asks`)."""
     with notify.session_lock(session["name"]) as held:
-        where = not stale(held) and seat_editor(session, cfg)
+        where = (not stale(held) and not (switch and _asks(session, held, text, log, cfg))
+                 and seat_editor(session, cfg))
         word = where and _editor_read(session, where, cfg) and _edit(session, where, "back", text)
         if word == "unsent":
             kept_asked_first(dict(session, name=held))
@@ -4560,22 +4561,29 @@ def _respawned(session, stale):
     return lambda held: stale(held) or pinned(session) != session
 
 
-def _say_yes(session, name, text, log, cfg=None):
-    """Where that pinned seat's bottom rows, read once as drawn, end on what its harness asks
-    before it takes a line of its `[switch]` (`asks`), the keys that say yes (`yes`) go into its
-    pane: a card above a composer is the transcript's."""
+def _asks(session, name, text, log, cfg=None):
+    """Whether that pinned seat's bottom rows, read once as drawn, end on what its harness asks
+    before it takes a line of its `[switch]` (`asks`) -- a card above a composer is the
+    transcript's.  Where they do, the keys that say yes (`yes`) go into its pane, unless its
+    terminal holds input unread: a pass before this one may have sent them, and a second yes
+    would land in the composer the first brings back.  The terminal is asked before the screen
+    is read, so the screen read was drawn after any key it had read."""
     try:
         harness = seat_model(config.load() if cfg is None else cfg, name)[0]
         block = config.manifest(harness).get("switch") or {}
         asks = _pattern(block.get("asks") and f"(?:{block['asks']})\\Z",
                         f"adapters/{harness}.toml", re.M)
     except (config.Error, OSError):
-        return
+        return False
+    unread = pane_unread(session)
     rows = "\n".join(strip_sgr(row).rstrip() for row in pane_tail(pane_text(session)).split("\n"))
     keys = [key for key in block.get("yes") or () if isinstance(key, str) and key]
-    if asks and keys and asks.search(rows):
+    if not (asks and keys and asks.search(rows)):
+        return False
+    if not unread:
         orch.tmux_out("send-keys", "-t", _pane(session), *keys, socket=orch.seat_socket(session))
         log(f"said yes to what {name} asked before it took {text}")
+    return True
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
@@ -4595,9 +4603,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     the send lock, past any dialog -- and once that composer, read whole, is empty and the
     terminal reports no unread input, the seat has it.  A composer holding anything else, or
     one that cannot be read, says nothing yet: a line wrapped past the bottom rows still sits
-    there.  Except where it is a `switch` line (`orch.switch_lines`) its harness asks about in
-    the composer's place: the keys that say yes go in off that capture (`_say_yes`), and the
-    next pass reads the composer back; the owner's own move, with no such line, is theirs to
+    there.  A `switch` line (`orch.switch_lines`) its harness asks about in the composer's
+    place, however it went in, is first answered yes off that capture (`_asks`), and the next
+    pass reads the composer back; the owner's own move, with no such line, is theirs to
     answer.  The mark names the seat by its tmux birth, in whole seconds and kept by a pane
     respawned in place, and the pane's process (`pinned`): a harness started since, its
     composer empty, runs under another and matches no mark, so the line is typed again; one
@@ -4628,22 +4636,20 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         # it is that pane's process the mark names
         there = pinned(dict(session, pane=typed["pane"]))
         if typed == dict(_mark(there, text), pane=typed["pane"]):
-            return _line_left(there, text, log, cfg, _respawned(there, stale))
+            return _line_left(there, text, log, cfg, _respawned(there, stale), switch)
     session = pinned(session)
     mark = _mark(session, text)
     stale = _respawned(session, stale)
     if typed == mark:
         with notify.session_lock(session["name"]) as held:
-            if stale(held):
-                return False    # the screen is somebody else's: next pass
+            if stale(held) or switch and _asks(session, held, text, log, cfg):
+                return False    # the screen is somebody else's, or asks first: next pass
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty":
                 return not pane_unread(session)
             if holds == "line":
                 kept_asked_first(dict(session, name=held))
                 _send_enter(session, log)
-            elif switch:
-                _say_yes(session, held, text, log, cfg)
         return False            # the next pass reads whether that Enter sent it
     refusal = too_long(text)
     if refusal:     # its builder's fault: a folded line reads as the owner's paste
