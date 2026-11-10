@@ -25,6 +25,9 @@ class Turn:
         self.slots = [None] * count
         self.pieces, self.waited, self.released = count, False, False
 
+    def suite(self, cost):
+        pass
+
     def take(self, stopped):
         return True
 
