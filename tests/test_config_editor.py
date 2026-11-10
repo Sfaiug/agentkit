@@ -140,7 +140,7 @@ class Editor(unittest.TestCase):
         self.assertIn("gpt-x", config.offered(left))
         self.assertEqual(left["defaults"], {"orchestrator": "opus", "workers": ["opus", "astra"]})
         _, screen = self.drive()
-        self.assertIn("  gpt-x ", screen)
+        self.assertRegex(screen, r"(?m)^  X +○")    # named off its id, GPT's word left out
 
     def test_add_cancel_writes_nothing(self):
         before = self.path.read_bytes()

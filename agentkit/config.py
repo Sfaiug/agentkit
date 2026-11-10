@@ -945,14 +945,16 @@ def _ask_catalog(harness, cfg):
 
 def catalog_held(harness, cfg=None):
     """catalog(harness, cfg) as its logins last listed it, however old, else its manifest's
-    table: for a draw, which asks no harness and waits on none."""
+    table: for a draw, which asks no harness and waits on none.  Each model is labelled as
+    every screen names it (model_label)."""
     held = {account: listed for (on, account), (_, listed) in list(_CATALOGS.items())
             if on == harness}         # a list: a thread may be adding one
     models = {}
     for account in _logins(cfg, harness) if held else ():    # a draw reads no config for none
         for model in held.get(account, ()):
             models.setdefault(model["id"], model)
-    return list(models.values()) or catalog_table(harness)
+    return [{**model, "label": model_label(harness, model["id"], model["label"])}
+            for model in list(models.values()) or catalog_table(harness)]
 
 
 def efforts(harness, model=None, listing=None):
@@ -1199,16 +1201,14 @@ def run_efforts(cfg, record):
 
 def model_name(cfg, name):
     """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
-    running `claude-opus-5-5` -- its harness's catalog label for its id, read off the manifest's
-    table so no draw waits on a listing -- else its id, a provider's prefix off
-    (`acme-flash-free`).  `name` itself where it is no entry or names no id of its
-    own (`default`: the harness picks).
+    running `claude-opus-5-5`, `Nova 7.1` for `claude-nova-7-1` (model_label, off its id alone so
+    no draw waits on a listing).  `name` itself where it is no entry or names no id of its own
+    (`default`: the harness picks).
     """
     entry = (cfg.get("models") or {}).get(name)
     if not isinstance(entry, dict) or entry.get("model") in (None, "", DEFAULT_MODEL):
         return name
-    return (catalog_label(entry.get("harness") or "", entry["model"])
-            or entry["model"].rsplit("/", 1)[-1])
+    return model_label(entry.get("harness") or "", entry["model"])
 
 
 def model_at(cfg, record, name, role):
@@ -1219,11 +1219,29 @@ def model_at(cfg, record, name, role):
     return model_name(cfg, name) + (f" {effort}" if effort and effort != "none" else "")
 
 
-def catalog_label(harness, model):
-    """A model's full name, its harness's catalog label for its id, read off the manifest's
-    table so no draw waits on a listing; None where the table names it no other way."""
-    label = next((row["label"] for row in catalog_table(harness) if row["id"] == model), None)
-    return label if label != model else None
+def model_label(harness, model, said=""):
+    """What every screen calls the model that harness runs as `model` and lists as `said`: the
+    label its manifest's `[catalog]` gives that id, else its name and number, read off what its
+    harness calls it (`said`, else the id) so that a model nobody has written down is named too.
+
+    A provider's prefix (`acme/`) and a trailing date (`-20251101`) are no part of that name, nor
+    its maker's family word, the manifest's `family`, where the name opens with it, unless only
+    numbers follow.  A hyphen is a space, between two numbers a point, and a word in small
+    letters opens with a capital: where the family word is `Acme`, `acme-nova-7-1` is `Nova 7.1`,
+    `ACME-7.2-Vega` is `7.2 Vega` and `acme-7-20251101` is `Acme 7`.
+    """
+    label = next((row["label"] for row in catalog_table(harness) if row["id"] == model), model)
+    if label != model:
+        return label
+    name = re.sub(r"-[0-9]{8}$", "", (said or model).rsplit("/", 1)[-1])
+    family = manifest(harness).get("family")
+    if (isinstance(family, str) and family and name[:len(family)].lower() == family.lower()
+            and name[len(family):len(family) + 1] in ("", "-", " ")):
+        rest = name[len(family) + 1:]
+        name = family + name[len(family):] if not rest.strip("0123456789.- ") else rest
+    name = re.sub(r"(?<=[0-9])-(?=[0-9])", ".", name).replace("-", " ")
+    return " ".join(word[:1].upper() + word[1:] if word.islower() else word
+                    for word in name.split())
 
 
 def normalize_session(name):

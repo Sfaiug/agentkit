@@ -167,11 +167,11 @@ class Catalog(unittest.TestCase):
     def test_opencode_listing_is_parsed_and_cached_a_minute(self):
         self.stub("opencode", listing=FIXTURES / "opencode-model-list.json")
         # each id the table knows takes its label and efforts, and any other OpenCode's own
-        # name and variants, `none` for one with no variant
+        # name, a hyphen a space (config.model_label), and variants, `none` for one with none
         table = {model["id"]: model for model in config.catalog_table("opencode")}
         listed = json.loads((FIXTURES / "opencode-model-list.json").read_text())["data"]
         want = [table.get(f"{model['providerID']}/{model['id']}") or {
-            "id": f"{model['providerID']}/{model['id']}", "label": model["name"],
+            "id": f"{model['providerID']}/{model['id']}", "label": model["name"].replace("-", " "),
             "efforts": [variant["id"] for variant in model["variants"]] or ["none"]}
             for model in listed]
         self.assertEqual(want[-1], {"id": "mimo/mimo-v2.6-flash", "label": "MiMo V2.6 Flash",
