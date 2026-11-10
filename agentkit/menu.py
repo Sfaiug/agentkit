@@ -2620,15 +2620,15 @@ def scoped_notes(cfg, provider, weekly, shared):
 
     A cap its provider names (`scope`) is `Fable 100% left`, whatever the shared week reads:
     the owner asked to see what it has left beside when the week resets (10 Nov 2026).  One
-    only a model's `meter` in config.toml claims is `Fable 41%`, left off where it reads the
-    same as the shared week, which has said it already.
+    only a model's `meter` in config.toml claims is `Fable 41%`, said only where a shared week
+    reads otherwise: the note is there for the gap.
     """
     named, claimed = [], []
     for meter in weekly:
         if meter.get("scope"):
             named.append(f"{meter['scope']} {percent_left(meter)}% left")
             continue
-        if meter is shared or percent_left(meter) == percent_left(shared):
+        if shared is None or meter is shared or percent_left(meter) == percent_left(shared):
             continue
         owner = next((name for name, entry in cfg["models"].items()
                       if entry.get("provider") == provider
@@ -2946,7 +2946,8 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     its week resets and what each cap its provider names has left, the resets in hand
     (`in_hand`), each cap config.toml claims that differs (`scoped_notes`), its 5-hour window
     (`session_note`), why its last probe failed (`fault`) and how old the reading is
-    (`usage.as_of`); for one with no week to draw, why (`unread`).
+    (`usage.as_of`); for one with no week to draw, why (`unread`) and what each cap its
+    provider names has left.
     In `width` cells the notes give way one by one, the least worth keeping first (`fitting`),
     and the label too, past the notes but before the login; `rows` as `usage_cells`', and
     `ending` as `usage_lines`'."""
@@ -2956,16 +2957,14 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
         return ""
     name, label, prov, _ = rows[number - 1]
     week, why, readable = reading(cfg, name, prov, now)
-    if week is None:
-        notes = [(0, why)]
-    else:
-        named, claimed = scoped_notes(cfg, name, readable, week)
-        # a cap its provider names is one note with the reset time: it gives way only with it
-        notes = [(-1, usage.credits_note(prov)),
-                 (0, " · ".join(filter(None, (resets_note(week, now), *named)))),
-                 (1, in_hand(prov)), *((3, note) for note in claimed),
-                 session_note(prov, now) or (0, ""), (1, fault(prov)),
-                 (1, usage.as_of(prov, now))]
+    named, claimed = scoped_notes(cfg, name, readable, week)
+    # a cap its provider names is one note with the reset time, or with why there is no week to
+    # reset: it gives way only with it
+    first = (0, " · ".join(filter(None, (resets_note(week, now) if week else why, *named))))
+    notes = [first] if week is None else [
+        (-1, usage.credits_note(prov)), first, (1, in_hand(prov)),
+        *((3, note) for note in claimed),
+        session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
     login = (login_notes(rows[number - 1:number], now) if ending is None
              else ending[number - 1:number])[0]
     notes = [note for note in [(-2, login), (-2, login and "click to log in again"), *notes]

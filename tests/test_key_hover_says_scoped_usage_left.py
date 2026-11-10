@@ -3,8 +3,9 @@
 The owner (10 Nov 2026), the pointer on a Claude subscription: "it only shows the normal reset
 time, but not the fable usage I have remaining."  Anthropic's usage endpoint says whose cap a
 limit is; `adapters/claude.sh usage` keeps that name as the meter's `scope`, the line under the
-grid says `<scope> NN% left` right after the reset time, and a scoped meter is never the
-subscription's own figure in its cell -- all with no model in config.toml claiming the meter.
+grid says `<scope> NN% left` right after the reset time, or after why no shared week can be
+read, and a scoped meter is never the subscription's own figure in its cell -- all with no model
+in config.toml claiming the meter.
 A reading whose meters name no scope draws the line it drew before.
 
 Black-box: the adapters beside the program `AK_BIN` names (or `AK_ROOT`'s), over a fake `curl`
@@ -51,12 +52,6 @@ def lines(screen):
     return [line.rstrip() for line in screen.split("\n")]
 
 
-def under_grid(screen):
-    """The ak screen's line under the usage grid: what the meter under the pointer says."""
-    shown = lines(screen)
-    return shown[max(number for number, line in enumerate(shown) if "▰" in line) + 1]
-
-
 class AdapterNamesTheCap(unittest.TestCase):
     def test_the_scoped_limit_s_meter_carries_its_model_s_name(self):
         made = home(self.addCleanup)
@@ -91,16 +86,18 @@ class LineUnderTheGrid(unittest.TestCase):
         self.term = Terminal(made, size=(100, 40), env={"NO_COLOR": "1"})
         self.addCleanup(made.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
-        main = lines(self.term.wait(lambda screen: MAIN_KEYS in lines(screen) and "▰" in screen))
+        main = lines(self.term.wait(lambda screen: MAIN_KEYS in lines(screen)
+                                    and "  Claude  " in screen))
         return main, time.strftime("%a %H:%M", time.gmtime(resets))
 
     def pointed(self, main):
-        """The line under the grid once the pointer is on Claude's meter, and its cell."""
-        row = next(number for number, line in enumerate(main) if "Claude" in line and "▰" in line)
-        self.term.type(f"\x1b[<35;{main[row].index('Claude') + 3};{row + 1}M")
+        """The line under the grid once the pointer is on Claude's cell, the grid's one line,
+        and the cell."""
+        row = next(number for number, line in enumerate(main) if line.startswith("  Claude  "))
+        self.term.type(f"\x1b[<35;5;{row + 1}M")
         screen = self.term.wait(lambda screen: MAIN_KEYS in lines(screen)
-                                and under_grid(screen).startswith("  Claude  "))
-        return under_grid(screen), main[row]
+                                and lines(screen)[row + 1].startswith("  Claude  "))
+        return lines(screen)[row + 1], main[row]
 
     def test_the_line_says_what_the_cap_has_left_after_the_reset_time(self):
         main, when = self.open((22, None), (0, "Fable"))
@@ -113,6 +110,12 @@ class LineUnderTheGrid(unittest.TestCase):
         line, cell = self.pointed(main)
         self.assertIn("40% left", cell)
         self.assertEqual(line, f"  Claude  resets {when} · Fable 5% left")
+
+    def test_the_line_says_the_cap_where_no_shared_week_is_read(self):
+        main, _ = self.open((None, None), (95, "Fable"))
+        line, cell = self.pointed(main)
+        self.assertEqual(cell, "  Claude  — no shared week")
+        self.assertEqual(line, "  Claude  no shared week · Fable 5% left")
 
     def test_meters_naming_no_scope_draw_the_line_they_drew(self):
         main, when = self.open((22, None), (0, None))
