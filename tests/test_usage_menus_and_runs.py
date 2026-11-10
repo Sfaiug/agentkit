@@ -13,7 +13,7 @@ import unittest
 
 from fixtures.sandbox import REPO, Sandbox, menu_input
 from fixtures.subscriptions import said
-from agentkit import config, macbridge, menu, orch, run, status, terminal, usage
+from agentkit import config, macbridge, menu, orch, run, status, terminal, usage, watch
 from agentkit import record as run_record
 
 
@@ -232,7 +232,8 @@ class UsageLeft(Sandbox):
         directory = self.ended("old-owned", owner="atoll-fix", finished_at=10000 - 8 * 3600)
         self.assertIn(directory, [path for path, _ in menu.run_records()])
         warning = "WARN could not check the runs: the run directory is unreadable"
-        updates = [["agentkit: reaped a loop whose process was gone", warning], []]
+        reaped = "agentkit: reaped a loop whose process was gone"   # done by itself: the log's
+        updates = [[reaped, warning], []]
         real_maintenance, real_show_notices = orch.maintenance, menu.show_notices
         def maintenance(log):
             for message in updates.pop(0):
@@ -268,8 +269,10 @@ class UsageLeft(Sandbox):
                 # The header carries no hash; split on it, not on the update notice.
                 before, screen = out.getvalue().split("agentkit ", 1)
                 self.assertEqual(before, "")       # the menu's first frame, before any notice
+                self.assertNotIn(reaped, notices.getvalue() + screen)
                 if first:
-                    self.assertIn("agentkit: reaped a loop whose process was gone", notices.getvalue())
+                    self.assertIn(reaped, watch.log_path().read_text())
+                    self.assertIn(warning, watch.log_path().read_text())    # and the notice's
                     self.assertIn(warning, notices.getvalue())
                     self.assertEqual([call.args[0] for call in read.call_args_list],
                                      ["esc back ", "> "])
