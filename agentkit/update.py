@@ -526,14 +526,16 @@ def publishes():
 def agentkit_version():
     """How many commits that checkout's history holds, then its date, `2816 · 2026-09-29`: each
     change merged to main is one commit, so a higher number is the newer ak.  The date alone
-    where that history is cut short (a shallow clone, as install.sh first copies ak), whose
-    count would be wrong; "" when it is no checkout at all."""
-    code, date = _git("log", "-1", "--format=%cs")
+    where git cannot count that history, or it is cut short (a shallow clone, as install.sh
+    first copies ak) and its count would be wrong; "" when it is no checkout at all."""
+    # in UTF-8 whatever log encoding the checkout's config asks for, UTF-16 say
+    code, date = _git("-c", "i18n.logOutputEncoding=UTF-8", "log", "-1", "--format=%cs")
     if code:
         return ""
-    if _git("rev-parse", "--is-shallow-repository")[1] != "false":
+    uncounted, count = _git("rev-list", "--count", "HEAD")
+    if uncounted or _git("rev-parse", "--is-shallow-repository")[1] != "false":
         return date
-    return f"{_git('rev-list', '--count', 'HEAD')[1]} · {date}"
+    return f"{count} · {date}"
 
 
 def agentkit_build():

@@ -1,7 +1,8 @@
 """ak's version is how many commits its checkout's history holds, then its date: `Version 3 ·
 2026-09-29` under `c`, and the same in `ak update --dry-run`.  Each change merged to main is one
 commit, so the number goes up by one with each and a higher one is the newer ak; a history cut
-short, a shallow clone, cannot be counted and says its date alone, never a number that is wrong.
+short, a shallow clone, or one git cannot read through, cannot be counted and says its date alone,
+never a number that is wrong.  A checkout whose config asks for its log in UTF-16 reads the same.
 No line holds the commit's hash, which nobody reads.
 
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) and run
@@ -36,6 +37,7 @@ class VersionIsANumber(unittest.TestCase):
     def git(self, *args):
         done = self.home.run("git", *args, env={"GIT_AUTHOR_DATE": DAY, "GIT_COMMITTER_DATE": DAY})
         self.assertEqual(done.code, 0, done.err)
+        return done.out.strip()
 
     def commit(self):
         self.git("-C", str(self.checkout), "commit", "-q", "--allow-empty", "-m", "change")
@@ -64,6 +66,16 @@ class VersionIsANumber(unittest.TestCase):
         full = self.home.root / "full"
         self.checkout.rename(full)
         self.git("clone", "-q", "--depth", "1", full.as_uri(), str(self.checkout))
+        self.assertEqual(self.version(menu), "Version 2026-09-29")
+
+    def test_a_log_in_utf16_reads_the_same_and_a_history_git_cannot_count_says_its_date(self):
+        menu = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
+        menu.wait("c config")
+        self.git("-C", str(self.checkout), "config", "i18n.logOutputEncoding", "UTF-16")
+        self.assertEqual(self.version(menu), "Version 3 · 2026-09-29")
+
+        first = self.git("-C", str(self.checkout), "rev-list", "--max-parents=0", "HEAD")
+        (self.checkout / ".git" / "objects" / first[:2] / first[2:]).unlink()
         self.assertEqual(self.version(menu), "Version 2026-09-29")
 
 

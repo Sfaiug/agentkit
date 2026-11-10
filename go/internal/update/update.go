@@ -272,17 +272,18 @@ func version(each plan, env []string) (string, error) {
 }
 
 // agentkitVersion is that checkout's version as Python's update.agentkit_version says it: how many
-// commits its history holds, then its date; the date alone where that history is cut short, whose
-// count would be wrong; "" when it is no checkout.
+// commits its history holds, then its date; the date alone where git cannot count that history, or
+// it is cut short and its count would be wrong; "" when it is no checkout.
 func agentkitVersion(env []string, checkout string) string {
-	date, ok := git(env, checkout, "log", "-1", "--format=%cs")
+	// in UTF-8 whatever log encoding the checkout's config asks for, UTF-16 say
+	date, ok := git(env, checkout, "-c", "i18n.logOutputEncoding=UTF-8", "log", "-1", "--format=%cs")
 	if !ok {
 		return ""
 	}
-	if shallow, _ := git(env, checkout, "rev-parse", "--is-shallow-repository"); shallow != "false" {
+	count, counted := git(env, checkout, "rev-list", "--count", "HEAD")
+	if shallow, _ := git(env, checkout, "rev-parse", "--is-shallow-repository"); !counted || shallow != "false" {
 		return date
 	}
-	count, _ := git(env, checkout, "rev-list", "--count", "HEAD")
 	return count + " · " + date
 }
 
