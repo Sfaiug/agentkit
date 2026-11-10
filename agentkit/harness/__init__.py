@@ -338,15 +338,16 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
     """The seat launched as `launched`, on `harness`, goes on in that conversation, `fields`
     beside it, where a hook whose parent is `pid` reported it with `transcript`: only from the
     seat's own interactive process (`orch.owns_hook`, by `is_client`), with that conversation's
-    own file for the seat (`filed`), and no other seat's record naming it, its own or one it left.
-    The one its harness says the seat is in (`Harness.conversation`) goes into its record first,
-    whether the seat moves or not: a harness that learns it from evidence this very prompt moves
-    on (a launch's receipt) may not have written it there yet.  Left, that one stays the seat's
-    for its done check (`notify.conversations_of`); one it goes back to is its current one again,
-    read once.  A seat in none yet, or only in another seat's, takes this one as its first; one
-    in a conversation its harness cannot resume stays there.  No seat's lock, which a delivery
-    holds while it types the very prompt a hook may report: the seat's name holds under `claims`
-    instead."""
+    own file for the seat (`filed`), and no other seat's record naming it (`named_elsewhere`), as
+    the records stand once no seat learns one meanwhile (`Harness.learning`).  The one its
+    harness says the seat is in (`Harness.conversation`) goes into its record first, whether the
+    seat moves or not: a harness that learns it from evidence this very prompt moves on (a
+    launch's receipt, the database its agy holds open) may not have written it there yet.  Left,
+    that one stays the seat's for its done check (`notify.conversations_of`); one it goes back to
+    is its current one again, read once.  A seat in none yet, or only in another seat's, takes
+    this one as its first; one in a conversation its harness cannot resume stays there.  No
+    seat's lock, which a delivery holds while it types the very prompt a hook may report: the
+    seat's name holds under `claims` instead."""
     from .. import notify, orch
     if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(conversation, str)
             or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation) or conversation.startswith("-")
@@ -357,24 +358,24 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
         return      # the seat's already: decided without waiting on a rename
     with claims():
         name = config.resolve_session(launched)
-        records = config.session_records()
-        record = records.pop(name, {})
-        theirs = {kept for other in records.values()
-                  for kept in (*recorded_conversations(other),
-                               *(was.get("conversation") for was in other.get("left", [])))}
+        record, plugin = config.session_records().get(name, {}), load(harness)
         if orch.seat_harness(record) != harness or not record.get("cwd"):
             return
-        current = load(harness).conversation(record, record["cwd"])
-        current = None if current in theirs else current
-        if current and not load(harness).resumable(record, record["cwd"], current):
+        current = plugin.conversation(record, record["cwd"])
+        current = None if current in named_elsewhere(config.session_records(), name) else current
+        if current and not plugin.resumable(record, record["cwd"], current):
             return
         if current and record.get("conversation") != current:
             record = config.update_session(name, conversation=current) or record
-        if (record.get("conversation") == conversation or conversation in theirs
+        if (record.get("conversation") == conversation
                 or Path(transcript).resolve() != Path(filed(record, conversation)).resolve()):
             return
         session = orch.find(name)
-        if session and orch.owns_hook(session, pid, is_client):
+        if not session or not orch.owns_hook(session, pid, is_client):
+            return
+        with plugin.learning():
+            if conversation in named_elsewhere(config.session_records(), name):
+                return
             left = [was for was in notify.left(record, harness, current)
                     if was["conversation"] not in (conversation, None)]   # none to leave yet
             while (config.update_session(name, conversation=conversation, left=left, **fields)
@@ -385,6 +386,15 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
 def recorded_conversations(record):
     """Ids already proven by a seat record; `owned` must neither discover nor claim one."""
     return [record.get("conversation"), *(module.owned(record) for module in _plugins("owned"))]
+
+
+def named_elsewhere(records, name):
+    """Each conversation a seat record other than `name`'s names, as its own or as one it left:
+    never that seat's to claim or learn."""
+    return {conversation for other, record in records.items() if other != name
+            for conversation in (*recorded_conversations(record),
+                                 *(was.get("conversation") for was in record.get("left") or ()
+                                   if isinstance(was, dict)))}
 
 
 def user_message(at, text):
@@ -606,6 +616,13 @@ class Harness:
         """The conversation this seat owns: by default the one its record was launched with."""
         hook = self._hook("conversation")
         return hook(record, cwd) if hook else record.get("conversation")
+
+    def learning(self):
+        """Held while this harness learns which conversation a seat owns (`conversation`), and
+        while a seat claims one (`claim`), so neither takes one the other is taking: by default
+        it learns none, and nothing is held."""
+        hook = self._hook("learning")
+        return hook() if hook else contextlib.nullcontext()
 
     def claim(self, record, cwd=None):
         """(The conversation `conversation` gives while each file its proof reads is as it is

@@ -46,33 +46,41 @@ def launched(name, cwd, conversation):
 def conversation(record, cwd=None):
     """The conversation the record gives this seat, else the one its launch's own agy holds
     open, written down beside that launch's token so it outlives the process and a stale
-    launch's is never a later one's.  One another seat owns is never this one's, nor a guess
-    between two."""
+    launch's is never a later one's.  One another seat's record names is never this one's, nor
+    a guess between two."""
     mine, token = owned(record), record.get("antigravity_launch")
     if mine or not isinstance(token, str):
         return mine
     # One claim at a time, from the records as they stand: a caller's copy may predate this
     # launch's claim, and another seat's may land while the fds are read.
-    from . import unread
-    try:
-        lock = open(config.STATE / "antigravity-claim.lock", "a")
-    except OSError as exc:
-        unread(exc)
-        return None
-    with lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    from . import named_elsewhere, unread
+    with contextlib.ExitStack() as held:
+        try:
+            held.enter_context(learning())
+        except OSError as exc:
+            unread(exc)
+            return None
         records = config.session_records()
         name = next((name for name, kept in records.items()
                      if kept.get("antigravity_launch") == token), None)
         mine = owned(records.get(name, {}))
         if name is None or mine:
             return mine
-        held = held_open(token) - {owned(kept) for other, kept in records.items() if other != name}
-        if len(held) != 1:
+        found = held_open(token) - named_elsewhere(records, name)
+        if len(found) != 1:
             return None
-        found = held.pop()
+        found = found.pop()
         config.update_session(name, antigravity_open={"launch": token, "conversation": found})
         return found
+
+
+@contextlib.contextmanager
+def learning():
+    """The lock a launch's conversation is learned under (`conversation`), and a seat's prompt
+    claims one under (`follow`): Go's ak learns under it too."""
+    with open(config.STATE / "antigravity-claim.lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def owned(record):
