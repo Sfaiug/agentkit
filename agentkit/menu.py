@@ -3320,7 +3320,9 @@ def models_body(said, at=None):
     def follows(after):
         return (f"  {after[0]:>{widths[0]}}  {after[1]:>{widths[1]}}" if isinstance(after, tuple)
                 else "  " + terminal.styled(after, "dim") if after else "")
-    models = [row["name"] + (f" {row['effort']}" if row["effort"] else "") for _, row, *_ in said]
+    # a board's name may hold control characters: none reaches the terminal (terminal.plain)
+    models = [terminal.plain(row["name"] + (f" {row['effort']}" if row["effort"] else ""))
+              for _, row, *_ in said]
     full = max(map(terminal.cells, models))
     tail = max(terminal.cells(follows(after)) for _, _, after, _ in said)
     wide = 2 + 2 + word + 2 + full + tail <= room
@@ -3352,7 +3354,9 @@ def columned(text, room, after=" -."):
     """`text` on lines of `room` cells, never cut (docs/cli-design.md): wrapped at its spaces, a
     word wider than a line broken after each hyphen in it, a part still wider after each dot
     (`GPT-` over `6.1`, a version kept whole where it can be), and a part with neither left
-    whole, wider than `room`, as models_bars widens its column to it."""
+    whole, wider than `room`, as models_bars widens its column to it; `text` plain, as a board's
+    name may hold control characters (terminal.plain)."""
+    text = terminal.plain(text)
     if terminal.cells(text) <= room or not after:
         return [text]
     lines = []
