@@ -133,8 +133,8 @@ func (r *reads) jobRuns(dir string, job *run.Object) []string {
 	return found
 }
 
-// lastWrite is the newest change of a file under the folder, links to folders unfollowed and
-// names ending in skip uncounted (watch.run_last_write).
+// lastWrite is the newest change of a file under the folder, links to folders unfollowed, any
+// other link dated by itself, and names ending in skip uncounted (watch.run_last_write).
 func lastWrite(dir, skip string) float64 {
 	latest := 0.0
 	entries, _ := os.ReadDir(dir)
@@ -144,7 +144,7 @@ func lastWrite(dir, skip string) float64 {
 			if entry.Type()&fs.ModeSymlink == 0 {
 				latest = max(latest, lastWrite(path, skip))
 			}
-		} else if info, err := os.Stat(path); err == nil && !strings.HasSuffix(entry.Name(), skip) {
+		} else if info, err := os.Lstat(path); err == nil && !strings.HasSuffix(entry.Name(), skip) {
 			latest = max(latest, mtime(info))
 		}
 	}

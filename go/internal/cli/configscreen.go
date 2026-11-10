@@ -254,9 +254,13 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 		return nil, false
 	}
 	limits := limitsSaid(numbers)
+	known, noun := len(machines.Known()), "machines"
+	if known == 1 {
+		noun = "machine"
+	}
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
 		{Name: "Weekly audit", Value: audit}, {Name: "Done check", Value: check},
-		{Name: "Machines", Value: fmt.Sprintf("%d machines · Google Cloud %s", len(machines.Known()), cloud)},
+		{Name: "Machines", Value: fmt.Sprintf("%d %s · Google Cloud %s", known, noun, cloud)},
 		{Name: "Limits", Value: limits}}, true
 }
 
