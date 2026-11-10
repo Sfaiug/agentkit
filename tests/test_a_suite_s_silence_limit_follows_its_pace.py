@@ -5,7 +5,7 @@ siblings run on.  Without a pace a piece the silence limit stopped goes once mor
 with the whole limit.
 
 Offline: temporary HOME, injected host readings, the check box faked except where one real
-command shows the watchdog measuring its quiet.
+command, on an injected clock, shows the watchdog measuring its quiet.
 """
 
 from contextlib import ExitStack
@@ -17,12 +17,14 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.clock import Clock
 from fixtures.sandbox import account_home
 from agentkit import config, gate, gitcall, helper, record, worker
 
@@ -227,14 +229,25 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
         self.assertEqual(gate.read_suite_cost(path)["quiet"][-1], 9.5)
 
     def test_the_watchdog_measures_the_longest_a_command_went_quiet(self):
-        activity, quiet = self.root / "check.log", []
-        with activity.open("wb") as out, patch.object(worker, "ACTIVITY_POLL", .05):
-            code, _, killed = worker.limited(["bash", "-c", "echo a; sleep 1; echo b"], 30,
-                                             silence=30, activity=activity, stdout=out,
+        # The watchdog's clock reads 10 once `b` is out, and the command says `b` only once the
+        # watchdog looked past `a`: however late it looks, the quiet it measures is those 10.
+        activity, go, quiet = self.root / "check.log", self.root / "go", []
+
+        def monotonic():
+            said = activity.read_bytes()
+            if b"a" in said:
+                go.touch()
+            return 10.0 if b"b" in said else 0.0
+
+        clock = Clock(time.sleep)
+        clock.monotonic = monotonic
+        command = f"echo a; until [ -e {go} ]; do sleep .01; done; echo b"
+        with activity.open("wb") as out, patch.object(worker, "ACTIVITY_POLL", .05), \
+                patch.object(worker, "time", clock):
+            code, _, killed = worker.limited(["bash", "-c", command], 30, silence=30,
+                                             activity=activity, stdout=out,
                                              stderr=subprocess.STDOUT, quiet=quiet)
-        self.assertEqual((code, killed, len(quiet)), (0, False, 1))
-        self.assertGreater(quiet[0], .9)
-        self.assertLess(quiet[0], 10)
+        self.assertEqual((code, killed, quiet), (0, False, [10]))
 
 
 if __name__ == "__main__":
