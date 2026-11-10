@@ -38,7 +38,7 @@ ROWS = ["Claude Code",
         "  Weekly audit  off · orch Fable 5.1 · builds Fable 5.1, GPT-6-Astra · reviews Fable 5.1,",
         "                GPT-6-Astra",
         "  Done check    on · the seat's reviewer",
-        "  Machines      1 machines · Google Cloud off",
+        "  Machines      1 machine · Google Cloud off",
         "  Limits        review 3 rounds · executor 300 lines · orchestrator 50 lines",
         ""]
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # a seat's, on a mark
