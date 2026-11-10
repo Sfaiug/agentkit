@@ -18,9 +18,12 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import Home, boxable
+from fixtures.akbin import SYSTEM, Home, boxable
 
 PROFILE = ".local/share/browser-bridge/profile"
+# the system's own tools: a seat's PATH leads first to ak's rsync shim, which finds no rsync
+# on the far side and calls itself again through a fake one here
+REAL = os.pathsep.join(SYSTEM)
 KEPT = (".agentkit/tmp", ".ssh/authorized_keys", f"{PROFILE}/SingletonLock")
 TICK = "*/3 * * * * /opt/ak/bin/ak watch >>/dev/null 2>&1 # agentkit watch"
 # ssh ALIAS COMMAND: COMMAND as the other machine's shell runs it.
@@ -57,7 +60,7 @@ class AkMoveCopiesItsHome(unittest.TestCase):
         there, tools = home.root / "there", home.root / "there-bin"
         tools.mkdir()
         for tool in ("sh", "grep", "rsync"):
-            (tools / tool).symlink_to(shutil.which(tool))
+            (tools / tool).symlink_to(shutil.which(tool, path=REAL))
         if crontab:
             (tools / "crontab").write_text(f"#!/bin/sh\n{crontab}\n")
             (tools / "crontab").chmod(0o755)
@@ -108,7 +111,7 @@ class AkMoveCopiesItsHome(unittest.TestCase):
     def test_a_file_vanishing_mid_pass_is_no_failure(self):
         home, there = self.machines()
         # rsync's own word for a file gone between its listing and its sending
-        home.fake("rsync", f'#!/bin/sh\n{shutil.which("rsync")} "$@" || exit; exit 24\n')
+        home.fake("rsync", f'#!/bin/sh\n{shutil.which("rsync", path=REAL)} "$@" || exit; exit 24\n')
         here, kept = tree(home.path), tree(there)
         done = home.ak("move", "acme-mini")
         self.assertEqual(done.code, 0, done.err)
