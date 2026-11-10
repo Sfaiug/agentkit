@@ -3271,7 +3271,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
 
         # One the owner closed rests: they closed it, and nothing in it is asking them anything.
         if seat_closed_by_owner(name):
-            waiting = sum(1 for _, st in mine if st.get("handback_pending"))
+            # the flag outlives delivery: only an ending still owed its seat waits for it
+            waiting = sum(1 for _, st in mine if handback.waits(st))
             reason = f"{OWNER_CLOSED_REASON}: reopen it from past sessions"
             if waiting:
                 reason += f" · {waiting} hand-backs waiting"
@@ -5774,7 +5775,9 @@ def note_freeze(run_dir, frozen, now):
 
 def run_last_write(run_dir, skip=(".lock", ".tmp")):
     """The newest write under the run directory: the run's last sign of life.  Locks and temp
-    files are the tick's own bookkeeping, not the run's life; `skip` names what is not counted."""
+    files are the tick's own bookkeeping, not the run's life; `skip` names what is not counted.
+    A link counts as written when it was made: a box's copy of /run links to the host's own
+    files, whose writes were never the run's."""
     latest = 0.0
     try:
         for root, _, files in os.walk(run_dir):
@@ -5782,7 +5785,7 @@ def run_last_write(run_dir, skip=(".lock", ".tmp")):
                 if name.endswith(skip):
                     continue
                 try:
-                    stamp = Path(root, name).stat().st_mtime
+                    stamp = Path(root, name).lstat().st_mtime
                 except OSError:
                     continue
                 if stamp > latest:
@@ -6339,6 +6342,8 @@ def resume_dead_jobs(dry_run=False, log=print, now=None):
             log(f"WARN cannot relaunch job {job_dir.name}: {exc}")
 
 
+# Kept, the owner, 9 Nov 2026: this ladder frees a hung turn (58 stalls from 19 to 30 Oct), so no
+# heartbeat or 60 s reconciler replaces it and the tick stays every 3 minutes (write-up rows 43, 44).
 def recover_runs(cfg=None, dry_run=False, log=print, now=None):
     """One bounded pass over silent runs: detect from outside the loop, climb the ladder.
 
