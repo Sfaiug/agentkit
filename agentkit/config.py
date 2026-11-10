@@ -1230,8 +1230,10 @@ def model_label(harness, model, said=""):
     letters opens with a capital: where the family word is `Acme`, `acme-nova-7-1` is `Nova 7.1`,
     `ACME-7.2-Vega` is `7.2 Vega` and `acme-7-20251101` is `Acme 7`.
     """
-    label = next((row["label"] for row in catalog_table(harness) if row["id"] == model), model)
-    if label != model:
+    table = manifest(harness).get("catalog")
+    entry = table.get(model) if isinstance(table, dict) else None
+    label = entry.get("label") if isinstance(entry, dict) else None
+    if isinstance(label, str) and label:
         return label
     name = re.sub(r"-[0-9]{8}$", "", (said or model).rsplit("/", 1)[-1])
     family = manifest(harness).get("family")

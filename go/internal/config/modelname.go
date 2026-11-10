@@ -28,7 +28,7 @@ var trailingDate = regexp.MustCompile(`-[0-9]{8}$`)
 func ModelLabel(harness, id, said string) string {
 	catalog, _ := Tree(harness, "catalog")
 	if entry, ok := catalog[id].(map[string]any); ok {
-		if label, ok := entry["label"].(string); ok && label != "" && label != id {
+		if label, ok := entry["label"].(string); ok && label != "" {
 			return label
 		}
 	}
