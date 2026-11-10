@@ -38,13 +38,27 @@ case $1 in
 esac
 """
 
-# Wait for each detached look to finish before assertions or sandbox cleanup, and report its
-# exit status despite the hook's silent redirects. No clock bounds a hook or its look: a loaded
-# host stretches them past any, and one that never ends stops the suite for its silence.
+# Each detached look is waited for before assertions or sandbox cleanup, its exit status kept
+# despite the hook's silent redirects. No clock bounds a hook, its look or the fake tmux that
+# look asks (`orch.TMUX_CEILING`): a loaded host stretches each past any bound, and one that
+# never ends stops the suite for its silence. The hooks' event clock never runs back, as a host
+# clock corrected backwards does: a seat's events are ordered by it (`config.record_hook_fact`).
 PYTHON = r"""#!/bin/bash
 if [[ $1 = -c && $2 = *watch.hook_look* ]]; then
-  "$TEST_PYTHON" "$@"
+  "$TEST_PYTHON" -c 'import sys
+from pathlib import Path
+look = sys.argv.pop(1)
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit import orch
+orch.TMUX_CEILING = None
+exec(look)' "${@:2}"
   printf '%s\n' "$?" >"$LOOK_FINISHED"
+elif [[ $1 = -c && $2 = 'import time; print(time.time())' ]]; then
+  exec "$TEST_PYTHON" -c 'import pathlib, sys, time
+clock = pathlib.Path(sys.argv[1])
+now = max(time.time(), float(clock.read_text()) + 0.001 if clock.exists() else 0)
+clock.write_text(repr(now))
+print(now)' "$HOME/event-clock"
 else
   exec "$TEST_PYTHON" "$@"
 fi
@@ -132,7 +146,9 @@ class AnswerClosesQuestion(Sandbox):
 
     def prompt(self, **payload):
         self.hook("UserPromptSubmit", **(payload or {"prompt": "Use the second schema."}))
-        return json.loads(config.stop_path(SEAT).read_text())["turn"]
+        turn = json.loads(config.stop_path(SEAT).read_text())["turn"]
+        self.assertEqual(turn, float((self.root / "event-clock").read_text()))   # never the host's
+        return turn
 
     def handback(self):
         return watch.type_at_prompt(self.seat, HANDBACK, lambda _: None, cfg=self.cfg)
