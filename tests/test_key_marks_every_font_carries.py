@@ -4,12 +4,11 @@ The owner (10 Nov 2026): "in any terminal, on any operating system, ak should al
 same."  A character no terminal font carries is borrowed from another font, at another size and
 width in each terminal, so a seat out of usage reads `○ out of usage`, told from `○ idle` by its
 colour and its words, under the pointer `✓ Wait for` and `→ Go on now with`; a meter's acts read
-`→ log in again`; a draft `¶ unsent`; the yes-or-no card `✓ Keep` and `× Stop`, the verdict's
-mark; and none of those screens, nor `ak run status` over a failed run, which reads a run by its
-state word (docs/cli-design.md), holds `◌`, `✗`, `↻`, `⇄` or `✎`.  Black-box: `AK_BIN`'s menu in
-a terminal (tests/fixtures/akterm.py) over seats of tests/fixtures/akseat.py and usage, logins
-and runs written under HOME, harnesses faked (tests/fixtures/fakeadapter.py), NO_COLOR.  This
-test fails against `/bin/false`.
+`→ log in again`; a draft `¶ unsent`; the yes-or-no card `✓ Keep` and `× Stop`; `ak run status`
+under a run its review failed `× FAIL`; and none of those holds `◌`, `✗`, `↻`, `⇄` or `✎`.
+Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over seats of
+tests/fixtures/akseat.py and usage, logins and runs written under HOME, harnesses faked
+(tests/fixtures/fakeadapter.py), NO_COLOR.  This test fails against `/bin/false`.
 """
 
 import re
@@ -112,7 +111,7 @@ class FailedRun(unittest.TestCase):
                 "state": "fail", "verdict": "FAIL"})
             done = home.ak("run", "status")
             self.assertEqual(done.code, 0, done.err)
-            self.assertRegex(done.out, rf"(?m)^{run_id} .* ! needs you ")
+            self.assertRegex(done.out, rf"(?m)^{run_id} .*\n  × FAIL$")
             self.assertEqual([mark for mark in GONE if mark in done.out], [], done.out)
 
 
