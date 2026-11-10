@@ -34,9 +34,11 @@ func TestAnAntigravitySeatClaimsTheOneStoreItsAgyHoldsOpen(t *testing.T) {
 		}
 		return strings.TrimPrefix(env[0], antigravityLaunchEnv+"=")
 	}
-	// a process carrying that token, holding each conversation's files open beside agy's summaries
+	// a process carrying that token, holding each conversation's files open beside agy's summaries,
+	// once it runs: /proc reads a process's environment empty until its exec has set it up, after
+	// Start returns, so it is asked only once it echoes a line back
 	agy := func(token string, conversations ...string) *exec.Cmd {
-		held := exec.Command("sleep", "60")
+		held := exec.Command("cat")
 		held.Env = append(os.Environ(), antigravityLaunchEnv+"="+token)
 		files := []string{filepath.Join("..", "conversation_summaries.db")}
 		for _, conversation := range conversations {
@@ -50,10 +52,24 @@ func TestAnAntigravitySeatClaimsTheOneStoreItsAgyHoldsOpen(t *testing.T) {
 			defer file.Close()
 			held.ExtraFiles = append(held.ExtraFiles, file)
 		}
+		in, err := held.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := held.StdoutPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
 		if err := held.Start(); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { held.Process.Kill(); held.Wait() })
+		if _, err := in.Write([]byte("\n")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := out.Read(make([]byte, 1)); err != nil {
+			t.Fatal(err)
+		}
 		return held
 	}
 	record := func(name string) map[string]any {

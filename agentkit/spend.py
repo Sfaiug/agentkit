@@ -114,12 +114,13 @@ def weeks(cfg, provider, meters, windows):
 
 
 def roles(cfg):
-    """{model: {effort: {role: share}}} for `matrix._costs`: of each configured model at each
-    effort it did a worker role at, the mean over the task runs that ended where it did of the
-    points of a week the role's `turn_usage` rows took, at listed prices times 100 over the week
-    of each row's login under the model's provider (`usage.plan_weeks`).  A run's reviewer is at
-    the one effort its reviews name; a run counts for nothing in a role a counted turn of which
-    kept no row, a row of which has no listed price or a login of which has no week."""
+    """{model: {effort: {role: (share, runs)}}} for `matrix._costs`: of each configured model at
+    each effort it did a worker role at, the mean over the `runs` task runs that ended where it
+    did of the points of a week the role's `turn_usage` rows took, at listed prices times 100
+    over the week of each row's login under the model's provider (`usage.plan_weeks`).  A run's
+    reviewer is at the one effort its reviews name; a run counts for nothing in a role a counted
+    turn of which kept no row, a row of which has no listed price or a login of which has no
+    week."""
     from . import staffing, usage   # here, not at the top: usage reads this module as it loads
     held = {name: prov for name, prov in staffing._cached_providers().items()
             if name in cfg["providers"]}
@@ -155,7 +156,8 @@ def roles(cfg):
             samples.setdefault((name, effort, role), []).append(sum(points))
     found = {}
     for (name, effort, role), points in samples.items():
-        found.setdefault(name, {}).setdefault(effort, {})[role] = sum(points) / len(points)
+        found.setdefault(name, {}).setdefault(effort, {})[role] = (sum(points) / len(points),
+                                                                   len(points))
     return found
 
 
