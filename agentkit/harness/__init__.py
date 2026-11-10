@@ -785,9 +785,11 @@ class Harness:
                     said[was[-1]] = self.user_messages(*was)
                 except (OSError, ValueError) as exc:
                     unread(exc)     # this one's own words still read
-        # every line, oldest first; a conversation's own in its order
+        # every line, oldest first, a conversation's own in its order; lines of two at one time
+        # by their conversations' names, so a receipt takes the same whichever is read
         lines = sorted(((message["at"], into, index) for into, messages in said.items()
-                        for index, message in enumerate(messages)), key=lambda line: line[0])
+                        for index, message in enumerate(messages)),
+                       key=lambda line: (line[0], str(line[1])))
         taken, excluded = set(), set()
         for sent in entries(config.seat_file("input", seat)):
             if sent.get("harness") != self.name:
