@@ -6,6 +6,7 @@ agy restores that one from the desktop keyring.  Black-box: `AK_BIN`'s menu in a
 `/bin/false`.
 """
 
+from datetime import datetime
 import sys
 from pathlib import Path
 import time
@@ -15,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
+from fixtures.loginend import midday
 
 PAGE = "agentkit · config · subscriptions"
 
@@ -28,6 +30,7 @@ class GeminiSignsInAgain(unittest.TestCase):
     def test_a_named_gemini_account_offers_log_in_again_first_and_the_usual_login_does_not(self):
         home = Home()
         self.addCleanup(home.close)
+        zone = midday(home)               # so the end is two of the menu's days off at any hour
         fakes = fakeadapter.install(home, antigravity="pass")
         akconfig.write(home, ["gemini"], providers={
             "google": {"mode": "subscription", "accounts": ["default", "two"]}})
@@ -35,12 +38,12 @@ class GeminiSignsInAgain(unittest.TestCase):
         used = {"meters": [{"name": "weekly", "used": 30, "window_secs": 604800}]}
         home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
             "google": {"accounts": {"default": used, "two": used}}}})
-        ends = int(now + 2 * 86400)       # inside the warning window, UTC as the menu reads it
+        ends = int(now + 2 * 86400)       # inside the warning window
         home.write(".agentkit/state/logins.json", {"google": {
             account: {"email": f"{account}@acme.test", "ends": ends, "plan": None,
                       "checked_at": now} for account in ("default", "two")}})
-        soon = "    login {}@acme.test ends " + time.strftime("%a %d %b %H:%M (in 2 days)",
-                                                              time.gmtime(ends))
+        soon = "    login {}@acme.test ends " + datetime.fromtimestamp(ends, zone).strftime(
+            "%a %d %b %H:%M (in 2 days)")
         term = Terminal(home, size=(100, 40), env={"NO_COLOR": "1"})
         self.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -50,12 +53,13 @@ class GeminiSignsInAgain(unittest.TestCase):
         term.keys("Down", "Down")          # past `Models`
         term.wait("› Subscriptions")
         term.keys("Enter")
-        usual = term.wait(lambda screen: PAGE in screen and "› Gemini I " in screen)
-        self.assertIn(soon.format("default") + "   − remove", lines(usual))
+        # tmux may be read part way through a draw: the rows asserted are the ones waited for
+        term.wait(lambda screen: PAGE in screen and "› Gemini I " in screen
+                  and soon.format("default") + "   − remove" in lines(screen))
         term.keys("Down")
-        named = term.wait(lambda screen: "› Gemini II " in screen)
-        self.assertIn(soon.format("two") + "   [↻ log in again]   − remove", lines(named))
-        self.assertIn("  ↑↓←→ move   ⏎ log in again   esc back", lines(named))
+        term.wait(lambda screen: "› Gemini II " in screen and {
+            soon.format("two") + "   [↻ log in again]   − remove",
+            "  ↑↓←→ move   ⏎ log in again   esc back"} <= set(lines(screen)))
         term.keys("Enter")
         term.wait(lambda screen: PAGE in screen and fakes["antigravity"].calls("login"))
         [call] = fakes["antigravity"].calls("login")
