@@ -2,6 +2,7 @@ package update
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"os"
@@ -29,22 +30,33 @@ func prepare(env []string, dir string) (string, int) {
 	ctx, cancel := context.WithTimeout(interrupted, stepCap)
 	defer cancel()
 	command := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	var out, errOut bytes.Buffer
-	command.Dir, command.Env, command.Stdout, command.Stderr = dir, env, &out, &errOut
+	command.Dir, command.Env = dir, env
 	stop := host.Group(command)
-	if err := command.Start(); err != nil {
+	stdout, err := command.StdoutPipe()
+	stderr, unpiped := command.StderrPipe()
+	if err = cmp.Or(err, unpiped); err == nil {
+		err = command.Start()
+	}
+	if err != nil {
 		return config.PyError(err), 1
 	}
-	// Wait goes on until its output closes, past its exit, as Python's communicate reads it
-	waited := make(chan error, 1)
-	go func() { waited <- command.Wait() }()
-	var err error
-	select {
-	case err = <-waited:
-	case <-ctx.Done():
-	}
-	if ctx.Err() != nil { // the cap or a ^C, however far it got: what still holds its output goes too
+	// the cap holds until its output closes, as Python's communicate reads it, and then all of its
+	// session goes, and what it started elsewhere that still holds that open is read no further
+	killed := make(chan struct{})
+	ended := context.AfterFunc(ctx, func() {
+		defer close(killed)
 		stop()
+		stdout.Close()
+		stderr.Close()
+	})
+	var out, errOut bytes.Buffer
+	read := make(chan struct{})
+	go func() { errOut.ReadFrom(stderr); close(read) }() // both at once: either can fill first
+	out.ReadFrom(stdout)
+	<-read
+	err = command.Wait()
+	if !ended() { // the cap or a ^C, however far it got
+		<-killed
 		if interrupted.Err() != nil {
 			heard() // its prepare gone, the ^C goes on to end ak as it would have
 			if self, err := os.FindProcess(os.Getpid()); err == nil {
