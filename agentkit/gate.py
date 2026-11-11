@@ -1582,7 +1582,7 @@ def split_suite_run(lp, command):
 
 
 class _SuiteMeasure:
-    """Wall time and each box's CPU work everywhere, a line's checker included; memory, swap
+    """Wall time and the CPU each box needed everywhere, a line's checker included; memory, swap
     included and less the file cache reclaim frees, where a cgroup is this run's or holds only
     this process."""
 
@@ -1593,7 +1593,7 @@ class _SuiteMeasure:
         self.group = (host.cgroup_path(relative) if relative and
                       Path(relative).name in turns._scope_units(state["scope"])
                       else host.own_cgroup())
-        self.cpu = []     # each box's CPU seconds (`worker.boxed`)
+        self.cpu = []     # each box's CPU seconds (`box.cpu_seconds`)
         self.quiet = []   # and the longest each go went without output (`worker.limited`)
         self.baseline = host.held_mb(self.group, swap=True) if self.group is not None else None
         self.peak = self.baseline
