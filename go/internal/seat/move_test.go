@@ -101,11 +101,11 @@ func TestMoveKeepsEscAndHandsUnsupportedSeatsBackBeforeAsking(t *testing.T) {
 			}
 			state := filepath.Join(home, ".agentkit", "state")
 			before, _ := os.ReadFile(stateFile(home, "session-acme.json"))
-			asked := false
-			known, err := Move("acme", model, func() (bool, bool) { asked = true; return false, true })
-			confirm := scenario == "esc" || scenario == "fresh restart"
-			if err != nil || known != confirm || asked != confirm {
-				t.Fatalf("known=%v, asked=%v, err=%v", known, asked, err)
+			asked, kept := false, false
+			known, err := Move("acme", model, "", func(keeps bool) (bool, bool) { asked, kept = true, keeps; return false, true })
+			confirm := scenario == "esc" || scenario == "fresh restart" || scenario == "kept conversation"
+			if err != nil || known != confirm || asked != confirm || kept != (scenario == "kept conversation") {
+				t.Fatalf("known=%v, asked=%v, kept=%v, err=%v", known, asked, kept, err)
 			}
 			after, _ := os.ReadFile(stateFile(home, "session-acme.json"))
 			entries, _ := os.ReadDir(state)
@@ -136,7 +136,7 @@ func TestMoveUsesReopenAndRestoresARefusedRestart(t *testing.T) {
 			_, record, _ := config.ResolveSession("acme")
 			path, _ := harness.Conversation("claude", record)
 			write(t, path, "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"keep working\"}}\n")
-			known, err := Move("acme", "astra", func() (bool, bool) {
+			known, err := Move("acme", "astra", "", func(bool) (bool, bool) {
 				// A concurrent mark survives the move's update under Python's lock.
 				if err := update(state, "acme", set([]field{{"reviewers", []any{"fable"}}})); err != nil {
 					t.Fatal(err)
