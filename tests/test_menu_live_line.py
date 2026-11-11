@@ -104,7 +104,7 @@ class MenuLiveLine(Sandbox):
 
     def test_e_a_model_is_drawn_on_one_line_as_text(self):
         # it may be named anything, a control character or an escape among it, and so may the
-        # id its full name is where its harness's catalog has no label for it
+        # id its full name is read off where its harness's catalog has no label for it
         model = "opus\x1b[2J\nfast"
         self.cfg["models"][model] = dict(self.cfg["models"]["opus"], model=model)
         config.save_session(self.cfg, "fix-api", "fable", [model],
@@ -116,7 +116,7 @@ class MenuLiveLine(Sandbox):
         self.assertNotIn("\x1b[2J", out.getvalue())
         lines = screen(out.getvalue())
         self.assertEqual(self.under(lines, "fix-api").strip(),
-                         "opus fast xhigh ⚒◎   ■□□")
+                         "opus Fast xhigh ⚒◎   ■□□")
 
 
 if __name__ == "__main__":

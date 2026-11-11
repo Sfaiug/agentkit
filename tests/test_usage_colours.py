@@ -83,8 +83,8 @@ class UsageColours(Sandbox):
         self.cfg["providers"]["acme"] = {"mode": "payg"}
         self.cache({"acme": {"meters": [self.meter(50)]}})
         self.assertEqual(menu.colour(self.cfg, "acme"), "accent")
-        # it sorts by the accent's hue, among the blues
-        self.assertEqual(self.labels().index("Acme"), self.labels().index("Muse") + 1)
+        # it sorts by the accent's hue, among the blues: just short of Muse's
+        self.assertEqual(self.labels().index("Acme") + 1, self.labels().index("Muse"))
         # a colour that is not `#RRGGBB` is no colour: the shipped one, else the accent, stands
         self.cfg["providers"]["acme"]["colour"] = "blue"
         self.cfg["providers"]["anthropic"]["colour"] = "#D9775"

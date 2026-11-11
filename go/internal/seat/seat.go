@@ -61,6 +61,8 @@ type Seat struct {
 	reader harness.Reader
 	path   string
 	seen   sight
+
+	bars func() ([]barRow, bool) // the bars as the reading that read it listed them, once (statusbar's look.once)
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -93,14 +95,17 @@ func (home Home) Seatless() bool { return len(home.records) == 0 }
 // kinds are the files state/ may hold for a seat, by kind: its record and its lock, its seat
 // file's, its typing lock, the plan of a seat the owner stopped, whose word no plan decides, the
 // count of deliveries its plan owes a verification, mid-replace too, which only a verification
-// reads, and the latch its stop hook keeps a turn's start in, which no word reads.
+// reads, what its last done check that found no gap read, mid-replace too, which plan reads to
+// weigh whether a finished plan owes another, the last answer to whether it owes one, which only
+// that answer reads (plan.checkOwed), as does that answer's write on its way (owedWrite), and the
+// latch its stop hook keeps a turn's start in, which no word reads.
 var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "unverified": {"txt", "txt.new"}, "stop": {"json"}}
+	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "unverified": {"txt", "txt.new"}, "checked": {"txt", "txt.new"}, "owed": {"json"}, "stop": {"json"}}
 
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
 	// login its conversation is under; `asleep` since `launched`), and those no reading of it hangs on
-	recordFields = []string{"orchestrator", "workers", "reviewers", "efforts", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo",
+	recordFields = []string{"orchestrator", "workers", "reviewers", "efforts", "cwd", "created", "conversation", "left", "id_source", "resumable", "session_title", "repo",
 		"account", "home_account", "launched", "asleep", "seen", "exited_since", "unnamed", "filed", "owner_words_cursor",
 		"rulebook_sha", "rulebook_read", "rulebook_told", "title_sync", "title_superseded", "title_conversation"}
 	seatFields = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits, screenFields)
@@ -139,7 +144,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 	renamed := map[string]bool{} // a rename's old names, which name no seat of their own (config.session_records)
 	for _, entry := range entries {
 		if name, ok := sessionFile(entry.Name()); ok {
-			if record, _ := run.ReadJSON(filepath.Join(state, entry.Name())); record != nil && record.Has(config.Renamed) {
+			if record, _ := run.Shared(filepath.Join(state, entry.Name())); record != nil && record.Has(config.Renamed) {
 				renamed[name] = true
 			} else {
 				names = append(names, name)
@@ -157,11 +162,12 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
 		// home is given, the audit's week and stall lines, the usage the screen's grid shows and what
 		// reading it keeps, the tick's lock, its log's, its page that ticks stopped ending and the
-		// hourly stamps of its reads, the seat weights' lock, the outages of the seats' products, what
-		// the collection keeps, what each machine is and ak's tmux config say nothing a word hangs on:
+		// hourly stamps of its reads, the seat weights' lock, the lock seats claim conversations under
+		// (claims), the outages of the seats' products, what the collection keeps, what each machine
+		// is and ak's tmux config say nothing a word hangs on:
 		// a seat's own wait on its usage is in its seat file, and the browser's tabs no seat opened
 		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || updateRecord(entry) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || entry.Name() == "front.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
-			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "watch.tick.page.json", "watch.tick.page.lock", "retire.json", "alive.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock", "tmux.conf"}, entry.Name()) ||
+			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "watch.tick.page.json", "watch.tick.page.lock", "retire.json", "alive.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock", "tmux.conf", "conversations.lock"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
 			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || entry.Name() == "stuck.json" || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || browser.Owns(entry.Name()) || recommendationState(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
@@ -180,7 +186,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
-			!slices.Contains(kinds[kind], suffix) && !launchKind(kind, suffix) && !goneKind(kind, suffix) && !goneQuestionKind(kind, name, suffix) && !revivalKind(kind, suffix) &&
+			!slices.Contains(kinds[kind], suffix) && !owedWrite(kind, suffix) && !launchKind(kind, suffix) && !goneKind(kind, suffix) && !goneQuestionKind(kind, name, suffix) && !revivalKind(kind, suffix) &&
 				!pastKind(state, name, kind, suffix) && !(slices.Contains(live, name) && looksKind(kind, suffix)) {
 			return Home{}, false
 		}
@@ -195,14 +201,14 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		return Home{}, false
 	}
 	home := Home{models: models, readers: recordReaders{}, runs: readRuns, found: found}
-	stands := sync.OnceValue(listed)
+	stands, bars := sync.OnceValue(listed), sync.OnceValues(barSessions)
 	for _, name := range names {
 		if server, ok := bare[name]; ok {
 			seat, ok := bareSeat(state, name, server, runs[name], now)
 			if !ok {
 				return Home{}, false
 			}
-			seat.home = homeKey("", stands)
+			seat.home, seat.bars = homeKey("", stands), bars
 			home.Seats = append(home.Seats, seat)
 			continue
 		}
@@ -212,7 +218,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		if !ok {
 			return Home{}, false
 		}
-		seat.held, seat.live = slices.Contains(held, name), isLive
+		seat.held, seat.live, seat.bars = slices.Contains(held, name), isLive, bars
 		if seat.live {
 			facts := climbingOf(state, seat, sight{}, seconds(now))
 			if deferred {
@@ -225,7 +231,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		if seat.held || seat.live {
 			// tmux offers its row whatever its record owns, dates it by its own start where the
 			// record does not, and its bar shows the squares of any run going
-			record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+			record, _ := run.Shared(filepath.Join(state, "session-"+name+".json"))
 			if at(record.Get("created")) == 0 {
 				return Home{}, false
 			}
@@ -297,7 +303,7 @@ func onServer(state string, names []string) (held, live []string, bare map[strin
 // read is the seat one record holds, from it, its seat file and its runs.  `live` is whether its
 // panes run on, whose look reads more of its seat file.
 func read(state, name string, models map[string]config.Model, offered []string, mine []ran, now time.Time, live bool, readers recordReaders, deferred bool) (Seat, bool) {
-	record, err := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+	record, err := run.Shared(filepath.Join(state, "session-"+name+".json"))
 	if err != nil || record == nil {
 		return Seat{}, false
 	}
@@ -408,8 +414,8 @@ func working(going []ran) (string, any) {
 			break
 		}
 	}
-	if place := run.LinePlace(newest.record, newest.name); place != "" {
-		return place, since
+	if newest.view != nil && newest.view.place != "" { // one read without its view runs or merged: in no line
+		return newest.view.place, since
 	}
 	title := newest.record.Str("title")
 	if title == "" {

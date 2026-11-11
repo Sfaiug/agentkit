@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"agentkit/internal/config"
@@ -275,7 +274,7 @@ func (j *jobRun) settle(e ending) (bool, error) {
 			e.task.Set(role, e.record.Get(role))
 		}
 	}
-	word, code, merged := classify(e.record), 1, "not merged"
+	word, code, merged := job.Classify(e.record, run.Models()), 1, "not merged"
 	if word == "merged" || word == "passed" {
 		code = 0
 	}
@@ -287,7 +286,7 @@ func (j *jobRun) settle(e ending) (bool, error) {
 	if code != 0 || !run.Ended(e.record) {
 		return false, nil
 	}
-	run.SetAll(e.task, "state", word, "finished_at", run.Float(seconds()), "verdict_line", verdictLine(name, word, e.record))
+	run.SetAll(e.task, "state", word, "finished_at", run.Float(seconds()), "verdict_line", job.VerdictLine(e.task, word, e.record))
 	if err := job.Save(j.dir, j.receipt); err != nil {
 		return false, err
 	}
@@ -300,38 +299,4 @@ func (j *jobRun) settle(e ending) (bool, error) {
 func (j *jobRun) leave() int {
 	j.say(fmt.Sprintf("job %s: this launcher ends here; ak run resume %s to continue, ak run stop %s to end it", j.id(), j.id(), j.id()))
 	return 1
-}
-
-// classify is a finished run's word for its task, Python's job_classify: merged, passed where no
-// merge was asked, the task is scratch, or its target already had the work or is none, else
-// stopped, blocked or failed.
-func classify(record *run.Object) string {
-	if record == nil {
-		return "failed"
-	}
-	switch state := record.Str("state"); {
-	case state == "stopped" || state == "blocked":
-		return state
-	case state == "not_needed":
-		return "passed"
-	case record.Truthy("merged"):
-		return "merged"
-	case !run.ReviewPass(record, run.Models()):
-		return "failed"
-	case record.Truthy("no_merge") || record.Truthy("scratch") || record.Truthy("on_target"),
-		record.Truthy("target") && strings.ToLower(run.Text(record.Get("target"))) == "none":
-		return "passed"
-	}
-	return "failed"
-}
-
-// verdictLine is a delivered task's line, Python's job_verdict_line: its rounds, and the pull
-// request a merge went through.
-func verdictLine(name, word string, record *run.Object) string {
-	tail := ""
-	if pr := run.Text(record.Get("pr")); word == "merged" && record.Truthy("pr") && strings.HasPrefix(pr, "http") {
-		tail = " " + pr
-	}
-	line := fmt.Sprintf("%s: PASS, %s after %d rounds%s", name, word, len(record.List("round_summaries")), tail)
-	return strings.ReplaceAll(line, " after 0 rounds", "")
 }

@@ -1,9 +1,9 @@
-"""The line a highlighted row opens: what got done for `done`, else who builds and who reviews
-and three squares for each task in flight.
+"""The line a highlighted row opens: who builds and who reviews, and three squares for each task
+in flight, whatever its word.
 
 The owner reads a seat's state from its row and opens the one line under it with the
-highlight (the screen approved on 14 Oct 2026).  A done seat says what got done,
-its plan's last done line; any other that is not asking names each model building ⚒ and
+highlight (the screen approved on 14 Oct 2026).  Every seat, a done one too, never saying what
+it got done (the owner, 9 Nov 2026), names each model building ⚒ and
 reviewing ◎ its work once, then each task in flight as three squares, build, review and land,
 filled as far as it has come, furthest behind first: in working's colour while a model works
 on it, dim while it waits.  A run that ended is no task in flight.  Black-box: the program
@@ -91,9 +91,8 @@ def groups(cells):
     return found
 
 
-# The row the owner points at (pointer or ↑/↓) opens one line under it: the question for
-# `needs you`, what got done for `done`, otherwise who builds, who reviews and each task in
-# flight as three squares (build, review, land). [2, 14, 19, 23, 26 Oct 2026]
+# The row the owner points at (pointer or ↑/↓) opens one line under it: who builds, who reviews
+# and each task in flight as squares (build, review, land). [2, 14, 19, 23, 26 Oct, 9 Nov 2026]
 @unittest.skipUnless(REAL_TMUX and LIVE.exists(), "no tmux, or no /proc to fingerprint a run")
 class OpenLine(unittest.TestCase):
     @classmethod
@@ -136,16 +135,16 @@ class OpenLine(unittest.TestCase):
             if name == "fix-api":
                 cls.coloured = menu.screen(colours=True)
 
-    def test_a_done_seat_opens_what_got_done(self):
+    def test_a_done_seat_opens_who_builds_and_reviews_never_what_got_done(self):
         row, line = self.screens["beta"]
         self.assertRegex(row, r"✓ done +━+ 2 of 2$")
-        self.assertEqual(line, f"{UNDER}the parser is shipped")
+        self.assertEqual(line, f"{UNDER}Opus 5.5 xhigh ⚒◎")
 
     def test_a_working_seat_opens_who_builds_who_reviews_and_its_tasks_squares(self):
         row, line = self.screens["fix-api"]
         self.assertRegex(row, r"● working +─+ no plan yet$")
         # build moving, build waiting its turn, review moving, then waiting in the landing line
-        self.assertEqual(line, f"{UNDER}muse-spark-1.3-contributor xhigh ⚒   Opus 5.5 xhigh ◎   "
+        self.assertEqual(line, f"{UNDER}Spark 1.3 Contributor xhigh ⚒   Opus 5.5 xhigh ◎   "
                                "■□□  ■□□  ■■□  ■■■")
 
     # blue while a model works on it, gray while it waits, with no mark.
@@ -168,7 +167,7 @@ class OpenLine(unittest.TestCase):
     def test_a_seat_at_rest_opens_each_model_once_with_what_it_does(self):
         row, line = self.screens["gamma"]
         self.assertTrue(row.endswith("○ idle"), row)
-        self.assertEqual(line, f"{UNDER}muse-spark-1.3-contributor xhigh ⚒   Fable 5.1 xhigh ⚒◎")
+        self.assertEqual(line, f"{UNDER}Spark 1.3 Contributor xhigh ⚒   Fable 5.1 xhigh ⚒◎")
 
 
 if __name__ == "__main__":

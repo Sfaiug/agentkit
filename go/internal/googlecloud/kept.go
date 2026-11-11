@@ -2,6 +2,7 @@ package googlecloud
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,17 +38,20 @@ func Keep(offered []Offer) error {
 	return os.Rename(tmp, path)
 }
 
-// Kept is the offers the tick last kept and when, in Unix seconds; none at 0 where it kept none
-// ak can read. One kept before ak rented has only its first five fields.
+// Kept is the offers the tick last kept and when, in Unix seconds, as Python's _kept: none at 0
+// where it kept none ak can read or no `at`, NaN for an `at` that is no number, which possible
+// refuses as _amount does. One kept before ak rented has only its first five fields.
 func Kept() (float64, []Offer) {
 	var kept struct {
-		At     float64
+		At     json.RawMessage
 		Offers [][]json.RawMessage
 	}
 	data, err := os.ReadFile(keptPath())
-	if err != nil || json.Unmarshal(data, &kept) != nil {
+	if err != nil || json.Unmarshal(data, &kept) != nil || kept.At == nil {
 		return 0, nil
 	}
+	at := math.NaN()
+	json.Unmarshal(kept.At, &at) // null, a string or a bool leaves it NaN
 	offered := make([]Offer, len(kept.Offers))
 	for n, fields := range kept.Offers {
 		o := &offered[n]
@@ -61,7 +65,7 @@ func Kept() (float64, []Offer) {
 			}
 		}
 	}
-	return kept.At, offered
+	return at, offered
 }
 
 func keptPath() string { return filepath.Join(config.Home(), "state", "google-cloud-offers.json") }

@@ -34,6 +34,9 @@ class Turn:
     def give(self, slot):
         pass
 
+    def shed(self):
+        pass
+
     def alone(self):
         self.slots = self.slots[:1]
 
