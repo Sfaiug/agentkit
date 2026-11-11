@@ -8,10 +8,12 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tests"))
@@ -74,6 +76,15 @@ class SuiteShares(unittest.TestCase):
                     proc = subprocess.run(["bash", "-n"], input=chosen,
                                           capture_output=True, text=True, timeout=30)
                     self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_a_listed_block_runs_with_those_it_depends_on_whatever_the_share(self):
+        listing = self.root / "only"
+        listing.write_text("tests/smoke.sh#7b\n")
+        with patch.dict(os.environ, {"AK_ONLY": str(listing)}):
+            for number in (1, 2, 3):
+                chosen = suite.smoke_source(SMOKE, REPO, (number, 3))
+                self.assertEqual(re.findall(r"^SMOKE_BLOCK='(.+)'$", chosen, re.MULTILINE),
+                                 ["tests/smoke.sh#7", "tests/smoke.sh#7b"])
 
     def test_tmux_guard_stops_every_piece_before_an_unsafe_check(self):
         guard = next(body for _, body in BLOCKS if body.startswith("# --- 0:"))

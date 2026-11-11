@@ -250,9 +250,6 @@ func (l *loop) boxed(cwd, cmd, shard, times string, limit time.Duration, progres
 	if shard != "" {
 		env["AK_SHARD"], env["AK_TIMES"] = shard, times
 	}
-	if l.changed != "" {
-		env["AK_CHANGED"] = l.changed
-	}
 	if err := nameTests(env, out, only); err != nil {
 		return ran{}, err
 	}
