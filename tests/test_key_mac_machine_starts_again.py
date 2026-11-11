@@ -4,8 +4,9 @@ Lima's own LaunchDaemon starts the machine only when the Mac boots.  So the inst
 LaunchDaemon of ak's own, which checks the machine every minute as the account: one stopped
 starts; one running, or Broken as Lima says while its host agent does not answer, that has not
 answered `ssh lima-ak true` for 10 minutes is stopped by force and starts; anything else changes
-nothing.  The time it last answered or started outlives each check, and silence counts only while
-the machine runs, so never from before the Mac started.  The install says so in one line, a
+nothing.  The time it last answered or started outlives each check and an install that finds it
+running, silence counts only while the machine runs, so never from before the Mac started, and
+with no answer on record, from the first check.  The install says so in one line, a
 second changes nothing, and one after the daemon was booted out loads it again.  Black-box on the
 Mac of fakes of tests/test_key_install_mac_linux_machine.py: each check runs the daemon's program
 as launchd would, with only its environment, on a clock of fakes (`date +%s` reads `<root>/now`,
@@ -16,6 +17,7 @@ not hung.
 import json
 import plistlib
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -184,6 +186,13 @@ class KeptUp(unittest.TestCase):
         self.mac.hangs()
         self.assertEqual(self.minutes(14, 15), [[], ["stop", "start"]])
 
+    def test_an_install_while_it_hangs_keeps_its_last_answer(self):
+        self.minutes(0, 0)
+        self.mac.hangs()
+        self.mac.at(self.now + 540)
+        self.mac.install()
+        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+
     def test_a_broken_machine_that_has_not_answered_for_ten_minutes_too(self):
         self.minutes(0, 0)
         self.mac.breaks()
@@ -198,6 +207,26 @@ class KeptUp(unittest.TestCase):
         self.assertEqual(self.minutes(61, 69), [[]] * 9)
         self.assertEqual(self.minutes(70, 70), [["stop", "start"]])
 
+
+class RunningBefore(unittest.TestCase):
+    """A Mac whose machine Lima started with it before ak's check came: the check has no answer
+    on record, and the machine hangs as the install puts the check."""
+
+    def test_its_ten_minutes_count_from_the_first_check(self):
+        mac = Watched()
+        self.addCleanup(mac.close)
+        lima = mac.home.path / ".lima/ak"
+        lima.mkdir(parents=True)
+        (lima / "lima.yaml").write_text("")
+        (lima / "ssh.config").write_text("Host lima-ak\n")
+        shutil.copy(mac.home.root / "limactl", mac.home.bin / "limactl")
+        mac.started(BOOT)
+        mac.hangs()
+        mac.install()
+        self.assertNotIn("start", [call[0] for call in mac.lima()])
+        calls = [[call[0] for call in mac.check(BOOT + 3600 + minute * 60)]
+                 for minute in range(11)]
+        self.assertEqual(calls, [[]] * 10 + [["stop", "start"]])
 
 if __name__ == "__main__":
     unittest.main()
