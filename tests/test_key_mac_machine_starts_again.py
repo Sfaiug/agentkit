@@ -3,8 +3,9 @@
 Lima's own LaunchDaemon starts the machine only when the Mac boots.  So the install also puts a
 LaunchDaemon of ak's own, which checks the machine every minute as the account: one stopped
 starts; one running, or Broken as Lima says while its host agent does not answer, that has not
-answered `ssh lima-ak true` for 10 minutes is stopped by force and starts, once until it answers
-again or is started anew; anything else changes nothing.  The time it last answered or started outlives each check and an install that finds it
+answered `ssh lima-ak true` for 10 minutes is stopped by force and starts, once, even when that
+start fails, until it answers again, is started anew or the Mac starts; anything else changes
+nothing.  The time it last answered or started outlives each check and an install that finds it
 running, silence counts only while the machine runs, so never from before the Mac started, and
 with no answer on record, from the first check.  The install says so in one line, a
 second changes nothing, and one after the daemon was booted out loads it again.  Black-box on the
@@ -87,9 +88,9 @@ class Watched(Mac):
         return [path for path in self.daemons.glob("*.plist")
                 if not path.name.startswith("io.lima-vm.")]
 
-    def check(self, at):
+    def check(self, at, fails=False):
         """Run the daemon's program once at `at`, as launchd runs it; the limactl calls it made
-        but to list the machine."""
+        but to list the machine.  It fails only where `fails` says so."""
         self.at(at)
         [plist] = self.daemons_of_ak()
         daemon = plistlib.loads(plist.read_bytes())
@@ -98,7 +99,7 @@ class Watched(Mac):
                               env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                                    **daemon.get("EnvironmentVariables", {})},
                               capture_output=True, text=True, timeout=120)
-        assert done.returncode == 0, done.stdout + done.stderr
+        assert (done.returncode != 0) == fails, done.stdout + done.stderr
         return [call for call in self.lima()[before:] if call[0] != "list"]
 
 
@@ -193,6 +194,28 @@ class KeptUp(unittest.TestCase):
         self.assertEqual(self.minutes(41, 41), [[]])
         self.mac.hangs()
         self.assertEqual(self.minutes(42, 51), [[]] * 9 + [["stop", "start"]])
+
+    def test_one_stopped_by_force_is_left_running_though_its_start_failed(self):
+        """Lima's start fails with the machine left running when something it waits for in the
+        machine never comes."""
+        staged = self.mac.home.root / "limactl"
+        self.addCleanup(shutil.copy, staged, self.mac.home.bin / "limactl")
+        self.mac.home.fake("limactl",
+                           f'#!/bin/sh\n{shlex.quote(str(staged))} "$@" && [ "$1" != start ]\n')
+        self.minutes(0, 0)
+        self.mac.hangs()
+        self.assertEqual([call[0] for call in self.mac.check(self.now + 600, fails=True)],
+                         ["stop", "start"])
+        self.mac.hangs()
+        self.assertEqual(self.minutes(11, 11), [[]])
+
+    def test_a_stop_by_force_from_before_the_mac_started_does_not_count(self):
+        self.minutes(0, 0)
+        self.mac.hangs()
+        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.mac.started(self.now + 3600)    # before it answered again
+        self.mac.hangs()
+        self.assertEqual(self.minutes(69, 70), [[], ["stop", "start"]])
 
     def test_the_ten_minutes_count_across_runs_from_the_last_answer(self):
         self.assertEqual(self.minutes(0, 0) + self.minutes(5, 5), [[], []])
