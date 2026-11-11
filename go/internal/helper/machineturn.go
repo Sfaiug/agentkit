@@ -60,7 +60,7 @@ func Placed(model config.Model, argv []string, cwd, out string, env map[string]s
 
 // Run runs the turn there until it ends or ctx does: its events stream into the out dir's
 // events.jsonl and the harness's stderr into its stderr.log, as a turn here writes them.  False
-// where its room went to another before it started, so it runs here, the turn off the machine.
+// where its room went to another before it started, so it runs here.
 func (t *Turn) Run(ctx context.Context) bool {
 	t.code = lost
 	volumes := []string{"home:" + t.home, "work:" + t.cwd, "out:" + t.out}
@@ -96,7 +96,6 @@ func (t *Turn) Run(ctx context.Context) bool {
 	switch {
 	case ctx.Err() != nil:
 	case t.code == full:
-		t.away.Finish()
 		return false
 	case t.code == 0:
 		t.ended = true
@@ -108,9 +107,10 @@ func (t *Turn) Run(ctx context.Context) bool {
 
 // Home is the run turn's exit and the conversation it leaves, asked once the worker's watch is
 // over, as bringing its results is none of the turn's silence; then the turn is taken off the
-// machine.  One that ended of itself brings its results home (back).  One ctx ended, one on a
-// machine lost mid-turn and one whose results did not come home whole leave the conversation it
-// was given, an id it streamed naming one that is nowhere here, the last two failing with `lost`.
+// machine, one Run found no room for too.  One that ended of itself brings its results home
+// (back).  One ctx ended, one on a machine lost mid-turn and one whose results did not come home
+// whole leave the conversation it was given, an id it streamed naming one that is nowhere here,
+// the last two failing with `lost`.
 func (t *Turn) Home(recorded func(out string) string) (int, string) {
 	defer t.away.Finish()
 	if !t.ended {

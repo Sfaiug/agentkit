@@ -12,12 +12,13 @@ import (
 	"time"
 )
 
-// A turn a machine ran to its end is no silent turn however long its results take to come home
-// and the machine to let it go: the worker's watch covers the turn alone, as Python's watch does
-// the ssh alone, before machine_turn._home.
-func TestATurnsHomecomingIsNoSilence(t *testing.T) {
-	root := t.TempDir()
-	home, bin, repo, adapters, result := filepath.Join(root, "home"), filepath.Join(root, "bin"), filepath.Join(root, "repo"), filepath.Join(root, "adapters"), filepath.Join(root, "result")
+// aMachineTakesTurns is a checkout under root, repo, whose model glint's turns go to the machine
+// acme, its ssh what put writes at bin/ssh; a turn of glint run here runs gamma.sh's `run` as run
+// says, its out dir $6.
+func aMachineTakesTurns(t *testing.T, run string) (root, repo string, put func(at, text string), git func(args ...string) string) {
+	root = t.TempDir()
+	home, bin, adapters := filepath.Join(root, "home"), filepath.Join(root, "bin"), filepath.Join(root, "adapters")
+	repo = filepath.Join(root, "repo")
 	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "AGENTKIT_ADAPTER_DIR": adapters, "GIT_CONFIG_NOSYSTEM": "1",
 		"GIT_AUTHOR_NAME": "a", "GIT_AUTHOR_EMAIL": "a@example.com", "GIT_COMMITTER_NAME": "a", "GIT_COMMITTER_EMAIL": "a@example.com",
 		"AGENTKIT_RUN": "", "AGENTKIT_RUN_DIR": "", "AGENTKIT_SESSION": "", "PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH")} {
@@ -27,14 +28,14 @@ func TestATurnsHomecomingIsNoSilence(t *testing.T) {
 		t.Setenv(key, "")
 		os.Unsetenv(key)
 	}
-	put := func(at, text string) {
+	put = func(at, text string) {
 		t.Helper()
 		// executable, as the scripts among them must be
 		if os.MkdirAll(filepath.Dir(at), 0o755) != nil || os.WriteFile(at, []byte(text), 0o755) != nil {
 			t.Fatalf("cannot write %s", at)
 		}
 	}
-	git := func(args ...string) string {
+	git = func(args ...string) string {
 		t.Helper()
 		said, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
 		if err != nil {
@@ -44,18 +45,28 @@ func TestATurnsHomecomingIsNoSilence(t *testing.T) {
 	}
 	put(filepath.Join(home, ".agentkit", "config.toml"), "[models.glint]\nharness='gamma'\nmodel='gamma-1'\neffort='high'\nprovider='acme'\n"+
 		"[providers.acme]\nmode='subscription'\n[machines.acme]\nwork=['turns']\n")
-	put(filepath.Join(adapters, "gamma.toml"), "version=1\n[worker]\nsessions=['~/.gamma/{id}.jsonl']\nlent_for=300\n"+
+	// the adapters' folder is the harness's state, so a turn's box here sees gamma.sh
+	put(filepath.Join(adapters, "gamma.toml"), "version=1\n[worker]\nstate=['"+filepath.ToSlash(adapters)+"']\nsessions=['~/.gamma/{id}.jsonl']\nlent_for=300\n"+
 		"[fetch]\naarch64='https://gamma.example/{version}/gamma'\nx86_64='https://gamma.example/{version}/gamma'\n"+
 		"[update]\nversion=['gamma','--version']\nupgrade=['gamma','upgrade']\n")
 	put(filepath.Join(bin, "gamma"), "#!/bin/sh\necho 'gamma 1.2.3'\n")
-	// a turn run here would leave the conversation "local"
 	put(filepath.Join(adapters, "gamma.sh"), "#!/bin/sh\ncase \"$1\" in\nauth) echo ready ;;\n"+
 		"lend) mkdir -p \"$2/.gamma\" && echo lent >\"$2/.gamma/login\" && echo $(( $(date +%s) + 86400 )) ;;\n"+
-		"run) echo local >\"$6/session_id\" ;;\nesac\n")
+		"run) "+run+" ;;\nesac\n")
 	put(filepath.Join(repo, "tools", "helper", "Containerfile"), "FROM scratch\n")
 	git("init", "-q", "-b", "main")
 	git("add", "-A")
 	git("commit", "-q", "-m", "base")
+	return root, repo, put, git
+}
+
+// A turn a machine ran to its end is no silent turn however long its results take to come home
+// and the machine to let it go: the worker's watch covers the turn alone, as Python's watch does
+// the ssh alone, before machine_turn._home.
+func TestATurnsHomecomingIsNoSilence(t *testing.T) {
+	// a turn run here would leave the conversation "local"
+	root, repo, put, git := aMachineTakesTurns(t, `echo local >"$6/session_id"`)
+	home, result := filepath.Join(root, "home"), filepath.Join(root, "result")
 	base := git("rev-parse", "HEAD")
 	// what the machine sends back: the commit of what the turn left, its exit, its out dir and
 	// the conversation it reported
@@ -69,7 +80,7 @@ func TestATurnsHomecomingIsNoSilence(t *testing.T) {
 	put(filepath.Join(result, "home", ".gamma", "received.jsonl"), "whole\n")
 	// The turn there ends at once; collecting its results and letting it go each take longer
 	// than the turn's silence limit.
-	put(filepath.Join(bin, "ssh"), "#!/bin/sh\neval \"set -- $8\"\ncase \"$5\" in\n"+
+	put(filepath.Join(root, "bin", "ssh"), "#!/bin/sh\neval \"set -- $8\"\ncase \"$5\" in\n"+
 		"probe) printf 'cpus 2\\nload 0\\nroom_mb 65536\\nturns 1\\n' ;;\nprepare) cat >/dev/null ;;\n"+
 		"turn) echo '{\"session_id\":\"received\"}' ;;\n"+
 		"collect) sleep 3; tar -C '"+result+"' -cf - code back.bundle out home ;;\nfinish) sleep 3 ;;\nesac\n")

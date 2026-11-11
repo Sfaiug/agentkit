@@ -119,22 +119,32 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	away := elsewhere(model, argv, workspace, out, env, session)
 	words := loggedOut(model.Harness, out)
 	interrupt, restore := signal.NotifyContext(cmp.Or(given.Context, context.Background()), os.Interrupt)
-	ctx, unwatch := words.watch(interrupt)
 	heartbeats, _ := config.Words(model.Harness, "worker", "heartbeats")
-	ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Declared: host.Declared(env[host.Marker])}.Stop(ctx)
-	markLaunched()
-	code, left, there := 0, map[int]string(nil), away != nil && away.Run(ctx)
-	if !there {
-		code, left, err = box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
+	// launch runs one try at the turn under a watch of its own, as Python's launch does: whether
+	// the watch stopped it.  A turn a full machine refused gets a whole silence limit here.
+	launch := func(try func(ctx context.Context)) bool {
+		ctx, unwatch := words.watch(interrupt)
+		ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Declared: host.Declared(env[host.Marker])}.Stop(ctx)
+		markLaunched()
+		try(ctx)
+		unwatch()
+		return watched() != ""
 	}
-	unwatch()
-	stopped := watched() != ""
+	code, left, there, stopped := 0, map[int]string(nil), false, false
+	if away != nil {
+		stopped = launch(func(ctx context.Context) { there = away.Run(ctx) })
+		// its results come home and the machine lets it go once the watch is over: neither is the
+		// turn's silence
+		code, session = away.Home(Conversation)
+	}
+	if !there {
+		stopped = launch(func(ctx context.Context) {
+			code, left, err = box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
+		})
+	}
 	interrupted := interrupt.Err() != nil
 	restore()
 	said.Close()
-	if there { // its results come home once the watch is over: bringing them is no silence of the turn's
-		code, session = away.Home(Conversation)
-	}
 	harness.RecordTurn(model.Harness, out, filepath.Join(config.Home(), "state"), env["AGENTKIT_ACCOUNT"])
 	if data, err := os.ReadFile(own); err == nil && os.Remove(own) == nil && len(data) > 0 {
 		if log, err := os.OpenFile(filepath.Join(out, "stderr.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666); err == nil {
