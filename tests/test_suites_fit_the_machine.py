@@ -145,7 +145,7 @@ class SuitesFitTheMachine(unittest.TestCase):
                                          cwd=str(self.root), activity=self.root / "activity",
                                          cpu=cpu)
         self.assertEqual(code, 0, text)
-        self.assertGreaterEqual(cpu[0], 3)
+        self.assertGreaterEqual(cpu[0][0], 3)
 
 
 if __name__ == "__main__":
