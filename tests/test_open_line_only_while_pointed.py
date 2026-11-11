@@ -26,13 +26,13 @@ def row(lines, name):
 
 class OpensOnlyWhilePointed(unittest.TestCase):
     def test_the_line_opens_under_the_pointer_or_the_arrows_and_closes_off_every_row(self):
-        menu = Menu(self, ["acme-plan", "acme-api", "acme-web"], asks={"acme-plan": ASKED})
+        menu = Menu(self, ["acme-plan", "acme-api", "acme-web"], drafts={"acme-plan": ASKED})
         lines = menu.frame()
         self.assertIn("acme-plan", menu.highlighted(lines))     # the first, so lit
         self.assertNotIn(ASKED, "\n".join(lines), "a line open that nothing points at")
         menu.send(move(20, row(lines, "acme-plan")))
         lines = menu.frame(lambda lines: ASKED in "\n".join(lines))
-        self.assertEqual(lines[row(lines, "acme-plan")].strip(), ASKED)     # under its row
+        self.assertEqual(lines[row(lines, "acme-plan")].strip(), f"✎ {ASKED}")     # under its row
         menu.send(move(1, 2))                                   # the rule: on no row
         menu.frame(lambda lines: ASKED not in "\n".join(lines)
                    and not any(line.startswith("›") for line in lines))
@@ -48,7 +48,7 @@ class OpensOnlyWhilePointed(unittest.TestCase):
         menu.leave()
 
     def test_a_key_that_opens_nothing_keeps_the_line_the_arrows_opened(self):
-        menu = Menu(self, ["acme-plan", "acme-api"], asks={"acme-plan": ASKED})
+        menu = Menu(self, ["acme-plan", "acme-api"], drafts={"acme-plan": ASKED})
         menu.frame()
         menu.send(DOWN)
         menu.frame(lambda lines: "acme-api" in menu.highlighted(lines))
@@ -62,7 +62,7 @@ class OpensOnlyWhilePointed(unittest.TestCase):
 
     def test_back_from_a_seat_no_line_is_open_though_the_pointer_moved_while_its_number_was_typed(
             self):
-        menu = Menu(self, [f"acme-{n:02}" for n in range(1, 13)], asks={"acme-01": ASKED})
+        menu = Menu(self, [f"acme-{n:02}" for n in range(1, 13)], drafts={"acme-01": ASKED})
         lines = menu.frame()
         menu.send(b"1" + move(20, row(lines, "acme-01")))   # while 1 waits for a second digit
         menu.saw("<opened acme-01>")
@@ -72,13 +72,13 @@ class OpensOnlyWhilePointed(unittest.TestCase):
 
     def test_a_row_moved_from_under_the_pointer_opens_no_line(self):
         long = "Choose a schema. " + "The importer still reads the old fields and the new. " * 5
-        menu = Menu(self, ["acme-api", "acme-web"], asks={"acme-api": long, "acme-web": ASKED})
+        menu = Menu(self, ["acme-api", "acme-web"], drafts={"acme-api": long, "acme-web": ASKED})
         lines = menu.frame()
         menu.send(move(20, row(lines, "acme-api")))
         lines = menu.frame(lambda lines: "Choose a schema." in "\n".join(lines))
         below = row(lines, "acme-web")
         mark = len(menu.text())
-        menu.send(move(20, below))                  # its question closes, and acme-web moves up
+        menu.send(move(20, below))                  # its text closes, and acme-web moves up
         lines = menu.frame(after=mark)
         self.assertEqual(lines[below - 1].strip(), "")
         self.assertNotIn(ASKED, "\n".join(lines))
@@ -90,7 +90,7 @@ class OpensOnlyWhilePointed(unittest.TestCase):
 
     def test_the_pointer_on_the_name_of_a_seat_with_a_plan_opens_its_line(self):
         # at 50 columns its progress line is under its name, and the line opens under both
-        menu = Menu(self, ["acme-plan", "acme-web"], cols=50, asks={"acme-plan": "Deploy?"},
+        menu = Menu(self, ["acme-plan", "acme-web"], cols=50, drafts={"acme-plan": "Deploy?"},
                     plans={"acme-plan": "- [x] done\n- [ ] todo\n"})
         lines = menu.frame()
         self.assertIn("1 of 2", lines[row(lines, "acme-plan")])

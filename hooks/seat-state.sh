@@ -74,8 +74,7 @@ seat_state() {
   kind=$("$jq" -r '.notification_type // .notificationType // .tool_name // .toolName // .trigger
                    // empty' <<<"$payload" 2>/dev/null) || kind=''
   # a question's own words, where the event carries one, before a notice's: whole, for each
-  # reader fits them to its own room (tests/test_highlighted_question_whole.py), and on stdin,
-  # for one argument holds 128 KiB
+  # reader fits them to its own room, and on stdin, for one argument holds 128 KiB
   text=$("$jq" -r '(.tool_input.questions[0].question)? // .message // .title // ""' \
     <<<"$payload" 2>/dev/null) || text=''
 

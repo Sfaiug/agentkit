@@ -3809,7 +3809,6 @@ printf '\n' | akn --dry-run >"$WORK/name-ghost.log" 2>&1 || NAME=1
 RESUME_GLYPH=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
 OPUS=$("${NENV[@]}" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_at(config.load(), None, sys.argv[1], "orchestrator"))' opus)
 grep -qE "^ +[0-9]+  resume-seat +$OPUS +$RESUME_GLYPH idle" "$WORK/name-ghost.log" || NAME=1
-grep -q "session closed: press" "$WORK/name-ghost.log" || NAME=1
 akn orch resume-seat >"$WORK/name-reopen.log" 2>&1 || NAME=1
 grep -q "^orch: resuming resume-seat on opus in $NSEAT (conversation $CONV)\$" \
   "$WORK/name-reopen.log" || NAME=1
@@ -3960,7 +3959,7 @@ grep -qE '^ +[0-9]+  update ' "$WORK/update-notice.log" && UPD=1
 
 # --- 21: the two notification shapes (offline) --------------------------------
 # `--dry-run` prints the payload and posts nothing; without a webhook the real form prints to
-# stderr and records the session's last message, which is what the menu shows. The card leads
+# stderr and records the seat's last message, which turns its menu row `needs you`. The card leads
 # with its two words and the seat, the mention last and the only one it may ping, and carries
 # nothing the seat asked or did.
 NSH="$WORK/home-notify-shapes"
@@ -3993,13 +3992,13 @@ grep -q 'no webhook configured; message: Needs you . smoke-shape: Which branch?'
 jq -e '.session == "smoke-shape" and .kind == "needs" and .text == "Which branch?" and (.time | type == "number")' \
   "$NSH/.agentkit/state/notify-smoke-shape.json" >/dev/null 2>&1 || SHAPE=1
 # the first frame is the records as they stand: the line that leaves goes in once the seat's
-# look has landed and drawn its row again, its question on the line under it
+# look has landed and drawn its row again, who builds on the line under it, never its question
 ROW="^ *$NUM  smoke-shape +$(HOME="$NSH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_at(config.load(), None, sys.argv[1], "orchestrator"))' astra) +! needs you"
 rm -f -- "$WORK/menu-shape.log"
-{ for _ in $(seq 300); do grep -q 'Which branch?' "$WORK/menu-shape.log" 2>/dev/null && break
+{ for _ in $(seq 300); do grep -qE "$ROW" "$WORK/menu-shape.log" 2>/dev/null && break
     sleep 0.1; done
   printf '\n'; } | HOME="$NSH" ak --dry-run >"$WORK/menu-shape.log" 2>&1 || SHAPE=1
-grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +Which branch\?$' || SHAPE=1
+grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +[^ ].* ⚒' || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/shape-attach.txt" >"$WORK/needs-file.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
 # the freeform message went with the attachments: needs or --check
@@ -5079,8 +5078,8 @@ printed = io.StringIO()
 with redirect_stdout(printed):
     assert status.cmd_status([]) == 0
 assert SMOKE in printed.getvalue(), printed.getvalue()
-assert "Merge the MOV helper" in "\n".join(lines), lines
-assert "hero swapped" in "\n".join(lines), lines
+assert "Merge the MOV helper" not in "\n".join(lines), lines
+assert "hero swapped" not in "\n".join(lines), lines
 assert not any("press r" in line for line in lines), lines
 for key in ("i", "r", "p", "b", "s", "u"):
     out = menu_lines(f"{key}\n\n")
