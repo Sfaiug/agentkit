@@ -258,6 +258,7 @@ test_key_login_plan
 test_key_login_resume WorktreeGone ConflictFixer
 test_key_login_resume WorktreeGone
 test_key_login_words
+test_key_lost_pieces_go_to_another_machine
 test_key_macbridge_off_macos
 test_key_machines_measured
 test_key_maintainer_decision
