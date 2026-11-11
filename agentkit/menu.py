@@ -5803,7 +5803,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
                            keyboard=keyboard, doing=LEFT) if session and selected else {}
     except Back:
         return cfg
-    # one git call a visit, not a draw; nothing about a harness and nothing over the network
+    # git asked once a visit, not each draw; nothing about a harness and nothing over the network
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
         terminal.frame("config",

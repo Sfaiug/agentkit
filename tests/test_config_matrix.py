@@ -46,7 +46,7 @@ EFFORTS = {"claude-haiku-4-5": ["none"],
 config.catalog = lambda harness, cfg=None: [{"id": model, "label": model, "efforts": efforts}
                                   for model, efforts in EFFORTS.items() if harness == "claude"]
 update.version = lambda harness: print("<harness version>", flush=True)
-update.agentkit_version = lambda: "abc1234 · 2026-09-29"
+update.agentkit_version = lambda: "2816 · 2026-09-29"
 menu.config_discord = lambda: print("<discord step>", flush=True)
 session = os.environ["MATRIX_SESSION"] or None
 if session:     # the seat whose roles the marks are, with no reviewers of its own
@@ -277,9 +277,9 @@ class Matrix(unittest.TestCase):
         self.assertTrue(any(line.startswith("Discord") and line.endswith("not connected")
                             for line in tail), tail)
         # the build under the last row, nothing said of the highlighted model
-        version = tail.index("Version abc1234 · 2026-09-29")
+        version = tail.index("Version 2816 · 2026-09-29")
         self.assertEqual(tail[version - 2].split()[0], "Limits", tail)
-        self.assertEqual(tail[version - 1:], ["", "Version abc1234 · 2026-09-29", "",
+        self.assertEqual(tail[version - 1:], ["", "Version 2816 · 2026-09-29", "",
                                               KEYS.strip()])
         self.assertEqual(lines[-1], KEYS)
         screen.leave()
@@ -480,7 +480,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(lines[-1], OPEN_KEYS)   # its step, like Discord's
         # the last stop: the build under the page is read, and never highlighted
         lines = screen.press(DOWN * 3, lambda lines: highlighted(lines).startswith("› Limits"))
-        self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])
+        self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])
         screen.leave()
         self.assertEqual(screen.text().count("<discord step>"), 1)
 
@@ -488,7 +488,7 @@ class Matrix(unittest.TestCase):
         screen = Screen(self, workers=["opus"], rows=24, cols=40)
         lines = screen.frame()
         self.assertLessEqual(len(lines), 23)
-        self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # on the first page
+        self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # on the first page
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews"])
@@ -500,7 +500,7 @@ class Matrix(unittest.TestCase):
         lines = screen.press(DOWN * 14,
                              lambda lines: highlighted(lines).startswith("› Limits"))
         self.assertLessEqual(len(lines), 23)
-        self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # and on the last
+        self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
         lines = screen.press(UP * 6, lambda lines: highlighted(lines) == "› Models")
