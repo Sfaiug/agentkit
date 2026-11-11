@@ -334,7 +334,7 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
                tests=None):
     """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, the target's tip
     alone, for the member in `directory`: True when it passes there, so the red is the
-    member's own, the piece then in `green`, the pieces the tip passed on this pass.  Where
+    member's own, the piece then in `green`, what the tip passed on this pass.  Where
     the stack's red was its `tests` failing again alone, those alone run there first: passing
     there, each named as run (`gate.run_suite(only=)`), the member's change is what fails them,
     and the piece need not run.  Failing there again, named as run and as failed by a run that
@@ -344,7 +344,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     is not on the tip -- so the whole piece then decides, as without them.
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
-    target's one repair (`_repair`)."""
+    target's one repair (`_repair`); a repeat of named tests walks for the commit that first
+    turned the target red (`_blame_tip`)."""
     path = directory / "target-probe.log"
     again = None
     if tests:
@@ -381,7 +382,10 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
                f"{what} alone through the retry ladder")
         log(f"{upstream} at {tip[:12]} fails {how}: the target's own red, repaired")
         _repair(turn, directory, state, tree, red, log)
-        _blame_tip(directory, state, scratch, tip, suite, piece, again, log)
+        # A red that named no test blames nobody: on an earlier commit a piece's number holds
+        # other tests, and six whole suites are not worth a history row.
+        if again:
+            _blame_tip(directory, state, scratch, tip, suite, piece, again, log)
     else:
         log(f"{upstream} at {tip[:12]} fails {what} alone: the line waits, nobody is blamed; "
             f"probed again in {turns.transient_delay(probes) // 60} min")
@@ -389,11 +393,13 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
 
 
 def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
-    """Find the first red first-parent commit within KEEP and 64 commits (six steps).
+    """Find the first red first-parent commit within KEEP and 64 commits (six steps), by just
+    the `tests` of `suite`'s `piece` that failed again alone on the tip.
 
     The tip already failed twice. Start its repair before walking; no blame waits on a
-    repair's outcome, and no repair waits on these checks. Missing tests fall back to the
-    piece, as in the probe. A fail followed by a pass ends the walk, never a green boundary.
+    repair's outcome, and no repair waits on these checks. A commit that does not hold the
+    tests passes them (`gate.passes_what_it_holds`); one red without failing them again by name
+    ends the walk, as a fail followed by a pass does, never a green boundary.
     """
     from . import history, run
     try:
@@ -403,23 +409,19 @@ def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
         while high - low > 1:
             mid = (low + high) // 2
             sha = commits[mid]
-            for only in (tests, None) if tests else (None,):
-                _put_back(scratch, sha)
-                exits, flaky = [], []
-                ok, _, red = _check(directory, state, scratch, [suite],
-                                    directory / f"tip-{sha}.log", log, suite=suite,
-                                    shard=piece or None, only=only, kind="tip",
-                                    exits=exits, flaky=flaky)
-                if flaky or any(0 in attempts and any(code != 0 for code in attempts)
-                                for attempts in exits):
-                    log(f"{sha[:12]} is flaky: nobody is blamed")
-                    return
-                if not ok and only and not red.get("tests"):
-                    continue
-                break
+            _put_back(scratch, sha)
+            exits, flaky, absent = [], [], []
+            ok, _, red = _check(directory, state, scratch, [suite], directory / f"tip-{sha}.log",
+                                log, suite=suite, shard=piece or None, only=tests, kind="tip",
+                                exits=exits, flaky=flaky, absent=absent)
+            if flaky or any(0 in attempts and any(code != 0 for code in attempts)
+                            for attempts in exits):
+                log(f"{sha[:12]} is flaky: nobody is blamed")
+                return
+            ok = ok or bool(absent)
             repeated = any(len(attempts) >= 2 and all(code is not None and code > 0
                                                      for code in attempts) for attempts in exits)
-            if not exits or red.get("short") or (not ok and not repeated):
+            if not exits or red.get("short") or not (ok or repeated and red.get("tests")):
                 log(f"{sha[:12]} has no repeated red: nobody is blamed")
                 return
             if ok:
@@ -1179,24 +1181,27 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # one ahead may be the culprit, and removing it changes every later tree.
                     if answer is None or ("fix" in answer and index and not green_prefix):
                         break
-                    # The target's tip answers for a red suite before anyone is blamed: its red
-                    # piece (`red_part`, from the exits the runner saw) runs there alone,
-                    # whatever pass the target has on record, as the host, not the change, may
-                    # have failed it.  A red check of the member's own is the member's.  A
-                    # piece the tip passed whole on this pass answers again, tests named or not:
-                    # failing there, they would hand the probe back to that same piece.
-                    if index == 0 and not prefix and "fix" in answer and not saved.get("repair"):
-                        piece = (answer["fix"].get("piece")
-                                 if answer["fix"].get("command") == suite else None)
-                        if piece is not None and piece not in tip_green:
-                            if stopped():
-                                return
-                            _put_back(scratch, tip)
-                            if not _probe_tip(turn, member, saved, scratch, tip, upstream,
-                                              target_tree, suite, piece, log, tip_green,
-                                              answer["fix"].get("tests")):
-                                target_red = True
-                                return
+                    # The target's tip answers for a red suite before anyone is blamed, whatever
+                    # pass the target has on record, as the host, not the change, may have
+                    # failed it: the red piece's failed tests (`red_part`, from the exits the
+                    # runner saw) run there alone, and a red that named none asks the suite
+                    # whole there, as the suite deals each tree's test files into its pieces,
+                    # so on the tip that piece's number holds other tests (11 Nov 2026).  A red
+                    # check of the member's own is the member's.  What the tip passed on this
+                    # pass, that piece or the suite whole, answers again, tests named or not:
+                    # failing there, they would hand the probe back to that piece.
+                    fix = answer.get("fix") or {}
+                    tests = fix.get("tests")
+                    piece = fix.get("piece") if tests else ""
+                    if (index == 0 and not prefix and "piece" in fix and fix["command"] == suite
+                            and not saved.get("repair") and not {piece, ""} & tip_green):
+                        if stopped():
+                            return
+                        _put_back(scratch, tip)
+                        if not _probe_tip(turn, member, saved, scratch, tip, upstream,
+                                          target_tree, suite, piece, log, tip_green, tests):
+                            target_red = True
+                            return
                     if member not in verdicts:
                         answer = verdicts[member] = {**answer, "after": ahead(index)}
                         ready({member: answer})
