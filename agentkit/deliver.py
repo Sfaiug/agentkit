@@ -757,7 +757,7 @@ def join_line(lp, upstream, deliver):
 @contextmanager
 def landing_mark(lp):
     """Mark the run `landing` until this ends, however it ends: its checks wait as a lander's
-    (`gate`), and its rounds run no suite (`roundloop.round_suite`), as a landing check follows."""
+    (`gate`)."""
     from . import gate  # here, not at the top: it reaches run
     gate.clear_landing_wait(lp.run_dir)
     lp.state["landing"] = True
@@ -804,7 +804,7 @@ def land_from_line(lp, upstream, deliver):
     if landing.green_delivery(wait):
         turn = turn_path(lp, upstream)
         try:
-            with merge_lock(lp, upstream):
+            with landing_weight(lp), merge_lock(lp, upstream):
                 gitcall.fetch(lp.wt, "origin", "--prune", check=True)
                 tip = gitcall.git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
                 how = roundloop.how_to_integrate(lp)
@@ -958,6 +958,25 @@ def merge_lock(lp, upstream):
             if lp.state.pop("delivery_wait", None) is not None:
                 lp.write()
         yield
+
+
+@contextmanager
+def landing_weight(lp):
+    """Deliver a green verdict at its check's CPU weight (`land.start_line`): it is the same
+    landing, and at a run's weight beside a line's check each delivery crawled while every member
+    behind it waited (one merge every 55 s in a line of 53 on 11 Nov 2026; 25 at the check's).
+    A delivery that ends unmerged goes back to a run's weight for the wait or repair ahead."""
+    from . import host, run  # here, not at the top: run imports this module
+    # The record names the unit bare, scope or service alike; the cgroup says which it is.
+    unit = Path(host.process_cgroup() or "").name
+    own = unit in turns._scope_units(lp.state.get("scope"))
+    if own:
+        run.set_property(unit, "CPUWeight", host.CPU_WEIGHT_MAX, lp.log)
+    try:
+        yield
+    finally:
+        if own and not lp.state.get("merged"):
+            run.set_property(unit, "CPUWeight", run.RUN_CPU_WEIGHT, lp.log)
 
 
 def members_ahead(lp, turn):

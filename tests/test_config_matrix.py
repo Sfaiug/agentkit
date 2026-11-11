@@ -206,9 +206,10 @@ class Screen:
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
 
-# Each model by the full name its row shows (config.model_name), the shipped catalog's labels.
+# Each model by the full name its row shows (config.model_name): the shipped catalog's label, else
+# its name and number off its id.
 FULL = {"fable": "Fable 5.1", "opus": "Opus 5.5", "haiku": "Haiku 4.5", "astra": "GPT-6-Astra",
-        "spark": "muse-spark-1.3-contributor", "grok": "Grok 4.7", "gemini": "Gemini 3.8 Flash",
+        "spark": "Spark 1.3 Contributor", "grok": "Grok 4.7", "gemini": "Gemini 3.8 Flash",
         "mimo": "MiMo V2.6 Pro"}
 
 

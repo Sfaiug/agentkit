@@ -66,7 +66,7 @@ func TestASuiteAsksTheTickForAMachineInTime(t *testing.T) {
 		write(filepath.Join(ak, "state", "google-cloud-ssh-config"), each.routes+"Host *\n  Include ~/.ssh/config\n")
 		write(filepath.Join(bin, "said"), "")
 		os.Remove(filepath.Join(ak, "state", "google-cloud-need"))
-		away, why, err := Start(repo, 1, 2048, "make test", "", "", nil, func(string) {})
+		away, why, err := Start(repo, 1, 2048, "make test", "", nil, func(string) {})
 		said, _ := os.ReadFile(filepath.Join(bin, "said"))
 		need, _ := os.ReadFile(filepath.Join(ak, "state", "google-cloud-need"))
 		placed := ""

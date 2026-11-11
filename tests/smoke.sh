@@ -1090,25 +1090,26 @@ SH
     chmod +x "$SMOKE_TOOLS/tmux"
     export PATH="$SMOKE_TOOLS:$PATH"
   fi
-  OFFLINE_RC=0
+  # A failed check goes through acceptance.sh's `no`, which names its block for landing.py.
+  . "$REPO/tests/acceptance.sh"
 # --- offline_slots: run queue ---------------------------------------------
-  slot_queue_check || OFFLINE_RC=1
+  slot_queue_check || no "offline_slots run queue"
 # --- offline_usage: provider meters ---------------------------------------
-  usage_fresh_check || OFFLINE_RC=1
+  usage_fresh_check || no "offline_usage provider meters"
 # --- offline_session: notices ---------------------------------------------
-  session_state_check || OFFLINE_RC=1
+  session_state_check || no "offline_session notices"
 # --- offline_seat: seat states --------------------------------------------
-  seat_state_check || OFFLINE_RC=1
+  seat_state_check || no "offline_seat seat states"
 # --- offline_projects: project menu ---------------------------------------
-  python3 "$REPO/tests/test_project_menus.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_project_menus.py" || no "offline_projects project menu"
 # --- offline_desktop: desktop notices -------------------------------------
-  python3 "$REPO/tests/test_desktop_notices_and_boot_recovery.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_desktop_notices_and_boot_recovery.py" || no "offline_desktop desktop notices"
 # --- offline_notify: notification rules -----------------------------------
-  python3 "$REPO/tests/test_notify_rule.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_notify_rule.py" || no "offline_notify notification rules"
 # --- offline_sink: notification sink --------------------------------------
-  python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_notify_smoke.py" || no "offline_sink notification sink"
 # --- offline_codex: adapter model argument --------------------------------
-  codex_model_flag_check || OFFLINE_RC=1
+  codex_model_flag_check || no "offline_codex adapter model argument"
 # --- offline_files: offline regressions -----------------------------------
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py \
               test_usage_menus_and_runs.py \
@@ -1116,13 +1117,13 @@ SH
               test_audit_retry_required_notifications.py \
               test_from_run_takes_the_target.py test_repo_suite.py; do
     case "$test" in
-      test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
-      test_v4l.py) lifecycle_check v4l || OFFLINE_RC=1 ;;
-      *) python3 "$REPO/tests/$test" || OFFLINE_RC=1 ;;
+      test_notify.py) lifecycle_check notify || no "offline_files $test" ;;
+      test_v4l.py) lifecycle_check v4l || no "offline_files $test" ;;
+      *) python3 "$REPO/tests/$test" || no "offline_files $test" ;;
     esac
   done
 # --- shared offline result ---------------------------------------------
-  exit "$OFFLINE_RC"
+  exit "$((NFAIL != 0))"
 fi
 WORK="$HOME/.agentkit/tmp/smoke-$(date +%Y%m%d-%H%M%S)"
 SMOKE_CALLER_HOME=$HOME
@@ -3809,7 +3810,6 @@ printf '\n' | akn --dry-run >"$WORK/name-ghost.log" 2>&1 || NAME=1
 RESUME_GLYPH=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
 OPUS=$("${NENV[@]}" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_at(config.load(), None, sys.argv[1], "orchestrator"))' opus)
 grep -qE "^ +[0-9]+  resume-seat +$OPUS +$RESUME_GLYPH idle" "$WORK/name-ghost.log" || NAME=1
-grep -q "session closed: press" "$WORK/name-ghost.log" || NAME=1
 akn orch resume-seat >"$WORK/name-reopen.log" 2>&1 || NAME=1
 grep -q "^orch: resuming resume-seat on opus in $NSEAT (conversation $CONV)\$" \
   "$WORK/name-reopen.log" || NAME=1
@@ -3960,7 +3960,7 @@ grep -qE '^ +[0-9]+  update ' "$WORK/update-notice.log" && UPD=1
 
 # --- 21: the two notification shapes (offline) --------------------------------
 # `--dry-run` prints the payload and posts nothing; without a webhook the real form prints to
-# stderr and records the session's last message, which is what the menu shows. The card leads
+# stderr and records the seat's last message, which turns its menu row `needs you`. The card leads
 # with its two words and the seat, the mention last and the only one it may ping, and carries
 # nothing the seat asked or did.
 NSH="$WORK/home-notify-shapes"
@@ -3993,13 +3993,13 @@ grep -q 'no webhook configured; message: Needs you . smoke-shape: Which branch?'
 jq -e '.session == "smoke-shape" and .kind == "needs" and .text == "Which branch?" and (.time | type == "number")' \
   "$NSH/.agentkit/state/notify-smoke-shape.json" >/dev/null 2>&1 || SHAPE=1
 # the first frame is the records as they stand: the line that leaves goes in once the seat's
-# look has landed and drawn its row again, its question on the line under it
+# look has landed and drawn its row again, who builds on the line under it, never its question
 ROW="^ *$NUM  smoke-shape +$(HOME="$NSH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_at(config.load(), None, sys.argv[1], "orchestrator"))' astra) +! needs you"
 rm -f -- "$WORK/menu-shape.log"
-{ for _ in $(seq 300); do grep -q 'Which branch?' "$WORK/menu-shape.log" 2>/dev/null && break
+{ for _ in $(seq 300); do grep -qE "$ROW" "$WORK/menu-shape.log" 2>/dev/null && break
     sleep 0.1; done
   printf '\n'; } | HOME="$NSH" ak --dry-run >"$WORK/menu-shape.log" 2>&1 || SHAPE=1
-grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +Which branch\?$' || SHAPE=1
+grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +[^ ].* ⚒' || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/shape-attach.txt" >"$WORK/needs-file.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
 # the freeform message went with the attachments: needs or --check
@@ -5079,8 +5079,8 @@ printed = io.StringIO()
 with redirect_stdout(printed):
     assert status.cmd_status([]) == 0
 assert SMOKE in printed.getvalue(), printed.getvalue()
-assert "Merge the MOV helper" in "\n".join(lines), lines
-assert "hero swapped" in "\n".join(lines), lines
+assert "Merge the MOV helper" not in "\n".join(lines), lines
+assert "hero swapped" not in "\n".join(lines), lines
 assert not any("press r" in line for line in lines), lines
 for key in ("i", "r", "p", "b", "s", "u"):
     out = menu_lines(f"{key}\n\n")

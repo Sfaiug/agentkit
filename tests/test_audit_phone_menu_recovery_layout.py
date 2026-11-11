@@ -312,9 +312,9 @@ class Pages(Sandbox):
                 patch.object(terminal, "height", return_value=12), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg), 0)
-        marks = re.findall(r"(?m)^  (\d+) / 6\b", out.getvalue())
-        # six pages of two seats each: the usage's one line keeps its row on every page
-        self.assertEqual(marks, ["1", "2", "1", "2", "3", "4", "4", "4"])
+        marks = re.findall(r"(?m)^  (\d+) / 3\b", out.getvalue())
+        # three pages of five seats, the last turning to the first: the usage keeps its row
+        self.assertEqual(marks, ["1", "2", "1", "2", "3", "1", "1", "1"])
         self.assertEqual(opened, [LONG_NAME, "seat-03"])   # 12 answered from the first page
 
     def test_the_menu_has_no_runs_list(self):
@@ -723,7 +723,7 @@ class Phone(Sandbox):
         phone.keys("Right", "Right")         # past its orch effort to the executor column, then
                                              # every worker added
         # each by its full name, as much of it as a phone's screen holds
-        for title, steps in (("Fable", ("Up", "Up")), ("muse-sp", ("Down",) * 3),
+        for title, steps in (("Fable", ("Up", "Up")), ("Spark", ("Down",) * 3),
                              ("Grok", ("Down",)), ("Gemini", ("Down",)),
                              ("MiMo", ("Down",))):
             phone.keys(*steps, "Space")

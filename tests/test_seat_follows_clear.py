@@ -368,6 +368,25 @@ class SeatFollowsClear(Sandbox):
         self.assertEqual(respawn[respawn.index("-t") + 1], "%7")
         self.assertEqual(self.bound_pane, "%7")
 
+    def test_a_relaunch_that_never_starts_keeps_the_clear_its_running_claude_went_to(self):
+        def refused(*_args, **_kw):
+            raise config.Error("respawn refused")
+        # the Claude still in the pane clears as the launch reads its record, or as its
+        # replacement comes up
+        for step, then in (("name_receipts", orch.name_receipts), ("_start_harness", refused)):
+            def clearing(*args, then=then):
+                self.hook()
+                return then(*args)
+            with self.subTest(clears_at=step), \
+                    patch.object(orch, "_start_harness", side_effect=refused), \
+                    patch.object(orch, step, side_effect=clearing), self.assertRaises(config.Error):
+                config.update_session("lagoon", conversation="before-clear",
+                                      id_source=orch.LAUNCHER, left=None)
+                orch.launch("lagoon", "opus", self.root, ["claude"], "before-clear", self.seat)
+            self.assertEqual((self.record()["conversation"], self.record()["id_source"],
+                              [was["conversation"] for was in self.record()["left"]]),
+                             ("after-clear", claude.SOURCE, ["before-clear"]))
+
     def test_resume_with_gone_pane_uses_and_records_the_sessions_pane(self):
         self.panes = {"%8": (201, False)}
         self.active_pane = "%8"

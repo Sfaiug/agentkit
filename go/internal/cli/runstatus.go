@@ -67,6 +67,15 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "ak run: %s\n", err)
 		return 2
 	}
+	var db *history.DB
+	defer func() { db.Close() }()
+	// read before anything is written: history.db Go cannot read as Python's machine form does
+	// leaves it the command
+	if machine {
+		if db, err = history.Reader(); err != nil {
+			return notImplemented(errOut, "run status")
+		}
+	}
 	looked := false
 	if wanted != "" {
 		if _, _, _, no := listing(seat, wanted, showHistory, machine, now); no {
@@ -91,9 +100,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 	}
 	every, entries, jobs, no := listing(seat, wanted, showHistory, machine, now)
-	var db *history.DB
 	var uncounted []string
-	defer func() { db.Close() }()
 	// opened before a line is printed: a database Go leaves to Python ak leaves it the command;
 	// decided on while the reap holds its runs, so neither is written where the other refuses
 	if no || !reaped(entries, func() (err error) {
@@ -143,9 +150,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	if machine {
 		rows := []any{}
 		for _, entry := range found {
-			row := entry.record.Copy()
-			row.Set("paths", resultPaths(entry))
-			rows = append(rows, row)
+			rows = append(rows, machineRow(db, entry))
 		}
 		fmt.Fprintln(out, run.Encode(rows))
 		return 0
@@ -205,7 +210,7 @@ func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*
 		jobs, read = job.Listed(seat, showHistory, now)
 	}
 	every, entries := records(seat, wanted, tasks(jobs))
-	if !read || every == nil || refused(entries, wanted, machine) {
+	if !read || every == nil || refused(entries, wanted) {
 		return nil, nil, nil, true
 	}
 	if !machine {
@@ -310,12 +315,9 @@ func actedOn(record *run.Object) bool {
 }
 
 // refused is whether Python ak would write or act on what the listing reads: a run its reap or
-// a look at it acts on, a job's task's among them, and with --json what history.db would add.
-// The scoreboard's own reads are boardHistory's.
-func refused(entries []listed, wanted string, machine bool) bool {
-	if exists(history.Path()) && machine {
-		return true
-	}
+// a look at it acts on, a job's task's among them.  The scoreboard's own reads are boardHistory's,
+// the machine form's history.Reader's.
+func refused(entries []listed, wanted string) bool {
 	for _, entry := range entries {
 		if entry.unreadable {
 			continue

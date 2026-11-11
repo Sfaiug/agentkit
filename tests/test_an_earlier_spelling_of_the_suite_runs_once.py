@@ -2,7 +2,8 @@
 
 A flaky test's repair names the target's suite as its check; when the target's `tests:` line
 changes before it lands, its copy keeps the old spelling, and landing would run the suite in
-both. The lander reads the member's base commit and runs only the target's line now.
+both. The lander reads the member's base commit, and the tip a repair was started for, and
+runs only the target's line now.
 
 Offline: real git and gate commands in an acme sandbox, as `test_lander` sets them up.
 """
@@ -13,7 +14,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import ONCE, SUITE, LanderFixture
-from agentkit import land, record
+from agentkit import land, record, run
 
 NOW = "test ! -f broken.txt && test -f base.txt"
 
@@ -25,6 +26,18 @@ class EarlierSpelling(LanderFixture, unittest.TestCase):
     def test_the_suite_as_the_base_declared_it_runs_once_as_the_target_declares_it(self):
         first = self.member(once=SUITE)
         self.advance(**{"AGENTS.md": f"---\ntests: {NOW}\n---\n"})
+        land.check_line(self.turn)
+        self.assertIn("land", self.wait(first))
+        self.assertEqual(self.ran(), [NOW])
+
+    def test_a_repair_whose_base_already_declares_the_new_line_runs_it_once_too(self):
+        """Started as the target moved, or rebased onto it since: its base says the new words,
+        the tip it repairs the ones its task kept."""
+        first = self.member(once=SUITE)
+        self.advance(**{"AGENTS.md": f"---\ntests: {NOW}\n---\n"})
+        with record.record(first) as current:
+            current.update(repair={"target": "main", "command": SUITE},
+                           repair_tip=self.base, base_sha=run.git(self.repo, "rev-parse", "main"))
         land.check_line(self.turn)
         self.assertIn("land", self.wait(first))
         self.assertEqual(self.ran(), [NOW])

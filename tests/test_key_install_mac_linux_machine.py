@@ -9,10 +9,10 @@ has one; starts it with the Mac; and records it as the Mac's server, reached ove
 alias.  A second install finds it and changes nothing already right; a client stays a client.
 Black-box: install.sh of the checkout `AK_BIN` names runs in an answer-key Home that is the
 account's own (tests/fixtures/installer.py), on a Mac of fakes: `uname`, `df`, `brew`,
-`fdesetup`, a `sysctl` whose boot time is `<root>/boot`, a `launchctl` keeping what launchd has
-loaded in `<root>/launchd.json`, a `pmset` keeping its settings in `<root>/pmset.json`, a `sudo`
-that runs only `pmset`, `tee` and `launchctl`, and a `limactl` whose machine is a directory,
-`<root>/guest`, in the state `<root>/machine` names.
+`fdesetup`, a `sysctl` whose boot time is `<root>/boot` and whose boot's id `<root>/session`, a
+`launchctl` keeping what launchd has loaded in `<root>/launchd.json`, a `pmset` keeping its
+settings in `<root>/pmset.json`, a `sudo` that runs only `pmset`, `tee` and `launchctl`, and a
+`limactl` whose machine is a directory, `<root>/guest`, in the state `<root>/machine` names.
 """
 
 import json
@@ -32,14 +32,19 @@ GIB = 1024 ** 3
 # install, which it only records, with whether it had a terminal; `create` and `autostart` leave
 # the files Lima leaves.  `<root>/machine` says Running once it starts, Stopped once it stops; a
 # start clears a hang (`<root>/hung`), but not of one already running, and refuses a Broken one.
+# `<root>/memory` holds its GiB, Lima's default 4 until a call's `--memory=` writes it, whatever
+# the machine's state, and `list` reports it in bytes.
 LIMACTL = """#!{python}
 import json, os, subprocess, sys
 from pathlib import Path
 args, root = sys.argv[1:], Path({root!r})
 with open(root / "logs/limactl.log", "a") as log:
     log.write(json.dumps(args) + "\\n")
-machine = root / "machine"
+machine, memory = root / "machine", root / "memory"
 status = machine.read_text() if machine.exists() else "Stopped"
+for arg in args:
+    if arg.startswith("--memory="):
+        memory.write_text(arg.split("=", 1)[1])
 if args[:2] == ["autostart", "--help"]:
     sys.exit(0)
 if args[0] == "create":
@@ -49,7 +54,9 @@ if args[0] == "create":
     (lima / "ssh.config").write_text("Host lima-ak\\n")
 elif args[0] == "list":
     words = [word for arg in args for word in arg.split("=", 1)]
-    print(words[words.index("--format") + 1].replace("{{{{.Status}}}}", status))
+    gib = int(memory.read_text()) if memory.exists() else 4
+    print(words[words.index("--format") + 1].replace("{{{{.Status}}}}", status)
+          .replace("{{{{.Memory}}}}", str(gib * 1024 ** 3)))
 elif args[0] == "start" and status == "Broken":
     sys.exit("errors inspecting instance: failed to get Info from host agent")
 elif args[0] == "start" and status != "Running":
@@ -72,6 +79,7 @@ elif args[0] == "shell":
 BREW = LOG + '[ "$*" != "install lima" ] || cp -- {limactl} {bin}/limactl\n'
 SYSCTL = ('#!/bin/sh\ncase "$2" in hw.ncpu) echo {cpus} ;; hw.memsize) echo {memory} ;;\n'
           '  kern.boottime) echo "{{ sec = $(cat {boot}), usec = 0 }} Mon Nov  9 08:00 2026" ;;\n'
+          '  kern.bootsessionuuid) cat {session} ;;\n'
           '  *) exit 1 ;;\nesac\n')
 DF = ("#!/bin/sh\necho 'Filesystem 1024-blocks Used Available Capacity Mounted on'\n"
       "echo '/dev/disk3s5 976490576 1 {free} 1% /System/Volumes/Data'\n")
@@ -150,7 +158,8 @@ class Mac:
         home.fake("uname", "#!/bin/sh\necho Darwin\n")
         home.fake("launchctl", LAUNCHCTL.format(python=sys.executable, root=str(home.root)))
         home.fake("sysctl", SYSCTL.format(cpus=cpus, memory=memory_gib * GIB,
-                                          boot=shlex.quote(str(home.root / "boot"))))
+                                          boot=shlex.quote(str(home.root / "boot")),
+                                          session=shlex.quote(str(home.root / "session"))))
         home.fake("df", DF.format(free=free_gib * 1024 * 1024))
         home.fake("pmset", PMSET.format(python=sys.executable, root=str(home.root)))
         (home.root / "pmset.json").write_text(json.dumps(power))

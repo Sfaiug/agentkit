@@ -4506,13 +4506,15 @@ def _line_through(session, where, held, mark, log, receipt, cfg=None, *, source=
             and _edit(session, where, "back", text) == "sent" and not pane_unread(session))
 
 
-def _line_left(session, text, log, cfg, stale):
+def _line_left(session, text, log, cfg, stale, answered=None):
     """A mark's pass on a line ak's editor put in, on the pane it went into (`_line_through`):
     the line is that editor's to read, as the screen draws what it puts there late -- its Enter
     where it is still alone in the composer, and delivered once it has left, the text kept given
-    back into the composer it left empty."""
+    back into the composer it left empty -- once its harness asks nothing about it (`_asks`)."""
     with notify.session_lock(session["name"]) as held:
-        where = not stale(held) and seat_editor(session, cfg)
+        where = (not stale(held) and not (answered and _asks(session, held, text, log, cfg,
+                                                             answered))
+                 and seat_editor(session, cfg))
         word = where and _editor_read(session, where, cfg) and _edit(session, where, "back", text)
         if word == "unsent":
             kept_asked_first(dict(session, name=held))
@@ -4560,8 +4562,31 @@ def _respawned(session, stale):
     return lambda held: stale(held) or pinned(session) != session
 
 
+def _asks(session, name, text, log, cfg, answered):
+    """Whether that pinned seat's bottom rows, read once as drawn, end on what its harness asks
+    before it takes a line of its `[switch]` (`asks`) -- a card above a composer is the
+    transcript's.  Where they do, the keys that say yes (`yes`) go into its pane and `answered`
+    is told, unless its terminal holds input unread, which the card would take first."""
+    try:
+        harness = seat_model(config.load() if cfg is None else cfg, name)[0]
+        block = config.manifest(harness).get("switch") or {}
+        asks = _pattern(block.get("asks") and f"(?:{block['asks']})\\Z",
+                        f"adapters/{harness}.toml", re.M)
+    except (config.Error, OSError):
+        return False
+    rows = "\n".join(strip_sgr(row).rstrip() for row in pane_tail(pane_text(session)).split("\n"))
+    keys = [key for key in block.get("yes") or () if isinstance(key, str) and key]
+    if not (asks and keys and asks.search(rows)):
+        return False
+    if not pane_unread(session) and orch.tmux_out(
+            "send-keys", "-t", _pane(session), *keys, socket=orch.seat_socket(session))[0] == 0:
+        answered()
+        log(f"said yes to what {name} asked before it took {text}")
+    return True
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
-                   source="ak", stale=lambda held: False):
+                   source="ak", stale=lambda held: False, answered=None):
     """One line into a seat, and only while its harness sits at its own prompt.
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
@@ -4577,7 +4602,12 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     the send lock, past any dialog -- and once that composer, read whole, is empty and the
     terminal reports no unread input, the seat has it.  A composer holding anything else, or
     one that cannot be read, says nothing yet: a line wrapped past the bottom rows still sits
-    there.  The mark names the seat by its tmux birth, in whole seconds and kept by a pane
+    there.  Given `answered`, a `switch` line (`orch.switch_lines`) its harness asks about in
+    the composer's place, however it went in, is first answered yes off that capture (`_asks`),
+    `answered` told so that its caller gives it no more for that mark: a harness that has read
+    the yes can draw its composer back after the next pass reads the card, and a second yes
+    would land there.  The next pass reads the composer back; the owner's own move, with no
+    such line, is theirs to answer.  The mark names the seat by its tmux birth, in whole seconds and kept by a pane
     respawned in place, and the pane's process (`pinned`): a harness started since, its
     composer empty, runs under another and matches no mark, so the line is typed again; one
     that lives on keeps it.  A mark naming no process, from before marks named one, matches
@@ -4607,14 +4637,14 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
         # it is that pane's process the mark names
         there = pinned(dict(session, pane=typed["pane"]))
         if typed == dict(_mark(there, text), pane=typed["pane"]):
-            return _line_left(there, text, log, cfg, _respawned(there, stale))
+            return _line_left(there, text, log, cfg, _respawned(there, stale), answered)
     session = pinned(session)
     mark = _mark(session, text)
     stale = _respawned(session, stale)
     if typed == mark:
         with notify.session_lock(session["name"]) as held:
-            if stale(held):
-                return False    # the screen is somebody else's: next pass
+            if stale(held) or answered and _asks(session, held, text, log, cfg, answered):
+                return False    # the screen is somebody else's, or asks first: next pass
             holds = composer_holds(held, session, text, cfg)
             if holds == "empty":
                 return not pane_unread(session)
@@ -4903,7 +4933,8 @@ def tell_owed(name, log, cfg=None):
     get here: each key goes only while the line it read still heads the seat's lines, read under
     the send lock, so a teller another one overtook types nothing more.  A line goes to the pane
     it names, a move's to its harness's, and a move's begins no turn: the next goes in at the
-    same prompt, its harness's answers counted from the moment it went in (`switched`)."""
+    same prompt, its harness's answers counted from the moment it went in (`switched`); what
+    its harness asks before it takes it is answered once for each mark (`answered`)."""
     owed = (seat_read(name).get("owed_lines") or [None])[0]
     seat = orch.find(name) if owed else None
     if not seat:
@@ -4915,11 +4946,16 @@ def tell_owed(name, log, cfg=None):
         was, read[0] = read[0], {**owed, "typed": mark}
         owe_line(name, was, read[0])
 
+    def answered():
+        was, read[0] = read[0], {**read[0], "answered": read[0]["typed"]}
+        owe_line(name, was, read[0])
+
     def overtaken(held):
         return (seat_read(held).get("owed_lines") or [None])[0] != read[0]
 
+    asks = owed.get("switch") and owed.get("answered") != owed.get("typed")
     if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"), receipt=kept,
-                      stale=overtaken):
+                      stale=overtaken, answered=answered if asks else None):
         if owed.get("switch"):
             seat_write(name, switched=time.time())     # written before its line is no longer owed
         owe_line(name, read[0])
@@ -6194,6 +6230,46 @@ def _arm_resume(state, deaths, now, role):
     return state
 
 
+def dead_loop(state, run_dir, now):
+    """What the dead-loop pass makes of a run's record, the one reading of whether its loop is
+    lost (`runs_health`): None where a process of it runs or something holds it, else
+    `_dead_plan`'s (action, deaths, reason).
+
+    What holds a run: a state that ends it or waits (`run_record.ENDED`, `run_record.GOING`),
+    an interruption a person was told about, a launch inside its grace, a resume already
+    ordered, a death waiting out its backoff.  A slot or a suite turn is waited out by the
+    run's own process, and a process of it may outlive its loop (`_run_working`).
+    """
+    status = state.get("state")
+    if status not in (*run_record.ACTIVE, "interrupted"):
+        return None
+    if status == "interrupted" and not (state.get("deaths") or []):
+        # An interruption with no death recorded on it is not this pass's: a
+        # failed launch, a worktree that went, an older record a person was told
+        # about. Only a loop whose death was noticed -- here, or by the reap that
+        # got to it first -- is one the tick carries on.
+        return None
+    if (_dead_parked(state) or _launch_grace(state, now) or run_record.process_active(state)
+            or _run_working(run_dir)):
+        return None
+    plan = _dead_plan(state, run_dir, now)
+    return None if plan[0] in ("skip", "wait-quiet") else plan
+
+
+def _run_working(run_dir):
+    """Whether a process of the run outlives its recorded loop: a worker carrying its marker --
+    this process or an ancestor too, as when that worker calls `ak doctor` -- or an `ak run
+    resume` of it that has not recorded its pid yet, which a second resume would race."""
+    processes = {pid: args for pid, (_, status, args) in _proc_table().items()
+                 if status not in ("Z", "X")}
+    if any(pid in processes for pid in worker.run_pids(str(run_dir))):
+        return True
+    resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
+    # The env python3 shebang leaves "python3" as argv[0].
+    return any(args in (resume, [sys.executable, *resume], ["python3", *resume])
+               for args in processes.values())
+
+
 def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
     """Resume a run whose loop is gone, in this tick, without a card.
 
@@ -6212,29 +6288,15 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
     for run_dir in run_record.run_dirs():
         try:
             state = run_record.read_state(run_dir)
-            if not state:
-                continue
-            status = state.get("state")
-            if status == "stopped" or status not in (*run_record.ACTIVE, "interrupted"):
-                continue
-            if status == "interrupted" and not (state.get("deaths") or []):
-                # An interruption with no death recorded on it is not this pass's: a
-                # failed launch, a worktree that went, an older record a person was told
-                # about. Only a loop whose death was noticed -- here, or by the reap that
-                # got to it first -- is one the tick carries on.
-                continue
-            if _dead_parked(state):
-                continue
-            if _launch_grace(state, now):
-                continue
-            if run_record.process_active(state):
+            plan = state and dead_loop(state, run_dir, now)
+            if not plan:
                 continue
             if handback.memory_cap_reason(state):
                 # The kernel ended this scope on its own memory cap. That is a `fail` for
                 # reap to conclude, with the cap in the reason: resuming a leak repeats it.
                 continue
             wt = state.get("worktree")
-            if not wt and not (status == "queued" and state.get("slot_waiting")):
+            if not wt and not (state.get("state") == "queued" and state.get("slot_waiting")):
                 # Nothing to continue into: a launch that died before its workspace was
                 # allocated is reap's to hand back. A slot wait has no workspace yet by
                 # nature, and resuming one is resuming the wait itself.
@@ -6252,9 +6314,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                     "leaving it for an explicit resume")
                 continue
             role, rnd = _dead_where(state, run_dir)
-            action, deaths, reason = _dead_plan(state, run_dir, now)
-            if action == "skip":
-                continue
+            action, deaths, reason = plan
             if dry_run:
                 if action == "park":
                     log(f"would park {run_dir.name}: loop died ({reason})")
@@ -6268,13 +6328,11 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
             notice = False
             line = ""
             with run_record.record(run_dir) as state:
-                if (state.get("state") == "stopped" or _dead_parked(state)
-                        or _launch_grace(state, now) or run_record.process_active(state)):
+                plan = dead_loop(state, run_dir, now)
+                if not plan:
                     continue
-                action, deaths, reason = _dead_plan(state, run_dir, now)
+                action, deaths, reason = plan
                 role, rnd = _dead_where(state, run_dir)
-                if action == "skip" or action == "wait-quiet":
-                    continue
                 if action == "wait":
                     # The hold is on the record, not only in this pass's head: reap reads
                     # `resume_after` and leaves the dead pid alone until it passes, so the
@@ -8234,48 +8292,39 @@ def after_merge_checks(state, dry_run, log, now=None):
 
 
 def runs_health():
-    """The run census and whether any dead active run has outlasted the tick's recovery."""
+    """The runs started in the last day: how many ended, how many are going, and each lost by
+    name -- a dead loop (`dead_loop`) the tick's pass has had a tick to resume; then the endings
+    owed, however old; and whether any is lost."""
     now = time.time()
-    today = time.localtime(now)[:3]
     try:
         tick = load_state()["tick"]
         took = tick["ended_at"] - tick["started_at"]
     except (KeyError, TypeError):
         took = 0
     grace = max(180, 2 * took)   # cron's three-minute interval is the floor
-    going = ended = 0
-    owed, dead, stuck = [], [], False
-    processes = None
+    started = ended = 0
+    owed, lost = [], []
     for run_dir, state in run_record.runs():
-        word, finished = state.get("state"), state.get("finished_at")
-        going += word in run_record.GOING
+        finished = state.get("finished_at")
         dated = isinstance(finished, (int, float)) and not isinstance(finished, bool)
-        ended += word in run_record.ENDED and dated and time.localtime(finished)[:3] == today
         if handback.owes_ending(state):
             owed.append(now - (finished if dated else run_last_write(run_dir)))
-        if word not in run_record.ACTIVE or run_record.process_active(state):
+        begun = state.get("started_at")
+        if not isinstance(begun, (int, float)) or isinstance(begun, bool) or now - begun >= 86400:
             continue
-        if processes is None:
-            processes = {pid: args for pid, (_, status, args) in _proc_table().items()
-                         if status not in ("Z", "X")}
-        # Count ancestors too: doctor may be called by a surviving worker after its loop died.
-        if any(pid in processes for pid in worker.run_pids(str(run_dir))):
-            continue
-        resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
-        # The env python3 shebang leaves "python3" as argv[0].
-        if any(args in (resume, [sys.executable, *resume], ["python3", *resume])
-               for args in processes.values()):
-            continue
-        age = now - run_last_write(run_dir)
-        dead.append(f"{run_dir.name} ({terminal_mod.format_age(age)} since last write)")
-        stuck |= age >= grace
+        started += 1
+        if state.get("state") in run_record.ENDED:
+            ended += 1
+        elif dead_loop(state, run_dir, now) and (age := now - run_last_write(run_dir)) >= grace:
+            lost.append(f"{run_dir.name} ({terminal_mod.format_age(age)} since last write)")
     pending = f"{len(owed)} ending{'s' if len(owed) != 1 else ''} owed"
     if owed:
         pending += f", oldest {terminal_mod.format_age(max(owed))}"
-    line = f"{going} going · {ended} ended today · {pending}"
-    if dead:
-        line += f" · dead: {', '.join(dead)}"
-    return line, stuck
+    line = (f"{started} started in the last day · {ended} ended · "
+            f"{started - ended - len(lost)} going · {pending}")
+    if lost:
+        line += f" · lost: {', '.join(lost)}"
+    return line, bool(lost)
 
 
 def gates_health():
@@ -8326,8 +8375,8 @@ def doctor(argv):
     trouble -- which is the host this is typed on -- and come out before the efforts, which
     ask each harness for its models.  A model the owner set to an effort it does not take is
     named here and left as it is: the owner chose it, and the `c` screen is where it changes.
-    Exits 1 when the tick reads as hung or a dead run outlasts two ticks, after everything else
-    has been said. Endings owed to a busy seat are shown, however old, and never fail it.
+    Exits 1 when the tick reads as hung or a run started in the last day is lost, after everything
+    else has been said. Endings owed to a busy seat are shown, however old, and never fail it.
     """
     if command_help.show("doctor", argv):
         return 0

@@ -2610,9 +2610,14 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None, line=N
             (gitcall.repository_lock(cwd) if repository else nullcontext()):
         if repository:
             gitcall.no_auto_gc(cwd)
-        before = config.session_records().get(current) or {}
         name_receipts(current)
-        env = plugin.launched(current, cwd, conversation)
+        # Whatever a claim (`harness.claim`) writes once this launch has read the record and
+        # written its own is where the harness still running went on to: a launch put back
+        # leaves it, and puts back only the rest.
+        with claims():
+            before = config.session_records().get(current) or {}
+            env = plugin.launched(current, cwd, conversation)
+            wrote = config.session_records().get(current) or {}
         if env:
             cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
         facts = config.hook_facts_path(current)
@@ -2654,8 +2659,11 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None, line=N
             else:
                 # the harness that read the old one stays, and goes on writing to its own receipt
                 plugin.retire(config.session_records().get(current) or {})
-                config.update_session(current, **{key: before.get(key)
-                                                  for key in (*LAUNCH_KEYS, *kept)})
+                with claims():
+                    now = config.session_records().get(current) or {}
+                    config.update_session(current, **{
+                        key: before.get(key) for key in (*LAUNCH_KEYS, *kept)
+                        if key in kept or now.get(key) == wrote.get(key)})
                 try:
                     os.link(last, facts)        # refused where that harness wrote one since
                 except OSError:
@@ -3064,6 +3072,14 @@ def cmd_rules(argv):
     rulebook_ack(name, argv[0].strip())
     print("rulebook read")
     return 0
+
+
+def cmd_pair(argv):
+    if len(argv) != 1:
+        raise config.Error("usage: ak orch pair SEAT")
+    # the seat's tool answers: its words and exit status are the verb's own
+    return subprocess.run([sys.executable, str(config.REPO / "tools/codex-seat.py"),
+                           "--pair", argv[0]]).returncode
 
 
 def owns(record, conversation):
@@ -4900,6 +4916,8 @@ def main(argv):
         return cmd_project(argv[1:])
     if argv[:1] == ["rules"]:
         return cmd_rules(argv[1:])
+    if argv[:1] == ["pair"]:
+        return cmd_pair(argv[1:])
     if argv[:1] == ["check"]:
         from . import done_check   # here, not at the top: it reaches this module through notify
         return done_check.main(argv[1:])

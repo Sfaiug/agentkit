@@ -75,7 +75,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         with self.started:
             self.running += 1
             self.peak = max(self.peak, self.running)
-            self.held.append(gate._heavy_running())
+            self.held.append(len(gate._heavy_held()))
             self.shards.append((name, env["AK_SHARD"]))
             self.started.notify_all()
         self.on_start.pop(name, lambda: None)()
@@ -108,7 +108,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.assertEqual(sorted(shard for _, shard in self.shards), [f"{k}/8" for k in range(1, 9)])
         self.assertGreater(self.peak, 1)
         self.assertEqual(self.held[0], 4)
-        self.assertEqual(gate._heavy_running(), 0)
+        self.assertEqual(len(gate._heavy_held()), 0)
 
     def test_a_suite_on_an_idle_host_is_split_and_started_as_today(self):
         self.together = 4
@@ -153,7 +153,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
                                                for index in range(1, 9)])
         # acme waited first: all its pieces start before any of widget's
         self.assertEqual([name for name, _ in self.shards[:8]], ["acme"] * 8)
-        self.assertEqual(gate._heavy_running(), 0)
+        self.assertEqual(len(gate._heavy_held()), 0)
 
     def test_each_suite_of_one_check_takes_the_places_and_turns_its_own_pieces_fit(self):
         # One piece of 1 GB fits where four of the first suite's do: the check's hold gives its
@@ -169,7 +169,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
                          ["8"] * 8 + ["2"] * 2 + ["8"] * 8)
         # each suite's first piece starts before any of its pieces ends and gives a turn back
         self.assertEqual([self.held[0], *self.held[8:11]], [4, 1, 1, 4])
-        self.assertEqual(gate._heavy_running(), 0)
+        self.assertEqual(len(gate._heavy_held()), 0)
 
 
 if __name__ == "__main__":
