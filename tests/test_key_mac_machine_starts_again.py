@@ -3,8 +3,8 @@
 Lima's own LaunchDaemon starts the machine only when the Mac boots.  So the install also puts a
 LaunchDaemon of ak's own, which checks the machine every minute as the account: one stopped
 starts; one running, or Broken as Lima says while its host agent does not answer, that has not
-answered `ssh lima-ak true` for 10 minutes is stopped by force and starts; anything else changes
-nothing.  The time it last answered or started outlives each check and an install that finds it
+answered `ssh lima-ak true` for 10 minutes is stopped by force and starts, once until it answers
+again or is started anew; anything else changes nothing.  The time it last answered or started outlives each check and an install that finds it
 running, silence counts only while the machine runs, so never from before the Mac started, and
 with no answer on record, from the first check.  The install says so in one line, a
 second changes nothing, and one after the daemon was booted out loads it again.  Black-box on the
@@ -180,6 +180,19 @@ class KeptUp(unittest.TestCase):
         self.assertEqual((stop[0], start[0]), ("stop", "start"))
         self.assertTrue({"--force", "-f"} & set(stop), stop)
         self.assertTrue(self.mac.answers())
+
+    def test_one_stopped_by_force_is_left_running_until_it_has_answered_again(self):
+        """What fails may be the check's own way to the machine, and each stop ends every
+        session in it: a restart that brought no answer is not tried again."""
+        self.minutes(0, 0)
+        self.mac.hangs()
+        self.assertEqual(self.minutes(10, 10), [["stop", "start"]])
+        self.mac.hangs()    # started, and still no answer
+        self.assertEqual(self.minutes(11, 40), [[]] * 30)
+        self.mac.started(self.now - 3600)    # it answers again
+        self.assertEqual(self.minutes(41, 41), [[]])
+        self.mac.hangs()
+        self.assertEqual(self.minutes(42, 51), [[]] * 9 + [["stop", "start"]])
 
     def test_the_ten_minutes_count_across_runs_from_the_last_answer(self):
         self.assertEqual(self.minutes(0, 0) + self.minutes(5, 5), [[], []])

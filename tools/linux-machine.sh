@@ -141,18 +141,23 @@ linux_xml() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
 # (Lima starts no Broken machine), then starts.  Silence counts from its last answer or start,
 # never from before the Mac started, when Lima's daemon starts it, and with neither on record,
 # as on a machine running before this check came, from now; a boot time that is no number
-# restarts nothing.
+# restarts nothing.  One stopped by force is not stopped by force again until it has answered
+# or was started anew: Lima just started it, so what fails may be this check's own way to it
+# (the ssh alias), and a machine stopped every ten minutes loses every session in it each time.
 linux_machine_check() {
-  local status answered last boot
-  status=$(linux_machine_status) answered=$(linux_dir)/answered
+  local status answered forced last boot
+  status=$(linux_machine_status) answered=$(linux_dir)/answered forced=$(linux_dir)/forced
   if [ "$status" != Stopped ]; then
-    if linux_machine_answers; then date +%s >"$answered"; return; fi
+    if linux_machine_answers; then date +%s >"$answered"; rm -f -- "$forced"; return; fi
     last=$(cat "$answered" 2>/dev/null) || { date +%s >"$answered"; return; }
     # kern.boottime reads `{ sec = 1794268800, usec = 0 } Tue Nov 10 00:00:00 2026`
     boot=$(sysctl -n kern.boottime | awk -F '[ ,]+' '{ print $4 }')
     [ "${last:-0}" -gt "$boot" ] || last=$boot
     [ "$last" -le $(($(date +%s) - 600)) ] || return 0
+    [ ! -e "$forced" ] || return 0
     limactl stop --force "$LINUX_INSTANCE" || return
+    linux_machine_start && : >"$forced"
+    return
   fi
   linux_machine_start
 }
@@ -164,7 +169,8 @@ linux_machine_status() { limactl list --format '{{.Status}}' "$LINUX_INSTANCE"; 
 # it is given into the machine's file even while it runs, where they hold from its next start.
 linux_machine_start() {   # linux_machine_start [<flag of limactl start>...]
   if [ "$(linux_machine_status)" != Running ]; then
-    limactl start --tty=false "$@" "$LINUX_INSTANCE" && date +%s >"$(linux_dir)/answered"
+    limactl start --tty=false "$@" "$LINUX_INSTANCE" && date +%s >"$(linux_dir)/answered" &&
+      rm -f -- "$(linux_dir)/forced"
   elif [ $# -gt 0 ]; then
     limactl start --tty=false "$@" "$LINUX_INSTANCE"
   fi
