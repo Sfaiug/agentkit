@@ -120,11 +120,12 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	words := loggedOut(model.Harness, out)
 	interrupt, restore := signal.NotifyContext(cmp.Or(given.Context, context.Background()), os.Interrupt)
 	heartbeats, _ := config.Words(model.Harness, "worker", "heartbeats")
-	// launch runs one try at the turn under a watch of its own, as Python's launch does: whether
-	// the watch stopped it.  A turn a full machine refused gets a whole silence limit here.
-	launch := func(try func(ctx context.Context)) bool {
+	// launch runs one try at the turn under a watch of its own, as Python's launch does, its
+	// silence counting from when began says its box is up where it has one: whether the watch
+	// stopped it.  A turn a full machine refused gets a whole silence limit here.
+	launch := func(began func() bool, try func(ctx context.Context)) bool {
 		ctx, unwatch := words.watch(interrupt)
-		ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Declared: host.Declared(env[host.Marker])}.Stop(ctx)
+		ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Began: began, Declared: host.Declared(env[host.Marker])}.Stop(ctx)
 		markLaunched()
 		try(ctx)
 		unwatch()
@@ -132,13 +133,13 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	}
 	code, left, there, stopped := 0, map[int]string(nil), false, false
 	if away != nil {
-		stopped = launch(func(ctx context.Context) { there = away.Run(ctx) })
+		stopped = launch(nil, func(ctx context.Context) { there = away.Run(ctx) })
 		// its results come home and the machine lets it go once the watch is over: neither is the
 		// turn's silence
 		code, session = away.Home(Conversation)
 	}
 	if !there {
-		stopped = launch(func(ctx context.Context) {
+		stopped = launch(box.Up(out), func(ctx context.Context) {
 			code, left, err = box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
 		})
 	}
