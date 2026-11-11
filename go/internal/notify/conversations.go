@@ -24,16 +24,30 @@ type Conversation struct {
 // strictly as Python's done check does (harness.Reads); the error where the seat's typing
 // receipts cannot be read, and strictly where a conversation is there and cannot be read.
 func Conversations(name string, strictly bool) ([]Conversation, error) {
+	current, had, err := Listed(name, strictly)
+	if err == nil {
+		err = Read(current, had, strictly)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return had, nil
+}
+
+// Listed is the name that seat goes by now and its conversations as Conversations gives them, none
+// of them read yet (Read): no owner's message in any, and the current one's Name "" until read.
+// ErrUnread where Conversations is.
+func Listed(name string, strictly bool) (string, []Conversation, error) {
 	current, record, err := config.ResolveSession(name)
 	if err != nil {
-		return nil, ErrUnread
+		return "", nil, ErrUnread
 	}
 	if len(record) == 0 { // an empty one too, which Python's `not record` reads as none
-		return nil, nil
+		return current, nil, nil
 	}
 	left, listed := record["left"].([]any)
 	if !listed && record["left"] != nil {
-		return nil, ErrUnread
+		return "", nil, ErrUnread
 	}
 	// each read under the record as it was then: none of the current launch's evidence, which
 	// names the conversation it is on now
@@ -47,7 +61,7 @@ func Conversations(name string, strictly bool) ([]Conversation, error) {
 		kind, _ := entry["harness"].(string)
 		named, _ := entry["conversation"].(string)
 		if kind == "" || named == "" {
-			return nil, ErrUnread // a record no /clear of Python's wrote
+			return "", nil, ErrUnread // a record no /clear of Python's wrote
 		}
 		was := maps.Clone(then)
 		maps.Copy(was, entry)
@@ -57,13 +71,20 @@ func Conversations(name string, strictly bool) ([]Conversation, error) {
 	// before any is read, as reading one may keep what its harness's evidence follows
 	for _, each := range had {
 		if strictly && !harness.Reads(each.Harness, true) {
-			return nil, ErrUnread
+			return "", nil, ErrUnread
 		}
 	}
+	return current, had, nil
+}
+
+// Read gives each conversation Listed gave for the seat that goes by current its name and the
+// owner's messages in it, as Conversations reads them: the error Conversations gives.
+func Read(current string, had []Conversation, strictly bool) error {
 	for i := range had {
+		var err error
 		if had[i].Name, had[i].Messages, err = ownerIn(current, had[i].Harness, had[i].Record, had[i].Name, strictly); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	return had, nil
+	return nil
 }

@@ -80,12 +80,12 @@ type plugin struct {
 	// notices above say which of them only record the owner interrupting.
 	last func(conversation, cwd, account string) *run.Object
 	// card is the question card its harness keeps in the conversation the seat owns, said that
-	// conversation as its harness shows it, and typed what the user side typed in it, and the error
-	// where that is there and cannot be read, of a harness Go reads strictly (Reads) (Python's
-	// plugin `card`, `said` and `user_messages`).
+	// conversation as its harness shows it, and typed what the user side typed in it, read with the
+	// record naming it, and the error where that is there and cannot be read, of a harness Go reads
+	// strictly (Reads) (Python's plugin `card`, `said` and `user_messages`).
 	card  func(conversation string) (hookfact.Fact, bool)
 	said  func(conversation string) []Turn
-	typed func(conversation string) ([]Prompt, error)
+	typed func(record map[string]any, conversation string) ([]Prompt, error)
 	// answered is Answered's: nil where Go reads neither that conversation nor its cards' answers,
 	// and loose where it reads a record naming them less strictly than Python's done check does.
 	answered func(record map[string]any) ([]Turn, []Card, error)
