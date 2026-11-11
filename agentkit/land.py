@@ -876,6 +876,10 @@ def _landing_checks(directory, state, scratch, tip):
     _, body, _ = task.parse_task(directory / "task.md")
     # A review PR owes the target's suite, never an earlier head's suite too.
     cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
+    # A `# once` line written as the suite the member started from (a flaky test's repair names
+    # it so) is that suite: it runs once, as the target declares it now, not in both spellings.
+    began = state.get("base_sha") and gitcall.declared_at(scratch, state["base_sha"], "tests")
+    cmds = [cmd for cmd in cmds if not began or task.split_once(cmd) != (began, True)]
     once = task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1]
     # Added after grouping: a shell line with an odd quote would hide a `# once` marker.
     own = gitcall.declared(scratch, "tests")
