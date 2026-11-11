@@ -37,7 +37,7 @@ func mergeRecord(record, fields *run.Object) error {
 // untyped is whether the merge just recorded on the run, its plan checks run, is typed into no
 // seat: its ending is recorded, or rides the seat's next prompt, as its hand-back then decides.
 func untyped(record *run.Object) bool {
-	recorded, rides := seat.EndingDelivery(record, nil, run.Seat(record))
+	recorded, rides, _ := seat.EndingDelivery(record, nil, run.Seat(record))
 	return recorded || rides
 }
 

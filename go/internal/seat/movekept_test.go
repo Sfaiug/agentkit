@@ -98,7 +98,11 @@ func TestARestartKeepsWhoseLinesItsConversationHolds(t *testing.T) {
 	t.Setenv("MOVE_PANE_DEAD", "1")
 	write(t, filepath.Join(home, "respawns"), "")
 	_, record, _ := config.ResolveSession("acme")
-	write(t, ownFile("input", "acme"), run.Line(typingReceipt("opencode", record, "Rename the acme report."))+"\n")
+	sent, err := typingReceipt("opencode", record, "Rename the acme report.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, ownFile("input", "acme"), run.Line(sent)+"\n")
 	write(t, session, "ses_Free") // its one user row (harness/testdata/opencode.db)
 	known, err := Move("acme", "spark", "none", func(bool) (bool, bool) { return true, true })
 	if !known || err != nil {

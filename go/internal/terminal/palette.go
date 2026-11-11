@@ -1,62 +1,20 @@
 package terminal
 
-import (
-	"math"
-	"regexp"
-	"strconv"
-	"strings"
-)
+// A colour is one of the owner's palette (10 Nov 2026), with the text that reads on it.
+type colour struct{ rgb, ink string }
 
-// kinds are the roles a screen asks Styled for, each the word whose colour it is.
-var kinds = map[string]string{"accent": "working", "amber": "needs you"}
-
-// lightRGB is each word's colour on a light background: Catppuccin Latte, its yellow darkened until
-// it reads on white.
-var lightRGB = map[string]string{"needs you": "9c6314", "working": "1e66f5", "done": "338022", "FAIL": "d20f39", "idle": "6c6f85", "dim": "6c6f85"}
-
-var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
-
-// isLight is whether an answer's luma is past half way.
-func isLight(answer string) bool {
-	found := backgroundRGB.FindStringSubmatch(answer)
-	if found == nil {
-		return false
-	}
-	var channel [3]float64
-	for i, part := range found[1:] {
-		value, err := strconv.ParseUint(part, 16, 64)
-		if err != nil {
-			return false
-		}
-		channel[i] = float64(value) / (math.Pow(16, float64(len(part))) - 1)
-	}
-	return 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5
-}
-
-// trueColour is whether a tmux client's features say it takes true colour, as tmux and ssh both
-// drop COLORTERM on the way in.
-func trueColour(features string) bool {
-	for _, each := range strings.Split(strings.TrimSpace(features), ",") {
-		if each == "RGB" || each == "Tc" {
-			return true
-		}
-	}
-	return false
-}
-
-// Highlight is a list's highlighted row: with mark, `›` in the accent colour in its first column,
-// every row starting on a space it takes, and its text bright; each colour in it ends in a reset,
-// and every reset turns the brightness back on.
-func (s Screen) Highlight(line string, mark bool) string {
-	if mark {
-		glyph := "›"
-		if s.ascii {
-			glyph = ">"
-		}
-		line = s.Styled(glyph, "accent") + line[1:]
-	}
-	if s.depth == 0 {
-		return line
-	}
-	return "\x1b[1m" + strings.ReplaceAll(line, "\x1b[0m", "\x1b[0;1m") + "\x1b[0m"
+// palette is every colour ak draws, the eight and the grey kept from before, as
+// agentkit/palette.py's PALETTE; text of no colour is the terminal's own.  A role names a
+// colour of it (styles), and tests/test_boundaries.py counts an RGB written anywhere but
+// here, so the next palette is this table.
+var palette = map[string]colour{
+	"blue":   {"0067c6", "ffffff"},
+	"red":    {"be222a", "ffffff"},
+	"orange": {"de6800", "2e1500"},
+	"yellow": {"f6c400", "3d2e00"},
+	"green":  {"007e46", "ffffff"},
+	"teal":   {"007974", "ffffff"},
+	"purple": {"7c44c3", "ffffff"},
+	"pink":   {"ad326e", "ffffff"},
+	"grey":   {"6c7086", "ffffff"},
 }

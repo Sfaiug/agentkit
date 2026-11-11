@@ -330,7 +330,7 @@ func LineCheckWaiting() *os.File {
 
 // LineCheckWaits is whether a line's own check waits for a heavy suite turn now, Python's
 // landing_waits.  Lookers take turns on a file of their own, so one never reads another as a waiter,
-// and make no file: a launch Go hands over to Python leaves runs/ as it found it.
+// and make no file.
 func LineCheckWaits() bool {
 	runs := filepath.Join(config.Home(), "runs")
 	if turn, err := lock.Edit(filepath.Join(runs, ".heavy-landing.probe")); err == nil {
