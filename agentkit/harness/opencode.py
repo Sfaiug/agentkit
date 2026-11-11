@@ -74,6 +74,9 @@ def follow(launched, payload, pid):
     (`claim`), whoever typed it, its first one too.  opencode.db says which, read as the prompt
     is reported: a subagent's session names the session that started it there, and is never
     followed.  OpenCode keeps every session in that one database, that session's file too.
+    2.2.7's TUI runs its server, the plugin reporting the prompt in it, as a child of its own,
+    `opencode serve --stdio`: the seat's one OpenCode is then counted from that TUI up, so a
+    server a tool started under it is a second, and moves nothing.
 
     The session the seat is in then goes into its launch's receipt: whole, renamed over the last
     one, and only into the launch's own directory, which a seat stopped since has had removed.
@@ -85,6 +88,9 @@ def follow(launched, payload, pid):
             and payload.get("hook_event_name") == "UserPromptSubmit"
             and rows(database(), "SELECT 1 FROM session_v2 WHERE id = ? AND parent_id IS NULL",
                      session)):
+        parent, words = (orch.processes() or {}).get(pid, (pid, ()))
+        if orch.program(words) == "opencode" and {"serve", "--stdio"} <= set(words):
+            pid = parent
         claim(launched, "opencode", session, str(database()),
               lambda record, session: database(), pid,
               lambda words: orch.program(words) == "opencode")

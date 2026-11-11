@@ -7,11 +7,13 @@ subagent's session, or into one another seat's record names, leaves the seat whe
 first session too, or in none though that seat is forgotten.  A seat reopened on A, its receipt
 naming A and its record none, that goes to B before any prompt in A keeps A just the same, and
 stays on A through a prompt into beta's; a seat whose OpenCode's session API never answers
-follows all the same.  Black-box on `AK_BIN`, a fake model (fakeadapter.py), and in the seat's
-pane a fake `opencode`, one process as 2.2.6's TUI: it runs the plugin under Node as OpenCode
-loads it and hands it a `session.inbox.enqueued` for each prompt, its record of every session an
-opencode.db -- each session's row in session_v2, a subagent's naming its parent, and each prompt
-and its answer in session_message, shaped as tests/test_key_card_answers_opencode.py's.
+follows all the same; a prompt in a server a tool of the seat's OpenCode started moves nothing.
+Black-box on `AK_BIN`, a fake model (fakeadapter.py), and in the seat's pane a fake `opencode`,
+two processes as 2.2.7's: its TUI and, a child of that, the `opencode serve --stdio` that runs
+the plugin under Node as OpenCode loads it and hands it a `session.inbox.enqueued` for each
+prompt, its record of every session an opencode.db -- each session's row in session_v2, a
+subagent's naming its parent, and each prompt and its answer in session_message, shaped as
+tests/test_key_card_answers_opencode.py's.
 """
 
 import json
@@ -42,7 +44,9 @@ FIRST = f"Add a retry button to the upload page, and {EMAIL}."
 OPENCODE = r'''const { spawn, spawnSync } = require("node:child_process");
 const { appendFileSync, readFileSync } = require("node:fs");
 const { pathToFileURL } = require("node:url");
-const [plugin, python, db, said, heard, api, ...pane] = process.argv.slice(2);
+const SERVE = ["serve", "--stdio", "--port", "0"];     // how 2.2.7's TUI starts its server
+const serve = process.argv[2] === SERVE[0], own = process.argv.slice(serve ? 6 : 2);
+const [plugin, python, db, said, heard, api, ...pane] = own;
 const SQL = `import json, sqlite3, sys
 with sqlite3.connect(sys.argv[1]) as db:
     db.row_factory = sqlite3.Row
@@ -82,8 +86,17 @@ const ctx = {
   event: { subscribe: prompts },
 };
 console.log = () => {};     // OpenCode keeps a plugin's log off its screen
-spawn(python, pane, { stdio: "inherit" });
-import(pathToFileURL(plugin).href).then((loaded) => loaded.default.setup(ctx));
+if (serve) {
+  const tui = process.ppid;
+  setInterval(() => process.ppid === tui || process.exit(), 100);     // it ends with its TUI
+  if (api === "nested" && !process.env.NESTED)    // a tool's shell starts a server of its own
+    spawn("/bin/sh", ["-c", '"$@" & wait', "sh", process.execPath, __filename, ...SERVE, ...own],
+          { stdio: "inherit", env: { ...process.env, NESTED: "1" } });
+  else import(pathToFileURL(plugin).href).then((loaded) => loaded.default.setup(ctx));
+} else {
+  spawn(python, pane, { stdio: "inherit" });
+  spawn(process.execPath, [__filename, ...SERVE, ...own], { stdio: "inherit" });
+}
 '''
 
 
@@ -251,6 +264,16 @@ class OpencodeSessionApiHung(Rig, unittest.TestCase):
         self.prompt(B, "thanks")
         self.assert_found_reading_each_once()
         self.assertEqual(self.resumed(), [B])
+
+
+@unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")
+class OpencodeToolsServer(Rig, unittest.TestCase):
+    API = "nested"      # each prompt is taken by a server a tool of the seat's OpenCode started
+
+    def test_a_prompt_in_a_server_a_tool_started_leaves_the_seat_where_it_was(self):
+        (self.receipt / "session").write_text(A)       # the launch opened on A
+        self.prompt(B, "hello")
+        self.assertEqual(self.resumed(), [A])
 
 
 @unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")
