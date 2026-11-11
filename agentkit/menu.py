@@ -2616,21 +2616,26 @@ def unread(prov, weekly, readable, now):
 
 
 def scoped_notes(cfg, provider, weekly, shared):
-    """`Fable 41%` for each meter one model has to itself whose figure is not the shared one.
+    """(named, claimed): notes on these weekly meters that are one model's own cap.
 
-    A cap that reads the same as the shared week says nothing the row has not said already,
-    so it is left off; the note is there for the gap, which is the whole reason the cap exists.
+    A cap its provider names (`scope`) is `Fable 100% left`, whatever the shared week reads:
+    the owner asked to see what it has left beside when the week resets (10 Nov 2026).  One
+    only a model's `meter` in config.toml claims is `Fable 41%`, said only where a shared week
+    reads otherwise: the note is there for the gap.
     """
-    notes = []
+    named, claimed = [], []
     for meter in weekly:
-        if meter is shared or percent_left(meter) == percent_left(shared):
+        if meter.get("scope"):
+            named.append(f"{meter['scope']} {percent_left(meter)}% left")
+            continue
+        if shared is None or meter is shared or percent_left(meter) == percent_left(shared):
             continue
         owner = next((name for name, entry in cfg["models"].items()
                       if entry.get("provider") == provider
                       and entry.get("meter") == meter.get("name")), None)
         if owner:
-            notes.append(f"{owner.capitalize()} {percent_left(meter)}%")
-    return notes
+            claimed.append(f"{owner.capitalize()} {percent_left(meter)}%")
+    return named, claimed
 
 
 def percent_left(meter):
@@ -2706,8 +2711,8 @@ def fitting(notes, room):
     out with it: `as of 14:02` is worth having on a phone even where
     `resets Fri 14:00` will never fit.  Each note carries how much it is worth keeping when
     only some can be -- a spent 5h window first, then when the week is back, then why the
-    reading may be wrong, then the 5h window, then the scoped cap -- and they are offered in
-    that order and drawn in the row's.
+    reading may be wrong, then the 5h window, then a cap config.toml claims -- and they are
+    offered in that order and drawn in the row's.
     """
     kept, used = set(), 0
     for index in sorted(range(len(notes)), key=lambda i: notes[i][0]):
@@ -2937,10 +2942,12 @@ def meter_spots(width, count, first, rows=False):
 def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     """What the line under the usage grid says of subscription `number`, from 1, while the
     pointer is on it: its label in its provider's colour, then -- each where it applies, joined
-    with ` · ` -- a login that ends soon, in amber (`login_notes`), when its week resets, the
-    credits it holds, the resets in hand (`in_hand`), each model's own cap that differs
-    (`scoped_notes`), its 5-hour window (`session_note`), why its last probe failed (`fault`)
-    and how old the reading is (`usage.as_of`); for one with no week to draw, why (`unread`).
+    with ` · ` -- a login that ends soon, in amber (`login_notes`), the credits it holds, when
+    its week resets and what each cap its provider names has left, the resets in hand
+    (`in_hand`), each cap config.toml claims that differs (`scoped_notes`), its 5-hour window
+    (`session_note`), why its last probe failed (`fault`) and how old the reading is
+    (`usage.as_of`); for one with no week to draw, why (`unread`) and what each cap its
+    provider names has left.
     In `width` cells the notes give way one by one, the least worth keeping first (`fitting`),
     and the label too, past the notes but before the login; `rows` as `usage_cells`', and
     `ending` as `usage_lines`'."""
@@ -2950,9 +2957,13 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
         return ""
     name, label, prov, _ = rows[number - 1]
     week, why, readable = reading(cfg, name, prov, now)
-    notes = [(0, why)] if week is None else [
-        (-1, usage.credits_note(prov)), (0, resets_note(week, now)), (1, in_hand(prov)),
-        *((3, note) for note in scoped_notes(cfg, name, readable, week)),
+    named, claimed = scoped_notes(cfg, name, readable, week)
+    # a cap its provider names is one note with the reset time, or with why there is no week to
+    # reset: it gives way only with it
+    first = (0, " · ".join(filter(None, (resets_note(week, now) if week else why, *named))))
+    notes = [first] if week is None else [
+        (-1, usage.credits_note(prov)), first, (1, in_hand(prov)),
+        *((3, note) for note in claimed),
         session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
     login = (login_notes(rows[number - 1:number], now) if ending is None
              else ending[number - 1:number])[0]
