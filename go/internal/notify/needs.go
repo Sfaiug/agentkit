@@ -18,7 +18,7 @@ func Needs(name, text, source string, kept bool, published func(string) (string,
 	}
 	// asking is the notice once it asks this, nil where Go does not read the one it replaces
 	asking := func(current string) (previous, notice *run.Object) {
-		previous = Last(current)
+		previous = open(current)
 		if previous != nil && previous.Str("source") == source {
 			return previous, previous
 		}

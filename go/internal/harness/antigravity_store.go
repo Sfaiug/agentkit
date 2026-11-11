@@ -54,8 +54,9 @@ func antigravitySaid(conversation string) (said []Turn) {
 }
 
 // antigravityTyped is each user input of that conversation, dated by its step's metadata, field
-// 1 a Timestamp; a step dated otherwise is nobody's answer (antigravity.py `user_messages`).
-func antigravityTyped(conversation string) (typed []Prompt) {
+// 1 a Timestamp; a step dated otherwise is nobody's answer (antigravity.py `user_messages`).  Never
+// an error: the done check hands Antigravity's to Python (Reads).
+func antigravityTyped(conversation string) (typed []Prompt, _ error) {
 	var read agyReading
 	for _, step := range antigravitySteps(conversation) {
 		at, dated := read.timestamp(read.field(step.metadata, 1))
@@ -63,7 +64,7 @@ func antigravityTyped(conversation string) (typed []Prompt) {
 			typed = append(typed, Prompt{at, text})
 		}
 	}
-	return typed
+	return typed, nil
 }
 
 // antigravitySteps is each user input and answer of that conversation, in order, read from its
