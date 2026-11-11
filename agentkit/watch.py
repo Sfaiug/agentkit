@@ -830,7 +830,10 @@ def finish_own_lines(cfg, log):
 # composer and footer look like, and the rules that say whether it is working, asking or back
 # at its prompt.  Nothing here names a harness, so a new one plugs in with those two files.
 RULE = r"[─━═\-╭╮╰╯┌┐└┘]+"
-FOOTER = re.compile(rf"(?:{RULE}|[>›❯])$", re.I)
+# The marks a composer's prompt row opens on, in any harness, for every reader: one a reader
+# misses hides the composer, and a harness may draw another for one effort of a model (`»`).
+PROMPT = "❯›⟩»"
+FOOTER = re.compile(rf"(?:{RULE}|[>{PROMPT}])$", re.I)
 _SCREEN = {}
 
 
@@ -1501,7 +1504,7 @@ def _draft_text(plain, composer):
     # starts at the prompt holds a draft. The harness's own composer pattern names
     # its empty box and placeholders, so no list of them lives here: a line the
     # pattern fullmatches holds nothing the owner typed.
-    found = re.match(r"(?:│\s*)?([❯›⟩])\s*(.*)$", plain)
+    found = re.match(rf"(?:│\s*)?([{PROMPT}])\s*(.*)$", plain)
     if found and found.group(2).strip():
         if composer is not None and composer.fullmatch(plain):
             return ""
@@ -1513,7 +1516,7 @@ def _suggestion_line(raw, plain, colours=()):
     """Dim-only composer content: a suggestion or placeholder, treated as empty."""
     if not has_dim(raw, colours):
         return ""
-    found = re.match(r"(?:│\s*)?([❯›⟩])\s*(.*)$", plain)
+    found = re.match(rf"(?:│\s*)?([{PROMPT}])\s*(.*)$", plain)
     if found and found.group(2).strip():
         return " ".join(found.group(2).split())[:160]
     return ""
@@ -1565,7 +1568,7 @@ def prompt_rows(rows):
     """
     marks = {}
     for at, row in enumerate(rows):
-        found = re.match(r"\s*(?:│\s*)?([❯›⟩])", strip_sgr(row).rstrip())
+        found = re.match(rf"\s*(?:│\s*)?([{PROMPT}])", strip_sgr(row).rstrip())
         if found:
             marks[at] = found.start(1)
     left = min(marks.values(), default=None)
@@ -1588,7 +1591,7 @@ def ruled_composer(chrome, rows):
         return None, None
     cells = [re.sub(r"^│\s?", "", strip_sgr(row)).rstrip() for row in rows]
     for at in range(len(cells) - 1, -1, -1):
-        if re.match(r"[❯›⟩]", cells[at]):
+        if re.match(rf"[{PROMPT}]", cells[at]):
             end = next((row for row in range(at + 1, len(cells))
                         if not cells[row].startswith(" ") and chrome_line(chrome, cells[row])),
                        len(cells))
@@ -1620,7 +1623,7 @@ def chrome_line(chrome, line):
 
 def output_line(lines):
     """The latest logical output line (-J joins wraps), excluding prompt text and quotes."""
-    if not lines or re.match(r"(?:│\s*)?[>›❯⟩]", lines[-1]):
+    if not lines or re.match(rf"(?:│\s*)?[>{PROMPT}]", lines[-1]):
         return ""
     return re.sub(r'''`[^`]*`|"[^"]*"|“[^”]*”|(?<!\w)'[^']*'(?!\w)''', "", lines[-1])
 
@@ -1629,7 +1632,7 @@ def progress_output(harness, pane):
     """Comparable output, without composer input, footer repainting or terminal wrapping."""
     lines = content_lines(harness, pane)
     return " ".join(" ".join(line for line in lines
-                            if not re.match(r"(?:│\s*)?[>›❯⟩]", line)).split())
+                            if not re.match(rf"(?:│\s*)?[>{PROMPT}]", line)).split())
 
 
 def recorded_error(harness, name):
@@ -1971,7 +1974,7 @@ def screen_state(harness, pane):
     if chrome["ruled"] and len(lines) > 1 and drawn_rule(newest):
         above = strip_sgr(raw_lines[-2]).rstrip()
         if (above and not above[0].isspace() and above[0] not in "│┃║"
-                and not re.match(r"[❯›⟩>]", above) and not drawn_rule(above.strip())):
+                and not re.match(rf"[>{PROMPT}]", above) and not drawn_rule(above.strip())):
             newest = lines[-2]
     for rule in chrome["rules"]:
         region = lines[-rule["lines"]:]
@@ -1983,7 +1986,7 @@ def screen_state(harness, pane):
         if rule["id"] in ("prompt.draft", "prompt.suggestion"):
             if rule["none"] and any(mark in low for mark in rule["none"]):
                 continue
-            prompt = r"(?:│\s*)?[❯›⟩]"
+            prompt = rf"(?:│\s*)?[{PROMPT}]"
             marked = prompt_rows(raws)
             end = None
             if rule["chrome"] and chrome["ruled"]:
@@ -3692,7 +3695,7 @@ def _holds_text(pane, text):
     region = [strip_sgr(line).strip() for line in pane.splitlines()
               if strip_sgr(line).strip()][-8:]
     at = next((index for index in range(len(region) - 1, -1, -1)
-               if re.match(r"(?:│\s*)?[❯›⟩]", region[index])), 0)
+               if re.match(rf"(?:│\s*)?[{PROMPT}]", region[index])), 0)
     return needle in re.sub(r"\s+", "", "\n".join(region[at:]))
 
 
@@ -3988,7 +3991,7 @@ def _composer_rows(harness, pane, *, exact=False):
     pane = _boxed(pane) if chrome["boxed"] else pane
     raws, rows = _screen_rows(pane_tail(pane))
     if chrome["draft"]:
-        # A composer no `❯›⟩` mark finds: its manifest finds the framed block it holds,
+        # A composer no prompt mark finds: its manifest finds the framed block it holds,
         # and finding none reads as empty -- where the composer itself is on the
         # screen, a row its pattern names; with none there, a blank capture above all, nothing
         # was read.  Its rows are read as drawn, the tail's blank rows among them: their inset
@@ -4024,7 +4027,7 @@ def _composer_rows(harness, pane, *, exact=False):
     marked = prompt_rows(raws)
     if exact:
         marked = [row for row in marked
-                  if re.match(r"(?:\s*│\s?)?[❯›⟩]", strip_sgr(raws[row]))]
+                  if re.match(rf"(?:\s*│\s?)?[{PROMPT}]", strip_sgr(raws[row]))]
     at = next(iter(marked), None)
     stop = None if at is None else end(at)
     if exact and at is not None:
