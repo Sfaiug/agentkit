@@ -127,7 +127,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                    "with the code on that file's last line: its prompts stop naming it until it changes.",
                    "ak orch rules 3f2a9c81d0e4"),
     "orch pair": ("usage: ak orch pair SEAT",
-                  "Print a code that pairs the provider's app with a Codex seat; it pages nobody.\n"
+                  "Print a code that pairs the provider's app with a seat's remote connection; it pages nobody.\n"
                   "SEAT is the seat's name, a name it had, or the path of its home.",
                   "ak orch pair parser-fix"),
     "orch list": ("usage: ak orch list [--why]",
