@@ -191,8 +191,8 @@ class Projects(Sandbox):
             self.assertNotIn("need", line)
 
     def test_v5ak_e_no_ending_ever_needs_him(self):
-        # An ended run is its orchestrator's business, fresh or eight days old: a gone
-        # seat names its own number, and no row ever says `press r`.  The seat is the owner's
+        # An ended run is its orchestrator's business, fresh or eight days old: no row ever
+        # says `press r`.  The seat is the owner's
         # while the ending still is; eight days old it has aged out, nobody's, and the seat rests.
         seat = self.seat("atoll-fix", "atoll")
         seat["exited"] = True
@@ -200,21 +200,19 @@ class Projects(Sandbox):
                              title="Failed work", state="fail", verdict="FAIL",
                              finished_at=NOW - 2 * DAY)
         self.assertRegex(self.draw(100, 30), re.compile(
-            r"atoll-fix\s+Fable 5\.1 xhigh\s+! needs you\s+session closed: press 1 to reopen$", re.M))
+            r"atoll-fix\s+Fable 5\.1 xhigh\s+! needs you$", re.M))
         state = run_record.read_state(failed)
         state["finished_at"] = NOW - 8 * DAY
         run_record.save_state(failed, state)
         self.assertRegex(self.draw(100, 30), re.compile(
-            r"atoll-fix\s+Fable 5\.1 xhigh\s+○ idle\s+session closed: press 1 to reopen$", re.M))
+            r"atoll-fix\s+Fable 5\.1 xhigh\s+○ idle$", re.M))
         self.record("stopped", owner=seat["name"], repo=seat["repo"], title="Stopped work",
                     state="interrupted", finished_at=None, started_at=NOW - 2 * DAY,
                     interrupted_at=NOW - 2 * DAY, recovery_pending=True)
         self.assertNotIn("press r", self.draw(100, 30))
         self.record("unmerged", owner=seat["name"], repo=seat["repo"], title="Unmerged pass",
                     state="pass", verdict="PASS", finished_at=NOW - 2 * DAY)
-        screen = self.draw(100, 30)
-        self.assertIn("session closed: press 1 to reopen", screen)
-        self.assertNotIn("press r", screen)
+        self.assertNotIn("press r", self.draw(100, 30))
 
     def test_v5ak_f_a_parked_run_is_the_loops_and_stays_working(self):
         seat = self.seat("atoll-fix", "atoll")
@@ -257,14 +255,12 @@ class Projects(Sandbox):
         # the parked run is going, and counts as going in the tally
         self.assertEqual(menu.tally(tallies[seat["name"]]), "1 running · 2 needs you")
         # Its parked run resumes itself, so the seat is working until that one ends;
-        # then the gone seat names its own number, never the endings.
+        # then no row names the endings.
         self.assertIn("● working", self.draw(100, 30))
         run_record.save_state(config.RUNS / "parked",
                        {**run_record.read_state(config.RUNS / "parked"), "state": "pass",
                         "merged": True, "finished_at": NOW - 60})
-        screen = self.draw(100, 30)
-        self.assertIn("session closed: press 1 to reopen", screen)
-        self.assertNotIn("press r", screen)
+        self.assertNotIn("press r", self.draw(100, 30))
 
     def test_v5ak_h_the_three_fixtures_reproduce_byte_for_byte(self):
         import test_menu_at_rest_every_width

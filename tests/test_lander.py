@@ -468,7 +468,7 @@ class Lander(LanderFixture, unittest.TestCase):
                 fcntl.flock(holder, fcntl.LOCK_UN)
 
             def check(cmds, cwd, log_path, *args, **kw):
-                self.assertEqual(gate._heavy_running(), 1)
+                self.assertEqual(len(gate._heavy_held()), 1)
                 return self.check(cmds, cwd, log_path, *args, **kw)
 
             with (patch.dict(os.environ, {"AK_MAX_RUNS": ""}),
@@ -479,7 +479,7 @@ class Lander(LanderFixture, unittest.TestCase):
                 clock.sleep.side_effect = poll
                 land.check_line(self.turn)
         self.assertEqual((directory / "run.json").read_bytes(), changed[0])
-        self.assertEqual(gate._heavy_running(), 0)
+        self.assertEqual(len(gate._heavy_held()), 0)
         self.wake.assert_not_called()
 
     def test_a_busy_suite_gives_back_and_retakes_the_checkers_heavy_turn(self):
@@ -492,7 +492,7 @@ class Lander(LanderFixture, unittest.TestCase):
         released = []
 
         def poll(_seconds, **_kw):
-            released.append(gate._heavy_running())
+            released.append(len(gate._heavy_held()))
 
         with (patch.dict(os.environ, {"AK_MAX_RUNS": ""}),
               patch.object(gate, "time", wraps=gate.time) as clock,
@@ -502,7 +502,7 @@ class Lander(LanderFixture, unittest.TestCase):
             land.check_line(self.turn)
         self.assertEqual(released, [0])
         self.assertIn("land", self.wait(directory))
-        self.assertEqual(gate._heavy_running(), 0)
+        self.assertEqual(len(gate._heavy_held()), 0)
         self.wake.assert_called_once()
 
     def test_a_sharded_suite_holds_derived_turns_without_claiming_its_member(self):
@@ -514,7 +514,7 @@ class Lander(LanderFixture, unittest.TestCase):
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 9\n")
 
         def check(cmds, cwd, log_path, *args, **kw):
-            self.assertEqual(gate._heavy_running(), 2)
+            self.assertEqual(len(gate._heavy_held()), 2)
             return self.check(cmds, cwd, log_path, *args, **kw)
 
         with (patch.dict(os.environ, {"AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(
@@ -529,7 +529,7 @@ class Lander(LanderFixture, unittest.TestCase):
         self.assertEqual(current["waiting_on"].pop("after"), {})
         self.assertEqual(current, original)
         self.assertEqual(land.passed(self.turn, tree)["tested"], tree)
-        self.assertEqual(gate._heavy_running(), 0)
+        self.assertEqual(len(gate._heavy_held()), 0)
         self.wake.assert_called_once()
         self.assert_cleaned()
 

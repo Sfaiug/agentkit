@@ -243,6 +243,17 @@ RULES = [
      "pattern": r"\b(WITNESS|marked_pid|stop_placed)\b",
      "home": ("agentkit/orch.py",),
      "max": 0},
+    # ak draws only in the owner's palette (10 Nov 2026), one table in each build, a file of
+    # its own, so the next palette is that table.  Left, each a task of its own: a company's
+    # colour (menu.COLOURS, Go's harness.Company), each manifest's `colour`, in both builds,
+    # and the pointer's background (terminal.POINTED).  A git file mode and the zeros padding
+    # a fraction of a second are six digits in quotes, no colour.
+    {"name": "colours",
+     "flags": (),
+     "pattern": r"#[0-9a-fA-F]{6}\b|[\"'`][0-9a-fA-F]{6}[\"'`]",
+     "names": r'"100(644|755)"|"0{6}"\)\[:6\]',
+     "home": ("agentkit/palette.py", "go/internal/terminal/palette.go"),
+     "max": 16},
     # A character has one shape in every terminal only where the terminal draws it itself (Box
     # Drawing and Block Elements) or every font it opens with carries it: SF Mono, Menlo,
     # JetBrains Mono, Cascadia Mono and DejaVu Sans Mono hold Windows-1252, `−≈≤≥` and
@@ -260,7 +271,7 @@ RULES = [
               "go/internal/seat/said.go", "go/internal/seat/screen.go",
               "agentkit/notify.py", "agentkit/alive.py", "go/internal/notify/",
               "go/internal/tick/alive.go", "go/internal/tick/stopped.go"),
-     "max": 69},
+     "max": 70},
 ]
 
 # Every model ak runs is handed these whole, so each word costs every task some of its attention

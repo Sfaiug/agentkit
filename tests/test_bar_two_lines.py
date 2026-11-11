@@ -1,7 +1,7 @@
 """A seat's status bar is its row on the `ak` screen, with the line under it always open.
 
-Line one: its word -- `! needs you` alone as a chip, dark bold text on its amber, any other word
-in its colour -- the seat's name in bold, the model that orchestrates it, dim, and its progress
+Line one: its word as a chip, on its colour in the text that reads on it, bold for `! needs you`
+-- the seat's name in bold, the model that orchestrates it, dim, and its progress
 line.  Line two: what needs you that no chat shows (an expired login, a parked run); otherwise
 who builds and who reviews and each task in flight as its squares, the key at its right end.
 A question is the chat's last message or card, so line two never repeats it.
@@ -22,8 +22,7 @@ from agentkit.guard import commands  # noqa: E402
 from agentkit import record
 
 NOW = 1_800_000_000
-INK = "#11111b"
-DIM = terminal.STATE_STYLES["dim"][2]
+DIM = terminal.colour("dim").rgb
 
 
 def drawn(value):
@@ -95,11 +94,11 @@ class TwoLines(Sandbox):
         self.going()
         self.assertEqual(watch.announce_state(self.seat, cfg=self.cfg)["word"], "working")
         top = self.options[statusbar.TOP]
-        self.assertTrue(top.startswith(" #[fg=#89b4fa]● working#[default]   #[bold]fix-api"), top)
+        self.assertTrue(top.startswith(" #[fg=#ffffff,bg=#0067c6] ● working #[default]   #[bold]fix-api"), top)
         # two of five done: the line in working's colour, then its count
         bar = menu.last_column("working", 2, 5, statusbar.CELLS, tmux=True)
         self.assertTrue(top.endswith(f"Fable 5.1 xhigh#[default]   {bar}"), top)
-        self.assertEqual(drawn(top), f" ● working   fix-api   Fable 5.1 xhigh   {drawn(bar)}")
+        self.assertEqual(drawn(top), f"  ● working    fix-api   Fable 5.1 xhigh   {drawn(bar)}")
         # line two is its row's open line: who builds and reviews, and its task building
         self.assertEqual(drawn(self.options[statusbar.WHY]),
                          "  GPT-6-Astra xhigh ⚒◎   ■□□")
@@ -111,7 +110,7 @@ class TwoLines(Sandbox):
         notify.record("fix-api", "needs", "Merge 50% of #75 first?")
         self.assertEqual(watch.announce_state(self.seat, cfg=self.cfg)["word"], "needs you")
         top, why = self.options[statusbar.TOP], self.options[statusbar.WHY]
-        self.assertIn(f"#[fg={INK},bg=#f9e2af,bold] ! needs you #[default]", top)
+        self.assertIn("#[fg=#3d2e00,bg=#f6c400,bold] ! needs you #[default]", top)
         self.assertEqual(drawn(top), "  ! needs you    fix-api   Fable 5.1 xhigh")
         self.assertEqual(drawn(why), "  GPT-6-Astra xhigh ⚒◎")
         self.assertNotIn("Merge", "".join(self.options.values()))
@@ -133,7 +132,7 @@ class TwoLines(Sandbox):
 
     def test_d_a_done_seat_offers_the_menu_key(self):
         top, why, key, title = statusbar.lines("fix-api", "fable", "done", "", "astra builds")
-        self.assertIn("#[fg=#a6e3a1]✓ done#[default]", top)
+        self.assertIn("#[fg=#ffffff,bg=#007e46] ✓ done #[default]", top)
         self.assertEqual(drawn(why), "  astra builds")
         self.assertEqual(drawn(key), "Ctrl-b m  menu ")
         self.assertEqual(title, "fix-api · done")

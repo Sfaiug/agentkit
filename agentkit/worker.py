@@ -665,7 +665,8 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, only=None, failed=None, ran=None, f
           absent=None, **kwargs):
     """The check watchdog and status, with worker walls and throwaway HOME writes.
 
-    `cpu`, a list, gets the CPU seconds the command's processes spent, where the box says.
+    `cpu`, a list, gets the CPU seconds the command's processes needed, where the box says, and
+    the seconds the box ran, a pair.
     `failed`, a list, gets the tests a command that ran to its end named as failed, one per
     line in the file `AK_FAILED` names, `ran` those it named as run, in `AK_RAN`'s, `flaky`
     those it named as failing, then passing on a re-run, in `AK_FLAKY`'s, and `absent` those it
@@ -683,9 +684,10 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, only=None, failed=None, ran=None, f
             env = {**env, "AK_ONLY": str(listed)}
         with box.command(cmd, env, out_dir, cwd=cwd,
                          home_overlay=True, drain=True) as (cmd, env, spawn):
+            began = time.monotonic()
             code, text, killed = limited(cmd, limit, env=env, cwd=cwd, **spawn, **kwargs)
             if cpu is not None and (spent := box.cpu_seconds(out_dir)) is not None:
-                cpu.append(spent)
+                cpu.append((spent, time.monotonic() - began))
             if not killed:
                 # Bubblewrap exits 1 when it cannot build the box. Without the supervisor's
                 # report that is no exit of the command: it never started, the shell's 126.

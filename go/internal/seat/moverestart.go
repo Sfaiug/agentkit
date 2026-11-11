@@ -6,15 +6,19 @@ import (
 	"agentkit/internal/tmux"
 )
 
-// moveRestarts is whether a move that is not in place (switchPane) starts a fresh conversation,
-// the only restart Go carries: a kept conversation is left to Python.  A harness with no
-// conversation can still restart on another of its models.
-func moveRestarts(was, next config.Model, record map[string]any) bool {
+// keptConversation is the conversation a move that is not in place (switchPane) restarts the seat
+// on, as orch.switch_orchestrator keeps one: the one its harness owns where `next` runs on that
+// harness, "" for a fresh one, and whether that harness has opened it; false where Go does not
+// know which.
+func keptConversation(was, next config.Model, record map[string]any) (conversation string, opened, known bool) {
 	if was.Harness != next.Harness {
-		return true
+		return "", true, true
 	}
-	conversation, known := harness.Owned(was.Harness, record)
-	return known && conversation == ""
+	if conversation, known = harness.Owned(was.Harness, record); conversation == "" || !known {
+		return "", true, known
+	}
+	opened, known = harness.Opened(was.Harness, record)
+	return conversation, opened, known
 }
 
 // switchPane is the launch's own pane where the seat's running harness takes `next` from its

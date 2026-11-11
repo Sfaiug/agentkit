@@ -69,7 +69,7 @@ class Bar(Sandbox):
 
     def test_v5y_a_line_one_reads_state_and_last_column(self):
         top, why, key, title = statusbar.lines("herdr", "fable", "working", "tasks x 2/5")
-        self.assertEqual(drawn(top), f" {terminal.state_text('working')}   herdr   "
+        self.assertEqual(drawn(top), f"  {terminal.state_text('working')}    herdr   "
                                      "fable   tasks x 2/5")
         self.assertEqual(why, "")
         self.assertEqual(drawn(key), "Ctrl-b m  menu ")
@@ -148,7 +148,7 @@ class Bar(Sandbox):
     def test_v5y_d_no_runs_draws_no_tally(self):
         top, why, _, _ = statusbar.lines("herdr", "fable", "working", "")
         self.assertNotIn("running", top + why)
-        self.assertEqual(drawn(top), f" {terminal.state_text('working')}   herdr   fable")
+        self.assertEqual(drawn(top), f"  {terminal.state_text('working')}    herdr   fable")
         # without a word yet -- a seat just started -- the bar carries no state at all
         initial, _, _, _ = statusbar.lines("herdr", "fable")
         self.assertEqual(drawn(initial), " herdr   fable")
