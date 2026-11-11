@@ -70,6 +70,10 @@ class ABoxSeesTheHostsProcesses(unittest.TestCase):
         self.outside = subprocess.Popen(["sleep", "600"], stdin=subprocess.DEVNULL)
         self.addCleanup(self.outside.wait)
         self.addCleanup(self.outside.kill)
+        # the shadow's scratch, OUTER's /var/tmp, holds the moment each box's /proc shows, as the
+        # shadow's own does
+        for name in shadow.MOMENT:
+            Path("/var/tmp", name).write_bytes(Path("/proc", name).read_bytes())
 
     def boxed(self, *argv):
         """What a run of `argv` in the shadow's box did."""

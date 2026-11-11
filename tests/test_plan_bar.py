@@ -1,8 +1,9 @@
 """A seat's progress is a smooth line of how much of its plan is done, and its count.
 
 The done share is `━` in the word's colour, a half cell `╸` where it ends inside one, then a dim
-`─` for the rest and `done of total`; on a terminal and on a seat's bar alike the line fades in
-from half way to the background at its start to the colour at its tip.  It says nothing of the tasks in flight, which
+`─` for the rest and `done of total`; on a terminal and on a seat's bar alike every cell of the
+line is the word's colour, as no colour outside the owner's palette rests on the screen
+(10 Nov 2026).  It says nothing of the tasks in flight, which
 the line under a highlighted row has, and no screen says when the work will finish.  The rows
 draw it in the room they have, never wrapped or cut, and without colour or UTF-8 it reads in
 plain characters.  Offline: a throwaway HOME, fake plans and run records, the real renderer.
@@ -20,8 +21,7 @@ from agentkit import config, history, menu, terminal
 from agentkit import record
 
 NOW = 1_800_000_000
-WORKING, AMBER, DIM = (terminal.STATE_STYLES["working"][2], terminal.STATE_STYLES["needs you"][2],
-                       terminal.STATE_STYLES["dim"][2])
+WORKING, AMBER, DIM = (terminal.colour(word).rgb for word in ("working", "needs you", "dim"))
 
 
 def cells(bar):
@@ -49,28 +49,25 @@ class PlanBar(Sandbox):
         self.assertEqual({ink for char, ink in drawn if char == "─"}, {DIM})
 
     def test_a_seat_s_bar_draws_the_line_its_row_draws(self):
-        # cell for cell the row's inks on a dark terminal, fading in to the word's own colour at
-        # the tip, whichever process writes the bar
+        # cell for cell the row's inks on a dark terminal, each the word's own colour, whichever
+        # process writes the bar
         for word, colour in (("working", WORKING), ("needs you", AMBER)):
             with patch.object(terminal, "colour_depth", return_value=24):
                 row = terminal.plan_bar(3, 8, 30, 8, word)
             screen = ["".join(f"{int(part):02x}" for part in ink.split(";"))
                       for ink in re.findall(r"38;2;([\d;]+)m[━╸]", row)]
-            self.assertEqual(screen[-1], colour)
-            self.assertNotEqual(screen[0], colour)
+            self.assertEqual(screen, [colour] * 9)
             for light in (False, True):
                 with self.subTest(word=word, light=light), \
                         patch.object(terminal, "_LIGHT", light):
                     bar, _ = cells(terminal.plan_bar(3, 8, 30, 8, word, tmux=True))
                     self.assertEqual([ink for char, ink in bar if char in "━╸"], screen)
 
-    def test_on_a_terminal_the_line_fades_in_toward_its_tip(self):
+    def test_on_a_terminal_the_line_rests_in_its_words_colour(self):
         with patch.object(terminal, "colour_depth", return_value=24):
             line = terminal.plan_bar(4, 8, 28, 8, "working")
         inks = re.findall(r"38;2;([\d;]+)m[━╸]", line)
-        tip = ";".join(str(int(WORKING[at:at + 2], 16)) for at in (0, 2, 4))
-        self.assertEqual(inks[-1], tip)
-        self.assertNotEqual(inks[0], tip)
+        self.assertEqual(set(inks), {";".join(str(int(WORKING[at:at + 2], 16)) for at in (0, 2, 4))})
         self.assertTrue(terminal.plain(line).endswith(" 4 of 8"))
 
     def test_eight_colours_draw_the_whole_line_in_the_words_own_tone(self):
@@ -139,7 +136,7 @@ class PlanBar(Sandbox):
             with patch.object(terminal, "colour_depth", return_value=24):
                 [line] = menu.v5o_seat_blocks([info], width)[0]
             self.assertEqual(terminal.cells(line), width)
-            self.assertRegex(line, r"38;2;137;180;250m[━╸]")   # the tip, in working's colour
+            self.assertRegex(line, r"38;2;0;103;198m[━╸]")   # the tip, in working's colour
             self.assertTrue(terminal.plain(line).endswith(" 1 of 6"), line)
         self.assertFalse(hasattr(menu, "seat_estimate"))
         self.assertFalse(hasattr(history, "estimate_seconds"))

@@ -242,13 +242,24 @@ RULES = [
      "pattern": r"\b(WITNESS|marked_pid|stop_placed)\b",
      "home": ("agentkit/orch.py",),
      "max": 0},
+    # ak draws only in the owner's palette (10 Nov 2026), one table in each build, a file of
+    # its own, so the next palette is that table.  Left, each a task of its own: a company's
+    # colour (menu.COLOURS, Go's harness.Company), each manifest's `colour`, in both builds,
+    # and the pointer's background (terminal.POINTED).  A git file mode and the zeros padding
+    # a fraction of a second are six digits in quotes, no colour.
+    {"name": "colours",
+     "flags": (),
+     "pattern": r"#[0-9a-fA-F]{6}\b|[\"'`][0-9a-fA-F]{6}[\"'`]",
+     "names": r'"100(644|755)"|"0{6}"\)\[:6\]',
+     "home": ("agentkit/palette.py", "go/internal/terminal/palette.go"),
+     "max": 16},
 ]
 
 # Every model ak runs is handed these whole, so each word costs every task some of its attention
 # (the owner's yes, 15 Oct 2026, set at their size of 16 Oct).  A line added makes room: a rule
 # turned into a check, what one area needs moved to a comment at that code, or what is stale
 # deleted.  No task raises a max; the owner raises one by merging that change by hand.
-WORDS = {"AGENTS.md": 1182, "orchestrator.md": 1817}
+WORDS = {"AGENTS.md": 1181, "orchestrator.md": 1817}
 
 
 def outside(rule):

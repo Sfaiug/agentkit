@@ -524,10 +524,26 @@ def publishes():
 
 
 def agentkit_version():
-    """That checkout's short commit and its date, `abc1234 · 2026-09-29`, or "" when it is no
-    checkout at all."""
-    code, said = _git("log", "-1", "--format=%h · %cs")
-    return "" if code else said
+    """How many commits that checkout's history holds, then its date, `2816 · 2026-09-29`: each
+    change merged to main is one commit, so a higher number is the newer ak.  The date alone
+    where git cannot count that history, or it is cut short (a shallow clone, as install.sh
+    first copies ak) and its count would be wrong; "" when it is no checkout at all."""
+    # in UTF-8 whatever log encoding the checkout's config asks for, UTF-16 say
+    code, date = _git("-c", "i18n.logOutputEncoding=UTF-8", "log", "-1", "--format=%cs")
+    if code:
+        return ""
+    # cut short first: a count taken before that history was completed would hold too few
+    if _git("rev-parse", "--is-shallow-repository")[1] != "false":
+        return date
+    uncounted, count = _git("rev-list", "--count", "HEAD")
+    return date if uncounted else f"{count} · {date}"
+
+
+def agentkit_build():
+    """That checkout's commit, or "" when it is no checkout: what tells one build from the next
+    where ak keeps something per build, as two builds may read one version."""
+    code, commit = _git("rev-parse", "HEAD")
+    return "" if code else commit
 
 
 def behind(timeout=START_WAIT):

@@ -99,7 +99,7 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
         self.assertEqual(suite_times.read(times),
                          {f"tests/{name}": seconds for name, (_, seconds) in FILES.items()},
                          "a file the checkout lacks leaves the record")
-        self.assertEqual(gate.suite_env(None, times)["AK_TIMES"], times)
+        self.assertEqual(gate.suite_env(times)["AK_TIMES"], times)
         # The helper hands its pieces no environment: they get the same record in the command.
         seen = self.sandbox / "seen"
         subprocess.run(["bash", "-c", gate.pinned(f'printf %s "$AK_TIMES" >{seen}', times)],
