@@ -24,8 +24,7 @@ SAID = {"acme-plan": ("needs you", "Which schema should acme use, the old one or
         "acme-docs": ("done", "The docs say v2 only, with a note for v1 readers."),
         "acme-fix": ("idle", "session closed: press 3 to reopen")}
 CREW = "GPT-6-Astra xhigh ⚒   Fable 5.1 xhigh ◎"
-UNSENT = ("Fix the login redirect for acme, then check that the session cookie survives the "
-          "round trip through the proxy and tell me what broke")
+UNSENT = " ".join(["Fix the login redirect for acme and tell me what broke."] * 2)  # two lines
 
 
 class RowOpens(Sandbox):

@@ -1,10 +1,9 @@
 """A seat's line shows who builds, who reviews and each task in flight, never what it said.
 
-The owner, 9 Nov 2026: "I think only models and the current runs should be shown."  So the line
-under a seat that needs the owner is each model building ⚒ and reviewing ◎ its work, then each
-task in flight as its squares -- never its question.  From a pipe every row opens its line.
-Black-box: `AK_BIN` runs from a pipe beside tests/fixtures/akseat.py's seats, a question the seat
-sent and run records like those `ak run` writes, and this test fails against `/bin/false`.
+The owner, 9 Nov 2026: "I think only models and the current runs should be shown."  So a seat
+that needs the owner opens each model building ⚒ and reviewing ◎ its work, then each task in
+flight as its squares, never its question.  Black-box: `AK_BIN` from a pipe, where every row
+opens, beside an akseat.py seat, its question and `ak run`'s records; fails on `/bin/false`.
 """
 
 import re

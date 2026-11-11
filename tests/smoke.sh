@@ -3959,7 +3959,7 @@ grep -qE '^ +[0-9]+  update ' "$WORK/update-notice.log" && UPD=1
 
 # --- 21: the two notification shapes (offline) --------------------------------
 # `--dry-run` prints the payload and posts nothing; without a webhook the real form prints to
-# stderr and records the session's last message, which the menu's row says. The card leads
+# stderr and records the seat's last message, which turns its menu row `needs you`. The card leads
 # with its two words and the seat, the mention last and the only one it may ping, and carries
 # nothing the seat asked or did.
 NSH="$WORK/home-notify-shapes"

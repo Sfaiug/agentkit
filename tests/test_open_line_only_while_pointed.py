@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_hover import move  # noqa: E402
 from test_menu_keys import DOWN, Menu  # noqa: E402
 
-ASKED = "Which schema should acme use, the old one or the new one?"    # by the owner, unsent
+ASKED = "Which schema should acme use, the old one or the new one?"
 UP = b"\x1b[A"
 
 

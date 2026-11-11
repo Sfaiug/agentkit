@@ -3,8 +3,8 @@
 The owner's choice of 20 Oct 2026: a seat holding text it never sent keeps its row as it would
 be without it -- a working seat's progress line and `N of M` -- and the row ends in `✎ unsent`
 in the needs-you colour; the row the pointer is on opens the text under itself, `✎` first,
-before what it opens today, and past half the screen cuts it with `…`, so the usage and the keys
-stay on screen (the owner's rule of 14 Oct).  The reason never carries
+before what it opens today, and past half the screen cuts it with `…` as it does any block, so
+the usage and the keys stay on screen (the owner's rule of 14 Oct).  The reason never carries
 the text.  Offline: the menu's own drawing functions on a seat info built here.
 """
 
