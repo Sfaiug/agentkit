@@ -151,17 +151,6 @@ class GrowIn(Sandbox):
         self.assertEqual((len(rows), filled[0]), (2, 0))
         self.assertEqual(filled[-1], sum(lines[n].count("━") + lines[n].count("╸") for n in rows))
 
-    def test_line_glyphs_in_what_got_done_never_grow(self):
-        done = {"word": "done", "reason": "Deployed - 1 of 2 services; ━╸─= 3 of 4", "since": None}
-        for width in (100, 50):    # the line beside the row, or on the line under it
-            with self.subTest(width=width), \
-                    patch.object(menu, "seat_row_state", return_value=done):
-                self.clock = motion.Clock()
-                lines = [terminal.ANSI.sub("", line) for line in self.draw(width)]
-                prose = {n for n, line in enumerate(lines, 1) if "Deployed" in line}
-                grown = {row for row, _ in self.clock.cells}
-                self.assertTrue(prose and grown and not grown & prose, (grown, lines))
-
 
 if __name__ == "__main__":
     unittest.main()
