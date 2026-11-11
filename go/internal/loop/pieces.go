@@ -26,7 +26,8 @@ var errSibling = errors.New("a sibling piece was stopped")
 
 // A piece is one share of a suite as it ran: its output, how it ended, the output of a first go its
 // re-run decided, nil for none, and how that go failed as its flaky record says, "" for "failed",
-// where it ran, when its next go was asked for, and each go's exit (blame.go's went).
+// where it ran, when its next go was asked for, and each go's exit but those lost there (blame.go's
+// went).
 type piece struct {
 	shard  string
 	out    *os.File
@@ -44,18 +45,20 @@ type piece struct {
 // twice the places they were admitted at and run on a place each, more as turns free; else, where no
 // turn is taken, in as many as this host fits at once.  Each has its share `AK_SHARD=k/N`, its own
 // silence window and the list's deadline, its output added to progress under its own header as it
-// ends, and is told when it holds a turn.  A piece red on the helper, whose offline VM fails a
-// command that needs this host, runs here after the others, the tests it named there first, which
-// decides (helperReds).  A red piece here goes once more alone after the others, which decides it,
-// a pass then said by a `flaky:` record unless the kernel killed it for memory (starved.go); one
-// stopped at its limit stops the rest.  A whole go after the others runs on a turn here, taken
-// first where the suite holds none, and a go told it holds one that answers busy never ran: its
-// first beside the others or any go after, it goes again alone once its turn was given back for a
-// poll (again).  Each go leaves its row in history under rows where it ran, those on the helper
-// dropped where it hands the suite on.  Once the pieces ended, before any go after them, the pass
-// keeps what it held here as the suite's cost (measure).  The suite ends as the red piece redRank
-// ranks first did, and hands on what handedOn says, its cost raised where it ran out of memory,
-// however it ended, but where it is handed on (overflowed).
+// ends, and is told when it holds a turn.  A piece a machine gave back goes back for the next place
+// to free, and that VM's place ends (piecesLeft); what waits once no place is left goes to the first
+// machine with room, or waits for this host's turns (placeAgain).  A piece red on the helper, whose
+// offline VM fails a command that needs this host, runs here after the others, the tests it named
+// there first, which decides (helperReds).  A red piece here goes once more alone after the others,
+// which decides it, a pass then said by a `flaky:` record unless the kernel killed it for memory
+// (starved.go); one stopped at its limit stops the rest.  A whole go after the others runs on a turn
+// here, taken first where the suite holds none, and a go told it holds one that answers busy never
+// ran: its first beside the others or any go after, it goes again alone once its turn was given
+// back for a poll (again).  Each go leaves its row in history under rows where it ran, those on the
+// helper dropped where it hands the suite on.  Once the pieces ended, before any go after them, the
+// pass keeps what it held here as the suite's cost (measure).  The suite ends as the red piece
+// redRank ranks first did, and hands on what handedOn says, its cost raised where it ran out of
+// memory, however it ended, but where it is handed on (overflowed).
 //
 // What Python does beyond that is not Go's yet and differs here: the suite's pace.
 func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
@@ -68,7 +71,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 	switch {
 	case away != nil:
 		// cut for the whole machine, not the room it has now, so the suite grows into what frees
-		count, places = cmp.Or(2*away.Most, count), away.Count
+		count, places, here = cmp.Or(2*away.Most, count), away.Count, "no place is left on the suite helper"
 	case on.holds():
 		count, places = 2*on.hold.Places(), 0 // each turn starts its place (Grow)
 	}
@@ -121,7 +124,10 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 				at.ended, err = alone.boxed(cwd, cmd, at.shard, on.times, left, out, out.Name(), false, on.holds(), only)
 			}
 			row.End(exitOf(at.ended, err))
-			at.asked, at.exits = clock(), went(at.exits, at.ended, err)
+			at.asked = clock()
+			if !at.back() {
+				at.exits = went(at.exits, at.ended, err)
+			}
 		}
 		if errors.Is(err, errSibling) {
 			at.ended, err = ran{code: -15, stopped: "sibling"}, nil
@@ -140,12 +146,10 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		_, err = io.Copy(progress, io.NewSectionReader(out, 0, 1<<62))
 		return err
 	}
-	// each place, a VM there or a place here, takes the next waiting piece as it frees
-	waiting := make(chan *piece, count)
 	for index := range all {
 		all[index] = &piece{shard: fmt.Sprintf("%d/%d", index+1, count), asked: asked}
-		waiting <- all[index]
 	}
+	waiting := leftOf(all)
 	defer func() {
 		// a suite that does not end as one command keeps what its ended goes named, as Python's
 		// run_suite does; one handed on is Python's to run again and keep
@@ -163,44 +167,89 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 			err = cmp.Or(err, overflowed(l.ctx, suitePath(l.dir, cwd, cmd), ooms, memory, measured.mem))
 		}
 	}()
-	close(waiting)
 	var started sync.WaitGroup
 	var errs []error
+	// each place, a VM there or a place here, takes the next waiting piece as it frees
 	place := func(there *helper.Away) {
 		started.Add(1)
+		waiting.open(there)
 		go func() {
 			defer started.Done()
-			for at := range waiting {
+			for at := waiting.next(there); at != nil; at = waiting.next(there) {
+				why := here
+				if at.there != nil { // given back by the machine that ended it
+					why = "helper " + at.there.Alias + " " + helper.Failure(at.ended.code)
+				}
 				at.there = there
-				if err := attempt(at, here, nil); err != nil {
+				err := attempt(at, why, nil)
+				if err != nil {
 					held.Lock()
 					errs = append(errs, err)
 					held.Unlock()
 				}
+				back := err == nil && at.back()
+				waiting.done(at, back)
+				if back {
+					return // the VM's place ends with it
+				}
 			}
 		}()
 	}
-	for range places {
-		place(away)
-	}
 	var joined []*helper.Away
-	// a helper that takes the suite while a piece waits runs waiting pieces too, whether the suite
-	// began there or on a turn here, as Python's ask does
-	if away != nil || on.holds() {
-		started.Add(1)
-		go func() {
-			defer started.Done()
-			joined = alone.grow(cwd, cpus, memory, cmd, on.times, waiting, place)
-		}()
+	// pull runs the waiting pieces on that many places, VMs there or places here, until no place is
+	// left for them
+	pull := func(there *helper.Away, places int) {
+		waiting.here = there == nil || on.holds()
+		for range places {
+			place(there)
+		}
+		// a helper that takes the suite while a piece waits runs waiting pieces too, whether the suite
+		// began there or on a turn here, as Python's ask does
+		if there != nil || on.holds() {
+			started.Add(1)
+			go func() {
+				defer started.Done()
+				grew, err := alone.grow(cwd, cpus, memory, cmd, on.times, waiting, place)
+				joined = append(joined, grew...)
+				if err != nil {
+					held.Lock()
+					errs = append(errs, err)
+					held.Unlock()
+					cancel(errSibling)
+				}
+			}()
+		}
+		if on.holds() {
+			started.Add(1)
+			go func() {
+				defer started.Done()
+				on.hold.Grow(ctx, func() bool { return waiting.waits() > 0 }, waiting.over, func() { place(nil) })
+			}()
+		}
+		started.Wait()
 	}
-	if on.holds() {
-		started.Add(1)
-		go func() {
-			defer started.Done()
-			on.hold.Grow(ctx, func() bool { return len(waiting) > 0 }, func() { place(nil) })
-		}()
+	pull(away, places)
+	// what waits once no place is left goes to the first machine with room, else on this host's
+	// turns, else all at once here where no turn caps it, as at once where a sibling was stopped
+	for waiting.waits() > 0 && l.ctx.Err() == nil {
+		var there *helper.Away
+		if ctx.Err() == nil {
+			var err error
+			if there, err = l.placeAgain(cwd, cpus, memory, cmd, on, deadline); err != nil {
+				errs = append(errs, err)
+				break
+			}
+		}
+		switch {
+		case there != nil:
+			joined = append(joined, there)
+			pull(there, there.Count)
+		case on.holds():
+			pull(nil, 0) // each turn starts its place (Grow)
+		default:
+			pull(nil, waiting.waits())
+		}
 	}
-	started.Wait()
 	for _, there := range joined {
 		there.Finish()
 	}

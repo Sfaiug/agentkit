@@ -2,7 +2,8 @@
 
 Black-box through AK_BIN and akline: changes merged by acme-a, acme-b and acme-c pass
 until a marker appears. Named failures repeat on the tip, starting its repair at once.
-History keeps the culprit and each probe; old reds and flakes blame nobody.
+History keeps the culprit and each probe; old reds, flakes and a red that named no test blame
+nobody.
 """
 
 from contextlib import closing
@@ -27,7 +28,7 @@ UNSHARDED = ('[ -f "$(git rev-parse --git-common-dir)/red" ] || exit 0\n'
 
 class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
     def line(self, *, old=False, flaky=False, outside=False, blame="", dated=False, padding=0,
-             unsharded=False, partial=False, whole=False):
+             unsharded=False, partial=False):
         home = Home()
         self.addCleanup(home.close)
         if dated:
@@ -35,10 +36,6 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
         files = ({"AGENTS.md": rules("sh suite.sh"), "suite.sh": UNSHARDED} if unsharded else
                  {"suite.sh": RUNNER.replace('[ $((i % n + 1)) = "$k" ]', '[ "$k" = "1" ]')}
                  if partial else {})
-        if whole:
-            files["t/hang.sh"] = '[ ! -f work.txt ] || sleep 30\n'
-            if flaky:
-                files["suite.sh"] = RUNNER.replace('echo "$t" >>', ': >>')
         line = Line({"t/ok.sh": "true\n", **({"t/bad.sh": RED} if old else {}), **files}, home=home)
         initial = line.base
         a = line.rig.commit({"a.txt": "a\n"}, "acme-a")
@@ -57,8 +54,7 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
         line.home.write(".agentkit/state/session-seat.json",
                         {"orchestrator": "opus", "workers": ["opus"]})
         path = line.members[0] / "run.json"
-        path.write_text(json.dumps({**json.loads(path.read_text()), "launched_session": "seat",
-                                    **({"silence_minutes": 0.05} if whole else {})}))
+        path.write_text(json.dumps({**json.loads(path.read_text()), "launched_session": "seat"}))
         with closing(sqlite3.connect(line.home.path / ".agentkit/history.db")) as db, db:
             db.execute("CREATE TABLE runs (%s, merge_sha TEXT, broke_after_merge TEXT)" %
                        ", ".join(map(" ".join, ORIGINAL)))
@@ -119,25 +115,17 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
         self.assertEqual(self.blame(line), {})
         self.assertEqual(self.probes(line, b), [1, 0])
 
-    def test_an_unsharded_probe_stays_unsharded_during_the_walk(self):
-        line, (oldest, _, _, _) = self.line(unsharded=True)
+    def test_a_red_that_named_no_test_blames_nobody(self):
+        line, commits = self.line(unsharded=True)
         self.assertEqual(self.blame(line), {})
-        self.assertIn(f"red before {oldest[:12]}", self.output)
+        # its repair starts, and no earlier commit is checked: only named tests walk
+        self.assertEqual([self.probes(line, sha) for sha in commits[:-1]], [[], [], []])
 
-    def test_missing_tests_do_not_hide_a_flake_before_the_piece_fallback(self):
+    def test_missing_tests_do_not_hide_a_flake(self):
         line, (_, _, b, _) = self.line(partial=True)
         self.assertEqual(self.blame(line), {})
         self.assertEqual(self.probes(line, b), [1, 1])
         self.assertIn(f"{b[:12]} is flaky", self.output)
-
-    def test_whole_suite_retries_distinguish_stable_red_from_an_unnamed_flake(self):
-        for flaky in (False, True):
-            with self.subTest(flaky=flaky):
-                line, (_, _, b, _) = self.line(whole=True, flaky=flaky)
-                data = json.loads((line.members[0].parent / line.line).with_suffix(".green").read_text())
-                self.assertEqual({red["probe"]["piece"] for red in data["red"].values()}, {""})
-                self.assertEqual(self.blame(line), {} if flaky else {"acme-b": "tip"})
-                self.assertEqual(self.probes(line, b).count(1), 1 if flaky else 2)
 
     def test_a_merge_outside_ak_leaves_no_blame_row(self):
         line, (_, _, b, _) = self.line(outside=True)

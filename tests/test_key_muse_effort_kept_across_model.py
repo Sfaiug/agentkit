@@ -16,7 +16,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from test_key_model_followed_muse_at_once import RUN, SESSION, reconfigured
-from test_key_model_followed_opencode_muse import SPARK, WONDER, muse_answer
+from test_key_model_followed_opencode_muse import SPARK, WONDER, WONDER_NAMED, muse_answer
 from test_key_orch_list_rows import bar
 
 
@@ -49,7 +49,7 @@ class MuseEffortKeptAcrossModel(unittest.TestCase):
         self.assertEqual(record["orchestrator"], "wonder")
         expected = {**self.efforts, "wonder": {**self.efforts["wonder"], "effort": "xhigh"}}
         self.assertEqual(record["efforts"], expected)
-        self.assertIn(f"{WONDER} xhigh", bar(self.home, self.seat))
+        self.assertIn(f"{WONDER_NAMED} xhigh", bar(self.home, self.seat))
 
     def test_reconfigure_before_an_answer_keeps_the_effort(self):
         self.followed_at_seat_effort(reconfigured(self.now - 60, WONDER))

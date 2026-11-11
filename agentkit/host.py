@@ -2,6 +2,8 @@
 
 import json
 import os
+import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -599,6 +601,64 @@ def own_cgroup():
     return cgroup_path(relative)
 
 
+def _injected():
+    """AK_HOST_READINGS where it holds a JSON object, standing in for every reading of the host."""
+    try:
+        readings = json.loads(os.environ.get("AK_HOST_READINGS") or "null")
+    except json.JSONDecodeError:
+        return None
+    return readings if isinstance(readings, dict) else None
+
+
+def disk_use(path):
+    """(used, size) in MiB of the disk holding `path`, or None where that cannot be read.
+
+    A guest's disk, such as a Mac's Linux machine's image growing on the Mac's own disk, grows
+    only while its host has room, and stops the guest mid-write once it has none.  A folder
+    the host shares through `virtiofs` reports its volume's free space: the disk has the least
+    of its own free space and each such mount's left.  Where a host has less than the disk,
+    the disk is as large as what it holds and that room, its reserved blocks no room it can
+    use, so a fill reads as on a disk of that size; elsewhere it reads as it says.
+    """
+    readings = _injected()
+    if readings is None:
+        readings = _disk_readings(path)
+    total, used, free = (_number(readings.get(f"disk_{name}_mb")) for name in ("total", "used", "free"))
+    if None in (total, used, free):
+        return None
+    hosts = [room for room in readings.get("virtiofs_free_mb") or () if _number(room) is not None]
+    room = min((free, *hosts))
+    return used, total if room >= free else used + room
+
+
+def _disk_readings(path):
+    """The disk holding `path` and each `virtiofs` mount's free space, as `disk_use` reads them
+    from AK_HOST_READINGS."""
+    mib = 1 << 20
+    try:
+        disk = shutil.disk_usage(path)
+    except OSError:
+        return {}
+    try:
+        mounts = (PROC / "self/mounts").read_bytes().split(b"\n")
+    except OSError:
+        mounts = []             # a host without /proc, a Mac, is no guest
+    hosts = []
+    # The kernel parts a row's fields with a space and writes a path as its bytes, each space,
+    # tab, newline or backslash in it as `\NNN`: any other byte, whatever it decodes to, is
+    # the path's, and fsdecode keeps one no codec reads for statvfs to hand back.
+    for fields in (line.split(b" ") for line in mounts):
+        if len(fields) > 2 and fields[2] == b"virtiofs":
+            share = os.fsdecode(re.sub(rb"\\([0-7]{3})", lambda m: bytes([int(m[1], 8)]),
+                                       fields[1]))
+            try:
+                hosts.append(shutil.disk_usage(share).free / mib)
+            except OSError:
+                continue
+    return {"disk_total_mb": disk.total / mib, "disk_used_mb": disk.used / mib,
+            "disk_free_mb": disk.free / mib, "virtiofs_free_mb": hosts}
+
+
 def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=None,
                   cpu_dir=None, pressure_window=None, all_limits=False):
     """Host and caller-named cgroup readings; an injected snapshot avoids all reads.
@@ -612,14 +672,9 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     if source is not None:
         readings = source() if callable(source) else source
         return dict(readings or {})
-    injected = os.environ.get("AK_HOST_READINGS")
-    if injected:
-        try:
-            readings = json.loads(injected)
-            if isinstance(readings, dict):
-                return readings
-        except (json.JSONDecodeError, TypeError):
-            pass
+    injected = _injected()
+    if injected is not None:
+        return injected
     meminfo = {}
     try:
         for line in (PROC / "meminfo").read_text().splitlines():

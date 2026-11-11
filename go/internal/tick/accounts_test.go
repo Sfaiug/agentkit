@@ -29,8 +29,9 @@ func TestPendingAccountRecoveryReachesHealthBeforeHandingOverUnchanged(t *testin
 case "$*" in '-L tick-test '*) ;; *) exit 1 ;; esac
 case "$*" in
   *list-sessions*) printf 'acme\t1\n' ;;
-  *'#{pane_id} #{pane_dead}'*) printf '%%1 0\n' ;;
+  *'#{pane_id} #{pane_dead}'*) printf '0 1 %%1 0\n' ;;
   *list-panes*) printf 'acme\t0\n' ;;
+  *capture-pane*display-message*) printf '────────\n❯\n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n0\n' ;;
   *capture-pane*) printf '────────\n❯\n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n' ;;
   *session_attached*) printf '0\t%%1\t%s\n' "$HOME" ;;
   *show-options*) echo %1 ;;
