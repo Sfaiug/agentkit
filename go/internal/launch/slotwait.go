@@ -27,6 +27,7 @@ func waitSlot(ctx context.Context, dir string) error {
 	// back from its waiter, it skipped polls, and said what held it before it went
 	kind, skipped := "", cameBack()
 	announced := skipped
+	var record *run.Object // the receipt as its last poll left it
 	for polled := false; ; polled = true {
 		if polled {
 			select {
@@ -36,7 +37,7 @@ func waitSlot(ctx context.Context, dir string) error {
 			}
 			if behindFirst(id, poll) {
 				skipped = true
-				becomeWaiter(dir)
+				becomeWaiter(dir, record)
 				continue
 			}
 		}
@@ -45,7 +46,6 @@ func waitSlot(ctx context.Context, dir string) error {
 			return err
 		}
 		var decided *admission
-		var record *run.Object
 		err = run.Change(dir, func(waiting *run.Object) error {
 			if pid, _ := waiting.Int("pid"); waiting.Str("state") != "queued" || !waiting.Truthy("slot_waiting") || pid != os.Getpid() {
 				return nil // let in by its launch, stopped, or another process's: the driver's adoption says

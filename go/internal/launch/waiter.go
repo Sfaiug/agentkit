@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentkit/internal/loop"
+	"agentkit/internal/run"
 )
 
 // A run behind the first in line for its slot, who alone can be let in, waits in a process holding
@@ -33,12 +34,14 @@ const slotWait = "AK_SLOT_WAIT"
 // by default pads it with, 6.9 MB held where 3.8 do: too near a third of the first in line's 23.
 const lean = "disablethp=1"
 
-// becomeWaiter replaces the run's driver with its waiter.  It returns only where it cannot: this
-// process is not the run's own driver, or the system has no exec.
-func becomeWaiter(dir string) {
+// becomeWaiter replaces the run's driver with its waiter.  It returns only where it cannot or may
+// not: this process is not the run's own driver, the receipt its last poll read names a checkout of
+// ak's (ak_checkout), whose run stays as it is, as Python's pickup_while_queued keeps it, or the
+// system has no exec.
+func becomeWaiter(dir string, record *run.Object) {
 	words := []string{"run", loop.DriveFlag, dir}
 	self, err := os.Executable()
-	if err != nil || !slices.Equal(os.Args[1:], words) {
+	if err != nil || !slices.Equal(os.Args[1:], words) || record.Truthy("ak_checkout") {
 		return
 	}
 	syscall.Exec(self, append([]string{waiterName}, words...), append(debugged(lean), slotWait+"="+os.Getenv("GODEBUG")))
