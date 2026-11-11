@@ -1,10 +1,11 @@
 """Text the owner left unsent is whole under its row, and a page keeps room for it.
 
-A seat's bar shows only that text is unsent, and the seat's own screen holds it in a composer its
-harness may cut.  So the one place it can be read whole is ak's own screen: it wraps onto as many
-lines as it takes, there and in the popup over a seat, and only a block taller than its page is
-cut to it, ending in `…`.  The highlight changes no block, so no row moves and no page turns as
-it moves.  Offline: the real renderer on invented rows.
+A seat's bar shows only that text is unsent, and the seat's own screen holds it in a composer
+its harness may cut, under what its model put there.  So the one place every word of it can be
+read whole is ak's own screen: it wraps onto as many lines as it takes, there and in
+the popup over a seat, and only a block taller than its page is cut to it, ending in `…`.  The
+highlight changes no block, so no row moves and no page turns as it moves.  Offline: the real
+renderer on invented rows.
 """
 
 from contextlib import redirect_stdout

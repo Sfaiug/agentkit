@@ -2,9 +2,9 @@
 in flight, whatever its word.
 
 The owner reads a seat's state from its row and opens the one line under it with the
-highlight (the screen approved on 14 Oct 2026).  Every seat names each model building ⚒ and
-reviewing ◎ its work once -- a done one too, never what got done (the owner, 9 Nov 2026) --
-then each task in flight as three squares, build, review and land,
+highlight (the screen approved on 14 Oct 2026).  Every seat, a done one too, never saying what
+it got done (the owner, 9 Nov 2026), names each model building ⚒ and
+reviewing ◎ its work once, then each task in flight as three squares, build, review and land,
 filled as far as it has come, furthest behind first: in working's colour while a model works
 on it, dim while it waits.  A run that ended is no task in flight.  Black-box: the program
 `AK_BIN` names runs in a person's terminal (tests/fixtures/akterm.py), of eight colours so
