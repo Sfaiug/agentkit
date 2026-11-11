@@ -2,8 +2,8 @@
 
 Owner, 10 Nov 2026: no round runs a suite, on any project, and no project can opt in.  The
 `tests:` suite runs once, whole, at landing, and a red found there goes to the run's fixer.
-`AK_CHANGED` opts nothing in: a line naming it, as this one does, runs at landing like any
-other, the variable unset.  A boxed check writes none of the test's files, so the suite notes
+`AK_CHANGED` is a name ak neither sets nor reads: a line naming it, as this one does, runs at
+landing like any other, the variable unset.  A boxed check writes none of the test's files, so the suite notes
 each start, and what `AK_CHANGED` held, on the test's socket, as the reviewer notes each review.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, against
 the bare origin of gitrig.py and the GitHub of fakegh.py, with scripted harnesses from
