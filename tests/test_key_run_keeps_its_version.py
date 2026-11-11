@@ -44,8 +44,14 @@ else:
 '''
 HANDED = 'git -C "$(dirname "$(command -v ak)")" rev-parse HEAD >>{}'
 # Only a landing runs a `# once` check.  A box may hide the Home's files from it, never its
-# processes from the test, which ends this sleep once it has read the lander's process.
-HELD = "(exec -a landing-held sleep 120); true # once"
+# processes from the test, which ends this sleep once it has read the lander's process.  The
+# sleep is named by `holder`, so the test holds no other Home's landing and ends no other sleep.
+HELD = "(exec -a {} sleep 120); true # once"
+
+
+def holder(home):
+    """The name of the sleep `HELD` runs in `home`: a path inside it, which no other Home holds."""
+    return str(home.root / "landing-held")
 
 
 def wait_for(read):
@@ -95,7 +101,7 @@ def processes():
 
 def landing(home):
     """The commits the Home's landers run while `HELD` holds a landing, which then goes on."""
-    held = wait_for(lambda: [pid for pid, argv, _ in processes() if argv[:1] == ["landing-held"]])
+    held = wait_for(lambda: [pid for pid, argv, _ in processes() if argv[:1] == [holder(home)]])
     commits = set()
     for _, argv, exe in processes():
         if any(argv[at:at + 2] == ["run", "--lander"] for at in range(len(argv))):
@@ -136,7 +142,7 @@ class RunKeepsItsVersion(unittest.TestCase):
                        "blocks delivery", "--run", "test ! -f fault.txt"], ["done"]]}
             fixed = {**fakeadapter.WORK, "sh": f"rm fault.txt; {hand}"}
             fakes = fakeadapter.install(home, claude=[held, fixed], codex=[failure, "pass"])
-            done_when = ("test -f retry.txt", HELD)
+            done_when = ("test -f retry.txt", HELD.format(shlex.quote(holder(home))))
             task = taskfile.write(home, rig.path, done_when=done_when)
             done = home.run(install.ak, "run", str(task), "--bg", timeout=300)
             self.assertEqual(done.code, 0, done.out + done.err)
