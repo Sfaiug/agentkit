@@ -13,8 +13,8 @@ import (
 // Orphaned is whether that ending is one Go reports to the owner in its seat's stead, Python's
 // announce for a seat nothing is left of (seat.Unheld): an ending the seat would decide, of no job
 // or review, its notices going where this process sends them (handback.speaking_for).  A delivered
-// one, which may be recorded or ride a prompt, and one of any other seat not up, which Python
-// wakes, reopens or waits for, are Python's.
+// one, which may be recorded or ride a prompt, is decided as any seat's is (Reaches), and one of
+// any other seat not up, which Python wakes, reopens or waits for, is Python's.
 func Orphaned(record *run.Object) bool {
 	state := record.Str("state")
 	return run.Seat(record) != "" && run.Ended(record) && !record.Truthy("merged") && state != "not_needed" && state != "stopped" &&
