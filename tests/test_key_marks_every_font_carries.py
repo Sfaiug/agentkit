@@ -27,6 +27,7 @@ GONE = "◌✗↻⇄✎"     # the marks most terminal fonts do not carry
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 POPUP_KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   c config   esc leave"
 NOW = time.time()
+BACK = r"(\w{3} )?\d\d:\d\d"     # when it comes back, its day where that is not today
 
 
 def lines(screen):
@@ -72,11 +73,11 @@ class MarksEveryFontCarries(unittest.TestCase):
         term.wait(lambda screen: MAIN_KEYS in lines(screen))
         term.keys("Down")       # the highlight on acme-spent opens its choices under it
         screen = term.wait(lambda screen: any(
-            re.fullmatch(r" +✓ Wait for \d\d:\d\d   → Go on now with GPT-6-Astra", line)
+            re.fullmatch(rf" +✓ Wait for {BACK}   → Go on now with GPT-6-Astra", line)
             for line in lines(screen)) and "¶ unsent" in screen)
         rows = {found[1]: line for line in lines(screen)
                 if (found := re.match(r"[ ›] \d  (\S+)", line))}
-        self.assertRegex(rows["acme-spent"], r"  ○ out of usage  back \d\d:\d\d$")
+        self.assertRegex(rows["acme-spent"], rf"  ○ out of usage  back {BACK}$")
         self.assertRegex(rows["acme-draft"], r"  ○ idle +¶ unsent$")
         self.none_gone(screen)
 
