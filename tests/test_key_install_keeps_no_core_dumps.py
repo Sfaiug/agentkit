@@ -17,6 +17,7 @@ from test_install_compressed_swap import SUDO
 
 REPO = Path(__file__).resolve().parents[1]
 COLLECTOR = "|/usr/lib/systemd/systemd-coredump %P %u %g %s %t %c %h"
+OURS = "# Written by agentkit's install.sh"
 
 
 class NoCoreDumps(unittest.TestCase):
@@ -55,7 +56,10 @@ class NoCoreDumps(unittest.TestCase):
         return self.pattern.read_text().strip()
 
     def entries(self):
-        return {path.name: path.read_text() for path in self.sysctl_d.iterdir()}
+        return {path.name: path.read_text() for path in self.sysctl_d.glob("*.conf")}
+
+    def others(self):
+        return {name: text for name, text in self.entries().items() if not text.startswith(OURS)}
 
     def boot(self):
         """The pattern systemd-sysctl leaves: every entry in name order, the last one's."""
@@ -72,18 +76,18 @@ class NoCoreDumps(unittest.TestCase):
             return []
         return [json.loads(line) for line in self.log.read_text().splitlines()]
 
-    def discards_dumps_now_and_on_every_boot(self):
-        self.pattern.write_text("core\n")
-        before = self.entries()
+    def discards_dumps_now_and_on_every_boot(self, live="core"):
+        self.pattern.write_text(live + "\n")
+        others = self.others()
         self.install()
         self.assertEqual(self.live(), "|/bin/false")
-        [ours] = set(self.entries()) - set(before)
+        [ours] = set(self.entries()) - set(others)
         self.assertEqual(ours, max(self.entries()))
-        self.assertGreater(ours, "99-sysctl.conf")
+        self.assertEqual(self.others(), others)
         self.assertEqual(self.boot(), self.live())
         # every write went under the temporary root
         for argv in self.sudo_calls():
-            if "tee" in argv or "mkdir" in argv:
+            if {"tee", "mkdir", "rm"} & set(argv):
                 self.assertTrue(argv[-1].startswith(str(self.root)), argv)
         # a second install changes neither, and asks sudo for nothing
         after = self.entries()
@@ -92,6 +96,7 @@ class NoCoreDumps(unittest.TestCase):
         self.assertEqual(self.live(), "|/bin/false")
         self.assertEqual(self.entries(), after)
         self.assertEqual(self.sudo_calls(), [])
+        self.log.unlink(missing_ok=True)
 
     def test_a_the_default_pattern_discards_dumps_now_and_on_every_boot(self):
         self.discards_dumps_now_and_on_every_boot()
@@ -101,7 +106,17 @@ class NoCoreDumps(unittest.TestCase):
         (self.sysctl_d / "99-sysctl.conf").symlink_to("../sysctl.conf")
         self.discards_dumps_now_and_on_every_boot()
 
-    def test_c_a_pattern_piped_to_a_program_is_left_alone(self):
+    def test_c_so_does_an_empty_pattern(self):
+        self.discards_dumps_now_and_on_every_boot(live="")
+
+    def test_d_an_entry_sorting_after_ours_moves_ours_after_it(self):
+        self.discards_dumps_now_and_on_every_boot()
+        for later in ("zzz-local.conf", "~local.conf"):
+            (self.sysctl_d / later).write_text("kernel.core_pattern=core\n")
+            # the next boot applies it after ours, and the next install finds its pattern
+            self.discards_dumps_now_and_on_every_boot(live=self.boot())
+
+    def test_e_a_pattern_piped_to_a_program_is_left_alone(self):
         self.pattern.write_text(COLLECTOR + "\n")
         before = self.entries()
         self.install()
@@ -109,7 +124,7 @@ class NoCoreDumps(unittest.TestCase):
         self.assertEqual(self.entries(), before)
         self.assertEqual(self.sudo_calls(), [])
 
-    def test_d_no_passwordless_sudo_writes_nothing_and_names_the_setting(self):
+    def test_f_no_passwordless_sudo_writes_nothing_and_names_the_setting(self):
         self.pattern.write_text("core\n")
         before = self.entries()
         result = self.install(sudo_ok="0")
@@ -119,9 +134,10 @@ class NoCoreDumps(unittest.TestCase):
         self.assertEqual(self.entries(), before)
         self.assertEqual(self.sudo_calls(), [["-n", "true"]])
 
-    def test_e_a_sandbox_install_touches_nothing(self):
-        self.pattern.write_text("core\n")
+    def test_g_a_sandbox_install_or_a_host_with_no_pattern_touches_nothing(self):
         before = self.entries()
+        self.install()
+        self.pattern.write_text("core\n")
         self.install(sandbox="1")
         self.assertEqual(self.live(), "core")
         self.assertEqual(self.entries(), before)

@@ -791,25 +791,35 @@ fi
 # daemon's, which allows any size: crashing browser tests once left 39 GiB in a seat's scratch
 # folder.  Nobody reads one: a crash is chased from what the program printed.  A live pattern
 # starting with `|` hands dumps to a program, a collector the owner set up or ours, and is left
-# as it is; any other becomes ours, which discards them, now and on every boot.  The boot entry
-# sorts after every other in sysctl.d (99-sysctl.conf, which is /etc/sysctl.conf, included), so
-# ours is applied last whatever they say, and the live pattern alone decides.  The entry is
-# written first: once the live pattern starts with `|`, no install writes it again.
+# as it is; any other becomes ours, which discards them, now and on every boot.  ak's one boot
+# entry is named to sort after every other in sysctl.d (99-sysctl.conf, which is
+# /etc/sysctl.conf, included), so ours is applied last whatever they say, and the live pattern
+# alone decides.  The entry is written first: once the live pattern starts with `|`, no install
+# writes it again.
 CORE_PATTERN="${AK_CORE_PATTERN:-/proc/sys/kernel/core_pattern}"
-CORE_SYSCTL="${AK_SYSCTL_D:-/etc/sysctl.d}/zz-agentkit-no-core-dumps.conf"
-core_none='|/bin/false'
-core_now=$(cat -- "$CORE_PATTERN" 2>/dev/null || true)
-if [ "$SANDBOX" = 1 ] || [ -z "$core_now" ] || [ "${core_now:0:1}" = "|" ]; then
-  :   # a sandbox touches no host, and a host with no pattern (a Mac) has none to set
+SYSCTL_D="${AK_SYSCTL_D:-/etc/sysctl.d}"
+core_none='|/bin/false' core_ours=-agentkit-no-core-dumps.conf
+core_off() {   # ak's boot entry in place of any earlier one, then the live pattern
+  local last
+  # systemd-sysctl applies entries in the byte order of their names, and a name extended sorts
+  # after it: ours is the last of `zz` and every other name, extended
+  last=$(printf '%s\n' zz "$SYSCTL_D"/*.conf | sed 's|.*/||' | grep -vx -- ".*$core_ours" |
+    LC_ALL=C sort | tail -n 1)
+  sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null &&
+    sudo -n rm -f -- "$SYSCTL_D"/*"$core_ours" 2>/dev/null &&
+    printf '%s\n' "# Written by agentkit's install.sh: a crashed program leaves no core dump file" \
+      "kernel.core_pattern = $core_none" | sudo -n tee "$SYSCTL_D/$last$core_ours" >/dev/null 2>&1 &&
+    printf '%s' "$core_none" | sudo -n tee "$CORE_PATTERN" >/dev/null 2>&1
+}
+if [ "$SANDBOX" = 1 ] || ! core_now=$(cat -- "$CORE_PATTERN" 2>/dev/null) ||
+   [ "${core_now:0:1}" = "|" ]; then
+  :   # a sandbox touches no host, and one with no pattern to read (a Mac) has none to set
 elif ! have sudo || ! sudo -n true 2>/dev/null; then
   note "core dumps: no passwordless sudo, so kernel.core_pattern is not set to discard them; run \`sudo -v\` and re-run ./install.sh"
-elif sudo -n mkdir -p -- "${CORE_SYSCTL%/*}" 2>/dev/null &&
-     printf '%s\n' "# Written by agentkit's install.sh: a crashed program leaves no core dump file" \
-       "kernel.core_pattern = $core_none" | sudo -n tee "$CORE_SYSCTL" >/dev/null 2>&1 &&
-     printf '%s' "$core_none" | sudo -n tee "$CORE_PATTERN" >/dev/null 2>&1; then
+elif core_off; then
   echo "core dumps: a crashed program leaves none, now and on every boot"
 else
-  note "core dumps: kernel.core_pattern could not be set; see $CORE_SYSCTL"
+  note "core dumps: kernel.core_pattern could not be set; see $SYSCTL_D"
 fi
 
 # --- (g2a) swapped memory stays compressed in RAM before it reaches the disk --
