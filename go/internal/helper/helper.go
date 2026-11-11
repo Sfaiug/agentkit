@@ -87,9 +87,9 @@ type Away struct {
 // is what each piece runs there, handed times (pinned); cpus and memoryMB one piece's cost; what it has to say goes to say.  A model turn's,
 // with its own files for the parcel (turnFiles), is one piece that goes to the machine with the
 // least room that takes turns, holding its cpus there until it starts, not half the machine.  It
-// passes over a rental Google ends before the work would start there, a turn's before the hour
-// its login is lent for (lentFor) is out there too, and asks the tick for a
-// machine (need) where none took it, or none with room outlives the chosen one by a rent and a pass.
+// passes over a rental Google ends before the work would start there, a turn's before the hour its
+// login is lent for (lentFor) is out there, and asks the tick for a machine (need) where none took
+// it, or none with room outlives the chosen one by a rent and a pass.
 func Start(cwd string, cpus, memoryMB float64, command, times string, turn map[string]file, say func(string)) (*Away, string, error) {
 	return start(cwd, cpus, memoryMB, pinned(command, times, nil), turn, false, say)
 }
