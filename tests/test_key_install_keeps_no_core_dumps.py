@@ -111,8 +111,11 @@ class NoCoreDumps(unittest.TestCase):
 
     def test_d_an_entry_sorting_after_ours_moves_ours_after_it(self):
         self.discards_dumps_now_and_on_every_boot()
-        # an owner's name like ours is the owner's: it is kept, and ours sorts after it too
-        for later in ("zz-local-agentkit-no-core-dumps.conf", "zzz-local.conf", "~local.conf"):
+        # an owner's name like ours is the owner's: it is kept, and ours sorts after it too,
+        # after one as long as the filesystem allows too, and the next install replaces that
+        longest = "zzz-" + "z" * (os.pathconf(self.sysctl_d, "PC_NAME_MAX") - 9) + ".conf"
+        for later in ("zz-local-agentkit-no-core-dumps.conf", "zzz-local.conf", longest,
+                      "~local.conf"):
             (self.sysctl_d / later).write_text("kernel.core_pattern=core\n")
             # the next boot applies it after ours, and the next install finds its pattern
             self.discards_dumps_now_and_on_every_boot(live=self.boot())
