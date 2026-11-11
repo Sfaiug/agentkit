@@ -764,26 +764,51 @@ class Harness:
         """Owner messages, oldest first, as {at: Unix seconds, text: original words}.
 
         The plugin rejects its own synthetic input. The seat's typing receipts remove
-        ak's input once each, leaving relayed owner replies and identical later prompts.
+        ak's input, a line each at most, in whichever of the seat's conversations it went into
+        (`notify.conversations_of`): the one it names, else the first after it in another, as
+        a screen showing another than the seat's record names takes it (`grokbuild.follow`).
+        Relayed owner replies and identical later prompts stay.
         A native answer may include `replies`, the opaque ids of the questions it answers.
         """
         hook = self._hook("user_messages")
         if not hook:
             return []
-        messages = sorted(hook(record, cwd, conversation), key=lambda message: message["at"])
-        matched, excluded = set(), set()
-        if seat:
-            for sent in entries(config.seat_file("input", config.resolve_session(seat))):
-                if sent.get("harness") != self.name or self.went_into(sent) != conversation:
-                    continue
-                for index, message in enumerate(messages):
-                    if (index not in matched and index >= sent.get("after", len(messages))
-                            and message["text"] == sent.get("text")):
-                        matched.add(index)
-                        if sent.get("source") != "owner":
-                            excluded.add(index)
-                        break
-        return [message for index, message in enumerate(messages) if index not in excluded]
+        said = {conversation: sorted(hook(record, cwd, conversation),
+                                     key=lambda message: message["at"])}
+        if not seat:
+            return said[conversation]
+        from .. import notify
+        seat = config.resolve_session(seat)
+        for plugin, *was in notify.conversations_of(seat):
+            if plugin.name == self.name and was[-1] not in said:
+                try:
+                    said[was[-1]] = self.user_messages(*was)
+                except (OSError, ValueError) as exc:
+                    unread(exc)     # this one's own words still read
+        # every line, oldest first, a conversation's own in its order; lines of two at one time
+        # by their conversations' names, so a receipt takes the same whichever is read
+        lines = sorted(((message["at"], into, index) for into, messages in said.items()
+                        for index, message in enumerate(messages)),
+                       key=lambda line: (line[0], str(line[1])))
+        taken, excluded = set(), set()
+        for sent in entries(config.seat_file("input", seat)):
+            if sent.get("harness") != self.name:
+                continue
+            named = self.went_into(sent)
+            # another only where the one it names was read: one the seat no longer holds, or
+            # that cannot be read, may hold its line
+            fits = [(into, index) for at, into, index in lines
+                    if (into, index) not in taken and said[into][index]["text"] == sent.get("text")
+                    and (index >= sent.get("after", math.inf) if into == named
+                         else named in said and at >= sent.get("at", math.inf))]
+            # the first in the conversation it names, else the first after it
+            line = min(fits, key=lambda fit: fit[0] != named, default=None)
+            if line:
+                taken.add(line)
+                if sent.get("source") != "owner":
+                    excluded.add(line)
+        return [message for index, message in enumerate(said[conversation])
+                if (conversation, index) not in excluded]
 
     def receipt(self, record, conversation, text, source="ak"):
         """The typing receipt `user_messages` tells that line by, written before it goes into
