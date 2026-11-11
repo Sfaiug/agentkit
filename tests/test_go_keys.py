@@ -93,12 +93,16 @@ class Claims(unittest.TestCase):
             failed, took = [], {}
             # One after another: every_file.py already runs other files beside this one.
             for name, *parts in listed:
+                claim = " ".join((name, *parts))
+                # Named as it starts: a few claims on a loaded host, or all of go/keys.txt, run
+                # longer than a check may stay silent, and a claim that hangs is then the last line.
+                print(f"--- {claim}", flush=True)
                 began = time.monotonic()
                 done, passed = run(tree, program, name, *parts)
                 took[name] = time.monotonic() - began
                 if not passed:
-                    failed.append(" ".join((name, *parts)))
-                    print(f"--- {failed[-1]}\n{done.stdout}{done.stderr}", flush=True)
+                    failed.append(claim)
+                    print(f"{done.stdout}{done.stderr}", flush=True)
         failing = [claim.split()[0] for claim in failed]
         name_failed(failing, "FAILED_PARTS")
         name_timed({name: seconds for name, seconds in took.items() if name not in failing})
