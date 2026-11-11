@@ -65,7 +65,7 @@ class OutOfUsageRow(Sandbox):
         return found
 
     def info(self, go_on="gpt-sol", back=None):
-        return {"word": "out of usage", "count": "out of usage", "sentence": SPENT,
+        return {"word": "out of usage", "count": "out of usage",
                 "back": today_at(19, 20) if back is None else back, "go_on": go_on,
                 "go_on_name": go_on and "gpt-6.1-sol",
                 "runs_on": ("anthropic", config.DEFAULT_ACCOUNT)}
@@ -135,7 +135,6 @@ class OutOfUsageRow(Sandbox):
     def test_under_the_pointer_it_offers_waiting_or_going_on_now(self):
         cfg = {"providers": {"anthropic": {}}}
         info = self.info()
-        self.assertEqual(menu.detail(cfg, info, 80), ["Claude has no usage left until 19:20."])
         [line] = menu.choices(info, 80)
         text = terminal.ANSI.sub("", line)
         self.assertEqual(text, "✓ Wait for 19:20   ⇄ Go on now with gpt-6.1-sol")
@@ -151,10 +150,8 @@ class OutOfUsageRow(Sandbox):
         self.assertEqual([menu.choice_cells("  " + line, info, 12) for line in lines],
                          [[(3, 12, menu.WAIT)], [(3, 7, menu.WAIT)], [(3, 13, menu.GO_ON)],
                           [(3, 6, menu.GO_ON)], [(3, 13, menu.GO_ON)]])
-        # without an alternative, the line only says when usage comes back
+        # without an alternative there is no choice: its row says when usage comes back
         info = self.info(go_on=None)
-        self.assertEqual(menu.detail(cfg, info, 80),
-                         ["Claude has no usage left until 19:20."])
         self.assertEqual(menu.choices(info, 80), [])
         self.assertEqual(menu.choices({"word": "working"}, 80), [])
 
@@ -240,7 +237,7 @@ class OutOfUsageOnScreen(unittest.TestCase):
         screen.send(b"j")      # the highlight on its row opens its lines
         lines = screen.frame(lambda lines: any("Go on now" in line for line in lines))
         at = next(n for n, line in enumerate(lines) if "Go on now" in line)
-        self.assertIn("Claude has no usage left until", lines[at - 1])
+        self.assertRegex(lines[at - 1], r"^ +Opus \S+ \S+ ⚒◎$")     # its line, the crew alone
         self.assertRegex(lines[at], r"✓ Wait for \d\d:\d\d   ⇄ Go on now with GPT-6-Astra")   # astra, in full
         mark = screen.mark()
         screen.click(lines[at].index("⇄") + 3, at + 1)

@@ -32,8 +32,8 @@ A row is one line: number, name, orchestrator, state, and one last column, its p
 in the room the row has (`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under
 any name a rename led from, else from its unfinished jobs) while it is not at rest, its work
 waiting to land too, else empty -- and `✎ unsent` after it where the owner left text unsent.
-What a seat left unsent, then what it asks or did, else who builds and reviews and each task's
-squares (`crew`, `squares`), open under the row (`detail`).  Never two state words on one row,
+What the owner left unsent, then who builds and reviews and each task's squares (`crew`,
+`squares`), open under the row (`detail`), never what a seat said.  Never two state words on a row,
 never `N running`, and never a time estimate.
 
 `ak orch list` carries, after the word, a tally of the runs that seat launched, read from
@@ -97,8 +97,8 @@ the orchestrator, executors and reviewers of the seat the popup is over, or of n
 window of its own: the orchestrator moves the seat at once, the roles flip with the same keys
 and save at once; new seats' `a` gives theirs to every seat on the main screen (apply_defaults).
 `ak run status` and `ak browser` stay as commands for
-orchestrators; the menu no longer offers them. A gone session reads `session closed: press N
-to reopen`; one you stopped has no row under its project, only its row on the past screen; an
+orchestrators; the menu no longer offers them. A gone session keeps its row, and its number
+reopens it; one you stopped has no row under its project, only its row on the past screen; an
 ended run is its orchestrator's business, so no row ever says `press r`.
 
 The screen is budgeted by height as well as width: the usage stays on top and the keys at the
@@ -1168,10 +1168,10 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     `done`. The last column is its progress line from `seat_progress` -- its plan, else its
     unfinished jobs -- while it is not at rest, and for `working` its place in the landing
     line (`_last_text`), else empty, then `✎ unsent` where the owner left text unsent -- never
-    two state words on one row; the reason opens under it (`detail`). Every seat
-    `orch.listing` offers gets a row: the ones tmux holds, and the ones only their record does
-    -- a seat whose tmux instance is gone keeps its row and its number opens the conversation
-    where it stopped.
+    two state words on one row; who builds, who reviews and its tasks open under it (`detail`).
+    Every seat `orch.listing` offers gets a row: the ones tmux holds, and the ones only their
+    record does -- a seat whose tmux instance is gone keeps its row and its number opens the
+    conversation where it stopped.
     Seats with nothing to resume into never reach `found`. `jobs_cache` and `run_numbers`
     are kept for callers that still hand them down; `seat_progress` reads the jobs itself and
     gone seats name their own number now.  `mine` is the runs each seat launched, by its name
@@ -1187,8 +1187,6 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     done, total = seat_progress(name)
     bar = (done, total) if total > 0 else None
     word = found["word"]
-    reason = found["reason"] or ""
-    sentence = reason
     back = found.get("resumes_at") if word == "out of usage" else None
     go_on = back and orch.going_on(cfg, orchestrator, staffing._cached_providers())
     return {"number": str(number), "name": name, "session": session, "back": back,
@@ -1199,8 +1197,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
             "model": config.model_name(cfg, orchestrator),
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
-            "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
-            "needs": reason if word == "needs you" else "",
+            "unsent": found.get("unsent"), "bar": bar,
             "word": word, "since": found["since"], "repo": session.get("repo")}
 
 
@@ -1516,7 +1513,7 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     work waiting in the line to land too, which its squares say (`detail`); a `working` seat
     with neither draws that line with nothing done and `no plan yet`, a light going round it
     on the menu alone (`motion.circling`); else empty -- never `N running`, and no other
-    sentence: what a seat asks or did opens under its row (`detail`).  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
+    sentence.  Where the owner left text `unsent`, `✎ unsent` follows two cells after,
     in the needs-you colour.  The line keeps 8 cells at least; where `room` is all there is
     (`narrow`) -- a row's last column, each width of a seat's bar -- it takes that room and
     never more, the count alone where no cell of line fits, the mark alone where both do not;
@@ -1550,28 +1547,19 @@ def _last_text(info, room, narrow=False):
                        back=info.get("back"))
 
 
-def detail(cfg, info, room, now=None):
+def detail(info, room):
     """The lines under a seat's row, in `room` cells: first `✎` and the whole text the owner left
-    unsent, in the needs-you colour; then what a seat not working says -- the question for
-    `needs you`, what got done for `done`, an idle one's way back in, until when one out of
-    usage has none -- wrapped whole at words; for any other, who builds and who reviews
-    (`crew`) and each task in flight as its squares (`squares`), never a task's name.  On a
-    terminal the highlighted row alone opens them; from a pipe every row saying something
-    does, as there is no highlight to open them."""
+    unsent, in the needs-you colour; then, whatever its word, who builds and who reviews (`crew`)
+    and each task in flight as its squares (`squares`), never a task's name.  Never a sentence
+    the seat, or ak about it, says: its row says its word and its progress, and the seat itself
+    what it said, for the owner to open (the owner, 9 Nov 2026).  On a terminal the highlighted
+    row alone opens them; from a pipe every row does, as there is no highlight to open one."""
     if not info:
         return []
     if "born" in info:
         return born_lines(info, room)
     unsent = [terminal.styled(line, "needs you") for line in
               terminal.wrap(unsent_mark(info["unsent"]), room)] if info.get("unsent") else []
-    word = info.get("word")
-    said = "" if word == "working" else terminal.plain(info.get("sentence") or "")
-    if word == "out of usage":
-        provider = provider_name(cfg, info["runs_on"][0]) if info.get("runs_on") else "Its model"
-        when = back_at(info.get("back"))
-        said = f"{provider} has no usage left until {when}." if when else said
-    if said or word in ("needs you", "done", "out of usage"):
-        return unsent + terminal.wrap(said, room)
     tasks = info.get("tasks") or []
     # the crew gives way to the least the squares say: one task's squares, or their count
     least = 3 + terminal.cells(squares(tasks, 3)) if tasks else 0
@@ -1842,14 +1830,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             flat.pop()
         return flat
 
-    # What opens under a row (`detail`): from a pipe under every row saying something, as
-    # nothing is highlighted there; with the keyboard under the highlighted row alone, below.
+    # What opens under a row (`detail`): from a pipe under every row, as nothing is highlighted
+    # there; with the keyboard under the highlighted row alone, below.
     said_room = max(1, widths["room"] - (2 + widths["num"] + 2))
-    said = {info["name"]: detail(cfg, info, said_room) + (choices(info, said_room) if owned else [])
+    said = {info["name"]: detail(info, said_room) + (choices(info, said_room) if owned else [])
             for info in infos}
-    opened = {} if owned else {info["name"]: said[info["name"]] for info in infos
-                               if info["word"] != "working" and info.get("sentence")
-                               or info.get("unsent")}
+    opened = {} if owned else said
 
     def _seat_blocks(most=None):
         # Every line travels with the name of the seat it draws, or None, so the highlight and a
@@ -2058,16 +2044,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         # seat turns done, is news of that seat and stays still
         moves += [(("opened",), ("seat", cursor), None, False),
                   (("page",), page, None, False)]
-        # a question shown the first time writes itself out under its row, but as the screen
-        # opens, when every value is drawn as it is; one hidden mid-way is written out by then
-        question = ((cursor, seats[cursor].get("sentence")) if lines
-                    and words.get(cursor) == "needs you" else None)
-        asked = (clock.asked.get(question, time.monotonic())
-                 if question and clock.seen is not None else None)
-        clock.asked = dict.fromkeys(clock.asked)
-        if question:
-            clock.asked[question] = asked
-        typed = asked is not None and time.monotonic() < asked + motion.WRITE
         news = clock.look({key: shown for key, shown, _, _ in moves})
 
         def line(name, moving, counted=None):
@@ -2105,8 +2081,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 if shown[0] > before[0]:
                     clock.start([(row, column + shown[0])], *motion.halving(
                         written[column - 1 + shown[0]], since, motion.STEP, lit))
-            elif key[0] == "opened" and typed:
-                continue        # it writes itself out instead, below
             elif key[0] in ("opened", "page"):    # what comes up out of the background
                 for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
                     motion.fading(out[row - 1], motion.OPEN if key[0] == "opened" else motion.TURN)(
@@ -2126,16 +2100,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 if shown == "done" and key[1] in bars:
                     clock.grows.pop(key[1], None)
                     line(key[1], lambda cells: motion.sweeping(cells, since, shown, lit))
-        if typed:       # line after line, a cell at a time, each at its terminal column
-            written = [terminal.cell_texts(out[row - 1])[len(indent):] for row in opened]
-            total, before = sum(map(len, written)), 0
-            for row, cells in zip(opened, written):
-                animations, until = motion.writing(cells, asked, before, total)
-                column = len(indent) + 1
-                for text, animation in zip(cells, animations):
-                    clock.start([(row, column)], animation, until)
-                    column += terminal.cells(text)
-                before += len(cells)
         for cell, char, bright in breaths:
             breathe, growing = motion.breathing(char, "working", bright), clock.cells.get(cell)
             if growing:       # a tip still growing in breathes once it is there
@@ -2341,7 +2305,7 @@ def born_groups(groups, born):
     row = {"number": "", "name": BORN, "born": born, "orchestrator": shown, "worker": shown,
            "model": config.model_name(cfg, selected["orchestrator"]),
            "count": "new", "word": "new", "crew": seat_crew(cfg, selected), "tasks": [],
-           "sentence": "", "repo": None}
+           "repo": None}
     ordered = [{**project, "seats": list(project["seats"])} for project in ordered]
     home = next((project for project in ordered if project["checkout"] is None), None)
     if home is None:
