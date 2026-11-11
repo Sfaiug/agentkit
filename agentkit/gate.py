@@ -898,7 +898,8 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
     They are host-wide now, so every live waiter counts whichever repository it
     checks.  Rank is a line's own check (`line`), then a run's own landing check (a fork's,
     which no line checks), then any round check; within each the longest wait, then the run id,
-    but for landing checks whose waits both say whether they hold a turn (`holds`, `_ahead`).
+    but in a rank whose every wait says whether its check holds a turn (`holds`), those holding
+    none go first and never hold each other back.
     `--first` plays no part, or loop repairs starve every other suite under load.  A
     round check stays behind any line's check (`landing_waits`).  A landing wait -- a
     run's, or the line checker's that marks no record -- ranks by its own file
@@ -917,8 +918,7 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
     # check before it joins the line only spares the line a red.
     me = (not is_landing, not line, holds, since, exclude or "")
     filed = _landing_waiters()
-    if any(_ahead((False, *wait), me) for wait in filed if wait[3] != exclude):
-        return True
+    waits = [(False, *wait) for wait in filed if wait[3] != exclude]
     filed = {run_id for *_, run_id in filed}
     for directory in run_record.run_dirs():
         if directory.name == exclude:
@@ -939,25 +939,21 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
             waited = turn.get("since") if landing else 0
             if not isinstance(waited, (int, float)) or isinstance(waited, bool):
                 waited = 0
-        if _ahead((not landing, True, None, waited, directory.name), me):
-            return True
-    return False
-
-
-def _ahead(wait, me):
-    """Whether `wait` ranks before `me`, each (a round check's, not a line's own, holds a turn,
-    since, run id), `holds` None where its wait does not say."""
+        waits.append((not landing, True, None, waited, directory.name))
     # 10 Nov 2026: a small line's check, its red target's repair, whose suite runs in a minute,
     # held no turn for two hours behind two older lines' checks waiting for first turns that fit
-    # neither, then for more turns for their pieces.  So among landing checks of one rank, one
-    # holding none goes before one asking for more, and two holding none never hold each other
-    # back: each takes a turn as soon as one fits it.  The longest wait still decides each turn
-    # past a check's first; a share by turns held would need a count that its stale copies rank
-    # wrong.  A wait that does not say -- a record's mark, a file from before 12 Nov 2026 --
-    # ranks, and is ranked against, by its start alone, so checks on both versions read one order.
-    if wait[2] is None or me[2] is None:
-        return wait[:2] + wait[3:] < me[:2] + me[3:]
-    return (wait if wait[2] else wait[:3]) < (me if me[2] else me[:3])
+    # neither, then for more turns for their pieces.  So in a rank, one holding none goes before
+    # one asking for more, and two holding none never hold each other back: each takes a turn as
+    # soon as one fits it.  The longest wait still decides each turn past a check's first; a
+    # share by turns held would need a count that its stale copies rank wrong.  A rank holding a
+    # wait that does not say -- a record's mark, a file from before 12 Nov 2026 -- goes by start
+    # alone, as its waiter reads it: two orders at once can each give a free turn to the next,
+    # round and round (a check asking for more to a younger one holding none, that one to an
+    # older wait on older code, and that one back to the first).
+    if any(wait[2] is None for wait in (me, *waits) if wait[:2] == me[:2]):
+        return any(wait[:2] + wait[3:] < me[:2] + me[3:] for wait in waits)
+    first = lambda wait: wait if wait[2] else wait[:3]
+    return any(first(wait) < first(me) for wait in waits)
 
 
 class _Pieces:

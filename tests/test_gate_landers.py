@@ -279,12 +279,16 @@ class GateLanders(unittest.TestCase):
         self.assertFalse(gate._gate_waiter_before(repo, "older-code", 1000, True))
 
     def test_a_wait_that_does_not_say_whether_it_holds_a_turn_ranks_by_its_start_alone(self):
-        # A line's check on code from before 12 Nov 2026 goes before a younger one holding no
-        # turn, and after an older one asking for more, as both would have ranked it then.
+        # A line's check on code from before 12 Nov 2026 reads its rank by start alone, and so
+        # does every check of that rank while it waits: under two orders each gave the free turn
+        # to the next, and none took it.
         repo = gitcall.main_checkout(ACME)
-        self.stack.enter_context(gate.landing_wait(True, 2000, "older-code", True))
-        self.assertTrue(gate._gate_waiter_before(repo, "holds-none", 3000, True, True, False))
-        self.assertFalse(gate._gate_waiter_before(repo, "holds-some", 1000, True, True, True))
+        waits = (("holds-some", 1000, True), ("older-code", 2000, None),
+                 ("holds-none", 3000, False))
+        for name, since, holds in waits:
+            self.stack.enter_context(gate.landing_wait(True, since, name, True, holds))
+        self.assertEqual([gate._gate_waiter_before(repo, name, since, True, True, holds)
+                          for name, since, holds in waits], [False, True, True])
 
     def test_a_dead_line_checks_wait_holds_nobody_back(self):
         # Its holder is gone, so nothing holds its file: no round check waits on it.
