@@ -3523,10 +3523,12 @@ def models_screen(cfg, session, selected, providers):
             continue                  # a resize, the pointer or the boards landing: drawn again
         note = ""
 
-        def around(card, keys):   # the role lines, the question under them
-            lines = models_body(said, here[1])[0]
-            terminal.frame(title, [*lines, *card], keys)
-            return 3 + len(lines)
+        def around(card, keys):   # the role lines the card leaves room for, the question under them
+            lines, places = models_body(said, here[1])
+            first, room = matrix_page(lines, places, here, top, card, keys)
+            shown = lines[first:first + room]
+            terminal.frame(title, [*shown, *card], keys)
+            return 3 + len(shown)
         if act == "back":
             return
         if act in ("left", "right"):
