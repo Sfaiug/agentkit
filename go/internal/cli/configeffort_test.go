@@ -53,7 +53,7 @@ func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testin
 	put(record, `{"orchestrator":"one","workers":["one"],"reviewers":["one"],"conversation":"second","custom":17,"efforts":{"one":{"effort":"high","review_effort":"medium"}}}`)
 	configBefore, _ := os.ReadFile(path)
 	for _, word := range []string{"low", "high", "low"} {
-		if note, known := stepConfigEffort(c, "acme", 0, 4, -1); !known || note != "" {
+		if note, known := stepConfigEffort(c, "acme", 0, 4, -1, unasked(t)); !known || note != "" {
 			t.Fatalf("step: %q, %v", note, known)
 		}
 		saved, err := run.ReadJSON(record)
@@ -65,7 +65,7 @@ func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testin
 		}
 	}
 	before, _ := os.ReadFile(record)
-	if note, known := stepConfigEffort(c, "acme", 0, 3, -1); known || note != "" {
+	if note, known := stepConfigEffort(c, "acme", 0, 3, -1, unasked(t)); known || note != "" {
 		t.Fatalf("restart was not handed off: %q, %v", note, known)
 	}
 	if after, _ := os.ReadFile(record); !bytes.Equal(after, before) {
@@ -135,7 +135,7 @@ esac
 			}
 			c.Levels["mid"] = []string{"high", "max"}
 			before, _ := os.ReadFile(record)
-			if note, known := stepConfigEffort(c, "acme", 0, 3, -1); known || note != "" {
+			if note, known := stepConfigEffort(c, "acme", 0, 3, -1, unasked(t)); known || note != "" {
 				t.Fatalf("the step was not handed off: %q, %v", note, known)
 			}
 			if after, _ := os.ReadFile(record); !bytes.Equal(after, before) {
@@ -145,5 +145,13 @@ esac
 				t.Fatal("a step handed off owes the seat a line", err)
 			}
 		})
+	}
+}
+
+// unasked is a card no step may ask on: one handed off asks nothing.
+func unasked(t *testing.T) seatCard {
+	return func(question, _ string, _ bool) (bool, bool) {
+		t.Fatalf("asked %q", question)
+		return false, false
 	}
 }

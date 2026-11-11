@@ -1,7 +1,6 @@
 package harness
 
 import (
-	"cmp"
 	"sort"
 
 	"agentkit/internal/config"
@@ -30,28 +29,33 @@ type Prompt struct {
 
 // Typed is what the user side typed in the conversation that seat's record is on, oldest first, and
 // that conversation, as Python's plugin `conversation` and `user_messages` read them (Current),
-// whatever vouched for it: nothing for a seat on none (notify.owner_messages), and the error where
-// it is there and cannot be read, beside what was read before it; false where that harness has no
-// reader of its own.  A named one is that conversation, one the seat left, which no evidence of the
-// record's names any more (notify.conversations_of).
+// whatever vouched for it: nothing for a seat on none (notify.owner_messages); false where that
+// harness has no reader of its own.  A named one is that conversation, one the seat left, which no
+// evidence of the record's names any more (notify.conversations_of).  The error where either is
+// there and cannot be read, as Python's raise where they read strictly (harness.unread), beside
+// what was read.
 func Typed(name string, record map[string]any, named string) (conversation string, typed []Prompt, known bool, err error) {
 	own := plugins[name]
 	if own.owned == nil && own.typed == nil {
 		return "", nil, false, nil
 	}
-	conversation = cmp.Or(named, Current(name, record))
+	conversation = named
+	if named == "" && own.found != nil {
+		conversation, err = own.found(record)
+	} else if named == "" {
+		conversation = Current(name, record)
+	}
 	if conversation == "" || own.typed == nil {
-		return "", nil, conversation == "", nil
+		return "", nil, conversation == "", err
 	}
 	typed, err = own.typed(record, conversation)
 	sort.SliceStable(typed, func(i, j int) bool { return typed[i].At < typed[j].At })
 	return conversation, typed, true, err
 }
 
-// byName is the typed hook of a harness that finds a conversation by its name alone and reads it
-// loosely: what cannot be read is no message.
-func byName(typed func(conversation string) []Prompt) func(map[string]any, string) ([]Prompt, error) {
-	return func(_ map[string]any, conversation string) ([]Prompt, error) { return typed(conversation), nil }
+// byName is the typed hook of a harness whose reader finds a conversation by its name alone.
+func byName(typed func(conversation string) ([]Prompt, error)) func(map[string]any, string) ([]Prompt, error) {
+	return func(_ map[string]any, conversation string) ([]Prompt, error) { return typed(conversation) }
 }
 
 // seatFact is watch.seat_fact: the seat's hook fact, or the question card its harness recorded
