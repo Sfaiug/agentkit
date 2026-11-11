@@ -158,7 +158,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		// home is given, the audit's week and stall lines, the usage the screen's grid shows and what
 		// reading it keeps, the tick's lock, its log's, its page that ticks stopped ending and the
 		// hourly stamps of its reads, the seat weights' lock, the lock seats claim conversations under
-		// (Claim), the outages of the seats' products, what the collection keeps, what each machine
+		// (claims), the outages of the seats' products, what the collection keeps, what each machine
 		// is and ak's tmux config say nothing a word hangs on:
 		// a seat's own wait on its usage is in its seat file, and the browser's tabs no seat opened
 		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || updateRecord(entry) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || entry.Name() == "front.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||

@@ -25,8 +25,7 @@ var plainID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // seat's record names the new one, as its own or one it left.  The one left stays the seat's for
 // its done check (`left`); one it goes back to is its current one again, read once.  The seat's
 // lock, which a delivery holds while it types the very prompt a hook may report, is never taken:
-// its name holds under conversations.lock, as a rename's does.  False where Go does not carry
-// it, with nothing written.
+// its name holds under `claims`.  False where Go does not carry it, with nothing written.
 func Claim(launched, kind string, conversation, transcript any, pid int, client func([]string) bool, source string) bool {
 	id, named := conversation.(string)
 	file, filed := transcript.(string)
@@ -39,14 +38,20 @@ func Claim(launched, kind string, conversation, transcript any, pid int, client 
 	}
 	state := filepath.Join(config.Home(), "state")
 	carried := true
-	under(filepath.Join(state, "conversations.lock"), func() error {
+	claims(state, func() error {
 		carried = claim(state, launched, kind, id, file, pid, client, source)
 		return nil
 	})
 	return carried
 }
 
-// claim is Claim's decision and its write, under conversations.lock.
+// claims runs fn holding the lock held while a seat claims a conversation and while a seat is
+// renamed (harness.claims): two claiming one would each see it free, and a claim names its seat.
+func claims(state string, fn func() error) error {
+	return under(filepath.Join(state, "conversations.lock"), fn)
+}
+
+// claim is Claim's decision and its write, under `claims`.
 func claim(state, launched, kind, id, transcript string, pid int, client func([]string) bool, source string) bool {
 	name, fields, err := config.ResolveSession(launched)
 	if err != nil {
