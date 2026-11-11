@@ -24,10 +24,13 @@ import (
 // A Turn is a model turn a machine took, Python's machine_turn.call once it is sent there: the
 // adapter's argv, run on the checkout cwd into the out dir, both at this host's absolute paths,
 // and the HOME and harness whose conversation comes home with its results, resuming session.
+// Once run, its exit there, and whether it ended of itself, its results there to come home.
 type Turn struct {
 	away                             *Away
 	argv                             []string
 	cwd, out, home, harness, session string
+	code                             int
+	ended                            bool
 }
 
 // Placed is the model's turn argv, which its adapter runs on the checkout cwd into the out dir with
@@ -52,18 +55,14 @@ func Placed(model config.Model, argv []string, cwd, out string, env map[string]s
 	if err != nil || away == nil {
 		return nil
 	}
-	return &Turn{away, argv, cwd, out, env["HOME"], model.Harness, session}
+	return &Turn{away: away, argv: argv, cwd: cwd, out: out, home: env["HOME"], harness: model.Harness, session: session}
 }
 
-// Run runs the turn there until it ends or ctx does, then takes it off the machine: its events
-// stream into the out dir's events.jsonl and the harness's stderr into its stderr.log, as a turn
-// here writes them, and once it ended of itself its results come home (back).  Its exit and the
-// conversation it leaves; ran false where its room went to another before it started, so it runs
-// here.  One ctx ended, one on a machine lost mid-turn and one whose results did not come home
-// whole leave the conversation it was given, an id it streamed naming one that is nowhere here,
-// the last two failing with `lost`.
-func (t *Turn) Run(ctx context.Context, recorded func(out string) string) (code int, session string, ran bool) {
-	defer t.away.Finish()
+// Run runs the turn there until it ends or ctx does: its events stream into the out dir's
+// events.jsonl and the harness's stderr into its stderr.log, as a turn here writes them.  False
+// where its room went to another before it started, so it runs here, the turn off the machine.
+func (t *Turn) Run(ctx context.Context) bool {
+	t.code = lost
 	volumes := []string{"home:" + t.home, "work:" + t.cwd, "out:" + t.out}
 	for _, name := range ak {
 		volumes = append(volumes, "ak/"+name+":"+filepath.Join(checkout(), name)+":ro")
@@ -75,37 +74,52 @@ func (t *Turn) Run(ctx context.Context, recorded func(out string) string) (code 
 	// the connection, which mac.sh's `renewals` reads for as long as the turn runs
 	connection, held, err := os.Pipe()
 	if err != nil {
-		return lost, t.session, true
+		return true
 	}
 	defer held.Close()
 	defer connection.Close()
 	events, err := os.OpenFile(filepath.Join(t.out, "events.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {
-		return lost, t.session, true
+		return true
 	}
 	defer events.Close()
 	log, err := os.OpenFile(filepath.Join(t.out, "stderr.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {
-		return lost, t.session, true
+		return true
 	}
 	defer log.Close()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = connection, events, log
 	cmd.Run()
-	code = lost
 	if cmd.ProcessState != nil {
-		code = cmd.ProcessState.ExitCode()
+		t.code = cmd.ProcessState.ExitCode()
 	}
 	switch {
 	case ctx.Err() != nil:
-		return code, t.session, true
-	case code == full:
-		return 0, "", false
-	case code == 0:
-		if code, session, ok := t.back(recorded); ok {
-			return code, session, true
-		}
+	case t.code == full:
+		t.away.Finish()
+		return false
+	case t.code == 0:
+		t.ended = true
+	default:
+		t.code = lost
 	}
-	return lost, t.session, true
+	return true
+}
+
+// Home is the run turn's exit and the conversation it leaves, asked once the worker's watch is
+// over, as bringing its results is none of the turn's silence; then the turn is taken off the
+// machine.  One that ended of itself brings its results home (back).  One ctx ended, one on a
+// machine lost mid-turn and one whose results did not come home whole leave the conversation it
+// was given, an id it streamed naming one that is nowhere here, the last two failing with `lost`.
+func (t *Turn) Home(recorded func(out string) string) (int, string) {
+	defer t.away.Finish()
+	if !t.ended {
+		return t.code, t.session
+	}
+	if code, session, ok := t.back(recorded); ok {
+		return code, session
+	}
+	return lost, t.session
 }
 
 // back brings the ended turn's results home, Python's machine_turn._home, all of them read before

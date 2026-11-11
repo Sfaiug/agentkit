@@ -108,8 +108,6 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if err := receipts(out, model.Harness, env); err != nil {
 		return 0, "", err
 	}
-	began := time.Now()
-	away := elsewhere(model, argv, workspace, out, env, session)
 	// The adapter's own stderr, a line it prints before it hands the harness stderr.log, is kept
 	// apart while the harness writes that log, and goes at its end once the turn is over.
 	own := filepath.Join(out, "adapter-stderr.log")
@@ -117,16 +115,15 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if err != nil {
 		return 0, "", err
 	}
+	began := time.Now()
+	away := elsewhere(model, argv, workspace, out, env, session)
 	words := loggedOut(model.Harness, out)
 	interrupt, restore := signal.NotifyContext(cmp.Or(given.Context, context.Background()), os.Interrupt)
 	ctx, unwatch := words.watch(interrupt)
 	heartbeats, _ := config.Words(model.Harness, "worker", "heartbeats")
 	ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Declared: host.Declared(env[host.Marker])}.Stop(ctx)
 	markLaunched()
-	code, left, there := 0, map[int]string(nil), false
-	if away != nil {
-		code, session, there = away.Run(ctx, Conversation)
-	}
+	code, left, there := 0, map[int]string(nil), away != nil && away.Run(ctx)
 	if !there {
 		code, left, err = box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
 	}
@@ -135,6 +132,9 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	interrupted := interrupt.Err() != nil
 	restore()
 	said.Close()
+	if there { // its results come home once the watch is over: bringing them is no silence of the turn's
+		code, session = away.Home(Conversation)
+	}
 	harness.RecordTurn(model.Harness, out, filepath.Join(config.Home(), "state"), env["AGENTKIT_ACCOUNT"])
 	if data, err := os.ReadFile(own); err == nil && os.Remove(own) == nil && len(data) > 0 {
 		if log, err := os.OpenFile(filepath.Join(out, "stderr.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666); err == nil {
