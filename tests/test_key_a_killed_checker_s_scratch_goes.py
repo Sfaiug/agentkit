@@ -55,6 +55,8 @@ class AKilledCheckerSScratchGoes(unittest.TestCase):
         killed.wait()
         self.assertTrue(left)
         self.assertTrue(all(path.is_dir() for path in left))
+        for path in left:   # as one killed before it unlocked its new checkout leaves it
+            self.one.rig.git("worktree", "lock", str(path))
 
         living = self.check(self.two)
         self.assertEqual(self.scratches(self.one), set())

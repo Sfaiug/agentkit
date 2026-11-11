@@ -326,7 +326,8 @@ def _clear_left():
         except (OSError, ValueError):
             continue
         if isinstance(maker, dict) and not record.process_active(maker):
-            gitcall.git_out(scratch, "worktree", "remove", "--force", str(scratch))
+            # twice: one killed before `add_worktree` unlocked it is still locked as its own
+            gitcall.git_out(scratch, "worktree", "remove", "--force", "--force", str(scratch))
 
 
 def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log, green,
