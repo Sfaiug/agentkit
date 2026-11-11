@@ -496,7 +496,9 @@ class WorkerBox(unittest.TestCase):
                     "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS", "BOX_SIGNAL", "BOX_TERM", "BOX_AGENT",
                     "SSH_AUTH_SOCK"):
             os.environ.pop(key, None)
-        self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
+        # config.py read the real HOME at import: the account's model list never judges the fixture
+        for name in ("RUNS", "STATE"):
+            self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         # The only real child is our fixture. No marker sweep may inspect the hosting run.
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         # No stored model list: the host's would judge this config, which names no defaults.
