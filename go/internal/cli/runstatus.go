@@ -323,7 +323,7 @@ func refused(entries []listed, wanted string, machine bool) bool {
 		if _, err := look(entry.record.Copy()); actedOn(entry.record) || wanted != "" && err != nil {
 			return true
 		}
-		// a run with review off or executors off is Python's whole, its status too
+		// a run with review off is Python's whole, its status too
 		if !run.Carries(entry.record) {
 			return true
 		}
