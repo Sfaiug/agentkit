@@ -24,7 +24,7 @@ def marks(line):
     return re.findall(r"\x1b\[([0-9;]*)m ([●○]) ", line)
 
 
-BLUE, GREEN = "38;2;137;180;250", "38;2;166;227;161"
+BLUE, GREEN = "38;2;0;103;198", "38;2;0;126;70"
 
 
 # The features screen has only `you` and `everyone`; grants for specific users live on the

@@ -14,6 +14,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/logins"
+	"agentkit/internal/terminal"
 	"agentkit/internal/usage"
 )
 
@@ -44,9 +45,9 @@ func Cells(now time.Time) ([]Cell, error) {
 		if err != nil {
 			return nil, err
 		}
-		// a provider coloured nowhere is in the accent, Mocha's blue
+		// a provider coloured nowhere is in the accent
 		ownName, ownColour := harness.Company(sub.Name)
-		grey, place := hue(cmp.Or(colour, ownColour, "#89b4fa"))
+		grey, place := hue(cmp.Or(colour, ownColour, "#"+terminal.RGB("accent")))
 		rows = append(rows, shown{sub, cmp.Or(name, ownName), cmp.Or(colour, ownColour, "accent"), grey, place})
 	}
 	slices.SortStableFunc(rows, func(a, b shown) int {
