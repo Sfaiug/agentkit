@@ -17,9 +17,6 @@ type Kept struct {
 	At, Ended, ID any
 }
 
-// Last is the seat's notice while it stands, nil otherwise (notify.last).
-func Last(seat string) *run.Object { return open(seat) }
-
 // Questions are those a needs notice asks, in the order asked.
 func Questions(notice *run.Object) []string { return questions(notice) }
 
@@ -98,7 +95,7 @@ func AskKept(name string, asked []Kept) error {
 // AskedAt is when what the owner would answer in that seat was said: its own question standing, else
 // a needs you only the screen said, unanswered; false where neither stands (notify.asked_at).
 func AskedAt(name string) (float64, bool) {
-	if notice := open(name); notice != nil {
+	if notice := Last(name); notice != nil {
 		_, dated := notice.Num("time")
 		return spokenAt(notice), dated && OwnerQuestion(notice)
 	}

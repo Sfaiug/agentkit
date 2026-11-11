@@ -10,7 +10,7 @@
 : "${AK_NOTIFY_SINK:=dry-run}"
 AK_NOTIFY_SINK_LOG=${WORK:-${TMPDIR:-/tmp}}/notify-diversions.log
 export AK_NOTIFY_SINK AK_NOTIFY_SINK_LOG
-NPASS=0 NFAIL=0 NSKIP=0 NMETER=0 NHOST=0 NSPENT=0 NCALL=0
+NPASS=0 NFAIL=0 NSKIP=0 NMETER=0 NHOST=0 NSPENT=0 NCALL=0 NKILLED=0
 ok() { printf 'PASS  %s\n' "$*"; NPASS=$((NPASS + 1)); }
 ok_call() { ok "$@"; NCALL=$((NCALL + 1)); }   # a passed check that completed a real model call
 failed_label() {
@@ -19,7 +19,12 @@ failed_label() {
     for label in ${labels//\// }; do printf '%s\n' "$label" >>"$AK_LIVE_FAILED${2:-}"; done
   fi
 }
-no() { printf 'FAIL  %s\n' "$*"; NFAIL=$((NFAIL + 1)); failed_label "$*"; }
+# NKILLED counts the failed checks whose command, just before `no`, died by SIGKILL (128 + 9):
+# smoke.sh asks the kernel whether it killed them for memory.
+no() {
+  [ $? != 137 ] || NKILLED=$((NKILLED + 1))
+  printf 'FAIL  %s\n' "$*"; NFAIL=$((NFAIL + 1)); failed_label "$*"
+}
 # A live provider meter that answers 429, 5xx or nothing at all is the provider
 # throttling the host's probes, not the checkout under test: the check skips, and the
 # gate counts that skip as a pass rather than as coverage that was not exercised.

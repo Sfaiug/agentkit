@@ -16,6 +16,7 @@ from test_key_history_db import DATABASE, ORIGINAL
 from test_key_scoreboard import ROOMY, scoreboard
 
 WEEK = 7 * 86400
+NOTES = " (added lines only: `notes.md merge=union` in acme's .gitattributes takes both sides)"
 
 
 class CollidingFiles(unittest.TestCase):
@@ -61,8 +62,8 @@ class CollidingFiles(unittest.TestCase):
         for ago in (3 * WEEK, -86400):
             self.conflict("first", "notes.md", added=False, ago=ago)
         self.assertEqual(self.row(), (
-            "75% of merged changes met a conflict; acme/notes.md: 3 conflicts (added lines only); "
-            "acme/app.py: 2 conflicts", "no merged change"))
+            "75% of merged changes met a conflict; acme/notes.md: 3 conflicts" + NOTES
+            + "; acme/app.py: 2 conflicts", "no merged change"))
 
     def test_merged_work_without_conflicts_shows_zero(self):
         with closing(sqlite3.connect(self.path)) as db, db:
@@ -79,8 +80,9 @@ class CollidingFiles(unittest.TestCase):
             self.conflict("previous", "old.md", ago=WEEK + 4000)
         self.assertEqual(self.row(), (
             "80% of merged changes met a conflict; widgets/notes.md: 4 conflicts; "
-            "acme/notes.md: 3 conflicts (added lines only); acme/app.py: 2 conflicts",
-            "100% of merged changes met a conflict; acme/old.md: 2 conflicts (added lines only)"))
+            "acme/notes.md: 3 conflicts" + NOTES + "; acme/app.py: 2 conflicts",
+            "100% of merged changes met a conflict; acme/old.md: 2 conflicts (added lines only: "
+            "`old.md merge=union` in acme's .gitattributes takes both sides)"))
 
     def test_change_share_counts_retries_once_and_ignores_unmerged_stopped_and_suite_work(self):
         self.run_row("retry", change="acme/widgets#7", ago=3 * WEEK, merged=False)
@@ -92,8 +94,8 @@ class CollidingFiles(unittest.TestCase):
             self.run_row(name, repo=repo, state=state, merged=False)
             self.conflict(name, "ignored.py")
         self.assertEqual(self.row()[0],
-                         "80% of merged changes met a conflict; acme/notes.md: 3 conflicts "
-                         "(added lines only); acme/app.py: 2 conflicts")
+                         "80% of merged changes met a conflict; acme/notes.md: 3 conflicts"
+                         + NOTES + "; acme/app.py: 2 conflicts")
 
 
 if __name__ == "__main__":

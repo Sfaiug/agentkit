@@ -35,7 +35,7 @@ case "$*" in '-L seat-test '*) ;; *) exit 1 ;; esac
 case "$*" in
   *new-session*|*respawn-pane*) printf '%s\n' "$*" >> "$HOME/started"; [ "$RECOVERY_REFUSE" != 1 ] ;;
   *list-sessions*) [ "$RECOVERY_HELD" = 1 ] || exit 1; printf 'acme\t1\n' ;;
-  *'#{pane_id} #{pane_dead}') printf '%%1 %s\n' "$RECOVERY_DEAD" ;;
+  *'#{pane_id} #{pane_dead}') printf '0 1 %%1 %s\n' "$RECOVERY_DEAD" ;;
   *list-panes*) printf 'acme\t%s\n' "$RECOVERY_DEAD" ;;
   *show-options*) echo '%1' ;;
   *session_activity*) printf '0\t1\n' ;;
@@ -353,7 +353,8 @@ func TestADeathBetweenListingAndCaptureKeepsTheLastPrompt(t *testing.T) {
 	bin := filepath.Join(home, "bin")
 	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
 case "$*" in
-  *list-panes*) echo '%1 0' ;;
+  *list-panes*) echo '0 1 %1 0' ;;
+  *capture-pane*display-message*) printf 'Pane is dead (status 0)\n1\n' ;;
   *capture-pane*) echo 'Pane is dead (status 0)' ;;
   *display-message*) echo 1 ;;
 esac
@@ -386,7 +387,8 @@ case "$*" in *'-L seat-test '*) ;; *) exit 1 ;; esac
 case "$*" in
   *list-sessions*) printf 'acme\t1\n' ;;
   *list-panes*-a*) printf 'acme\t0\n' ;;
-  *list-panes*) echo '%1 0' ;;
+  *list-panes*) echo '0 1 %1 0' ;;
+  *capture-pane*display-message*) printf 'Pane is dead (status 0)\n1\n' ;;
   *capture-pane*) echo 'Pane is dead (status 0)' ;;
   *display-message*'#{pane_dead}'*) echo 1 ;;
   *display-message*'#{session_attached}'*) printf '0\t%%1\t%s/work/acme\n' "$HOME" ;;
