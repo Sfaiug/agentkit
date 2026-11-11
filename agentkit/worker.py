@@ -665,7 +665,7 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, only=None, failed=None, ran=None, f
           absent=None, **kwargs):
     """The check watchdog and status, with worker walls and throwaway HOME writes.
 
-    `cpu`, a list, gets the CPU seconds the command's processes spent, where the box says.
+    `cpu`, a list, gets the CPU seconds the command's processes needed, where the box says.
     `failed`, a list, gets the tests a command that ran to its end named as failed, one per
     line in the file `AK_FAILED` names, `ran` those it named as run, in `AK_RAN`'s, `flaky`
     those it named as failing, then passing on a re-run, in `AK_FLAKY`'s, and `absent` those it

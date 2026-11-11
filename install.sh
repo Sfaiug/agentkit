@@ -785,6 +785,50 @@ if have tmux; then
   fi
 fi
 
+# --- a crashed program leaves no core dump file -------------------------------
+# The kernel's default pattern, `core`, writes a crashed process's whole memory into its working
+# directory wherever its limit allows one, and a container's processes run under the container
+# daemon's, which allows any size: crashing browser tests once left 39 GiB in a seat's scratch
+# folder.  Nobody reads one: a crash is chased from what the program printed.  A live pattern
+# starting with `|` hands dumps to a program, a collector the owner set up or ours, and is left
+# as it is; any other becomes ours, which discards them, now and on every boot.  ak's one boot
+# entry is named to sort after every other in sysctl.d (99-sysctl.conf, which is
+# /etc/sysctl.conf, included), so ours is applied last whatever they say, and the live pattern
+# alone decides.  The entry is written first: once the live pattern starts with `|`, no install
+# writes it again.
+CORE_PATTERN="${AK_CORE_PATTERN:-/proc/sys/kernel/core_pattern}"
+SYSCTL_D="${AK_SYSCTL_D:-/etc/sysctl.d}"
+core_none='|/bin/false' core_ours=-agentkit-no-core-dumps.conf
+core_off() {   # ak's boot entry in place of an earlier install's, then the live pattern
+  local name names others=zz
+  # listed through sudo, as written, so an entry only root can list still sorts before ours
+  sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null && names=$(sudo -n ls -- "$SYSCTL_D" 2>/dev/null) ||
+    return 1
+  # systemd-sysctl applies entries in the byte order of their names, and a name extended sorts
+  # after it: ours is the last of `zz` and every other name, extended.  Only that rule makes
+  # these two shapes, so an entry of either is an earlier install's.
+  while IFS= read -r name; do
+    case $name in
+      zz"$core_ours"|*.conf"$core_ours") sudo -n rm -f -- "$SYSCTL_D/$name" 2>/dev/null || return 1 ;;
+      *.conf) others+=$'\n'$name ;;
+    esac
+  done <<<"$names"
+  name=$(LC_ALL=C sort <<<"$others" | tail -n 1)$core_ours
+  printf '%s\n' "# Written by agentkit's install.sh: a crashed program leaves no core dump file" \
+    "kernel.core_pattern = $core_none" | sudo -n tee "$SYSCTL_D/$name" >/dev/null 2>&1 &&
+    printf '%s' "$core_none" | sudo -n tee "$CORE_PATTERN" >/dev/null 2>&1
+}
+if [ "$SANDBOX" = 1 ] || ! core_now=$(cat -- "$CORE_PATTERN" 2>/dev/null) ||
+   [ "${core_now:0:1}" = "|" ]; then
+  :   # a sandbox touches no host, and one with no pattern to read (a Mac) has none to set
+elif ! have sudo || ! sudo -n true 2>/dev/null; then
+  note "core dumps: no passwordless sudo, so kernel.core_pattern is not set to discard them; run \`sudo -v\` and re-run ./install.sh"
+elif core_off; then
+  echo "core dumps: a crashed program leaves none, now and on every boot"
+else
+  note "core dumps: kernel.core_pattern could not be set; see $SYSCTL_D"
+fi
+
 # --- (g2a) swapped memory stays compressed in RAM before it reaches the disk --
 # Idle program heaps are most of what a busy host swaps, and they compress about three to
 # one, so zswap turns most swap-ins from disk reads into decompressions.  zswap is a cache in
@@ -901,6 +945,38 @@ EOF
     note "user-unit: $UNIT_LIMITS could not be written; run \`sudo -v\` and re-run ./install.sh"
   fi
   fi
+fi
+
+# --- (g2c) the clock is NTP's alone -----------------------------------------
+# Lima's guest agent sets the clock to the time the Mac sent whenever the two differ by 100 ms, and
+# under load that time is old on arrival: one machine's clock stepped back 344 times in 17 hours
+# (10 Nov 2026), failing tests that order events by time.  Lima has no setting for it, so a drop-in
+# takes CAP_SYS_TIME from the agent and NTP keeps the clock alone; the Mac never sleeps (awake), so
+# the agent's catch-up after a sleep is not missed.  Every install rewrites the drop-in and reloads,
+# as (g2b) does, and restarts the agent while the running process still holds CAP_SYS_TIME (bit 25
+# of its bounding set), so the next install finishes whatever cut this one short and an agent
+# already restricted is never interrupted; a bounding set that cannot be read is a failed step, not
+# a restricted agent.  Under this umask sudo writes the file root-only, so nothing reads it back.
+# Lima's `lima-guestagent install-systemd` writes the agent's unit to /etc/systemd/system alone.
+LIMA_UNIT="${AK_SYSTEMD_SYSTEM:-/etc/systemd/system}/lima-guestagent.service"
+LIMA_CLOCK="$LIMA_UNIT.d/agentkit-clock.conf"
+lima_holds_clock() {   # 1 while the running agent holds CAP_SYS_TIME, 0 once not; fails if unread
+  local pid caps
+  pid=$(systemctl show -p MainPID --value lima-guestagent) &&
+    caps=$(sed -n 's/^CapBnd:[[:space:]]*//p' "${AK_PROC:-/proc}/$pid/status") && [ -n "$caps" ] &&
+    echo $(( 0x$caps >> 25 & 1 ))
+}
+if [ "$ROLE" != server ] || [ "$SANDBOX" = 1 ] || [ ! -e "$LIMA_UNIT" ]; then
+  :
+elif { sudo -n true && sudo -n mkdir -p -- "${LIMA_CLOCK%/*}" &&
+       printf '%s\n' "# Written by agentkit's install.sh, again on every install: the clock is NTP's alone" \
+         '[Service]' 'ProtectClock=yes' | sudo -n tee "$LIMA_CLOCK" >/dev/null &&
+       sudo -n systemctl daemon-reload &&
+       holds=$(lima_holds_clock) && { [ "$holds" = 0 ] || sudo -n systemctl try-restart lima-guestagent; }
+     } 2>/dev/null; then
+  echo "clock: NTP keeps the clock alone; Lima's guest agent may not set it"
+else
+  note "clock: Lima's guest agent may still set the clock; run \`sudo -v\` and re-run ./install.sh"
 fi
 
 # --- (g3) the ceiling for everything the toolkit starts ---------------------

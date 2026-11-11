@@ -66,7 +66,7 @@ class Editor(unittest.TestCase):
         self.stack.enter_context(patch.object(terminal, "height", return_value=36))
         # The build under `c`'s rows is a git call; it is pinned, not the checkout.
         self.stack.enter_context(patch.object(update, "agentkit_version",
-                                              return_value="abc1234 · 2026-09-29"))
+                                              return_value="2816 · 2026-09-29"))
         self.path = self.home / "config.toml"
         self.path.write_text((REPO / "config.default.toml").read_text())
         config.ensure_dirs()
@@ -210,7 +210,7 @@ class Editor(unittest.TestCase):
         _, screen = self.drive(session="fix-api")
         self.assertTrue(screen.startswith("agentkit · config "), screen)
         for bit in ("For  fix-api", "orch", "Claude", "●", "■", "□",
-                    "▰▰▰▰▱", "Models", "Discord", "Version abc1234 · 2026-09-29",
+                    "▰▰▰▰▱", "Models", "Discord", "Version 2816 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)
         opus = config.model_name(config.load(), "opus")      # by its full name, orchestrating

@@ -32,7 +32,7 @@ from agentkit.guard import commands
 
 IDS = {"fix-api": "$0", "orbit-proxies": "$1", "web": "$2", "zeta": "$3"}
 WORDS = {"fix-api": "working", "orbit-proxies": "needs you", "web": "working", "zeta": "done"}
-NEEDS = terminal.STATE_STYLES["needs you"][2]
+NEEDS = terminal.colour("needs you").rgb
 
 
 def drawn(value):
@@ -268,13 +268,13 @@ class OnTmux(Sandbox):
         os.set_blocking(self.pty, False)
         self.until(lambda: self.tmux("list-clients", "-F", "#{client_session}")[1] == "fix-api",
                    "the client never attached")
-        whole = " ● working   fix-api   Fable 5.1 xhigh "
+        whole = "  ● working    fix-api   Fable 5.1 xhigh "
         line = "  " + "─" * 24 + " no plan yet "      # its line: it is working with no plan
         self.assertEqual(self.width(106), whole + line + "! 1 other seat needs you ")
         # narrower, the count folds beside the whole left part, and only then is that cut: one
         # `…`, the whole line the client's width
-        self.assertEqual(self.width(56), whole + " … ! 1 needs you ")
-        self.assertEqual(self.width(30), " ● working   f… ! 1 needs you ")
+        self.assertEqual(self.width(58), whole + " … ! 1 needs you ")
+        self.assertEqual(self.width(32), "  ● working    f… ! 1 needs you ")
         # the count is columns 82 to 105 of line one, row 19: the wheel moves no window
         self.width(106)
         for button, window in ((64, "1"), (65, "0")):        # up from the second, down from the first
