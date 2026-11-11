@@ -32,14 +32,19 @@ GIB = 1024 ** 3
 # install, which it only records, with whether it had a terminal; `create` and `autostart` leave
 # the files Lima leaves.  `<root>/machine` says Running once it starts, Stopped once it stops; a
 # start clears a hang (`<root>/hung`), but not of one already running, and refuses a Broken one.
+# `<root>/memory` holds its GiB, Lima's default 4 until a call's `--memory=` writes it, whatever
+# the machine's state, and `list` reports it in bytes.
 LIMACTL = """#!{python}
 import json, os, subprocess, sys
 from pathlib import Path
 args, root = sys.argv[1:], Path({root!r})
 with open(root / "logs/limactl.log", "a") as log:
     log.write(json.dumps(args) + "\\n")
-machine = root / "machine"
+machine, memory = root / "machine", root / "memory"
 status = machine.read_text() if machine.exists() else "Stopped"
+for arg in args:
+    if arg.startswith("--memory="):
+        memory.write_text(arg.split("=", 1)[1])
 if args[:2] == ["autostart", "--help"]:
     sys.exit(0)
 if args[0] == "create":
@@ -49,7 +54,9 @@ if args[0] == "create":
     (lima / "ssh.config").write_text("Host lima-ak\\n")
 elif args[0] == "list":
     words = [word for arg in args for word in arg.split("=", 1)]
-    print(words[words.index("--format") + 1].replace("{{{{.Status}}}}", status))
+    gib = int(memory.read_text()) if memory.exists() else 4
+    print(words[words.index("--format") + 1].replace("{{{{.Status}}}}", status)
+          .replace("{{{{.Memory}}}}", str(gib * 1024 ** 3)))
 elif args[0] == "start" and status == "Broken":
     sys.exit("errors inspecting instance: failed to get Info from host agent")
 elif args[0] == "start" and status != "Running":
