@@ -90,7 +90,7 @@ POPUP_SIZE = "-w 80% -h 70%"          # the popup on a screen with room to spare
 POPUP_FULL = "-w 100% -h 100%"        # ... and on a phone, where the border is all it spares
 POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
-DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"   # its border, and the session behind it
+DIM = f"fg=#{terminal.colour('dim').rgb}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
 # opens over: the first popup over it keeps each style the pane has of its own, if it has one
