@@ -880,7 +880,7 @@ def _landing_checks(directory, state, scratch, tip):
     that cannot run there would refuse them all (owner rule, 21 Oct 2026: "landing also runs a
     branch's changed tests: line, besides main's, and refuses the branch if that new line
     fails")."""
-    from . import task
+    from . import gate, task
     _, body, _ = task.parse_task(directory / "task.md")
     # A review PR owes the target's suite, never an earlier head's suite too.
     cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
@@ -894,7 +894,12 @@ def _landing_checks(directory, state, scratch, tip):
     once = task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1]
     # Added after grouping: a shell line with an odd quote would hide a `# once` marker.
     own = gitcall.declared(scratch, "tests")
-    if own and own not in (gitcall.declared_suite(scratch, ref=tip), *once):
+    suite = gitcall.declared_suite(scratch, ref=tip)
+    if own and suite and own != suite:
+        # It runs as many pieces at once as the host fits at the suite's cost, so at the
+        # initial estimate it took places its suite needed for twice as many (11 Nov 2026).
+        gate.inherit_suite_cost(own, suite, scratch)
+    if own and own not in (suite, *once):
         once.append(own)
     return tuple(once)
 
