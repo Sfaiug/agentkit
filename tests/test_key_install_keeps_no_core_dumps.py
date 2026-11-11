@@ -112,26 +112,28 @@ class NoCoreDumps(unittest.TestCase):
     def test_d_an_entry_sorting_after_ours_moves_ours_after_it(self):
         self.discards_dumps_now_and_on_every_boot()
         # an owner's name like ours is the owner's: it is kept, and ours sorts after it too,
-        # after one as long as the filesystem allows too, and the next install replaces that
-        longest = "zzz-" + "z" * (os.pathconf(self.sysctl_d, "PC_NAME_MAX") - 9) + ".conf"
-        for later in ("zz-local-agentkit-no-core-dumps.conf", "zzz-local.conf", longest,
-                      "~local.conf"):
+        # and after names as long as the filesystem allows, which the next install replaces
+        fill = os.pathconf(self.sysctl_d, "PC_NAME_MAX") - len("zzz-.conf")
+        longest = ["zzz-" + byte * fill + ".conf" for byte in (".", "z", os.fsdecode(b"\xff"))]
+        for later in ("zz-local-agentkit-no-core-dumps.conf", longest[0], "zzz-local.conf",
+                      *longest[1:], "~local.conf"):
             (self.sysctl_d / later).write_text("kernel.core_pattern=core\n")
             # the next boot applies it after ours, and the next install finds its pattern
             self.discards_dumps_now_and_on_every_boot(live=self.boot())
 
     def test_e_an_entry_only_root_can_list_still_sorts_before_ours(self):
         (self.sysctl_d / "zzz-local.conf").write_text("kernel.core_pattern=core\n")
+        etc = self.sysctl_d.parent
         (self.bin / "sudo").rename(self.bin / "sudo-as-root")
         (self.bin / "sudo").write_text(
-            f'#!/bin/sh\nchmod u+r "{self.sysctl_d}"\n"{self.bin}/sudo-as-root" "$@"\n'
-            f'status=$?\nchmod u-r "{self.sysctl_d}"\nexit $status\n')
+            f'#!/bin/sh\nchmod 700 "{etc}"\n"{self.bin}/sudo-as-root" "$@"\n'
+            f'status=$?\nchmod 0 "{etc}"\nexit $status\n')
         (self.bin / "sudo").chmod(0o755)
-        self.sysctl_d.chmod(0o300)
-        self.addCleanup(self.sysctl_d.chmod, 0o700)
+        etc.chmod(0)
+        self.addCleanup(etc.chmod, 0o700)
         self.pattern.write_text("core\n")
         self.install()
-        self.sysctl_d.chmod(0o700)
+        etc.chmod(0o700)
         self.assertEqual(self.boot(), "|/bin/false")
 
     def test_f_a_pattern_piped_to_a_program_is_left_alone(self):

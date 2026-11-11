@@ -801,9 +801,10 @@ SYSCTL_D="${AK_SYSCTL_D:-/etc/sysctl.d}"
 core_none='|/bin/false' core_ours=-agentkit-no-core-dumps.conf
 core_off() {   # ak's boot entry in place of an earlier install's, then the live pattern
   local LC_ALL=C name names fit others=zz   # C: lengths in bytes
-  # listed through sudo, as written, so an entry only root can list still sorts before ours
+  # listed and measured through sudo, as written, so an entry only root can reach still sorts
+  # before ours
   sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null && names=$(sudo -n ls -- "$SYSCTL_D" 2>/dev/null) &&
-    fit=$(getconf NAME_MAX "$SYSCTL_D") || return 1
+    fit=$(sudo -n getconf NAME_MAX "$SYSCTL_D" 2>/dev/null) || return 1
   fit=$((fit - ${#core_ours}))
   # systemd-sysctl applies entries in the byte order of their names, and a name extended sorts
   # after it: ours is the last of `zz` and every other name, extended.  Only that rule makes
@@ -816,9 +817,13 @@ core_off() {   # ak's boot entry in place of an earlier install's, then the live
   done <<<"$names"
   name=$(LC_ALL=C sort <<<"$others" | tail -n 1)
   # one too long to extend within the filesystem's limit gives way to a .conf name that fits
-  # and sorts after it: cut, its last byte raised
-  [ ${#name} -le $fit ] ||
-    name=${name:0:fit-6}$(printf '%s' "${name:fit-6:1}" | tr '\000-\376' '\001-\377').conf
+  # and sorts after it: cut, then its last byte raised, 0xff carried and `/` (in no name) skipped
+  if [ ${#name} -gt $fit ]; then
+    name=${name:0:fit-5}
+    while [ "${name: -1}" = $'\377' ]; do name=${name%?}; done
+    [ -n "$name" ] || return 1
+    name=${name%?}$(printf '%s' "${name: -1}" | tr '\000-\055\056\057-\376' '\001-\056\060\060-\377').conf
+  fi
   printf '%s\n' "# Written by agentkit's install.sh: a crashed program leaves no core dump file" \
     "kernel.core_pattern = $core_none" | sudo -n tee "$SYSCTL_D/$name$core_ours" >/dev/null 2>&1 &&
     printf '%s' "$core_none" | sudo -n tee "$CORE_PATTERN" >/dev/null 2>&1
