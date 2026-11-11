@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -24,8 +25,13 @@ const waiterName = "ak-slot-waiter"
 
 // slotWait is in the waiter's environment, and so in the driver it execs back: the polls that
 // driver skipped were count waits, as Python's AK_SLOT_WAIT says.  Go counts no wait in history
-// (run.Historyless), so it carries no count.
+// (run.Historyless), so it carries no count, but the driver's own GODEBUG, which the waiter's
+// replaces (lean).
 const slotWait = "AK_SLOT_WAIT"
+
+// lean is the waiter's GODEBUG: its heap takes no transparent huge pages, which a host giving them
+// by default pads it with, 6.9 MB held where 3.8 do: too near a third of the first in line's 23.
+const lean = "disablethp=1"
 
 // becomeWaiter replaces the run's driver with its waiter.  It returns only where it cannot: this
 // process is not the run's own driver, or the system has no exec.
@@ -35,9 +41,16 @@ func becomeWaiter(dir string) {
 	if err != nil || !slices.Equal(os.Args[1:], words) {
 		return
 	}
-	os.Setenv(slotWait, "behind")
-	syscall.Exec(self, append([]string{waiterName}, words...), os.Environ())
-	os.Unsetenv(slotWait)
+	syscall.Exec(self, append([]string{waiterName}, words...), append(debugged(lean), slotWait+"="+os.Getenv("GODEBUG")))
+}
+
+// debugged is this process's environment with GODEBUG that, or none for "".
+func debugged(debug string) []string {
+	env := slices.DeleteFunc(os.Environ(), func(each string) bool { return strings.HasPrefix(each, "GODEBUG=") })
+	if debug != "" {
+		env = append(env, "GODEBUG="+debug)
+	}
+	return env
 }
 
 // cameBack is whether a waiter execed this driver back, taking the word out of the environment
@@ -61,7 +74,7 @@ func Waiter() (int, bool) {
 	}
 	self, err := os.Executable()
 	if err == nil {
-		err = syscall.Exec(self, append([]string{self}, os.Args[1:]...), os.Environ())
+		err = syscall.Exec(self, append([]string{self}, os.Args[1:]...), debugged(os.Getenv(slotWait)))
 	}
 	fmt.Fprintln(os.Stderr, "ak: the slot waiter cannot start its driver again:", err)
 	return 1, true
