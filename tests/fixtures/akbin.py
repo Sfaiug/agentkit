@@ -360,6 +360,32 @@ class Home:
         return {key: value for key, value in merged.items() if value is not None}
 
 
+class Manager:
+    """The control socket a running `systemd --user` listens on, answering nothing."""
+
+    def __init__(self, home):
+        path = Path(home.env["XDG_RUNTIME_DIR"]) / "systemd" / "private"
+        path.parent.mkdir()
+        self.listener = socket.socket(socket.AF_UNIX)
+        self.listener.bind(str(path))
+        self.listener.listen(64)
+        self.thread = threading.Thread(target=self.serve)
+        self.thread.start()
+
+    def serve(self):
+        while True:
+            try:
+                peer, _ = self.listener.accept()
+            except OSError:
+                return
+            peer.close()
+
+    def close(self):
+        self.listener.shutdown(socket.SHUT_RDWR)    # wakes its accept, as a close does not
+        self.thread.join()
+        self.listener.close()
+
+
 # Seconds a Home's cleanup waits for a process to end, or for an exec to finish: a host slower
 # than that is stuck, and the cleanup goes on without it.
 STUCK = 30
