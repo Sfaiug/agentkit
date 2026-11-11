@@ -1,6 +1,6 @@
 ---
 users: none
-tests: export AK_SHARD AK_CHANGED AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --user --map-current-user --net --keep-caps sh -c 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"; }; offline true 2>/dev/null || { echo "landing: cannot build the offline sandbox (unshare --user --net); the suite runs only inside it" >&2; exit 1; }; offline bash -c 'python3 tests/landing.py'
+tests: export AK_SHARD AGENTKIT_ACCEPTANCE_REQUIRED=1; offline() { unshare --user --map-current-user --net --keep-caps sh -c 'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"; }; offline true 2>/dev/null || { echo "landing: cannot build the offline sandbox (unshare --user --net); the suite runs only inside it" >&2; exit 1; }; offline bash -c 'python3 tests/landing.py'
 health: git -C ~/agentkit merge-base --is-ancestor "$AK_MERGE_SHA" HEAD && test ! -e ~/.agentkit/state/agentkit-install-pending && ~/agentkit/bin/ak doctor >/dev/null
 content: go/internal/worker/rules/
 ---
@@ -47,7 +47,7 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 
 ## Owner rules
 
-- Models are plugins. Each run takes its executor and its reviewer from that role's marks that can run now, each on its own, the mark `quality.pick` names first, so a model may review its own build. Every run records who built and who reviewed at which effort, for the owner to compare; ak's own numbers never pick or recommend, and ak spends no turn testing models. The owner: "Data collection yes, no recommendation." (3 Nov); `quality.pick` first, not random (9 Nov). [18 Sep–9 Nov 2026]
+- Models are plugins. Each run takes its executor and its reviewer from that role's marks that can run now, each on its own, the mark `quality.pick` names first, so a model may review its own build. Every run records who built and who reviewed at which effort, for the owner to compare; ak's runs give "Costs only" (5 Nov), and ak spends no turn testing models. The owner: "Data collection yes, no recommendation." (3 Nov); `quality.pick` first, not random (9 Nov). [18 Sep–9 Nov 2026]
 - Every screen follows `docs/cli-design.md`, the one home of how a screen reads. [15, 16 Sep, 18 Oct]
 - A notes intake, if built, is an optional add-on on the ak screen, using ak's providers. [1 Oct]
 - ak ends a wait when that merges, closes or ends; a merge on a project with `health:`, once it is live or its window has passed. [4, 9 Oct 2026]
