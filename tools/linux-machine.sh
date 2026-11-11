@@ -31,19 +31,21 @@ linux_share() {   # linux_share <total> <floor>
 }
 
 linux_machine_up() {
-  local dir name cpus mem disk power gib=$((1024 * 1024 * 1024))
+  local dir name cpus mem had when disk power gib=$((1024 * 1024 * 1024))
   local daemons=${AK_LAUNCH_DAEMONS:-/Library/LaunchDaemons}
   dir=$(linux_dir) name=$(linux_user)
   if ! limactl autostart --help >/dev/null 2>&1; then
     if command -v limactl >/dev/null 2>&1; then brew upgrade lima || return 1
     else brew install lima || return 1; fi
   fi
+  # Memory is a reservation: the Mac never gets back what the machine has once touched, so a
+  # machine holding more than its share, as one made by hand may, is held to it.
+  mem=$(linux_share $(($(sysctl -n hw.memsize) / gib)) 4) || return 1
   if [ ! -f "$dir/lima.yaml" ]; then
-    # Cores are shared with macOS as it runs, so a quarter left to it is room to schedule.
-    # Memory is a reservation: the Mac never gets back what the machine has once touched.
+    # Cores are shared with macOS as it runs, so a quarter left to it is room to schedule, and
+    # a machine made with more keeps them: they come back to macOS whenever it idles.
     # The disk grows as it fills and never shrinks, so it is a share of the space free now.
     cpus=$(linux_share "$(sysctl -n hw.ncpu)" 2) || return 1
-    mem=$(linux_share $(($(sysctl -n hw.memsize) / gib)) 4) || return 1
     disk=$(linux_share $(($(df -Pk "$HOME" | awk 'NR == 2 { print $4 }') / 1024 / 1024)) 64) ||
       return 1
     # Debian stable, which boots systemd; --mount-none: the machine sees none of the Mac's folders
@@ -51,6 +53,12 @@ linux_machine_up() {
       --disk="$disk" --mount-none \
       --set ".user.name = \"$name\" | .user.home = \"/home/$name\"" template:debian || return 1
     echo "linux: this Mac's Linux machine has $cpus cores, ${mem} GiB of memory and ${disk} GiB of disk"
+  elif had=$(limactl list --format '{{.Memory}}' "$LINUX_INSTANCE") &&
+    [ "$had" -gt $((mem * gib)) ]; then
+    when=now
+    [ "$(linux_machine_status)" != Running ] || when="from its next start"
+    linux_machine_start --memory="$mem" || return 1
+    echo "linux: this Mac's Linux machine takes $mem GiB of memory $when, not $((had / gib)) GiB, leaving macOS its share"
   fi
   linux_machine_start || return 1   # one already up stays as it is
   # A system LaunchDaemon starts it with the Mac, before anyone logs in; enabling asks for sudo.
@@ -152,10 +160,14 @@ linux_machine_check() {
 linux_machine_status() { limactl list --format '{{.Status}}' "$LINUX_INSTANCE"; }
 
 # `limactl start` returns once the machine answers, so starting one counts as its answer.  One
-# already running stays as it is, and so does its last answer: it may hang.
-linux_machine_start() {
-  [ "$(linux_machine_status)" != Running ] || return 0
-  limactl start --tty=false "$LINUX_INSTANCE" && date +%s >"$(linux_dir)/answered"
+# already running stays as it is, and so does its last answer: it may hang.  Lima writes the flags
+# it is given into the machine's file even while it runs, where they hold from its next start.
+linux_machine_start() {   # linux_machine_start [<flag of limactl start>...]
+  if [ "$(linux_machine_status)" != Running ]; then
+    limactl start --tty=false "$@" "$LINUX_INSTANCE" && date +%s >"$(linux_dir)/answered"
+  elif [ $# -gt 0 ]; then
+    limactl start --tty=false "$@" "$LINUX_INSTANCE"
+  fi
 }
 
 # Whether `ssh lima-ak true` succeeds within 30 s.  macOS has no timeout(1): a timer ends ssh at
