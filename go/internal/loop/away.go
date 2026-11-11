@@ -53,24 +53,32 @@ func (l *loop) onHelper(away *helper.Away, shard string, limit time.Duration, ou
 // waiting pieces on its VMs too, each started by start, so a suite that began on little room there,
 // or on a turn here, grows into what frees.  It asks until the places are over, as a piece a
 // machine gave back waits again, and never waits on an answer past that: one that comes later
-// finishes the helper it joined.  What it joined is finished once their pieces end.
-func (l *loop) grow(cwd string, cpus, memory float64, cmd, times string, waiting *piecesLeft, start func(*helper.Away)) (joined []*helper.Away) {
+// finishes the helper it joined.  A look that fails ends the suite with its error, as the look at
+// its start does.  What it joined is finished once their pieces end.
+func (l *loop) grow(cwd string, cpus, memory float64, cmd, times string, waiting *piecesLeft, start func(*helper.Away)) (joined []*helper.Away, err error) {
+	type look struct {
+		there *helper.Away
+		said  []string // said once the suite goes there, not at each look
+		err   error
+	}
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	asked := time.Now()
-	var answer chan *helper.Away
-	var said *[]string
+	var answer chan look
 	for {
 		select {
-		case there := <-answer:
+		case got := <-answer:
 			answer = nil
-			if there != nil {
-				for _, line := range *said {
+			if got.err != nil {
+				return joined, got.err
+			}
+			if got.there != nil {
+				for _, line := range got.said {
 					l.say(line)
 				}
-				joined = append(joined, there)
-				for range min(there.Count, waiting.waits()) {
-					start(there)
+				joined = append(joined, got.there)
+				for range min(got.there.Count, waiting.waits()) {
+					start(got.there)
 				}
 			}
 		case <-tick.C:
@@ -79,19 +87,20 @@ func (l *loop) grow(cwd string, cpus, memory float64, cmd, times string, waiting
 		if l.ctx.Err() != nil || waiting.over() {
 			if late := answer; late != nil {
 				go func() {
-					if there := <-late; there != nil {
-						there.Finish()
+					if got := <-late; got.there != nil {
+						got.there.Finish()
 					}
 				}()
 			}
-			return joined
+			return joined, nil
 		}
 		if answer == nil && waiting.waits() > 0 && time.Since(asked) >= gatePoll {
-			asked, answer, said = time.Now(), make(chan *helper.Away, 1), &[]string{}
-			go func(answer chan *helper.Away, said *[]string) {
-				there, _, _ := helper.Start(cwd, cpus, memory, cmd, times, l.changed, nil, func(line string) { *said = append(*said, line) })
-				answer <- there
-			}(answer, said)
+			asked, answer = time.Now(), make(chan look, 1)
+			go func(answer chan look) {
+				var got look
+				got.there, _, got.err = helper.Start(cwd, cpus, memory, cmd, times, l.changed, nil, func(line string) { got.said = append(got.said, line) })
+				answer <- got
+			}(answer)
 		}
 	}
 }

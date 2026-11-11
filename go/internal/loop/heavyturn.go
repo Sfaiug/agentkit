@@ -73,14 +73,7 @@ func (l *loop) placed(cwd, cmd string, selection *checkSelection, path string) (
 			return at, err
 		}
 		l.say("suite runs here: " + at.here)
-		ask.Poll = func() (bool, error) {
-			if _, err := l.stillWaits(); err != nil {
-				return false, err
-			}
-			var err error
-			at.away, err = l.asked(cwd, cpus, memory, cmd, at.times)
-			return at.away != nil, err
-		}
+		ask.Poll = l.elsewhere(cwd, cpus, memory, cmd, at.times, &at.away)
 	}
 	var err error
 	at.hold, err = turn.Take(l.ctx, ask)

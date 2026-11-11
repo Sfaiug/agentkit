@@ -209,7 +209,14 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 			started.Add(1)
 			go func() {
 				defer started.Done()
-				joined = append(joined, alone.grow(cwd, cpus, memory, cmd, on.times, waiting, place)...)
+				grew, err := alone.grow(cwd, cpus, memory, cmd, on.times, waiting, place)
+				joined = append(joined, grew...)
+				if err != nil {
+					held.Lock()
+					errs = append(errs, err)
+					held.Unlock()
+					cancel(errSibling)
+				}
 			}()
 		}
 		if on.holds() {
