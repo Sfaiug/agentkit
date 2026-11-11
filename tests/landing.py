@@ -68,13 +68,19 @@ def part(*command):
             else (sys.executable, "-c", ""))
 
 
+def status(code):
+    """The exit a shell gives `code`, a part's: one a signal ended exits 128 + its number, so a
+    piece the kernel killed for memory is run again, never a red (gate._SuiteMeasure.starved)."""
+    return 128 - code if code < 0 else code
+
+
 # A red static check ends the share in seconds, not after its whole run and the re-run alone.
 # All of them run, so one landing names every one that fails.
-failed = [check for check in (f"tests/{name}.py" for name in STATIC_CHECKS)
-          if subprocess.call(part(sys.executable, check), stderr=subprocess.STDOUT)]
-if failed:
+codes = {check: subprocess.call(part(sys.executable, check), stderr=subprocess.STDOUT)
+         for check in (f"tests/{name}.py" for name in STATIC_CHECKS)}
+if failed := [check for check, code in codes.items() if code]:
     name_failed(failed)
-    sys.exit(1)
+    sys.exit(status(codes[failed[0]]))
 
 # every_file.py re-runs a failed file with nothing of this piece beside it: it waits for the
 # end of its standard input, closed below once smoke.sh and the contract have ended, and by
@@ -109,4 +115,4 @@ if smoke:
     name_failed([test for test in started if test.startswith(f"{SMOKE}#")] or [SMOKE])
 if contract.returncode:
     name_failed(["tests/gate_contract.py"])
-sys.exit(code or smoke or contract.returncode)
+sys.exit(status(code or smoke or contract.returncode))

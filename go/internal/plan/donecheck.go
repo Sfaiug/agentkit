@@ -100,6 +100,9 @@ func OwnerWords(had []notify.Conversation) ([][]harness.Turn, []Said, error) {
 		if !harness.Reads(each.Harness, false) {
 			return nil, nil, notify.ErrUnread
 		}
+		if each.Name == "" {
+			continue // a current one its harness names none of yet, which conversations_of leaves out
+		}
 		turns, cards, err := harness.Answered(each.Harness, each.Record)
 		if err != nil {
 			return nil, nil, err

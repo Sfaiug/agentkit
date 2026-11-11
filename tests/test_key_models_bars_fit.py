@@ -20,9 +20,10 @@ from test_key_models_answer import ENV, KEYS, lines
 from test_key_models_bars import BARS, ROWS, USES, bars, drawn, held, want
 from test_key_models_role_lines import said
 
-# What each role uses, after the column heads, one space between words however it folds
-ROLE_LINES = ("quality a task {}orchestrator Acme Step 1 high 96.0 ≈$4.00 {}executor Acme Top 1 "
-              "high 100.0 ≈$8.00 {}reviewer Acme Base 1 high 92.0 ≈$2.00")
+# What each role uses on 40 cells, after the column heads, one space between words: its quality
+# and cost on its word's line, its model under it
+ROLE_LINES = ("quality a task {}orchestrator 96.0 ≈$4.00 Acme Step 1 high {}executor 100.0 ≈$8.00 "
+              "Acme Top 1 high {}reviewer 92.0 ≈$2.00 Acme Base 1 high")
 ERROR = "HTTP Error 503: Service Unavailable"
 NOTE = "  the boards were not read: arena.ai " + ERROR
 
