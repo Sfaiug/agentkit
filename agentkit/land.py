@@ -596,12 +596,17 @@ def check_line(turn, log=lambda _: None):
                     and not state.get("review_pr")):
                 name = red.get("run")
                 repair = record.read_state(config.RUNS / name) if name else None
-                if repair is None:
+                holds = repair and handback.repair_open(repair, red["probe"]["sha"])
+                if not (holds or repair and transitions.delivered(repair)):
+                    # none yet, or the last let go of this red unmended: another goes first
+                    if repair:
+                        log(f"{name} ended without mending {upstream} at {tip[:12]}: "
+                            f"another repair")
                     name = _repair(turn, directory, state, target_tree, red, log)
                     if not name:
-                        return
-                elif not handback.repair_open(repair, red["probe"]["sha"]):
-                    name = None
+                        continue    # refused: a later member may start it, a PR may mend it
+                elif not holds:
+                    name = None     # it mended the target: merged, or found it passing there
                 if name and directory.name != name:
                     continue
             verdict = {key: state["waiting_on"][key] for key in ("land", "fix")
