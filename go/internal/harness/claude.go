@@ -26,7 +26,7 @@ func init() {
 // hook's report (claude.py `resumable`).
 func claudeOwns(record *run.Object, conversation string) bool {
 	source := record.Str("id_source")
-	return record.Str("conversation") == conversation && (source == "launcher" || source == ClaudeHook)
+	return record.Str("conversation") == conversation && (source == "launcher" || source == claudeHook)
 }
 
 // claudeNotices are the interruptions Claude Code writes as a user line (claude.py INTERRUPTS).

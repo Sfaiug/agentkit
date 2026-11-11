@@ -19,16 +19,16 @@ import (
 var plainID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // Claim is Python's harness.claim: the seat launched as launched, on that harness, goes on in the
-// conversation a hook whose parent is pid reported with its transcript, with source as its
-// id_source.  Only from the seat's own client (agent.OwnsHook, by client), with the transcript
-// that conversation's own file for the seat, while the seat owns the one it is on and no other
+// conversation a hook whose parent is pid reported, with its transcript and id_source.  Only from
+// the seat's own client (agent.OwnsHook), with the transcript that conversation's own file for the
+// seat, while the seat owns the one it is on and no other
 // seat's record names the new one, as its own or one it left.  The one left stays the seat's for
 // its done check (`left`); one it goes back to is its current one again, read once.  The seat's
 // lock, which a delivery holds while it types the very prompt a hook may report, is never taken:
 // its name holds under `claims`.  False where Go does not carry it, with nothing written.
-func Claim(launched, kind string, conversation, transcript any, pid int, client func([]string) bool, source string) bool {
-	id, named := conversation.(string)
-	file, filed := transcript.(string)
+func Claim(launched string, to harness.Followed, pid int) bool {
+	id, named := to.Conversation.(string)
+	file, filed := to.Transcript.(string)
 	if !named || !filed || !plainID.MatchString(id) || strings.HasPrefix(id, "-") {
 		return true
 	}
@@ -39,7 +39,7 @@ func Claim(launched, kind string, conversation, transcript any, pid int, client 
 	state := filepath.Join(config.Home(), "state")
 	carried := true
 	claims(state, func() error {
-		carried = claim(state, launched, kind, id, file, pid, client, source)
+		carried = claim(state, launched, to, id, file, pid)
 		return nil
 	})
 	return carried
@@ -52,7 +52,7 @@ func claims(state string, fn func() error) error {
 }
 
 // claim is Claim's decision and its write, under `claims`.
-func claim(state, launched, kind, id, transcript string, pid int, client func([]string) bool, source string) bool {
+func claim(state, launched string, to harness.Followed, id, transcript string, pid int) bool {
 	name, fields, err := config.ResolveSession(launched)
 	if err != nil {
 		return true
@@ -64,17 +64,17 @@ func claim(state, launched, kind, id, transcript string, pid int, client func([]
 	if record == nil {
 		return true
 	}
-	if model, err := config.ModelNamed(record.Str("orchestrator")); err != nil || model.Harness != kind ||
+	if model, err := config.ModelNamed(record.Str("orchestrator")); err != nil || model.Harness != to.Harness ||
 		!record.Truthy("cwd") || record.Get("conversation") == id {
 		return true
 	}
-	if owned, known := harness.Owns(kind, record, record.Str("conversation")); !owned {
+	if owned, known := harness.Owns(to.Harness, record, record.Str("conversation")); !owned {
 		return known
 	}
 	there := map[string]any{}
 	maps.Copy(there, fields)
 	there["conversation"] = id
-	filed, known := harness.Conversation(kind, there)
+	filed, known := harness.Conversation(to.Harness, there)
 	if !known {
 		return false
 	}
@@ -85,14 +85,14 @@ func claim(state, launched, kind, id, transcript string, pid int, client func([]
 	if !known {
 		return false
 	}
-	if !held || exited || !agent.OwnsHook(tmux.Own(), name, pid, client) {
+	if !held || exited || !agent.OwnsHook(tmux.Own(), name, pid, to.Client) {
 		return true
 	}
-	gone, readable := left(record, kind, id)
+	gone, readable := left(record, to.Harness, id)
 	if !readable {
 		return true
 	}
-	moved := set([]field{{"conversation", id}, {"left", gone}, {"id_source", source}})
+	moved := set([]field{{"conversation", id}, {"left", gone}, {"id_source", to.Source}})
 	for {
 		found := false
 		err := update(state, name, func(data *run.Object) bool {
