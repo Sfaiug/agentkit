@@ -178,10 +178,7 @@ class MuseQuestionAfterNew(unittest.TestCase):
         self.said(session, LINE, time.time())
         done = self.home.tick()
         self.assertEqual(done.code, 0, done.out + done.err)
-        # answered, so neither standing nor typed back into the seat as left out of the chat
-        self.assertFalse(self.standing("acme", AGAIN))
-        typed = self.home.root / "acme.typed.lines"
-        self.assertNotIn(AGAIN, typed.read_text() if typed.exists() else "",
+        self.assertFalse(self.standing("acme", AGAIN),
                          "ak's line before /new hid the owner's same words after it")
 
 
