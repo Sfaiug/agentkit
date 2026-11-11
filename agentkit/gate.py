@@ -1581,9 +1581,9 @@ def split_suite_run(lp, command):
 
 
 class _SuiteMeasure:
-    """Wall time and the CPU each box needed everywhere, a line's checker included; memory, swap
-    included and less the file cache reclaim frees, where a cgroup is this run's or holds only
-    this process."""
+    """Wall time and the CPU each box needed everywhere, a line's checker included, over the
+    seconds it ran; memory, swap included and less the file cache reclaim frees, where a cgroup
+    is this run's or holds only this process."""
 
     def __init__(self, run_dir):
         state = run_record.read_state(run_dir) or {} if run_dir else {}
@@ -1592,7 +1592,7 @@ class _SuiteMeasure:
         self.group = (host.cgroup_path(relative) if relative and
                       Path(relative).name in turns._scope_units(state["scope"])
                       else host.own_cgroup())
-        self.cpu = []     # each box's CPU seconds (`box.cpu_seconds`)
+        self.cpu = []     # each box's CPU seconds (`box.cpu_seconds`) and the seconds it ran
         self.quiet = []   # and the longest each go went without output (`worker.limited`)
         self.baseline = host.held_mb(self.group, swap=True) if self.group is not None else None
         self.peak = self.baseline
@@ -1620,16 +1620,18 @@ class _SuiteMeasure:
                 with self.lock:
                     self.peak = max(self.peak, held)
 
-    def save(self, path, pieces, places=None):
-        """`pieces` the ones that ran here, on `places` at once, as many where None."""
-        places = places or pieces
+    def save(self, path, pieces, places):
+        """`pieces` the ones that ran here, each to its end, on `places` at once, or None where
+        one waited for a place: a peak of fewer at once is no piece's memory.  A piece's CPU is
+        what each needed while its box ran, so a place waited for or left empty counts none."""
         elapsed = time.monotonic() - self.started
         if elapsed <= 0:
             return
         cost = {"wall_seconds": elapsed, "run_id": self.run_id}
-        if len(self.cpu) == pieces:
-            cost["cpus"] = max(HEAVY_CPUS, sum(self.cpu) / (elapsed * places))
-        if self.baseline is not None:
+        ran = sum(seconds for _, seconds in self.cpu)
+        if len(self.cpu) == pieces and ran > 0:
+            cost["cpus"] = max(HEAVY_CPUS, sum(spent for spent, _ in self.cpu) / ran)
+        if self.baseline is not None and places:
             cost["mem_mb"] = self.mem_mb = max(HEAVY_MEM_MB, (self.peak - self.baseline) / places)
         try:
             with watch.state_lock():
@@ -1831,7 +1833,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         if named is not None and result[0] > 0:
             named.extend(failed)
         if measured and not result[2] and result[0] != SUITE_BUSY:
-            measured.save(path, 1)
+            measured.save(path, 1, 1)
             measured.paced(path, 1)
         if measured:
             measured.overflowed(path, planned)
@@ -2085,12 +2087,12 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
 
             results, where, pieces_left = [None] * count, [None] * count, _Pieces(range(count))
             pull(hold.pieces if hold else 0 if away else count)
-            # Pieces that waited for turns did not run at once: their measure is no piece's cost.
-            # Those on the helper held none of this host's memory.
+            # Those on the helper held none of this host's memory, nor needed its CPU.
             ran = [result for result, there in zip(results, where) if result and not there]
-            if ran and not (hold and hold.waited) and not any(
+            if ran and not any(
                     result[2] or result[0] == SUITE_BUSY for result in results if result):
-                measure.save(path, len(ran), min(len(ran), hold.pieces if hold else count))
+                measure.save(path, len(ran), None if hold and hold.waited else
+                             min(len(ran), hold.pieces if hold else count))
             named = {}    # by index, a piece red on a machine: what it printed there, its tests
             if any(where) and log is not None and not pieces_left.lost and all(
                     result and not result[0] and not result[2] for result in results):
