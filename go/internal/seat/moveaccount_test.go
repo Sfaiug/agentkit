@@ -36,7 +36,7 @@ auth) echo "$AGENTKIT_ACCOUNT" >> "$HOME/asked"; [ "$AGENTKIT_ACCOUNT" = second 
 interactive) case "$*" in *' new') exit 3 ;; esac; echo "$AGENTKIT_ACCOUNT" > "$HOME/launched-on"; echo '/bin/true' ;;
 esac
 `)
-			known, err := Move("acme", "nova", func() (bool, bool) { return true, true })
+			known, err := Move("acme", "nova", "", func(bool) (bool, bool) { return true, true })
 			if !known || err != nil {
 				t.Fatal(known, err)
 			}

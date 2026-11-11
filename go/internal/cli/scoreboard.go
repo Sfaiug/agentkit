@@ -596,10 +596,22 @@ func (b *board) collided(ended []history.Row, end float64) string {
 	for _, each := range files[:min(3, len(files))] {
 		cell += fmt.Sprintf("; %s/%s: %d conflicts", each.repo, each.path, each.count)
 		if each.added {
-			cell += " (added lines only)"
+			cell += addedOnly(each.repo, each.path)
 		}
 	}
 	return cell
+}
+
+// addedOnly marks a file whose conflicts only added lines, naming the .gitattributes line that
+// takes both sides where one names the path: the screen shows a path terminal.Plain changes
+// otherwise, .gitattributes reads a space or any of *?[]!#"\ as a pattern's syntax, and git
+// ignores a line of 2048 bytes or more.
+func addedOnly(repo, path string) string {
+	line := path + " merge=union"
+	if terminal.Plain(path) != path || strings.ContainsAny(path, ` *?[]!#"\`) || len(line) >= 2048 {
+		return " (added lines only)"
+	}
+	return fmt.Sprintf(" (added lines only: `%s` in %s's .gitattributes takes both sides)", line, repo)
 }
 
 // sunk is the week's tokens that bought no merge: every ended run's that delivered nothing.
