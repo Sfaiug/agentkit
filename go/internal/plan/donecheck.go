@@ -32,9 +32,10 @@ type Said struct {
 // done check (done_check.owed): one is on, the owner wrote it a message or answered a question
 // card in one of its conversations, and no check that found no gap read what they have said and
 // what the plan holds now (Fingerprint).  Their words are read only where what an answer was kept
-// from changed since (asked), and the answer kept with what it read.  A record or config that is
-// there and cannot be read holds the seat and keeps nothing; ErrUnread, before anything is read,
-// where Go does not read the owner's words as Python does.  Nothing here makes a check.
+// from changed since (asked), and the answer held with what it read, for the command's end to keep
+// (KeepAnswers).  A record or config that is there and cannot be read holds the seat and keeps
+// nothing; ErrUnread, before anything is read, where Go does not read the owner's words as Python
+// does.  Nothing here makes a check.
 func checkOwed(name string, lines []string) (bool, error) {
 	if !slices.ContainsFunc(lines, boxed) || slices.ContainsFunc(lines, open) {
 		return false, nil

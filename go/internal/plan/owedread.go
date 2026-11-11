@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 
 	"agentkit/internal/config"
@@ -14,7 +15,20 @@ import (
 	"agentkit/internal/run"
 )
 
-// writes tells apart the writes of this process's asks, as Python's thread does its own.
+// answers are what this process's asks answered, by the file each goes in, until KeepAnswers
+// writes them there as its command ends: a later ask here answers from one as from that file.
+var answers = struct {
+	sync.Mutex
+	by map[string]answer
+}{by: map[string]answer{}}
+
+// An answer is whether a seat owes its done check, as an ask that read so (asked) answered.
+type answer struct {
+	read string
+	owes bool
+}
+
+// writes tells apart the writes of this process's answers, as Python's thread does its own.
 var writes atomic.Int64
 
 // asked is what checkOwed answers from short of the owner's words, as a digest (done_check.asked):
@@ -25,8 +39,7 @@ var writes atomic.Int64
 // Python stamps its code's folders there, so neither takes an answer the other read: each reads
 // again after the other wrote.  Taken before any word is read, so a file written meanwhile reads
 // changed next time.  "" where a conversation's harness keeps it in no file of its own Go names
-// (harness.FiledIn), or Go stamps no file here: each ask reads it; "" too where the seat has no
-// conversation, so an ask that reads nothing writes nothing.
+// (harness.FiledIn), or Go stamps no file here: each ask reads it.
 func asked(current string, had []notify.Conversation, lines []string, kept any) (string, error) {
 	program, err := os.Executable()
 	if err == nil {
@@ -46,9 +59,6 @@ func asked(current string, had []notify.Conversation, lines []string, kept any) 
 			conversations = append(conversations, []any{each.Harness, conversation})
 			files = append(files, names...)
 		}
-	}
-	if len(conversations) == 0 {
-		return "", nil // nothing to read, so nothing a kept answer would spare
 	}
 	stamps := []any{}
 	for _, file := range files {
@@ -71,11 +81,17 @@ func asked(current string, had []notify.Conversation, lines []string, kept any) 
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// answered is the answer an ask that read the same (asked) kept at path (done_check.answered),
-// false for none.
+// answered is the answer an ask that read the same (asked) made in this process or kept at path
+// (done_check.answered), false for none.
 func answered(path, read string) (owes, kept bool) {
 	if read == "" {
 		return false, false
+	}
+	answers.Lock()
+	made, ok := answers.by[path]
+	answers.Unlock()
+	if ok && made.read == read {
+		return made.owes, true
 	}
 	was, _ := run.ReadJSON(path)
 	if was == nil || was.Get("read") != read {
@@ -85,15 +101,34 @@ func answered(path, read string) (owes, kept bool) {
 	return owes, kept
 }
 
-// keepAnswer keeps at path what an ask that read so answered, where it has a digest: whole, by a
-// name of this ask's own, so of two asks at once either may stand.  A state ak cannot write here
-// leaves the next ask to read again.
+// keepAnswer holds what an ask that read so answered, where it has a digest, for KeepAnswers to
+// write at path.
 func keepAnswer(path, read string, owes bool) {
 	if read == "" {
 		return
 	}
-	fresh := fmt.Sprintf("%s.%d.%d", path, os.Getpid(), writes.Add(1))
-	if os.WriteFile(fresh, []byte(run.Line(run.Fields("read", read, "owed", owes))+"\n"), 0o666) == nil {
-		os.Rename(fresh, path)
+	answers.Lock()
+	answers.by[path] = answer{read, owes}
+	answers.Unlock()
+}
+
+// KeepAnswers writes down, as a command ends, each answer its asks made, where carried: none for a
+// command handed over or run dry, which leaves its case to Python with nothing written.  Each
+// whole, by a name of this process's own, so of two at once either may stand; a state ak cannot
+// write here leaves the next ask to read again.  The process then holds none, as the next command
+// starts.
+func KeepAnswers(carried bool) {
+	answers.Lock()
+	made := answers.by
+	answers.by = map[string]answer{}
+	answers.Unlock()
+	if !carried {
+		return
+	}
+	for path, was := range made {
+		fresh := fmt.Sprintf("%s.%d.%d", path, os.Getpid(), writes.Add(1))
+		if os.WriteFile(fresh, []byte(run.Line(run.Fields("read", was.read, "owed", was.owes))+"\n"), 0o666) == nil {
+			os.Rename(fresh, path)
+		}
 	}
 }
