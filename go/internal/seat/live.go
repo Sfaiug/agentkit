@@ -311,9 +311,14 @@ func (seat Seat) record(state string) *run.Object {
 	return record
 }
 
-// file is the seat file as this look leaves it.
+// file is the seat file as this look leaves it: outside a dry look every reader's (run.Shared), so
+// only read it.
 func (seat Seat) file(state string) *run.Object {
-	file, _ := asLeft(filepath.Join(state, "seat-"+seat.Name+".json"))
+	read := run.Shared
+	if drying != nil {
+		read = asLeft
+	}
+	file, _ := read(filepath.Join(state, "seat-"+seat.Name+".json"))
 	return file
 }
 

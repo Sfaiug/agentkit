@@ -53,6 +53,9 @@ PREVIEWS = (("watch", "--dry-run"), ("doctor",), ("run", "gc", "--dry-run"), ("r
 WHOLE = 30 * 60     # seconds the previews may take in all: the live check's suite waits on them
 # akbin's refusing fakes, tmux, and the copiers that would carry a file to another machine
 FAKES = (*akbin.REFUSED, "tmux", "scp", "rsync")
+# The host's memory and load, which ak's admission reads and `ak run status` prints: read once as
+# the shadow begins, and so in each of its runs, else Go would differ by the moment it ran in.
+MOMENT = ("meminfo", "loadavg")
 # Every box's seccomp filter, classic BPF as bwrap takes it.  It refuses a socket or a socket pair
 # of the Unix family, either of which could reach a service of the host's by a path the read-only
 # root still shows: the warm menu server's in HOME, a session bus.  It refuses io_uring, which
@@ -104,7 +107,8 @@ sys.exit(int(sys.argv[1]))' "$code" >"$peak"
 
 def box(home, scratch):
     """bwrap's words sealing a command over `home`, its environment, and its folder in `scratch`,
-    whose `box` is all it may write besides HOME, /tmp and /dev: the fakes' logs, its pages."""
+    whose `box` is all it may write besides HOME, /tmp and /dev: the fakes' logs, its pages.  Its
+    /proc shows the MOMENT `scratch` holds."""
     folder = Path(tempfile.mkdtemp(dir=scratch))
     inside = folder / "box"
     for part in ("upper", "work", "box/bin", "box/logs", "box/runtime"):
@@ -144,7 +148,9 @@ def box(home, scratch):
     # /tmp is mounted inside the box's own.
     return ["sh", "-c", 'exec "$@" 3<"$0"', folder / "filter",
             "bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--seccomp", "3",
-            "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
+            "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc",
+            *(arg for name in MOMENT for arg in ("--ro-bind", scratch / name, f"/proc/{name}")),
+            "--tmpfs", "/tmp",
             "--bind", inside, inside,
             "--overlay-src", home, "--overlay", folder / "upper", folder / "work", home,
             "--", sys.executable, "-I", "-c", SEAL, home, "/tmp", "/dev", "/proc", inside,
@@ -413,6 +419,8 @@ def main():
     until = time.monotonic() + WHOLE if every else math.inf
     scratch = Path(tempfile.mkdtemp(prefix="shadow-", dir="/var/tmp"))
     try:
+        for name in MOMENT:
+            (scratch / name).write_bytes((Path("/proc") / name).read_bytes())
         go, why = ready(args.go, python, home, scratch, until)
         confirmed = False
         if why:

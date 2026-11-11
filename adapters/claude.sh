@@ -299,12 +299,15 @@ usage)
   # what its monthly limit has left and the prepaid balance, the limit unbounded when none is
   # set and the balance while auto-reload tops it up -- both unbounded is `unlimited`.  The
   # amounts are minor units of its `currency`, `decimal_places` of them to the unit.  The
-  # one-time credit (`cinder_cove`) adds nothing, as it adds nothing there.
+  # one-time credit (`cinder_cove`) adds nothing, as it adds nothing there.  A limit that is
+  # one model's or one surface's own cap names it in `scope`; its meter keeps that name.
   jq -c --argjson prepaid "$prepaid" '{provider:"anthropic", error:null, meters:[ .limits[]
       | select(.resets_at != null and .percent != null)
       | {name:.kind, used:.percent,
          resets_at:(.resets_at|sub("\\.[0-9]+";"")|sub("\\+00:00$";"Z")|fromdateiso8601),
-         window_secs:(if .group=="session" then 18000 else 604800 end)} ]}
+         window_secs:(if .group=="session" then 18000 else 604800 end)}
+        + ([.scope | objects | (.model, .surface) | objects | .display_name | strings
+            | select(. != "") | {scope:.}] | first // {}) ]}
     + ([.extra_usage | objects | select(.is_enabled == true) | . as $x
         | $prepaid | objects | . as $p
         | ($x.decimal_places // $p.balance.money.exponent) as $e

@@ -72,6 +72,7 @@ func moveAgentkit(env []string, checkout string, out io.Writer, target string, f
 	// here until install.sh passes: the swap moves HEAD, so origin/main is no longer ahead of
 	// it, and only this says the install is owed
 	pending := filepath.Join(config.Home(), "state", "agentkit-install-pending")
+	owed := exists(pending)
 	if err := os.WriteFile(pending, nil, 0o666); err != nil {
 		fmt.Fprintf(out, "update: %s\n", config.PyError(err))
 		return 1
@@ -79,6 +80,9 @@ func moveAgentkit(env []string, checkout string, out io.Writer, target string, f
 	if target != "" {
 		fmt.Fprintf(out, "update: %s goes to %s\n", checkout, short(target))
 		if why := swap(env, checkout, target); why != "" {
+			if !owed { // nothing was swapped in, so the version live owes nothing new
+				os.Remove(pending)
+			}
 			fmt.Fprintf(out, "update: %s\n", why)
 			return 1
 		}
