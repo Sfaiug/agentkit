@@ -1,5 +1,5 @@
-"""A red smoke.sh run names each block a check failed in, once, as `tests/smoke.sh#<block>`, and
-itself whole only where it ends red with no block named.
+"""A red smoke.sh run names each block a check failed in, once, as `tests/smoke.sh#<block>`;
+where it ends red with no block named, each block AK_ONLY lists that started, or else itself whole.
 
 Offline: the real tests/landing.py, every_file.py, suite_shares.py and acceptance.sh run on a
 temporary checkout whose smoke.sh is a shared setup and three blocks that each note their start
@@ -42,6 +42,7 @@ check beta
 # --- gamma: the widget screen
 check gamma
 # --- shared result
+[ -z "${ACME_LATE_EXIT:-}" ] || exit "$ACME_LATE_EXIT"
 finish
 '''
 # smoke.sh's own offline blocks run queue and provider meters, the run queue's check failing.
@@ -60,7 +61,7 @@ class ARedSmokeRunNamesItsFailedBlocks(unittest.TestCase):
         root = Path(tmp.name)
         tests = root / "tests"
         tests.mkdir()
-        for name in ("landing.py", "affected.py", "suite_shares.py", "acceptance.sh"):
+        for name in ("landing.py", "suite_shares.py", "acceptance.sh"):
             (tests / name).write_text((REPO / "tests" / name).read_text())
         # The real runner, on this checkout: left to its default it would sweep the repository.
         (tests / "every_file.py").write_text(
@@ -74,7 +75,8 @@ class ARedSmokeRunNamesItsFailedBlocks(unittest.TestCase):
         env.update(HOME=str(root), ACME_LOG=str(files["log"]), ACME_FAILS=fails,
                    AK_FAILED=str(files["failed"]), AK_RAN=str(files["ran"]), AK_SHARD="1/1",
                    AK_CGROUP_FILE=str(root / "no-cgroup"),
-                   AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}', **extra)
+                   AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}')
+        env.update(extra)
         if only is not None:
             files["only"].write_text("".join(f"{test}\n" for test in only))
             env["AK_ONLY"] = str(files["only"])
@@ -110,6 +112,16 @@ class ARedSmokeRunNamesItsFailedBlocks(unittest.TestCase):
                 proc, _, failed, _ = self.landing(fails=fails, **extra)
                 self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 self.assertEqual(failed, ["tests/smoke.sh"])
+
+    def test_a_red_no_check_named_names_each_listed_block_that_started(self):
+        listed = ["tests/smoke.sh#alpha", "tests/smoke.sh#gamma"]
+        # gate.run_suite's re-run of a red piece's named tests asks for no AK_RAN.
+        for asked in ({}, {"AK_RAN": ""}):
+            with self.subTest(**asked):
+                proc, log, failed, ran = self.landing(only=listed, ACME_LATE_EXIT="3", **asked)
+                self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+                self.assertEqual((log, failed), (["setup", "alpha", "gamma"], listed))
+                self.assertEqual(ran, [] if asked else listed)
 
     def test_an_offline_check_names_its_block(self):
         ids = ["tests/smoke.sh#offline_slots", "tests/smoke.sh#offline_usage"]

@@ -29,7 +29,7 @@ func (l *loop) elsewhere(cwd string, cpus, memory float64, cmd, times string, th
 			return false, err
 		}
 		var said []string
-		away, _, err := helper.Start(cwd, cpus, memory, cmd, times, l.changed, nil, func(line string) { said = append(said, line) })
+		away, _, err := helper.Start(cwd, cpus, memory, cmd, times, nil, func(line string) { said = append(said, line) })
 		if away != nil {
 			for _, line := range said {
 				l.say(line)

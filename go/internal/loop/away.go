@@ -98,7 +98,7 @@ func (l *loop) grow(cwd string, cpus, memory float64, cmd, times string, waiting
 			asked, answer = time.Now(), make(chan look, 1)
 			go func(answer chan look) {
 				var got look
-				got.there, _, got.err = helper.Start(cwd, cpus, memory, cmd, times, l.changed, nil, func(line string) { got.said = append(got.said, line) })
+				got.there, _, got.err = helper.Start(cwd, cpus, memory, cmd, times, nil, func(line string) { got.said = append(got.said, line) })
 				answer <- got
 			}(answer)
 		}

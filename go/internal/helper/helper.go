@@ -84,18 +84,13 @@ type Away struct {
 
 // Start sends the suite to the machine with the most room that takes it, and on to the next where
 // one turns it away, Python's start: the Away there, or nil and why its pieces run here.  command
-// is what each piece runs there, handed times and the paths of the file changed names, "" for none
-// (pinned); cpus and memoryMB one piece's cost; what it has to say goes to say.  A model turn's,
+// is what each piece runs there, handed times (pinned); cpus and memoryMB one piece's cost; what it has to say goes to say.  A model turn's,
 // with its own files for the parcel (turnFiles), is one piece that goes to the machine with the
 // least room that takes turns, holding its cpus there until it starts, not half the machine.  It
 // passes over a rental Google ends before the work would start there, and asks the tick for a
 // machine (need) where none took it, or none with room outlives the chosen one by a rent and a pass.
-func Start(cwd string, cpus, memoryMB float64, command, times, changed string, turn map[string]file, say func(string)) (*Away, string, error) {
-	line, err := pinned(command, times, changed, nil)
-	if err != nil {
-		return nil, "", err
-	}
-	return start(cwd, cpus, memoryMB, line, turn, false, say)
+func Start(cwd string, cpus, memoryMB float64, command, times string, turn map[string]file, say func(string)) (*Away, string, error) {
+	return start(cwd, cpus, memoryMB, pinned(command, times, nil), turn, false, say)
 }
 
 // start is Start of the line command each piece runs there, as pinned; with one, a probe's, it

@@ -19,11 +19,10 @@ def shard(value=None):
     raise ValueError("AK_SHARD must be k/N with 1 <= k <= N")
 
 
-def listed(variable="AK_ONLY"):
+def listed():
     """The test IDs, checkout-relative paths, in the file AK_ONLY names, one per line: the only
-    tests to run, whatever the share. None when AK_ONLY is unset: every test runs.  With
-    `variable` "AK_CHANGED", the paths a change edits."""
-    path = os.environ.get(variable, "")
+    tests to run, whatever the share. None when AK_ONLY is unset: every test runs."""
+    path = os.environ.get("AK_ONLY", "")
     return {line.strip() for line in Path(path).read_text().splitlines()} - {""} if path else None
 
 

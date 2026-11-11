@@ -1322,7 +1322,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
 
 
 @contextmanager
-def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, changed=None):
+def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     """One host-wide heavy-suite turn, held for as long as the list runs.
 
     Only the heavy suite -- the `# once` line, the repository's `tests:` suite --
@@ -1358,7 +1358,6 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
     gives back each one a piece ends on, but one (`_GateHold`, `_Pieces.spare`, `run_suite`).
     A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
     again each poll, and goes there once it has room.
-    `changed` is the file AK_CHANGED names, its paths in each piece's command there (`pinned`).
     """
     if (getattr(_GATE_HELD, "hold", None) is not None or getattr(_GATE_HELD, "away", None)
             or getattr(_GATE_HELD, "here", None)):
@@ -1369,7 +1368,7 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
         cost = suite_cost(command, cwd, run_dir)[1:]
         def ask(say):
             _GATE_HELD.away, _GATE_HELD.here = helper.start(
-                *cost, cwd, say, pinned(command, suite_times.handed(cwd), changed))
+                *cost, cwd, say, pinned(command, suite_times.handed(cwd)))
             return _GATE_HELD.away
         if not ask(log or (lambda line: None)):
             def elsewhere():
@@ -1398,46 +1397,40 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
             helper.finish(away)
 
 
-def suite_env(changed=None, times=None):
+def suite_env(times=None):
     """A done-when command's environment, `AK_HEAVY_TURN=1` only while this thread holds a turn,
-    `AK_CHANGED` naming the file `changed` and `AK_TIMES` holding `times` when given.
+    and `AK_TIMES` holding `times` when given.
 
     A suite that queues behind a host-wide lock of its own would hold the turn for as long as
     another copy holds that lock; told it holds one, it says busy at once instead, exit
     `SUITE_BUSY`, and `busy_turn` gives the turn back.  Never inherited: a loop started below
-    a suite holds none of that suite's turn, nor its share, path or test lists.
+    a suite holds none of that suite's turn, nor its share or test lists.
     """
     env = gitcall.run_child_env()
     for key in ("AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_NOT_THERE",
-                "AK_CHANGED", "AK_TIMES"):
+                "AK_TIMES"):
         env.pop(key, None)
     if getattr(_GATE_HELD, "hold", None) is not None:
         env["AK_HEAVY_TURN"] = "1"
-    if changed is not None:
-        env["AK_CHANGED"] = str(changed)
     if times is not None:
         env["AK_TIMES"] = times
     return env
 
 
-def pinned(command, times, changed=None, only=None):
+def pinned(command, times, only=None):
     """`command` as a piece runs it on the suite helper, which hands it no environment: AK_TIMES
-    holds `times` in the command, and AK_CHANGED names a file there holding the paths the file
-    `changed` holds here, in the command too; the piece's VM or container takes the file with it.
-    So does AK_ONLY, naming one that lists the tests `only` names, for a piece that runs just
-    those (land._probe).
+    holds `times` in the command, and AK_ONLY names a file there listing the tests `only` names,
+    for a piece that runs just those (land._probe); the piece's VM or container takes the file
+    with it.
 
     The piece runs in a clone there, which land._check's look at this checkout never sees: it
     checks that clone itself and fails, as land._check does, if it changed, however the command
     exited, dropping the tests it named as not there, which say nothing of the tree it was given.
     """
-    paths = "" if changed is None else (
-        f'export AK_CHANGED="$(mktemp)" && printf %s {shlex.quote(Path(changed).read_text())}'
-        ' >"$AK_CHANGED" || exit\n')
-    if only is not None:
-        paths += (f"export AK_ONLY=\"$(mktemp)\" && printf '%s\\n' {shlex.join(only)}"
-                  ' >"$AK_ONLY" || exit\n')
-    return (f"export AK_TIMES={shlex.quote(times)}\n{paths}"
+    tests = "" if only is None else (
+        f"export AK_ONLY=\"$(mktemp)\" && printf '%s\\n' {shlex.join(only)}"
+        ' >"$AK_ONLY" || exit\n')
+    return (f"export AK_TIMES={shlex.quote(times)}\n{tests}"
             f"head=$(git rev-parse HEAD) || exit\nbash -c {shlex.quote(command)}\ncode=$?\n"
             '[ "$(git rev-parse HEAD)" = "$head" ] && git diff --quiet HEAD ||'
             ' { echo "the piece changed the checkout it tests" >&2;'
@@ -1741,7 +1734,7 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwa
 
 def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
-              confirmed=None, changed=None, flaky=None, named=None, checked=None, asked=None,
+              confirmed=None, flaky=None, named=None, checked=None, asked=None,
               raw=None, absent=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
@@ -1765,7 +1758,6 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     with `shard` and `only`, those of them its run named both as run and as failed (`AK_FAILED`)
     where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing;
     for a command not split, under `1/1`, those its failing run named as failed.
-    `changed`, a file of paths, is what `AK_CHANGED` names, here and on the suite helper.
     `flaky`, a list, gets the tests that failed, then passed on this tree: those a command named
     so (`AK_FLAKY`), here or on the suite helper, and a red piece's named tests that passed run
     alone.  `named`, a list, gets those a failing run of the command as one piece (not split,
@@ -1783,7 +1775,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             raw.setdefault(share, []).append(None if killed else code)
 
     times = suite_times.handed(cwd)
-    env = suite_env(changed, times)
+    env = suite_env(times)
     if shard is not None:
         label, share = ((shard, shard) if only is None else
                         (f"{shard}, its failed tests alone", "1/1"))
@@ -1838,13 +1830,13 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         if measured:
             measured.overflowed(path, planned)
         return result
-    with gate_turn(run_dir, activity, log, command, cwd, changed=changed):
+    with gate_turn(run_dir, activity, log, command, cwd):
         hold = getattr(_GATE_HELD, "hold", None)
         away = getattr(_GATE_HELD, "away", None)
         path, cpu, mem = suite_cost(command, cwd, run_dir)
         if hold:
             hold.suite((cpu, mem))
-        there_command = pinned(command, times, changed)
+        there_command = pinned(command, times)
         # Twice the places it starts with, so a faster machine takes more and every place ends
         # near the others; without a turn every piece runs at once.  The helper's count as many
         # as it fits empty: a suite starting on its little room grows into what frees there.
@@ -1852,7 +1844,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         count = 2 * places or derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem,
                                                   unit=True)
         # the piece threads do not inherit this thread's held turn
-        env = suite_env(changed, times)
+        env = suite_env(times)
         deadline = time.monotonic() + limit
         cancel, writing = threading.Event(), threading.Lock()
         last_shard = None
@@ -2120,7 +2112,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 deadline += queued
                 if on_wait is not None:
                     on_wait(queued)
-                env = suite_env(changed, times)
+                env = suite_env(times)
 
             def wait_busy():
                 nonlocal hold, deadline, env
@@ -2131,7 +2123,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 hold = getattr(_GATE_HELD, "hold", None)
                 if hold is not None:
                     hold.alone()
-                env = suite_env(changed, times)
+                env = suite_env(times)
 
             # What a machine failed or stopped runs again here, a stopped piece alone, below; what
             # it lost or had no room for, on the first machine with room, this one included. The
@@ -2359,7 +2351,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None, changed=None, flaky=None, checked=None, exits=None, timings=None,
+                  confirmed=None, flaky=None, checked=None, exits=None, timings=None,
                   absent=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
@@ -2404,8 +2396,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
     `run_suite` confirms: the tests a red piece named that failed again alone, and `flaky`, a
     list, the tests it found failing, then passing, those a command run whole named failed
-    before its re-run passed among them.  `changed`, a file of paths, is what
-    `AK_CHANGED` names to every command.  `checked`, a check's `(run directory, round, kind,
+    before its re-run passed among them.  `checked`, a check's `(run directory, round, kind,
     tree)`, has each run of a command, or of a piece of one, leave its row in history
     (`history.check`), a re-run one of its own.
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
@@ -2430,7 +2421,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     suite = next((cmd for cmd in cmds if split(cmd)), None)
     asked = time.time()     # the first command's wait holds the heavy-suite turn's; a later
                             # one is asked for as the one before it ends
-    with (gate_turn(run_dir, log_path, log, suite, cwd, changed=changed)
+    with (gate_turn(run_dir, log_path, log, suite, cwd)
           if heavy or suite else nullcontext()):
         deadline = time.monotonic() + limit
         def waited(seconds):
@@ -2467,7 +2458,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                         run_dir=run_dir, log=log, on_wait=waited, measure=heavy, shard=shard,
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
-                        only=only, confirmed=reds, changed=changed, flaky=flakes, named=named,
+                        only=only, confirmed=reds, flaky=flakes, named=named,
                         # Whole commands retry here; their named outcomes must wait for that.
                         checked=checked if split(cmd) else None, asked=asked, raw=raw,
                         absent=absent)

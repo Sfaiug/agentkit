@@ -44,14 +44,14 @@ func (p *placement) close() {
 }
 
 // heavy is whether cmd waits for this host's heavy-suite turn before it starts, as Python's checks
-// do: a suite in pieces, one handed the change's paths, a `# once` command and whatever a line's
-// checker runs, but tests named alone, which cost what a model's own test does: on a host out of
-// CPU no turn comes until it is idle, and that wait held whole lines up to an hour (30 Oct 2026).
+// do: a suite in pieces, a `# once` command and whatever a line's checker runs, but tests named
+// alone, which cost what a model's own test does: on a host out of CPU no turn comes until it is
+// idle, and that wait held whole lines up to an hour (30 Oct 2026).
 func (l *loop) heavy(cmd string, selection *checkSelection) bool {
 	if selection != nil && selection.tests != nil {
 		return false
 	}
-	return l.line != "" || l.changed != "" || slices.Contains(l.once, cmd) || namesShard.MatchString(cmd) && !selection.pinned()
+	return l.line != "" || slices.Contains(l.once, cmd) || namesShard.MatchString(cmd) && !selection.pinned()
 }
 
 // placed is where cmd runs, nil for a light one: a suite in pieces on the suite helper that takes
@@ -69,7 +69,7 @@ func (l *loop) placed(cwd, cmd string, selection *checkSelection, path string) (
 		at.times = suitetimes.Handed(cwd) // one record, so every piece, here or there, cuts the same shares
 		ask = at.ask
 		var err error
-		if at.away, at.here, err = helper.Start(cwd, cpus, memory, cmd, at.times, l.changed, nil, l.say); err != nil || at.away != nil {
+		if at.away, at.here, err = helper.Start(cwd, cpus, memory, cmd, at.times, nil, l.say); err != nil || at.away != nil {
 			return at, err
 		}
 		l.say("suite runs here: " + at.here)
