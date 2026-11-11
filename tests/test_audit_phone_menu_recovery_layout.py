@@ -723,7 +723,7 @@ class Phone(Sandbox):
         phone.keys("Right", "Right")         # past its orch effort to the executor column, then
                                              # every worker added
         # each by its full name, as much of it as a phone's screen holds
-        for title, steps in (("Fable", ("Up", "Up")), ("muse-sp", ("Down",) * 3),
+        for title, steps in (("Fable", ("Up", "Up")), ("Spark", ("Down",) * 3),
                              ("Grok", ("Down",)), ("Gemini", ("Down",)),
                              ("MiMo", ("Down",))):
             phone.keys(*steps, "Space")

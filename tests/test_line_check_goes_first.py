@@ -1,5 +1,5 @@
-"""A line's own check goes first for a heavy suite turn, ahead of a round check however long
-that one waited.
+"""A line's own check goes first for a heavy suite turn, ahead of a run's own landing check
+however long that one waited.
 
 Owner, 29 Oct 2026: the line is where a repository's changes land one at a time, so its check's
 wait delays every change behind it.  Black-box through tests/fixtures/akbin.py: runs against
@@ -59,13 +59,14 @@ class LineCheckGoesFirst(unittest.TestCase):
         self.said.setblocking(False)
         self.suite = SUITE.format(said=address)
 
-    def start(self, name, every_round=False):
-        """A run on the repository `name`, its suite run every round when told so."""
+    def start(self, name, fork=False):
+        """A run on the repository `name`; on a `fork`'s, which it may only read, the run checks
+        itself at landing, as no line does."""
         if name not in self.rigs:
-            suite = f"python3 suite.py {name}" + (" # AK_CHANGED" if every_round else "")
-            self.rigs[name] = Rig(self.home, name, files={
-                "AGENTS.md": f"---\nhealth: none\ntests: {suite}\n---\n", "suite.py": self.suite})
-            GitHub(self.home).grant(self.rigs[name].slug, "WRITE")
+            self.rigs[name] = Rig(self.home, name, owner="beta" if fork else "acme", files={
+                "AGENTS.md": f"---\nhealth: none\ntests: python3 suite.py {name}\n---\n",
+                "suite.py": self.suite})
+            GitHub(self.home).grant(self.rigs[name].slug, "READ" if fork else "WRITE")
         before = set(taskfile.runs(self.home))
         task = taskfile.write(self.home, self.rigs[name].path, f"Add retry to {name}",
                               name=f"{name}-{len(before)}")
@@ -122,18 +123,18 @@ class LineCheckGoesFirst(unittest.TestCase):
         self.end(name)
         return held
 
-    def test_a_line_check_goes_first_however_long_a_round_check_waited(self):
+    def test_a_line_check_goes_first_however_long_a_run_s_own_check_waited(self):
         self.start("anvils")
         self.start("bolts")
         self.until(lambda: sorted(self.order()) == ["anvils", "bolts"],
                    "both lines' checks to run")
-        cogs = self.start("cogs", every_round=True)
-        self.until(lambda: self.waiting(cogs), "the round check to wait")
+        cogs = self.start("cogs", fork=True)
+        self.until(lambda: self.waiting(cogs), "the run's own landing check to wait")
         self.start("dials")
         self.until(lambda: self.lines_waiting() == 1, "a line's check to wait after it")
         held = self.hold()
         self.end("anvils")
-        # The line's check ahead of the older round check.
+        # The line's check ahead of the older run's own.
         for name in ("dials", "cogs"):
             held = self.free(held, name)
 

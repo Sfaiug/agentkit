@@ -800,10 +800,12 @@ CORE_PATTERN="${AK_CORE_PATTERN:-/proc/sys/kernel/core_pattern}"
 SYSCTL_D="${AK_SYSCTL_D:-/etc/sysctl.d}"
 core_none='|/bin/false' core_ours=-agentkit-no-core-dumps.conf
 core_off() {   # ak's boot entry in place of an earlier install's, then the live pattern
-  local name names others=zz
-  # listed through sudo, as written, so an entry only root can list still sorts before ours
-  sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null && names=$(sudo -n ls -- "$SYSCTL_D" 2>/dev/null) ||
-    return 1
+  local LC_ALL=C name names fit last others=zz   # C: lengths and order in bytes
+  # listed and measured through sudo, as written, so an entry only root can reach still sorts
+  # before ours
+  sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null && names=$(sudo -n ls -- "$SYSCTL_D" 2>/dev/null) &&
+    fit=$(sudo -n getconf NAME_MAX "$SYSCTL_D" 2>/dev/null) || return 1
+  fit=$((fit - ${#core_ours}))
   # systemd-sysctl applies entries in the byte order of their names, and a name extended sorts
   # after it: ours is the last of `zz` and every other name, extended.  Only that rule makes
   # these two shapes, so an entry of either is an earlier install's.
@@ -813,9 +815,23 @@ core_off() {   # ak's boot entry in place of an earlier install's, then the live
       *.conf) others+=$'\n'$name ;;
     esac
   done <<<"$names"
-  name=$(LC_ALL=C sort <<<"$others" | tail -n 1)$core_ours
+  name=$(LC_ALL=C sort <<<"$others" | tail -n 1)
+  # one too long to extend within the filesystem's limit gives way to a .conf name that fits:
+  # cut, then until ours sorts after it, a last 0xff dropped or a last byte raised (past `/`,
+  # which no name holds)
+  if [ ${#name} -gt $fit ]; then
+    last=$name name=${name:0:fit-5}
+    until [[ $name.conf$core_ours > $last ]]; do
+      case ${name: -1} in
+        '') return 1 ;;
+        $'\377') name=${name%?} ;;
+        *) name=${name%?}$(printf '%s' "${name: -1}" | tr '\000-\055\056\057-\376' '\001-\056\060\060-\377') ;;
+      esac
+    done
+    name+=.conf
+  fi
   printf '%s\n' "# Written by agentkit's install.sh: a crashed program leaves no core dump file" \
-    "kernel.core_pattern = $core_none" | sudo -n tee "$SYSCTL_D/$name" >/dev/null 2>&1 &&
+    "kernel.core_pattern = $core_none" | sudo -n tee "$SYSCTL_D/$name$core_ours" >/dev/null 2>&1 &&
     printf '%s' "$core_none" | sudo -n tee "$CORE_PATTERN" >/dev/null 2>&1
 }
 if [ "$SANDBOX" = 1 ] || ! core_now=$(cat -- "$CORE_PATTERN" 2>/dev/null) ||

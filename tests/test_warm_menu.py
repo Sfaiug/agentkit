@@ -81,14 +81,21 @@ class Home:
 
     def up(self):
         """Once a server here answers: its socket is there from its bind, refusing until it
-        listens, and a popup it refuses goes cold."""
-        while True:
-            with socket.socket(socket.AF_UNIX) as probe:
-                try:
-                    probe.connect(str(self.socket))
-                    return
-                except (FileNotFoundError, ConnectionRefusedError):
-                    time.sleep(0.02)
+        listens, and a popup it refuses goes cold.  By its name in STATE, as warm.py reaches it:
+        a long TMPDIR puts its path past AF_UNIX's 108 bytes."""
+        here = os.open(".", os.O_RDONLY)
+        os.chdir(self.state)
+        try:
+            while True:
+                with socket.socket(socket.AF_UNIX) as probe:
+                    try:
+                        probe.connect(self.socket.name)
+                        return
+                    except (FileNotFoundError, ConnectionRefusedError):
+                        time.sleep(0.02)
+        finally:
+            os.fchdir(here)
+            os.close(here)
 
     def popup(self):
         """`Ctrl-b m`'s command on a terminal of its own, drawn up to its key line: (the

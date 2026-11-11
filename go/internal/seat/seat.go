@@ -105,7 +105,7 @@ var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
 	// login its conversation is under; `asleep` since `launched`), and those no reading of it hangs on
-	recordFields = []string{"orchestrator", "workers", "reviewers", "efforts", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo",
+	recordFields = []string{"orchestrator", "workers", "reviewers", "efforts", "cwd", "created", "conversation", "left", "id_source", "resumable", "session_title", "repo",
 		"account", "home_account", "launched", "asleep", "seen", "exited_since", "unnamed", "filed", "owner_words_cursor",
 		"rulebook_sha", "rulebook_read", "rulebook_told", "title_sync", "title_superseded", "title_conversation"}
 	seatFields = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits, screenFields)
@@ -162,11 +162,12 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
 		// home is given, the audit's week and stall lines, the usage the screen's grid shows and what
 		// reading it keeps, the tick's lock, its log's, its page that ticks stopped ending and the
-		// hourly stamps of its reads, the seat weights' lock, the outages of the seats' products, what
-		// the collection keeps, what each machine is and ak's tmux config say nothing a word hangs on:
+		// hourly stamps of its reads, the seat weights' lock, the lock seats claim conversations under
+		// (claims), the outages of the seats' products, what the collection keeps, what each machine
+		// is and ak's tmux config say nothing a word hangs on:
 		// a seat's own wait on its usage is in its seat file, and the browser's tabs no seat opened
 		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || updateRecord(entry) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || entry.Name() == "front.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
-			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "watch.tick.page.json", "watch.tick.page.lock", "retire.json", "alive.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock", "tmux.conf"}, entry.Name()) ||
+			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "watch.tick.page.json", "watch.tick.page.lock", "retire.json", "alive.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock", "tmux.conf", "conversations.lock"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
 			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || entry.Name() == "stuck.json" || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || browser.Owns(entry.Name()) || recommendationState(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {

@@ -13,9 +13,8 @@ import tempfile
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(REPO), str(REPO / "tests")]
+sys.path.insert(0, str(REPO / "tests"))
 from affected import selection
-from agentkit import gate
 from suite_shares import SETUP, STATIC_CHECKS
 
 # Each stand-in notes its start, and fails when ACME_FAILS names it.
@@ -26,8 +25,9 @@ with open(os.environ["ACME_LOG"], "a") as fh:
 print("TESTS_RUN=1")
 sys.exit(name in os.environ["ACME_FAILS"].split())
 '''
-# Like smoke.sh: suite_shares.py chooses the blocks, acceptance.sh's NFAIL counts failed checks,
-# the offline guard's OFFLINE_RC its own, and a shared helper's argument picks the file it runs.
+# Like smoke.sh: suite_shares.py chooses the blocks, a shared helper's argument picks the file it
+# runs; but no check goes through acceptance.sh's `no`, so no block is named and a red is named by
+# its exit alone.
 SMOKE = f'''if [ $# = 0 ]; then
   SMOKE_BODY=$(python3 tests/suite_shares.py tests/smoke.sh) || exit $?
   eval "$SMOKE_BODY"
@@ -197,7 +197,7 @@ class SuiteNarrowsToAChange(unittest.TestCase):
         # Whole, on the commit to be merged: a round runs the task's own checks.
         line = next(line for line in (REPO / "AGENTS.md").read_text().splitlines()
                     if line.startswith("tests: "))
-        self.assertFalse(gate.names_changed(line))
+        self.assertNotRegex(line, r"\bAK_CHANGED\b")
 
 
 if __name__ == "__main__":

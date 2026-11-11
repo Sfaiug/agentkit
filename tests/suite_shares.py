@@ -136,17 +136,20 @@ def smoke_source(source, root, piece, live=False, offline=False):
     number, total = piece
     owners = smoke_owners(blocks, root, total, live, offline)
     only = listed()
+    ran = ""
     if only is not None and SMOKE not in only:
         # AK_ONLY's blocks run whatever the share, each with its group (DEPENDENCIES).
         chosen = {test.removeprefix(f"{SMOKE}#") for test in only}
         chosen.update(*(group for group in DEPENDENCIES if chosen & set(group)))
         owners = {name: number for name in owners if name in chosen}
-        # Each is named as run as it starts; landing.py names those as failed if smoke.sh exits red.
-        blocks = [(name, f"""echo '{SMOKE}#{name}' >>"${{AK_RAN:-/dev/null}}"\n{body}""" if name
-                   else body) for name, body in blocks]
-    # A colon leaves an enclosing offline guard valid when this piece owns none of it.
-    return "".join(body if name is None or owners.get(name) == number else ":\n"
-                   for name, body in blocks)
+        # Each is named as run as it starts.
+        ran = 'echo "$SMOKE_BLOCK" >>"${AK_RAN:-/dev/null}"\n'
+    # Each block starts by setting its ID, a shared one none: acceptance.sh's `no` names the block
+    # a check fails in.  A colon leaves an enclosing offline guard valid when this piece owns none
+    # of it.
+    return "".join(f"SMOKE_BLOCK=\n{body}" if name is None
+                   else f"SMOKE_BLOCK='{SMOKE}#{name}'\n{ran}{body}" if owners.get(name) == number
+                   else ":\n" for name, body in blocks)
 
 
 def main():

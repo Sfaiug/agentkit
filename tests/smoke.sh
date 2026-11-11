@@ -1090,25 +1090,26 @@ SH
     chmod +x "$SMOKE_TOOLS/tmux"
     export PATH="$SMOKE_TOOLS:$PATH"
   fi
-  OFFLINE_RC=0
+  # A failed check goes through acceptance.sh's `no`, which names its block for landing.py.
+  . "$REPO/tests/acceptance.sh"
 # --- offline_slots: run queue ---------------------------------------------
-  slot_queue_check || OFFLINE_RC=1
+  slot_queue_check || no "offline_slots run queue"
 # --- offline_usage: provider meters ---------------------------------------
-  usage_fresh_check || OFFLINE_RC=1
+  usage_fresh_check || no "offline_usage provider meters"
 # --- offline_session: notices ---------------------------------------------
-  session_state_check || OFFLINE_RC=1
+  session_state_check || no "offline_session notices"
 # --- offline_seat: seat states --------------------------------------------
-  seat_state_check || OFFLINE_RC=1
+  seat_state_check || no "offline_seat seat states"
 # --- offline_projects: project menu ---------------------------------------
-  python3 "$REPO/tests/test_project_menus.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_project_menus.py" || no "offline_projects project menu"
 # --- offline_desktop: desktop notices -------------------------------------
-  python3 "$REPO/tests/test_desktop_notices_and_boot_recovery.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_desktop_notices_and_boot_recovery.py" || no "offline_desktop desktop notices"
 # --- offline_notify: notification rules -----------------------------------
-  python3 "$REPO/tests/test_notify_rule.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_notify_rule.py" || no "offline_notify notification rules"
 # --- offline_sink: notification sink --------------------------------------
-  python3 "$REPO/tests/test_notify_smoke.py" || OFFLINE_RC=1
+  python3 "$REPO/tests/test_notify_smoke.py" || no "offline_sink notification sink"
 # --- offline_codex: adapter model argument --------------------------------
-  codex_model_flag_check || OFFLINE_RC=1
+  codex_model_flag_check || no "offline_codex adapter model argument"
 # --- offline_files: offline regressions -----------------------------------
   for test in test_notify.py test_auth_watch.py test_v4l.py test_v4n.py \
               test_usage_menus_and_runs.py \
@@ -1116,13 +1117,13 @@ SH
               test_audit_retry_required_notifications.py \
               test_from_run_takes_the_target.py test_repo_suite.py; do
     case "$test" in
-      test_notify.py) lifecycle_check notify || OFFLINE_RC=1 ;;
-      test_v4l.py) lifecycle_check v4l || OFFLINE_RC=1 ;;
-      *) python3 "$REPO/tests/$test" || OFFLINE_RC=1 ;;
+      test_notify.py) lifecycle_check notify || no "offline_files $test" ;;
+      test_v4l.py) lifecycle_check v4l || no "offline_files $test" ;;
+      *) python3 "$REPO/tests/$test" || no "offline_files $test" ;;
     esac
   done
 # --- shared offline result ---------------------------------------------
-  exit "$OFFLINE_RC"
+  exit "$((NFAIL != 0))"
 fi
 WORK="$HOME/.agentkit/tmp/smoke-$(date +%Y%m%d-%H%M%S)"
 SMOKE_CALLER_HOME=$HOME
