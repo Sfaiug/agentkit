@@ -420,16 +420,10 @@ def conversation(record, cwd=None):
     """The session this seat's launch reported, or None where it reported none yet; the one
     Muse's registry has since moved that launch's process to, once the registry says so, kept
     in the receipt for the seat to reopen on after that process is gone.  The session it moves
-    the receipt on from first is kept as `reported`: the one the line the launch opened on went
-    into (Go's harness.WentInto)."""
-    from . import unread
+    the receipt on from first is kept as `reported`."""
     path = path_for(record)
-    try:
-        sid = (path / "session").read_text(encoding="utf-8") if path else ""
-    except OSError as exc:
-        unread(exc)
-        return None
-    if not SESSION.fullmatch(sid):
+    sid = _named(path, "session")
+    if not sid:
         return None
     now = followed(path)
     if now and now != sid:
@@ -438,6 +432,25 @@ def conversation(record, cwd=None):
                 _write(path, name, text, place)
         return now
     return sid
+
+
+def reported(record):
+    """The session that launch reported, which the line it opened on went into however far
+    `/new` has moved it since (`conversation`), or None where it reported none yet."""
+    path = path_for(record)
+    sid = _named(path, "session")    # before `reported`, which a move links before it replaces this
+    return _named(path, "reported") or sid
+
+
+def _named(receipt, name):
+    """The session that receipt's file `name` names, or None: no receipt, no file, no session."""
+    from . import unread
+    try:
+        sid = (receipt / name).read_text(encoding="utf-8") if receipt else ""
+    except OSError as exc:
+        unread(exc)
+        return None
+    return sid if SESSION.fullmatch(sid) else None
 
 
 def registered():
