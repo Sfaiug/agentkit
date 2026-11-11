@@ -1,5 +1,5 @@
 """A line narrowing a red to the tests it named runs them at once, taking no heavy turn on this host;
-a piece it has to run whole still waits for one.
+a red that named none is narrowed by whole checks, which still wait for one.
 
 Black-box: the program `AK_BIN` names checks a landing line from outside through
 tests/fixtures/akline.py.  The line's first whole check stays on this host's one turn
@@ -68,8 +68,8 @@ class ALinesNamedTestsTakeNoTurn(unittest.TestCase):
         line, waiting = self.land({"t/a.sh": "true\n", "t/b.sh": "true\n"},
                                   {"suite.sh": f"{HOLD}exit 1\n"})
         self.assertEqual(waiting, [])
-        # the red piece on the stack ahead, then that stack's whole check starting
-        self.assertEqual(line.runs()[:2], [("piece", "1/2", "")] * 2, line.runs())
+        # the stack ahead's whole check, every piece of it: none ran alone there
+        self.assertEqual(sorted(line.runs()), [("piece", "1/2", ""), ("piece", "2/2", "")])
 
 
 if __name__ == "__main__":
