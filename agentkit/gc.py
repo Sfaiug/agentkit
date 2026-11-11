@@ -12,7 +12,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import stat
 import subprocess
 import sys
@@ -46,11 +45,11 @@ def disk_pressure():
         limit = float(raw) if raw not in (None, "") else float(DISK_LIMIT)
     except ValueError:
         limit = float(DISK_LIMIT)
-    try:
-        usage_ = shutil.disk_usage(config.HOME if config.HOME.exists() else Path.home())
-    except OSError:
+    disk = host.disk_use(config.HOME if config.HOME.exists() else Path.home())
+    if disk is None:
         return None
-    pct = 100.0 * usage_.used / usage_.total if usage_.total else 0.0
+    used, size = disk
+    pct = 100.0 * used / size if size else 0.0
     return (pct, limit) if pct > limit else None
 
 

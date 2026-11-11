@@ -1,12 +1,13 @@
 """How many suite pieces start at once follows a piece's measured cost and the host's free CPU.
 
 A repository's finished pieces leave their CPU cost behind, as each piece's box reported it,
-and later pieces of that suite are sized by it; one with no record starts from the estimate.
+the CPU its processes spent and waited for, and later pieces of that suite are sized by it; one
+with no record starts from the estimate.
 CPU the host spends outside ak's slice -- ak's own menus, tick and live checks among it --
 takes room the slice's quota would still promise.
 
-Offline: temporary HOME, injected host readings and a fake cgroup tree; only the record test
-runs real boxes, whose CPU is counted in CPU seconds, never against a wall clock.
+Offline: temporary HOME, injected host readings and a fake cgroup tree; only the record and
+wait tests run real boxes, whose CPU is counted in CPU seconds, never against a wall clock.
 """
 
 import json
@@ -128,6 +129,23 @@ class SuitesFitTheMachine(unittest.TestCase):
         measured = gate.read_suite_cost(path)["cpus"]
         self.assertGreaterEqual(measured, cpus)
         self.assertEqual(gate.suite_cost(suite, repo, None)[1], measured)
+
+    def test_a_box_counts_what_its_processes_waited_for_a_core(self):
+        # Two burners of a second each share one core: while one burns the other waits, for a
+        # second at least between them.  They stay till the box ends, so its last read sees all.
+        core = min(os.sched_getaffinity(0))
+        burn = (f"import os, time; os.sched_setaffinity(0, {{{core}}}); "
+                "any(iter(lambda: time.process_time() >= 1, True)); "
+                "open(os.environ['N'], 'w'); time.sleep(60)")
+        command = (f"for N in 1 2; do N=$N python3 -c {burn!r} >/dev/null 2>&1 & done; "
+                   "until [ -e 1 ] && [ -e 2 ]; do sleep 0.1; done")
+        cpu = []
+        with patch.dict(os.environ, {"AK_HOST_READINGS": ""}):
+            code, text, _ = worker.boxed(["bash", "-c", command], 600, env=dict(os.environ),
+                                         cwd=str(self.root), activity=self.root / "activity",
+                                         cpu=cpu)
+        self.assertEqual(code, 0, text)
+        self.assertGreaterEqual(cpu[0], 3)
 
 
 if __name__ == "__main__":

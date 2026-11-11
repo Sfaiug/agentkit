@@ -508,6 +508,35 @@ class RedMain(unittest.TestCase):
         self.assert_parked(before)
         self.wake.assert_not_called()
 
+    def test_a_pr_mending_the_target_is_checked_past_a_repair_that_cannot_start(self):
+        first = self.member()
+        self.advance(**{"broken.txt": "target breakage\n"})
+        pull = self.member("pull", joined=2)
+        run.git(self.repo, "fetch", "origin", "main")
+        tip = run.git(self.repo, "rev-parse", "origin/main")
+        tree = run.git(self.repo, "rev-parse", "origin/main^{tree}")
+        run.git(self.repo, "checkout", "ak/pull")
+        run.git(self.repo, "merge", "--no-edit", "origin/main")
+        run.git(self.repo, "rm", "broken.txt")
+        self.commit("repair the target in the PR")
+        identity = run.commit_identity(self.repo)
+        run.git(self.repo, "checkout", "main")
+        with record.record(pull) as state:
+            state.update(review_pr="https://github.com/acme/app/pull/7",
+                         review={**state["review"], **identity})
+        # the last repair let go of the red unmended, and the first member's seat has closed
+        repair = config.RUNS / "old-repair"
+        repair.mkdir()
+        record.save_state(repair, {"run_id": repair.name, "state": "blocked", "repair_tip": tip,
+                                   "finished_at": time.time() - 3601})
+        land.note(self.turn, [], first.name, red={tree: {"run": repair.name, "probe": {
+            "sha": tip, "command": SUITE, "check": f"{SUITE}  # once", "text": "target fails"}}})
+        with patch.object(watch, "seat_closed", return_value=True), \
+                patch.object(land, "_check_members", return_value={}) as checked:
+            land.check_line(self.turn)
+        self.assertEqual(self.prepared, [])
+        self.assertEqual([member for member, _ in checked.call_args.args[1]], [pull])
+
     def test_a_changed_target_releases_the_line_while_the_repair_is_still_open(self):
         first, later, _ = self.red_line()
         self.exhaust()

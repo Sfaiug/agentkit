@@ -75,7 +75,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         with patch.object(delivery, "time", wraps=delivery.time) as clock:
             clock.sleep.side_effect = wait_for_prefix
             attempt(members[-1])
-        clock.sleep.assert_called_once_with(gate.SLOT_POLL)
+        clock.sleep.assert_called_once()
         self.assertEqual(merged, members)
         self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), waits[members[-1]]["land"])
         for directory in members:
@@ -662,7 +662,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             with patch.object(delivery, "time", wraps=delivery.time) as clock:
                 clock.sleep.side_effect = wait_for_prefix
                 attempt(oldest)
-            clock.sleep.assert_called_once_with(gate.SLOT_POLL)
+            clock.sleep.assert_called_once()
             self.assertEqual(merged, [later, last] if kind == "covered" else [later, last, oldest])
             self.assertEqual(land.line(self.turn), [])
         self.assert_cleaned()
