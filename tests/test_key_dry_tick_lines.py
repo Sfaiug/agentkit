@@ -27,10 +27,8 @@ from test_key_tick_dry_run import files
 from test_key_tick_gh_out import without_gh
 from test_key_tick_lock_held import LOCK, MINUTE, SLACK
 
-FREE = ("lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB"
-        " · git housekeeping has not run yet")
-HELD = ("lock held by pid 4242 for {} min · no tick has ended yet · watch.log 0.0 MB of 5 MB"
-        " · git housekeeping has not run yet")
+FREE = "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB"
+HELD = "lock held by pid 4242 for {} min · no tick has ended yet · watch.log 0.0 MB of 5 MB"
 OUT = "gh is not logged in; PR checks skipped ("
 DOWN = "WARN GitHub is unavailable; PR checks skipped ("
 # more after gh's own words: runs of tabs, spaces and blank lines, and past 160 characters

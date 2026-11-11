@@ -451,9 +451,10 @@ def tick_health():
         size = 0
     kept = f"{LOG_NAME} {size / 1048576:.1f} MB of {LOG_MAX / 1048576:.0f} MB"
     at = gc.stamped(gc.housekeeping_mark())
-    housekept = ("git housekeeping has not run yet" if at is None
-                 else f"git housekeeping ran {terminal_mod.format_age(time.time() - at)} ago")
-    return f"{lock} · {ended} · {kept} · {housekept}", hung
+    # named once it has run: before that no tick has run here since, as `ended` already says
+    housekept = ("" if at is None
+                 else f" · git housekeeping ran {terminal_mod.format_age(time.time() - at)} ago")
+    return f"{lock} · {ended} · {kept}{housekept}", hung
 
 
 def generation(value):
