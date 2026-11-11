@@ -141,21 +141,28 @@ linux_xml() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
 # (Lima starts no Broken machine), then starts.  Silence counts from its last answer or start,
 # never from before the Mac started, when Lima's daemon starts it, and with neither on record,
 # as on a machine running before this check came, from now; a boot time that is no number
-# restarts nothing.  One stopped by force since then is left as it is, whatever the start after
-# the stop did, and that start counts as no answer: a second stop mends nothing the first did
-# not, such as this check's own way to the machine (the ssh alias), and ends every session in it.
+# restarts nothing.  One stopped by force is then left as it is, whatever the start after the
+# stop did, until it answers, linux_machine_start starts it or the Mac starts: a second stop
+# mends nothing the first did not, such as this check's own way to the machine (the ssh alias),
+# and ends every session in it.  None of the three may depend on what the clock reads, which is
+# set back at times: the stop goes on record in the answer's place, where the next answer or
+# start writes over it, with the id of the Mac's boot, whose time moves with the clock; a boot
+# id that is empty leaves none as it is.
 linux_machine_check() {
-  local status answered forced last boot
-  status=$(linux_machine_status) answered=$(linux_dir)/answered forced=$(linux_dir)/forced
+  local status answered last forced session boot
+  status=$(linux_machine_status) answered=$(linux_dir)/answered
   if [ "$status" != Stopped ]; then
     if linux_machine_answers; then date +%s >"$answered"; return; fi
-    last=$(cat "$answered" 2>/dev/null) || { date +%s >"$answered"; return; }
+    [ -e "$answered" ] || { date +%s >"$answered"; return; }
+    read -r last forced <"$answered"
+    session=$(sysctl -n kern.bootsessionuuid)
+    [ -n "$forced" ] && [ "$forced" = "$session" ] && return 0
     # kern.boottime reads `{ sec = 1794268800, usec = 0 } Tue Nov 10 00:00:00 2026`
     boot=$(sysctl -n kern.boottime | awk -F '[ ,]+' '{ print $4 }')
     [ "${last:-0}" -gt "$boot" ] || last=$boot
     [ "$last" -le $(($(date +%s) - 600)) ] || return 0
-    [ "$(cat "$forced" 2>/dev/null || echo 0)" -gt "$last" ] && return 0
-    limactl stop --force "$LINUX_INSTANCE" && date +%s >"$forced" || return
+    limactl stop --force "$LINUX_INSTANCE" || return
+    echo "$(date +%s) $session" >"$answered"
     limactl start --tty=false "$LINUX_INSTANCE"
     return
   fi
