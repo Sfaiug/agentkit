@@ -704,7 +704,7 @@ def check_line(turn, log=lambda _: None):
                 prefix.append((directory, state))
 
 
-def red_part(cmds, marks, pieces, confirmed, suite, ok):
+def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None):
     """What the checks found red, from the exits the runner saw (`marks`, and `pieces` by
     command and share): the first failing `command`, its first confirmed red `piece`'s share
     (`k/N`), or its first red piece where none is confirmed, and
@@ -714,7 +714,8 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
     checkout changed under them, the suite's own doing as far as the lander can tell); {}
     where the checks passed or no exits were reported.  A piece out of memory
     (`gate.OUT_OF_MEMORY`) is red only where no other is, and then `short`: the host's red,
-    nobody's."""
+    nobody's.  `parts`, a list, gets every red piece of that command that confirmed tests, each
+    as this names one and this one first, where this one confirmed any."""
     from . import gate
     if ok or not marks:
         return {}
@@ -730,15 +731,20 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
         if piece and codes[piece] == gate.OUT_OF_MEMORY:
             return {"command": cmd, "piece": piece, "short": True}
         tests = (confirmed.get(cmd) or {}).get(piece) if piece else None
+        if tests and parts is not None:
+            parts.extend({"command": cmd, "piece": share, "tests": confirmed[cmd][share]}
+                         for share in reds
+                         if codes[share] != gate.OUT_OF_MEMORY and confirmed[cmd].get(share))
         return {"command": cmd, "piece": piece, **({"tests": tests} if tests else {})}
     return {"command": suite, "piece": ""} if suite else {}
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None, kind="landing", exits=None, flaky=None, absent=None):
+           only=None, kind="landing", exits=None, flaky=None, absent=None, parts=None):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
-    `suite` standing for a red no command showed); with `shard` every command runs as that
-    one piece alone, on one turn, and with `only` just those tests, on none, `absent` getting
+    `suite` standing for a red no command showed, `parts` getting its pieces that confirmed
+    tests); with `shard` every command runs as that one piece alone, on one turn, and with
+    `only` just those tests, on none, `absent` getting
     those not there where it passed the rest (`gate.passes_what_it_holds`).  Each command, or
     piece of one, leaves its `kind` row in history under the member's run, on the commit
     checked: `landing`, or `tip` for a probe of the target's. `exits` keeps each piece's attempt
@@ -791,7 +797,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                  for cmd in cmds},
                 {cmd: only if shard else None for cmd, mark in zip(cmds, marks)
                  if mark == 0 and (only or not shard)})
-    return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok)
+    return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok, parts)
 
 
 def _upstream(state):
@@ -972,14 +978,18 @@ def _round(stacks, floor, high, command, tests, log):
 
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
+    """The stack's answer from its whole check, a red one with the `parts` it confirmed
+    (`red_part`), or {} where it ran out of memory again."""
     log_path = directory / f"lander-{tree}.log"
-    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite)
+    parts = []
+    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite,
+                           parts=parts)
     if red.get("short"):
         log(f"AK_SHARD={red['piece']} of {directory.name}'s tree ran out of memory again, run "
             "alone: nobody is blamed; the next pass checks it again")
         return {}
     return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text),
-                                              "log": str(log_path), **red}}
+                                              "log": str(log_path), **red}, "parts": parts}
 
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
@@ -999,6 +1009,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                        # pass's own re-probe of a paused piece included
     limit = None
     below = -1      # the stack just below the last culprit, unchanged by the rebuild without it
+    carried = []    # the red parts the pass's last red whole check confirmed (`_check_tree`)
 
     def ahead(index):
         """The runs under the stack at `index`, by name, with the tree each was checked as."""
@@ -1140,6 +1151,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 elif "land" in answer:
                     cover(index, checks, tree)
                 else:
+                    if failed is None:
+                        carried[:] = answer.pop("parts")
                     answers[tree, own] = answer
                     note(turn, [], directory.name, checks=checks, red_stacks={tree: answer["fix"]})
 
@@ -1200,14 +1213,39 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 running = {}
                 try:
                     decide()
+                    # The parts the pass's last red whole check confirmed run alone on the top
+                    # rebuilt without the culprit, before any whole check: checked whole, it
+                    # failed again on those known red since, two more whole checks a culprit (a
+                    # stack of 61 holding five landed nothing in 14 hours, 11 Nov 2026).
+                    # Failing, a part is that top's red, narrowed as a batch's however many whole
+                    # checks fit, and tried again on the next top, as another member may break
+                    # it too; passing, proving nothing or its command run there no more, it is
+                    # dropped.
+                    top = len(stacks) - 1
+                    carried[:] = [part for part in carried if part["command"] in commands(top)]
+                    for part in list(carried):
+                        if (tuple(stacks[top][3:]) in answers or rebuild or target_red
+                                or stopped()):
+                            break
+                        answer_tree(top, None, pool.submit(
+                            _check_tests, *stacks[top][:4], part["command"], part["piece"],
+                            part["tests"], log), (part["command"], tuple(part["tests"])))
+                        if tuple(stacks[top][3:]) in answers:
+                            batched = True
+                        else:
+                            carried.remove(part)
+                        decide()
                     while not rebuild and not target_red and not short and not stopped():
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         narrowing, command, owner = None, None, 0
-                        if below in unchecked:
+                        if below in unchecked and not any("fix" in answer
+                                                          for answer in answers.values()):
                             # It waits on no culprit above it: its whole check comes before the
                             # new top's, named tests passing there being no evidence, and green
-                            # lands every stack under it (40 members waited, 30 Oct 2026).
+                            # lands every stack under it (40 members waited, 30 Oct 2026).  A red
+                            # already known, a part's on the top, is narrowed first: its steps
+                            # run just what failed.
                             unchecked = [below]
                         elif batched and unchecked:
                             # Narrow the first unresolved red between the last green and it.
