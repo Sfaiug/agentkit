@@ -137,7 +137,7 @@ class GateLanders(unittest.TestCase):
         # its first landing wait starts at its first look at the turns, as its file says
         self.assertLessEqual(lander_first, lander_mark["since"])
         # and its record says the start its file says: a waiter on older code reads the record
-        self.assertIn((True, lander_first, "landing-waiter"), gate._landing_waiters())
+        self.assertIn((True, False, lander_first, "landing-waiter"), gate._landing_waiters())
         repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "round-waiter", round_since))
         self.assertFalse(gate._gate_waiter_before(repo, "landing-waiter", lander_first, True))
@@ -212,8 +212,8 @@ class GateLanders(unittest.TestCase):
                 self.assertFalse(gate.landing_waits())    # it holds its turn: no wait left
         self.assertEqual(seen[:1], [True])
 
-    def test_an_older_line_check_takes_the_turn_before_a_younger_one(self):
-        # The line's checkers mark no record; their waits still rank by when they joined.
+    def test_a_line_check_holding_no_turn_is_not_held_back_by_an_older_one_holding_none(self):
+        # Neither holds a turn: the younger takes the one it finds free, and the older the next.
         holder = gate.gate_lock(ACME, 0).open("a")
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
@@ -247,7 +247,7 @@ class GateLanders(unittest.TestCase):
             go["younger"].release()
             for thread in threads:
                 thread.join(20)
-        self.assertEqual(order, ["older", "younger"])
+        self.assertEqual(order, ["younger", "older"])
         self.assertFalse(gate.landing_waits())
 
     def test_a_landing_wait_ranks_by_its_file_alone(self):
@@ -275,8 +275,16 @@ class GateLanders(unittest.TestCase):
         repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate.landing_waits())
         self.assertTrue(gate._gate_waiter_before(repo, "round", time.time()))
-        self.assertTrue(gate._gate_waiter_before(repo, "younger", 2000, True))
+        self.assertTrue(gate._gate_waiter_before(repo, "younger", 2000, True, holds=False))
         self.assertFalse(gate._gate_waiter_before(repo, "older-code", 1000, True))
+
+    def test_a_wait_that_does_not_say_whether_it_holds_a_turn_ranks_by_its_start_alone(self):
+        # A line's check on code from before 12 Nov 2026 goes before a younger one holding no
+        # turn, and after an older one asking for more, as both would have ranked it then.
+        repo = gitcall.main_checkout(ACME)
+        self.stack.enter_context(gate.landing_wait(True, 2000, "older-code", True))
+        self.assertTrue(gate._gate_waiter_before(repo, "holds-none", 3000, True, True, False))
+        self.assertFalse(gate._gate_waiter_before(repo, "holds-some", 1000, True, True, True))
 
     def test_a_dead_line_checks_wait_holds_nobody_back(self):
         # Its holder is gone, so nothing holds its file: no round check waits on it.

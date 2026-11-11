@@ -795,12 +795,15 @@ def mark_gate_wait(run_dir, of, since=None):
 
 
 @contextmanager
-def landing_wait(landing, since=None, run_id=None, line=False):
+def landing_wait(landing, since=None, run_id=None, line=False, holds=None):
     """While a landing suite waits for a heavy turn it holds a file of its own, and a line's
     check also `.heavy-landing.wait`.
 
-    Its own file says when its wait began, for which run and whether it is a line's own
-    check, so landing waits rank among themselves (`_landing_waiters`); the line's checkers
+    Its own file says when its wait began, for which run, whether it is a line's own
+    check and whether its check `holds` a turn already, so landing waits rank among themselves
+    (`_gate_waiter_before`); None says nothing of turns held, as a file from before 12 Nov 2026
+    does.  A wait for a first turn holds none and a suite's for more always holds one, so what
+    the file says stays true for as long as it lives.  The line's checkers
     mark no member's record.  `.heavy-landing.wait`, shared by every line's check, says one
     waits: round checks stay behind it (`landing_waits`), as they do behind a waiter on code from
     before 29 Oct 2026, which holds it for any landing wait.  The kernel lets go with the
@@ -818,7 +821,8 @@ def landing_wait(landing, since=None, run_id=None, line=False):
             fcntl.flock(shared, fcntl.LOCK_SH)
         # Locked before it takes its name: a file under that name is never an unheld live one.
         fcntl.flock(fh, fcntl.LOCK_EX)
-        fh.write(json.dumps({"since": since, "run_id": run_id or "", "line": line}))
+        fh.write(json.dumps({"since": since, "run_id": run_id or "", "line": line,
+                             "holds": holds}))
         fh.flush()
         draft.rename(path)
         try:
@@ -841,8 +845,9 @@ def _still_landing(context):
 
 
 def _landing_waiters():
-    """The live landing waits as (not a line's check, since, run id); a dead waiter's file goes,
-    unreadable is none, and one from before line checks were marked is a run's own."""
+    """The live landing waits as (not a line's check, whether it holds a turn, since, run id); a
+    dead waiter's file goes, unreadable is none, one from before line checks were marked is a
+    run's own, and one from before 12 Nov 2026 holds None (`landing_wait`)."""
     found = []
     for path in config.RUNS.glob(".landing-wait-*"):
         try:
@@ -851,8 +856,8 @@ def _landing_waiters():
                     fcntl.flock(fh, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 except BlockingIOError:
                     wait = json.loads(fh.read())
-                    found.append((not wait.get("line"), float(wait["since"]),
-                                  str(wait["run_id"])))
+                    found.append((not wait.get("line"), wait.get("holds"),
+                                  float(wait["since"]), str(wait["run_id"])))
                     continue
                 path.unlink(missing_ok=True)     # its holder is gone
         except (OSError, ValueError, TypeError, KeyError):
@@ -886,13 +891,14 @@ def gate_turn_note(state):
     return "waiting for a heavy suite turn"
 
 
-def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
+def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, holds=None):
     """Whether a live heavy-suite waiter ranks before this gate; `repo` is ignored.
 
     Turns were per repository and only a waiter of the same main checkout counted.
     They are host-wide now, so every live waiter counts whichever repository it
     checks.  Rank is a line's own check (`line`), then a run's own landing check (a fork's,
-    which no line checks), then any round check; within each the longest wait, then the run id.
+    which no line checks), then any round check; within each the longest wait, then the run id,
+    but for landing checks whose waits both say whether they hold a turn (`holds`, `_ahead`).
     `--first` plays no part, or loop repairs starve every other suite under load.  A
     round check stays behind any line's check (`landing_waits`).  A landing wait -- a
     run's, or the line checker's that marks no record -- ranks by its own file
@@ -909,9 +915,9 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
     # Owner, 29 Oct 2026: a line's own check goes first.  The line is where a repository's
     # changes land one at a time, so its wait delays every change behind it, while a run's
     # check before it joins the line only spares the line a red.
-    me = (not is_landing, not line, since, exclude or "")
+    me = (not is_landing, not line, holds, since, exclude or "")
     filed = _landing_waiters()
-    if any((False, *wait) < me for wait in filed if wait[2] != exclude):
+    if any(_ahead((False, *wait), me) for wait in filed if wait[3] != exclude):
         return True
     filed = {run_id for *_, run_id in filed}
     for directory in run_record.run_dirs():
@@ -933,9 +939,25 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
             waited = turn.get("since") if landing else 0
             if not isinstance(waited, (int, float)) or isinstance(waited, bool):
                 waited = 0
-        if (not landing, True, waited, directory.name) < me:
+        if _ahead((not landing, True, None, waited, directory.name), me):
             return True
     return False
+
+
+def _ahead(wait, me):
+    """Whether `wait` ranks before `me`, each (a round check's, not a line's own, holds a turn,
+    since, run id), `holds` None where its wait does not say."""
+    # 10 Nov 2026: a small line's check, its red target's repair, whose suite runs in a minute,
+    # held no turn for two hours behind two older lines' checks waiting for first turns that fit
+    # neither, then for more turns for their pieces.  So among landing checks of one rank, one
+    # holding none goes before one asking for more, and two holding none never hold each other
+    # back: each takes a turn as soon as one fits it.  The longest wait still decides each turn
+    # past a check's first; a share by turns held would need a count that its stale copies rank
+    # wrong.  A wait that does not say -- a record's mark, a file from before 12 Nov 2026 --
+    # ranks, and is ranked against, by its start alone, so checks on both versions read one order.
+    if wait[2] is None or me[2] is None:
+        return wait[:2] + wait[3:] < me[:2] + me[3:]
+    return (wait if wait[2] else wait[:3]) < (me if me[2] else me[:3])
 
 
 class _Pieces:
@@ -1034,9 +1056,9 @@ class _GateHold:
     def take(self, stopped):
         """A held turn no other piece runs on, or None once `stopped()`; `give` it back.
 
-        While any piece waits, the suite is one waiter at the place it was admitted at
-        (`queued`), so a later waiter stays behind it, and one piece at a time asks the
-        host for the turns freed since (`more`).
+        While any piece waits, the suite is one waiter holding turns, at the place it was
+        admitted at (`queued`), and one piece at a time asks the host for the turns freed
+        since (`more`).
         """
         slot = None
         with self.lock:
@@ -1235,7 +1257,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             # Its first landing wait starts here, as its file says: a waiter on older code
             # ranks it by this marker, and must rank it by the same start.
             _seed_landing_wait(run_dir, me_since)
-        waiting.enter_context(landing_wait(is_landing, me_since, self_id, line))
+        waiting.enter_context(landing_wait(is_landing, me_since, self_id, line, False))
         slots = []
         def admit(mine=(), idle=0, cost=cost):
             """`idle` of `mine` run no piece: they are of those the headroom fits, not running."""
@@ -1291,7 +1313,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
         if not limit:
             files.close()
             return None
-        if not slot or _gate_waiter_before(repo, self_id, me_since, is_landing, line):
+        if not slot or _gate_waiter_before(repo, self_id, me_since, is_landing, line, False):
             for fh in slot:
                 fcntl.flock(fh, fcntl.LOCK_UN)
             slot = []
@@ -1329,7 +1351,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                         break
                     said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
                     if slot and not _gate_waiter_before(repo, self_id, waited_since,
-                                                        is_landing, line):
+                                                        is_landing, line, False):
                         break
                     for fh in slot:
                         fcntl.flock(fh, fcntl.LOCK_UN)
@@ -1356,18 +1378,22 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
     if not pieces:
         return _GateHold(files, slot, context)
 
-    def more(mine, idle, cost):
-        freed, limit, _ = admit(mine, idle, cost)
-        if freed and _gate_waiter_before(repo, self_id, place, is_landing, line):
+    def beyond(freed):
+        """Of `freed`, turns past this check's first, those it ranks first for as it holds one."""
+        if freed and _gate_waiter_before(repo, self_id, place, is_landing, line, True):
             for fh in freed:
                 fcntl.flock(fh, fcntl.LOCK_UN)
-            freed = []
-        return freed, limit
+            return []
+        return freed
+
+    def more(mine, idle, cost):
+        freed, limit, _ = admit(mine, idle, cost)
+        return beyond(freed), limit
 
     @contextmanager
     def queued():
         counted = (time.time(), time.monotonic())
-        with landing_wait(is_landing, place, self_id, line):
+        with landing_wait(is_landing, place, self_id, line, True):
             if run_dir:
                 mark_gate_wait(run_dir, repo, place)
             try:
@@ -1377,7 +1403,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     mark_gate_wait(run_dir, None)
                 if run_dir or is_landing:
                     count_wait(self_id, "suite" if run_dir else "lander", counted)
-    return _GateHold(files, slot, context, limit, more, queued, cost)
+    return _GateHold(files, slot[:1] + beyond(slot[1:]), context, limit, more, queued, cost)
 
 
 @contextmanager
@@ -1402,8 +1428,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     caller with no record or context and the test suites' `AK_MAX_RUNS=0` take no turn;
     `max_gates = 0` also leaves ordinary suites uncapped. The limit is re-read on every poll,
     so a changed pin or a
-    changed headroom reaches runs already queued.  A freed turn goes to the waiter
-    that has waited longest among the highest rank (`_gate_waiter_before`), whether
+    changed headroom reaches runs already queued.  A freed turn goes to the first waiter
+    in rank (`_gate_waiter_before`), whether
     `--first` or not: a suite takes a free turn only when no waiter
     ranks before it, and a lander's wait counts from the start of its first landing
     wait.
@@ -1412,9 +1438,10 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     and a log line naming the problem.
     A check running while this thread already holds a turn takes no second one.
     A command naming AK_SHARD gets as many places as the derived limit fits, using its
-    repository's measured cost when available: it takes the turns free now, then those freed
-    while it ranks first, each running one piece at a time, and once its last piece has started
-    gives back each one a piece ends on, but one (`_GateHold`, `_Pieces.spare`, `run_suite`).
+    repository's measured cost when available: it takes one turn free now, then the others free
+    now and those freed later while it ranks first, each running one piece at a time, and once
+    its last piece has started gives back each one a piece ends on, but one (`_GateHold`,
+    `_Pieces.spare`, `run_suite`).
     A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
     again each poll, and goes there once it has room.
     """
