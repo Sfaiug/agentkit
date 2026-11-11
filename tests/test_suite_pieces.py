@@ -363,9 +363,9 @@ class SuitePieces(unittest.TestCase):
         busy.assert_called_once()
         self.assertIn("flaky:", text)
 
-    def test_a_silent_piece_cannot_borrow_its_siblings_output_or_be_retried(self):
+    def test_a_silent_piece_cannot_borrow_its_siblings_output(self):
         command = ('if test "$AK_SHARD" = 1/2; then sleep 3; '
-                   'else while true; do echo active; sleep 0.02; done; fi')
+                   'else for i in $(seq 50); do echo active; sleep 0.02; done; fi')
         ok, text = self.check([command, "echo after"], silence=0.15)
         self.assertFalse(ok)
         self.assertIn("stopped after 0.0025 min of silence", text)

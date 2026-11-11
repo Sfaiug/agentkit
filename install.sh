@@ -903,6 +903,38 @@ EOF
   fi
 fi
 
+# --- (g2c) the clock is NTP's alone -----------------------------------------
+# Lima's guest agent sets the clock to the time the Mac sent whenever the two differ by 100 ms, and
+# under load that time is old on arrival: one machine's clock stepped back 344 times in 17 hours
+# (10 Nov 2026), failing tests that order events by time.  Lima has no setting for it, so a drop-in
+# takes CAP_SYS_TIME from the agent and NTP keeps the clock alone; the Mac never sleeps (awake), so
+# the agent's catch-up after a sleep is not missed.  Every install rewrites the drop-in and reloads,
+# as (g2b) does, and restarts the agent while the running process still holds CAP_SYS_TIME (bit 25
+# of its bounding set), so the next install finishes whatever cut this one short and an agent
+# already restricted is never interrupted; a bounding set that cannot be read is a failed step, not
+# a restricted agent.  Under this umask sudo writes the file root-only, so nothing reads it back.
+# Lima's `lima-guestagent install-systemd` writes the agent's unit to /etc/systemd/system alone.
+LIMA_UNIT="${AK_SYSTEMD_SYSTEM:-/etc/systemd/system}/lima-guestagent.service"
+LIMA_CLOCK="$LIMA_UNIT.d/agentkit-clock.conf"
+lima_holds_clock() {   # 1 while the running agent holds CAP_SYS_TIME, 0 once not; fails if unread
+  local pid caps
+  pid=$(systemctl show -p MainPID --value lima-guestagent) &&
+    caps=$(sed -n 's/^CapBnd:[[:space:]]*//p' "${AK_PROC:-/proc}/$pid/status") && [ -n "$caps" ] &&
+    echo $(( 0x$caps >> 25 & 1 ))
+}
+if [ "$ROLE" != server ] || [ "$SANDBOX" = 1 ] || [ ! -e "$LIMA_UNIT" ]; then
+  :
+elif { sudo -n true && sudo -n mkdir -p -- "${LIMA_CLOCK%/*}" &&
+       printf '%s\n' "# Written by agentkit's install.sh, again on every install: the clock is NTP's alone" \
+         '[Service]' 'ProtectClock=yes' | sudo -n tee "$LIMA_CLOCK" >/dev/null &&
+       sudo -n systemctl daemon-reload &&
+       holds=$(lima_holds_clock) && { [ "$holds" = 0 ] || sudo -n systemctl try-restart lima-guestagent; }
+     } 2>/dev/null; then
+  echo "clock: NTP keeps the clock alone; Lima's guest agent may not set it"
+else
+  note "clock: Lima's guest agent may still set the clock; run \`sudo -v\` and re-run ./install.sh"
+fi
+
 # --- (g3) the ceiling for everything the toolkit starts ---------------------
 # `ak orch` starts its tmux servers inside `agentkit.slice`, and tmux leaves every pane in a
 # scope under that slice, so one ceiling there holds every agent process on the machine --

@@ -4,7 +4,8 @@
 // back by its `[update] revert` or, with none, from the snapshot taken before (snapshot.go), its
 // red kept for the tick to hand back; and how it then moves ~/agentkit (agentkit.go): forward on
 // main to a commit whose live check let it through, swapped in whole as Python's
-// agentkit/versions.py swaps it (versions.go), then its install.sh, owed until it passes, all
+// agentkit/versions.py swaps it (versions.go) once its `install.sh --prepare` passed in its folder
+// (prepare.go), then its install.sh, owed until it passes, all
 // under Python's locks.  While a seat works no harness moves (seat.Working); an update with a seat
 // Go does not word, or a move where a user systemd manager would place the gates, is Python's
 // (movable).
