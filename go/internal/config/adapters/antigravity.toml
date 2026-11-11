@@ -5,6 +5,7 @@
 # for the captures.
 version = 1
 name = "Antigravity"
+family = "Gemini"
 colour = "#203B9B"
 
 [check]

@@ -1,4 +1,5 @@
-"""The file sweep grows with memory and runs one file at a time during live CPU contention.
+"""The file sweep grows with memory and runs one file at a time during live CPU contention or
+as a piece of a sharded run.
 
 Offline: injected readings, controlled futures and cgroup files in a temporary HOME.
 """
@@ -7,6 +8,7 @@ from concurrent.futures import Future
 from contextlib import redirect_stdout
 import io
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -142,6 +144,42 @@ class EveryFilePool(unittest.TestCase):
         starts, out = self.sweep([CALM, {"free_mb": 4600}], finish_each=True)
         self.assertEqual(starts, list(range(1, 7)))
         self.assertIn(", 1 at once,", out)
+
+    def at_once(self, piece):
+        """The `N at once` line of the piece `piece` (AK_SHARD) of nine files on a calm host with
+        memory for many, a file ending only once the sweep waits without having started one."""
+        tests = self.root / "tests"
+        tests.mkdir()
+        (tests / "smoke.sh").write_text("#!/bin/bash\n")
+        for n in range(9):
+            (tests / f"test_acme_{n}.py").write_text('print("TESTS_RUN=1")\n')
+        files, fresh = [], []
+
+        def submit(*_args, **_kw):
+            files.append(Future())
+            fresh.append(files[-1])
+            return files[-1]
+
+        def finish(_running, **_kw):
+            for file in files if not fresh else ():
+                if not file.done():
+                    file.set_result((0, "TESTS_RUN=1\n", 49))
+            fresh.clear()
+
+        out = io.StringIO()
+        with patch.dict(os.environ, {"AK_SHARD": piece}), \
+                patch.object(host, "host_readings", return_value=CALM), \
+                patch.object(every_file, "ThreadPoolExecutor") as pool, \
+                patch.object(every_file, "wait", side_effect=finish), redirect_stdout(out):
+            pool.return_value.__enter__.return_value.submit.side_effect = submit
+            self.assertEqual(every_file.main(self.root), 0)
+        return re.search(r", (\d+) at once,", out.getvalue())[1]
+
+    def test_a_piece_of_a_sharded_run_runs_its_files_one_at_a_time(self):
+        self.assertEqual(self.at_once("2/3"), "1")
+
+    def test_a_whole_run_still_runs_as_many_at_once_as_memory_fits(self):
+        self.assertEqual(self.at_once("1/1"), "9")
 
     def test_an_empty_sweep_needs_no_host_readings(self):
         tests = self.root / "tests"

@@ -63,12 +63,12 @@ class LineOne(Sandbox):
         bar = drawn(self.lasts[0]).split("Fable 5.1 xhigh   ")[1]
         self.assertEqual(len(bar), 36, bar)
         shown = self.line(200)
-        self.assertTrue(shown.startswith(" ● working   fix-api   Fable 5.1 xhigh   " + bar), shown)
+        self.assertTrue(shown.startswith("  ● working    fix-api   Fable 5.1 xhigh   " + bar), shown)
         self.assertTrue(shown.rstrip().endswith(NEEDING), shown)
 
     def test_b_line_one_narrows_its_tasks_bar_before_anything_is_cut(self):
         lefts = []
-        for width in (106, 96, 81):
+        for width in (106, 96, 83):
             shown = self.line(width)
             self.assertNotIn("…", shown, width)
             self.assertTrue(shown.rstrip().endswith(NEEDING), shown)
@@ -78,7 +78,7 @@ class LineOne(Sandbox):
         # then the count folds, and a phone keeps this seat's own state, its name and who needs
         # you; the rest is cut
         shown = self.line(40)
-        self.assertTrue(shown.startswith(" ● working   fix-api"), shown)
+        self.assertTrue(shown.startswith("  ● working    fix-api"), shown)
         self.assertTrue(shown.rstrip().endswith("… ! 1 needs you"), shown)
         self.assertLessEqual(len(shown.rstrip()), 40)
 

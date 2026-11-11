@@ -1,5 +1,5 @@
 """A sharded suite splits into twice the pieces the host's full derived limit fits, and its
-pieces take turns freed after it starts.
+pieces take turns freed after it starts; each suite of one check does, by its own piece's cost.
 
 Offline: temporary HOME, fake turn files under it, injected host readings, a fake box.
 """
@@ -75,7 +75,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         with self.started:
             self.running += 1
             self.peak = max(self.peak, self.running)
-            self.held.append(gate._heavy_running())
+            self.held.append(len(gate._heavy_held()))
             self.shards.append((name, env["AK_SHARD"]))
             self.started.notify_all()
         self.on_start.pop(name, lambda: None)()
@@ -86,13 +86,18 @@ class SuiteTakesFreedTurns(unittest.TestCase):
             self.running -= 1
         return 0, "", False
 
-    def suite(self, name):
+    def suite(self, name, cmds=(SUITE,), mem_mb=()):
+        """`cmds` as one check of the run `name`; `mem_mb`, by command, what a piece of it was
+        measured to hold."""
         run_dir = config.RUNS / name
         run_dir.mkdir()
         record.save_state(run_dir, {
             "run_id": name, "state": "running", "repo": str(self.root), "round_summaries": [],
             "pid": os.getpid(), "process_identity": host.process_identity(os.getpid())})
-        return gate.run_done_when([SUITE], self.root, run_dir / "gate.log", set(),
+        for cmd in mem_mb:
+            gate.write_suite_cost(gate.suite_cost(cmd, self.root, run_dir)[0],
+                                  {"mem_mb": mem_mb[cmd]})
+        return gate.run_done_when(list(cmds), self.root, run_dir / "gate.log", set(),
                                   limit=60, log=lambda line: None, run_dir=run_dir)
 
     def test_a_suite_admitted_on_one_free_turn_runs_pieces_on_turns_freed_after(self):
@@ -103,7 +108,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.assertEqual(sorted(shard for _, shard in self.shards), [f"{k}/8" for k in range(1, 9)])
         self.assertGreater(self.peak, 1)
         self.assertEqual(self.held[0], 4)
-        self.assertEqual(gate._heavy_running(), 0)
+        self.assertEqual(len(gate._heavy_held()), 0)
 
     def test_a_suite_on_an_idle_host_is_split_and_started_as_today(self):
         self.together = 4
@@ -111,7 +116,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.assertTrue(ok, text)
         self.assertEqual(sorted(shard for _, shard in self.shards), [f"{k}/8" for k in range(1, 9)])
         self.assertEqual(self.peak, 4)
-        self.assertEqual(self.held, [4] * 8)
+        self.assertEqual(self.held[:4], [4] * 4)    # its first four, run together, on four turns
 
     def test_turns_held_never_exceed_the_limit_while_two_suites_pieces_wait(self):
         self.hold_others(3)
@@ -148,7 +153,23 @@ class SuiteTakesFreedTurns(unittest.TestCase):
                                                for index in range(1, 9)])
         # acme waited first: all its pieces start before any of widget's
         self.assertEqual([name for name, _ in self.shards[:8]], ["acme"] * 8)
-        self.assertEqual(gate._heavy_running(), 0)
+        self.assertEqual(len(gate._heavy_held()), 0)
+
+    def test_each_suite_of_one_check_takes_the_places_and_turns_its_own_pieces_fit(self):
+        # One piece of 1 GB fits where four of the first suite's do: the check's hold gives its
+        # second suite one place on one turn, and its third four on four again.  The slice's
+        # free room alone bounds them, the rest of it in use: the one turn kept between suites
+        # runs no piece, and counts as room.
+        costly = f"{SUITE} costly"
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(
+                {**ROOM, "slice_memory_high_mb": 8000, "slice_memory_used_mb": 6300})}):
+            ok, text = self.suite("acme", [SUITE, costly, SUITE], {costly: 1000})
+        self.assertTrue(ok, text)
+        self.assertEqual([shard.partition("/")[2] for _, shard in self.shards],
+                         ["8"] * 8 + ["2"] * 2 + ["8"] * 8)
+        # each suite's first piece starts before any of its pieces ends and gives a turn back
+        self.assertEqual([self.held[0], *self.held[8:11]], [4, 1, 1, 4])
+        self.assertEqual(len(gate._heavy_held()), 0)
 
 
 if __name__ == "__main__":

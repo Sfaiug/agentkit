@@ -3,7 +3,7 @@
 The owner (20 Oct 2026): "it should always be the full model name with the version. For example
 gpt-6.1-sol or Opus 5.5", where screens said `gpt-sol` and `opus`, the short names the models
 are configured under.  The full name is the harness's catalog label for the model's id, else
-the id itself.  Offline: a temporary HOME, no tmux.
+its name and number read off that id (config.model_label).  Offline: a temporary HOME, no tmux.
 """
 
 import os
@@ -29,10 +29,23 @@ class FullNames(Sandbox):
         self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
         self.cfg = {"models": MODELS}
 
-    def test_a_model_is_named_by_its_catalog_label_else_its_id(self):
+    def test_a_model_is_named_by_its_catalog_label_else_off_its_id(self):
         self.assertEqual([config.model_name(self.cfg, name) for name in MODELS],
-                         ["Opus 5.5", "GPT-6.1-Sol", "acme-flash-free", "codex"])
+                         ["Opus 5.5", "GPT-6.1-Sol", "Acme Flash Free", "codex"])
         self.assertEqual(config.model_name(self.cfg, "gone"), "gone")
+
+    def test_a_label_the_table_gives_wins_even_where_it_is_the_id_itself(self):
+        # only a row the table gives no label is named off its id
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        (adapters / "acme.toml").write_text('family = "Acme"\n[catalog]\n'
+                                            '"acme-nova-7-1" = { label = "acme-nova-7-1" }\n'
+                                            '"acme-nova-7-2" = {}\n')
+        self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
+        cfg = {"models": {n: {"harness": "acme", "model": f"acme-nova-7-{n}"} for n in "12"}}
+        self.assertEqual([config.model_name(cfg, n) for n in "12"], ["acme-nova-7-1", "Nova 7.2"])
+        self.assertEqual([model["label"] for model in config.catalog_held("acme")],
+                         ["acme-nova-7-1", "Nova 7.2"])
 
     def test_a_seat_row_its_crew_and_its_bar_say_the_full_names(self):
         selection = {"orchestrator": "opus", "workers": ["gpt-sol"], "reviewers": ["opus"]}
