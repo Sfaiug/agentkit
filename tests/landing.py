@@ -56,6 +56,9 @@ elif (only := narrowed()) is not None:
 unasked = tempfile.NamedTemporaryFile(prefix="ak-ran-")
 ran = Path(os.environ.get("AK_RAN") or unasked.name)
 os.environ["AK_RAN"] = str(ran)
+# smoke.sh names in it the block of each check that fails (acceptance.sh's `no`).
+blocks = tempfile.NamedTemporaryFile(prefix="ak-smoke-failed-")
+os.environ["AK_SMOKE_FAILED"] = blocks.name
 
 
 def part(*command):
@@ -109,10 +112,12 @@ with tempfile.NamedTemporaryFile() as output, tempfile.NamedTemporaryFile() as c
         shutil.copyfileobj(contract_output, sys.stdout.buffer)
         sys.stdout.buffer.flush()
 # every_file.py named its own failed files before it ended. smoke.sh's exit alone says it is red,
-# whatever made it so: it is named by each listed block that started, or where none did as itself.
+# whatever made it so: it is named by each block a check failed in, once; where none did, by each
+# listed block that started, or where none did as itself.
 if smoke:
     started = ran.read_text().splitlines() if ran.exists() else []
-    name_failed([test for test in started if test.startswith(f"{SMOKE}#")] or [SMOKE])
+    name_failed(dict.fromkeys(Path(blocks.name).read_text().splitlines())
+                or [test for test in started if test.startswith(f"{SMOKE}#")] or [SMOKE])
 if contract.returncode:
     name_failed(["tests/gate_contract.py"])
 sys.exit(status(code or smoke or contract.returncode))

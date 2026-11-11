@@ -25,8 +25,9 @@ with open(os.environ["ACME_LOG"], "a") as fh:
 print("TESTS_RUN=1")
 sys.exit(name in os.environ["ACME_FAILS"].split())
 '''
-# Like smoke.sh: suite_shares.py chooses the blocks, acceptance.sh's NFAIL counts failed checks,
-# the offline guard's OFFLINE_RC its own, and a shared helper's argument picks the file it runs.
+# Like smoke.sh: suite_shares.py chooses the blocks, a shared helper's argument picks the file it
+# runs; but no check goes through acceptance.sh's `no`, so no block is named and a red is named by
+# its exit alone.
 SMOKE = f'''if [ $# = 0 ]; then
   SMOKE_BODY=$(python3 tests/suite_shares.py tests/smoke.sh) || exit $?
   eval "$SMOKE_BODY"
