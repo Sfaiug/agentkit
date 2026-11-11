@@ -29,8 +29,7 @@ const (
 	barTop  = "@ak_top"
 	barWhy  = "@ak_why"
 	// where the pointer is: its cells counted from the client's right edge, the right end's own edge
-	barAt  = "#{e|-:#{client_width},#{mouse_x}}"
-	barInk = "11111b" // the chip's dark text
+	barAt = "#{e|-:#{client_width},#{mouse_x}}"
 )
 
 var (
@@ -81,14 +80,15 @@ func barPaint(text, word string) string {
 	return "#[fg=#" + terminal.RGB(word) + "]" + tmuxText(text) + "#[default]"
 }
 
-// barChip is the state as the bar opens with it: `! needs you` in dark bold text on its amber, the
-// one loud thing on the bar; any other word as its glyph and word in its colour.
+// barChip is the state as the bar opens with it: its glyph and word on its colour in the text that
+// reads on it, bold for `! needs you`, the one loud thing on the bar.
 func barChip(screen terminal.Screen, word string) string {
-	said := tmuxText(screen.StateText(word))
+	bold := ""
 	if word == "needs you" {
-		return "#[fg=#" + barInk + ",bg=#" + terminal.RGB(word) + ",bold] " + said + " #[default]"
+		bold = ",bold"
 	}
-	return barPaint(screen.StateText(word), word)
+	return "#[fg=#" + terminal.Ink(word) + ",bg=#" + terminal.RGB(word) + bold + "] " +
+		tmuxText(screen.StateText(word)) + " #[default]"
 }
 
 // barProgress is the seat's plan as line one's last part in room cells (menu.last_column): a smooth
@@ -140,33 +140,14 @@ func barLine(screen terminal.Screen, word string, done, total, room int) (string
 		halves = 2 * int(math.RoundToEven(float64(size)*share))
 	}
 	ends := (halves + 1) / 2
-	line := strings.Builder{}
-	for n := range ends {
-		amount := 0.0
-		if ends > 1 {
-			amount = 0.5 * (1 - float64(n)/float64(max(1, ends-1)))
-		}
-		char := half
-		if n < halves/2 {
-			char = full
-		}
-		line.WriteString("#[fg=" + barFaded(word, amount) + "]" + char)
+	line := strings.Repeat(full, halves/2) + strings.Repeat(half, halves%2)
+	if line != "" {
+		line = "#[fg=#" + terminal.RGB(word) + "]" + line
 	}
 	if ends < size {
-		line.WriteString("#[fg=#" + terminal.RGB("dim") + "]" + strings.Repeat(empty, size-ends))
+		line += "#[fg=#" + terminal.RGB("dim") + "]" + strings.Repeat(empty, size-ends)
 	}
-	return line.String() + "#[default] " + count, size + 1 + len(count)
-}
-
-// barFaded is a word's colour that far of the way to a dark terminal's background.
-func barFaded(word string, amount float64) string {
-	var parts [3]int
-	fmt.Sscanf(terminal.RGB(word), "%02x%02x%02x", &parts[0], &parts[1], &parts[2])
-	out := "#"
-	for _, part := range parts {
-		out += fmt.Sprintf("%02x", int(math.RoundToEven(float64(part)*(1-amount))))
-	}
-	return out
+	return line + "#[default] " + count, size + 1 + len(count)
 }
 
 // barCrew is who builds and reviews a seat's work, each named once with its marks, all dim (menu.crew).
@@ -177,7 +158,7 @@ func barCrew(screen terminal.Screen, builds, reviews []string) string {
 // barSelection is the seat's model and crew, each named at the effort it runs that role at
 // (config.ModelAt), none where its record does not read as a seat's (config.load_session).
 func barSelection(state, name string, models map[string]config.Model) (model string, builds, reviews []string) {
-	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+	record, _ := run.Shared(filepath.Join(state, "session-"+name+".json"))
 	if record == nil {
 		return "", nil, nil
 	}
@@ -213,9 +194,9 @@ func (seat Seat) publish(state string, models map[string]config.Model, changed b
 	}
 	model, builds, reviews := barSelection(state, seat.Name, models)
 	done, total := plan.Progress(seat.Name)
-	barTell(state, seat.Name, seat.barOptions(terminal.For(os.Stderr), model, builds, reviews, done, total))
+	barTell(state, seat.Name, seat.barOptions(terminal.For(os.Stderr), model, builds, reviews, done, total), seat.bars)
 	if changed {
-		barTell(state, "", nil)
+		barTell(state, "", nil, seat.bars)
 	}
 }
 
@@ -259,8 +240,10 @@ func barSet(option [3]string) []string {
 // barTell writes line one's right end on that seat's bar, or every seat's for none, then the
 // caller's own options on a session tmux lists, each only where it would change what the bar
 // shows (bartold.go), and binds its click with any write, under one lock across every bar's
-// reading and writing, so whoever writes last has read last (statusbar._tell).
-func barTell(state, only string, own [][3]string) {
+// reading and writing, so whoever writes last has read last (statusbar._tell).  The sessions are
+// those `listing` lists, a reading's once, else listed here: a listing older than a write can only
+// cost a write not needed, or leave a bar wrong until the next look.
+func barTell(state, only string, own [][3]string, listing func() ([]barRow, bool)) {
 	if config.EnsureDirs() != nil {
 		return
 	}
@@ -272,7 +255,10 @@ func barTell(state, only string, own [][3]string) {
 	if !config.Publishes() {
 		return
 	}
-	listed, known := barSessions()
+	if listing == nil {
+		listing = barSessions
+	}
+	listed, known := listing()
 	if !known {
 		return
 	}
@@ -337,7 +323,7 @@ func barSeats(state string, listed []barRow) (found []barRow) {
 			row.mark != "1" && unrecorded != nil && agent.Agentless(tmux.Own(), []string{row.name}) {
 			continue
 		}
-		if file, _ := run.ReadJSON(filepath.Join(state, "seat-"+row.name+".json")); file != nil {
+		if file, _ := run.Shared(filepath.Join(state, "seat-"+row.name+".json")); file != nil {
 			row.word = file.Str("word")
 		}
 		found = append(found, row)

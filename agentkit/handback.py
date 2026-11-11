@@ -71,16 +71,19 @@ def repair_open(state, tip):
     """Whether this repair run holds its command on the target at `tip`.
 
     The one answer to both "does this red get a repair" and "do its waiters retry": one
-    repair per command per tip.  On its way it does, on any tip.  Ended, it holds the tip
-    its launch recorded from the probe that found it failing (`repair_tip`) -- never one
-    read off its branch later, which a rebase or an aborted integration moves -- unless it
-    merged, which moved the target, or found the command passing there (`not needed`).
-    Failed, passed unmerged or blocked, another run of it on that tip would only repeat it;
-    a target that moved past it is a new red.
+    repair per command per tip at a time.  On its way it does, on any tip.  Ended, it holds
+    the tip its launch recorded from the probe that found it failing (`repair_tip`) -- never
+    one read off its branch later, which a rebase or an aborted integration moves -- unless
+    it merged, which moved the target, or found the command passing there (`not needed`).
+    Failed, passed unmerged or blocked, it holds that tip for the retry ladder's step past
+    its top, from its end: then another repair may try, so a red no model mends costs a
+    repair an hour, and never a line that stands still for good.  A target that moved past
+    it is a new red.
     """
     return followup_open(state) or (
         state.get("state") in run_record.ENDED and not transitions.delivered(state)
-        and state.get("repair_tip") == tip)
+        and state.get("repair_tip") == tip
+        and time.time() - (state.get("finished_at") or 0) < turns.TRANSIENT_HOURLY)
 
 
 def open_followup(state, text, repair=None, tip=None, split=None, check=None, held=None,
