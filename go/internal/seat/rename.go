@@ -130,7 +130,7 @@ func holdings(state string) ([]string, map[string]string) {
 	seats := map[string]string{}
 	for _, session := range tmux.Sessions(tmux.Own()) {
 		held = append(held, session.Name)
-		record, _ := run.ReadJSON(filepath.Join(state, "session-"+session.Name+".json"))
+		record, _ := run.Shared(filepath.Join(state, "session-"+session.Name+".json"))
 		if session.Mark == "1" || record != nil && !record.Has(config.Renamed) || !agent.Agentless(tmux.Own(), []string{session.Name}) {
 			seats[session.Name] = tmux.Own()
 		}
