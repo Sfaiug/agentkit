@@ -59,8 +59,11 @@ class ALinesNamedTestsTakeNoTurn(unittest.TestCase):
     def test_named_tests_go_at_once(self):
         line, waiting = self.land({"t/bad.sh": "test ! -f bad.txt\n", "t/hold.sh": HOLD},
                                   {"bad.txt": "x\n"})
-        # the go confirming the red and the narrowing's: only the rebuilt stack's check waited
-        self.assertEqual(waiting.count(("alone", "")), 2, waiting)
+        # every go of the tests it named, the one confirming the red and the narrowing's at least,
+        # went before the lander waited: only the rebuilt stack's whole check did
+        alone = line.runs().count(("alone", ""))
+        self.assertGreaterEqual(alone, 2, waiting)
+        self.assertEqual(waiting.count(("alone", "")), alone, line.runs())
         self.assertEqual(line.verdict(2)["fix"]["tests"], ["bad.sh"])
 
     def test_a_piece_naming_no_test_waits_to_run_whole(self):
