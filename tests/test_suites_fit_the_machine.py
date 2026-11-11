@@ -177,11 +177,13 @@ class SuitesFitTheMachine(unittest.TestCase):
         self.assertEqual(gate.suite_cost(suite, repo, None)[1], measured)
 
     def test_a_box_counts_what_its_processes_waited_for_a_core(self):
-        # Two burners of a second each share one core: while one burns the other waits, for a
-        # second at least between them.
+        # Two burners share one core for the three seconds each runs: while one burns the other
+        # waits, so the box's first two looks each find two threads with work.  By the clock, not
+        # by what each spent: burners of a second each ended as the second look came, which then
+        # found them or not (11 Nov 2026: red on a calm host, green on a busy one).
         core = min(os.sched_getaffinity(0))
         burn = (f"import os, time; os.sched_setaffinity(0, {{{core}}}); "
-                "any(iter(lambda: time.process_time() >= 1, True)); "
+                "end = time.monotonic() + 3; any(iter(lambda: time.monotonic() >= end, True)); "
                 "open(os.environ['N'], 'w'); time.sleep(60)")
         command = (f"for N in 1 2; do N=$N python3 -c {burn!r} >/dev/null 2>&1 & done; "
                    "until [ -e 1 ] && [ -e 2 ]; do sleep 0.1; done")
@@ -191,7 +193,8 @@ class SuitesFitTheMachine(unittest.TestCase):
                                          cwd=str(self.root), activity=self.root / "activity",
                                          cpu=cpu)
         self.assertEqual(code, 0, text)
-        self.assertGreaterEqual(cpu[0][0], 3)
+        # One core gives little over three seconds in three: four are spent and waited.
+        self.assertGreaterEqual(cpu[0][0], 4)
 
 
 if __name__ == "__main__":
