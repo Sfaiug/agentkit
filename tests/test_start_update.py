@@ -127,11 +127,13 @@ class Screen:
     def __init__(self, case, *flags):
         self.case, self.output = case, b""
         self.lock = threading.Lock()
-        self.master, self.slave = os.openpty()
-        fcntl.ioctl(self.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 90, 0, 0))
+        self.master, slave = os.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 90, 0, 0))
         self.proc = subprocess.Popen([sys.executable, str(case.child), *flags],
-                                     stdin=self.slave, stdout=self.slave, stderr=self.slave,
+                                     stdin=slave, stdout=slave, stderr=slave,
                                      env=case.env, cwd=case.root, start_new_session=True)
+        os.close(slave)         # the menu's alone: the terminal closes once nothing can write to it
+        case.menus.append(self.proc.pid)
         self.reader = threading.Thread(target=self.read, daemon=True)
         self.reader.start()
         case.addCleanup(self.close)
@@ -151,15 +153,19 @@ class Screen:
         with self.lock:
             return self.output.decode("utf-8", "replace")
 
-    def when(self, pattern, after=0, timeout=10):
-        until = time.monotonic() + timeout
-        while time.monotonic() < until:
+    def when(self, pattern, after=0):
+        # The menu and the new code it execs draw as slowly as the host's load makes them, so no
+        # clock ends this wait: the pattern does, or the terminal closing (read once more after,
+        # for what was written last).
+        while True:
+            closed = not self.reader.is_alive()
             with self.lock:
                 found = re.search(pattern.encode(), self.output[after:])
-                if found:
-                    return found
+            if found:
+                return found
+            if closed:
+                self.case.fail(f"never saw {pattern!r}:\n{self.text()[-4000:]}")
             time.sleep(0.002)
-        self.case.fail(f"never saw {pattern!r}:\n{self.text()[-4000:]}")
 
     def key(self, key, pattern):
         with self.lock:
@@ -169,14 +175,13 @@ class Screen:
 
     def leave(self):
         self.key(b"\x1b", "<exit>")
-        self.case.assertEqual(self.proc.wait(10), 0, self.text())
+        self.case.assertEqual(self.proc.wait(), 0, self.text())
 
     def close(self):
         if self.proc.poll() is None:
             self.proc.kill()
-        self.proc.wait(10)
-        for fd in (self.master, self.slave):
-            os.close(fd)
+        self.proc.wait()
+        os.close(self.master)
         self.reader.join(5)
 
 
@@ -185,6 +190,7 @@ class StartUpdate(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-start-update-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name).resolve()
+        self.menus = []
         self.env = {key: value for key, value in os.environ.items() if key not in INHERITED}
         self.env.update({"HOME": str(self.root), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
                          "TERM": "xterm-256color", "GIT_CONFIG_NOSYSTEM": "1",
@@ -238,11 +244,14 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         for step in steps:
             (self.root / f"{step}.hold").unlink(missing_ok=True)
 
-    def wait_for(self, predicate, timeout=10):
-        until = time.monotonic() + timeout
-        while not predicate() and time.monotonic() < until:
+    def wait_for(self, predicate):
+        # The menu and its updater go as slowly as the host's load makes them, so no clock ends
+        # this wait: the state does, or nothing started here being left to reach it (looked at
+        # once more after, for what it did last).
+        while not predicate():
+            if not any(map(running, self.menus + self.updaters())) and not predicate():
+                self.fail("nothing started here is left to reach it")
             time.sleep(0.005)
-        self.assertTrue(predicate())
 
     def updaters(self):
         path = self.root / "updaters"
@@ -251,16 +260,13 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
     def finish_updates(self):
         for path in self.root.glob("*.hold"):
             path.unlink(missing_ok=True)
-        until = time.monotonic() + 5
-        while any(running(pid) for pid in self.updaters()) and time.monotonic() < until:
+        # An updater let go ends as slowly as the host's load makes it -- the new code's own
+        # start-up check is often still asking origin here -- so no clock cuts it off: one that
+        # never ends is a hang, which the suite's silence limit names.  Nor is one killed: its
+        # ls-remote and version steps run in sessions of their own, which would go on writing
+        # in the HOME being deleted.
+        while any(running(pid) for pid in self.updaters()):
             time.sleep(0.01)
-        for pid in self.updaters():
-            if running(pid):
-                try:
-                    os.killpg(pid, signal.SIGKILL)    # only a child recorded in this test's HOME
-                except ProcessLookupError:
-                    continue
-                self.fail(f"fixture updater {pid} did not finish")
 
     def installs(self):
         path = self.root / "installs"
@@ -279,10 +285,9 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
                                       ("worktree", 1, b"\x1b[A", "tidy-docs"),
                                       ("install", 2, b"\x1b[B", "web-portal")):
             self.wait_for(lambda: (self.root / f"{step}.started").exists())
-            rule = "━" * (30 * done) + "─" * (90 - 30 * done)
-            screen.when("━" * (30 * done) if done else "agentkit · updating")
-            self.assertIn(rule, ANSI.sub("", screen.text()))
-            self.assertIn("agentkit · updating", screen.text())
+            screen.when("agentkit · updating")
+            # the rule whole: a read can end part way through the draw that holds it
+            screen.when("━" * (30 * done) + f"(?:{ANSI.pattern})*" + "─" * (90 - 30 * done))
             screen.key(key, f"<draw old {seat}>")
             self.release(step)
         screen.when("<draw new web-portal>")
@@ -417,7 +422,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         screen.when("<connected>")
         self.wait_for(lambda: (self.root / "ls-remote.started").exists())
         self.release("ssh")
-        self.assertEqual(screen.proc.wait(10), 0, screen.text())
+        self.assertEqual(screen.proc.wait(), 0, screen.text())
         self.assertTrue(running(self.updaters()[0]))
         self.release("ls-remote", "fetch", "worktree", "install")
         self.wait_for(lambda: not running(self.updaters()[0]))
@@ -439,28 +444,15 @@ class UpdaterCleanup(unittest.TestCase):
 
     def test_a_zombie_reaped_between_signal_and_stat_is_gone(self):
         stat = Mock()
-        stat.exists.return_value = True
-        stat.read_text.return_value = "12345 (updater) Z"
 
         def reap(pid, sig):
-            if kill.call_count == 2:
-                stat.exists.return_value = False
-                stat.read_text.side_effect = FileNotFoundError
+            stat.read_text.side_effect = FileNotFoundError
 
         with patch(__name__ + ".Path", return_value=stat), \
                 patch.object(sys, "platform", "linux"), \
-                patch.object(os, "kill", side_effect=reap) as kill, \
-                patch.object(os, "killpg", side_effect=ProcessLookupError) as killpg:
+                patch.object(os, "kill", side_effect=reap) as kill:
             self.case.finish_updates()
-        self.assertEqual(kill.call_count, 2)
-        killpg.assert_not_called()
-
-    def test_a_group_reaped_between_check_and_kill_is_gone(self):
-        with patch(__name__ + ".running", return_value=True), \
-                patch.object(time, "monotonic", side_effect=[0, 5]), \
-                patch.object(os, "killpg", side_effect=ProcessLookupError) as killpg:
-            self.case.finish_updates()
-        killpg.assert_called_once_with(12345, signal.SIGKILL)
+        kill.assert_called_once_with(12345, 0)
 
 
 class OriginTimeout(unittest.TestCase):

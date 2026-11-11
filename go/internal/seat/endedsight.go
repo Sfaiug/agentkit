@@ -1,20 +1,25 @@
 package seat
 
 import (
+	"strings"
 	"time"
 
 	"agentkit/internal/tmux"
 )
 
 // The pane may die after its first listing. Read death again after the capture so
-// its dead-pane banner never becomes a screen an interrupted turn is inferred from.
+// its dead-pane banner never becomes a screen an interrupted turn is inferred from:
+// in the same call, whose last line it is, as tmux runs no command after one that failed.
 func captureHarness(target string) (string, bool) {
-	shown, _ := tmux.Ask(tmux.Own(), "capture-pane", "-p", "-e", "-J", "-t", target)
-	dead, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", target, "#{pane_dead}")
-	if err == nil && dead == "1" {
+	said, err := tmux.Ask(tmux.Own(), "capture-pane", "-p", "-e", "-J", "-t", target, ";", "display-message", "-p", "-t", target, "#{pane_dead}")
+	if err != nil {
+		return said, false
+	}
+	at := strings.LastIndexByte(said, '\n')
+	if said[at+1:] == "1" {
 		return "", true
 	}
-	return shown, false
+	return strings.TrimSpace(said[:max(at, 0)]), false
 }
 
 // A look can find the harness dead after listing it live. Its empty capture must
