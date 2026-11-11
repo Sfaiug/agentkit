@@ -889,25 +889,24 @@ def _landing_checks(directory, state, scratch, tip):
 
 
 def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
-    """The stack's answer from just `tests` of `command`'s `piece`, or with none that piece
-    alone ("" the command whole), or {} if inconclusive.  A pass, each test named as run or as
-    not there, one a later member adds (`gate.passes_what_it_holds`), moves the narrowing
-    deeper and answers for nothing else; a failure, of the tests confirmed, moves it earlier.
-    Anything else proves nothing -- a test the suite skips without naming it -- so that stack
-    gets its whole check on its original checkout.
+    """The stack's answer from just `tests` of `command`'s `piece`, or {} if inconclusive.  A
+    pass, each test named as run or as not there, one a later member adds
+    (`gate.passes_what_it_holds`), moves the narrowing deeper and answers for nothing else; a
+    failure, of the tests confirmed, moves it earlier.  Anything else proves nothing -- a test
+    the suite skips without naming it -- so that stack gets its whole check on its original
+    checkout.
     """
     from . import run
     head = run.git(scratch, "rev-parse", "HEAD")
     log_path = directory / f"lander-{tree}-tests.log"
     absent = []
     ok, text, red = _check(directory, state, scratch, [command], log_path, log, suite=command,
-                           shard=piece or None, only=list(tests) if tests else None,
-                           absent=absent)
+                           shard=piece or None, only=list(tests), absent=absent)
     _put_back(scratch, head)
     if ok or absent:
         return {"land": tree}
     return {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
-                    **red}} if red.get("tests") or not tests else {}
+                    **red}} if red.get("tests") else {}
 
 
 def _probe(directory, state, scratch, tree, command, tests, cost):
@@ -1217,14 +1216,18 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             low = unchecked[0] - 1
                             high = red_index
                             if red_index is not None:
-                                # Each step runs just what failed: the tests of the first failing
-                                # command's piece that failed again alone, or with none that
-                                # piece, from the deepest stack it passed in; a failure narrows
-                                # earlier, and only an inconclusive run gets its whole check.
+                                # Each step runs just the tests of the first failing command's
+                                # piece that failed again alone, from the deepest stack they
+                                # passed in; a failure narrows earlier, and only an inconclusive
+                                # run gets its whole check.  A piece that named none narrows by
+                                # whole checks: the suite deals each tree's test files into its
+                                # pieces, so on another stack its number stands for other tests,
+                                # and passing there it sent bystanders to their fixers
+                                # (10 Nov 2026).
                                 failing = answers[tuple(stacks[red_index][3:])]
                                 command = failing["fix"].get("command")
-                                tests = tuple(failing["fix"].get("tests") or ()) or None
-                                if command:
+                                tests = tuple(failing["fix"].get("tests") or ())
+                                if command and tests:
                                     narrowing = command, tests
                                     owner = next((index for index, stack in enumerate(stacks)
                                                   if command in stack[4]), 0)
@@ -1251,7 +1254,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             # No stack below the command's first runs it: the search starts
                             # just ahead of that one, and it reaches lower only on evidence.
                             floor = max(low, owner - 1)
-                            if narrowing and tests and floor + 1 < high:
+                            if narrowing and floor + 1 < high:
                                 # The stacks between go to the suite helpers, many at once, a
                                 # round at a time: here each step took minutes, one after the
                                 # other (127 of a pass's 370, 5 Nov 2026).  A round that proves
@@ -1276,7 +1279,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             # Ahead of the command's first stack the target's suite runs where
                             # that stack's `tests:` line does: its tests that failed run there.
                             runs = narrowing and (index, narrowing) not in passed_alone and (
-                                command if index >= owner else tests and suite)
+                                command if index >= owner else suite)
                             if runs:
                                 job = pool.submit(_check_tests, member, saved, scratch, tree,
                                                   runs, failing["fix"]["piece"], tests, log)

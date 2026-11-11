@@ -51,8 +51,8 @@ Words are plain and explain themselves.
 - **Progress:** a seat's progress is its line and its count (`terminal.plan_bar`):
   `━━━━╸──── 3 of 8`.
 
-Nothing explains itself on hover. What a seat asks, or what it did, opens under its row while
-that row is highlighted.
+Nothing explains itself on hover. A highlighted row opens its models and squares, never what
+its seat said (owner, 9 Nov 2026).
 
 ## States
 
