@@ -67,6 +67,17 @@ class SleptSeat(HandBack):
         with patch.object(watch, "after_merge_fallback", return_value=other):
             self.assertIsNone(watch.after_merge_seat({"launched_session": SEAT}, "acme/api", {}))
 
+    def test_a_maintainer_s_decision_waits_for_it_under_the_name_it_had_before_a_rename(self):
+        config.rename_session(SEAT, "beta")
+        url = "https://github.com/acme/api/pull/7"
+        state = {"own": {url: {"session": SEAT, "decision": None, "done": False}}}
+        with patch.object(watch, "pages", return_value=([], "")), \
+                patch.object(watch, "gh_json", return_value=(
+                    {"state": "CLOSED", "number": 7, "title": "Fix the api"}, "")):
+            watch.outgoing(state, "acme", False, self.logs.append)
+        self.assertFalse(state["own"][url]["done"], self.logs)
+        self.assertEqual(self.typed, [])
+
 
 def load_tests(loader, tests, pattern):
     """The key's tests and this file's own, not those `SleptSeat` inherits from `test_handback`."""

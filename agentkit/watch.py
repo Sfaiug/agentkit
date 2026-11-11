@@ -692,6 +692,7 @@ def resume_after_boot(cfg, dry_run=False, log=print):
 def slept(name):
     """Whether an older ak put that seat to sleep and it is not back yet: until `reopen_slept`
     brings it back it is an open seat away from its prompt, kept, and owed what any is."""
+    name = config.resolve_session(name)     # a receipt names the seat as it was launched
     record = config.session_records().get(name) or {}
     return ((record.get("asleep") or 0) > (record.get("launched") or 0)
             and not seat_closed_by_owner(name))
