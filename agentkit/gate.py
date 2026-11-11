@@ -670,23 +670,61 @@ def _heavy_max_existing():
         return -1
 
 
-def _heavy_running():
-    """Count held turns, including high slots left by a larger limit.
+def _heavy_held():
+    """What one piece of each held turn's holder costs (`_held_cost`), including high slots left
+    by a larger limit.
 
     Slot files persist after their suites finish; only a lock still held counts.
     Probe existing files without creating any, so status never grows the pool.
     """
-    held = 0
-    for index in range(_heavy_max_existing() + 1):
-        try:
-            with gate_lock(None, index).open("r") as slot:
-                try:
-                    fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    held += 1
-        except OSError:
-            pass
+    held = []
+    with _place_costs():
+        for index in range(_heavy_max_existing() + 1):
+            path = gate_lock(None, index)
+            try:
+                with path.open("r") as slot:
+                    try:
+                        fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        held.append(_held_cost(path))
+            except OSError:
+                pass
     return held
+
+
+@contextmanager
+def _place_costs():
+    """Held host-wide while a check reads what held turns cost, or takes turns and says what they
+    cost (`_say_cost`): a turn taken but not yet said would read as one on older code, at the
+    reader's cost, and a check reading it admitted 11 places on 8 cores beside 4 at 2 cores."""
+    config.RUNS.mkdir(parents=True, exist_ok=True)
+    with (config.RUNS / ".heavy-costs").open("a") as costs:
+        fcntl.flock(costs, fcntl.LOCK_EX)
+        yield
+
+
+def _say_cost(slot, cost):
+    """Write `cost`, (cpus, mem_mb) of one piece run on the held turn `slot`, into its lock file,
+    inside `_place_costs`.
+
+    Each holder writes on taking a turn and only a held turn is read: the lock says whether its
+    holder lives, the text what it costs.  A failed write costs the count's accuracy, never the
+    check.
+    """
+    try:
+        slot.truncate(0)
+        slot.write(json.dumps(dict(zip(("cpus", "mem_mb"), cost))))
+        slot.flush()
+    except OSError:
+        pass
+
+
+def _held_cost(path):
+    """What one piece of the holder of the turn at `path` costs (`_say_cost`), or None where the
+    file says nothing: a holder on code from before 11 Nov 2026."""
+    said = read_suite_cost(Path(path))
+    cost = (said.get("cpus"), said.get("mem_mb"))
+    return cost if all(map(_a_cost, cost)) else None
 
 
 def _first_landing_wait(run_dir):
@@ -981,11 +1019,14 @@ class _GateHold:
     def suite(self, cost):
         """A suite's pieces start here, and its red ones going again whole.  One the hold was not
         admitted for, a later suite of its check or a hold kept `alone`, is admitted now as the
-        first was: its own piece's `cost` decides its places and its turns, and those free now
-        join the hold.  A hold taken for no pieces has no way to ask for them (`more`) and stays
-        one place."""
+        first was: its own piece's `cost` decides its places and its turns, which say it
+        (`_say_cost`), and those free now join the hold.  A hold taken for no pieces has no way
+        to ask for them (`more`) and stays one place."""
         if self.more and cost != self.cost:
             self.cost = cost
+            with _place_costs():
+                for slot in self.slots:
+                    _say_cost(slot, cost)
             freed, self.pieces = self.more(self.slots, len(self.idle), cost)
             self.slots += freed
             self.idle += freed
@@ -1065,7 +1106,7 @@ class _GateHold:
 
 
 def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
-                        job_mem_mb=HEAVY_MEM_MB, *, unit=False):
+                        job_mem_mb=HEAVY_MEM_MB, *, unit=False, others=()):
     """Running suites plus how many more the live headroom fits; at least one.
 
     The runs slice's idle cores over one suite's 0.7, and free memory over 0.4 GB,
@@ -1081,9 +1122,14 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     limit and the remaining room under every enclosing hard memory cap.
     Running and new never pass what the slice's cores and memory fit with nothing running:
     a held piece's use dips while it waits, and room read in a dip piled 60 turns on 8 cores.
+    Of the `running` turns, those `others` hold take what their holders say a piece costs
+    (`_held_cost`), and the rest -- the caller's own and those saying nothing -- the caller's:
+    two lines whose pieces cost 2.0 and 0.7 counted each other's at their own and put 25.9
+    cores' worth on 18 (11 Nov 2026).  With no `running` given, every held turn is another's.
     """
     if running is None:
-        running = _heavy_running()
+        others = _heavy_held()
+        running = len(others)
     if readings is None:
         readings = _run_readings()
     cpu_quota = host._reading(readings, "slice_cpu_quota")
@@ -1123,14 +1169,23 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
             mem_free = min(mem_free, room) if mem_free is not None else room
     candidates = []
     if cpu_free is not None:
-        candidates.append(int(cpu_free / job_cpus))
+        candidates.append(_fits(cpu_free, job_cpus))
     if mem_free is not None:
-        candidates.append(int(mem_free / job_mem_mb))
+        candidates.append(_fits(mem_free, job_mem_mb))
     if not candidates:
         return 1
-    candidates += [int(total / cost) - running for total, cost in
-                   ((cpu_whole, job_cpus), (mem_whole, job_mem_mb)) if total is not None]
+    said = [cost for cost in others if cost]
+    candidates += [_fits(total - sum(cost[part] for cost in said), job) - (running - len(said))
+                   for part, (total, job) in enumerate(((cpu_whole, job_cpus),
+                                                        (mem_whole, job_mem_mb)))
+                   if total is not None]
     return max(1, running + max(0, min(candidates)))
+
+
+def _fits(room, cost):
+    """How many of `cost` fit in `room`.  Costs taken from a whole leave float dust, and dust
+    must not cost a place: 4 cores less two at 0.8 over 0.8 is 2.9999999999999996."""
+    return int(round(room / cost, 9))
 
 
 def whole_checks_that_fit(command=None):
@@ -1197,36 +1252,40 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             kept = host.kept_cpu(orch.run_slice_cgroup()) if pinned is None else None
             if kept is not None:
                 readings = {**readings, "slice_cpu_used": kept}
-            total = max(1, _heavy_max_existing() + 1, len(slots))
-            while len(slots) < total:
-                slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
-            temp, held = [], 0
-            for fh in slots:
-                if fh in mine:
-                    held += 1     # this suite's own turn: its own lock would take it again
-                    continue
-                try:
-                    fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    held += 1
-                    continue
-                temp.append(fh)
-            new_limit = pinned if pinned is not None else derived_heavy_limit(
-                readings, held - idle, *cost, unit=pieces)
-            while len(slots) < new_limit:
-                slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
-            candidates = []
-            if held < new_limit:
-                wanted = new_limit - held if pieces else 1
-                for fh in slots[:new_limit]:
-                    if fh not in mine and take_slot([fh]) is not None:
-                        candidates.append(fh)
-                    if len(candidates) == wanted:
-                        break
-            for fh in temp:
-                if fh not in candidates:
-                    fcntl.flock(fh, fcntl.LOCK_UN)
-            return candidates, new_limit, held
+            with _place_costs():
+                total = max(1, _heavy_max_existing() + 1, len(slots))
+                while len(slots) < total:
+                    slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
+                temp, held, others = [], 0, []
+                for fh in slots:
+                    if fh in mine:
+                        held += 1     # this suite's own turn: its own lock would take it again
+                        continue
+                    try:
+                        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        held += 1
+                        others.append(_held_cost(fh.name))
+                        continue
+                    temp.append(fh)
+                new_limit = pinned if pinned is not None else derived_heavy_limit(
+                    readings, held - idle, *cost, unit=pieces, others=others)
+                while len(slots) < new_limit:
+                    slots.append(files.enter_context(gate_lock(repo, len(slots)).open("a")))
+                candidates = []
+                if held < new_limit:
+                    wanted = new_limit - held if pieces else 1
+                    for fh in slots[:new_limit]:
+                        if fh not in mine and take_slot([fh]) is not None:
+                            candidates.append(fh)
+                        if len(candidates) == wanted:
+                            break
+                for fh in temp:
+                    if fh not in candidates:
+                        fcntl.flock(fh, fcntl.LOCK_UN)
+                for fh in candidates:
+                    _say_cost(fh, cost)
+                return candidates, new_limit, held
         place = me_since
         slot, limit, held = admit()
         if not limit:
@@ -1486,10 +1545,12 @@ def suite_cost(command, cwd, run_dir):
     cost = read_suite_cost(path)
     def measured(name, estimate):
         value = cost.get(name)
-        if type(value) in (int, float) and math.isfinite(value) and value > 0:
-            return max(estimate, value)
-        return estimate
+        return max(estimate, value) if _a_cost(value) else estimate
     return path, measured("cpus", HEAVY_CPUS), measured("mem_mb", HEAVY_MEM_MB)
+
+
+def _a_cost(value):
+    return type(value) in (int, float) and math.isfinite(value) and value > 0
 
 
 def read_suite_cost(path):

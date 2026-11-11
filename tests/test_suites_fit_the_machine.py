@@ -10,11 +10,13 @@ Offline: temporary HOME, injected host readings and a fake cgroup tree; only the
 wait tests run real boxes, whose CPU is counted in CPU seconds, never against a wall clock.
 """
 
+import fcntl
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -63,6 +65,50 @@ class SuitesFitTheMachine(unittest.TestCase):
         path, _, _ = gate.suite_cost(fixture.SUITE, self.root, self.run_dir)
         gate.write_suite_cost(path, {"cpus": 1.2})
         self.assertEqual(self.started(ROOMY), int(6 / 1.2))
+
+    def test_places_others_hold_count_at_what_their_pieces_cost(self):
+        # 8 idle cores: four checks naming no pieces hold a place each at the initial 0.7, and
+        # a suite whose piece costs 2 fits two beside them, in the 5.2 cores they leave.
+        idle = {"cpus": 8, "load": 0, "free_mb": 32000}
+        path, _, _ = gate.suite_cost(fixture.SUITE, self.root, self.run_dir)
+        gate.write_suite_cost(path, {"cpus": 2.0})
+        with patch.dict(os.environ, {"AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(idle)}), \
+                patch.object(gate.time, "sleep", side_effect=AssertionError("two must fit")):
+            for _ in range(4):
+                self.addCleanup(gate._acquire_gate_turn(self.run_dir, self.root / "light.log",
+                                                        None).release)
+            hold = gate._acquire_gate_turn(self.run_dir, self.root / "pieces.log", None,
+                                           fixture.SUITE, self.root)
+            self.addCleanup(hold.release)
+        self.assertEqual(len(hold.slots), 2)
+
+    def test_a_place_taken_is_read_once_it_says_its_cost(self):
+        # A check has taken two places on 8 idle cores and not yet said they cost 2 each: one
+        # whose piece costs 0.7 reads them once said, and fits five beside them, not nine.
+        idle = {"cpus": 8, "load": 0, "free_mb": 32000}
+        held = []
+        asker = threading.Thread(target=lambda: held.append(gate._acquire_gate_turn(
+            self.run_dir, self.root / "pieces.log", None, fixture.SUITE, self.root)))
+        with patch.dict(os.environ, {"AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(idle)}), \
+                patch.object(gate.time, "sleep", side_effect=AssertionError("five must fit")):
+            with gate._place_costs():
+                taken = [gate.gate_lock(None, index).open("a") for index in range(2)]
+                for slot in taken:
+                    self.addCleanup(slot.close)
+                    fcntl.flock(slot, fcntl.LOCK_EX)
+                asker.start()
+                asker.join(1)   # time for a check that read them unsaid to take nine
+                for slot in taken:
+                    gate._say_cost(slot, (2.0, 410))
+            asker.join()
+        self.assertEqual(len(held), 1)
+        self.addCleanup(held[0].release)
+        self.assertEqual(len(held[0].slots), 5)
+
+    def test_a_place_that_fits_exactly_is_not_lost_to_float_dust(self):
+        # 4 cores less two places at 0.8 leave three more at 0.8, though floats say 2.9999...
+        room = {"cpus": 4, "load": 0, "free_mb": 32000}
+        self.assertEqual(gate.derived_heavy_limit(room, 2, 0.8, others=[(0.8, 410)] * 2), 5)
 
     def test_a_repository_with_no_record_starts_from_the_estimate(self):
         path, _, _ = gate.suite_cost(fixture.SUITE, self.checkout("widget"), None)

@@ -142,11 +142,11 @@ class HeavySuiteTurns(unittest.TestCase):
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SMALL)}):
             expected = gate.derived_heavy_limit(SMALL, running=0)
             with gate.gate_turn(directory, directory / "gate.log", None, command, self.root):
-                self.assertEqual(gate._heavy_running(), expected)
+                self.assertEqual(len(gate._heavy_held()), expected)
                 self.assertEqual(len(gate._GATE_HELD.hold.slots), expected)
                 gate._GATE_HELD.hold.alone()
-                self.assertEqual(gate._heavy_running(), 1)
-            self.assertEqual(gate._heavy_running(), 0)
+                self.assertEqual(len(gate._heavy_held()), 1)
+            self.assertEqual(len(gate._heavy_held()), 0)
 
     def test_red_pieces_going_again_whole_hold_a_turn_each_then_one(self):
         # three fit, so six pieces; two fail their first go, naming no test, and go again whole
@@ -159,7 +159,7 @@ class HeavySuiteTurns(unittest.TestCase):
             goes[shard] += 1
             if goes[shard] == 2:    # each reads the turns held while both run
                 both.wait()
-                held.append(gate._heavy_running())
+                held.append(len(gate._heavy_held()))
                 both.wait()
             return int(shard in ("1/6", "2/6") and goes[shard] == 1), "", False
 
@@ -169,7 +169,7 @@ class HeavySuiteTurns(unittest.TestCase):
                 gate.gate_turn(directory, directory / "gate.log", None, command, self.root):
             code = gate.run_suite(command, 30, cwd=self.root, activity=directory / "live.log",
                                   output=BytesIO(), run_dir=directory)[0]
-            self.assertEqual((code, held, gate._heavy_running()), (0, [2, 2], 1))
+            self.assertEqual((code, held, len(gate._heavy_held())), (0, [2, 2], 1))
 
     def test_a_second_go_that_raises_ends_the_suite_at_once(self):
         # as above, but 2/6's second go raises, as starting a process can with none left, once
@@ -314,7 +314,7 @@ class HeavySuiteTurns(unittest.TestCase):
                     directory = self.record(f"{name}-{running}", WIDGET)
                     log_path = directory / "donewhen.log"
                     def sample(**_kw):
-                        self.assertEqual(gate._heavy_running(), running)
+                        self.assertEqual(len(gate._heavy_held()), running)
                         self.assertEqual(gate.derived_heavy_limit(SATURATED), 1)
                         return SATURATED
                     with patch.object(host, "host_readings", side_effect=sample) as readings, \
