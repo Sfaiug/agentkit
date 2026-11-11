@@ -3,8 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 )
 
 // RunCode is where Python's versions.enter names the version a run is pinned to (CODE_ENV), which
@@ -46,16 +44,4 @@ func live() (string, bool, error) {
 		return build, true, nil
 	}
 	return self, false, err
-}
-
-// Unpinned is the PATH list path without an entry under ~/.agentkit/versions, for what outlives
-// this process: an `ak` found there would run that version.  Python's versions.unpinned drops a
-// version's bin; Go's build lies deeper, in its go/bin, so every entry under the folder goes.
-func Unpinned(path string) string {
-	versions := filepath.Join(Home(), "versions")
-	kept := slices.DeleteFunc(filepath.SplitList(path), func(entry string) bool {
-		entry = filepath.Clean(entry)
-		return entry == versions || strings.HasPrefix(entry, versions+string(filepath.Separator))
-	})
-	return strings.Join(kept, string(os.PathListSeparator))
 }

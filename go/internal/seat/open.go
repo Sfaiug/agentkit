@@ -209,7 +209,7 @@ func start(state, name, cwd string, cmd []string) error {
 	if err != nil {
 		return err
 	}
-	shims, err := shims()
+	path, err := seatPath(cwd)
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func start(state, name, cwd string, cmd []string) error {
 	}
 	target := "=" + name + ":"
 	args := slices.Concat([]string{"new-session", "-d", "-s", name, "-c", cwd}, paneEnvironment(values), []string{command})
-	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
+	if err := tmux.Spawn(server, path, args...); err != nil {
 		os.Remove(launch)
 		return fmt.Errorf("tmux could not start the session %s in %s: %v", name, cwd, err)
 	}
