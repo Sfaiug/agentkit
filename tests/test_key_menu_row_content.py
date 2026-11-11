@@ -1,7 +1,7 @@
 """The menu's seat rows: a seat tmux lost, a plan's bar, and a done seat.
 
 A row is all the owner reads of a seat before opening it.  A seat whose tmux session went keeps
-its row, `idle`, or `needs you` while its plan owes a line, and says how its number reopens it;
+its row, `idle`, or `needs you` while its plan owes a line, and its number reopens it;
 a seat with a plan shows how much of it is done, counted as the stop hook counts it, so the bar
 never claims work nothing proved; and a seat whose plan is all done reads done.  Black-box: the program `AK_BIN` names runs in a person's terminal
 (tests/fixtures/akterm.py) or from a pipe, beside tests/fixtures/akseat.py's seats, and this
@@ -21,7 +21,7 @@ from fixtures.akterm import Terminal
 
 SIZE = (100, 30)
 OPENS = 60      # the first draw looks at every seat, which a loaded host makes slow
-REOPEN = "     session closed: press"     # under the row, at the name's column
+CREW = "     Fable 5.1 xhigh ⚒◎"     # the line under a row, at the name's column
 BAR = re.compile(r" (?P<full>━*)(?P<half>╸?)(?P<rest>─*) (?P<done>\d+) of (?P<total>\d+)$")
 
 
@@ -85,35 +85,34 @@ class SeatsTmuxLost(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         seats(cls.home, ("ghost-a", None, []), ("ghost-b", None, [checked(" ", "x")]))
 
-    def test_a_lost_seat_says_how_to_reopen_it_once_the_highlight_moves_onto_it(self):
+    def test_a_lost_seat_opens_who_builds_and_reviews_once_the_highlight_moves_onto_it(self):
         menu = Terminal(self.home, size=SIZE)
         screen = menu.wait(shows(("ghost-a", "Fable 5.1 xhigh  ○ idle"),
                                  ("ghost-b", "Fable 5.1 xhigh  ! needs you")), bound=OPENS)
         self.assertEqual(row(screen, "ghost-a")[0], "› 1  ghost-a  Fable 5.1 xhigh  ○ idle")
         self.assertTrue(row(screen, "ghost-b")[0].startswith(
             "  2  ghost-b  Fable 5.1 xhigh  ! needs you"))
-        self.assertNotIn("session closed", screen)    # nobody has pointed at a row yet
+        self.assertNotIn(CREW, screen)    # nobody has pointed at a row yet
         menu.keys("j")
-        screen = menu.wait("press 2 to reopen")
+        screen = menu.wait(lambda screen: "› 2  ghost-b" in screen and CREW in screen)
         ghost_b = row(screen, "ghost-b")
         self.assertTrue(ghost_b[0].startswith("› 2  ghost-b"), screen)
-        self.assertEqual(ghost_b[1], f"{REOPEN} 2 to reopen")
+        self.assertEqual(ghost_b[1], CREW)
         menu.keys("k")
-        screen = menu.wait("press 1 to reopen")
-        self.assertEqual(row(screen, "ghost-a"),
-                         ("› 1  ghost-a  Fable 5.1 xhigh  ○ idle", f"{REOPEN} 1 to reopen"))
-        self.assertNotIn("press 2 to reopen", screen)
+        screen = menu.wait(lambda screen: "› 1  ghost-a" in screen and CREW in screen)
+        self.assertEqual(row(screen, "ghost-a"), ("› 1  ghost-a  Fable 5.1 xhigh  ○ idle", CREW))
+        self.assertEqual(screen.count(CREW), 1)
         menu.keys("Escape")
         self.assertEqual(menu.exit_code(), 0)
 
-    def test_from_a_pipe_every_lost_seat_says_how_to_reopen_it(self):
+    def test_from_a_pipe_every_lost_seat_opens_who_builds_and_reviews(self):
         done = self.home.ak(input="\n")
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(row(done.out, "ghost-a"),
-                         ("  1  ghost-a  Fable 5.1 xhigh  ○ idle", f"{REOPEN} 1 to reopen"))
+                         ("  1  ghost-a  Fable 5.1 xhigh  ○ idle", CREW))
         ghost_b = row(done.out, "ghost-b")
         self.assertTrue(ghost_b[0].startswith("  2  ghost-b  Fable 5.1 xhigh  ! needs you"), done.out)
-        self.assertEqual(ghost_b[1], f"{REOPEN} 2 to reopen")
+        self.assertEqual(ghost_b[1], CREW)
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

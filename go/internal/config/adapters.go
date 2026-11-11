@@ -61,31 +61,30 @@ func runnable(script, harness string) (string, error) {
 // manifests is every adapter's manifest by its name, $AGENTKIT_ADAPTER_DIR's of a harness first,
 // else the first in file order that is not TOML, named by its file as Python's config.manifest
 // names it; a file whose name cannot name a harness, a backup such as `acme copy.toml`, is no
-// manifest and never read.
+// manifest and never read.  Each is every reader's (keptManifest), so only read it.
 func manifests() (map[string]*table, error) {
 	found := map[string]*table{}
-	read := func(files []string, load func(string) ([]byte, error)) error {
+	read := func(files []string, load func(string) (*table, error)) error {
 		for _, file := range files {
 			name := strings.TrimSuffix(filepath.Base(file), ".toml")
 			if !harnessName.MatchString(name) {
 				continue
 			}
-			data, err := load(file)
-			if err != nil {
+			var err error
+			if found[name], err = load(file); errors.As(err, new(*fs.PathError)) {
 				return fmt.Errorf("cannot read %s: %w", file, err)
-			}
-			if found[name], err = parseDocument(string(data)); err != nil {
+			} else if err != nil {
 				return fmt.Errorf("%s: %w", file, err)
 			}
 		}
 		return nil
 	}
 	shipped, _ := fs.Glob(adapters, "adapters/*.toml")
-	if err := read(shipped, adapters.ReadFile); err != nil {
+	if err := read(shipped, shippedManifest); err != nil {
 		return nil, err
 	}
 	if dir := os.Getenv(adapterDir); dir != "" {
-		if err := read(Glob(Expand(dir), "*.toml"), os.ReadFile); err != nil {
+		if err := read(Glob(Expand(dir), "*.toml"), adapterManifests.Read); err != nil {
 			return nil, err
 		}
 	}

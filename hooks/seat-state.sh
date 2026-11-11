@@ -48,6 +48,18 @@ watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, "" if 
 ' "${BASH_SOURCE[0]}" "$seat" "$answered" "$event" >/dev/null 2>&1 & )
 }
 
+# The moment that seat heard its event, on its own clock (`config.heard_at`), which never runs
+# back as the host's can: else the host's.
+heard() {
+  /usr/bin/env python3 -c '
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit import config
+print(config.heard_at(sys.argv[2]))
+' "${BASH_SOURCE[0]}" "$1" 2>/dev/null || /bin/date +%s
+}
+
 seat_state() {
   local payload=$1 jq=$2 owner=$3 said=$4 ts=$5 seat event kind text dir row next hop write
   seat=${AGENTKIT_SESSION:-}
@@ -55,17 +67,14 @@ seat_state() {
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null) || return 0
   [[ -n $event ]] || return 0
   [[ $event != SessionStart ]] || return 0
-  if [[ -z $ts ]]; then
-    ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
-  fi
+  [[ -n $ts ]] || ts=$(heard "$seat")
   # the payload field that tells one kind of that event from another: Claude's Notification
   # carries notification_type, a PermissionRequest the tool it wants -- and one harness spells
   # both camelCase, so the twins are read beside them -- and a compaction its trigger
   kind=$("$jq" -r '.notification_type // .notificationType // .tool_name // .toolName // .trigger
                    // empty' <<<"$payload" 2>/dev/null) || kind=''
   # a question's own words, where the event carries one, before a notice's: whole, for each
-  # reader fits them to its own room (tests/test_highlighted_question_whole.py), and on stdin,
-  # for one argument holds 128 KiB
+  # reader fits them to its own room, and on stdin, for one argument holds 128 KiB
   text=$("$jq" -r '(.tool_input.questions[0].question)? // .message // .title // ""' \
     <<<"$payload" 2>/dev/null) || text=''
 
@@ -176,7 +185,7 @@ main() {
   # question fact standing until its context has been read: the watcher can answer it as soon
   # as the prompt fact appears, even before this hook starts its own background look.
   if [[ $event = UserPromptSubmit ]]; then
-    ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
+    ts=$(heard "$seat")
     dir="$HOME/.agentkit/state"
     /bin/mkdir -p -- "$dir" || return 0
     tmp="$dir/stop-$seat.json.tmp.$$"

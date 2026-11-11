@@ -61,8 +61,8 @@ class PiecesFitWithoutCache(unittest.TestCase):
         measured = gate._SuiteMeasure(None)
         self.memory(self.unit, 2300, 1180, file=1200, shmem=20)
         measured.sample()
-        measured.cpu.extend([10, 10])
-        measured.save(path, 2)
+        measured.cpu.extend([(10, 10), (10, 10)])
+        measured.save(path, 2, 2)
         return gate.read_suite_cost(path)
 
     def test_a_lander_measures_its_pieces_without_the_file_cache(self):
