@@ -141,7 +141,8 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
             running.discard(shard)
             return (1 if shard == "1/2" else 0), "", False
 
-        hold = SimpleNamespace(slots=[1, 2], pieces=2, alone=lambda: None,
+        hold = SimpleNamespace(slots=[1, 2], pieces=2, alone=lambda: None, shed=lambda: None,
+                               suite=lambda cost: None,
                                take=lambda stopped: True, give=lambda slot: None)
         with patch.object(gate._GATE_HELD, "away", SimpleNamespace(alias="acme-mac", count=1, most=1),
                           create=True), \
