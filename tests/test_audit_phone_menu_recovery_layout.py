@@ -361,7 +361,7 @@ class Bar(Sandbox):
         fable = "#[bold]herdr#[nobold]   #[fg=#6c7086]fable#[default]"
         with patch.dict(os.environ, env, clear=True):
             self.assertEqual(statusbar.lines("herdr", "fable", "working", "tasks x 2/5"),
-                             (f" #[fg=#89b4fa]● working#[default]   {fable}   tasks x 2/5",
+                             (f" #[fg=#ffffff,bg=#0067c6] ● working #[default]   {fable}   tasks x 2/5",
                               "", key, "herdr · working"))
             self.assertEqual(statusbar.lines("herdr", "fable"),
                              (f" {fable}", "", key, "herdr"))
