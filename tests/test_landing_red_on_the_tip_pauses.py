@@ -137,9 +137,12 @@ class RedOnTheTip(unittest.TestCase):
         said = []
         with patch.object(gate, "derived_heavy_limit", return_value=2):
             land.check_line(self.turn, said.append)
-        # on the tip, without the stack's own test files, the red piece's number holds others
+        # on the tip, without the stack's own test files, the red piece's number holds others:
+        # the suite runs there whole, split as anywhere, a project's suite line setting
+        # AK_SHARD itself included
         self.assertEqual(self.commands(), [["true", suite], [suite]])
         self.assertIsNone(self.checks[-1][2].get("shard"))
+        self.assertTrue(gate.names_shard("export AK_SHARD=${AK_SHARD:-1/1}; make test"))
         self.assertEqual(self.red()["probe"]["piece"], "")
         # what the suite printed on the tip is what a repair or a PR's fixer is told
         self.assertIn("piece-two-broke", (first / "target-probe.log").read_text())
