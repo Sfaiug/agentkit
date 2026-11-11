@@ -35,12 +35,8 @@ const (
 	piecesCap = 256 * 1024
 )
 
-// namesShard is a check run as a share of its suite, and namesChanged one narrowed to the files a
-// change touches: Python's runner sets each.
-var (
-	namesShard   = regexp.MustCompile(`\bAK_SHARD\b`)
-	namesChanged = regexp.MustCompile(`\bAK_CHANGED\b`)
-)
+// namesShard is a check run as a share of its suite: Python's runner sets it.
+var namesShard = regexp.MustCompile(`\bAK_SHARD\b`)
 
 // flakyKey ignores varying values without depending on a suite's failure words, Python's
 // gate.flaky_key: an absolute path can have another temporary root on each run, a test's name

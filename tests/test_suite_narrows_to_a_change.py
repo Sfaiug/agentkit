@@ -13,9 +13,8 @@ import tempfile
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(REPO), str(REPO / "tests")]
+sys.path.insert(0, str(REPO / "tests"))
 from affected import selection
-from agentkit import gate
 from suite_shares import SETUP, STATIC_CHECKS
 
 # Each stand-in notes its start, and fails when ACME_FAILS names it.
@@ -197,7 +196,7 @@ class SuiteNarrowsToAChange(unittest.TestCase):
         # Whole, on the commit to be merged: a round runs the task's own checks.
         line = next(line for line in (REPO / "AGENTS.md").read_text().splitlines()
                     if line.startswith("tests: "))
-        self.assertFalse(gate.names_changed(line))
+        self.assertNotRegex(line, r"\bAK_CHANGED\b")
 
 
 if __name__ == "__main__":

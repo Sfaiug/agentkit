@@ -44,9 +44,9 @@ func (p *placement) close() {
 }
 
 // heavy is whether cmd waits for this host's heavy-suite turn before it starts, as Python's checks
-// do: a suite in pieces, a round's suite, a `# once` command and whatever a line's checker runs,
-// but tests named alone, which cost what a model's own test does: on a host out of CPU no turn
-// comes until it is idle, and that wait held whole lines up to an hour (30 Oct 2026).
+// do: a suite in pieces, one handed the change's paths, a `# once` command and whatever a line's
+// checker runs, but tests named alone, which cost what a model's own test does: on a host out of
+// CPU no turn comes until it is idle, and that wait held whole lines up to an hour (30 Oct 2026).
 func (l *loop) heavy(cmd string, selection *checkSelection) bool {
 	if selection != nil && selection.tests != nil {
 		return false
