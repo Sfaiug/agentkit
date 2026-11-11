@@ -378,7 +378,9 @@ class SuitePieces(unittest.TestCase):
         held, flags, red = {}, set(), {"1/4", "2/4"}
         def limited(cmd, limit, env, **_kw):
             shard = env["AK_SHARD"]
-            if shard == "4/4":    # the last to start, which reads once its sibling has ended
+            # the last to start of the first goes, and of the red ones' second, each reading
+            # once its sibling has ended
+            if shard == "4/4" or shard == "2/4" and shard in held:
                 deadline = time.monotonic() + 5
                 while gate._heavy_running() > 1 and time.monotonic() < deadline:
                     time.sleep(0.01)
@@ -392,8 +394,9 @@ class SuitePieces(unittest.TestCase):
             (config.HOME / config.CONFIG_NAME).write_text("max_gates = 9\n")
             ok, text = self.check()
         self.assertTrue(ok, text)
-        # 4 pieces on 2 turns, but the last once no piece is left to start, and retries alone
-        self.assertEqual(held, {"1/4": [2, 1], "2/4": [2, 1], "3/4": [2], "4/4": [1]})
+        # 4 pieces on 2 turns, the red ones again side by side, but the last of each once no
+        # piece is left to start
+        self.assertEqual(held, {"1/4": [2, 2], "2/4": [2, 1], "3/4": [2], "4/4": [1]})
         self.assertEqual(flags, {"1"})
         self.assertEqual(gate._heavy_running(), 0)
 

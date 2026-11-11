@@ -901,12 +901,13 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
 
 
 class _Pieces:
-    """A sharded suite's pieces not yet run, each taken by the next place to free, a turn here or
-    a VM on a machine; one a machine had no room to start (`helper.FULL`) waits for the next place,
-    one it lost (`helper.GONE`) for the next but the VMs of the suite there that lost it."""
+    """A sharded suite's pieces not yet run, by index, each taken by the next place to free, a
+    turn here or a VM on a machine; one a machine had no room to start (`helper.FULL`) waits for
+    the next place, one it lost (`helper.GONE`) for the next but the VMs of the suite there that
+    lost it."""
 
-    def __init__(self, count):
-        self.waiting, self.lost, self.out, self.there = list(range(count)), {}, 0, 0
+    def __init__(self, which):
+        self.waiting, self.lost, self.out, self.there = list(which), {}, 0, 0
         self.cond, self.hold = threading.Condition(), None
 
     def mine(self, there):
@@ -978,10 +979,11 @@ class _GateHold:
         self.lock, self.growing, self.queue = threading.Condition(), threading.Lock(), ExitStack()
 
     def suite(self, cost):
-        """A suite's pieces start here.  One the hold was not admitted for, a later suite of
-        its check, is admitted now as the first was: its own piece's `cost` decides its places
-        and its turns, and those free now join the hold.  A hold taken for no pieces has no
-        way to ask for them (`more`) and stays one place."""
+        """A suite's pieces start here, and its red ones going again whole.  One the hold was not
+        admitted for, a later suite of its check or a hold kept `alone`, is admitted now as the
+        first was: its own piece's `cost` decides its places and its turns, and those free now
+        join the hold.  A hold taken for no pieces has no way to ask for them (`more`) and stays
+        one place."""
         if self.more and cost != self.cost:
             self.cost = cost
             freed, self.pieces = self.more(self.slots, len(self.idle), cost)
@@ -1015,6 +1017,7 @@ class _GateHold:
                         with self.lock:
                             self.slots += freed
                             self.idle += freed
+                            self.lock.notify_all()    # a sibling waiting meanwhile takes one
                     finally:
                         self.growing.release()
                     if freed:
@@ -1959,6 +1962,9 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         starved.add(shard)
                     else:
                         starved.discard(shard)
+                except BaseException:
+                    cancel.set()    # its siblings stop rather than wait out the limit for it
+                    raise
                 finally:
                     stream.finish()
                     asked_at[shard] = time.time()
@@ -1967,16 +1973,28 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 return code, piece, killed, tests
 
             def attempts(which):
-                """Run the whole pieces at `which`, bounded by this host's turns."""
+                """Run the whole pieces at `which` on this host's turns as its first pieces ran
+                (`_Pieces`): once none waits to start, a turn one ends on goes back to the host."""
+                left = _Pieces(which)
+                left.hold = hold
+
+                def place():
+                    while (taken := left.next(over, None)) is not None:
+                        index, turn = taken
+                        try:
+                            results[index] = attempt(f"{index + 1}/{count}", turn=turn)
+                        finally:    # one that raised too, or a sibling waits for it
+                            left.done(index, False, turn, None)
+
                 with ThreadPoolExecutor(max_workers=len(which)) as pool:
                     try:
-                        futures = [pool.submit(attempt, f"{index + 1}/{count}")
-                                   for index in which]
-                        for index, future in zip(which, futures):
-                            results[index] = future.result()
+                        for future in [pool.submit(place) for _ in which]:
+                            future.result()
                     except BaseException:
                         cancel.set()
                         raise
+                for index in left.waiting:    # stopped before it ran
+                    results[index] = attempt(f"{index + 1}/{count}")
 
             def pull(here):
                 """`here` places on this host and `away`'s VMs each take the next waiting piece
@@ -2065,7 +2083,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         cancel.set()
                         raise
 
-            results, where, pieces_left = [None] * count, [None] * count, _Pieces(count)
+            results, where, pieces_left = [None] * count, [None] * count, _Pieces(range(count))
             pull(hold.pieces if hold else 0 if away else count)
             # Pieces that waited for turns did not run at once: their measure is no piece's cost.
             # Those on the helper held none of this host's memory.
@@ -2101,15 +2119,6 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 if on_wait is not None:
                     on_wait(queued)
                 env = suite_env(changed, times)
-
-            def rerun(shard, only=None):
-                """`attempt` once the others ended: a whole piece takes a turn here first, whichever
-                way it came to run whole, as only named tests go without one."""
-                if only is None and hold is None and not over():
-                    turn_here()
-                    if hold is not None:
-                        hold.alone()
-                return attempt(shard, only)
 
             def wait_busy():
                 nonlocal hold, deadline, env
@@ -2152,7 +2161,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     retried.add(index)
                     shard = f"{index + 1}/{count}"
                     while True:
-                        results[index] = rerun(shard, named[index][1])
+                        results[index] = attempt(shard, named[index][1])
                         code, _, killed, tests = results[index]
                         if code != SUITE_BUSY or killed or cancel.is_set():
                             break
@@ -2179,26 +2188,26 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if hold is not None:
                 hold.alone()
             chunks, red, flakes, alones = [], [], [], {}
-            for index, (code, piece, killed, tests) in enumerate(results, 1):
-                shard = f"{index}/{count}"
-                if index - 1 in named and index - 1 not in retried:
-                    alones[shard] = None
-                    continue
+
+            def goes(index):
+                """Piece `index`'s goes after its first, as `go_again` runs them: it yields what
+                each runs, its named tests or None for the whole piece, and is sent its end."""
+                code, piece, killed, tests = results[index]
+                shard = f"{index + 1}/{count}"
                 failed = only = alone = None
                 how = "failed"
                 if shard in silenced and not cancel.is_set():
                     # stopped at its suite's pace: once more alone, with the rest of the limit
                     piece.seek(0)
                     failed, how = piece.read(), f"was stopped after {silence / 60:g} min of silence"
-                    code, piece, killed, tests = rerun(shard)
+                    code, piece, killed, tests = yield None
                 elif shard in starved and not cancel.is_set():
-                    # out of memory beside its siblings: once more alone, after them
-                    code, piece, killed, tests = rerun(shard)
-                if index - 1 in named:    # its tests the helper named, run alone here
-                    there, only = named[index - 1]
+                    code, piece, killed, tests = yield None
+                if index in named:    # its tests the helper named, run alone here
+                    there, only = named[index]
                     there.seek(0)
                     failed = there.read()
-                    how = f"failed on the suite helper {where[index - 1].alias}"
+                    how = f"failed on the suite helper {where[index].alias}"
                 while not killed and not cancel.is_set():
                     if code == SUITE_BUSY:
                         wait_busy()
@@ -2231,13 +2240,55 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         only = tests or None
                     else:
                         break
-                    code, piece, killed, tests = rerun(shard, only)
+                    code, piece, killed, tests = yield only
                 if failed is not None and code == 0 and alone is None:
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
                                                piece.read(), activity, run_dir, log, how))
-                results[index - 1] = code, piece, killed, tests
+                results[index] = code, piece, killed, tests
                 alones[shard] = alone
+
+            def go_again(which):
+                """The goes the pieces at `which` ask for (`goes`), until none asks another: named
+                tests one piece at a time, then the whole pieces at once, on turns here taken as
+                their first ones were (`_GateHold.suite`, `attempts`): a turn kept for each from
+                its first go would sit idle while most are settled by their named tests."""
+                going, asked = {index: goes(index) for index in which}, {}
+
+                def answer(index, ended=None):
+                    try:
+                        asked[index] = going[index].send(ended)
+                    except StopIteration:
+                        del going[index]
+
+                for index in which:
+                    answer(index)
+                while going:
+                    for index in sorted(going):
+                        while index in going and asked[index] is not None:
+                            answer(index, attempt(f"{index + 1}/{count}", asked[index]))
+                    if not going:
+                        break
+                    if hold is None and not over():
+                        turn_here()
+                    if hold is not None:
+                        hold.suite((cpu, mem))
+                    whole = sorted(going)
+                    attempts(whole)
+                    if hold is not None:
+                        hold.alone()
+                    for index in whole:
+                        answer(index, results[index])
+
+            # Later named reds keep their helper output.
+            alones.update((f"{index + 1}/{count}", None) for index in named if index not in retried)
+            ours = [index for index in range(count) if index not in named or index in retried]
+            # Stopped for silence or killed for memory beside its siblings, a piece goes again
+            # alone, after them: its first go may have lacked what they used.
+            last = [index for index in ours if f"{index + 1}/{count}" in silenced | starved]
+            go_again([index for index in ours if index not in last])
+            for index in last:
+                go_again([index])
             # The shares rest on how many ended red, known only now, reruns included.
             reds = sum(1 for code, _, _, _ in results if code)
             red_share, share = shares(reds, count - reds + len(flakes))
