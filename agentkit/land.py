@@ -341,7 +341,7 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     ended in a failing exit on the pinned tip (`gate.run_suite(confirmed=)`), they are a red that
     repeats, which no step of the retry ladder would clear: the target's own, repaired at once,
     and the piece need not run either.  Anything else proves nothing -- a test the member added
-    is not on the tip -- so the whole piece then decides, as without them.
+    is not on the tip -- so the whole piece then decides.
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
     target's one repair (`_repair`); a repeat of named tests walks for the commit that first
