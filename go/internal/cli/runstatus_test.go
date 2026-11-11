@@ -30,7 +30,9 @@ func TestRunStatusRefusals(t *testing.T) {
 		"sweep owed": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"fail","scope":"ak-fix-api.scope"}`}, nil},
 		"lone surrogate": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
 			"runs/20261020-0900-add-beta/run.json": `{"state":"pass","title":"beta \ud800"}`}, []string{"--json"}},
-		"job":     {map[string]string{"jobs/batch/job.json": `{"tasks":[]}`}, nil},
+		// the smoke suite's run is no row of its own, yet the job's block reads it
+		"a job's task, its loop gone": {map[string]string{"jobs/batch/job.json": `{"tasks":[{"name":"smoke.md","state":"running","run_id":"20261020-0900-smoke"}]}`,
+			"runs/20261020-0900-smoke/run.json": `{"state":"running","task":"~/.agentkit/tmp/smoke-acme/task.md"}`}, nil},
 		"history": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended, "history.db": ""}, []string{"--json"}},
 		"seat": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
 			"state/session-acme.json": `{"name":"acme"}`}, []string{"--history"}},

@@ -19,10 +19,22 @@
 set -uo pipefail
 REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 # A mode runs only its own checks, and a piece of it only its share: suite_shares.py chooses.
+# A check the kernel killed for memory says nothing of the checkout, so a share whose every
+# failed check died by SIGKILL (acceptance.sh's NKILLED) while the kernel killed in its cgroup
+# for memory ends as a killed piece does, 137: the gate, counting the same kills, runs it again
+# alone and blames no test (`gate._SuiteMeasure.starved`), as a helper's piece.sh says 254 for
+# its own.  One failure of any other kind keeps the share's own red.
 if [ $# = 0 ]; then
   SMOKE_BODY=$(python3 "$REPO/tests/suite_shares.py" "$REPO/tests/smoke.sh") || exit $?
+  memory_kills() {
+    PYTHONPATH="$REPO" python3 -c 'from agentkit import host; print(host._oom_kill_count(host.process_cgroup()))' 2>/dev/null
+  }
+  SMOKE_KILLS=$(memory_kills)
   eval "$SMOKE_BODY"
-  exit $?
+  SMOKE_RC=$?
+  [ "${NFAIL:-0}" = 0 ] || [ "$NFAIL" != "${NKILLED:-0}" ] || [ "$(memory_kills)" = "$SMOKE_KILLS" ] ||
+    exit 137
+  exit "$SMOKE_RC"
 fi
 # --- shared setup ----------------------------------------------------------
 if [ "${AK_SHARD:-1/1}" != 1/1 ]; then
@@ -4451,9 +4463,9 @@ HOOKD
 : >"$WORK/hook-posts.txt"
 python3 "$WORK/hookd.py" "$WORK/hook-posts.txt" >"$WORK/hook-url.txt" 2>"$WORK/hookd.err" &
 HOOKPID=$!
-HOOKURL=""
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  HOOKURL=$(head -1 "$WORK/hook-url.txt" 2>/dev/null); [ -n "$HOOKURL" ] && break; sleep 0.3
+# as long as the hook takes to start on a busy host; one that died has no URL to wait for
+until HOOKURL=$(head -1 "$WORK/hook-url.txt" 2>/dev/null); [ -n "$HOOKURL" ]; do
+  kill -0 "$HOOKPID" 2>/dev/null || break; sleep 0.1
 done
 cat >"$WORK/orphan-template.md" <<MD
 ---

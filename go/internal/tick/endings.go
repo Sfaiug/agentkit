@@ -1,6 +1,7 @@
 package tick
 
 import (
+	"slices"
 	"sort"
 
 	"agentkit/internal/handback"
@@ -20,6 +21,7 @@ func (t *ticking) endings() error {
 	}
 	var owed []ending
 	var census []*run.Object // this pass's one read of every run, each offer's other runs
+	var told []*run.Object   // each ending owed a seat, asked whether Go reaches it once census is whole
 	carried := run.Every(func(dir string, record *run.Object) bool {
 		census = append(census, record)
 		if run.Active(record) {
@@ -43,16 +45,16 @@ func (t *ticking) endings() error {
 			return false
 		}
 		// launched from no seat, a run has nobody to hand its ending back to (handback.announce)
-		told := handback.Awaiting(record, t.clock()) && (run.Seat(record) != "" || !run.Ended(record))
-		if told && !handback.Reaches(record) {
-			return false
+		owes := handback.Awaiting(record, t.clock()) && (run.Seat(record) != "" || !run.Ended(record))
+		if owes {
+			told = append(told, record)
 		}
-		if told || run.Ended(record) && record.Truthy("pending_inbox") {
+		if owes || run.Ended(record) && record.Truthy("pending_inbox") {
 			owed = append(owed, ending{dir, record})
 		}
 		return true
 	})
-	if !carried {
+	if !carried || slices.ContainsFunc(told, func(record *run.Object) bool { return !handback.Reaches(record, census) }) {
 		return errLeft
 	}
 	sort.SliceStable(owed, func(i, j int) bool { return !owed[i].record.Truthy("merged") && owed[j].record.Truthy("merged") })

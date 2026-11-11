@@ -17,7 +17,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, handback, helper, history, host, machines, orch, stuck, suite_times
+from . import config, gitcall, handback, helper, history, host, orch, stuck, suite_times
 from . import transitions, turns
 from . import update
 from . import waiter
@@ -480,10 +480,6 @@ def _gates_admit(state, readings, is_first):
         reason, kind = _wait_reason(readings, minimum, maximum, peak, frozen, starting)
     else:
         reason, kind = _wait_reason(readings, minimum, 0, peak, starting=starting)
-    if reason is None and not is_first and landing_waits() and not machines.helpers():
-        # Finished work goes first: the headroom a new run would take is the suite's, which needs
-        # none here with a machine to go to (owner, 30 Oct 2026: nothing waits for compute).
-        reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
     if reason:
         return _held(state, reason, kind)
     if peak is None and 0 <= time.time() - slot_queue()[6] < SLOT_POLL:
@@ -768,10 +764,9 @@ def landing_wait(landing, since=None, run_id=None, line=False):
     Its own file says when its wait began, for which run and whether it is a line's own
     check, so landing waits rank among themselves (`_landing_waiters`); the line's checkers
     mark no member's record.  `.heavy-landing.wait`, shared by every line's check, says one
-    waits: round checks and, with no machine for suites, new runs stay behind it
-    (`landing_waits`), as they do behind a waiter on code from before 29 Oct 2026, which holds
-    it for any landing wait.  The kernel lets go with the holder, so a dead waiter holds nobody
-    back.
+    waits: round checks stay behind it (`landing_waits`), as they do behind a waiter on code from
+    before 29 Oct 2026, which holds it for any landing wait.  The kernel lets go with the
+    holder, so a dead waiter holds nobody back.
     """
     if not landing:
         yield
@@ -798,7 +793,7 @@ def _still_landing(context):
     """Whether the line still holds the member a checker's wait is for; True without one.
 
     A stopped or departed member leaves `landing.line`, and a check for it is no longer
-    finished work: it must not hold back every build and round check for its turn.
+    finished work: it must not hold back every round check for its turn.
     """
     line = (context or {}).get("line")
     if not line:
@@ -929,17 +924,30 @@ class _Pieces:
             turn = self.hold.take(lambda: ended() or not self.waiting) if (
                 not there and self.hold) else True
             with self.cond:
-                if turn is not None and (mine := self.mine(there)):
+                mine = turn is not None and self.mine(there)
+                if mine:
                     self.waiting.remove(mine[0])
                     self.out += 1
-                    return mine[0], turn
-            if turn is not True:
-                self.hold.give(turn)
+            if mine:
+                self.spare()    # it may have been the last to start
+                return mine[0], turn
+            self.give(turn)
+
+    def give(self, turn):
+        """`turn` back to the hold, where the suite's next piece takes it."""
+        if turn is not True:
+            self.hold.give(turn)
+        self.spare()
+
+    def spare(self):
+        """Once every piece has started none is left to take a turn: the host has those no
+        piece runs on, but the one the suite keeps until it ends (`_GateHold.shed`)."""
+        if self.hold and not self.waiting:
+            self.hold.shed()
 
     def done(self, index, back, turn, there):
         """`back`, the exit of a piece `there` gave back, ends that place there."""
-        if turn is not True:
-            self.hold.give(turn)
+        self.give(turn)
         with self.cond:
             self.out -= 1
             if back:
@@ -1028,13 +1036,20 @@ class _GateHold:
                 self.idle.append(slot)
                 self.lock.notify_all()    # a place waiting for a turn sees the list end
 
+    def shed(self):
+        """Unlock each turn no piece runs on, so the first waiter in rank takes it, but the one
+        the suite keeps until it ends, for its reruns."""
+        with self.lock:
+            while self.idle and len(self.slots) > 1:
+                slot = self.idle.pop()
+                self.slots.remove(slot)
+                fcntl.flock(slot, fcntl.LOCK_UN)
+
     def alone(self):
         """One turn kept once a suite's pieces end, and no other taken until a suite starts
         here (`suite`): what runs on it meanwhile runs alone."""
-        for slot in self.slots[1:]:
-            fcntl.flock(slot, fcntl.LOCK_UN)
-        self.slots = self.slots[:1]
-        self.idle, self.cost = list(self.slots), None
+        self.cost = None
+        self.shed()
 
     def release(self):
         try:
@@ -1336,7 +1351,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
     A check running while this thread already holds a turn takes no second one.
     A command naming AK_SHARD gets as many places as the derived limit fits, using its
     repository's measured cost when available: it takes the turns free now, then those freed
-    while it ranks first, each running one piece at a time (`_GateHold`, `run_suite`).
+    while it ranks first, each running one piece at a time, and once its last piece has started
+    gives back each one a piece ends on, but one (`_GateHold`, `_Pieces.spare`, `run_suite`).
     A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
     again each poll, and goes there once it has room.
     `changed` is the file AK_CHANGED names, its paths in each piece's command there (`pinned`).
@@ -1505,7 +1521,8 @@ def quiet_window(command, cwd, run_dir, silence):
     where that fits in `silence` twice.  A command or piece it stops goes once more, alone,
     with the rest of `silence` (`run_suite`, `run_done_when`): a hang waits no longer than one
     window did, and a quiet stretch the suite never had passes on that second go.  None where
-    the suite has no such pace: `silence` holds, and its stop is final."""
+    the suite has no such pace: `silence` holds, and stops a command for good; a piece still
+    goes once more (`run_suite`)."""
     quiet = quiet_runs(read_suite_cost(suite_cost(command, cwd, run_dir)[0]))
     window = max(QUIET_FLOOR, QUIET_TIMES * max(quiet, default=0))
     return window if len(quiet) >= QUIET_RUNS and 2 * window <= silence else None
@@ -1738,9 +1755,11 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     `pieces`, a dict, gets each piece's exit as the runner saw it, by share -- None for one
     killed at the limit, `OUT_OF_MEMORY` for one the kernel killed for memory -- so a caller
     decides from codes, never from what a piece printed.
-    `later`, seconds, is set where the suite's pace stops its pieces sooner (`quiet_window`):
-    the silence each piece's later goes have; a piece its first go's silence stopped goes
-    again, alone, after its siblings, which run on.
+    A piece its first go's silence stopped goes again, alone, after its siblings, which run on:
+    a hang costs its piece, never the pieces that pass.  `later`, seconds, is set where the
+    suite's pace stops its pieces sooner (`quiet_window`): the silence each piece's later goes
+    have.  Without it each go has the whole silence: a suite has no pace where its pieces'
+    ordinary quiet outgrew a part of it, so a part would stop pieces only slow.
     `confirmed`, a dict, gets by share the tests a red piece named that failed again alone;
     with `shard` and `only`, those of them its run named both as run and as failed (`AK_FAILED`)
     where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing;
@@ -1856,7 +1875,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             def attempt(shard, only=None, first=False, there=None, turn=None):
                 """The piece of `shard`, or with `only` just those of its tests, as one share,
                 on the helper's `there` or on this host's `turn` (one taken when None);
-                a `first` go stopped for silence goes again where the suite has a pace."""
+                a `first` go stopped for silence goes again."""
                 run_record.stop_check(run_dir)
                 piece = files.enter_context(tempfile.NamedTemporaryFile(
                     dir=activity.parent, prefix=f"{activity.stem}-piece-", suffix=".log"))
@@ -1893,7 +1912,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                                 self.pending = b""
 
                 def stopped(why, pid):
-                    if why == "silence" and first and later:
+                    if why == "silence" and first:
                         silenced.add(shard)     # its siblings run on; it goes again after them
                     elif why != "abort":
                         cancel.set()

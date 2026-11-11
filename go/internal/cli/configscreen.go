@@ -191,7 +191,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		}
 		if view.Column >= 3 {
 			var known bool
-			if view.Note, known = stepConfigEffort(c, session, view.Row, view.Column, level); !known {
+			if view.Note, known = stepConfigEffort(c, session, view.Row, view.Column, level, cardOn(session, &view, keyboard, painter)); !known {
 				return false
 			}
 			continue
