@@ -33,8 +33,9 @@ KEEP = 24 * 3600    # a recorded tree older than a day lands through its own sui
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
 FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees this close get one
                         # repair, which holds the file as long unless a change editing it merges
-# A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
-# left, whatever it holds, and no other checkout for it.
+# A stack's scratch checkout says so in its own git directory, naming the checker that made it:
+# one a killed checker left goes when a checker next starts a pass (`_clear_left`), or with gc a
+# day unused, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
 WAKE = 10           # a blamed run waits at most this long once no run it waits on is in line
 
@@ -314,6 +315,21 @@ def _scratch(repo, commit, opened):
     return (scratch, "") if not code else (None, f"[exit {code}]\nERROR: checkout of {commit} failed\n{out}")
 
 
+def _clear_left():
+    """Remove each scratch checkout (`_scratch`), of any line, whose checker is gone: a killed
+    one removes none of its own (two left 187, about 28 GiB, 10 Nov 2026).  One whose mark names
+    no maker yet is gc's."""
+    for scratch in config.WT.glob("land-*"):
+        code, private = gitcall.git_out(scratch, "rev-parse", "--absolute-git-dir")
+        try:
+            maker = None if code else json.loads(Path(private, SCRATCH_MARK).read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(maker, dict) and not record.process_active(maker):
+            # twice: one killed before `add_worktree` unlocked it is still locked as its own
+            gitcall.git_out(scratch, "worktree", "remove", "--force", "--force", str(scratch))
+
+
 def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log, green,
                tests=None):
     """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, the target's tip
@@ -549,6 +565,7 @@ def check_line(turn, log=lambda _: None):
     with _pass(turn) as held, ExitStack() as waking:
         if not held:
             return
+        _clear_left()
         # Checks may return after their first group; no saved red waits for that walk to reach it.
         wake = waking.enter_context(_waking(turn, log))
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
@@ -596,12 +613,17 @@ def check_line(turn, log=lambda _: None):
                     and not state.get("review_pr")):
                 name = red.get("run")
                 repair = record.read_state(config.RUNS / name) if name else None
-                if repair is None:
+                holds = repair and handback.repair_open(repair, red["probe"]["sha"])
+                if not (holds or repair and transitions.delivered(repair)):
+                    # none yet, or the last let go of this red unmended: another goes first
+                    if repair:
+                        log(f"{name} ended without mending {upstream} at {tip[:12]}: "
+                            f"another repair")
                     name = _repair(turn, directory, state, target_tree, red, log)
                     if not name:
-                        return
-                elif not handback.repair_open(repair, red["probe"]["sha"]):
-                    name = None
+                        continue    # refused: a later member may start it, a PR may mend it
+                elif not holds:
+                    name = None     # it mended the target: merged, or found it passing there
                 if name and directory.name != name:
                     continue
             verdict = {key: state["waiting_on"][key] for key in ("land", "fix")
@@ -854,6 +876,10 @@ def _landing_checks(directory, state, scratch, tip):
     _, body, _ = task.parse_task(directory / "task.md")
     # A review PR owes the target's suite, never an earlier head's suite too.
     cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
+    # A `# once` line written as the suite the member started from (a flaky test's repair names
+    # it so) is that suite: it runs once, as the target declares it now, not in both spellings.
+    began = state.get("base_sha") and gitcall.declared_at(scratch, state["base_sha"], "tests")
+    cmds = [cmd for cmd in cmds if not began or task.split_once(cmd) != (began, True)]
     once = task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1]
     # Added after grouping: a shell line with an odd quote would hide a `# once` marker.
     own = gitcall.declared(scratch, "tests")

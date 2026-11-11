@@ -48,7 +48,7 @@ esac
 exec "$START_GIT" "$@"
 '''
 CHILD = r'''
-import os, sys
+import os, subprocess, sys
 from pathlib import Path
 sys.path.insert(0, str(Path.home() / "agentkit"))
 # Load the listing's run helpers before the clock starts, as the other loop fixtures do.
@@ -79,6 +79,13 @@ orch.maintenance = lambda *args, **_kw: parent("maintenance")
 macbridge.start_background = lambda: parent("bridge")
 real_draw, real_update = menu.draw, menu.update_first
 
+class Popen(subprocess.Popen):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.group = os.getpgid(self.pid)    # before update_first's reader can reap the updater
+
+subprocess.Popen = Popen
+
 def draw(*args, **kwargs):
     result = real_draw(*args, **kwargs)
     drawn = kwargs.get("drawn", args[5] if len(args) > 5 else None)
@@ -90,7 +97,7 @@ def update_first(*args, **kwargs):
     if proc:
         with (Path.home() / "updaters").open("a") as out:
             out.write(f"{proc.pid}\n")
-        print(f"<updater {proc.pid} {os.getpgid(proc.pid)}>", flush=True)
+        print(f"<updater {proc.pid} {proc.group}>", flush=True)
     return proc
 
 menu.draw, menu.update_first = draw, update_first

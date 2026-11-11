@@ -19,7 +19,7 @@ from agentkit import menu, terminal
 
 TEXT = ("Fix the login redirect for acme, then check that the session cookie survives the "
         "round trip through the proxy and tell me what broke")
-AMBER = "\033[1;38;2;249;226;175m"      # needs you, on a dark true-colour terminal
+AMBER = "\033[1;38;2;246;196;0m"      # needs you, on a dark true-colour terminal
 
 
 def seat(word, bar=None, sentence=""):

@@ -90,7 +90,7 @@ POPUP_SIZE = "-w 80% -h 70%"          # the popup on a screen with room to spare
 POPUP_FULL = "-w 100% -h 100%"        # ... and on a phone, where the border is all it spares
 POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
-DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"   # its border, and the session behind it
+DIM = f"fg=#{terminal.colour('dim').rgb}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
 # opens over: the first popup over it keeps each style the pane has of its own, if it has one
@@ -2610,9 +2610,14 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None, line=N
             (gitcall.repository_lock(cwd) if repository else nullcontext()):
         if repository:
             gitcall.no_auto_gc(cwd)
-        before = config.session_records().get(current) or {}
         name_receipts(current)
-        env = plugin.launched(current, cwd, conversation)
+        # Whatever a claim (`harness.claim`) writes once this launch has read the record and
+        # written its own is where the harness still running went on to: a launch put back
+        # leaves it, and puts back only the rest.
+        with claims():
+            before = config.session_records().get(current) or {}
+            env = plugin.launched(current, cwd, conversation)
+            wrote = config.session_records().get(current) or {}
         if env:
             cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
         facts = config.hook_facts_path(current)
@@ -2654,8 +2659,11 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None, line=N
             else:
                 # the harness that read the old one stays, and goes on writing to its own receipt
                 plugin.retire(config.session_records().get(current) or {})
-                config.update_session(current, **{key: before.get(key)
-                                                  for key in (*LAUNCH_KEYS, *kept)})
+                with claims():
+                    now = config.session_records().get(current) or {}
+                    config.update_session(current, **{
+                        key: before.get(key) for key in (*LAUNCH_KEYS, *kept)
+                        if key in kept or now.get(key) == wrote.get(key)})
                 try:
                     os.link(last, facts)        # refused where that harness wrote one since
                 except OSError:

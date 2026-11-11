@@ -339,9 +339,14 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
     beside it, where a hook whose parent is `pid` reported it with `transcript`: only from the
     seat's own interactive process (`orch.owns_hook`, by `is_client`), with that conversation's
     own file for the seat (`filed`), and no other seat's record naming it, its own or one it left.
-    The one left stays the seat's for its done check (`notify.conversations_of`); one it goes
-    back to is its current one again, read once.  No seat's lock, which a delivery holds while it
-    types the very prompt a hook may report: the seat's name holds under `claims` instead."""
+    The one its harness says the seat is in (`Harness.conversation`) goes into its record first,
+    whether the seat moves or not: a harness that learns it from evidence this very prompt moves
+    on (a launch's receipt) may not have written it there yet.  Left, that one stays the seat's
+    for its done check (`notify.conversations_of`); one it goes back to is its current one again,
+    read once.  A seat in none yet, or only in another seat's, takes this one as its first; one
+    in a conversation its harness cannot resume stays there.  No seat's lock, which a delivery
+    holds while it types the very prompt a hook may report: the seat's name holds under `claims`
+    instead."""
     from .. import notify, orch
     if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(conversation, str)
             or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation) or conversation.startswith("-")
@@ -354,18 +359,24 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
         name = config.resolve_session(launched)
         records = config.session_records()
         record = records.pop(name, {})
-        if (orch.seat_harness(record) != harness or not record.get("cwd")
-                or record.get("conversation") == conversation
-                or not load(harness).resumable(record, record["cwd"], record.get("conversation"))
-                or Path(transcript).resolve() != Path(filed(record, conversation)).resolve()
-                or any(conversation in (other.get("conversation"),
-                                        *(was.get("conversation") for was in other.get("left", [])))
-                       for other in records.values())):
+        theirs = {kept for other in records.values()
+                  for kept in (other.get("conversation"),
+                               *(was.get("conversation") for was in other.get("left", [])))}
+        if orch.seat_harness(record) != harness or not record.get("cwd"):
+            return
+        current = load(harness).conversation(record, record["cwd"])
+        current = None if current in theirs else current
+        if current and not load(harness).resumable(record, record["cwd"], current):
+            return
+        if current and record.get("conversation") != current:
+            record = config.update_session(name, conversation=current) or record
+        if (record.get("conversation") == conversation or conversation in theirs
+                or Path(transcript).resolve() != Path(filed(record, conversation)).resolve()):
             return
         session = orch.find(name)
         if session and orch.owns_hook(session, pid, is_client):
-            left = [was for was in notify.left(record, harness, record["conversation"])
-                    if was["conversation"] != conversation]
+            left = [was for was in notify.left(record, harness, current)
+                    if was["conversation"] not in (conversation, None)]   # none to leave yet
             while (config.update_session(name, conversation=conversation, left=left, **fields)
                    is None and config.resolve_session(name) != name):
                 name = config.resolve_session(name)     # moved meanwhile: written where it went
@@ -825,10 +836,14 @@ class Harness:
 
     def went_into(self, sent):
         """The conversation a receipt's line went into: the one it names, else the one its
-        launch's own evidence names (`receipt`), None while that names none."""
+        launch's own evidence reported (`receipt`), however far its harness has moved that
+        launch on since, as Muse's `/new` does (its module's `reported`); None while that names
+        none."""
         launch = sent.get("launch")
-        return sent.get("conversation") or (self.conversation(launch) if isinstance(launch, dict)
-                                            else None)
+        if sent.get("conversation") or not isinstance(launch, dict):
+            return sent.get("conversation")
+        reported = self._hook("reported")
+        return reported(launch) if reported else self.conversation(launch)
 
     def answers(self, record, cwd, conversation):
         """Each question the owner answered on its own question card, oldest first, as {at,

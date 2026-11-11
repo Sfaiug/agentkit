@@ -17,7 +17,7 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import config, gitcall, handback, helper, history, host, machines, orch, stuck, suite_times
+from . import config, gitcall, handback, helper, history, host, orch, stuck, suite_times
 from . import transitions, turns
 from . import update
 from . import waiter
@@ -480,10 +480,6 @@ def _gates_admit(state, readings, is_first):
         reason, kind = _wait_reason(readings, minimum, maximum, peak, frozen, starting)
     else:
         reason, kind = _wait_reason(readings, minimum, 0, peak, starting=starting)
-    if reason is None and not is_first and landing_waits() and not machines.helpers():
-        # Finished work goes first: the headroom a new run would take is the suite's, which needs
-        # none here with a machine to go to (owner, 30 Oct 2026: nothing waits for compute).
-        reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
     if reason:
         return _held(state, reason, kind)
     if peak is None and 0 <= time.time() - slot_queue()[6] < SLOT_POLL:
@@ -768,10 +764,9 @@ def landing_wait(landing, since=None, run_id=None, line=False):
     Its own file says when its wait began, for which run and whether it is a line's own
     check, so landing waits rank among themselves (`_landing_waiters`); the line's checkers
     mark no member's record.  `.heavy-landing.wait`, shared by every line's check, says one
-    waits: round checks and, with no machine for suites, new runs stay behind it
-    (`landing_waits`), as they do behind a waiter on code from before 29 Oct 2026, which holds
-    it for any landing wait.  The kernel lets go with the holder, so a dead waiter holds nobody
-    back.
+    waits: round checks stay behind it (`landing_waits`), as they do behind a waiter on code from
+    before 29 Oct 2026, which holds it for any landing wait.  The kernel lets go with the
+    holder, so a dead waiter holds nobody back.
     """
     if not landing:
         yield
@@ -798,7 +793,7 @@ def _still_landing(context):
     """Whether the line still holds the member a checker's wait is for; True without one.
 
     A stopped or departed member leaves `landing.line`, and a check for it is no longer
-    finished work: it must not hold back every build and round check for its turn.
+    finished work: it must not hold back every round check for its turn.
     """
     line = (context or {}).get("line")
     if not line:
@@ -929,17 +924,30 @@ class _Pieces:
             turn = self.hold.take(lambda: ended() or not self.waiting) if (
                 not there and self.hold) else True
             with self.cond:
-                if turn is not None and (mine := self.mine(there)):
+                mine = turn is not None and self.mine(there)
+                if mine:
                     self.waiting.remove(mine[0])
                     self.out += 1
-                    return mine[0], turn
-            if turn is not True:
-                self.hold.give(turn)
+            if mine:
+                self.spare()    # it may have been the last to start
+                return mine[0], turn
+            self.give(turn)
+
+    def give(self, turn):
+        """`turn` back to the hold, where the suite's next piece takes it."""
+        if turn is not True:
+            self.hold.give(turn)
+        self.spare()
+
+    def spare(self):
+        """Once every piece has started none is left to take a turn: the host has those no
+        piece runs on, but the one the suite keeps until it ends (`_GateHold.shed`)."""
+        if self.hold and not self.waiting:
+            self.hold.shed()
 
     def done(self, index, back, turn, there):
         """`back`, the exit of a piece `there` gave back, ends that place there."""
-        if turn is not True:
-            self.hold.give(turn)
+        self.give(turn)
         with self.cond:
             self.out -= 1
             if back:
@@ -1028,13 +1036,20 @@ class _GateHold:
                 self.idle.append(slot)
                 self.lock.notify_all()    # a place waiting for a turn sees the list end
 
+    def shed(self):
+        """Unlock each turn no piece runs on, so the first waiter in rank takes it, but the one
+        the suite keeps until it ends, for its reruns."""
+        with self.lock:
+            while self.idle and len(self.slots) > 1:
+                slot = self.idle.pop()
+                self.slots.remove(slot)
+                fcntl.flock(slot, fcntl.LOCK_UN)
+
     def alone(self):
         """One turn kept once a suite's pieces end, and no other taken until a suite starts
         here (`suite`): what runs on it meanwhile runs alone."""
-        for slot in self.slots[1:]:
-            fcntl.flock(slot, fcntl.LOCK_UN)
-        self.slots = self.slots[:1]
-        self.idle, self.cost = list(self.slots), None
+        self.cost = None
+        self.shed()
 
     def release(self):
         try:
@@ -1336,7 +1351,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None, c
     A check running while this thread already holds a turn takes no second one.
     A command naming AK_SHARD gets as many places as the derived limit fits, using its
     repository's measured cost when available: it takes the turns free now, then those freed
-    while it ranks first, each running one piece at a time (`_GateHold`, `run_suite`).
+    while it ranks first, each running one piece at a time, and once its last piece has started
+    gives back each one a piece ends on, but one (`_GateHold`, `_Pieces.spare`, `run_suite`).
     A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
     again each poll, and goes there once it has room.
     `changed` is the file AK_CHANGED names, its paths in each piece's command there (`pinned`).
@@ -1566,7 +1582,7 @@ def split_suite_run(lp, command):
 
 
 class _SuiteMeasure:
-    """Wall time and each box's CPU work everywhere, a line's checker included; memory, swap
+    """Wall time and the CPU each box needed everywhere, a line's checker included; memory, swap
     included and less the file cache reclaim frees, where a cgroup is this run's or holds only
     this process."""
 
@@ -1577,7 +1593,7 @@ class _SuiteMeasure:
         self.group = (host.cgroup_path(relative) if relative and
                       Path(relative).name in turns._scope_units(state["scope"])
                       else host.own_cgroup())
-        self.cpu = []     # each box's CPU seconds (`worker.boxed`)
+        self.cpu = []     # each box's CPU seconds (`box.cpu_seconds`)
         self.quiet = []   # and the longest each go went without output (`worker.limited`)
         self.baseline = host.held_mb(self.group, swap=True) if self.group is not None else None
         self.peak = self.baseline

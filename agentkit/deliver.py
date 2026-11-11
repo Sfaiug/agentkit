@@ -917,6 +917,12 @@ def land(lp, upstream, verify, deliver):
             return deliver()
 
 
+# A green delivery further back in its line looks again after this many seconds for each member
+# ahead, the slot poll at most: no delivery ahead is done sooner (each took 15 to 25 in a line of
+# 53 on 11 Nov 2026), so it is waiting on the lock before its turn comes.
+PLACE_WAIT = 5
+
+
 # The lock spans the whole delivery, not only `gh pr merge`: the owner dropped narrowing it on
 # 9 Nov 2026 (write-up row 26), as it was busy under a tenth of the time over that week's 1,143 merges.
 @contextmanager
@@ -928,28 +934,42 @@ def merge_lock(lp, upstream):
     with turn.open("a") as lock:
         try:
             while True:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    # Another delivery can spend an hour on PR checks; its waiter is not stalled.
-                    lp.state["delivery_wait"] = os.getpid()
-                    lp.write()
-                    fcntl.flock(lock, fcntl.LOCK_EX)
-                members = landing.line(turn) if landing.green_delivery(
-                    lp.state.get("waiting_on") or {}) else []
-                if (not members or members[0][0] == lp.run_dir
-                        or not landing.green_delivery(members[0][1]["waiting_on"])):
-                    break
-                # Flock does not order contenders; a checked suffix needs its prefix delivered.
-                fcntl.flock(lock, fcntl.LOCK_UN)
+                # Only the first and the next behind it ask for the lock: the next wakes the
+                # moment the first lets go, and nobody further back hands it on in between.
+                ahead = members_ahead(lp, turn)
+                if ahead < 2:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        # Another delivery can spend an hour on PR checks; its waiter is not stalled.
+                        lp.state["delivery_wait"] = os.getpid()
+                        lp.write()
+                        fcntl.flock(lock, fcntl.LOCK_EX)
+                    ahead = members_ahead(lp, turn)
+                    if not ahead:
+                        break
+                    # Flock does not order contenders; a checked suffix needs its prefix delivered.
+                    fcntl.flock(lock, fcntl.LOCK_UN)
                 lp.state["delivery_wait"] = os.getpid()
                 lp.write()
                 run_record.stop_check(lp.run_dir)
-                time.sleep(gate.SLOT_POLL)
+                time.sleep(1 if ahead == 1 else min(PLACE_WAIT * ahead, gate.SLOT_POLL))
         finally:
             if lp.state.pop("delivery_wait", None) is not None:
                 lp.write()
         yield
+
+
+def members_ahead(lp, turn):
+    """How many members of its line green delivery `lp` waits behind: none outside a line or
+    behind a first that is no green delivery, the whole line where it holds no place."""
+    if not landing.green_delivery(lp.state.get("waiting_on") or {}):
+        return 0
+    members = landing.line(turn)
+    if not members or not landing.green_delivery(members[0][1]["waiting_on"]):
+        return 0
+    places = [directory for directory, _ in members]
+    return places.index(lp.run_dir) if lp.run_dir in places else len(places)
 
 
 def turn_path(lp, upstream):

@@ -12,7 +12,6 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/history"
 	"agentkit/internal/host"
-	"agentkit/internal/machines"
 	"agentkit/internal/run"
 	"agentkit/internal/worker"
 )
@@ -149,8 +148,8 @@ func (a *admission) ask() {
 
 // gates decides the run first in line by the host's room, as Python's gate._gates_admit: a recent
 // run's peak against memory, less what the runs let in that show nothing yet may still take, the
-// load where pinned, a line's check waiting for a heavy-suite turn while no other machine may take
-// it, and, with no peak measured, a poll since the last run let in, for steady readings.
+// load where pinned, and, with no peak measured, a poll since the last run let in, for steady
+// readings.
 func (a *admission) gates(r *room) {
 	at := now()
 	db := history.Look()
@@ -166,11 +165,6 @@ func (a *admission) gates(r *room) {
 			return !host.Frozen(pid)
 		}))
 	})
-	// finished work goes first: a line's check waiting for a heavy-suite turn holds a new run,
-	// unless ak has another machine for that suite (owner, 30 Oct 2026: nothing waits for compute)
-	if reason == "" && !r.first && host.LineCheckWaits() && len(machines.Known()) == 1 {
-		reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
-	}
 	switch since := at - r.saved.lastIn; {
 	case reason != "":
 		a.reason, a.kind = reason, kind
