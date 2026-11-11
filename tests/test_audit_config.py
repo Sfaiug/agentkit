@@ -105,7 +105,7 @@ class AuditSetting(unittest.TestCase):
         self.assertEqual(self.table(), {"on": False, "orchestrator": "fable",
                                         "reviewers": ["astra", "spark"]})
         self.assertIn("    □ Opus 5.5", frames[-2])       # the last key's frame, before the Esc
-        self.assertIn("›   ■ muse-spark-1.3-contributor", frames[-2])
+        self.assertIn("›   ■ Spark 1.3 Contributor", frames[-2])
         self.assertEqual(oct(self.path.stat().st_mode & 0o777), "0o600")
         # both builders out: the orchestrator builds alone
         frames = self.page("down", "down", "enter", "space", "down", "space")
@@ -155,7 +155,7 @@ class AuditSetting(unittest.TestCase):
             lines, places = menu.config_body(config.load())
         row = " ".join(terminal.ANSI.sub("", lines[line]) for line, (key, _) in places.items()
                        if key == menu.AUDIT)
-        self.assertIn("· reviews muse-spark-1.3-contributor", " ".join(row.split()))
+        self.assertIn("· reviews Spark 1.3 Contributor", " ".join(row.split()))
         page = "\n".join(self.page()[-1])
         self.assertNotIn("…", row + page)
         for role in ("Orchestrator", "Builds", "Reviews"):

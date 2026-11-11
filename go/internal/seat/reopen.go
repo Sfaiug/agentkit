@@ -388,6 +388,9 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			}
 		}
 		perform := func() error {
+			if err := nameReceipts(current); err != nil {
+				return err
+			}
 			var before *run.Object
 			var issued *run.Object
 			var extra []string

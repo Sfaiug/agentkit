@@ -21,10 +21,9 @@ import (
 // no budget fixes fails with its error; a task its file now refuses at its start is BLOCKED, the
 // refusal its findings, and one that cannot start fails, one preflight refuses with its run ended
 // in error, one whose run cannot be made and one executors are off for.  A step Python's ladder
-// takes first, a
-// wait, a PASS still to deliver or the rerun, leaves the task as it was.  Once every task settled
-// the job logs each one's findings and that it needs you, and exits 1; a job whose only
-// undelivered task was stopped needs nobody and is done, and exits 1 too.
+// takes first, a wait, a PASS still to deliver or the rerun, leaves the task as it was.  Once
+// every task settled the job logs each one's findings and that it needs you, and exits 1; a job
+// whose only undelivered task was stopped needs nobody and is done, and exits 1 too.
 func TestAJobsUndeliveredTasksEndItNeedingYou(t *testing.T) {
 	home, worktree := jobHome(t), t.TempDir()
 	one, both := []string{"opus"}, []string{"opus", "astra"}

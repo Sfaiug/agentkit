@@ -26,7 +26,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 	if err != nil || len(c.Names) == 0 {
 		return false
 	}
-	view := menu.ConfigView{Matrix: c, Scope: "new seats", Fresh: session == "", Cells: cells, Version: update.Build()}
+	view := menu.ConfigView{Matrix: c, Scope: "new seats", Fresh: session == "", Cells: cells, Version: update.AgentkitVersion()}
 	if view.Version == "" {
 		view.Version = "?"
 	}
@@ -191,7 +191,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		}
 		if view.Column >= 3 {
 			var known bool
-			if view.Note, known = stepConfigEffort(c, session, view.Row, view.Column, level); !known {
+			if view.Note, known = stepConfigEffort(c, session, view.Row, view.Column, level, cardOn(session, &view, keyboard, painter)); !known {
 				return false
 			}
 			continue
@@ -254,9 +254,13 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 		return nil, false
 	}
 	limits := limitsSaid(numbers)
+	known, noun := len(machines.Known()), "machines"
+	if known == 1 {
+		noun = "machine"
+	}
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
 		{Name: "Weekly audit", Value: audit}, {Name: "Done check", Value: check},
-		{Name: "Machines", Value: fmt.Sprintf("%d machines · Google Cloud %s", len(machines.Known()), cloud)},
+		{Name: "Machines", Value: fmt.Sprintf("%d %s · Google Cloud %s", known, noun, cloud)},
 		{Name: "Limits", Value: limits}}, true
 }
 

@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"agentkit/internal/config"
@@ -279,7 +278,7 @@ func (j *jobRun) settle(e ending) (bool, error) {
 			e.task.Set(role, e.record.Get(role))
 		}
 	}
-	word, code, merged := classify(e.record), 1, "not merged"
+	word, code, merged := job.Classify(e.record, run.Models()), 1, "not merged"
 	if word == "merged" || word == "passed" {
 		code = 0
 	}
@@ -288,7 +287,7 @@ func (j *jobRun) settle(e ending) (bool, error) {
 	}
 	j.say(fmt.Sprintf("%s exit %d: %s %s %s %s", name, code, id, run.Text(e.record.Get("state")),
 		run.Text(e.record.Get("verdict")), merged))
-	settled, kept := ladder(e.task, e.record, e.workers)
+	settled, kept := ladder(e.task, e.record, word, e.workers)
 	if settled == "" {
 		return false, nil
 	}
@@ -300,27 +299,4 @@ func (j *jobRun) settle(e ending) (bool, error) {
 func (j *jobRun) leave() int {
 	j.say(fmt.Sprintf("job %s: this launcher ends here; ak run resume %s to continue, ak run stop %s to end it", j.id(), j.id(), j.id()))
 	return 1
-}
-
-// classify is a finished run's word for its task, Python's job_classify: merged, passed where no
-// merge was asked, the task is scratch, or its target already had the work or is none, else
-// stopped, blocked or failed.
-func classify(record *run.Object) string {
-	if record == nil {
-		return "failed"
-	}
-	switch state := record.Str("state"); {
-	case state == "stopped" || state == "blocked":
-		return state
-	case state == "not_needed":
-		return "passed"
-	case record.Truthy("merged"):
-		return "merged"
-	case !run.ReviewPass(record, run.Models()):
-		return "failed"
-	case record.Truthy("no_merge") || record.Truthy("scratch") || record.Truthy("on_target"),
-		record.Truthy("target") && strings.ToLower(run.Text(record.Get("target"))) == "none":
-		return "passed"
-	}
-	return "failed"
 }
