@@ -5,13 +5,13 @@ the client, which forwards signals to it and what it runs, and ends with its cod
 the client runs `bin/ak` and starts a server only where an install is stamped.  A server leaves
 once an install is newer than its code, for the one it starts.  Each test has a HOME of its own,
 a tmux with no server up and an invented socket; each server is stopped by taking its socket
-away.
+away.  Nothing waits on the clock: a busy host only slows a server or a popup, and the landing's
+silence watch ends a hung one and names it.
 """
 
 import fcntl
 import os
 from pathlib import Path
-import select
 import shutil
 import signal
 import struct
@@ -64,9 +64,7 @@ class Home:
         return self.started[-1]
 
     def up(self):
-        deadline = time.monotonic() + 60
         while not self.socket.exists():
-            self.case.assertLess(time.monotonic(), deadline, "no server came up")
             time.sleep(0.02)
 
     def popup(self):
@@ -81,16 +79,16 @@ class Home:
         os.close(slave)
         self.case.addCleanup(os.close, master)
         self.case.addCleanup(lambda: client.poll() is None and client.kill())
-        drawn, deadline = b"", time.monotonic() + 60
+        drawn = b""
         while KEYS not in drawn:
-            self.case.assertLess(time.monotonic(), deadline, f"never drawn: {drawn[-2000:]!r}")
-            if select.select([master], [], [], 0.1)[0]:
+            try:
                 drawn += os.read(master, 65536)
+            except OSError:         # EIO: the popup and all it ran ended undrawn
+                self.case.fail(f"never drawn: {drawn[-2000:]!r}")
         return client, master
 
     def stop(self):
         """Every server here gone: each leaves once its socket is not there."""
-        deadline = time.monotonic() + 60
         while True:
             self.socket.unlink(missing_ok=True)
             try:
@@ -98,10 +96,9 @@ class Home:
                     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 break
             except BlockingIOError:
-                self.case.assertLess(time.monotonic(), deadline, "a server stayed up")
                 time.sleep(0.05)
         for server in self.started:
-            server.wait(30)
+            server.wait()
 
 
 class Served(unittest.TestCase):
@@ -118,10 +115,12 @@ class Served(unittest.TestCase):
                     os.write(master, end)
                 else:
                     client.send_signal(end)     # what its terminal sends, the menu's to hear
-                self.assertEqual(client.wait(60), code)
+                self.assertEqual(client.wait(), code)
 
     def test_what_the_menu_runs_hears_the_terminal_s_ctrl_c(self):
-        # a checkout whose `ak` runs a child, as a login does, that says when Ctrl-C reached it
+        # a checkout whose `ak` runs a child, as the menu runs a login, that says when Ctrl-C
+        # reached it: ^C is the login's to end, as at the menu's sign-in, or `subprocess.run`
+        # kills the child a quarter second after it, before a busy host lets the child hear
         checkout = tempfile.TemporaryDirectory(prefix="warm-repo-")
         self.addCleanup(checkout.cleanup)
         repo = Path(checkout.name)
@@ -136,19 +135,20 @@ class Served(unittest.TestCase):
                  f"print({KEYS!r}.decode(), flush=True)\n"
                  f"time.sleep(60)\n")
         (repo / "bin" / "ak").write_text(
-            f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {child!r}])\n")
+            f"import signal, subprocess, sys\nsignal.signal(signal.SIGINT, lambda *_: None)\n"
+            f"subprocess.run([sys.executable, '-c', {child!r}])\n")
         home = Home(self, stamped=False, repo=repo)
         home.serve()
         client, _ = home.popup()
         client.send_signal(signal.SIGINT)       # what its terminal sends on Ctrl-C
-        client.wait(60)
+        client.wait()
         self.assertTrue(heard.exists())
 
     def test_a_server_whose_install_moved_leaves_for_one_on_the_new_code(self):
         home = Home(self)
         server = home.serve()
         home.stamp.write_text(str(time.time()))
-        self.assertEqual(server.wait(60), 0)
+        self.assertEqual(server.wait(), 0)
         home.up()                               # the one it started
 
 
@@ -165,7 +165,7 @@ class Cold(unittest.TestCase):
                 self.assertEqual(execv.call_args.args[1][1:],
                                  [str(REPO / "bin" / "ak"), "nonsense"])
         ran = subprocess.run([sys.executable, "-S", "-I", str(WARM), "nonsense"], env=home.env,
-                             capture_output=True, text=True, timeout=120)
+                             capture_output=True, text=True)
         self.assertEqual(ran.returncode, 2)
         self.assertIn("unknown subcommand 'nonsense'", ran.stderr)
         home.up()                               # for the next popup

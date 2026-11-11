@@ -30,7 +30,8 @@ func framed(t *testing.T, home string, seats ...string) func() []string {
 	write(t, filepath.Join(bin, "tmux"), "#!/bin/sh\nprintf '%s\\n' \"$*\" >> "+log+"\n"+
 		"case \"$*\" in *'-L seat-test'*) ;; *) exit 1;; esac\ncase \"$*\" in\n"+
 		"*list-sessions*) printf '"+listed+"';;\n*list-panes*-a*) printf '"+panes+"';;\n"+
-		"*list-panes*) name=${*#*=}; printf '%%%s 0\\n' \"${name%%:*}\";;\n"+
+		"*list-panes*) name=${*#*=}; printf '0 1 %%%s 0\\n' \"${name%%:*}\";;\n"+
+		"*capture-pane*display-message*) pane=${*#*-t %}; cat \"$HOME/screen-${pane%% *}\"; printf '\\n0\\n';;\n"+
 		"*capture-pane*) cat \"$HOME/screen-${*##*%}\";;\n"+
 		"*display-message*'#{session_attached}'*) printf '0\\n';;\n*) exit 0;;\nesac\n")
 	os.Chmod(filepath.Join(bin, "tmux"), 0o700)
@@ -73,6 +74,7 @@ func TestAFrameLooksAtEachLiveSeatOnce(t *testing.T) {
 				reads++ // a reading asks ak's server for its sessions once (holdings)
 			}
 			if _, pane, captured := strings.Cut(call, "capture-pane -p -e -J -t %"); captured {
+				pane, _, _ = strings.Cut(pane, " ")
 				captures[pane]++
 			}
 		}

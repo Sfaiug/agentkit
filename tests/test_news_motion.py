@@ -24,8 +24,8 @@ from fixtures.sandbox import Sandbox, menu_input
 from agentkit import config, menu, motion, orch, terminal
 
 Key = terminal.Key
-NEEDS = (0xf9, 0xe2, 0xaf)          # `needs you` on a dark background
-DONE = (0xa6, 0xe3, 0xa1)           # `done`
+NEEDS = (0xf6, 0xc4, 0x00)          # `needs you` on a dark background
+DONE = (0x00, 0x7e, 0x46)           # `done`
 CELL = re.compile(r"\x1b\[(\d+);(\d+)H((?:(?!\x1b\[\d+;\d+H).)*)", re.S)
 WEEK = 604800
 

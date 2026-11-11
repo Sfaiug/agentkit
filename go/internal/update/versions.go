@@ -1,6 +1,7 @@
 package update
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,9 +22,10 @@ func repository() string {
 	return filepath.Join(config.Home(), "agentkit.git")
 }
 
-// swap puts commit live at live, as Python's versions.switch: "" once it is or there is nothing
-// to move, else why not, live then as it was.  Forward only, as a fast-forward went: a commit
-// live already has moves nothing, and one beside it is refused.
+// swap puts commit live at live, as Python's versions.switch, swapped in whole once its prepare
+// passed: "" once it is or there is nothing to move, else why not, live then as it was.  Forward
+// only, as a fast-forward went: a commit live already has moves nothing, and one beside it is
+// refused.
 func swap(env []string, live, commit string) string {
 	live = config.Resolve(live) // a link at ~/agentkit stays, and what it names is swapped
 	if _, ok := versionGit(env, live, "merge-base", "--is-ancestor", commit, "HEAD"); ok {
@@ -46,6 +48,10 @@ func swap(env []string, live, commit string) string {
 		"--reason", locked, next, commit); !ok {
 		remove(env, next)
 		return fmt.Sprintf("%s could not be checked out in %s: %s", short(commit), next, said)
+	}
+	if said, code := prepare(env, next); code != 0 {
+		remove(env, next)
+		return fmt.Sprintf("%s could not be prepared in %s: %s", short(commit), next, cmp.Or(said, fmt.Sprintf("exit %d", code)))
 	}
 	info, err := os.Stat(live)
 	if err == nil { // MkdirTemp's mode is the owner's alone
