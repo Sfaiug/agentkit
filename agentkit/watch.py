@@ -6235,7 +6235,7 @@ def dead_loop(state, run_dir, now):
     lost (`runs_health`): None where a process of it runs or something holds it, else
     `_dead_plan`'s (action, deaths, reason).
 
-    What holds a run: an ending, or a wait its record names (a quota, a login, a merge, a park),
+    What holds a run: a state that ends it or waits (`run_record.ENDED`, `run_record.GOING`),
     an interruption a person was told about, a launch inside its grace, a resume already
     ordered, a death waiting out its backoff.  A slot or a suite turn is waited out by the
     run's own process, and a process of it may outlive its loop (`_run_working`).
