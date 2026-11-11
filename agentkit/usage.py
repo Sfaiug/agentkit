@@ -1856,12 +1856,11 @@ def plan_weeks(cfg, providers, now):
 
 def _weeks(cfg, providers, windows):
     """{provider: [`plan_weeks`'s {account: fit} of each of `windows`, (since, until) each, from
-    the readings in it]}, every window of a provider priced in one `spend.weeks`."""
-    logins = [(name, account, (shared_week(cfg, name, prov) or {}).get("name"))
-              for _, name, prov, account in _accounts(cfg, providers)]
-    return {name: spend.weeks(cfg, name, {account: meter for of, account, meter in logins
-                                          if of == name}, windows)
-            for name in providers}
+    the readings in it]}, every window of every provider priced in one `spend.weeks`."""
+    meters = {name: {} for name in providers}
+    for _, name, prov, account in _accounts(cfg, providers):
+        meters[name][account] = (shared_week(cfg, name, prov) or {}).get("name")
+    return spend.weeks(cfg, meters, windows)
 
 
 def plan_checks(cfg, providers, now):
