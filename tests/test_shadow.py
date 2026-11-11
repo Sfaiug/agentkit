@@ -75,6 +75,14 @@ class Shadowed(unittest.TestCase):
         self.assertEqual(every_byte_and_time(self.home.path), before)
 
     @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
+    def test_every_run_reads_one_moment_of_the_host(self):
+        # memory and load, which move between any two runs on a working host
+        program = self.fake("ak", "cat /proc/meminfo /proc/loadavg")
+        code, named, said = self.shadow("--python", program, "--go", "python")
+        self.assertEqual((code, named), (0, set()), said)
+        self.assertEqual([line for line in said.splitlines() if line.startswith("flake ")], [])
+
+    @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
     def test_bytes_their_user_cannot_read_are_compared(self):
         cache = self.home.path / "cache"
         cache.write_text("before")
