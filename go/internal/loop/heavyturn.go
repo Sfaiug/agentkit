@@ -77,16 +77,9 @@ func (l *loop) placed(cwd, cmd string, selection *checkSelection, path string) (
 			if _, err := l.stillWaits(); err != nil {
 				return false, err
 			}
-			// what a look says is said once the suite goes there, not at each look
-			var said []string
-			away, _, err := helper.Start(cwd, cpus, memory, cmd, at.times, l.changed, nil, func(line string) { said = append(said, line) })
-			if away != nil {
-				for _, line := range said {
-					l.say(line)
-				}
-				at.away = away
-			}
-			return away != nil, err
+			var err error
+			at.away, err = l.asked(cwd, cpus, memory, cmd, at.times)
+			return at.away != nil, err
 		}
 	}
 	var err error

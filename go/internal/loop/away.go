@@ -15,11 +15,10 @@ import (
 const gatePoll = 15 * time.Second
 
 // there runs one piece of a suite there (onHelper), the tests it named flaky there kept, and a red
-// one's that it named failed, which run here next (helperReds).  One lost there ends with its exit
-// where the suite has a place here, which it goes back to the line for (piecesLeft).  One lost where
-// it has none, one turned away or out of memory there, or one stopped, is Python's, which sends it
-// on to the next machine or runs it again alone.
-func (l *loop) there(away *helper.Away, shard string, limit time.Duration, out *os.File, here bool) (ran, error) {
+// one's that it named failed, which run here next (helperReds).  One the machine lost or turned
+// away ends with its exit, given back (helper.Back) to wait again (piecesLeft); one stopped is
+// Python's, which runs it again alone.
+func (l *loop) there(away *helper.Away, shard string, limit time.Duration, out *os.File) (ran, error) {
 	code, stopped, err := l.onHelper(away, shard, limit, out)
 	if err != nil {
 		return ran{}, err
@@ -27,11 +26,8 @@ func (l *loop) there(away *helper.Away, shard string, limit time.Duration, out *
 	if stopped != "" {
 		return ran{}, fmt.Errorf("%w: AK_SHARD=%s on %s was stopped for %s", helper.ErrPython, shard, away.Alias, stopped)
 	}
-	if here && helper.Lost(code) {
-		return ran{code: code}, nil
-	}
 	if helper.Gone(code) {
-		return ran{}, fmt.Errorf("%w: AK_SHARD=%s on %s ended %d", helper.ErrPython, shard, away.Alias, code)
+		return ran{code: code}, away.Back(shard, code, l.say)
 	}
 	ended := ran{code: code, testReport: testReport{flaky: away.Named(shard, "flaky")}}
 	if code != 0 {
@@ -55,9 +51,9 @@ func (l *loop) onHelper(away *helper.Away, shard string, limit time.Duration, ou
 
 // grow asks the helpers again each poll while a piece waits, Python's ask: a suite one takes runs
 // waiting pieces on its VMs too, each started by start, so a suite that began on little room there,
-// or on a turn here, grows into what frees.  It asks until no piece waits or runs, as a lost one
-// waits again, and never waits on an answer past that: one that comes later finishes the helper it
-// joined.  What it joined is finished once their pieces end.
+// or on a turn here, grows into what frees.  It asks until the places are over, as a piece a
+// machine gave back waits again, and never waits on an answer past that: one that comes later
+// finishes the helper it joined.  What it joined is finished once their pieces end.
 func (l *loop) grow(cwd string, cpus, memory float64, cmd, times string, waiting *piecesLeft, start func(*helper.Away)) (joined []*helper.Away) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
