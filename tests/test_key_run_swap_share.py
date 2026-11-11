@@ -15,15 +15,13 @@ records each argv and refuses, so the work starts plainly.  Admission reads a fa
 import json
 import os
 from pathlib import Path
-import socket
 import sys
-import threading
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import Home
+from fixtures.akbin import Home, Manager
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
@@ -53,32 +51,6 @@ def launch(home, rig, title, *flags):
     done = home.ak("run", str(taskfile.write(home, rig.path, title)), "--bg", *flags)
     assert done.code == 0, done.out + done.err
     return (set(taskfile.runs(home)) - known).pop()
-
-
-class Manager:
-    """The control socket a running `systemd --user` listens on, answering nothing."""
-
-    def __init__(self, home):
-        path = Path(home.env["XDG_RUNTIME_DIR"]) / "systemd" / "private"
-        path.parent.mkdir()
-        self.listener = socket.socket(socket.AF_UNIX)
-        self.listener.bind(str(path))
-        self.listener.listen(64)
-        self.thread = threading.Thread(target=self.serve)
-        self.thread.start()
-
-    def serve(self):
-        while True:
-            try:
-                peer, _ = self.listener.accept()
-            except OSError:
-                return
-            peer.close()
-
-    def close(self):
-        self.listener.shutdown(socket.SHUT_RDWR)    # wakes its accept, as a close does not
-        self.thread.join()
-        self.listener.close()
 
 
 class Slice:

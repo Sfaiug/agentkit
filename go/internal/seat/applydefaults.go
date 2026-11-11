@@ -104,7 +104,7 @@ func (given Defaults) Apply() (string, bool) {
 			continue
 		}
 		if plan := moves[name]; plan != nil {
-			if _, err := plan.carry(func() (bool, bool) { return true, true }); err != nil {
+			if _, err := plan.carry(func(bool) (bool, bool) { return true, true }); err != nil {
 				said = append(said, name+": "+config.Fold(err.Error()))
 			}
 		}

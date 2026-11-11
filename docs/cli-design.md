@@ -51,8 +51,8 @@ Words are plain and explain themselves.
 - **Progress:** a seat's progress is its line and its count (`terminal.plan_bar`):
   `━━━━╸──── 3 of 8`.
 
-Nothing explains itself on hover. What a seat asks, or what it did, opens under its row while
-that row is highlighted.
+Nothing explains itself on hover. A highlighted row opens its models and squares, never what
+its seat said (owner, 9 Nov 2026).
 
 ## States
 
@@ -86,14 +86,13 @@ Example: `↑↓←→ move   ⏎ open   n new   c config   esc leave`.
 Colour says where a thing stands. A screen asks for a colour by its role, never by RGB:
 
 - the accent and `working`, in blue;
-- `needs you`, in amber;
+- `needs you`, in yellow (orange on light);
 - `done`, in green;
 - `FAIL` and `out of usage`, in red;
-- `dim`.
+- `dim`, `idle`, `waiting`, in grey.
 
-There is one palette for a dark background, `terminal.STATE_STYLES` (Catppuccin Mocha), and
-one for a light background, `terminal.LIGHT` (Catppuccin Latte). `terminal.sense` picks the
-palette and the colour depth once per start. Under `NO_COLOR` nothing is coloured.
+Each is a colour of `palette.PALETTE` with the text that reads on it. `terminal.sense` picks
+the background and colour depth once per start. Under `NO_COLOR` nothing is coloured.
 
 A company's colour, its provider's `colour` in config.toml else `menu.COLOURS`, colours its
 name on `c`; a harness's, from its manifest, its name over its models. Elsewhere it shows only

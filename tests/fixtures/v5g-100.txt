@@ -7,13 +7,16 @@ agentkit                                                                        
 
 atoll
   1  atoll-fix    Fable 5.1 xhigh  ○ idle
+     Opus 5.5 xhigh ⚒◎
   2  atoll-proxy  Fable 5.1 xhigh  ! needs you
-     session closed: press 2 to reopen
+     Opus 5.5 xhigh ⚒◎
 
 agentkit
   3  herdr        Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
+     Opus 5.5 xhigh ⚒◎   ■□□
 
 not assigned yet
   4  scribe       Fable 5.1 xhigh  ○ idle
+     Opus 5.5 xhigh ⚒◎
 
   n new   c config   esc leave
