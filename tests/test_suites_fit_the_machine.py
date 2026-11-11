@@ -64,6 +64,22 @@ class SuitesFitTheMachine(unittest.TestCase):
         gate.write_suite_cost(path, {"cpus": 1.2})
         self.assertEqual(self.started(ROOMY), int(6 / 1.2))
 
+    def test_places_others_hold_count_at_what_their_pieces_cost(self):
+        # 8 idle cores: four checks naming no pieces hold a place each at the initial 0.7, and
+        # a suite whose piece costs 2 fits two beside them, in the 5.2 cores they leave.
+        idle = {"cpus": 8, "load": 0, "free_mb": 32000}
+        path, _, _ = gate.suite_cost(fixture.SUITE, self.root, self.run_dir)
+        gate.write_suite_cost(path, {"cpus": 2.0})
+        with patch.dict(os.environ, {"AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(idle)}), \
+                patch.object(gate.time, "sleep", side_effect=AssertionError("two must fit")):
+            for _ in range(4):
+                self.addCleanup(gate._acquire_gate_turn(self.run_dir, self.root / "light.log",
+                                                        None).release)
+            hold = gate._acquire_gate_turn(self.run_dir, self.root / "pieces.log", None,
+                                           fixture.SUITE, self.root)
+            self.addCleanup(hold.release)
+        self.assertEqual(len(hold.slots), 2)
+
     def test_a_repository_with_no_record_starts_from_the_estimate(self):
         path, _, _ = gate.suite_cost(fixture.SUITE, self.checkout("widget"), None)
         gate.write_suite_cost(path, {"cpus": 1.2})

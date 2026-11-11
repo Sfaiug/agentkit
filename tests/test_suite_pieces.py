@@ -382,9 +382,9 @@ class SuitePieces(unittest.TestCase):
             # once its sibling has ended
             if shard == "4/4" or shard == "2/4" and shard in held:
                 deadline = time.monotonic() + 5
-                while gate._heavy_running() > 1 and time.monotonic() < deadline:
+                while len(gate._heavy_held()) > 1 and time.monotonic() < deadline:
                     time.sleep(0.01)
-            held.setdefault(shard, []).append(gate._heavy_running())
+            held.setdefault(shard, []).append(len(gate._heavy_held()))
             flags.add(env.get("AK_HEAVY_TURN"))
             code = int(shard in red)
             red.discard(shard)
@@ -398,7 +398,7 @@ class SuitePieces(unittest.TestCase):
         # piece is left to start
         self.assertEqual(held, {"1/4": [2, 2], "2/4": [2, 1], "3/4": [2], "4/4": [1]})
         self.assertEqual(flags, {"1"})
-        self.assertEqual(gate._heavy_running(), 0)
+        self.assertEqual(len(gate._heavy_held()), 0)
 
     def test_isolated_cgroup_cost_is_saved_and_sizes_later_pieces(self):
         state = record.read_state(self.run_dir)
