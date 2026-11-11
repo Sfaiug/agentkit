@@ -1,9 +1,8 @@
 """A model turn runs on a machine with room once config.toml says `turns_on_machines = true`, its
 results back here when it ends; with the switch off or no room there, it runs here.
 
-Black-box, as tests/test_key_changed_paths_go_with_the_piece.py is, on its machine, which has both
-harnesses' programs at the versions here and whose containers have `container=docker` in their
-environment: each
+Black-box, on the machine of tests/fixtures/akmachine.py, which has both harnesses' programs at
+the versions here and whose containers have `container=docker` in their environment: each
 harness stand-in writes that to `where` in its out dir, the executor to a commit too.
 """
 

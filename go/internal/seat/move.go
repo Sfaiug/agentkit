@@ -18,6 +18,10 @@ import (
 	"agentkit/internal/worker"
 )
 
+// screenChanged refuses a move over a draft or a question that came up on the seat's screen
+// after it was asked, which a restart would discard.
+const screenChanged = Refusal("the seat's screen changed; keep its input before moving it")
+
 const movedLine = "This seat moved to you in the middle of a turn. Continue that turn from where the conversation your instructions point you to leaves it; do not start over."
 
 // A seatMove is what a move writes in the seat's record: from the orchestrator it held (`was`,
@@ -31,7 +35,8 @@ type seatMove struct {
 }
 
 // A plannedMove is a seat's move every refusal Go carries has passed (planMove): in place on its
-// launch's own pane where its running harness takes it (switchPane), else a restart on `back`.
+// launch's own pane where its running harness takes it (switchPane), else a restart on `back`,
+// on the conversation it keeps (keptConversation) where it has one.
 type plannedMove struct {
 	name, pane string
 	was        config.Model
@@ -44,28 +49,19 @@ type plannedMove struct {
 // that import this one.
 var ModelOff func(name string) (bool, error)
 
-// Move moves the seat to `model`, its orchestrator at the seat's own effort, as
+// Move moves the seat to `model`, its orchestrator at `effort`, else at the seat's own, as
 // orch.switch_orchestrator does: in place, asking nothing, where its running harness takes the
-// move (switchPane), else by a fresh-conversation restart once `asked` says so.  Refusals of
+// move (switchPane), else by a restart once `asked(kept)` says so, `kept` whether its
+// conversation goes on.  Given `effort`, its own model moves as another would.  Refusals of
 // _switch_plan, a move in place into a harness Go types nothing into or after which a turn its
-// usage cut off goes on, kept conversations, drafts and dialogs return before asked.  The launch,
-// including its rollback, remains the one reopening uses.
-func Move(name, model string, asked func() (bool, bool)) (bool, error) {
-	plan, known := planMove(name, model, "")
+// usage cut off goes on, drafts and dialogs return before asked.  The launch, including its
+// rollback, remains the one reopening uses.
+func Move(name, model, effort string, asked func(kept bool) (bool, bool)) (bool, error) {
+	plan, known := planMove(name, model, effort)
 	if !known || plan == nil {
 		return known, nil
 	}
 	return plan.carry(asked)
-}
-
-// MoveInPlace is Move with its orchestrator at `effort`, its own model moving as another would;
-// false where that restarts the seat, whose card is Python's.
-func MoveInPlace(name, model, effort string) (bool, error) {
-	plan, _ := planMove(name, model, effort)
-	if plan == nil || plan.pane == "" {
-		return false, nil
-	}
-	return true, plan.inPlace()
 }
 
 // planMove is Move's every check before anything is written: nil where the seat already runs
@@ -144,9 +140,11 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 	if pane != "" {
 		return plan, true
 	}
-	if !moveRestarts(was, entry, record) || !harness.CanHandOver(was.Harness) || !harness.CanLaunch(entry.Harness) {
+	conversation, opened, known := keptConversation(was, entry, record)
+	if !known || conversation == "" && !harness.CanHandOver(was.Harness) || !harness.CanLaunch(entry.Harness) {
 		return nil, false
 	}
+	plan.back.conversation, plan.back.opened = conversation, opened
 	held, _, known := find(name, record)
 	cwd, _ := record["cwd"].(string)
 	info, err := os.Stat(cwd)
@@ -160,12 +158,15 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 	return plan, true
 }
 
-// carry makes the planned move: in place at once, else the restart once `asked` says so.
-func (plan *plannedMove) carry(asked func() (bool, bool)) (bool, error) {
+// carry makes the planned move: in place at once, else the restart once `asked` says so.  A
+// restart on the conversation it keeps hands nothing over and forgets nothing of it; one its
+// harness never opened has no turn to go on with (orch.resume_command).
+func (plan *plannedMove) carry(asked func(bool) (bool, bool)) (bool, error) {
 	if plan.pane != "" {
 		return true, plan.inPlace()
 	}
-	accepted, known := asked()
+	kept := plan.back.conversation != ""
+	accepted, known := asked(kept)
 	if !known || !accepted {
 		return known, nil
 	}
@@ -173,16 +174,32 @@ func (plan *plannedMove) carry(asked func() (bool, bool)) (bool, error) {
 	record, selected, model, was := plan.record, plan.selected, moving.model, plan.was
 	found, known := moving.sight(name, held)
 	if !known {
-		return true, Refusal("the seat's screen changed; keep its input before moving it")
+		return true, screenChanged
+	}
+	if held {
+		// and once more with its keys off, under the seat's lock, after the adapter took its time
+		back.still = func(current string) error {
+			if _, known := moving.sight(current, true); !known {
+				return screenChanged
+			}
+			return nil
+		}
 	}
 	moving.at = seconds(time.Now())
 	going, _ := found.turnInFlight(was.Harness)
 	if going || usageGoesOn(name) {
-		back.line = movedLine
+		switch {
+		case !kept:
+			back.line = movedLine
+		case back.opened:
+			back.line = MidturnContinue
+		}
 	}
-	text, known := harness.Handover(was.Harness, record)
-	if !known {
-		return true, Refusal("the seat's conversation changed before it could move")
+	text := ""
+	if !kept {
+		if text, known = harness.Handover(was.Harness, record); !known {
+			return true, Refusal("the seat's conversation changed before it could move")
+		}
 	}
 	handed := ownFile("handover", name)
 	before, err := os.ReadFile(handed)
@@ -205,6 +222,9 @@ func (plan *plannedMove) carry(asked func() (bool, bool)) (bool, error) {
 			err = Refusal(fmt.Sprintf("could not reopen %s on %s", name, model))
 		}
 		return true, err
+	}
+	if kept {
+		return true, nil
 	}
 	if err = harness.Retire(was.Harness, selected); err == nil {
 		err = forgetSeen(filepath.Dir(handed), name, time.Now())
