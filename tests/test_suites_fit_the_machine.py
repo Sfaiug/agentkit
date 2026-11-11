@@ -1,8 +1,8 @@
 """How many suite pieces start at once follows a piece's measured cost and the host's free CPU.
 
 A repository's finished pieces leave their CPU cost behind, as each piece's box reported it,
-the CPU its processes spent and waited for, and later pieces of that suite are sized by it; one
-with no record starts from the estimate.
+the CPU its processes needed, and later pieces of that suite are sized by it; one with no
+record starts from the estimate.
 CPU the host spends outside ak's slice -- ak's own menus, tick and live checks among it --
 takes room the slice's quota would still promise.
 
@@ -132,7 +132,7 @@ class SuitesFitTheMachine(unittest.TestCase):
 
     def test_a_box_counts_what_its_processes_waited_for_a_core(self):
         # Two burners of a second each share one core: while one burns the other waits, for a
-        # second at least between them.  They stay till the box ends, so its last read sees all.
+        # second at least between them.
         core = min(os.sched_getaffinity(0))
         burn = (f"import os, time; os.sched_setaffinity(0, {{{core}}}); "
                 "any(iter(lambda: time.process_time() >= 1, True)); "
