@@ -404,6 +404,7 @@ levels = ["low", "medium", "high", "xhigh", "max"]
 # is newer than 2.1.280's table: Anthropic's models API lists it with all five efforts (29 Sep),
 # and 2.1.280 runs it, warning `unrecognized_model`.
 [catalog]
+claude-fable-5-2 = { label = "Fable 5.2", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-fable-5-1 = { label = "Fable 5.1", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-opus-5-5 = { label = "Opus 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-sonnet-5-5 = { label = "Sonnet 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }
