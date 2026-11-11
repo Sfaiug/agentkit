@@ -40,9 +40,10 @@ class SuiteShares(unittest.TestCase):
         for value in ("1", "0/3", "4/3", "1/0", "-1/3", "01/3", "1/x", "1/3\n"):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "AK_SHARD"):
                 suite.shard(value)
-        self.assertEqual(suite.smoke_source(SMOKE, REPO, (1, 1)),
-                         "".join(":\n" if name in suite.LIVE_CHECKS else body
-                                 for name, body in BLOCKS))
+        self.assertEqual(suite.smoke_source(SMOKE, REPO, (1, 1)), "".join(
+            ":\n" if name in suite.LIVE_CHECKS
+            else f"SMOKE_BLOCK='tests/smoke.sh#{name}'\n{body}" if name else f"SMOKE_BLOCK=\n{body}"
+            for name, body in BLOCKS))
 
     def test_every_real_block_has_exactly_one_owner_and_keeps_its_body(self):
         names = [name for name, _ in BLOCKS if name is not None]

@@ -11,6 +11,10 @@
 AK_NOTIFY_SINK_LOG=${WORK:-${TMPDIR:-/tmp}}/notify-diversions.log
 export AK_NOTIFY_SINK AK_NOTIFY_SINK_LOG
 NPASS=0 NFAIL=0 NSKIP=0 NMETER=0 NHOST=0 NSPENT=0 NCALL=0 NKILLED=0
+# The smoke.sh block a check runs in, `tests/smoke.sh#<block>` (suite_shares.smoke_source sets it
+# as each starts), which `no` names in the file AK_SMOKE_FAILED names, for tests/landing.py.  A
+# suite sourced inside a block is one of its own: what fails there is not the block's.
+SMOKE_BLOCK=
 ok() { printf 'PASS  %s\n' "$*"; NPASS=$((NPASS + 1)); }
 ok_call() { ok "$@"; NCALL=$((NCALL + 1)); }   # a passed check that completed a real model call
 failed_label() {
@@ -24,6 +28,7 @@ failed_label() {
 no() {
   [ $? != 137 ] || NKILLED=$((NKILLED + 1))
   printf 'FAIL  %s\n' "$*"; NFAIL=$((NFAIL + 1)); failed_label "$*"
+  [ -z "$SMOKE_BLOCK" ] || printf '%s\n' "$SMOKE_BLOCK" >>"${AK_SMOKE_FAILED:-/dev/null}"
 }
 # A live provider meter that answers 429, 5xx or nothing at all is the provider
 # throttling the host's probes, not the checkout under test: the check skips, and the
