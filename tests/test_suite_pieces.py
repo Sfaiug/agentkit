@@ -60,7 +60,7 @@ class SuitePieces(unittest.TestCase):
 
     def check(self, commands=None, **kwargs):
         return gate.run_done_when(commands or [SUITE], self.root,
-                                  self.run_dir / "gate.log", set(), limit=600,
+                                  self.run_dir / "gate.log", set(), limit=10,
                                   log=self.logs.append, run_dir=self.run_dir, **kwargs)
 
     def test_pieces_get_separate_headers_and_one_command_outcome(self):
