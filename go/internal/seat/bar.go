@@ -177,7 +177,7 @@ func barCrew(screen terminal.Screen, builds, reviews []string) string {
 // barSelection is the seat's model and crew, each named at the effort it runs that role at
 // (config.ModelAt), none where its record does not read as a seat's (config.load_session).
 func barSelection(state, name string, models map[string]config.Model) (model string, builds, reviews []string) {
-	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+	record, _ := run.Shared(filepath.Join(state, "session-"+name+".json"))
 	if record == nil {
 		return "", nil, nil
 	}
@@ -213,9 +213,9 @@ func (seat Seat) publish(state string, models map[string]config.Model, changed b
 	}
 	model, builds, reviews := barSelection(state, seat.Name, models)
 	done, total := plan.Progress(seat.Name)
-	barTell(state, seat.Name, seat.barOptions(terminal.For(os.Stderr), model, builds, reviews, done, total))
+	barTell(state, seat.Name, seat.barOptions(terminal.For(os.Stderr), model, builds, reviews, done, total), seat.bars)
 	if changed {
-		barTell(state, "", nil)
+		barTell(state, "", nil, seat.bars)
 	}
 }
 
@@ -259,8 +259,10 @@ func barSet(option [3]string) []string {
 // barTell writes line one's right end on that seat's bar, or every seat's for none, then the
 // caller's own options on a session tmux lists, each only where it would change what the bar
 // shows (bartold.go), and binds its click with any write, under one lock across every bar's
-// reading and writing, so whoever writes last has read last (statusbar._tell).
-func barTell(state, only string, own [][3]string) {
+// reading and writing, so whoever writes last has read last (statusbar._tell).  The sessions are
+// those `listing` lists, a reading's once, else listed here: a listing older than a write can only
+// cost a write not needed, or leave a bar wrong until the next look.
+func barTell(state, only string, own [][3]string, listing func() ([]barRow, bool)) {
 	if config.EnsureDirs() != nil {
 		return
 	}
@@ -272,7 +274,10 @@ func barTell(state, only string, own [][3]string) {
 	if !config.Publishes() {
 		return
 	}
-	listed, known := barSessions()
+	if listing == nil {
+		listing = barSessions
+	}
+	listed, known := listing()
 	if !known {
 		return
 	}
@@ -337,7 +342,7 @@ func barSeats(state string, listed []barRow) (found []barRow) {
 			row.mark != "1" && unrecorded != nil && agent.Agentless(tmux.Own(), []string{row.name}) {
 			continue
 		}
-		if file, _ := run.ReadJSON(filepath.Join(state, "seat-"+row.name+".json")); file != nil {
+		if file, _ := run.Shared(filepath.Join(state, "seat-"+row.name+".json")); file != nil {
 			row.word = file.Str("word")
 		}
 		found = append(found, row)

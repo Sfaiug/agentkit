@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
@@ -200,17 +199,14 @@ func read(current string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(plan)
+	text, err := texts.Read(plan)
 	if os.IsNotExist(err) {
 		return nil, nil
-	}
-	if err == nil && !utf8.Valid(data) {
-		err = fmt.Errorf("not UTF-8")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("cannot read the plan %s: %w", plan, err)
 	}
-	return config.SplitLines(string(data)), nil
+	return config.SplitLines(text), nil
 }
 
 func write(current string, lines []string) error {
