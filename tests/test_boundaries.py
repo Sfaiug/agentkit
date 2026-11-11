@@ -1,7 +1,7 @@
 """Boundaries: each piece of knowledge has one home, and the copies outside it only shrink.
 
-A rule names the knowledge, a pattern `git grep` finds it by, the path prefixes that are its
-home, and `max`: the count of matching lines outside that home on the day the rule was written.
+A rule names the knowledge, a pattern `git grep` finds it by, the pathspecs that are its home,
+and `max`: the count of matching lines outside that home on the day the rule was written.
 A rule's `names` are what the pattern also finds that is not that knowledge, such as ak's own
 names or another rule's: a line counts only if the pattern still finds something once they are
 taken out of it.
@@ -255,11 +255,12 @@ RULES = [
      "flags": (),
      "pattern": "[^\x01-\x7f]",
      "names": "[\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ−≈≤≥\u2500-\u259f●○■□✓▸◂←↑→↓⏎␣]",
-     "home": ("agentkit/watch.py", "adapters/", "go/adapters/", "go/internal/config/adapters/",
-              "go/internal/screen/", "go/internal/seat/said.go", "go/internal/seat/screen.go",
+     "home": ("agentkit/watch.py", "adapters/*.toml", "go/adapters/*.toml",
+              "go/internal/config/adapters/*.toml", "go/internal/screen/",
+              "go/internal/seat/said.go", "go/internal/seat/screen.go",
               "agentkit/notify.py", "agentkit/alive.py", "go/internal/notify/",
               "go/internal/tick/alive.go", "go/internal/tick/stopped.go"),
-     "max": 70},
+     "max": 69},
 ]
 
 # Every model ak runs is handed these whole, so each word costs every task some of its attention
@@ -272,12 +273,13 @@ WORDS = {"AGENTS.md": 1181, "orchestrator.md": 1817}
 def outside(rule):
     """Each `path:line: text` matching the rule outside its home."""
     proc = subprocess.run(["git", "-C", str(REPO), "grep", "-n", "-I", "--no-color", "-E",
-                           *rule["flags"], "-e", rule["pattern"], *SCOPE],
+                           *rule["flags"], "-e", rule["pattern"], *SCOPE,
+                           *(f":!{home}" for home in rule["home"])],
                           capture_output=True, text=True)
     if proc.returncode not in (0, 1):     # 1 is no match at all
         raise AssertionError(f"git grep failed: {proc.stderr}")
     # git ends a line at \n alone, where splitlines() would also cut one holding a U+2028
-    found = [line for line in proc.stdout.split("\n")[:-1] if not line.startswith(rule["home"])]
+    found = proc.stdout.split("\n")[:-1]
     if rule.get("names"):
         case = re.I if "-i" in rule["flags"] else 0     # as git grep matched: `İ` folds to `i`
         found = [line for line in found if re.search(

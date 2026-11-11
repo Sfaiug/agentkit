@@ -17,8 +17,10 @@ CARRIED = ["━━━╸───", "● working", "✓ done", "↑↓←→ mov
 
 class ScreenCharacters(unittest.TestCase):
     def test_only_a_borrowed_character_outside_its_home_counts(self):
+        # a screen read and a harness manifest are its home; the adapter script beside it is not
         files = {"agentkit/menu.py": BORROWED + CARRIED, "go/internal/menu/frame.go": BORROWED,
-                 "agentkit/watch.py": ["▰▰▱▱▱"]}
+                 "agentkit/watch.py": ["▰▰▱▱▱"], "adapters/acme.toml": ["▰▰▱▱▱"],
+                 "adapters/acme.sh": ["▰▰▱▱▱"]}
         with tempfile.TemporaryDirectory(prefix="ak-characters-") as directory:
             repo = Path(directory)
             for name, lines in files.items():
@@ -28,9 +30,9 @@ class ScreenCharacters(unittest.TestCase):
             subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
             with patch.object(boundaries, "REPO", repo):
                 found = boundaries.outside(RULE)
-        self.assertEqual(found, [f"{name}:{number}:{line}"
-                                 for name in ("agentkit/menu.py", "go/internal/menu/frame.go")
-                                 for number, line in enumerate(BORROWED, 1)])
+        self.assertEqual(found, ["adapters/acme.sh:1:▰▰▱▱▱"] + [
+            f"{name}:{number}:{line}" for name in ("agentkit/menu.py", "go/internal/menu/frame.go")
+            for number, line in enumerate(BORROWED, 1)])
 
 
 if __name__ == "__main__":
