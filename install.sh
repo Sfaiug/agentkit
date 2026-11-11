@@ -799,16 +799,23 @@ fi
 CORE_PATTERN="${AK_CORE_PATTERN:-/proc/sys/kernel/core_pattern}"
 SYSCTL_D="${AK_SYSCTL_D:-/etc/sysctl.d}"
 core_none='|/bin/false' core_ours=-agentkit-no-core-dumps.conf
-core_off() {   # ak's boot entry in place of any earlier one, then the live pattern
-  local last
+core_off() {   # ak's boot entry in place of an earlier install's, then the live pattern
+  local name names others=zz
+  # listed through sudo, as written, so an entry only root can list still sorts before ours
+  sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null && names=$(sudo -n ls -- "$SYSCTL_D" 2>/dev/null) ||
+    return 1
   # systemd-sysctl applies entries in the byte order of their names, and a name extended sorts
-  # after it: ours is the last of `zz` and every other name, extended
-  last=$(printf '%s\n' zz "$SYSCTL_D"/*.conf | sed 's|.*/||' | grep -vx -- ".*$core_ours" |
-    LC_ALL=C sort | tail -n 1)
-  sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null &&
-    sudo -n rm -f -- "$SYSCTL_D"/*"$core_ours" 2>/dev/null &&
-    printf '%s\n' "# Written by agentkit's install.sh: a crashed program leaves no core dump file" \
-      "kernel.core_pattern = $core_none" | sudo -n tee "$SYSCTL_D/$last$core_ours" >/dev/null 2>&1 &&
+  # after it: ours is the last of `zz` and every other name, extended.  Only that rule makes
+  # these two shapes, so an entry of either is an earlier install's.
+  while IFS= read -r name; do
+    case $name in
+      zz"$core_ours"|*.conf"$core_ours") sudo -n rm -f -- "$SYSCTL_D/$name" 2>/dev/null || return 1 ;;
+      *.conf) others+=$'\n'$name ;;
+    esac
+  done <<<"$names"
+  name=$(LC_ALL=C sort <<<"$others" | tail -n 1)$core_ours
+  printf '%s\n' "# Written by agentkit's install.sh: a crashed program leaves no core dump file" \
+    "kernel.core_pattern = $core_none" | sudo -n tee "$SYSCTL_D/$name" >/dev/null 2>&1 &&
     printf '%s' "$core_none" | sudo -n tee "$CORE_PATTERN" >/dev/null 2>&1
 }
 if [ "$SANDBOX" = 1 ] || ! core_now=$(cat -- "$CORE_PATTERN" 2>/dev/null) ||
