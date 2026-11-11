@@ -616,9 +616,9 @@ def disk_use(path):
     A guest's disk, such as a Mac's Linux machine's image growing on the Mac's own disk, grows
     only while its host has room, and stops the guest mid-write once it has none.  A folder
     the host shares through `virtiofs` reports its volume's free space: the disk has the least
-    of its own free space and each such mount's left, and its size shrinks by what it counts
-    free beyond that, so a fill reads as on a disk of that size.  With no such mount it reads
-    as it says.
+    of its own free space and each such mount's left.  Where a host has less than the disk,
+    the disk is as large as what it holds and that room, its reserved blocks no room it can
+    use, so a fill reads as on a disk of that size; elsewhere it reads as it says.
     """
     readings = _injected()
     if readings is None:
@@ -627,7 +627,8 @@ def disk_use(path):
     if None in (total, used, free):
         return None
     hosts = [room for room in readings.get("virtiofs_free_mb") or () if _number(room) is not None]
-    return used, total - free + min((free, *hosts))
+    room = min((free, *hosts))
+    return used, total if room >= free else used + room
 
 
 def _disk_readings(path):
@@ -639,15 +640,19 @@ def _disk_readings(path):
     except OSError:
         return {}
     try:
-        mounts = (PROC / "self/mounts").read_text().splitlines()
+        mounts = (PROC / "self/mounts").read_bytes().split(b"\n")
     except OSError:
         mounts = []             # a host without /proc, a Mac, is no guest
     hosts = []
-    for fields in map(str.split, mounts):
-        if len(fields) > 2 and fields[2] == "virtiofs":
+    # The kernel parts a row's fields with a space and writes a path as its bytes, each space,
+    # tab, newline or backslash in it as `\NNN`: any other byte, whatever it decodes to, is
+    # the path's, and fsdecode keeps one no codec reads for statvfs to hand back.
+    for fields in (line.split(b" ") for line in mounts):
+        if len(fields) > 2 and fields[2] == b"virtiofs":
+            share = os.fsdecode(re.sub(rb"\\([0-7]{3})", lambda m: bytes([int(m[1], 8)]),
+                                       fields[1]))
             try:
-                hosts.append(shutil.disk_usage(
-                    re.sub(r"\\([0-7]{3})", lambda m: chr(int(m[1], 8)), fields[1])).free / mib)
+                hosts.append(shutil.disk_usage(share).free / mib)
             except OSError:
                 continue
     return {"disk_total_mb": disk.total / mib, "disk_used_mb": disk.used / mib,
