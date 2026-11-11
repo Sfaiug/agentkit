@@ -271,7 +271,8 @@ class Catalog(unittest.TestCase):
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(watch.doctor([]), 0)
         self.assertEqual(out.getvalue().splitlines()[:-1], [    # the last is the rented machine
-            "slice test", "tick  lock free", "runs  0 going · 0 ended today · 0 endings owed",
+            "slice test", "tick  lock free",
+            "runs  0 started in the last day · 0 ended · 0 going · 0 endings owed",
             "gates  admission never held · suite turns never held · memory never held",
             "night review  disarmed · last two weeks no merges · no merges",
             "machine  this one: new · never answered",

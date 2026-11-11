@@ -1,10 +1,14 @@
-"""Doctor counts runs and owed endings, and fails when a dead run outlasts two ticks.
+"""Doctor's runs line: every run started in the last day ended, is going, or is named lost.
+
+Jobs in equals jobs out (write-up row 43).  A run is lost the way the tick's dead-loop pass reads
+a dead loop: its record says it is going while no process of it runs and nothing holds it, and
+the pass has had a tick to resume it -- its last write is older than three minutes and twice the
+last tick.  Doctor then exits 1.
 
 Black-box through AK_BIN in a temporary HOME, on the real clock and the real process table: the
 records and the tick's stamps are written set back from now, each boundary with a minute's
-margin on either side, and every process that keeps a run alive, or does not, is one this test
-starts and ends.  No tick resumes anything here: doctor only reads the records and reports what
-is stuck.
+margin on either side, and every process that keeps a run going, or does not, is one this test
+starts and ends.  No tick resumes anything here: doctor only reads.
 """
 
 import os
@@ -23,12 +27,7 @@ from fixtures.akbin import AK, Home, owner
 MARKER = "AGENTKIT_RUN"     # carried by every process a run starts: its directory, or below it
 
 
-def noon():
-    """A zone where it is about noon now, so no ending written minutes back is yesterday's."""
-    return f"Etc/GMT{round(time.time() % 86400 / 3600) - 12:+d}"
-
-
-class DoctorRunsLine(unittest.TestCase):
+class DoctorRunsInEqualOut(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
@@ -43,12 +42,16 @@ class DoctorRunsLine(unittest.TestCase):
             "started_at": ended - took, "ended_at": ended,
             "slowest": {"pass": "dead loops", "seconds": took}}})
 
-    def run_record(self, name, state="running", ago=240, **fields):
+    def run_record(self, name, state="running", ago=240, started=10000, **fields):
+        """A run started `started` seconds back, its last write `ago` seconds back; a running
+        one's loop is a process that has ended unless `fields` name another."""
         now = time.time()
         record = {"run_id": name, "title": "Fix api", "state": state,
-                  "started_at": now - 10000, "launched_session": "acme", **fields}
+                  "started_at": now - started, "launched_session": "acme", **fields}
         if state in ("pass", "fail", "blocked", "stopped"):
             record.setdefault("finished_at", now - ago)
+        if "pid" not in record:
+            record.update(self.ended())
         return self.home.write(f".agentkit/runs/{name}/run.json", record, ago=ago).parent
 
     def start(self, *argv, run=None, executable=None):
@@ -60,6 +63,10 @@ class DoctorRunsLine(unittest.TestCase):
                                 stderr=subprocess.DEVNULL)
         self.addCleanup(lambda: (proc.kill(), proc.communicate()))
         return proc
+
+    def going(self):
+        """The pid and identity of a loop that runs until the test ends."""
+        return owner(self.start("sleep", "600").pid)
 
     def ended(self, reap=True):
         """The pid and identity a loop recorded for itself, that loop since ended: reaped, or
@@ -98,49 +105,69 @@ class DoctorRunsLine(unittest.TestCase):
         before = kept()
         # the shell waits for doctor rather than exec it, so it stays doctor's parent
         argv = ("sh", "-c", '"$@"; exit $?', "sh") if under else ()
-        done = self.home.run(*argv, AK, "doctor",
-                             env={"TZ": noon(), **({MARKER: str(under)} if under else {})})
+        done = self.home.run(*argv, AK, "doctor", env={MARKER: str(under)} if under else None)
         self.assertEqual(done.code, code, done.out + done.err)
         self.assertIn(f"runs  {line}", done.out.splitlines())
         self.assertTrue(done.out.splitlines()[-1].startswith("rented machines: "), done.out)
         self.assertEqual(kept(), before, "doctor must leave the run and tick records alone")
 
-    def test_going_ended_and_owed_with_the_oldest_age(self):
-        self.run_record("moving", ago=1000, **owner(self.start("sleep", "600").pid))
-        self.run_record("said", "pass", ago=60, handed_back=time.time() - 50)
-        self.run_record("owed", "blocked", ago=600, handback_pending=True)
-        self.doctor(0, "1 going · 2 ended today · 1 ending owed, oldest 10m")
+    def test_a_run_neither_ended_nor_going_is_named(self):
+        self.run_record("said", "pass", handed_back=True)
+        self.run_record("moving", **self.going())
+        self.run_record("lost")
+        self.doctor(1, "3 started in the last day · 1 ended · 1 going · 0 endings owed · "
+                       "lost: lost (4m since last write)")
 
-    def test_a_dead_run_fails_once_past_three_minutes_and_twice_the_last_tick(self):
-        for took, age, code in ((10, 120, 0), (10, 240, 1), (150, 240, 0), (150, 360, 1)):
+    def test_a_dead_loop_is_lost_once_past_three_minutes_and_twice_the_last_tick(self):
+        for took, age, lost in ((10, 120, False), (10, 240, True), (150, 240, False),
+                                (150, 360, True)):
             with self.subTest(took=took, age=age):
                 self.tick(took)
                 self.run_record("lost", ago=age)
-                self.doctor(code, "1 going · 0 ended today · 0 endings owed · "
-                                  f"dead: lost ({age // 60}m since last write)")
+                if lost:
+                    self.doctor(1, "1 started in the last day · 0 ended · 0 going · "
+                                   f"0 endings owed · lost: lost ({age // 60}m since last write)")
+                else:
+                    self.doctor(0, "1 started in the last day · 0 ended · 1 going · "
+                                   "0 endings owed")
 
-    def test_old_endings_still_owed_are_shown_without_failing(self):
-        self.run_record("old", "fail", ago=10, finished_at=time.time() - 2 * 86400)
+    def test_a_wait_holds_a_run_whose_loop_is_gone(self):
+        now = time.time()
+        self.run_record("quota", "exhausted")
+        self.run_record("parked", "interrupted",
+                        deaths=[{"at": now - 900, "pid": 1, "parked": True}])
+        self.run_record("told", "interrupted")
+        self.run_record("ordered", stall_resume_at=now - 300)
+        died = self.ended()
+        self.run_record("backoff", **died, resume_after=now + 300, deaths=[
+            {"at": now - 600, "pid": 1, "resumed_at": now - 500},
+            {"at": now - 300, "pid": died["pid"]}])
+        self.doctor(0, "5 started in the last day · 0 ended · 5 going · 0 endings owed")
+
+    def test_only_runs_started_in_the_last_day_count_and_every_owed_ending_does(self):
+        self.run_record("old", "fail", ago=10, started=3 * 86400,
+                        finished_at=time.time() - 2 * 86400)
         self.run_record("new", "pass", ago=600)
-        self.run_record("reported", "pass", reported=True)
         self.run_record("said", "blocked", handed_back=True)
         self.run_record("stopped", "stopped")
-        self.doctor(0, "0 going · 4 ended today · 2 endings owed, oldest 2d")
+        self.run_record("days", started=2 * 86400, **self.going())
+        self.doctor(0, "3 started in the last day · 3 ended · 0 going · "
+                       "2 endings owed, oldest 2d")
 
-    def test_a_marked_worker_keeps_its_run_alive_without_the_loop(self):
+    def test_a_marked_worker_keeps_its_run_going_without_the_loop(self):
         self.start("sleep", "600", run=self.run_record("moving"))
-        self.doctor(0, "1 going · 0 ended today · 0 endings owed")
+        self.doctor(0, "1 started in the last day · 0 ended · 1 going · 0 endings owed")
 
-    def test_a_marked_parent_keeps_its_run_alive_when_it_calls_doctor(self):
-        self.doctor(0, "1 going · 0 ended today · 0 endings owed",
-                    under=self.run_record("moving", **self.ended()) / "turn-acme")
+    def test_a_marked_parent_keeps_its_run_going_when_it_calls_doctor(self):
+        self.doctor(0, "1 started in the last day · 0 ended · 1 going · 0 endings owed",
+                    under=self.run_record("moving") / "turn-acme")
 
-    def test_a_resume_keeps_its_run_alive_before_it_records_itself(self):
-        self.run_record("moving", **self.ended())
+    def test_a_resume_keeps_its_run_going_before_it_records_itself(self):
+        self.run_record("moving")
         self.resume("moving")
-        self.doctor(0, "1 going · 0 ended today · 0 endings owed")
+        self.doctor(0, "1 started in the last day · 0 ended · 1 going · 0 endings owed")
 
-    def test_unrelated_commands_zombies_and_other_runs_do_not_hide_a_dead_run(self):
+    def test_unrelated_commands_zombies_and_other_runs_do_not_hide_a_lost_run(self):
         directory = self.run_record("lost", **self.ended(reap=False))
         self.run_record("lost-other")
         resume = [*self.resume("lost-other")[:-1], "lost"]     # how lost's own would read
@@ -149,8 +176,8 @@ class DoctorRunsLine(unittest.TestCase):
         self.start("tail", "-F", *resume)
         # one reading as its resume with a word more: xargs, waiting on its input to run it
         self.start(*resume, "--extra", executable="xargs")
-        self.doctor(1, "2 going · 0 ended today · 0 endings owed · "
-                       "dead: lost (4m since last write)")
+        self.doctor(1, "2 started in the last day · 0 ended · 1 going · 0 endings owed · "
+                       "lost: lost (4m since last write)")
 
 
 if __name__ == "__main__":
