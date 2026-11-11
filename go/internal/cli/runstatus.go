@@ -28,7 +28,7 @@ func init() { commands["run status"] = runStatus }
 var statusHeaders = []string{"id", "title", "state", "worker", "round", "age"}
 
 // A listed run is its directory and its record, or the unreadable row in its place, and its place
-// in its landing line, "" out of any.
+// in its landing line, "" out of any; a job's task alone is one read for the job's block, no row.
 type listed struct {
 	dir          string
 	record       *run.Object
@@ -36,6 +36,7 @@ type listed struct {
 	ending       string
 	recordEnding func()
 	place        string
+	task         bool
 }
 
 func (l listed) name() string { return filepath.Base(l.dir) }
@@ -68,7 +69,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	}
 	looked := false
 	if wanted != "" {
-		if _, _, no := listing(seat, wanted, showHistory, machine, now); no {
+		if _, _, _, no := listing(seat, wanted, showHistory, machine, now); no {
 			return notImplemented(errOut, "run status")
 		}
 		// a mark that cannot be written is let go, as Python lets it go: what is shown
@@ -89,7 +90,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 			return 2
 		}
 	}
-	every, entries, no := listing(seat, wanted, showHistory, machine, now)
+	every, entries, jobs, no := listing(seat, wanted, showHistory, machine, now)
 	var db *history.DB
 	var uncounted []string
 	defer func() { db.Close() }()
@@ -126,6 +127,9 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	var found []listed
 	hidden := 0
 	for _, entry := range entries {
+		if entry.task {
+			continue
+		}
 		if wanted == "" && !shown(entry.record, showHistory, now) {
 			hidden++
 			continue
@@ -154,7 +158,8 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 	}
 	index, models := run.NewIndex(others), run.Models()
-	if len(found) == 0 {
+	printJobs(out, jobs, entries, models, index, now)
+	if len(found) == 0 && len(jobs) == 0 {
 		fmt.Fprintf(out, "no current runs in %s\n", run.Runs())
 	}
 	if plain {
@@ -189,24 +194,30 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// listing is every readable record and the runs a listing shows, each line's places read once
-// where the listing prints them, or none, and true, where Go leaves the listing to Python
-// (`refused`, or a place not landing.line's).
-func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*run.Object, []listed, bool) {
-	every, entries := records(seat, wanted)
-	if every == nil || refused(entries, seat, wanted, showHistory, machine, now) {
-		return nil, nil, true
+// listing is every readable record, the runs a listing reads and the jobs it shows, none with
+// --json or for one run named, each line's places read once where the listing prints them, or
+// none, and true, where Go leaves the listing to Python (`refused`, a receipt Go cannot keep, or
+// a place not landing.line's).
+func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*run.Object, []listed, []job.Shown, bool) {
+	var jobs []job.Shown
+	read := true
+	if wanted == "" && !machine {
+		jobs, read = job.Listed(seat, showHistory, now)
+	}
+	every, entries := records(seat, wanted, tasks(jobs))
+	if !read || every == nil || refused(entries, wanted, machine) {
+		return nil, nil, nil, true
 	}
 	if !machine {
-		place := run.LinePlaces()
+		place := run.LinePlaces(run.Standing())
 		for i := range entries {
 			var read bool
 			if entries[i].place, read = place(entries[i].record, entries[i].name()); !read {
-				return nil, nil, true
+				return nil, nil, nil, true
 			}
 		}
 	}
-	return every, entries, false
+	return every, entries, jobs, false
 }
 
 // reaped is whether each run listed is now as Python's reap leaves it: an ended one as run.Reap
@@ -233,8 +244,9 @@ func reaped(entries []listed, decide func() error) bool {
 
 // records are every readable record, and the runs a listing reads: the one wanted, smoke run
 // or not, or every run, or the seat's own, the smoke suite's aside, an unreadable record as a
-// row saying so outside a seat.  None at all where a record holds what Go cannot keep.
-func records(seat, wanted string) ([]*run.Object, []listed) {
+// row saying so outside a seat, and any other run a job's task names.  None at all where a
+// record holds what Go cannot keep.
+func records(seat, wanted string, tasks map[string]bool) ([]*run.Object, []listed) {
 	every := []*run.Object{}
 	var kept []listed
 	for _, dir := range run.Dirs() {
@@ -247,13 +259,16 @@ func records(seat, wanted string) ([]*run.Object, []listed) {
 		}
 		switch {
 		case wanted != "" && filepath.Base(dir) != wanted:
-		case seat != "" && (record == nil || run.Seat(record) != seat):
+		case seat != "" && (record == nil || run.Seat(record) != seat), record != nil && wanted == "" && run.SmokeRun(record):
+			if record != nil && tasks[filepath.Base(dir)] {
+				kept = append(kept, listed{dir: dir, record: record, task: true})
+			}
 		case record == nil:
 			record = run.NewObject()
 			record.Set("run_id", filepath.Base(dir))
 			record.Set("state", "unreadable")
 			kept = append(kept, listed{dir: dir, record: record, unreadable: true})
-		case wanted != "" || !run.SmokeRun(record):
+		default:
 			kept = append(kept, listed{dir: dir, record: record})
 		}
 	}
@@ -294,14 +309,11 @@ func actedOn(record *run.Object) bool {
 	}
 }
 
-// refused is whether Python ak would write or act on what the listing reads: a job it shows,
-// a run its reap or a look at it acts on, and with --json what history.db would add; one run
-// named shows no job.  The scoreboard's own reads are boardHistory's.
-func refused(entries []listed, seat, wanted string, showHistory, machine bool, now time.Time) bool {
+// refused is whether Python ak would write or act on what the listing reads: a run its reap or
+// a look at it acts on, a job's task's among them, and with --json what history.db would add.
+// The scoreboard's own reads are boardHistory's.
+func refused(entries []listed, wanted string, machine bool) bool {
 	if exists(history.Path()) && machine {
-		return true
-	}
-	if wanted == "" && jobShown(seat, showHistory, machine, now) {
 		return true
 	}
 	for _, entry := range entries {
@@ -327,40 +339,6 @@ func refused(entries []listed, seat, wanted string, showHistory, machine bool, n
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-// jobShown is whether the listing shows a job: the seat's or every one of the last seven
-// days, all of them with --history.
-func jobShown(seat string, showHistory, machine bool, now time.Time) bool {
-	if machine {
-		return false
-	}
-	entries, _ := os.ReadDir(job.Jobs())
-	for _, entry := range entries {
-		if info, err := os.Stat(filepath.Join(job.Jobs(), entry.Name())); err != nil || !info.IsDir() {
-			continue
-		}
-		receipt, err := run.ReadJSON(job.ReceiptPath(entry.Name()))
-		if errors.Is(err, run.ErrLoneSurrogate) {
-			return true
-		}
-		if receipt == nil {
-			continue
-		}
-		if _, ok := receipt.Get("tasks").([]any); !ok {
-			continue
-		}
-		launched := run.NewObject()
-		launched.Set("launched_session", receipt.Get("seat"))
-		if seat != "" && run.Seat(launched) != seat {
-			continue
-		}
-		at, ok := receipt.Num("finished_at")
-		if showHistory || !ok || !(seconds(now)-at > run.GCAge) {
-			return true
-		}
-	}
-	return false
 }
 
 func seconds(at time.Time) float64 {

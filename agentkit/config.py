@@ -1241,6 +1241,7 @@ SEAT_FILES = {
     "card": "json",      # its notification transition latch
     "seat": "json",      # its last classified live state and since when
     "hook": "json",      # what its harness's own lifecycle hooks say it is doing
+    "heard": "json",     # the last moment those hooks heard an event at (`heard_at`)
     "plan": "md",        # its plan, which the menu row reads its bar from
     "stop": "json",      # this turn's start, for the stop hook's rule
     "live": "txt",       # when its own ssh last reached the live host (`guard.live_reach`)
@@ -2191,9 +2192,29 @@ def hook_facts_path(name):
     return seat_file("hook", name)
 
 
+def heard_at(name):
+    """The moment a hook of that seat hears its event now: the host's clock, or just past the
+    last moment the seat heard one where the clock reads no later, as it does once it steps
+    back.  An event heard after another is so never taken for older and lost under it
+    (`record_hook_fact`).  The seat's clock is kept under the name it goes by now, beside the
+    facts it orders."""
+    path = seat_file("heard", resolve_session(name))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _record_lock(path):
+        try:
+            last = _read_json(path)
+        except Error:
+            last = None
+        at = time.time()
+        if isinstance(last, (int, float)) and not isinstance(last, bool) and last >= at:
+            at = math.nextafter(last, math.inf)
+        _write_json(path, at, prepare=False)
+    return at
+
+
 def record_hook_fact(name, fact, keep=lambda standing: False):
     """Put that lifecycle fact in place of the seat's last one, unless the one standing was
-    heard later or `keep(standing)` keeps it.
+    heard later (`heard_at`) or `keep(standing)` keeps it.
 
     Both hooks writing one -- hooks/seat-state.sh, and hooks/orchestrator-stop.sh for the Stop
     it judges -- read, decide and replace under the record's lock: an event its harness does not
