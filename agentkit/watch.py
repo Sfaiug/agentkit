@@ -689,23 +689,27 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             _write_state(state)
 
 
+def slept(name):
+    """Whether an older ak put that seat to sleep and it is not back yet: until `reopen_slept`
+    brings it back it is an open seat away from its prompt, kept, and owed what any is."""
+    record = config.session_records().get(name) or {}
+    return ((record.get("asleep") or 0) > (record.get("launched") or 0)
+            and not seat_closed_by_owner(name))
+
+
 def reopen_slept(cfg, log):
-    """Each seat an older ak put to sleep (its record's `asleep`, after its launch) back on its
-    own conversation, as after a reboot, unless the owner closed it since.  The mark goes before
-    the launch, so one that fails is not tried again: the seat reopens with its number, as any
-    closed seat."""
-    for name, record in config.session_records().items():
-        if "asleep" not in record:
-            continue
-        config.update_session(name, asleep=None)
-        if ((record["asleep"] or 0) <= (record.get("launched") or 0)
-                or seat_closed_by_owner(name)):
-            continue
-        try:
-            orch.resume(cfg, name, log=lambda _: None, detached=True, hand_over=False)
+    """Each seat an older ak put to sleep (`slept`) back on its own conversation, as after a
+    reboot, its mark dropped once it is back or the owner closed it: one that does not come back
+    keeps it, and is tried again at the next tick."""
+    for name in [name for name, record in config.session_records().items() if "asleep" in record]:
+        if slept(name):
+            try:
+                orch.resume(cfg, name, log=lambda _: None, detached=True, hand_over=False)
+            except (config.Error, OSError) as exc:
+                log(f"WARN could not reopen {name}, which an older ak had put to sleep: {exc}")
+                continue
             log(f"reopened {name}, which an older ak had put to sleep")
-        except (config.Error, OSError) as exc:
-            log(f"WARN could not reopen {name}: {exc}")
+        config.update_session(name, asleep=None)
 
 
 def relaunched(name, harness, line, at, boot=None, account=False):
@@ -7438,6 +7442,8 @@ def say(dry_run, log, text, url, session, merged=False):
             if handback.owes_ending(run_state):
                 handback.announce(run_state, run_dir, log)
         return True
+    if session and slept(session):
+        return False        # the line is owed it, and the tick reopens it first
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
         line = notice()
@@ -7991,8 +7997,8 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
 
 def after_merge_seat(run_state, repo_key, typed):
     """The seat an after-merge notice goes to: the one its line was typed into (`typed`, the
-    mark naming it by its `created`) while that is live, else its own when live, else the
-    fallback."""
+    mark naming it by its `created`) while that is live, else its own when live (none while it
+    is `slept`), else the fallback."""
     marked = typed.get("seat") if isinstance(typed, dict) else None
     if marked is not None:
         try:
@@ -8006,6 +8012,8 @@ def after_merge_seat(run_state, repo_key, typed):
     except config.Error:
         session = None
     if session:
+        if slept(session):
+            return None     # the notice is owed it, and the tick reopens it first
         try:
             seat = orch.find(session)
         except (config.Error, OSError, ValueError, AttributeError):
@@ -8505,15 +8513,15 @@ def local_passes(state, dry_run, log):
                      else usage.collect(config.load(), refresh=True))
 
     return (
-        # First, and outside the `gh api user` gate: a merged change's `health:` needs no GitHub,
-        # and the seats' passes below read its `live_at` this tick (`awaiting_live`).  The pass's
-        # own gh calls fail on their own, and the next tick asks again.
-        ("merge checks", lambda: after_merge_checks(state, dry_run, log), True),
-        ("boot resume", lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
         # The owner, 9 Nov 2026, removed seat sleeping: a seat stays open until the owner closes
         # it, whatever its rest and whatever memory reads.  One an older ak put to sleep comes
-        # back here, as after a reboot.
+        # back first, as after a reboot, so what the passes below owe it finds it open.
         ("slept seats", lambda: reopen_slept(config.load(), log), False),
+        # Outside the `gh api user` gate: a merged change's `health:` needs no GitHub, and the
+        # seats' passes below read its `live_at` this tick (`awaiting_live`).  The pass's own gh
+        # calls fail on their own, and the next tick asks again.
+        ("merge checks", lambda: after_merge_checks(state, dry_run, log), True),
+        ("boot resume", lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
         ("held lines", lambda: finish_own_lines(config.load(), log), False),
         ("draft return", lambda: drafts_back(config.load()), False),
         ("rebooted turns", lambda: continue_turns(config.load(), log), False),

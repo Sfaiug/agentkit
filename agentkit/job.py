@@ -367,9 +367,9 @@ def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
     only at its own prompt, exactly as a single run's ending is handed back.  `busy` is a seat
     that is there with a turn in flight: the line waits on the job's record and the tick types
     it at the next quiet prompt, because a seat still in its chair is never a reason to ask the
-    owner instead.  Only `gone` is.  `typed` and `receipt` are the job record's side of
-    `watch.type_at_prompt`'s: a line in the composer is never typed a second time.  A line
-    `watch.too_long` refuses is never typed.
+    owner instead, and nor is one the tick has yet to reopen (`watch.slept`).  Only `gone` is.
+    `typed` and `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the
+    composer is never typed a second time.  A line `watch.too_long` refuses is never typed.
     """
     refusal = watch.too_long(line)
     if refusal:
@@ -377,7 +377,7 @@ def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
         return "busy"
     with handback.launcher_world(seat) as live:
         if not live:
-            return "gone"
+            return "busy" if watch.slept(seat) else "gone"
         if watch.type_at_prompt(orch.find(seat) or {"name": seat}, line, log,
                                 typed=typed, receipt=receipt):
             return "sent"

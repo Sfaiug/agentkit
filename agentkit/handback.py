@@ -1846,6 +1846,9 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
         if live:
             hand_back(state, run_dir, log, cfg, busy, records)
             return
+    if watch.slept(session):
+        mark_delivery(run_dir, state, handback_pending=True)   # owed: the tick reopens it first
+        return
     if state.get("state") == "not_needed":
         mark_delivery(run_dir, state, reported=True, handback_pending=None,
                       handback_wait_reason=None, notification_pending=None)
