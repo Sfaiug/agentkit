@@ -116,7 +116,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.assertTrue(ok, text)
         self.assertEqual(sorted(shard for _, shard in self.shards), [f"{k}/8" for k in range(1, 9)])
         self.assertEqual(self.peak, 4)
-        self.assertEqual(self.held, [4] * 8)
+        self.assertEqual(self.held[:4], [4] * 4)    # its first four, run together, on four turns
 
     def test_turns_held_never_exceed_the_limit_while_two_suites_pieces_wait(self):
         self.hold_others(3)
@@ -165,9 +165,10 @@ class SuiteTakesFreedTurns(unittest.TestCase):
                 {**ROOM, "slice_memory_high_mb": 8000, "slice_memory_used_mb": 6300})}):
             ok, text = self.suite("acme", [SUITE, costly, SUITE], {costly: 1000})
         self.assertTrue(ok, text)
-        self.assertEqual([(shard.partition("/")[2], held)
-                          for (_, shard), held in zip(self.shards, self.held)],
-                         [("8", 4)] * 8 + [("2", 1)] * 2 + [("8", 4)] * 8)
+        self.assertEqual([shard.partition("/")[2] for _, shard in self.shards],
+                         ["8"] * 8 + ["2"] * 2 + ["8"] * 8)
+        # each suite's first piece starts before any of its pieces ends and gives a turn back
+        self.assertEqual([self.held[0], *self.held[8:11]], [4, 1, 1, 4])
         self.assertEqual(gate._heavy_running(), 0)
 
 

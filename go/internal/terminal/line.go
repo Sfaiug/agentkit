@@ -1,18 +1,18 @@
 package terminal
 
 import (
-	"cmp"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 )
 
-// lookOf is a word's style, a `#RRGGBB` taking its colour and the nearest of the eight basic ones.
-func lookOf(word string) style {
+// lookOf is a word's style and its colour on this screen, a `#RRGGBB` taking its own and the
+// nearest of the eight basic ones.
+func (s Screen) lookOf(word string) (style, string) {
 	rgb, own := strings.CutPrefix(word, "#")
 	if !own {
-		return styles[word]
+		return styles[word], colourOf(word, s.light).rgb
 	}
 	tone := 30
 	for i, text := range channels(rgb) {
@@ -20,7 +20,7 @@ func lookOf(word string) style {
 			tone += 1 << i
 		}
 	}
-	return style{rgb: rgb, tone: strconv.Itoa(tone)}
+	return style{tone: strconv.Itoa(tone)}, rgb
 }
 
 // LayoutWidth is the room a screen lays out in: the terminal's, up to 120 columns; beyond that the
@@ -41,9 +41,10 @@ func (s Screen) faded(word string, amount float64) string {
 	if role, ok := kinds[word]; ok {
 		word = role
 	}
-	rgb, to := lookOf(word).rgb, 0.0
+	_, rgb := s.lookOf(word)
+	to := 0.0
 	if s.light {
-		rgb, to = cmp.Or(lightRGB[word], rgb), 255
+		to = 255
 	}
 	if amount < 0 {
 		to, amount = 255-to, -amount
@@ -56,10 +57,9 @@ func (s Screen) faded(word string, amount float64) string {
 	return out
 }
 
-// ShareLine is a smooth line size cells long, share of it (0 to 1) full: `━` in word's colour, on a
-// terminal of more than eight colours fading in from half way to its background at the line's
-// start to the colour at its tip, with a half cell `╸` where the share ends inside one; the rest is
-// a dim `─`.  Without colour the shapes carry it, and without UTF-8 it is `===------`.
+// ShareLine is a smooth line size cells long, share of it (0 to 1) full: `━` in word's colour, with
+// a half cell `╸` where the share ends inside one; the rest is a dim `─`.  Without colour the shapes
+// carry it, and without UTF-8 it is `===------`.
 func (s Screen) ShareLine(share float64, size int, word string) string {
 	return s.GlidingLine(share, share, 1, false, size, word)
 }
@@ -78,7 +78,6 @@ func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word
 	ends := (halves + 1) / 2
 	start := math.RoundToEven(float64(size) * from)
 	head := int(math.RoundToEven(start + (float64(ends)-start)*moved))
-	tip := max(1, ends-1)
 	cells := make([]string, head)
 	var line strings.Builder
 	for n := range head {
@@ -88,13 +87,8 @@ func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word
 		}
 		if s.depth > 8 {
 			ink := word
-			switch {
-			case lit && n == head-1:
+			if lit && n == head-1 {
 				ink = s.faded(word, -0.5)
-			case n < ends && ends > 1:
-				ink = s.faded(word, 0.5*(1-float64(n)/float64(tip)))
-			case n < ends:
-				ink = s.faded(word, 0)
 			}
 			line.WriteString(s.Styled(cells[n], ink))
 		}

@@ -15,7 +15,7 @@ func init() {
 	plugins["muse"] = plugin{identity: museIdentity, auth: museAuth, usageTaken: museUsageTaken, usageRecorded: museUsageRecorded, recordTurn: museRecordTurn,
 		seats: true, looks: true, record: museRecord, keys: []string{"muse_launch"}, kept: museKept, forget: receiptGone("muse"),
 		opens: true, interactive: museInteractive, seatWords: museSeatWords, owned: museConversation, reported: museReported, launched: museLaunched, retire: receiptRetired("muse"),
-		card: museCard, said: museSaid, typed: museTyping, answered: museAnswered, answer: museAnswer, resumable: museResumable, tokens: museTokens,
+		card: museCard, said: museSaid, typed: byName(museTyping), answered: museAnswered, answer: museAnswer, resumable: museResumable, tokens: museTokens,
 		// its launch receipt reads as no session where Python's strict read raises: a session
 		// that is not UTF-8, or an `earlier` Python's set() refuses
 		loose: true,
