@@ -554,6 +554,7 @@ test_key_tmux_shim_new_session
 test_key_tmux_shim_other_seat
 test_key_tmux_shim_passes
 test_key_tmux_socket_seam
+test_key_transcript_read_once
 test_key_transfer_live_host
 test_key_turn_tokens_by_type
 test_key_typed_mark_names_its_process
