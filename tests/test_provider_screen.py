@@ -428,7 +428,7 @@ class ProviderScreen(unittest.TestCase):
         screen.leave()
         screen = Screen(self, child=CHILD, text=ONE, rows=24, cols=40)
         open_providers(screen)
-        lines, offered = pick(screen, ENTER, "agentkit · config · add a subscri…", 6)   # cut
+        lines, offered = pick(screen, ENTER, "agentkit · add a subscription", 6)   # config shed
         for line in lines + offered:
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(offered[-2], "  OpenCode")

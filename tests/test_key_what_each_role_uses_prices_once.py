@@ -4,7 +4,8 @@ priced it again for each role: the models screen held its keys for 28 seconds on
 (7 Nov 2026).  The two are set side by side by how often each opens history.db or its log, by the
 kernel's count (inotify), once an `ak models` has stored the lineup.  Black-box: the program
 `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on the boards and models of
-tests/test_key_role_cost_from_runs.py.  Fails against /bin/false.
+tests/test_key_role_cost_from_runs.py, in a Home holding its empty history, as every home ak has
+run in holds one.  Fails against /bin/false.
 """
 
 import ctypes
@@ -18,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import Home
 from test_key_models_answer import ENV
-from test_key_role_cost_from_runs import board
+from test_key_role_cost_from_runs import History, board
 
 # A close between each two opens, or the kernel counts them as one.
 IN_OPEN, IN_CLOSE = 0x20, 0x18
@@ -33,6 +34,7 @@ class WhatEachRoleUsesPricesOnce(unittest.TestCase):
                                    for name in ("anvil", "bloom", "crown")},
                        settings={"companies": ["Acme"]})
         self.home.write(".agentkit/state/boards.json", board())
+        History(self.home).save()
         self.opens()
 
     def opens(self, *flags):
