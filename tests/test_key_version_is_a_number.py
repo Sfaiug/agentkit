@@ -10,16 +10,23 @@ from outside through tests/fixtures/akbin.py, its ~/agentkit a repository this t
 its harness a fake of tests/fixtures/fakeadapter.py; this test fails against `/bin/false`.
 """
 
+import os
+import shlex
+import shutil
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, SYSTEM, Home
 from fixtures.akterm import Terminal
 
 DAY = "2026-09-29T12:00:00+0000"
+# git, but a history it has counted is completed right after, as `fetch --unshallow` would while
+# ak reads its version: a count taken of a history cut short is never shown, however it then reads
+COMPLETES = ('#!/bin/sh\n{git} "$@" || exit\n'
+             '[ "$3 $4" != "rev-list --count" ] || exec {git} -C "$2" fetch -q --unshallow\n')
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -66,6 +73,8 @@ class VersionIsANumber(unittest.TestCase):
         full = self.home.root / "full"
         self.checkout.rename(full)
         self.git("clone", "-q", "--depth", "1", full.as_uri(), str(self.checkout))
+        git = shutil.which("git", path=os.pathsep.join(SYSTEM))
+        self.home.fake("git", COMPLETES.format(git=shlex.quote(git)))
         self.assertEqual(self.version(menu), "Version 2026-09-29")
 
     def test_a_log_in_utf16_reads_the_same_and_a_history_git_cannot_count_says_its_date(self):

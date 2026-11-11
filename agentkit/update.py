@@ -532,10 +532,11 @@ def agentkit_version():
     code, date = _git("-c", "i18n.logOutputEncoding=UTF-8", "log", "-1", "--format=%cs")
     if code:
         return ""
-    uncounted, count = _git("rev-list", "--count", "HEAD")
-    if uncounted or _git("rev-parse", "--is-shallow-repository")[1] != "false":
+    # cut short first: a count taken before that history was completed would hold too few
+    if _git("rev-parse", "--is-shallow-repository")[1] != "false":
         return date
-    return f"{count} · {date}"
+    uncounted, count = _git("rev-list", "--count", "HEAD")
+    return date if uncounted else f"{count} · {date}"
 
 
 def agentkit_build():

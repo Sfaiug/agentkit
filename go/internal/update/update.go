@@ -280,11 +280,14 @@ func agentkitVersion(env []string, checkout string) string {
 	if !ok {
 		return ""
 	}
-	count, counted := git(env, checkout, "rev-list", "--count", "HEAD")
-	if shallow, _ := git(env, checkout, "rev-parse", "--is-shallow-repository"); !counted || shallow != "false" {
+	// cut short first: a count taken before that history was completed would hold too few
+	if shallow, _ := git(env, checkout, "rev-parse", "--is-shallow-repository"); shallow != "false" {
 		return date
 	}
-	return count + " · " + date
+	if count, counted := git(env, checkout, "rev-list", "--count", "HEAD"); counted {
+		return count + " · " + date
+	}
+	return date
 }
 
 // output is what a command printed, as Python's subprocess.run captures it within a cap: its
