@@ -69,3 +69,9 @@ func (p *piecesLeft) over() bool {
 	defer p.held.Unlock()
 	return len(p.waiting) == 0 && p.out == 0
 }
+
+// lost is whether the machine lost the piece's last go there, which keeps no exit, as Python's
+// observed: the go that runs it next counts.
+func (at *piece) lost() bool {
+	return at.there != nil && helper.Lost(at.ended.code)
+}

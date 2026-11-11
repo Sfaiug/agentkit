@@ -26,7 +26,8 @@ var errSibling = errors.New("a sibling piece was stopped")
 
 // A piece is one share of a suite as it ran: its output, how it ended, the output of a first go its
 // re-run decided, nil for none, and how that go failed as its flaky record says, "" for "failed",
-// where it ran, when its next go was asked for, and each go's exit (blame.go's went).
+// where it ran, when its next go was asked for, and each go's exit but those lost there (blame.go's
+// went).
 type piece struct {
 	shard  string
 	out    *os.File
@@ -122,7 +123,10 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 				at.ended, err = alone.boxed(cwd, cmd, at.shard, on.times, left, out, out.Name(), false, on.holds(), only)
 			}
 			row.End(exitOf(at.ended, err))
-			at.asked, at.exits = clock(), went(at.exits, at.ended, err)
+			at.asked = clock()
+			if !at.lost() {
+				at.exits = went(at.exits, at.ended, err)
+			}
 		}
 		if errors.Is(err, errSibling) {
 			at.ended, err = ran{code: -15, stopped: "sibling"}, nil
@@ -181,7 +185,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 					errs = append(errs, err)
 					held.Unlock()
 				}
-				lost := err == nil && there != nil && helper.Lost(at.ended.code)
+				lost := err == nil && at.lost()
 				if lost && helper.Dropped(at.ended.code) { // before done, which hands the piece on
 					l.say(fmt.Sprintf("the suite helper %s lost AK_SHARD=%s; it runs again on the first machine with room, this one included", there.Alias, at.shard))
 				}
