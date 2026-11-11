@@ -134,11 +134,12 @@ class MuseQuestionAfterNew(unittest.TestCase):
             fh.write(json.dumps(line) + "\n")
 
     def ask(self, name, question, session):
-        """That seat asks the owner `question`, its words in `session`."""
-        done = self.home.ak("notify", "needs", question, "--session", name)
-        self.assertEqual(done.code, 0, done.err)
+        """That seat asks the owner `question`, its words in `session`: in its chat before it
+        stands, so no tick meanwhile types it back as left out of the chat."""
         self.said(session, question, time.time(),
                   {"kind": "assistant_message_committed", "text": question})
+        done = self.home.ak("notify", "needs", question, "--session", name)
+        self.assertEqual(done.code, 0, done.err)
 
     def standing(self, name, question=None):
         done = self.home.ak("orch", "why", name)
@@ -178,7 +179,10 @@ class MuseQuestionAfterNew(unittest.TestCase):
         self.said(session, LINE, time.time())
         done = self.home.tick()
         self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertFalse(self.standing("acme", AGAIN),
+        # answered, so neither standing nor typed back into the seat as left out of the chat
+        self.assertFalse(self.standing("acme", AGAIN))
+        typed = self.home.root / "acme.typed.lines"
+        self.assertNotIn(AGAIN, typed.read_text() if typed.exists() else "",
                          "ak's line before /new hid the owner's same words after it")
 
 
