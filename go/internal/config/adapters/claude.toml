@@ -4,6 +4,7 @@
 # Verified against Claude Code 2.1.263; see tests/fixtures/README.md for the captures.
 version = 1
 name = "Claude Code"
+family = "Claude"
 colour = "#D97757"
 
 [check]
@@ -409,8 +410,10 @@ levels = ["low", "medium", "high", "xhigh", "max"]
 # capabilities (`effort`, `xhigh_effort`, `max_effort`) let it take, strongest last.  Haiku 4.5
 # has none of them: it runs at no effort, `none`, which claude warns of and ignores.  Sonnet 5.5
 # is newer than 2.1.280's table: Anthropic's models API lists it with all five efforts (29 Sep),
-# and 2.1.280 runs it, warning `unrecognized_model`.
+# and 2.1.280 runs it, warning `unrecognized_model`.  Fable 5.2 is newer too, and like every row
+# with no label is named off its id (`config.model_label`).
 [catalog]
+claude-fable-5-2 = { efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-fable-5-1 = { label = "Fable 5.1", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-opus-5-5 = { label = "Opus 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-sonnet-5-5 = { label = "Sonnet 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }

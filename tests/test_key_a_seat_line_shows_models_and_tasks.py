@@ -42,7 +42,7 @@ class ASeatThatNeedsYou(unittest.TestCase):
         self.assertIsNotNone(at, done.out)
         self.assertIn("! needs you", lines[at])
         # under the name: the builder, the reviewer, then one building and one in review
-        self.assertEqual(lines[at + 1], "     muse-spark-1.3-contributor xhigh ⚒   "
+        self.assertEqual(lines[at + 1], "     Spark 1.3 Contributor xhigh ⚒   "
                                         "Opus 5.5 xhigh ◎   ■□□  ■■□")
         self.assertNotIn("Which branch", done.out)
 
