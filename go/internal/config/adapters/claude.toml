@@ -40,9 +40,16 @@ renew = ["env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "AK_RUN_ROLE=worker", "claude",
 
 # The lines its prompt takes to move its conversation to another model or effort, `{model}` the
 # id `interactive` passes as --model (`orch.switch_lines`); Claude Code 2.1.314 takes both.
+# `asks` is what it may ask before it takes one, as the screen's bottom rows draw it, and `yes`
+# the keys that take the move (`watch.type_at_prompt`): 2.1.322 draws this card in the
+# composer's place wherever the prompt cache may be warm, any seat with a turn in the last hour,
+# `Switch model?` after `/model` and `Change effort level?` after an `/effort` that misses that
+# cache; `1` takes it whichever row the cursor is on, and its composer comes back (10 Nov 2026).
 [switch]
 model = "/model {model}"
 effort = "/effort {effort}"
+asks = '^ +(?:Switch model|Change effort level)\?\n(?:.*\n)*? *❯? *1\. .+\n *❯? *2\. .+'
+yes = ["1"]
 
 [worker]
 state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
