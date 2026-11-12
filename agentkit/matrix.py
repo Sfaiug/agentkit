@@ -268,11 +268,12 @@ def _choices(priced):
     front holds each row better than every cheaper one, the best last.  `choices`: the front's
     rows within `WINDOW` of the best, cheapest first, each kept when `APART` above the last kept,
     the best taking the place of one less than that below it; the costliest `PLACES` of them.
-    `others`: of each release with no choice its best row, a cheaper one on a tie, best first,
-    each with its `why` and `by`: `beaten` by the cheapest choice, else row of the front, as
-    good and no dearer; on the front, `far below`, by None, more than `WINDOW` under the best;
-    else `close` to the nearest choice, less than `APART` from it; else `no room`, by None:
-    `APART` or more under every choice, as the costliest `PLACES` leave it."""
+    `others`: of each release with no choice its best row, a cheaper one on a tie, best first.
+    Each row no choice gets its `why` and `by`, so a role using one draws it too (menu.models_bars):
+    `beaten` by the cheapest choice, else row of the front, as good and no dearer; on the front,
+    `far below`, by None, more than `WINDOW` under the best; else `close` to the nearest choice,
+    less than `APART` from it; else `no room`, by None: `APART` or more under every choice, as
+    the costliest `PLACES` leave it."""
     front = []
     for row in priced:
         if not front or row["quality"] > front[-1]["quality"]:
@@ -293,7 +294,9 @@ def _choices(priced):
         if row["release"] not in chosen and (top is None or row["quality"] > top["quality"]):
             tops[row["release"]] = row
     others = sorted(tops.values(), key=lambda row: (-row["quality"], row["cost"]))
-    for row in others:
+    for row in priced:
+        if any(one is row for one in choices):
+            continue
         if not any(one is row for one in front):
             row["why"], row["by"] = "beaten", next(
                 one for one in (*choices, *front)
@@ -591,7 +594,8 @@ def main(argv):
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     used = uses(cfg, seat, found)
     body, _ = menu.models_body(menu.models_said(cfg, found, used))
-    bars = [line for role in found for line in menu.models_bars(found[role], role, used[role][2])]
+    bars = [line for role in found
+            for line in menu.models_bars(found[role], role, used[role][2], used[role][2])]
     print("\n".join([*body, *bars, "", *menu.models_read(marked, len(ours(cfg)),
                                                    stored().get("fetched_at")),
                       *(["", *live_lines(own)] if own else [])]))
