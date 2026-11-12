@@ -950,11 +950,13 @@ def _kept(harness):
 
 def _ask(harness, account, providers):
     """One login of that harness asked for its models by a process of its own (_keep), which
-    outlives a screen that stops waiting on it; None where none starts."""
+    outlives a screen that stops waiting on it, and marks itself so that what the harness
+    leaves once it ends is swept (owner.leftovers); None where none starts."""
     try:
         return subprocess.Popen(
-            [sys.executable, "-c", "import sys; from agentkit import config; "
-             "config._keep(*sys.argv[1:])", str(_kept(harness)), harness, account, *providers],
+            [sys.executable, "-c", "import sys; from agentkit import config, owner; "
+             "owner.mark('model listing'); config._keep(*sys.argv[1:])",
+             str(_kept(harness)), harness, account, *providers],
             cwd=REPO, env=owner.unmarked(child_env()), stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except OSError:
@@ -963,14 +965,20 @@ def _ask(harness, account, providers):
 
 def _keep(kept, harness, account, *providers):
     """`_ask`'s process: what that login lists kept in `kept`, unless one asked later is kept
-    there.  A listing that fails, runs out of time or lists nothing replaces nothing."""
-    asked, path = time.time(), Path(kept) / f"{account}.json"
+    there.  Each ask takes the next number there as it starts, which orders them whatever the
+    clock does.  A listing that fails, runs out of time or lists nothing replaces nothing."""
+    path = Path(kept) / f"{account}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _record_lock(path):           # each writer's temporary file is the same one
+        held = _held(path)
+        asked = held.get("asks", 0) + 1
+        _write_json(path, {**held, "asks": asked}, prepare=False)
     listed = _listed(harness, account, list(providers))
     if listed:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with _record_lock(path):       # each writer's temporary file is the same one
-            if _held(path).get("asked", 0) < asked:
-                _write_json(path, {"asked": asked, "models": listed}, prepare=False)
+        with _record_lock(path):
+            held = _held(path)
+            if held.get("asked", 0) < asked:
+                _write_json(path, {**held, "asked": asked, "models": listed}, prepare=False)
 
 
 def catalog(harness, cfg=None):
@@ -1017,7 +1025,8 @@ def _asking(harness, cfg, wait):
 
 
 def _held(path):
-    """What `path` keeps (_keep): the `models` one login listed, when `asked`; {} for none."""
+    """What `path` keeps (_keep): the `models` one login listed, the number of the ask that
+    listed them (`asked`) and of the last ask (`asks`); {} for none."""
     try:
         held = _read_json(path, shared=True)
     except Error:
