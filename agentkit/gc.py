@@ -113,8 +113,10 @@ def stale_seat_files(now):
 
 
 def model_report_stale(path):
+    # a Muse call's report names its moment after its conversation (adapters/muse.sh call), and
+    # no conversation a report is kept for has a dot in its id
     return (retention.safe(path) and path.is_file()
-            and path.stem.removeprefix("model-") not in {
+            and path.name.removeprefix("model-").split(".")[0] not in {
                 conversation
                 for _, seat in config.seat_files("session", retention.children(config.STATE))
                 for conversation in recorded_conversations(retention.read_json(seat) or {})})

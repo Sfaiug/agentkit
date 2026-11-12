@@ -1,9 +1,11 @@
-"""A Muse model call's hook that finishes after later news leaves that news standing.
+"""The report a Muse model call's hook keeps stands until later news, and while a seat names its
+conversation.
 
 Muse runs the PreLLMCall hook beside the call (`adapters/muse.sh call`), so a hook held up after
 it read its call can finish after the next call's hook, or after a `/model` change: each report
 is named by the moment its hook began, and `muse.running` reads the latest.  The held hook waits
-at its `mv`, the step that publishes its report, on a wrapper put first on its PATH.
+at its `mv`, the step that publishes its report, on a wrapper put first on its PATH.  Collection
+reads the conversation in that name.
 """
 
 import json
@@ -16,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO
-from agentkit import config
+from agentkit import config, gc
 from agentkit.harness import muse
 
 SPARK, WONDER = "muse-spark-1.3-contributor", "muse-wonder-full-1.0"
@@ -32,7 +34,8 @@ class CallOrder(unittest.TestCase):
         self.log = self.home / f".local/share/muse/sessions/2026/11/12/{SESSION}/session.jsonl"
         self.log.parent.mkdir(parents=True)
         self.log.write_text("")
-        (self.home / ".agentkit/state").mkdir(parents=True)
+        self.state = self.home / ".agentkit/state"
+        self.state.mkdir(parents=True)
         self.wrapper = self.home / "held/mv"
         self.wrapper.parent.mkdir()
         self.wrapper.write_text(HELD)
@@ -64,7 +67,7 @@ class CallOrder(unittest.TestCase):
         self.assertEqual(hook.wait(timeout=30), 0)
 
     def running(self):
-        with patch.object(config, "STATE", self.home / ".agentkit/state"), \
+        with patch.object(config, "STATE", self.state), \
                 patch.dict(os.environ, {"HOME": str(self.home), "XDG_DATA_HOME": ""}):
             return muse.running({"orchestrator": "spark", "efforts": {"spark": {"effort": "max"}}},
                                 None, SESSION)
@@ -84,6 +87,15 @@ class CallOrder(unittest.TestCase):
             "payload": {"record": {"effective": {"model_id": WONDER}}}}) + "\n")
         self.release(earlier)
         self.assertEqual(self.running()[:2], (WONDER, "max"))
+
+    def test_collection_leaves_it_while_a_seat_names_its_conversation(self):
+        self.call("low")
+        (report,) = self.state.glob(f"model-{SESSION}.*.json")
+        seat = self.state / "session-acme.json"
+        with patch.object(config, "STATE", self.state):
+            for conversation, stale in ((SESSION, []), ("conv-acme", [str(report)])):
+                seat.write_text(json.dumps({"orchestrator": "spark", "conversation": conversation}))
+                self.assertEqual([item["path"] for item in gc.stale_model_reports()], stale)
 
 
 if __name__ == "__main__":
