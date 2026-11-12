@@ -2467,6 +2467,14 @@ def accounts(cfg, provider):
     return list(listed) if isinstance(listed, list) else []
 
 
+def lists(cfg, provider, account):
+    """Whether `provider` still lists `account`, a login a seat's record names (None its usual
+    one): a subscription removed is signed out (menu.config_remove_provider), so nothing is
+    asked of it.  A provider listing no `accounts` has its one login."""
+    listed = accounts(cfg, provider)
+    return not listed or (account or DEFAULT_ACCOUNT) in listed
+
+
 def account_label(cfg, provider, account, name):
     """What a person reads for one of a provider's subscriptions: `name`, the provider's own,
     and for one of several its place in `accounts` in roman numerals -- `Claude II`.  The
