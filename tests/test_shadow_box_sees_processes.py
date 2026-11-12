@@ -1,13 +1,16 @@
 """tests/shadow.py's box shares the host's process table: a process outside it reads alive there,
 by kill(pid, 0) and its /proc/<pid>/stat, and one that has exited reads gone; yet a signal from
-inside, or a write to its /proc, leaves it be, while a box's process still ends its own child.
+inside, a write to its /proc, or a change to its limits or scheduling leaves it be, while a box's
+process still ends its own child and changes its own.
 What a run detached is waited out and what it wrote is the run's, and a run its cap cuts off
 leaves no process behind.
 
 The file runs whole in the box tests/test_shadow.py runs the shadow in, `OUTER`, whose /var/tmp
 of its own holds each run's overlay, and the process outside the shadow's box is the test's."""
 
+import os
 from pathlib import Path
+import resource
 import subprocess
 import sys
 import unittest
@@ -49,6 +52,32 @@ for each in (signal.SIGTERM, signal.SIGKILL):
 child = subprocess.Popen(["sleep", "600"])
 child.send_signal(signal.SIGTERM)
 print("child", child.wait())
+"""
+# Each change to the limits, priority, I/O priority, scheduling and CPUs of the pid a box's process
+# is handed, then of itself, process 0: made, or the error refusing it.  Two calls Python has no
+# function for go by their numbers, handed in after the pid.
+CHANGE = """import ctypes, errno, os, resource, struct, sys
+outside, ioprio_set, sched_setattr = map(int, sys.argv[1:])
+libc, idle = ctypes.CDLL(None, use_errno=True), os.sched_param(0)
+def call(number, *args):
+    if libc.syscall(number, *args) < 0:
+        raise OSError(ctypes.get_errno(), "")
+for whose, pid in (("outside", outside), ("own", 0)):
+    for name, change in (
+            ("limits", lambda: resource.prlimit(pid, resource.RLIMIT_CPU, (600, 600))),
+            ("priority", lambda: os.setpriority(os.PRIO_PROCESS, pid, 19)),
+            ("io priority", lambda: call(ioprio_set, 1, pid, 3 << 13)),    # of the idle class
+            ("parameters", lambda: os.sched_setparam(pid, idle)),
+            ("scheduler", lambda: os.sched_setscheduler(pid, os.SCHED_IDLE, idle)),
+            # struct sched_attr: idle, at the nice it has, as raising it takes a right
+            ("attributes", lambda: call(sched_setattr, pid, struct.pack(
+                "IIQiIQQQ", 48, os.SCHED_IDLE, 0, 19, 0, 0, 0, 0), 0)),
+            ("CPUs", lambda: os.sched_setaffinity(pid, {min(os.sched_getaffinity(0))}))):
+        try:
+            change()
+            print(whose, name, "made")
+        except OSError as error:
+            print(whose, name, errno.errorcode[error.errno])
 """
 # A write to the oom_score_adj of the pid a box's process is handed: written, or the error
 # refusing it.
@@ -97,6 +126,21 @@ class ABoxSeesTheHostsProcesses(unittest.TestCase):
         self.assertEqual(done["line"], {"stdout: SIGTERM EPERM", "stdout: SIGKILL EPERM",
                                         "stdout: child -15"}, done)
         self.assertIsNone(self.outside.poll())
+
+    def test_changes_to_its_limits_and_scheduling_are_refused_while_a_box_makes_its_own(self):
+        def state(pid=self.outside.pid):
+            return (resource.prlimit(pid, resource.RLIMIT_CPU),
+                    os.getpriority(os.PRIO_PROCESS, pid), os.sched_getscheduler(pid),
+                    os.sched_getaffinity(pid))
+
+        before = state()
+        done = self.python(CHANGE, shadow.NUMBER["ioprio_set"], shadow.NUMBER["sched_setattr"])
+        self.assertEqual(done["line"], {
+            f"stdout: {whose} {name} {said}"
+            for whose, said in (("outside", "EACCES"), ("own", "made"))
+            for name in ("limits", "priority", "io priority", "parameters", "scheduler",
+                         "attributes", "CPUs")}, done)
+        self.assertEqual(state(), before)
 
     def test_a_write_to_its_proc_is_refused(self):
         score = Path(f"/proc/{self.outside.pid}/oom_score_adj")

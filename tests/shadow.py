@@ -56,20 +56,52 @@ FAKES = (*akbin.REFUSED, "tmux", "scp", "rsync")
 # The host's memory and load, which ak's admission reads and `ak run status` prints: read once as
 # the shadow begins, and so in each of its runs, else Go would differ by the moment it ran in.
 MOMENT = ("meminfo", "loadavg")
-# Every box's seccomp filter, classic BPF as bwrap takes it.  It refuses a socket or a socket pair
-# of the Unix family, either of which could reach a service of the host's by a path the read-only
-# root still shows: the warm menu server's in HOME, a session bus.  It refuses io_uring, which
-# makes one without either call, and every call of an architecture whose numbers it does not know:
-# on a machine not named here, all of them, so no box can run.
-ARCH, SOCKET, PAIR = {"x86_64": (0xC000003E, 41, 53),
-                      "aarch64": (0xC00000B7, 198, 199)}.get(os.uname().machine, (0, 0, 0))
-FILTER = b"".join(struct.pack("HBBI", *op) for op in (
-    (0x20, 0, 0, 4), (0x15, 0, 8, ARCH),                # the architecture
-    (0x20, 0, 0, 0), (0x35, 6, 0, 0x40000000),          # the call, by number: x32's refused
-    (0x15, 5, 0, 425),                                  # io_uring_setup refused
-    (0x15, 1, 0, SOCKET), (0x15, 0, 2, PAIR),           # socket(2) or socketpair(2) ...
-    (0x20, 0, 0, 16), (0x15, 1, 0, socket.AF_UNIX),     # ... of the Unix family refused
-    (0x06, 0, 0, 0x7FFF0000), (0x06, 0, 0, 0x50000 | errno.EACCES)))    # allowed, refused
+# The calls a box makes only with these arguments, each (index, value, whether it must equal or
+# differ from it), else they are refused.  A socket or a socket pair of the Unix family could reach
+# a service of the host's by a path the read-only root still shows: the warm menu server's in HOME,
+# a session bus.  The box's user owns the host's processes too, and Landlock keeps only signals and
+# traces in, so a box sets limits, priority, I/O priority, scheduling and CPUs only of the caller
+# itself, as `nice` and a raised file limit do: process 0, of the kind PRIO_PROCESS or
+# IOPRIO_WHO_PROCESS, as another kind names a whole group or user.
+UNIX, OWN = ((0, socket.AF_UNIX, False),), ((0, 0, True),)
+RULED = dict(socket=UNIX, socketpair=UNIX, setpriority=((0, 0, True), (1, 0, True)),
+             ioprio_set=((0, 1, True), (1, 0, True)), prlimit64=OWN, sched_setparam=OWN,
+             sched_setscheduler=OWN, sched_setattr=OWN, sched_setaffinity=OWN)
+# Each machine's architecture and the numbers of its calls `RULED` names.  On a machine not named
+# here, every call is refused, so no box can run.
+ARCH, NUMBER = {
+    "x86_64": (0xC000003E, dict(socket=41, socketpair=53, setpriority=141, ioprio_set=251,
+                                prlimit64=302, sched_setparam=142, sched_setscheduler=144,
+                                sched_setattr=314, sched_setaffinity=203)),
+    "aarch64": (0xC00000B7, dict(socket=198, socketpair=199, setpriority=140, ioprio_set=30,
+                                 prlimit64=261, sched_setparam=118, sched_setscheduler=119,
+                                 sched_setattr=274, sched_setaffinity=122)),
+}.get(os.uname().machine, (0, {}))
+
+
+def _filter():
+    """Every box's seccomp filter, classic BPF as bwrap takes it: `RULED`, and io_uring refused,
+    which makes a socket without either call, as is every call of another architecture or x32's.
+    An argument is read by its low 32 bits: the kernel reads a pid, a kind or a family as an int."""
+    allowed, refused = (0x06, 0, 0, 0x7FFF0000), (0x06, 0, 0, 0x50000 | errno.EACCES)
+    program = [(0x20, 0, 0, 4), (0x15, 0, "refused", ARCH), (0x20, 0, 0, 0),
+               (0x35, "refused", 0, 0x40000000), (0x15, "refused", 0, 425),
+               *((0x15, name, 0, number) for name, number in NUMBER.items()), allowed]
+    at = {}     # where each jump to a name lands
+    for name in NUMBER:
+        at[name] = len(program)
+        for index, value, equal in RULED[name]:
+            program += [(0x20, 0, 0, 16 + 8 * index),
+                        (0x15, 0, "refused", value) if equal else (0x15, "refused", 0, value)]
+        program.append(allowed)
+    at["refused"] = len(program)
+    program.append(refused)
+    return b"".join(struct.pack("HBBI", code, *(at[jump] - n - 1 if isinstance(jump, str) else jump
+                                                for jump in (true, false)), k)
+                    for n, (code, true, false, k) in enumerate(program))
+
+
+FILTER = _filter()
 # The first breath in every box: Landlock lets nothing open for writing outside the folders it is
 # given, the run's own, and no signal or trace leave the box, then the command runs.  The read-only
 # root still opens a named pipe or a device for writing, which would reach whatever of the host's
