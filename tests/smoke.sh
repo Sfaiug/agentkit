@@ -4005,7 +4005,7 @@ rm -f -- "$WORK/menu-shape.log"
 { for _ in $(seq 300); do grep -qE "$ROW" "$WORK/menu-shape.log" 2>/dev/null && break
     sleep 0.1; done
   printf '\n'; } | HOME="$NSH" ak --dry-run >"$WORK/menu-shape.log" 2>&1 || SHAPE=1
-grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +[^ ].* ⚒' || SHAPE=1
+grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +[^ ].* builds' || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/shape-attach.txt" >"$WORK/needs-file.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
 # the freeform message went with the attachments: needs or --check

@@ -164,11 +164,7 @@ func (d *Draft) block(s terminal.Screen, seat Seat, w widths) []row {
 		}
 		return shown
 	}
-	builds := d.Workers
-	if len(builds) == 0 {
-		builds = []string{d.Orchestrator}
-	}
-	text, tone := s.Crew(named(builds, "exec_effort"), named(d.Reviewers, "review_effort")), "dim"
+	text, tone := terminal.Crew(seat.Model, named(d.Workers, "exec_effort"), named(d.Reviewers, "review_effort")), "dim"
 	if why := d.Refusal(); why != "" {
 		text, tone = why, "amber"
 	}

@@ -40,7 +40,7 @@ orch.checkout_of = lambda repo, stands=None: Path(repo) if repo else None
 
 def seat(name, number, repo=None):
     return {"number": str(number), "name": name, "orchestrator": "opus", "count": "working",
-            "word": "working", "crew": ([], []), "tasks": [], "sentence": "", "repo": repo}
+            "word": "working", "crew": ("opus", [], []), "tasks": [], "sentence": "", "repo": repo}
 
 
 @patch.object(test_close_and_info, "CHILD", CHILD)
