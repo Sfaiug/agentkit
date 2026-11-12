@@ -84,7 +84,7 @@ class DefaultsApplyToAll(unittest.TestCase):
         self.term.keys("a")
         return self.term.wait(lambda screen: {
             "  Give new seats' models and efforts to 4 sessions?",
-            "  acme-other restarts on Fable 5.1 at xhigh.", "› ✓ Keep", "  ✗ Apply"}
+            "  acme-other restarts on Fable 5.1 at xhigh.", "› ✓ Keep", "  × Apply"}
             <= set(lines(screen)))
 
     def test_esc_on_the_card_leaves_every_seat_as_it_was(self):
@@ -93,7 +93,7 @@ class DefaultsApplyToAll(unittest.TestCase):
         self.assertEqual(self.records(), before)
         self.term.keys("Escape")
         self.term.wait(lambda screen: key_line(screen) == KEYS
-                       and "  ✗ Apply" not in lines(screen))
+                       and "  × Apply" not in lines(screen))
         self.assertEqual(self.records(), before)
         self.assertEqual(self.config.read_text(), self.given)
 

@@ -689,14 +689,31 @@ def card(record, cwd, conversation):
             "text": text if isinstance(text, str) else "", "at": at / 1e6}
 
 
+def called(conversation):
+    """The model and effort of that session's latest model call, as its PreLLMCall hook kept them
+    (`adapters/muse.sh call`), at the moment that hook began, which names the report; or None."""
+    if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
+        return None
+    reports = sorted(config.STATE.glob(f"model-{conversation}.*.json"))
+    try:
+        report = json.loads(reports[-1].read_text())
+        return report["model"], report["effort"], int(reports[-1].name.split(".")[1]) / 1_000_000
+    except (IndexError, OSError, ValueError, TypeError, KeyError):
+        return None     # none, or one a later call's report replaced once it was listed
+
+
 def running(record, cwd, conversation):
-    """The model of the latest answer or completed /model change (Muse 1.4.14), at its own time.
-    Neither records effort: `reminder_roster`'s are its reminder subagents', and settings.json
-    holds whatever any session picked last, so the seat keeps the effort its record holds."""
+    """The model and effort of that session's latest model call, at its time (`called`); or,
+    where none was kept, or the latest answer or completed /model change (Muse 1.4.14) is newer
+    and a /model change or an answer on another model, that one's model at its own time.  Neither
+    records effort: `reminder_roster`'s are its reminder subagents', and settings.json holds
+    whatever any session picked last, so the seat keeps the effort its record holds -- and a
+    newer answer on the reported model leaves the report standing, its effort with it."""
     from . import last_entry
+    reconfigured = "runtime.model_reconfigure.completed"
 
     def model(entry):
-        if entry.get("payload_type") != "runtime.model_reconfigure.completed":
+        if entry.get("payload_type") != reconfigured:
             return run_event(entry, "model_completed").get("model")
         named = entry.get("payload")
         for key in ("record", "effective", "model_id"):
@@ -707,8 +724,12 @@ def running(record, cwd, conversation):
     entry = path and last_entry(path, lambda each: isinstance(model(each), str)
                                and type(each.get("recorded_at")) is int)
     effort = ((record.get("efforts") or {}).get(record.get("orchestrator")) or {}).get("effort")
-    return ((model(entry), effort, entry["recorded_at"] / 1_000_000)
-            if entry else None)
+    latest = entry and (model(entry), effort, entry["recorded_at"] / 1_000_000)
+    report = called(conversation)
+    if report and not (latest and latest[2] > report[2]
+                       and (entry.get("payload_type") == reconfigured or latest[0] != report[0])):
+        return report
+    return latest
 
 
 def read_by(record, cwd, conversation):

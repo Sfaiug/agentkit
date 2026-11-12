@@ -414,6 +414,13 @@ class Stamped:
         return getattr(self.stream, name)
 
 
+def note(text):
+    """Write one line into the tick's log from outside a tick, dated as the tick's own are: what
+    ak did by itself behind a menu goes where the tick's same sweep writes it (`menu.tidy_log`)."""
+    with log_path().open("a", encoding="utf-8") as stream:
+        Stamped(stream).write(text + "\n")
+
+
 def stamp_log():
     """Date every line this tick writes into its log from here on (`Stamped`).  A terminal's
     reader sees each line as it comes, so a stream that is not the log is left as it is."""
@@ -8722,7 +8729,12 @@ def main(argv):
                                  "slowest": {"pass": name, "seconds": round(took, 1)}}
                 if not crashed:
                     state["tick_completed_at"] = state["tick"]["ended_at"]
-                save_state(state)
+                try:
+                    save_state(state)
+                except BaseException:
+                    crashed = True      # the next tick finds no completion: nor does the move
+                    raise
+                finally:
+                    versions.final(state["tick"]["ended_at"], completed=not crashed)
                 if not crashed:
-                    versions.final()
                     tick_notice(ended=state["tick"]["ended_at"], log=log)

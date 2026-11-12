@@ -232,16 +232,22 @@ func forgetSeen(state, name string, now time.Time) error {
 	})
 }
 
-// nextGeneration is watch.forget of a seat a person is opening (`opening`): in watch.json, under
-// its lock, the seat's alert generation past every one before and its stall record gone.
+// nextGeneration is watch.forget of a seat a person is opening (`opening`): NextGeneration in
+// watch.json, under its lock.
 func nextGeneration(state, name string, now time.Time) error {
 	return put(filepath.Join(state, "watch.json"), filepath.Join(state, "watch.lock"), run.Encode, true, func(data *run.Object) bool {
-		generations := watched(data)
-		previous, _ := run.Num(generations.Get(name))
-		generations.Set(name, math.Max(seconds(now), math.Nextafter(previous, math.Inf(1))))
-		data.Dict("stalls").Delete(name)
+		NextGeneration(data, name, now)
 		return true
 	})
+}
+
+// NextGeneration is what watch.forget changes of watch.json's data: the seat's alert generation
+// past every one before and its stall record gone.
+func NextGeneration(data *run.Object, name string, now time.Time) {
+	generations := watched(data)
+	previous, _ := run.Num(generations.Get(name))
+	generations.Set(name, math.Max(seconds(now), math.Nextafter(previous, math.Inf(1))))
+	data.Dict("stalls").Delete(name)
 }
 
 // watched is watch.json as Python's watch.load_state reads it, each map there, and its alert

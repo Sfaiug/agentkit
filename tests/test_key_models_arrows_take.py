@@ -152,7 +152,7 @@ class ArrowsTake(unittest.TestCase):
                 term.keys("Right")
                 shown = term.wait(lambda screen: asked(screen, SEAT)
                                   and "› ✓ Keep" in lines(screen)
-                                  and "  ✗ Restart" in lines(screen))
+                                  and "  × Restart" in lines(screen))
                 self.assertTrue(shown.startswith("agentkit"), shown)
                 self.assertIn("esc back", key_line(shown))
                 self.assertIn("▸ orchestrator", shown)
