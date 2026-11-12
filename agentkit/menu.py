@@ -2078,9 +2078,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             elif key[0] == "task" and before:    # a task moved on a stage
                 row, column = cell
                 written = terminal.cell_texts(out[row - 1])
-                if shown[0] > before[0]:
+                if shown[0] > before[0]:      # its open square is dim (`squares`)
+                    filled = written[column - 1 + shown[0]]
                     clock.start([(row, column + shown[0])], *motion.halving(
-                        written[column - 1 + shown[0]], since, motion.STEP, lit))
+                        filled, terminal.styled(terminal.plain(filled), "dim"), since,
+                        motion.STEP, lit))
             elif key[0] in ("opened", "page"):    # what comes up out of the background
                 for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
                     motion.fading(out[row - 1], motion.OPEN if key[0] == "opened" else motion.TURN)(
