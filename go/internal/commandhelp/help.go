@@ -212,7 +212,7 @@ var entries = map[string]entry{
 	},
 	"doctor": {
 		"usage: ak doctor",
-		"Show the slice the agents run in, the state of the tick, and any model\nset to an effort it does not take, which it names and never changes.\nSays `no slice` where the machine has no user systemd manager.",
+		"Show the agents' slice, the tick's state, each machine ak may use, and any\nmodel set to an effort it does not take, which it names and never changes,\nthen the best machine to rent from Google Cloud now, or why there is none.\nSays `no slice` where the machine has no user systemd manager.\nExits 1 when no tick has ended for long enough to call the tick hung.",
 		"ak doctor",
 	},
 	"attach": {
@@ -249,7 +249,7 @@ var purposes = map[string]string{
 	"browser":   "inspect the shared browser, sign in, register MCP tools, or install the stack",
 	"update":    "upgrade harnesses and verify with acceptance gates",
 	"watch":     "check PRs and stalled sessions",
-	"doctor":    "show the slice, the tick, and any model set to an effort it does not take",
+	"doctor":    "show the slice, the tick, the machines, and any model set to an effort it does not take",
 	"notify":    "record a needs-you question",
 	"wait":      "end this turn waiting on a pull request or run",
 	"fetch":     "copy requested Mac files to this host",
