@@ -4327,19 +4327,6 @@ def _through_choices(cfg, harness, listed, screen):
                       for provider, name, mode, takes in listed if not mode]
 
 
-def _short_name(cfg, label):
-    """`sonnet` for `Sonnet 5`, `gemini-pro` for `Gemini 3 Pro`: a label's words without their
-    versions, then `-2`, `-3` and on until it names no model the config has."""
-    words = [word for word in re.findall(r"[a-z0-9]+", label.lower().replace("'", ""))
-             if not any(char.isdigit() for char in word)]
-    base = "-".join(dict.fromkeys(words)) or "model"
-    name, number = base, 1
-    while name in cfg["models"]:
-        number += 1
-        name = f"{base}-{number}"
-    return name
-
-
 def add_body(picked, choices, at, finding=None):
     """`add a subscription`'s lines, and the choice each list row is: {line: index}.
 
@@ -4386,8 +4373,8 @@ def config_add(cfg, keyboard, through):
     ↑/↓, k/j and the wheel move, and Enter or a click picks
     a choice -- logs in to a provider, or opens the next step under it -- the key line naming
     which; Space does nothing but after `/`; Enter on an effort adds the model, named from
-    its label (_short_name), and saves.  A model the config runs already is marked, and can be
-    added at another effort, never at one it runs it at.  Esc steps back one level, and
+    its label (config.short_name), and saves.  A model the config runs already is marked, and
+    can be added at another effort, never at one it runs it at.  Esc steps back one level, and
     out from the models raises Back.  Nothing is typed, so no model or effort the catalog does
     not offer is ever written.  The new model is offered as orchestrator and as worker at
     once, and holds no seat's role until it is marked there.  The name it was added under, or
@@ -4500,7 +4487,7 @@ def config_add(cfg, keyboard, through):
             if taken:
                 note = f"{', '.join(taken)} runs {model['id']} at {effort} already"
                 continue
-            name, before = _short_name(cfg, model["label"]), copy.deepcopy(cfg)
+            name, before = config.short_name(cfg, model["label"]), copy.deepcopy(cfg)
             _take_in(cfg, name, {"harness": harness, "model": model["id"], "effort": effort,
                                  "provider": provider},
                      next(row for row in listed if row[0] == provider))
@@ -5163,8 +5150,8 @@ def models_page(cfg, keyboard):
     (_offered), or for a harness that logs in to providers (config.provider_hosts) each it runs
     now, then each of the config's providers it lists with no login (_through_choices).  Space
     takes one out (remove_model), the last model kept, or in: one taken out here as it was, its
-    provider's table as the page opened; any other named from its label (_short_name), at its
-    harness's first model's effort, else `high`, as near as it goes (_nearest), under that
+    provider's table as the page opened; any other named from its label (config.short_name), at
+    its harness's first model's effort, else `high`, as near as it goes (_nearest), under that
     model's provider, else one shipped to run there, or the one it is listed under, taken in
     as `add a subscription` takes it (_take_in).  Enter on a provider logs in to it on
     `keyboard`'s terminal, and its models are listed.  Saved at once."""
@@ -5198,7 +5185,7 @@ def models_page(cfg, keyboard):
         first = next((cfg["models"][name] for name in on(harness)), {})
         # never a name one taken out here comes back under
         taken = {"models": [*cfg["models"], *(name for kept in gone.values() for name, _ in kept)]}
-        entries = gone.get(key) or [(_short_name(taken, model["label"]), {
+        entries = gone.get(key) or [(config.short_name(taken, model["label"]), {
             "harness": harness, "model": model["id"],
             "effort": _nearest(first.get("effort", "high"), model["efforts"]),
             "provider": row[0] if row else first.get("provider", runs[harness])})]

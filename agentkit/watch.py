@@ -1748,7 +1748,9 @@ def follow_model(cfg, name):
     were written down counts every record.  The model is the configured entry running it on
     that harness, the seat's own first, at the effort recorded where one does, and
     `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
-    builds and reviews where they stood.  A model no entry runs, a seat on its harness's own
+    builds and reviews where they stood.  A model no entry the config can run runs on that
+    harness is added to the config and becomes the seat's (_taken_in): "Add it to AK's
+    models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat on its harness's own
     model, a record that cannot be read, or an effort it records none of or its model does not
     take leaves the record as it is."""
     try:
@@ -1769,11 +1771,12 @@ def follow_model(cfg, name):
              if at is not None]
     if not ran or since and not (ran[2] or 0) > max(since):
         return
-    kept, models = record["orchestrator"], config.at_efforts(cfg, record)["models"]
-    runs = [each for each in (kept, *config.offered(cfg))
-            if (models[each]["harness"], models[each]["model"]) == (entry["harness"], ran[0])]
+    kept = record["orchestrator"]
+    runs = (sorted(config.running(cfg, entry["harness"], ran[0]), key=lambda each: each != kept)
+            or _taken_in(cfg, entry, ran))
     if not runs:
         return
+    models = config.at_efforts(cfg, record)["models"]
     chosen = next((each for each in runs if models[each].get("effort") == ran[1]), runs[0])
     if chosen != kept:
         config.update_session(name, orchestrator=chosen)
@@ -1781,6 +1784,31 @@ def follow_model(cfg, name):
             entry["harness"], ran[0], config.catalog_held):     # a look waits on no listing
         config.change_efforts(name, lambda data: config.orchestrating_at(
             cfg["models"], data, chosen, ran[1]))
+
+
+def _taken_in(cfg, left, ran):
+    """[name] of the entry made for the model a seat's harness recorded (`ran`, as follow_model
+    reads it) where no entry of `cfg` runs it there, as `add a subscription` makes one: on the
+    harness and provider of `left`, the entry the seat leaves, with its mode where it has one,
+    at the effort recorded where the model takes it, else the last it takes, and added to the
+    file and to `cfg` (config.add_model).  [] for a harness that runs any provider it logs in
+    to, since nothing read says which runs the model; a model its listing as held does not
+    name, as an id recorded for an error or a fallback; or an add that fails."""
+    harness = left["harness"]
+    if harness in config.provider_hosts():
+        return []
+    listing = config.catalog_held(harness, cfg)       # a look waits on no listing
+    listed = next((model for model in listing if model["id"] == ran[0]), None)
+    if listed is None:
+        return []
+    levels = config.efforts(harness, ran[0], lambda _: listing)
+    entry = {"harness": harness, "model": ran[0], "provider": left["provider"],
+             "effort": ran[1] if ran[1] in levels else levels[-1],
+             **{key: left[key] for key in ("mode",) if key in left}}
+    try:
+        return [config.add_model(cfg, entry, listed["label"])]
+    except (config.Error, OSError):
+        return []
 
 
 def cancelled(harness, name, pane):
