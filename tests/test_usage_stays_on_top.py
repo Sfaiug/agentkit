@@ -73,7 +73,7 @@ class UsageStaysOnTop(Sandbox):
         self.assertGreater(len(drawn["turns"]), 1)
         for first in drawn["turns"]:
             lines, _ = self.draw(100, 24, cursor=first)
-            self.assertRegex(lines[2], r"Claude +[▰▱]+ +21% left")       # under the rule
+            self.assertRegex(lines[2], r"Claude +[━╸─]+ +21% left")       # under the rule
             self.assertEqual(len(lines), 22, lines)
             self.assertIn("esc leave", lines[-1])
         lines, _ = self.draw(80, 24, seats=1)      # one seat: the keys still on the bottom row
@@ -157,7 +157,7 @@ class UsageStaysOnTop(Sandbox):
         new = menu.usage_rows(self.cfg)
         self.meters["openai"] = {"meters": [{"name": "weekly", "used": 31, "window_secs": WEEK}]}
         lines = self.point(28, 30, "ChatGPT", [old] + [new] * 5)
-        self.assertTrue(any(re.match(r"  ChatGPT +▰", line) for line in lines), lines)
+        self.assertTrue(any(re.match(r"  ChatGPT +━", line) for line in lines), lines)
         self.assertTrue(any("acme-00" in line for line in lines), lines)
 
 

@@ -561,18 +561,19 @@ def job_adopting(run_name):
         _JOB_MUTE.adopt = previous
 
 
-def job_budget_exhausted(error):
-    """Whether an `exhausted` error is spent provider budget (wait) rather than a stop.
+def job_budget_exhausted(run_state):
+    """Whether an `exhausted` run is spent provider budget (wait) rather than a stop.
 
-    Only these messages mean more budget later: gate meters at 100% and no eligible
-    reviewer. A twice-silent reviewer names the same spare
+    The run says so itself: `quota_dry`, the flag the tick resumes it by, whatever words the
+    provider refused in.  On a record without it only these messages mean more budget later:
+    gate meters at 100% and no eligible reviewer. A twice-silent reviewer names the same spare
     shortage but spends reviewer turns on every resume, so it waits capped below
     instead. A stopped tool, a refused prompt, or a structural delivery complaint
     needs the owner instead.
     """
-    text = error or ""
-    return "100% used" in text or ("no eligible reviewer" in text
-                                   and "gave no verdict twice" not in text)
+    text = run_state.get("error") or ""
+    return bool(run_state.get("quota_dry")) or "100% used" in text or (
+        "no eligible reviewer" in text and "gave no verdict twice" not in text)
 
 
 def job_transport_exhausted(error):
@@ -893,7 +894,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         return
     if run_state.get("state") == "exhausted":
         error = run_state.get("error") or "no reason was recorded"
-        if job_budget_exhausted(error) or job_transport_exhausted(error):
+        if job_budget_exhausted(run_state) or job_transport_exhausted(error):
             # the message decides first: a pending review parked on spent meters waits
             # for budget even with `review_pending` still set -- the resume the shortfall
             # rule would spend has nothing to bill to
@@ -1027,7 +1028,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             if run_state2.get("state") == "exhausted" \
                     and not job_round_shortfall(run_state2):
                 error2 = run_state2.get("error") or "no reason was recorded"
-                if job_budget_exhausted(error2) or job_transport_exhausted(error2):
+                if job_budget_exhausted(run_state2) or job_transport_exhausted(error2):
                     job_wait_budget(job_dir, job, task, log, lock, error2, "on rerun",
                                     rounds=len(run_state2.get("round_summaries") or []))
                     return

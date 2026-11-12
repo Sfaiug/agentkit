@@ -125,7 +125,7 @@ class MeterActs(Sandbox):
         (config.STATE / "logins.json").unlink()       # its line says no login ending first
         self.stack.enter_context(patch.object(terminal, "layout_width", return_value=30))
         drawn = self.keyed(lambda: menu.config_subscriptions(self.cfg, None), [("back", None)])
-        self.assertEqual(drawn[0][1:3], ["› Claude   ▰▰▰▰▱▱▱▱  50% left",
+        self.assertEqual(drawn[0][1:3], ["› Claude   ━━━━────  50% left",
                                           "    1 reset in hand"])
 
     def test_the_last_row_removed_leaves_the_highlight_on_the_new_last(self):
