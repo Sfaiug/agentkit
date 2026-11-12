@@ -1899,13 +1899,15 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
         return
     # the seat is gone, so a hand-back left pending for it is over: whatever happens below
     # is what this run says now, and the tick must not come back here every pass for it
+    waited = state.get("handback_pending")
     mark_delivery(run_dir, state, handback_pending=None, handback_wait_reason=None)
     task = state.get("title") or state.get("run_id") or run_dir.name
     verdict = "PASS" if transitions.delivery(state, transitions.report_config(cfg)).startswith("PASS") else "FAIL"
     why = ""
     # A pre-existing ending with a stuck card keeps its retry below, but never wakes its seat.
+    # One that waited for its seat mid-turn is no history, however long it waited.
     if (not watch.seat_closed(session) and watch.orphan_fresh(state, session)
-            and not watch.is_preexisting(state)):
+            and (waited or not watch.is_preexisting(state))):
         log(f"the orchestrator session {session} this run was launched from is gone; "
             "reopening it")
         why = watch.revive(session, f"continue {task}: run {run_dir.name} finished {verdict}, "
