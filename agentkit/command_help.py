@@ -8,7 +8,7 @@ WORKER_USAGE = ("usage: ak worker MODEL TASK [--workspace DIR] [--out DIR] [--se
                 "       [--role executor|reviewer|fixer|reviewer-pr|executor-scratch|"
                 "fixer-scratch|reviewer-scratch]")
 NOTIFY_NEEDS = 'ak notify needs "QUESTION" [--session NAME] [--dry-run]'
-NOTIFY_USAGE = f"usage: {NOTIFY_NEEDS}\n       ak notify --check"
+NOTIFY_USAGE = f"usage: {NOTIFY_NEEDS}\n       ak notify settled\n       ak notify --check"
 HAND_IN_FINDING = 'ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES)'
 HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) [--before PROOF]'
 HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND | --quote LINES)'
@@ -161,6 +161,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                      "ak orch project acme"),
     "notify": (NOTIFY_USAGE,
                "Record a needs-you question.\n"
+               "settled takes back every question this seat asks: ask again any still needed.\n"
                "--session and --dry-run apply to needs; --check checks without posting.",
                'ak notify needs "Which branch?" --session parser-fix --dry-run'),
     "notify needs": (f"usage: {NOTIFY_NEEDS}",

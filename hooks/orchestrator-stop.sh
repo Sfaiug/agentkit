@@ -244,11 +244,10 @@ def latched(latch, record):
     tmp.replace(latch)
 
 
-def told(seat, turn, kind):
-    """`ak notify <kind>` recorded for this seat during the turn."""
-    note = read(STATE / f"notify-{seat}.json")
-    if note.get("kind") != kind:
-        return False
+def told(seat, turn):
+    """`ak notify needs` asked for this seat during the turn, and it stands: one taken back
+    (`ak notify settled`) asks nobody."""
+    note = notify.last(seat) or {}
     when = moment(note.get("time"))
     return (when is not None and when >= turn
             and any(not q.startswith(STUCK) for q in notify.questions(note)))
@@ -299,7 +298,7 @@ def held(launched, payload):
     # ak's third-stop question is no fact of the seat's own. Once the seat can end on one,
     # retire that question before asking it to repeat its still-unanswered questions in chat.
     pending = questions.pending(seat)
-    asked = (questioned(payload) or told(seat, turn, "needs")
+    asked = (questioned(payload) or told(seat, turn)
              or any(not q.startswith(STUCK) for q in pending))
     ends, undecided = recorded_ending(seat, question=asked, since=turn)
     if any(q.startswith(STUCK) for q in pending):
