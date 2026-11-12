@@ -3554,7 +3554,9 @@ def wait_over(cfg, log):
             if job and transitions.launched_session({"launched_session": job.get("seat")}) == name:
                 if job.get("handback_pending"):
                     continue
-                if (job.get("card_sent") or {}).get("kind") == "handback":
+                # its line handed back, or answered by resuming the runs it told of, whose own
+                # endings then tell the seat (`job.answer_job_line`)
+                if (job.get("card_sent") or {}).get("kind") in ("handback", "resumed"):
                     if wait_mark(name, wait, told=time.time()):
                         log(f"{name}: its own job's notice told it that {wait['over']}; its "
                             "wait is over")
