@@ -1,20 +1,23 @@
 agentkit                                                                                                           14:02
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  Claude   ▰▰▱▱▱▱▱▱▱▱  21% left      MiMo     — no reading yet          Muse     ▰▰▰▰▰▱▱▱▱▱  50% left
-  Gemini   — no reading yet          Grok     — no reading yet          ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left
+  Claude   ━━────────  21% left      MiMo     — no reading yet          Muse     ━━━━━─────  50% left
+  Gemini   — no reading yet          Grok     — no reading yet          ChatGPT  ━━━━━━━───  69% left
 
 
 atoll
   1  atoll-job    Fable 5.1 xhigh  ● working    ━━━━━━━━━━━━━━━━━━━╸───────────────────────── 3 of 7
+     Opus 5.5 xhigh ⚒◎   ■□□  ■□□
   2  atoll-solo   Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
+     Opus 5.5 xhigh ⚒◎   ■□□  ■□□
 
 agentkit
   3  herdr-quiet  Fable 5.1 xhigh  ! needs you
-     session closed: press 3 to reopen
+     Opus 5.5 xhigh ⚒◎
   4  herdr-long   Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
+     Opus 5.5 xhigh ⚒◎
 
 not assigned yet
   5  scribe       Fable 5.1 xhigh  ! needs you
-     session closed: press 5 to reopen
+     Opus 5.5 xhigh ⚒◎
 
   n new   c config   esc leave

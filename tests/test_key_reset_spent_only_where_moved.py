@@ -1,9 +1,9 @@
-"""A usage-limit reset is spent only by a key or a click on `↻ spend a reset` itself: a meter's
-list and a line on `c` → Subscriptions open lit only on `↻ log in again`, and the light stays on
+"""A usage-limit reset is spent only by a key or a click on `→ spend a reset` itself: a meter's
+list and a line on `c` → Subscriptions open lit only on `→ log in again`, and the light stays on
 the act it is on, by what it is, nothing lit once that act is gone.  Antigravity's usual login
 offers no `log in again` (`[auth] again = false`): holding a reset, its line and its meter's list
 open with nothing lit, and Enter spends nothing.  ChatGPT's line, its login ending in two days and
-lit on `↻ spend a reset`, loses it when its reading comes back with none in hand, and Enter then
+lit on `→ spend a reset`, loses it when its reading comes back with none in hand, and Enter then
 does nothing.  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over usage
 and logins in a temporary HOME, harnesses faked (tests/fixtures/fakeadapter.py), each logging a
 reset spent, NO_COLOR, so the lit act is bracketed.  This test fails against `/bin/false`.
@@ -78,10 +78,10 @@ class ResetSpentOnlyWhereMoved(unittest.TestCase):
 
     def test_a_line_with_no_log_in_again_opens_with_nothing_lit(self):
         self.subscriptions()
-        self.term.wait(lambda screen: GEMINI.format("↻ spend a reset", "− remove")
+        self.term.wait(lambda screen: GEMINI.format("→ spend a reset", "− remove")
                        in lines(screen) and UNLIT in lines(screen))
         self.term.keys("Enter", "Right")
-        self.term.wait(lambda screen: GEMINI.format("[↻ spend a reset]", "− remove")
+        self.term.wait(lambda screen: GEMINI.format("[→ spend a reset]", "− remove")
                        in lines(screen) and LIT.format("spend a reset") in lines(screen))
         self.assertEqual(self.spent(), [])
 
@@ -90,19 +90,19 @@ class ResetSpentOnlyWhereMoved(unittest.TestCase):
         row = next(number for number, line in enumerate(shown) if "Gemini" in line)
         column = shown[row].index("Gemini") + 3
         self.term.type(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m")
-        self.term.wait(lambda screen: "  ↻ spend a reset" in lines(screen)
+        self.term.wait(lambda screen: "  → spend a reset" in lines(screen)
                        and UNLIT in lines(screen))
         self.term.keys("Enter", "Down")
-        self.term.wait(lambda screen: "› ↻ spend a reset" in lines(screen)
+        self.term.wait(lambda screen: "› → spend a reset" in lines(screen)
                        and LIT.format("spend a reset") in lines(screen))
         self.assertEqual(self.spent(), [])
 
     def test_the_act_lit_gone_from_under_the_light_leaves_nothing_lit(self):
         self.subscriptions()
         self.term.keys("Down")
-        self.term.wait(self.chatgpt("[↻ log in again]", "↻ spend a reset", "− remove"))
+        self.term.wait(self.chatgpt("[→ log in again]", "→ spend a reset", "− remove"))
         self.term.keys("Right")
-        self.term.wait(lambda screen: self.chatgpt("↻ log in again", "[↻ spend a reset]",
+        self.term.wait(lambda screen: self.chatgpt("→ log in again", "[→ spend a reset]",
                                                    "− remove") in lines(screen)
                        and LIT.format("spend a reset") in lines(screen))
         # the menu's opening probe written first, or it writes back the reading it took before
@@ -114,7 +114,7 @@ class ResetSpentOnlyWhereMoved(unittest.TestCase):
             if reading["providers"]["openai"].get("resets"):
                 reading["providers"]["openai"]["resets"] = 0
                 self.home.write(".agentkit/state/usage.json", reading)
-            return (self.chatgpt("↻ log in again", "− remove") in lines(screen)
+            return (self.chatgpt("→ log in again", "− remove") in lines(screen)
                     and UNLIT in lines(screen))
         self.term.wait(rewritten)
         self.term.keys("Enter", "Right")

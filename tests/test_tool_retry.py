@@ -145,11 +145,13 @@ class ToolRetry(unittest.TestCase):
                      "done_when": True, "executor": "build", "reviewer": "review",
                      "executor_provider": "acme", "reviewer_provider": "other",
                      "head_sha": "1" * 40, "tree_sha": "2" * 40}}
-            line = handback.handback_line(state, REPO / "acme" / "fix-api", CFG, save=False)
+            # An invented run directory: under the checkout, a long path would push the
+            # optional merge command out of the bounded line (`handback.decision`).
+            line = handback.handback_line(state, Path("/acme/fix-api"), CFG, save=False)
             self.assertIn("NOT MERGED", line)
             self.assertEqual(handback.retry_command(state), "ak run merge fix-api")
             self.assertIn(handback.retry_command(state), line)
-            self.assertNotIn("resume", line.replace(str(REPO), ""))
+            self.assertNotIn("resume", line)
 
 
 if __name__ == "__main__":

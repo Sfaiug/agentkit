@@ -20,7 +20,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home, in_account_home
-from agentkit import box, config, gate, gitcall, hand_in, prompts, worker
+from agentkit import box, config, gate, gitcall, hand_in, prompts, record, worker
 
 
 class ChecksBoxed(unittest.TestCase):
@@ -46,8 +46,11 @@ class ChecksBoxed(unittest.TestCase):
         self.credential = self.root / ".config/gh/hosts.yml"
         self.credential.parent.mkdir(parents=True)
         self.credential.write_text("fixture-login")
+        # A run's own ceiling and silence: at landing, host load slows a box's start past
+        # any short one, and these tests check walls, not time.
         self.lp = SimpleNamespace(scratch=True, wt=self.root, run_dir=self.root, rnd=1,
-                                  done_when_limit=10, turn_limit=10, log=lambda _: None)
+                                  done_when_limit=3600 * record.CEILING_HOURS,
+                                  turn_limit=60 * record.SILENCE_MINUTES, log=lambda _: None)
 
     def command(self, source):
         return shlex.join([sys.executable, "-u", "-c", source])
@@ -55,9 +58,8 @@ class ChecksBoxed(unittest.TestCase):
     def proof(self, command):
         return prompts.proof_on(self.lp, command, self.root / "proof.log")
 
-    def check(self, command, **kwargs):
-        return gate.run_done_when([command], self.root, self.root / "check.log", set(),
-                                  limit=10, silence=5, **kwargs)
+    def check(self, command):
+        return gate.run_done_when([command], self.root, self.root / "check.log", set())
 
     def credentials_command(self):
         return self.command(
@@ -159,12 +161,11 @@ class ChecksBoxed(unittest.TestCase):
         command = self.command(
             "import subprocess, sys, time; from pathlib import Path; "
             f"root = Path({str(self.root)!r}); "
-            "subprocess.Popen([sys.executable, str(root / 'sleeper.py'), str(root)], "
+            "sleeper = subprocess.Popen([sys.executable, str(root / 'sleeper.py'), str(root)], "
             "env={}, start_new_session=True, stdin=subprocess.DEVNULL, "
-            "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
-            "deadline = time.monotonic() + 5\n"
+            "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
             "while not (root / 'ready').exists():\n"
-            " if time.monotonic() > deadline: raise RuntimeError('fixture sleep never started')\n"
+            " if sleeper.poll() is not None: raise RuntimeError('fixture sleep never started')\n"
             " time.sleep(.01)")
         ok, text = self.check(command)
         self.assertTrue(ok, text)
@@ -315,13 +316,13 @@ class ChecksBoxed(unittest.TestCase):
             "   spawn.pop('began')\n"
             "   spawn.pop('declared')\n"
             "   result = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True, "
-            "text=True, timeout=30, **spawn)\n"
+            "text=True, **spawn)\n"
             "  assert result.returncode == 0, result.stderr\n"
             "  writes.append(json.loads(result.stdout))\n"
             "print(json.dumps({'counts': counts, 'writes': writes}))\n")
         result = subprocess.run(
             ["unshare", "--user", "--map-current-user", "--mount", "--keep-caps",
-             sys.executable, str(script), "mount"], capture_output=True, text=True, timeout=120)
+             sys.executable, str(script), "mount"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         seen = json.loads(result.stdout)
         self.assertEqual(seen["counts"][0], seen["counts"][1])
@@ -347,7 +348,7 @@ class ChecksBoxed(unittest.TestCase):
             spawn.pop("began")
             spawn.pop("declared")
             result = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True,
-                                    text=True, timeout=10, **spawn)
+                                    text=True, **spawn)
         self.assertEqual(result.returncode, 0, result.stderr)
         for place in (workspace, out, state):
             self.assertEqual((place / "kept").read_text(), "declared")
@@ -409,26 +410,28 @@ class ChecksBoxed(unittest.TestCase):
     def test_orphans_are_reaped_while_the_output_drains(self):
         # The shell is gone at once; its background child holds the output and leaves
         # exited children to PID 1, which must not let them pile up until forks fail.
+        # A process, running or a zombie, stays in /proc until PID 1 reaps it: alone with PID 1,
+        # the probe knows the shell is reaped and PID 1 drains, and then that every orphan is.
+        # A PID 1 that never reaps them leaves the wait to the silence stop.
         source = (
             "import os, pathlib, time\n"
-            "while os.getppid() != 1:\n    time.sleep(.01)\n"
+            "def others():\n"
+            "    return [entry for entry in pathlib.Path('/proc').iterdir()\n"
+            "            if entry.name.isdigit() and int(entry.name) not in (1, os.getpid())]\n"
+            "while others():\n    time.sleep(.01)\n"
             "for _ in range(20):\n"
             "    child = os.fork()\n"
             "    if child == 0:\n        os.fork()\n        os._exit(0)\n"
             "    os.waitpid(child, 0)\n"
-            "time.sleep(1)\n"
-            "states = []\n"
-            "for entry in pathlib.Path('/proc').iterdir():\n"
-            "    try:\n"
-            "        states.append((entry / 'stat').read_text().rsplit(')', 1)[1].split()[0])\n"
-            "    except (OSError, IndexError):\n        pass\n"
-            "print('zombies', states.count('Z'))\n")
+            "while others():\n    time.sleep(.01)\n"
+            "print('orphans reaped')\n")
         for name in ("proof", "check"):
             with self.subTest(command=name):
                 command = self.command(source) + " &"
                 text = (self.proof(command)["output"] if name == "proof"
                         else self.check(command)[1])
-                self.assertIn("zombies 0", text)
+                # A line of its own: a check's text starts with the command, print call and all.
+                self.assertIn("orphans reaped", text.splitlines(), text)
 
     def test_a_launcher_keeps_the_supervisor_it_loaded(self):
         # A probe may check out another revision of ak's own checkout under the launcher.
@@ -437,17 +440,17 @@ class ChecksBoxed(unittest.TestCase):
                         ignore=shutil.ignore_patterns("__pycache__"))
         driver = (
             "import sys\nfrom pathlib import Path\nfrom types import SimpleNamespace\n"
-            "sys.path.insert(0, sys.argv[1])\nfrom agentkit import box, gate, prompts\n"
+            "sys.path.insert(0, sys.argv[1])\nfrom agentkit import box, gate, prompts, record\n"
             "Path(box.__file__).write_text('raise SystemExit(99)\\n')\n"
             "root = Path(sys.argv[2])\n"
-            "lp = SimpleNamespace(scratch=True, wt=root, run_dir=root, rnd=1, done_when_limit=10,\n"
-            "                     turn_limit=10, log=lambda _: None)\n"
+            "lp = SimpleNamespace(scratch=True, wt=root, run_dir=root, rnd=1,\n"
+            "                     done_when_limit=3600 * record.CEILING_HOURS,\n"
+            "                     turn_limit=60 * record.SILENCE_MINUTES, log=lambda _: None)\n"
             "print(prompts.proof_on(lp, 'printf started; exit 7', root / 'proof.log'))\n"
-            "print(gate.run_done_when(['printf started; exit 7'], root, root / 'check.log', set(),\n"
-            "                         limit=10, silence=5)[1])\n")
+            "print(gate.run_done_when(['printf started; exit 7'], root, root / 'check.log',\n"
+            "                         set())[1])\n")
         result = in_account_home([sys.executable, "-c", driver, str(copy), str(self.root)],
-                                 self.root,
-                                capture_output=True, text=True, timeout=120)
+                                 self.root, capture_output=True, text=True)
         self.assertIn("{'returncode': 7, 'output': 'started', 'killed': False}", result.stdout,
                       result)
         self.assertIn("[exit 7]\nstarted", result.stdout, result)

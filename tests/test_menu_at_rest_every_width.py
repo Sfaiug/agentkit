@@ -153,10 +153,10 @@ class V5oMenu(Sandbox):
         # Projects keep the order of their first seat, needing or not.
         self.assertLess(screen.index("\natoll\n"), screen.index("\nagentkit\n"))
         self.assertLess(screen.index("\nagentkit\n"), screen.index("\nnot assigned yet\n"))
-        # Each needing row carries its number and its one-line reason.
-        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\s+session closed: press 3")
+        # Each needing row carries its number and its word, and opens who builds and reviews.
+        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +Opus 5\.5 xhigh ⚒◎\n")
         self.assertRegex(screen, re.compile(r"4\s+herdr-long\s+Fable 5\.1 xhigh\s+● working\s+─+ no plan yet$", re.M))
-        self.assertRegex(screen, r"5\s+scribe\s+Fable 5\.1 xhigh\s+! needs you\s+session closed: press 5")
+        self.assertRegex(screen, r"5\s+scribe\s+Fable 5\.1 xhigh\s+! needs you\n +Opus 5\.5 xhigh ⚒◎\n")
         # Nothing needs you when nothing does.
         with patch("agentkit.watch.live_state", return_value={"state": "working", "rule": "fixture",
                                                              "since": NOW - 60, "began": NOW - 60}):
@@ -204,19 +204,19 @@ class V5oMenu(Sandbox):
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
         self.assertRegex(job, r"[━╸]+─+ 3 of 7$")
         self.assertNotIn("2 running", job)
-        # A last column too long for a page's lines is cut with … on the last of them.
+        # Lines too long for a page's are cut with … on the last of them.
         info = {"number": "1", "name": "atoll-job", "count": "needs you",
                 "orchestrator": "fable", "worker": "fable",
-                "sentence": "word " * 120, "bar": None, "running": 0,
+                "unsent": "word " * 120, "bar": None, "running": 0,
                 "word": "needs you"}
-        said = {"atoll-job": menu.detail(None, info, 93)}
+        said = {"atoll-job": menu.detail(info, 93)}
         lines = menu.v5o_seat_blocks([info], 100, most=2, details=said)[0]
         self.assertEqual(len(lines), 2)
         self.assertTrue(lines[1].strip().endswith("…"))
         # Wrapping never splits a word: the break is at a space.
         self.assertNotRegex(lines[0], r"\S…$")
         narrow = menu.v5o_seat_blocks([info], 40, most=2,
-                                      details={"atoll-job": menu.detail(None, info, 33)})[0]
+                                      details={"atoll-job": menu.detail(info, 33)})[0]
         self.assertGreaterEqual(len(narrow), 2)
         self.assertTrue(any("…" in line for line in narrow))
 
@@ -362,9 +362,9 @@ class V5oMenu(Sandbox):
                                state="fail", verdict="FAIL", finished_at=NOW - 3 * 3600,
                                started_at=NOW - 3 * 3600 - 1800)
         screen, _ = self.draw(100, 30)
-        # The gone seat names its own number; no ending ever is the reason.
+        # No ending ever reaches the gone seat's row.
         self.assertNotIn("Herdr first pass", screen)
-        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\s+session closed: press 3")
+        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +Opus 5\.5 xhigh ⚒◎\n")
         self.assertNotIn("press r", screen)
         # ak run status <id> marks an ending looked at, and acknowledge does.
         second = self.touching("herdr-second-pass", owner="herdr-quiet",
@@ -384,7 +384,6 @@ class V5oMenu(Sandbox):
                                state="pass", verdict="PASS", finished_at=NOW - 4 * 3600,
                                started_at=NOW - 4 * 3600 - 1800)
         screen, _ = self.draw(100, 30)
-        self.assertIn("session closed: press 3 to reopen", screen)
         self.assertNotIn("press r", screen)
         with redirect_stdout(io.StringIO()):
             status.cmd_status(["herdr-fourth-pass"])
@@ -396,7 +395,7 @@ class V5oMenu(Sandbox):
         screen, _ = self.draw(100, 30)
         self.assertNotIn("press r", screen.split("not assigned yet")[0])
         self.assertRegex(screen, re.compile(
-            r"^\s*3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\s+session closed: press 3 to reopen$", re.M))
+            r"^\s*3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you$", re.M))
 
     def test_v5o_k_frame_header_rule_keys_prompt_no_hash(self):
         screen, _ = self.draw(100, 30)
@@ -432,7 +431,7 @@ class V5oMenu(Sandbox):
                 redirect_stdout(io.StringIO()) as out:
             menu.draw(self.cfg, self.seats + [ghost])
         coloured = out.getvalue()
-        self.assertIn("session closed: press 6 to reopen", coloured)
+        self.assertIn("ghost-seat", coloured)
         for line in coloured.splitlines():
             self.assertEqual(line.count("\x1b["), len(terminal.ANSI.findall(line)), line)
             self.assertLessEqual(terminal.cells(terminal.plain(line)), 120, line)
@@ -517,7 +516,6 @@ class V5oMenu(Sandbox):
         lines = screen.splitlines()
         at = next(n for n, line in enumerate(lines) if "ghost-seat" in line)
         self.assertRegex(lines[at], r"^\s*6  ghost-seat\s+\S+\s+○ idle$")
-        self.assertEqual(lines[at + 1].strip(), "session closed: press 6 to reopen")
         # The live rows are untouched, and every number is still global.
         self.assertIn("atoll-job", screen)
         numbers = sorted(int(m.group(1)) for line in screen.splitlines()
@@ -586,7 +584,7 @@ class V5oMenu(Sandbox):
             name_w = widths["name"]
             orch_w = widths.get("orch", widths.get("worker", 0))
             count_at = 2 + widths["num"] + 2 + name_w + 2 + orch_w + 2
-            screen, _ = self.draw(width, 30)
+            screen, _ = self.draw(width, 40)       # every row on one page
             by_number = {}
             for line in screen.splitlines():
                 # a head row, never a continuation: those are indented four columns

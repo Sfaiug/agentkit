@@ -50,8 +50,8 @@ def narrow(screen):
     """The menu drawn whole at 40 columns in its narrow form: each subscription on a line of its
     own, a seat's progress line under its row and the keys wrapped whole."""
     lines = shown(screen)
-    return (framed(40)(screen) and "  Claude   ▰▰▱▱▱▱▱▱▱▱  21% left" in lines
-            and "  ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left" in lines
+    return (framed(40)(screen) and "  Claude   ━━────────  21% left" in lines
+            and "  ChatGPT  ━━━━━━━───  69% left" in lines
             and re.search(rf"^› 1  {re.escape(NARROW_FIX)}\n    ━+╸?─* 3 of 7$", screen, re.M)
             and [line for line in lines if line.strip()][-2:]
             == ["  ↑↓←→ move   ⏎ open   n new   c config", "  esc leave"])

@@ -1,7 +1,6 @@
 package tick
 
 import (
-	"agentkit/internal/notify"
 	"agentkit/internal/seat"
 )
 
@@ -16,7 +15,7 @@ func asked(live seat.Live) bool {
 // named, its title its own and its account the one it stays on, and the notice standing, if any,
 // a watcher's nobody opened, which no output answers (notify.progress).
 func ownerWaits(live seat.Live) bool {
-	notice := notify.Last(live.Name)
+	notice := standing(live.Name)
 	return live.Bound && titleKept(live) && live.Refused == "" && stays(live) &&
 		(notice == nil || notice.Get("watcher") == true && notice.Get("opened_at") == nil)
 }

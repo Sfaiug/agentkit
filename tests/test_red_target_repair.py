@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_red_target as red
-from agentkit import config, deliver, handback, notify, roundloop, run, task, transitions, watch, worker
+from agentkit import config, deliver, handback, notify, roundloop, run, task, transitions, turns, watch, worker
 from agentkit import record
 from fixtures.landing import landing
 
@@ -265,7 +265,7 @@ class RedTargetRepair(unittest.TestCase):
         self.assertEqual(later["waiting_on"],
                          {"ref": "origin/main", "sha": moved, "repair": self.prepared[1][0]})
 
-    def test_one_repair_per_command_per_tip_however_it_ended(self):
+    def test_one_repair_per_command_per_tip_at_a_time_however_it_ended(self):
         _, owner, self.wt = red.make_repos(self.root)
         self.red_run("first", "seat")
         endings = {"failed": {"state": "fail", "verdict": "FAIL"},
@@ -300,6 +300,28 @@ class RedTargetRepair(unittest.TestCase):
                 self.assertEqual(len(self.prepared), prepared + 1)
                 self.assertEqual(moved["waiting_on"], {"ref": "origin/main", "sha": tip,
                                                        "repair": self.prepared[-1][0]})
+
+    def test_an_unmended_repair_lets_go_of_its_tip_a_ladder_step_after_its_end(self):
+        _, _, self.wt = red.make_repos(self.root)
+        self.red_run("first", "seat")
+        name = self.prepared[0][0]
+        repair = config.RUNS / name
+        tip = record.read_state(repair)["repair_tip"]
+        waiter = self.parked(tip, name)
+        self.spawned.clear()
+        # its waiter stays parked until the step past the ladder's top has gone by from its end
+        for ago, held in ((turns.TRANSIENT_HOURLY - 60, True), (turns.TRANSIENT_HOURLY, False)):
+            record.save_state(repair, {**record.read_state(repair), "state": "blocked",
+                                       "verdict": "BLOCKED", "finished_at": time.time() - ago})
+            with patch.object(transitions, "upstream_sha", return_value=tip):
+                watch.resume_waiting(log=self.logs.append)
+            self.assertEqual(self.spawned, [] if held else [(waiter.name, ["resume", waiter.name])])
+        # retried on that same tip, it starts the next repair, ahead of the queue as the first
+        again = self.red_run("first", "seat")
+        self.assertEqual(len(self.prepared), 2)
+        self.assertTrue(self.prepared[1][1]["--first"])
+        self.assertEqual(again["waiting_on"],
+                         {"ref": "origin/main", "sha": tip, "repair": self.prepared[1][0]})
 
     def test_a_repair_holds_only_the_tip_it_was_started_for(self):
         _, owner, self.wt = red.make_repos(self.root)

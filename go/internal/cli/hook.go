@@ -44,7 +44,8 @@ var subAgent = []string{"agent_id", "agentId", "agent_type", "agentType", "subag
 // before the fact below lets a look answer its question; then the event as what the seat is
 // doing, under the name the seat goes by now, unless the fact standing keeps it
 // (`lifecycle.Keeps`).  A worker, a harness outside any seat and a sub-agent's turn write
-// nothing; a SessionStart writes only what a compaction drops.  Each event it writes has the seat
+// nothing; a SessionStart only moves the seat to the conversation its own client went to
+// (`followed`) and writes what a compaction drops.  Each event it writes has the seat
 // looked at again at once, off the harness's path, with the owner's prompt it heard; their answer
 // on a question card is recorded first, or, where Go does not record it as Python does, left to
 // Python with nothing written.
@@ -57,6 +58,9 @@ func seatState(payload []byte, out io.Writer) int {
 	}
 	name := event.Str("hook_event_name")
 	if name == "SessionStart" {
+		if !followed(seat, event) {
+			return leftToPython()
+		}
 		compacted(seat, event)
 		return 0
 	}

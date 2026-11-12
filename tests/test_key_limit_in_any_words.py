@@ -5,7 +5,7 @@ Seen on 31 Oct 2026 with Claude Code 2.1.314: `You've hit your 5-hour limit` was
 refused seat read `done` off its finished plan and nothing resumed it.  The refusal's typed kind
 says so in any words and its usual opening says so with no kind.  The owner, 2 Nov 2026: "Out of
 usage should be when there is no more usage from the provider to continue."  Black-box against
-`AK_BIN`, as tests/test_key_idle_seat_holds_no_memory.py; conversations have the shape Claude Code
+`AK_BIN`, as tests/test_key_unknown_error_is_retried.py; conversations have the shape Claude Code
 writes, under invented ids, and no provider is reached.
 """
 

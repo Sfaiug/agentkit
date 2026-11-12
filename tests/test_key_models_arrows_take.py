@@ -2,11 +2,12 @@
 choice at once, passing a choice no configured model runs, and past either end change nothing,
 the owner's design of 5 Nov 2026.  Over a seat its executor becomes that model at the choice's
 effort in its record; its orchestrator asks first, as the move restarts it, `Keep` leaving the
-record as it was and `Restart` moving it.  On `· new seats` [defaults] takes the orchestrator at
-once.  The key line says `← cheaper` and `better →`, `r` takes nothing, and a save that fails
-changes nothing and says why.
+record as it was and `Restart` moving it, on a terminal too short for every line the role lines
+paged around the question, under the header and over the key line.  On `· new seats`
+[defaults] takes the orchestrator at once.  The key line says `← cheaper` and `better →`, `r`
+takes nothing, and a save that fails changes nothing and says why.
 
-Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40
+Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40, and one 40 by 16
 (tests/fixtures/akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own,
 its harness a fake running three of four invented choices, the boards held as just asked
 (tests/test_key_role_choices.py); judged by the screen, the seats' records, config.toml and
@@ -84,10 +85,10 @@ class ArrowsTake(unittest.TestCase):
             self.home.write(f".agentkit/state/session-{name}.json", seat.record)
         self.given = self.config.read_bytes()
 
-    def models(self, width, seat=None):
-        """`r` on `c`, `width` cells wide, over `seat` or in a window of its own, once the
-        orchestrator's choices are drawn."""
-        term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=(width, 60),
+    def models(self, width, seat=None, height=60):
+        """`r` on `c`, `width` cells wide and `height` high, over `seat` or in a window of its
+        own, once the orchestrator's choices are drawn."""
+        term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=(width, height),
                         env={**ENV, **({"AGENTKIT_SESSION": seat} if seat else {})})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -142,15 +143,19 @@ class ArrowsTake(unittest.TestCase):
                 self.assertEqual(self.config.read_bytes(), self.given)
 
     def test_a_seats_orchestrator_asks_first_and_keep_leaves_its_record(self):
-        for width in WIDTHS:
-            with self.subTest(width=width):
+        for width, height in [*((width, 60) for width in WIDTHS), (40, 16)]:   # 16: too short
+            with self.subTest(width=width, height=height):
                 self.fresh()
                 self.ended(SEAT)
-                term = self.models(width, SEAT)
+                term = self.models(width, SEAT, height)
                 before, launched = self.path(SEAT).read_bytes(), self.launches()
                 term.keys("Right")
-                term.wait(lambda screen: asked(screen, SEAT)
-                          and "› ✓ Keep" in lines(screen) and "  ✗ Restart" in lines(screen))
+                shown = term.wait(lambda screen: asked(screen, SEAT)
+                                  and "› ✓ Keep" in lines(screen)
+                                  and "  × Restart" in lines(screen))
+                self.assertTrue(shown.startswith("agentkit"), shown)
+                self.assertIn("esc back", key_line(shown))
+                self.assertIn("▸ orchestrator", shown)
                 self.assertEqual(self.path(SEAT).read_bytes(), before)
                 term.keys("Enter")              # Keep, the answer highlighted
                 term.wait(lambda screen: "orchestrator · four choices" in screen

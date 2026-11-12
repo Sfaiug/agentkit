@@ -4,8 +4,9 @@ with every stack under it, before the rebuilt stack, which may hold another culp
 So too where the rebuilt stacks would all fit side by side.
 
 Black-box: the program `AK_BIN` names checks a landing line from outside through
-tests/fixtures/akline.py.  Of four members the third and the fourth each turn the suite red; the
-check of the stack rebuilt without the third, holding the fourth, holds until the test lets it go.
+tests/fixtures/akline.py.  Of four members the third and the fourth each turn the suite red, the
+fourth only without the third, so no piece the first red confirmed shows it; the check of the
+stack rebuilt without the third, holding the fourth, holds until the test lets it go.
 """
 
 from pathlib import Path
@@ -16,12 +17,13 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akline import READINGS, Line, rules
 
-TESTS = {"t/bad.sh": 'test -z "$(ls bad-* 2>/dev/null)"\n',
+TESTS = {"t/bad.sh": "test ! -f bad-3.txt\n",
          "t/hold.sh": """storage=$(git rev-parse --git-common-dir)
 echo $(ls member-*) >>"$storage/stacks"
 [ -f bad-4.txt ] && [ ! -f bad-3.txt ] || exit 0
 touch "$storage/reached"
 until [ -f "$storage/go" ]; do sleep 0.1; done
+exit 1
 """}
 
 

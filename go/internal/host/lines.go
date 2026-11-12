@@ -26,8 +26,8 @@ const (
 )
 
 // SuiteOwn is what a done-when command's environment never inherits, Python's gate.suite_env: a
-// loop started below a suite holds none of that suite's turn, nor its share, path or test lists.
-var SuiteOwn = []string{HeavyTurn, "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_CHANGED", "AK_TIMES"}
+// loop started below a suite holds none of that suite's turn, nor its share or test lists.
+var SuiteOwn = []string{HeavyTurn, "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_TIMES"}
 
 // G is megabytes as gigabytes to one decimal, trailing zeros dropped; `?` for no reading.
 func G(mb float64, ok bool) string {
@@ -330,7 +330,7 @@ func LineCheckWaiting() *os.File {
 
 // LineCheckWaits is whether a line's own check waits for a heavy suite turn now, Python's
 // landing_waits.  Lookers take turns on a file of their own, so one never reads another as a waiter,
-// and make no file: a launch Go hands over to Python leaves runs/ as it found it.
+// and make no file.
 func LineCheckWaits() bool {
 	runs := filepath.Join(config.Home(), "runs")
 	if turn, err := lock.Edit(filepath.Join(runs, ".heavy-landing.probe")); err == nil {

@@ -18,7 +18,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
-from test_key_model_followed_opencode_muse import SPARK, WONDER, muse_answer, muse_line
+from test_key_model_followed_opencode_muse import SPARK, WONDER, WONDER_NAMED, muse_answer, muse_line
 from test_key_orch_list_rows import bar
 
 SESSION = "01a18c52-a770-75a1-9576-acme00000001"
@@ -67,13 +67,13 @@ class MuseModelFollowedAtOnce(unittest.TestCase):
         self.assertEqual(record["orchestrator"], "wonder")
         self.assertEqual(record["efforts"], {
             **self.efforts, "wonder": {**self.efforts["wonder"], "effort": "high"}})
-        self.assertIn(f"{WONDER} high", bar(self.home, self.seat))
+        self.assertIn(f"{WONDER_NAMED} high", bar(self.home, self.seat))
         term = Terminal(self.home, "attach", "--overlay", size=(120, 30),
                         env={"NO_COLOR": "1", "AGENTKIT_SESSION": self.seat.name})
         term.wait("esc leave")
         term.keys("c")
         term.wait(lambda screen: "esc back" in screen and re.search(
-            rf"^[› ] {re.escape(WONDER)} +\[?●\]? +\S+ +high\b", screen, re.M))
+            rf"^[› ] {re.escape(WONDER_NAMED)} +\[?●\]? +\S+ +high\b", screen, re.M))
 
     def test_a_reconfigure_before_any_answer_also_moves_the_seat(self):
         self.log.write_text(reconfigured(self.now - 60, WONDER))

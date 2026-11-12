@@ -2,13 +2,13 @@ package config
 
 import (
 	"cmp"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"agentkit/internal/commandhelp"
 )
@@ -47,10 +47,7 @@ func CurrentSession() (string, map[string]any, error) {
 }
 
 // SeatFiles are the files every seat keeps its record in.
-func SeatFiles() []string {
-	pattern, _ := sessionPath("*")
-	return Glob(filepath.Dir(pattern), filepath.Base(pattern))
-}
+func SeatFiles() []string { return SeatRecords("session") }
 
 // SessionPath is where a seat's record is kept.
 func SessionPath(name string) (string, error) {
@@ -80,7 +77,8 @@ func SessionName(raw string) string {
 }
 
 // A rename leaves a pointer because the running seat keeps its original
-// environment. Return the resolved record with its name so lookups agree.
+// environment. Return the resolved record with its name so lookups agree: every reader's, so only
+// read it.
 func ResolveSession(name string) (string, map[string]any, error) {
 	name = Fold(name)
 	path, err := sessionPath(name)
@@ -102,21 +100,15 @@ func ResolveSession(name string) (string, map[string]any, error) {
 		if err != nil {
 			return "", nil, err
 		}
-		data, err := os.ReadFile(path)
-		if os.IsNotExist(err) {
+		record, err := sessionFiles.Read(path)
+		var unread *fs.PathError
+		if errors.Is(err, fs.ErrNotExist) {
 			return name, nil, nil
-		}
-		if err != nil {
+		} else if errors.As(err, &unread) {
 			return "", nil, fmt.Errorf("cannot read %s: %w", path, err)
+		} else if err != nil {
+			return "", nil, err
 		}
-		if !utf8.Valid(data) {
-			return "", nil, fmt.Errorf("%s: invalid UTF-8", path)
-		}
-		var value any
-		if err := json.Unmarshal(data, &value); err != nil {
-			return "", nil, fmt.Errorf("%s: %w", path, err)
-		}
-		record, _ := value.(map[string]any)
 		next, renamed := record[Renamed].(string)
 		if !renamed {
 			return name, record, nil

@@ -309,10 +309,10 @@ type member struct {
 	record *run.Object
 }
 
-// lineMembers is the line in its order (run.LineMembers).
+// lineMembers is the line in its order (run.LineMembers), among the runs as they stand.
 func lineMembers(name string) (found []member) {
-	for _, each := range run.LineMembers(name) {
-		found = append(found, member{each.Dir, each.Record})
+	for _, each := range run.LineMembers(name, run.Standing()) {
+		found = append(found, member{filepath.Join(run.Runs(), each.Name), each.Record})
 	}
 	return found
 }

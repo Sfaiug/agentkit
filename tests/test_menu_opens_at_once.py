@@ -1,7 +1,7 @@
 """`ak` draws its main screen at once and Esc leaves at once, however slow what is behind it.
 
 `menu.main` in-process on a keyboard it has taken, maintenance and every seat's look each a fake
-taking two seconds: the first frame is out within 100 ms of starting and maintenance's notice
+taking two seconds: the first frame is out within 100 ms of starting and maintenance's warning
 lands after it, and Esc leaves within 100 ms with a 600 ms read of the seats still going.
 Offline, in a throwaway HOME: the update, the Mac bridge and the boot resume do nothing, the
 probe is never started, and every thread the menu leaves behind is waited for before the fakes
@@ -23,7 +23,7 @@ from agentkit import config, macbridge, menu, orch, terminal, watch
 SLOW = 2.0        # what maintenance and each seat's look take
 READ = 0.6        # what a read of the seats takes once the first is drawn
 FRAME = 0.1       # what the first frame and Esc may take
-REAPED = "agentkit: reaped a loop whose process was gone"
+WARNED = "WARN could not check the runs: a run record could not be read"   # a notice
 Key = terminal.Key
 
 
@@ -65,7 +65,7 @@ class OpensAtOnce(Sandbox):
 
         def maintenance(log=print):
             self.gone.wait(SLOW)
-            log(REAPED)
+            log(WARNED)
 
         for target, name, fake in (
                 (orch, "listing", listing),
@@ -122,7 +122,7 @@ class OpensAtOnce(Sandbox):
         self.assertEqual(self.menu(answer), 0)
         self.assertLess(waits[0] - self.began, FRAME, "the first frame")
         (said_at, said), = self.said
-        self.assertEqual(said, [REAPED])
+        self.assertEqual(said, [WARNED])
         self.assertGreater(said_at, waits[0])
         self.assertGreater(len(waits), 10)      # the screen answered all along
 
@@ -131,7 +131,7 @@ class OpensAtOnce(Sandbox):
         self.addCleanup(finish.set)
 
         def maintenance(log=print):
-            log(REAPED)
+            log(WARNED)
             if finish.wait(10):
                 effects.append("finished")
 
@@ -147,7 +147,7 @@ class OpensAtOnce(Sandbox):
 
         with patch.object(orch, "maintenance", side_effect=maintenance):
             self.assertEqual(self.menu(answer), 0)
-        self.assertEqual([messages for _, messages in self.said], [[REAPED]])
+        self.assertEqual([messages for _, messages in self.said], [[WARNED]])
 
     def test_esc_leaves_at_once_with_a_read_going(self):
         pressed = []

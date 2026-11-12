@@ -84,11 +84,11 @@ type sight struct {
 // observed is watch.observed: what a capture shows of a seat, against its files as they stand,
 // writing nothing.  A blank capture says nothing of the error it shows.
 func observed(state, name string, reader harness.Reader, pane string, now float64) (found sight, previous *run.Object) {
-	previous, _ = run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
+	previous, _ = run.Shared(filepath.Join(state, "seat-"+name+".json"))
 	if previous == nil {
 		previous = run.NewObject()
 	}
-	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+	record, _ := run.Shared(filepath.Join(state, "session-"+name+".json"))
 	if record == nil {
 		record = run.NewObject()
 	}
@@ -114,16 +114,27 @@ func observed(state, name string, reader harness.Reader, pane string, now float6
 // that pane was removed the session's current one, as older launches used (orch.harness_pane); and
 // whether its harness has exited, when the last frame it left is no turn in flight and it shows nothing.
 func harnessScreen(name string) (shown string, exited bool) {
+	shown, exited, _ = harnessLook(name)
+	return shown, exited
+}
+
+// harnessLook is harnessScreen, and whether a client is attached to the seat's session, from the
+// same listing of its panes.
+func harnessLook(name string) (shown string, exited, attached bool) {
 	target := "=" + name + ":"
-	said, _ := tmux.Ask(tmux.Own(), "list-panes", "-s", "-t", target, "-f", "#{==:#{pane_id},#{"+tmux.HarnessPane+"}}", "-F", "#{pane_id} #{pane_dead}")
-	pane, dead, saved := strings.Cut(said, " ")
-	if dead == "1" {
-		return "", true
+	said, _ := tmux.Ask(tmux.Own(), "list-panes", "-s", "-t", target, "-F", "#{session_attached} #{==:#{pane_id},#{"+tmux.HarnessPane+"}} #{pane_id} #{pane_dead}")
+	for _, line := range strings.Split(said, "\n") {
+		if pane := strings.Fields(line); len(pane) == 4 {
+			attached = pane[0] != "0"
+			if pane[1] == "1" && pane[3] == "1" {
+				return "", true, attached
+			} else if pane[1] == "1" {
+				target = pane[2]
+			}
+		}
 	}
-	if saved {
-		target = pane
-	}
-	return captureHarness(target)
+	shown, exited = captureHarness(target)
+	return shown, exited, attached
 }
 
 // look is watch.look_at: one capture, classified and kept; none of a screen nobody reads.

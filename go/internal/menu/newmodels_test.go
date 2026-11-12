@@ -25,7 +25,7 @@ func TestFoldedPickerKeepsTheFocusedModelAndRoleInView(t *testing.T) {
 		for column, head := range []string{"orch", "builds", "reviews"} {
 			d.Column = column
 			shown := strings.Join(d.PickerLines((&terminal.Keyboard{}).Screen(), "14:02"), "\n")
-			if !strings.Contains(shown, "› bolt") || !strings.Contains(shown, "    "+terminal.Pad(head, 7)+"[") {
+			if !strings.Contains(shown, "› Bolt") || !strings.Contains(shown, "    "+terminal.Pad(head, 7)+"[") {
 				t.Errorf("30x%s, %s focused:\n%s", rows, head, shown)
 			}
 		}

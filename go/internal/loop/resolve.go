@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/gitcall"
 	"agentkit/internal/history"
 	"agentkit/internal/run"
 )
@@ -286,7 +287,7 @@ func (r *repoPlace) fixConflicts(l *loop, what, how, upstream, tip, out string) 
 		if summary, err = l.execute("fixer", how+"-fixer", text, ""); err != nil {
 			return "", false, err
 		}
-		still, err := inProgress(g)
+		still, err := gitcall.InProgress(g, "rebase", "merge")
 		if err != nil {
 			return "", false, err
 		}

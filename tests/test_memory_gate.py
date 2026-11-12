@@ -177,7 +177,7 @@ class MemoryGate(unittest.TestCase):
         readings = {"free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
                     "unit_limits": [(4096, 10240, 5120, "agentkit.slice")]}
         with patch.dict(os.environ, {"AK_MIN_FREE_MB": "3072", "AK_MAX_LOAD": "8"}), \
-                patch.object(gate, "_heavy_running", return_value=0), \
+                patch.object(gate, "_heavy_held", return_value=[]), \
                 patch.object(host, "host_readings", return_value=readings):
             line = gate.host_status_line()
         self.assertIn("agentkit.slice", line)

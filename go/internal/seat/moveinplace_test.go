@@ -16,7 +16,7 @@ func TestMoveInPlaceOwesItsLinesAheadAtTheEffortAsksNothing(t *testing.T) {
 		t.Run(model, func(t *testing.T) {
 			home := moveHome(t)
 			write(t, stateFile(home, "seat-acme.json"), `{"owed_lines":[{"line":"hello","id":"x"}],"usage_wait":{"at":1}}`)
-			known, err := MoveInPlace("acme", model, "low")
+			known, err := Move("acme", model, "low", func(bool) (bool, bool) { t.Fatal("a move in place asked"); return false, false })
 			if !known || err != nil {
 				t.Fatal(known, err)
 			}

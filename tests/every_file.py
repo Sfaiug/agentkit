@@ -6,7 +6,8 @@ AGENTS.md runs this beside smoke.sh, so a file no task happened to list cannot g
 unseen.  It is no part of smoke.sh.  Each test runs once, its file in a process of its own from the
 checkout's root with no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file
 started from inside a run must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH,
-AK_PARENT_RUN ...).  As many run at once as live memory fits; waiting files can outnumber
+AK_PARENT_RUN ...).  A piece of a sharded run (AK_SHARD k/N, N above 1) runs one file at a
+time.  A whole run runs as many at once as live memory fits; waiting files can outnumber
 cores. Before each start it samples CPU pressure, running one file at a time while it is high,
 and rereads host and cgroup headroom.
 The share is cut, and its files start longest first, by each test's last measured seconds,
@@ -356,11 +357,12 @@ def main(root, others=None):
                     print(f"RETRY {' '.join(ids(name, named or asked))}: {failure(code, took)}, "
                           "runs again alone once the others end", flush=True)
             if path is not None:
-                readings = host.host_readings(slice_dir=orch.slice_cgroup,
-                                              pressure_window=POLL, all_limits=True)
+                # ak's places run as many pieces as the cores fit: pieces sizing their own pools
+                # read the same calm moment and widen together. Only a whole run decides alone.
                 # One start per sample lets its startup show in the next CPU reading;
                 # submitting every file at once would bypass later pressure and memory changes.
-                if len(running) < pool_limit(readings):
+                if len(running) < (1 if total > 1 else pool_limit(host.host_readings(
+                        slice_dir=orch.slice_cgroup, pressure_window=POLL, all_limits=True))):
                     named, timed, gone = [], {}, []
                     job = pool.submit(run_file, root, path, env, parts=parts, failed=named,
                                       timed=timed, absent=gone)

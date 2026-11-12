@@ -56,7 +56,10 @@ class BoardChecks(unittest.TestCase):
               seconds=900, ago=3600):
         finish = self.now - ago
         with closing(sqlite3.connect(self.path)) as db, db:
-            db.execute("INSERT INTO checks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'helper', 1)",
+            # named: ak adds columns to the table as it opens it
+            db.execute("INSERT INTO checks (run_id, round, kind, tree, command, started_at, "
+                       "finished_at, requested_at, exit, place, rerun) "
+                       "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'helper', 1)",
                        (run_id, round, kind, tree, command, finish - (seconds or 900),
                         finish if seconds is not None else None, finish - 7200, 1))
 

@@ -29,7 +29,7 @@ func (db *DB) Checks(since, until float64) ([]Row, bool) {
 // disputes for merged changes' counts, each with its run's row and whether an earlier blocking
 // round raised the same path and proof.
 func (db *DB) Findings(since, until float64) ([]Row, bool) {
-	return db.read("SELECT f.at, f.kind, f.outcome, runs.*, EXISTS (SELECT 1 FROM findings earlier "+
+	return db.read("SELECT f.*, runs.*, EXISTS (SELECT 1 FROM findings earlier "+
 		"WHERE earlier.run_id=f.run_id AND earlier.path=f.path AND earlier.proof=f.proof "+
 		"AND earlier.kind='finding' AND earlier.round<f.round) AS raised_again "+
 		"FROM findings f JOIN runs USING (run_id) WHERE f.at <= ? AND "+
@@ -71,6 +71,13 @@ func (db *DB) Dones(since, until float64) ([]Row, bool) {
 		"AND owner.conversation = dones.conversation "+
 		"AND owner.at >= dones.began AND owner.at <= dones.at) AS answered "+
 		"FROM dones WHERE at >= ? AND at <= ?", since, until)
+}
+
+// SeatUsage is what the seats spent in the inclusive range, by project, as Python's
+// seat_tokens.read returns it once the seats' files are read (SeatTokens): none where no seat
+// ever had a table made.
+func (db *DB) SeatUsage(since, until float64) ([]Row, bool) {
+	return db.read("SELECT repo, at, tokens FROM seat_usage WHERE at >= ? AND at <= ?", since, until)
 }
 
 // Phases are a run's phases in order, the one under way ending at its last checkpoint.

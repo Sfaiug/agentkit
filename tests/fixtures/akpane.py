@@ -1,13 +1,16 @@
 """The harness in a test seat's pane: it shows a screen and keeps what is typed into it.
 
-    python3 akpane.py SCREEN TYPED [COMPOSER]
+    python3 akpane.py SCREEN TYPED [COMPOSER [ASKS]]
 
 It draws the text of the file SCREEN, again whenever that file changes, a key comes or its
 terminal is resized, and appends each byte it reads to TYPED as it comes.  As a harness's own
 composer does, the last line starting with COMPOSER (`❯` unless given) shows, after its mark,
 what has been typed since the last Enter, a paste and its line breaks included -- a
 COMPOSER running on to a placeholder picks that row of a box (`┃  Ask anything…`); each line
-entered goes to TYPED.lines as one JSON string.
+entered goes to TYPED.lines as one JSON string.  ASKS, a JSON object, maps a line's start to
+the screen of a card the harness asks before it takes such a line, as Claude Code's `/model`
+does: entered, the line draws that card in SCREEN's place, every key going to it until a `1`,
+its yes, puts it away.
 Each frame ends by setting the pane's title to the `stamp` of what it drew: tmux reads a pane's
 output in order, so once the title reads it the frame is on the screen, however tmux laid it
 out.  It takes the terminal in raw mode with bracketed paste on, as the harnesses do, and runs
@@ -28,18 +31,23 @@ import zlib
 KEY = re.compile(r"\x1b\[[0-9;]*[A-Z~]|.", re.S)
 
 
-def compose(typed):
-    """What a harness's composer makes of every key typed so far: its draft, and each line
-    entered with Enter.  Read whole each time, a sequence split across reads is never seen
-    half; inside a bracketed paste every key is part of the draft, a line break or tab too."""
-    draft, pasting, entered = "", False, []
+def compose(typed, asks=None):
+    """What a harness's composer makes of every key typed so far: its draft, each line
+    entered with Enter, and the card one of `asks` raised that stands, else None.  Read whole
+    each time, a sequence split across reads is never seen half; inside a bracketed paste
+    every key is part of the draft, a line break or tab too."""
+    draft, pasting, entered, card = "", False, [], None
     for key in KEY.findall(typed):
-        if key in ("\x1b[200~", "\x1b[201~"):
+        if card is not None:
+            card = None if key == "1" else card
+        elif key in ("\x1b[200~", "\x1b[201~"):
             pasting = key == "\x1b[200~"
         elif pasting:
             draft += "\n" if key == "\r" else key
         elif key in ("\r", "\n"):
             entered.append(draft)
+            card = next((shown for start, shown in (asks or {}).items()
+                         if draft.startswith(start)), None)
             draft = ""
         elif key == "\x7f":
             draft = draft[:-1]
@@ -47,7 +55,7 @@ def compose(typed):
             draft = ""
         elif key.isprintable():
             draft += key
-    return draft, entered
+    return draft, entered, card
 
 
 def stamp(screen, typed):
@@ -75,8 +83,9 @@ def drawn(screen, draft, composer, height):
             + (f"\x1b[{row + 1};{len(lines[at]) + 1}H" if row is not None and row >= 0 else ""))
 
 
-def main(screen_path, typed_path, composer="❯"):
+def main(screen_path, typed_path, composer="❯", asks=None):
     screen_path, typed_path = Path(screen_path), Path(typed_path)
+    asks = json.loads(Path(asks).read_text()) if asks else None
     lines_path = typed_path.with_name(typed_path.name + ".lines")
     tty.setraw(0)
     os.write(1, b"\x1b[?2004h")
@@ -90,7 +99,7 @@ def main(screen_path, typed_path, composer="❯"):
             typed += got
             with typed_path.open("ab") as keep:
                 keep.write(got)
-        draft, entered = compose(typed.decode("utf-8", errors="replace"))
+        draft, entered, card = compose(typed.decode("utf-8", errors="replace"), asks)
         if len(entered) > written:
             with lines_path.open("a", encoding="utf-8") as lines:
                 lines.writelines(json.dumps(line) + "\n" for line in entered[written:])
@@ -100,7 +109,7 @@ def main(screen_path, typed_path, composer="❯"):
         shape = os.get_terminal_size(0)
         if now != stamp_seen or got or shape != size:
             stamp_seen, size = now, shape
-            screen = screen_path.read_bytes()
+            screen = screen_path.read_bytes() if card is None else card.encode()
             frame = drawn(screen.decode("utf-8"), draft, composer, size.lines)
             os.write(1, f"{frame}\x1b]2;{stamp(screen, len(typed))}\x1b\\".encode())
 

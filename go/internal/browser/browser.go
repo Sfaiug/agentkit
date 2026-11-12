@@ -3,8 +3,8 @@
 // the Chromium whose profile is the owner's logins, x11vnc, noVNC and the MCP server every seat
 // shares; the DevTools and MCP addresses, and noVNC's, read from the unit websockify runs in; and
 // how systemd and DevTools are read: `systemctl show` and `is-active`, and DevTools' HTTP JSON as
-// Python's urllib and json read it; the two names the VNC password is kept under; and whose home
-// may install the stack.  Minting a password and the rest of `install` are still Python's.
+// Python's urllib and json read it; the two names the VNC password is kept under, and how a new
+// one is minted; and whose home may install the stack.  The rest of `install` is still Python's.
 package browser
 
 import (
@@ -40,16 +40,17 @@ import (
 var ErrPython = errors.New("left to Python")
 
 const (
-	display   = ":99"
-	mcpURL    = "http://localhost:8931/mcp"
-	mcpUnit   = "browser-bridge-mcp.service"
-	novncUnit = "browser-bridge-novnc.service"
-	vnc       = "127.0.0.1:5900"  // what websockify proxies, beside the address it listens on
-	limit     = 120 * time.Second // a systemctl's, as Python's browser.systemctl waits
+	display    = ":99"
+	mcpURL     = "http://localhost:8931/mcp"
+	mcpUnit    = "browser-bridge-mcp.service"
+	novncUnit  = "browser-bridge-novnc.service"
+	x11vncUnit = "browser-bridge-x11vnc.service"
+	vnc        = "127.0.0.1:5900"  // what websockify proxies, beside the address it listens on
+	limit      = 120 * time.Second // a systemctl's, as Python's browser.systemctl waits
 )
 
 var units = []string{"browser-bridge-xvfb.service", "browser-bridge-openbox.service",
-	"browser-bridge-chromium.service", "browser-bridge-x11vnc.service", novncUnit}
+	"browser-bridge-chromium.service", x11vncUnit, novncUnit}
 
 // passwords are the names in ak's secrets the VNC password is kept under as text: the one ak
 // writes, then the one the stack's installer wrote.
@@ -86,10 +87,8 @@ func Status(out io.Writer) (int, error) {
 	return 1, err
 }
 
-// Login prints `ak browser login` as Python's browser.login does where a password is stored,
-// read as its browser.plaintext reads it: the noVNC address, the password and how to sign a site
-// in.  With none stored it is Python's, which mints one through libvncserver, a library Go
-// cannot load without cgo.
+// Login prints `ak browser login` as Python's browser.login does: the noVNC address, the password
+// stored, read as its browser.plaintext reads it, or else a new one, and how to sign a site in.
 func Login(out io.Writer) (int, error) {
 	address, err := novnc()
 	if err == nil && address == "" {
@@ -103,14 +102,19 @@ func Login(out io.Writer) (int, error) {
 		if err != nil {
 			continue
 		} else if !utf8.Valid(data) {
-			break // Python's read_text raises
+			return 0, ErrPython // Python's read_text raises
 		}
 		if password := strings.TrimFunc(task.Text(data), config.Space); password != "" {
-			show(out, "open      "+address, "password  "+password, "Sign the site in inside that window, finishing any 2FA or bot check yourself.  The session stays in the shared profile and every agent then sees it.  Only Tailscale reaches this address.")
+			signIn(out, address, password)
 			return 0, nil
 		}
 	}
-	return 0, ErrPython
+	return mint(out, address)
+}
+
+// signIn is how `ak browser login` ends: the address, the password and how to sign a site in.
+func signIn(out io.Writer, address, password string) {
+	show(out, "open      "+address, "password  "+password, "Sign the site in inside that window, finishing any 2FA or bot check yourself.  The session stays in the shared profile and every agent then sees it.  Only Tailscale reaches this address.")
 }
 
 // Install refuses where HOME is not the account's home, as Python's browser.setup_refusal
@@ -164,7 +168,7 @@ func status() ([]string, bool, error) {
 			say("units      none installed here; `ak browser install` puts them in")
 		}
 		healthy = !installed || !down
-		code, active, err := systemctl(env, "is-active", mcpUnit)
+		code, active, err := systemctl(env, false, "is-active", mcpUnit)
 		if err != nil {
 			return lines, false, err
 		}
@@ -224,22 +228,28 @@ func onPath(name string) bool {
 }
 
 // systemctl is `systemctl ARGS`'s exit code and what it printed, run as Python's
-// browser.systemctl runs it; an error is one Python's ak browser says.
-func systemctl(env []string, args ...string) (int, string, error) {
+// browser.systemctl runs it, through `sudo -n` where asked; an error is one Python's ak browser
+// says.
+func systemctl(env []string, sudo bool, args ...string) (int, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	command := exec.CommandContext(ctx, "systemctl", args...)
+	if sudo {
+		command = exec.CommandContext(ctx, "sudo", append([]string{"-n", "systemctl"}, args...)...)
+	}
 	if errors.Is(command.Err, exec.ErrDot) {
 		command.Err = nil // Python's subprocess runs what a relative PATH entry finds
 	}
-	var out bytes.Buffer
-	command.Env, command.Stdin, command.Stdout = env, os.Stdin, &out
+	var out, complaint bytes.Buffer
+	command.Env, command.Stdin, command.Stdout, command.Stderr = env, os.Stdin, &out, &complaint
 	command.WaitDelay = limit // a program it left holding its output open is waited for no longer
 	err := command.Run()
 	var exited *exec.ExitError
 	switch {
 	case ctx.Err() != nil:
 		return 0, "", fmt.Errorf("systemctl %s did not return within %.0fs", strings.Join(args, " "), limit.Seconds())
+	case errors.As(err, &exited) && sudo && strings.Contains(strings.ToLower(complaint.String()), "password"):
+		return 0, "", errors.New("sudo asked for a password; this needs passwordless sudo")
 	case errors.As(err, &exited):
 		return exited.ExitCode(), out.String(), nil
 	case err != nil:
@@ -251,7 +261,7 @@ func systemctl(env []string, args ...string) (int, string, error) {
 // unitStates is each unit's "active (running)", "inactive (dead)" or "absent", as Python's
 // browser.unit_states reads `systemctl show`.
 func unitStates(env []string) ([]string, error) {
-	_, out, err := systemctl(env, append([]string{"show", "--no-pager", "--property=Id",
+	_, out, err := systemctl(env, false, append([]string{"show", "--no-pager", "--property=Id",
 		"--property=LoadState", "--property=ActiveState", "--property=SubState"}, units...)...)
 	if err != nil {
 		return nil, err

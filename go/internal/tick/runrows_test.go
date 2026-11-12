@@ -43,7 +43,7 @@ func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 		"exhausted resume": `{"state":"exhausted","error":"reviewer: API/transport errors"}`,
 		"error retry":      `{"state":"error","error_retry_at":1,"title":"\ud800"}`,
 		"waiting resume":   `{"state":"fail","waiting_on":{"line":"older"}}`,
-		"endings":          `{"state":"pass","launched_session":"acme","merged":true}`,
+		"endings":          `{"state":"pass","launched_session":"acme","merged":true,"handback_typed":{"line":"run fix-api finished"}}`,
 	} {
 		t.Run(row, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)

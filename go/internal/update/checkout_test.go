@@ -28,7 +28,7 @@ func TestGoLiveProtectsWorkAfterItsFirstSwap(t *testing.T) {
 				git(origin, "-c", "user.name=acme", "-c", "user.email=acme@example.com", "commit", "-qm", text)
 				return git(origin, "rev-parse", "HEAD")
 			}
-			write(filepath.Join(origin, "install.sh"), "#!/bin/sh\necho ran >>\"$HOME/install-runs\"\n")
+			write(filepath.Join(origin, "install.sh"), "#!/bin/sh\n[ \"$1\" != --prepare ] || exit 0\necho ran >>\"$HOME/install-runs\"\n")
 			first := advance("first update")
 			git(checkout, "remote", "add", "origin", origin)
 			tick := func() []string {

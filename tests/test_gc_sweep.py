@@ -36,6 +36,9 @@ class GcSweep(Sandbox):
         # `aged` ages the rest.
         self.stack.enter_context(patch.dict(os.environ, {"AGENTKIT_GC_DISK_PERCENT": "100",
                                                          "GIT_COMMITTER_DATE": f"@{int(time.time() - 2 * DAY)}"}))
+        # No process holds these checkouts: on a busy host git's detached auto maintenance, or a
+        # harness scanning this one, is still in one as the collection looks, and it stays.
+        self.stack.enter_context(patch.object(retention, "process_dirs", return_value=[]))
         self.repo = self.make_repo("repo")
         self.other = self.make_repo("other")
 

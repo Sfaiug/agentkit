@@ -106,7 +106,7 @@ func TestMuseSaidShowsARunsFirstFinalToItsPromptOrSteer(t *testing.T) {
 		t.Errorf("said %+v\nwant %+v", got, want)
 	}
 	typed := []Prompt{{1, "Build the acme preview."}, {7, "Make it green."}}
-	if got := museTyping("acme"); !slices.Equal(got, typed) {
+	if got, _ := museTyping("acme"); !slices.Equal(got, typed) {
 		t.Errorf("typed %+v, want %+v (an undated line is nobody's answer)", got, typed)
 	}
 	if got := museSaid("other"); got != nil {

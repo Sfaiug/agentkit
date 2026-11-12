@@ -2,11 +2,12 @@
 
 A seat finds ak's shims first on its PATH, in `~/.agentkit/bin` (tmux, gh, git, scp, rsync,
 sftp), where ak puts them when a seat opens.  `Shims` opens one as a person does, from a
-terminal, so they are the build's own, then stops that seat: the shims stay and no seat of the
-launch's is left.  `run` is a command a seat runs, its name found on the seat's PATH: the shims
-first, then the Home's own, so the real tool behind a shim is the Home's real tmux, held to the
-Home's servers, or a fake.  Judge a shim by its exit code, what it printed, and whether the real
-tool ran: what tmux holds and each pane received, or a fake's calls (`home.calls`).
+terminal, so they are the build's own, then stops that seat: the shims stay, and no seat of the
+launch's, nor its server, is left.  `run` is a command a seat runs, its name found on the seat's
+PATH: the shims first, then the Home's own, so the real tool behind a shim is the Home's real
+tmux, held to the Home's servers, or a fake.  Judge a shim by its exit code, what it printed, and
+whether the real tool ran: what tmux holds and each pane received, or a fake's calls
+(`home.calls`).
 
     from fixtures.akbin import SOCKET, Home
     from fixtures.akseat import Seat
@@ -30,7 +31,7 @@ import shlex
 import sys
 import time
 
-from .akbin import LOG
+from .akbin import LOG, _wait_gone
 from .akterm import Terminal
 
 
@@ -48,9 +49,13 @@ class Shims:
                 raise AssertionError(f"no seat {name} opened; the terminal shows:\n"
                                      f"{term.screen()}")
             time.sleep(0.05)
+        server = home.tmux("display-message", "-p", "#{pid}").out.strip()
         stopped = home.ak("orch", "stop", name)
         assert stopped.code == 0, f"ak orch stop {name} exited {stopped.code}: {stopped.err}"
         term.exit_code()
+        # Its last session gone, the server exits, and the next call that reached it meanwhile
+        # would fail with `server exited unexpectedly`; once it is gone that call starts another.
+        _wait_gone(int(server) if server.isdigit() else None)
         assert self.dir.is_dir(), f"opening a seat put no shims in {self.dir}"
 
     def env(self, seat="acme", env=None):

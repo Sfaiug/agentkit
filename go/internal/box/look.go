@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync/atomic"
 
+	"agentkit/internal/config"
 	"agentkit/internal/host"
 )
 
@@ -38,6 +40,12 @@ func (l *look) read(info io.Reader) {
 func (l *look) up() bool {
 	_, err := os.Stat(l.report)
 	return err == nil
+}
+
+// Up says whether the box Run starts for a turn into out is up, Python's box.command's began, for
+// the turn's watch: its silence counts from then.
+func Up(out string) func() bool {
+	return (&look{report: filepath.Join(config.Resolve(out), Report)}).up
 }
 
 // declared is whether a command in the box is inside the time it gave `timeout`: asked once the

@@ -413,9 +413,6 @@ func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks
 			if len(tests) > 0 && floor+1 < high {
 				// The stacks between go to the suite helpers, many at once, a round at a time; a round
 				// that proves nothing leaves the step to this host.
-				if config.MayRent() {
-					return -1, accepted, nil // Python rents a machine for the probes
-				}
 				if !valid(func() bool { return true }) {
 					return -1, accepted, nil
 				}

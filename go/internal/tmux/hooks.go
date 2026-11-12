@@ -20,15 +20,15 @@ const wayBack = "The harness ended. To open it again: Ctrl-b m, then this seat's
 // tmux runs pane-died when a pane's program exits or is killed under remain-on-exit, and never for
 // respawn-pane -k or kill-session, the ways ak ends one: so the owner's /exit, a crash and a kill
 // from outside run `ak orch ended`, and no relaunch or stop of ak's does.  Server-wide, as tmux 3.5
-// holds the hook per window, not per seat.  ak is named by its path: the server's PATH may hold
-// none.  run-shell draws a job's output, and its failure, over the pane, so the tick's log takes
-// all of it and the job always succeeds.  A pane left dead says how to open it again; a tmux before
-// 3.3 has no option for that, and setting these with -q keeps it quiet.  An end this program
-// hands over, exit 3, is Python's ak's to take up where there is one.  A test's own binary is no
-// ak: named in a hook, it would run its whole test again at each pane's end, whose panes end in
-// turn, so a test's server gets none.
+// holds the hook per window, not per seat.  ak is named by its path, the program a seat runs
+// (config.Live): the server's PATH may hold none.  run-shell draws a job's output, and its
+// failure, over the pane, so the tick's log takes all of it and the job always succeeds.  A pane
+// left dead says how to open it again; a tmux before 3.3 has no option for that, and setting
+// these with -q keeps it quiet.  An end that program hands over, exit 3, is Python's ak's to take
+// up where there is one.  A test's own binary is no ak: named in a hook, it would run its whole
+// test again at each pane's end, whose panes end in turn, so a test's server gets none.
 func Hooks() ([][2]string, error) {
-	program, err := os.Executable()
+	program, err := config.Live()
 	if err != nil || testing.Testing() {
 		return nil, err
 	}
@@ -46,14 +46,15 @@ func Hooks() ([][2]string, error) {
 		{"client-attached", front}, {"client-detached", front}, {"client-session-changed", front}}, nil
 }
 
-// python is Python's ak: its bin/ak under the python3 the PATH finds, as its `#!/usr/bin/env
-// python3` runs it.  None where the program is that bin/ak, or finds no bin/ak or no python3.
+// python is Python's ak beside program, the live one: its bin/ak under the python3 the PATH
+// finds, as its `#!/usr/bin/env python3` runs it.  None where the program is that bin/ak, or finds
+// no bin/ak or no python3.
 func python(program string) []string {
 	python3, err := exec.LookPath("python3")
 	if err == nil {
 		python3, err = filepath.Abs(python3)
 	}
-	bin := filepath.Join(config.Repo(), "bin", "ak")
+	bin := filepath.Join(config.LiveRepo(), "bin", "ak")
 	ours, unseen := os.Stat(program)
 	theirs, missing := os.Stat(bin)
 	if err != nil || unseen != nil || missing != nil || os.SameFile(ours, theirs) {

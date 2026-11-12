@@ -35,7 +35,7 @@ func runPlan(args []string, out, errOut io.Writer) int {
 	name, record, _ := config.CurrentSession() // validatePlan refused one it cannot read
 	var err error
 	if len(args) == 0 {
-		err = listPlan(ctx, name, out)
+		err = listPlan(ctx, name, out, errOut)
 	} else {
 		var line string
 		if args[0] == "add" {
@@ -51,7 +51,7 @@ func runPlan(args []string, out, errOut io.Writer) int {
 	if ctx.Err() != nil {
 		return 128 + int(syscall.SIGTERM)
 	}
-	if errors.Is(err, plan.ErrUnread) {
+	if errors.Is(err, plan.ErrUnread) || errors.Is(err, errLeft) {
 		return notImplemented(errOut, "plan")
 	}
 	if err != nil {
@@ -61,9 +61,10 @@ func runPlan(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// listPlan ticks what landed, then lists every box line, numbered and wrapped to the terminal.
-func listPlan(ctx context.Context, name string, out io.Writer) error {
-	listed, err := plan.List(ctx, name)
+// listPlan ticks what landed, then lists every box line, numbered and wrapped to the terminal,
+// then makes the done check the plan owes (planCheck).
+func listPlan(ctx context.Context, name string, out, errOut io.Writer) error {
+	listed, owes, err := plan.List(ctx, name, checkCarried)
 	if err != nil {
 		return err
 	}
@@ -75,6 +76,9 @@ func listPlan(ctx context.Context, name string, out io.Writer) error {
 		for _, more := range wrapped[1:] {
 			fmt.Fprintf(out, "%*s%s\n", width+2, "", more)
 		}
+	}
+	if owes {
+		return planCheck(ctx, name, out, errOut)
 	}
 	return nil
 }

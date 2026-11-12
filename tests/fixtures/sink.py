@@ -37,12 +37,14 @@ Request = namedtuple("Request", "method path query headers body json")
 
 class Sink:
     def __init__(self, home, path="/hook"):
-        self.home, self._was = home, home.env.get("AK_NOTIFY_SINK")
+        self.home = home
+        self._was = {name: home.env.get(name) for name in ("AK_NOTIFY_SINK", "no_proxy")}
         self._requests, self._replies, self._lock = [], [], threading.Lock()
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), _handler(self))
         self.url = f"http://127.0.0.1:{self._server.server_port}{path}"
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
-        home.env["AK_NOTIFY_SINK"] = self.url
+        # past any proxy the Home names, as tests/fixtures/akinstall.py's, refusing every other host
+        home.env.update(AK_NOTIFY_SINK=self.url, no_proxy=f"127.0.0.1:{self._server.server_port}")
 
     def __enter__(self):
         return self
@@ -56,10 +58,11 @@ class Sink:
         self._server.shutdown()
         self._server.server_close()
         self._server = None
-        if self._was is None:
-            self.home.env.pop("AK_NOTIFY_SINK", None)
-        else:
-            self.home.env["AK_NOTIFY_SINK"] = self._was
+        for name, was in self._was.items():
+            if was is None:
+                self.home.env.pop(name, None)
+            else:
+                self.home.env[name] = was
 
     def script(self, *replies):
         """Answer the next requests so, in order, before the default 200."""

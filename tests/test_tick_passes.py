@@ -24,6 +24,7 @@ PASSES = (
     (watch, "after_merge_checks", "merge checks", True),
     (notify, "retry_pending", "notification retry", True),
     (watch, "resume_after_boot", "boot resume", True),
+    (watch, "reopen_slept", "slept seats", False),
     (watch, "finish_own_lines", "held lines", False),
     (watch, "continue_turns", "rebooted turns", False),
     (watch, "continue_turns", "switched turns", False),

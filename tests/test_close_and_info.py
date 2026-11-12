@@ -239,7 +239,7 @@ class CloseAndInfo(unittest.TestCase):
         top, answers = menu.choices(after=mark)
         means = asked[row + 2:top - 1]                      # the two lines under what it means
         self.assertEqual(" ".join(line.strip() for line in means), stop_means(0))
-        self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])  # Keep is where the highlight starts
+        self.assertEqual(answers, ["› ✓ Keep", "  × Stop"])  # Keep is where the highlight starts
         self.assertEqual(asked[-1].strip(), "↑↓←→ move   ⏎ keep   esc back")
         mark = menu.mark()
         menu.send(ESC)
@@ -262,7 +262,7 @@ class CloseAndInfo(unittest.TestCase):
         menu.choices(after=mark)
         moved = menu.mark()
         menu.send(DOWN)
-        self.assertEqual(menu.choices(after=moved)[1], ["  ✓ Keep", "› ✗ Stop"])
+        self.assertEqual(menu.choices(after=moved)[1], ["  ✓ Keep", "› × Stop"])
         menu.send(ENTER)
         menu.saw("<stopped alpha>", after=mark)
         self.assertEqual(menu.proc.wait(15), 0)
@@ -347,7 +347,7 @@ class CloseAndInfo(unittest.TestCase):
         self.assertEqual(" ".join(line.strip() for line in means), stop_means(0))
         self.assertGreater(len(means), 1)                  # what it means wraps onto more lines
         self.assertEqual(top, at + 2 + len(means))
-        self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])
+        self.assertEqual(answers, ["› ✓ Keep", "  × Stop"])
         for line in asked:
             self.assertLessEqual(terminal.cells(line), 40, line)
         menu.click(4, top + 1)                    # `Stop`, where it is drawn now

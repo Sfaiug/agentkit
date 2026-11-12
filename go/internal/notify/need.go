@@ -21,14 +21,17 @@ func turnedNeed(name string, answer func(string) (string, string, any), clock fu
 		word, reason, since = answer(current)
 		return word, since
 	}
-	return questionTransition(name, said, clock, cardWait, errOut, false, func(current string, file *run.Object) *run.Object {
-		return quietNeed(current, file, reason, since)
+	return questionTransition(name, said, clock, cardWait, errOut, nil, func(current string, file *run.Object) *run.Object {
+		return quietNeed(current, file, reason, since, clock)
 	}, func(string) error { return nil })
 }
 
-func quietNeed(name string, file *run.Object, reason string, since any) *run.Object {
+func quietNeed(name string, file *run.Object, reason string, since any, clock func() float64) *run.Object {
 	if Last(name) != nil || file.Truthy("unasked") || file.Str("state") != "at_prompt" && file.Str("state") != "draft" {
 		return nil
+	}
+	if since == nil {
+		since = undated(name, clock)
 	}
 	if _, dated := finite(since); !dated {
 		return nil

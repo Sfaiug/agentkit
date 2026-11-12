@@ -4,8 +4,8 @@ import (
 	"errors"
 
 	"agentkit/internal/config"
+	"agentkit/internal/logins"
 	"agentkit/internal/seat"
-	"agentkit/internal/worker"
 )
 
 // Logout words ask the verb; a failed read decides nothing about the login.
@@ -25,6 +25,6 @@ func quietLogin(live seat.Live) bool {
 	if err != nil {
 		return false
 	}
-	answered, _, _ := worker.Login(adapter, env, "seat")
+	answered, _, _ := logins.Auth(adapter, env, "seat")
 	return !answered
 }

@@ -9,7 +9,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
-	"agentkit/internal/tmux"
 )
 
 // A glance is a frame's one look at a seat whose panes run on, before anything is written: the
@@ -46,13 +45,11 @@ func (seat *Seat) glanced(state string, now float64, drawn bool) (glance, error)
 		return seen, ErrUnread
 	}
 	if seat.looked() {
-		seen.pane, seen.exited = harnessScreen(seat.Name)
+		seen.pane, seen.exited, seen.attached = harnessLook(seat.Name)
 		seen.found, seen.previous = observed(state, seat.Name, seat.reader, seen.pane, now)
 		if seen.exited { // the error it was retrying past ended with it (keepExited)
 			seen.found.stall, seen.found.login = nil, nil
 		}
-		attached, _ := tmux.Ask(seat.server(), "display-message", "-p", "-t", "="+seat.Name+":", "#{session_attached}")
-		seen.attached = attached != "" && attached != "0"
 	}
 	if err := seat.decided(state, seen.found, now, seen.attached); err != nil {
 		return seen, err
@@ -80,7 +77,7 @@ func (seat Seat) stands(state string, now float64) bool {
 // seatRead is a seat's file, nil for none, and whether Go reads it: an object whose every field
 // some reading knows.
 func seatRead(state, name string) (*run.Object, bool) {
-	file, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
+	file, err := run.Shared(filepath.Join(state, "seat-"+name+".json"))
 	return file, errors.Is(err, fs.ErrNotExist) || err == nil && file != nil && only(file, slices.Concat(seatFields, lookFields))
 }
 

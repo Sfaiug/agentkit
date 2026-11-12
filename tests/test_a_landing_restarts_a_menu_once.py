@@ -88,7 +88,7 @@ class ALandingRestartsAMenuOnce(unittest.TestCase):
     def change(self, name):
         """A commit on origin changing `name` and nothing else, the last move final."""
         with patch.object(config, "BEGAN", os.stat(self.clone)):
-            versions.final()
+            versions.final(time.time())
         path = self.seed / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text((path.read_text() if path.exists() else "") + "# changed\n")

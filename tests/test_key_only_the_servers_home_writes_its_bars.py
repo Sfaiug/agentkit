@@ -19,6 +19,9 @@ class OnlyTheServersHome(unittest.TestCase):
             bar = lambda: home.tmux("show-options", "-t", "=s-one:").out
             menu = Terminal(home)
             menu.wait("working")
+            # And on the bar: a menu draws its first frame before it tells the bar, which would
+            # then change under the stranger.  A bar is told whole, in one tmux call.
+            menu.wait(lambda _: "working" in bar())
             told = bar()
             other = home.root / "other"
             (other / ".agentkit" / "state").mkdir(parents=True)

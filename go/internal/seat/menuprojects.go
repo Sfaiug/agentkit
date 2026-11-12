@@ -16,7 +16,7 @@ import (
 func menuProjects(runs, projects map[string][]ran) (wrote, known bool) {
 	state, stands := filepath.Join(config.Home(), "state"), sync.OnceValue(listed)
 	for _, path := range config.SeatFiles() {
-		record, err := run.ReadJSON(path)
+		record, err := run.Shared(path)
 		if err != nil || record == nil || record.Has(config.Renamed) {
 			continue
 		}

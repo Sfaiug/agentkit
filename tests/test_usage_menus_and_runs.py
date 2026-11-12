@@ -13,7 +13,7 @@ import unittest
 
 from fixtures.sandbox import REPO, Sandbox, menu_input
 from fixtures.subscriptions import said
-from agentkit import config, macbridge, menu, orch, run, status, terminal, usage
+from agentkit import config, macbridge, menu, orch, run, status, terminal, usage, watch
 from agentkit import record as run_record
 
 
@@ -94,8 +94,8 @@ class UsageLeft(Sandbox):
                 self.assertTrue(all(terminal.cells(line) <= width for line in text.splitlines()))
                 self.assertNotIn("\033", text)
                 block, sessions = text.split("\n\n\n", 1)
-                self.assertRegex(block, r"Claude\s+[▰▱]+\s+21% left")
-                self.assertRegex(block, r"ChatGPT\s+[▰▱]+\s+69% left")
+                self.assertRegex(block, r"Claude\s+[━╸─]+\s+21% left")
+                self.assertRegex(block, r"ChatGPT\s+[━╸─]+\s+69% left")
                 self.assertRegex(block, r"Muse\s+empty until Thu 22:00")
                 self.assertNotIn("+2 resets", block)
                 # Seats only: an orphan run is no row and makes no project, and
@@ -142,7 +142,7 @@ class UsageLeft(Sandbox):
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             lines = menu.usage_lines(self.cfg, 100)
             # grey at rest, eight colours or more: the empty cells dim and no company's colour
-            self.assertIn("▰▰\033[2m▱▱▱▱▱▱▱▱\033[0m", lines[0])
+            self.assertIn("━━\033[2m────────\033[0m", lines[0])
             self.assertNotIn("\033[31m", "\n".join(lines))
             plain = [terminal.plain(line) for line in lines]
             for env in ({"TERM": "dumb"}, {"TERM": "xterm-256color", "NO_COLOR": ""}, {}):
@@ -166,7 +166,7 @@ class UsageLeft(Sandbox):
                 text = self.draw([], width)
                 self.assertIn("no sessions; n starts one", text)
                 self.assertEqual(text.count("—"), 6)
-                self.assertNotRegex(text, "[▰▱]")
+                self.assertNotIn("% left", text)
         with patch.object(type(path), "read_text", side_effect=PermissionError):
             self.assertEqual("\n".join(menu.usage_lines(self.cfg, 40)).count("—"), 6)
 
@@ -223,7 +223,7 @@ class UsageLeft(Sandbox):
             before = path.read_bytes()
             for width in (40, 100):
                 lines = menu.usage_lines(self.cfg, width)
-                self.assertRegex(lines[0], r"Claude\s+[▰▱]+\s+21% left")
+                self.assertRegex(lines[0], r"Claude\s+[━╸─]+\s+21% left")
                 self.assertTrue(all(terminal.cells(line) <= width for line in lines))
             self.assertEqual(path.read_bytes(), before)
 
@@ -232,7 +232,8 @@ class UsageLeft(Sandbox):
         directory = self.ended("old-owned", owner="atoll-fix", finished_at=10000 - 8 * 3600)
         self.assertIn(directory, [path for path, _ in menu.run_records()])
         warning = "WARN could not check the runs: the run directory is unreadable"
-        updates = [["agentkit: reaped a loop whose process was gone", warning], []]
+        reaped = "agentkit: reaped a loop whose process was gone"   # done by itself: the log's
+        updates = [[reaped, warning], []]
         real_maintenance, real_show_notices = orch.maintenance, menu.show_notices
         def maintenance(log):
             for message in updates.pop(0):
@@ -268,8 +269,10 @@ class UsageLeft(Sandbox):
                 # The header carries no hash; split on it, not on the update notice.
                 before, screen = out.getvalue().split("agentkit ", 1)
                 self.assertEqual(before, "")       # the menu's first frame, before any notice
+                self.assertNotIn(reaped, notices.getvalue() + screen)
                 if first:
-                    self.assertIn("agentkit: reaped a loop whose process was gone", notices.getvalue())
+                    self.assertIn(reaped, watch.log_path().read_text())
+                    self.assertIn(warning, watch.log_path().read_text())    # and the notice's
                     self.assertIn(warning, notices.getvalue())
                     self.assertEqual([call.args[0] for call in read.call_args_list],
                                      ["esc back ", "> "])

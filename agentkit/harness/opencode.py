@@ -1,10 +1,14 @@
-"""OpenCode: the session a seat's own plugin reported, kept in a receipt of that launch's own.
+"""OpenCode: the session a seat's own OpenCode last took a prompt into, kept in its record, and
+the one its plugin last reported, kept in a receipt of that launch's own.
 
 Everything else about this harness is data -- adapters/opencode.sh and adapters/opencode.toml.
 Its TUI cannot be told the id of a session it has not opened yet, so a seat's conversation is
-learned rather than issued: every launch gets a receipt, a directory named in its environment,
-and hooks/opencode-seat writes into it the id OpenCode made for the session that seat is talking
-in -- whole, renamed over the last one, so an interrupted write leaves the last good id.  The
+learned rather than issued: the plugin's prompt fact names the session it went into, and the
+seat follows it there (`follow`) -- its first, or another the owner opened in the seat's screen
+(`/new`, or one from its list).  Every launch also gets a receipt, a directory named in its
+environment, and hooks/opencode-seat writes into it the id of the session that seat is talking
+in -- whole, renamed over the last one, so an interrupted write leaves the last good id: the
+session ak's title goes on, and the one a seat whose record names none yet comes back to.  The
 receipt's token is kept in the seat's record, so it follows a rename, and no other seat -- not
 one in the same directory -- reads or writes it.  Nothing here asks which session of a
 directory is the latest.
@@ -41,8 +45,11 @@ def path_for(record):
 
 
 def conversation(record, cwd=None):
-    """The session this seat's launch reported, or None where it reported none yet."""
+    """The session the seat followed to (`follow`), else the one its launch's plugin last
+    reported, or None where neither names one yet."""
     from . import unread
+    if isinstance(record.get("conversation"), str) and SESSION.fullmatch(record["conversation"]):
+        return record["conversation"]
     path = path_for(record)
     try:
         sid = (path / "session").read_text(encoding="utf-8").strip() if path else ""
@@ -53,8 +60,31 @@ def conversation(record, cwd=None):
 
 
 def resumable(record, cwd, conversation):
-    """The receipt is the whole answer: the launcher never issues an OpenCode id."""
+    """The receipt or the record is the whole answer: the launcher never issues an OpenCode id."""
     return bool(conversation)
+
+
+def reconcile(record):
+    """Nothing to drop: a session the record names is one the seat's own OpenCode took a prompt
+    into (`follow`)."""
+    return {}
+
+
+def follow(launched, payload, pid):
+    """A prompt the seat's own OpenCode took into a top-level session moves the seat there
+    (`claim`), whoever typed it, its first one too.  opencode.db says which, read as the prompt
+    is reported: a subagent's session names the session that started it there, and is never
+    followed.  OpenCode keeps every session in that one database, that session's file too."""
+    from .. import orch
+    from . import claim, rows
+    session = payload.get("session_id") if isinstance(payload, dict) else None
+    if (isinstance(session, str) and SESSION.fullmatch(session)
+            and payload.get("hook_event_name") == "UserPromptSubmit"
+            and rows(database(), "SELECT 1 FROM session_v2 WHERE id = ? AND parent_id IS NULL",
+                     session)):
+        claim(launched, "opencode", session, str(database()),
+              lambda record, session: database(), pid,
+              lambda words: orch.program(words) == "opencode")
 
 
 def forget(record):
@@ -93,14 +123,19 @@ def launched(name, cwd, conversation):
     """A receipt of this launch's own, for the seat plugin to write its session into.
 
     A resumed session is in it from the start, so a seat that dies again before its next
-    turn still comes back to it.  The receipt of the launch before stays until this one starts.
+    turn still comes back to it.  A resume opens on the session the seat is in, whichever
+    names it, so the record is left as it is: a launch that replaces a live harness refuses
+    itself on a record changed meanwhile (`watch.between_turns`).  A new session drops the
+    one the record followed to (`follow`).  The receipt of the launch before stays until this
+    one starts.
     """
     token = uuid.uuid4().hex
     path = path_for({"opencode_launch": token})
     path.mkdir(mode=0o700)
     if conversation:
         (path / "session").write_text(conversation, encoding="utf-8")
-    config.update_session(name, opencode_launch=token, session_title=None)
+    config.update_session(name, opencode_launch=token, session_title=None,
+                          **({} if conversation else {"conversation": None}))
     sync_title(name, {"opencode_launch": token})
     return {RECEIPT_ENV: str(path)}
 

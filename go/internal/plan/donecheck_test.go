@@ -112,10 +112,10 @@ func TestAFinishedPlanOwesItsCheckUntilOneReadWhatItsOwnerSaid(t *testing.T) {
 	}
 }
 
-// A listing whose proof would leave the plan owing its done check is Python's, which makes the
-// check: nothing is written, so Python proves and ticks the line itself.  With nothing said, Go
-// ticks and lists it.
-func TestAListingOwingTheDoneCheckIsPythonsWithNothingWritten(t *testing.T) {
+// A listing whose proof would leave the plan owing its done check asks first whether Go makes the
+// check: where Python does, nothing is written, so Python proves and ticks the line itself; where
+// Go does, it ticks and lists it, owing the check.  With nothing said, it owes none, and asks none.
+func TestAListingOwingTheDoneCheckAsksWhetherGoMakesItBeforeWritingAnything(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -159,16 +159,31 @@ func TestAListingOwingTheDoneCheckIsPythonsWithNothingWritten(t *testing.T) {
 	line := func(check string) string {
 		return "- [ ] Ship the parser · check: `" + check + "` · " + repo + "#" + base + " · written 2026-11-05 10:05 on " + base + "\n"
 	}
+	pythons := func(current string) error {
+		if current != "acme" {
+			t.Errorf("asked of %q", current)
+		}
+		return ErrUnread
+	}
+	unasked := func(string) error {
+		t.Error("asked with nothing owed")
+		return nil
+	}
 	original := line("test -f parser.txt")
 	write(plan, original)
-	_, err := List(context.Background(), "acme")
+	_, _, err := List(context.Background(), "acme", pythons)
 	if data, _ := os.ReadFile(plan); !errors.Is(err, ErrUnread) || string(data) != original {
-		t.Fatalf("the check owed: %v, the plan now %q", err, data)
+		t.Fatalf("the check owed, Python's: %v, the plan now %q", err, data)
+	}
+	box, owes, err := List(context.Background(), "acme", func(string) error { return nil })
+	if err != nil || !owes || len(box) != 1 || !strings.HasPrefix(box[0], "- [x] Ship the parser") {
+		t.Fatalf("the check owed, Go's: %q, %v, %v", box, owes, err)
 	}
 	write(chat, "")
-	box, err := List(context.Background(), "acme")
-	if err != nil || len(box) != 1 || !strings.HasPrefix(box[0], "- [x] Ship the parser") {
-		t.Fatalf("nothing said: %q, %v", box, err)
+	write(plan, original)
+	box, owes, err = List(context.Background(), "acme", unasked)
+	if err != nil || owes || len(box) != 1 || !strings.HasPrefix(box[0], "- [x] Ship the parser") {
+		t.Fatalf("nothing said: %q, %v, %v", box, owes, err)
 	}
 
 	// a delivery counted while the listing verified has it verify again (settle): there too, a
@@ -180,7 +195,11 @@ func TestAListingOwingTheDoneCheckIsPythonsWithNothingWritten(t *testing.T) {
 		write(plan, flaky)
 		os.Remove(marker)
 		os.Remove(owed)
-		box, err := List(context.Background(), "acme")
+		carried := unasked
+		if owner != "" {
+			carried = pythons
+		}
+		box, _, err := List(context.Background(), "acme", carried)
 		data, _ := os.ReadFile(plan)
 		count, gone := os.ReadFile(owed)
 		if owner != "" && (!errors.Is(err, ErrUnread) || string(data) != flaky || string(count) != "1\n") {

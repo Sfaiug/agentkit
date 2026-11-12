@@ -8,6 +8,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import resource
 import signal
 import subprocess
 import sys
@@ -589,10 +590,16 @@ class HealthAfterMerge(unittest.TestCase):
         self.tick(now=NOW + 60)
         self.assertEqual(self.probes.call_count, 1)
 
+    def test_a_watcher_holding_many_descriptors_hears_its_probe_end(self):
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (max(soft, min(hard, 2048)), hard))
+        self.addCleanup(resource.setrlimit, resource.RLIMIT_NOFILE, (soft, hard))
+        for _ in range(1030):       # past the 1024 descriptors select can watch
+            self.addCleanup(os.close, os.open(os.devnull, os.O_RDONLY))
+        self.assertEqual(self.probes(self.repo, "a" * 40, "true"), (True, ""))
+
     def test_timeout_kills_the_whole_group_and_bounds_reaping(self):
         proc = Mock(pid=12345, returncode=None)
-        proc.wait.side_effect = [subprocess.TimeoutExpired("health", watch.HEALTH_TIMEOUT),
-                                 subprocess.TimeoutExpired("health", 1)]
 
         def start(argv, **kwargs):
             self.assertEqual(argv, ["bash", "-c", "probe"])
@@ -603,14 +610,15 @@ class HealthAfterMerge(unittest.TestCase):
             return proc
 
         with patch.object(watch.subprocess, "Popen", side_effect=start), \
+                patch.object(watch.box, "reaped", return_value=None) as reaped, \
                 patch.object(watch.os, "killpg") as kill:
             passed, output = self.probes(self.repo, "a" * 40, "probe")
         self.assertFalse(passed)
         self.assertIn("waiting for deployment", output)
         self.assertIn("timed out", output)
         kill.assert_called_once_with(proc.pid, signal.SIGKILL)
-        self.assertEqual([call.kwargs["timeout"] for call in proc.wait.call_args_list],
-                         [watch.HEALTH_TIMEOUT, 1])
+        self.assertEqual([call.args for call in reaped.call_args_list],
+                         [(proc.pid, watch.HEALTH_TIMEOUT), (proc.pid, 1)])
 
 
 if __name__ == "__main__":

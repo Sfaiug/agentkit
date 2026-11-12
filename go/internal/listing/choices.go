@@ -30,10 +30,11 @@ func choices(harness string, rows [][]string) ([]Choice, error) {
 		if slices.ContainsFunc(choices, func(one Choice) bool { return one.ID == row[0] }) {
 			continue
 		}
-		label := config.ModelName(row[0], map[string]config.Model{row[0]: {Harness: harness, ID: row[0]}})
-		if len(row) > 2 && row[2] != "" {
-			label = row[2]
+		said := ""
+		if len(row) > 2 {
+			said = row[2]
 		}
+		label := config.ModelLabel(harness, row[0], said)
 		levels := strings.FieldsFunc(row[1], config.Space)
 		if len(levels) == 0 {
 			var err error

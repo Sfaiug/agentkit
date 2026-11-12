@@ -85,16 +85,16 @@ class OneList(unittest.TestCase):
         return self.cfg["models"][name]["effort"]
 
     def test_deepseek_counts_and_walks_its_catalog_row(self):
-        self.assertEqual(self.bar("deepseek"), ["#--", "low"])
+        self.assertEqual(self.bar("deepseek"), ["=--", "low"])
         self.assertEqual(self.step("deepseek"), "high")
-        self.assertEqual(self.bar("deepseek"), ["##-", "high"])
+        self.assertEqual(self.bar("deepseek"), ["==-", "high"])
         self.assertEqual(self.step("deepseek"), "max")
-        self.assertEqual(self.bar("deepseek"), ["###", "max"])
+        self.assertEqual(self.bar("deepseek"), ["===", "max"])
         self.assertEqual(self.step("deepseek"), "max")      # its last: no `ultra` past it
         self.assertEqual(config.load()["models"]["deepseek"]["effort"], "max")
 
     def test_wonder_at_max_is_full_and_steps_no_further(self):
-        self.assertEqual(self.bar("wonder"), ["######", "max"])
+        self.assertEqual(self.bar("wonder"), ["======", "max"])
         self.assertEqual(self.step("wonder"), "max")
         self.assertEqual(self.step("wonder", -1), "xhigh")
 

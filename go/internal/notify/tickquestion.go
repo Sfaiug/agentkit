@@ -25,8 +25,8 @@ func TurnedQuestion(name string, said func(string) (string, any), errOut io.Writ
 }
 
 func turnedQuestion(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer) (bool, error) {
-	return questionTransition(name, said, clock, wait, errOut, true, func(current string, file *run.Object) *run.Object {
-		notice := Last(current)
+	return questionTransition(name, said, clock, wait, errOut, reasonIs, func(current string, file *run.Object) *run.Object {
+		notice := open(current)
 		if notice == nil {
 			return dialogQuestion(current, file)
 		}

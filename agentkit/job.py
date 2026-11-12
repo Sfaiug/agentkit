@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import (box, config, deliver, gitcall, handback, host, notify, orch, retention, run,
-               sleep, staffing, task as taskfile, transitions, turns, watch)
+               staffing, task as taskfile, transitions, turns, watch)
 from . import land, record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
@@ -365,22 +365,19 @@ def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
 
     The seat has to be found and typed into in the same world -- see `launcher_world` -- and
     only at its own prompt, exactly as a single run's ending is handed back.  `busy` is a seat
-    that is there with a turn in flight, or asleep and not yet back (`sleep.wake`): the line waits
-    on the job's record and the tick types it at the next quiet prompt, because a seat still in
-    its chair is never a reason to ask the owner instead.  Only `gone` is.  `typed` and
-    `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the composer is
-    never typed a second time.  A line `watch.too_long` refuses is never typed, so it wakes no
-    seat either.
+    that is there with a turn in flight: the line waits on the job's record and the tick types
+    it at the next quiet prompt, because a seat still in its chair is never a reason to ask the
+    owner instead, and nor is one the tick has yet to reopen (`watch.slept`).  Only `gone` is.
+    `typed` and `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the
+    composer is never typed a second time.  A line `watch.too_long` refuses is never typed.
     """
     refusal = watch.too_long(line)
     if refusal:
         log(f"WARN {line[:60]}… not handed to {seat}: {refusal}")
         return "busy"
-    if not sleep.wake(seat, log):
-        return "busy"
     with handback.launcher_world(seat) as live:
         if not live:
-            return "gone"
+            return "busy" if watch.slept(seat) else "gone"
         if watch.type_at_prompt(orch.find(seat) or {"name": seat}, line, log,
                                 typed=typed, receipt=receipt):
             return "sent"
@@ -561,18 +558,19 @@ def job_adopting(run_name):
         _JOB_MUTE.adopt = previous
 
 
-def job_budget_exhausted(error):
-    """Whether an `exhausted` error is spent provider budget (wait) rather than a stop.
+def job_budget_exhausted(run_state):
+    """Whether an `exhausted` run is spent provider budget (wait) rather than a stop.
 
-    Only these messages mean more budget later: gate meters at 100% and no eligible
-    reviewer. A twice-silent reviewer names the same spare
+    The run says so itself: `quota_dry`, the flag the tick resumes it by, whatever words the
+    provider refused in.  On a record without it only these messages mean more budget later:
+    gate meters at 100% and no eligible reviewer. A twice-silent reviewer names the same spare
     shortage but spends reviewer turns on every resume, so it waits capped below
     instead. A stopped tool, a refused prompt, or a structural delivery complaint
     needs the owner instead.
     """
-    text = error or ""
-    return "100% used" in text or ("no eligible reviewer" in text
-                                   and "gave no verdict twice" not in text)
+    text = run_state.get("error") or ""
+    return bool(run_state.get("quota_dry")) or "100% used" in text or (
+        "no eligible reviewer" in text and "gave no verdict twice" not in text)
 
 
 def job_transport_exhausted(error):
@@ -893,7 +891,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         return
     if run_state.get("state") == "exhausted":
         error = run_state.get("error") or "no reason was recorded"
-        if job_budget_exhausted(error) or job_transport_exhausted(error):
+        if job_budget_exhausted(run_state) or job_transport_exhausted(error):
             # the message decides first: a pending review parked on spent meters waits
             # for budget even with `review_pending` still set -- the resume the shortfall
             # rule would spend has nothing to bill to
@@ -1027,7 +1025,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             if run_state2.get("state") == "exhausted" \
                     and not job_round_shortfall(run_state2):
                 error2 = run_state2.get("error") or "no reason was recorded"
-                if job_budget_exhausted(error2) or job_transport_exhausted(error2):
+                if job_budget_exhausted(run_state2) or job_transport_exhausted(error2):
                     job_wait_budget(job_dir, job, task, log, lock, error2, "on rerun",
                                     rounds=len(run_state2.get("round_summaries") or []))
                     return

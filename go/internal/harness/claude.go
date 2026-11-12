@@ -17,16 +17,17 @@ import (
 // no activity to the silence watchdog.
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
-	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, last: claudeLast, answer: claudeAnswer, answered: claudeAnswered, report: asReported, status: claudeStatus, conversation: claudeConversation, readBy: claudeReadBy, sources: claudeSources, owns: claudeOwns, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
+	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, last: claudeLast, answer: claudeAnswer, answered: claudeAnswered, report: asReported, status: claudeStatus, conversation: claudeConversation, readBy: claudeReadBy, owns: claudeOwns, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
 		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true, handed: claudeHanded, registerMCP: claudeRegisterMCP, title: claudeTitle, wrapped: claudeWrapped, failed: claudeFailed, turnMeters: claudeTurnMeters,
-		yolo: claudeYolo, rulebook: ".claude/CLAUDE.md", turnCounts: claudeTurnCounts}
+		tokenSources: claudeTokenSources, tokenUsage: claudeTokenUsage, yolo: claudeYolo, rulebook: ".claude/CLAUDE.md",
+		turnCounts: claudeTurnCounts}
 }
 
 // claudeOwns is whether the record names that conversation on a launcher-issued id or its own
 // hook's report (claude.py `resumable`).
 func claudeOwns(record *run.Object, conversation string) bool {
 	source := record.Str("id_source")
-	return record.Str("conversation") == conversation && (source == "launcher" || source == "claude-hook")
+	return record.Str("conversation") == conversation && (source == "launcher" || source == claudeHook)
 }
 
 // claudeNotices are the interruptions Claude Code writes as a user line (claude.py INTERRUPTS).

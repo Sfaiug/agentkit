@@ -1011,8 +1011,8 @@ def retry_pending(dry_run=False, log=print):
             event = _read_event(path.stem)
             if not event or event["status"] in ("delivered", "disabled", "held"):
                 continue    # a hold is released by a run ending, never by a retry
-            if not event["session"]:
-                continue    # a page is retried by asking for it again (`page`)
+            if not (event["session"] or event.get("happened")):
+                continue    # a page of what stands is retried by asking for it again (`page`)
             if dry_run:
                 log(f"would retry notification {event['id']} ({event['status']})")
                 continue
@@ -1137,13 +1137,14 @@ def _send_card(session, kind, card, answer, completion=None):
         return _attempt(event, session=session)
 
 
-def page(key, about, text, line=None, owed=False, mention=True):
+def page(key, about, text, line=None, owed=False, mention=True, happened=False):
     """Page the owner about no seat, once per `key` however often it is asked: the outbox
     keeps the event, so no later tick or restart queues it again. One the webhook did not
     take is tried again on a card's schedule and rules only when asked again, so a caller
     asking while the page is still due never has it sent once it is not: 0 once it is out
     or never will be, 1 while it waits to be asked again.  An install since it was queued
-    drops it unless the caller says it is `owed` still.
+    drops it unless the caller says it is `owed` still.  One of what `happened`, which no
+    caller asks for again, is retried as a card is (`retry_pending`).
     It reads as a seat's question does, `about` standing where the seat's name would, or as
     `line` where given, pinging the owner if `mention`."""
     payload = card_payload("needs", about, line, mention)
@@ -1154,7 +1155,7 @@ def page(key, about, text, line=None, owed=False, mention=True):
             event = {"id": key, "session": None, "kind": "needs", "text": text,
                      "payload": payload, "message": text, "created_at": time.time(),
                      "sink": sink() is not None, "status": "pending", "attempts": 0,
-                     "next_attempt": 0}
+                     "next_attempt": 0, "happened": happened}
             _write_event(event)
         elif event["status"] not in ("delivered", "disabled"):
             if not owed and _dropped(event, None):

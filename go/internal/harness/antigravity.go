@@ -6,6 +6,6 @@ package harness
 func init() {
 	plugins["antigravity"] = plugin{seats: true, looks: true, anew: true, record: antigravityRecord, owned: antigravityOwned,
 		launch: antigravityLaunch, interactive: antigravityInteractive, report: antigravityReported,
-		said: antigravitySaid, typed: antigravityTyped,
+		said: antigravitySaid, typed: byName(antigravityTyped),
 		keys: []string{"antigravity_launch", "antigravity_open"}, kept: antigravityKept}
 }

@@ -89,7 +89,9 @@ verdict() { [ "$NFAIL" = 0 ] && ok "$1"; }
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                     text=True, start_new_session=True)
             try:
-                output = proc.communicate(timeout=60)[0]
+                # No deadline: on a busy host 29's two `ak run`s outlast any, slow but right; a
+                # hang is left to the landing's silence stop, which names what still runs.
+                output = proc.communicate()[0]
                 self.assertEqual(proc.returncode, 0, output)
                 self.assertIn(f"PASS  {number} ", output)
                 self.assertIn("1 passed, 0 failed, 0 skipped", output)

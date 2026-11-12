@@ -112,7 +112,9 @@ PHASE_MIGRATIONS = (("wait_kind", "TEXT"),)
 # it), `tree` the commit checked (the base's for a base proof, the target's tip for `tip`, the
 # merge for `health`; NULL for a scratch run's one workspace), `place` the host or helper, `exit`
 # NULL where it never returned.  Its wait and wall are differences of its moments, and `rerun` is
-# 1 where the command, or a list holding it, already ran on this tree in this run.
+# 1 where the command, or a list holding it, already ran on this tree in this run.  Since
+# `CHECK_MIGRATIONS`, a command reaped here keeps what it used (`box.reaped`): `cpu_seconds` and
+# `peak_mb`, NULL for one run elsewhere, run in ak's own process, or never reaped.
 CHECKS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS checks (
     run_id TEXT,
@@ -128,6 +130,7 @@ CREATE TABLE IF NOT EXISTS checks (
     rerun INTEGER
 )
 """
+CHECK_MIGRATIONS = (("cpu_seconds", "REAL"), ("peak_mb", "REAL"))
 
 # One row per test a suite named as confirmed red or flaky, once its retries end.
 TEST_REDS_SCHEMA = """
@@ -176,7 +179,8 @@ REVIEW_MIGRATIONS = (("round", "INTEGER"), ("verdict", "TEXT"), ("effort", "TEXT
 # reviewed commit and on base (NULL where none ran), `replayed` ak's word on a replay, `reason`
 # why it was weighed down or conceded, and a dispute's `outcome`, upheld or conceded. A finding
 # ends where its last row (same run, path and proof) does: fixed by its replay, or still a
-# finding at the budget.
+# finding at the budget.  `inside_fix` says whether its line is inside the fixer's last change
+# (`prompts.inside_fix`), NULL on a row from before that column.
 FINDINGS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS findings (
     run_id TEXT,
@@ -195,6 +199,7 @@ CREATE TABLE IF NOT EXISTS findings (
     at REAL
 )
 """
+FINDING_MIGRATIONS = (("inside_fix", "INTEGER"),)
 
 # The owner's time, one row per moment, keyed by harness and conversation as dones are: no
 # rename or reused seat name moves it. NULL with no record, an unknown conversation or an older row.
@@ -308,7 +313,9 @@ def _connect(*, readonly=False):
     connection.execute(METER_READINGS_SCHEMA)
     connection.execute(TURN_USAGE_SCHEMA)
     for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
-                              ("reviews", REVIEW_MIGRATIONS), ("owner", OWNER_MIGRATIONS),
+                              ("checks", CHECK_MIGRATIONS),
+                              ("reviews", REVIEW_MIGRATIONS), ("findings", FINDING_MIGRATIONS),
+                              ("owner", OWNER_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS),
                               ("meter_readings", METER_READING_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
@@ -590,11 +597,12 @@ def gate_holds():
 @contextlib.contextmanager
 def check(checked, command, requested_at, place=None):
     """The row of one check (`CHECKS_SCHEMA`), written as it starts, so a check that never
-    returns -- killed, interrupted, its process gone -- keeps one: the caller appends the exit
-    it returned to the list this yields, and its end is written however the block ends.
+    returns -- killed, interrupted, its process gone -- keeps one: the caller sets in the dict
+    this yields the `exit` it returned and, for a command reaped here, what it used
+    (`box.reaped`), and its end is written however the block ends.
     `checked` is its `(run directory, round, kind, tree)`, None for a check that leaves none,
     and `place` this host unless named.  A run with no row keeps no checks."""
-    ended, row = [], None
+    ended, row = {}, None
     if checked is not None:
         run_dir, *rest = checked
         values = (Path(run_dir).name, *rest, command, place or socket.gethostname(),
@@ -605,8 +613,8 @@ def check(checked, command, requested_at, place=None):
     finally:
         if row:
             _write(lambda connection: connection.execute(
-                "UPDATE checks SET exit=?, finished_at=? WHERE rowid=?",
-                (ended[0] if ended else None, time.time(), row)))
+                "UPDATE checks SET exit=?, cpu_seconds=?, peak_mb=?, finished_at=? WHERE rowid=?",
+                (*map(ended.get, ("exit", "cpu_seconds", "peak_mb")), time.time(), row)))
 
 
 def _started(connection, values):
@@ -833,8 +841,8 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
             at = time.time()
             connection.executemany(
                 "INSERT INTO findings (run_id, review_id, round, path, line, handed, kind, proof, "
-                "commit_exit, base_exit, replayed, reason, outcome, at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "commit_exit, base_exit, replayed, reason, outcome, inside_fix, at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [(run_id, review_id, round, *_finding(row), at)
                  for row in records if row["kind"] not in (*hand_in.CLOSING, "concede")])
 
@@ -842,7 +850,7 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
 
 
 def _finding(row):
-    """A record's `findings` columns from `path` to `outcome`.  Its exit on base is its proof's
+    """A record's `findings` columns from `path` to `inside_fix`.  Its exit on base is its proof's
     `base` part, or the proof itself where ak ran it on base alone: a follow-up handed in from
     before the task (`before`) and proven with no base part (`prompts.weigh_review`), never one
     on a reviewed commit that is base's own.  A record whose kind weighing left alone was handed
@@ -852,7 +860,8 @@ def _finding(row):
     return (row["path"], row["line"], row.get("handed", row["kind"]), row["kind"],
             evidence.get("run", evidence.get("quote")),
             None if on_base is evidence else evidence.get("returncode"), on_base.get("returncode"),
-            row.get("replayed"), row.get("conceded") or row.get("outside") or row.get("dropped"), row.get("outcome"))
+            row.get("replayed"), row.get("conceded") or row.get("outside") or row.get("dropped"), row.get("outcome"),
+            row.get("inside_fix"))
 
 
 def reviewed_runs(harness, model):
@@ -1325,15 +1334,16 @@ def conflict_rows(since, until):
 
 def findings(since, until):
     """Weighed rows of real runs by date, plus earlier follow-ups and answered disputes
-    for merged changes' counts. Keep their run's change and whether an earlier blocking
-    round raised the same path and proof, even before the inclusive range."""
+    for merged changes' counts, with every column their table has (`inside_fix` only since it
+    was added). Keep their run's change and whether an earlier blocking round raised the same
+    path and proof, even before the inclusive range."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             connection.row_factory = sqlite3.Row
             try:
                 return [dict(row) for row in connection.execute(
-                    "SELECT f.at, f.kind, f.outcome, runs.*, EXISTS (SELECT 1 FROM findings earlier "
+                    "SELECT f.*, runs.*, EXISTS (SELECT 1 FROM findings earlier "
                     "WHERE earlier.run_id=f.run_id AND earlier.path=f.path AND earlier.proof=f.proof "
                     "AND earlier.kind='finding' AND earlier.round<f.round) AS raised_again "
                     "FROM findings f JOIN runs USING (run_id) WHERE f.at <= ? AND "

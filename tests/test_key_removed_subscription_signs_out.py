@@ -97,7 +97,7 @@ class Subscriptions(unittest.TestCase):
         once the row `gone`, `row` itself unless the rows after it move up, has left it."""
         self.to(row)
         self.term.keys("Right", "Right", "Enter")          # `− remove`, last on its line
-        self.assertIn(asked, lines(self.term.wait(lambda screen: "  ✗ Remove" in lines(screen))))
+        self.assertIn(asked, lines(self.term.wait(lambda screen: "  × Remove" in lines(screen))))
         self.term.keys("Down", "Enter")
         return self.term.wait(lambda screen: title(screen) == PAGE
                               and row_at(screen, gone or row) is None)

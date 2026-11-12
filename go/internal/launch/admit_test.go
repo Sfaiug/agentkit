@@ -14,7 +14,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/history"
-	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
 
@@ -136,32 +135,6 @@ func TestAHandedOverLaunchLeavesItsHistoryUnopened(t *testing.T) {
 	admitted.release()
 	if err != nil || !admitted.in {
 		t.Fatalf("not let in without history.db: %+v %v", admitted, err)
-	}
-}
-
-// A line's check waiting for a heavy-suite turn holds a new run while no other machine may take
-// that check, and holds none once config.toml names a suite helper, as Python's gate admits it.
-func TestALineCheckHoldsNoRunAHelperCouldTake(t *testing.T) {
-	gatedHome(t, "dry-run")
-	os.MkdirAll(run.Runs(), 0o777)
-	waiting := host.LineCheckWaiting()
-	defer waiting.Close()
-	admitted, err := admit("acme", false, "", 0, true)
-	if err == nil {
-		admitted.ask()
-	}
-	admitted.release()
-	if err != nil || admitted.in || admitted.kind != "landing" {
-		t.Fatalf("not held for the line's check: %+v %v", admitted, err)
-	}
-	os.WriteFile(filepath.Join(config.Home(), "config.toml"), []byte("suite_helper = \"acme\"\n"), 0o666)
-	admitted, err = admit("acme", false, "", 0, true)
-	if err == nil {
-		admitted.ask()
-	}
-	admitted.release()
-	if err != nil || !admitted.in {
-		t.Fatalf("held beside a suite helper: %+v %v", admitted, err)
 	}
 }
 

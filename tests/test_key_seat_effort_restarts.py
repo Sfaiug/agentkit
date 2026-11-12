@@ -62,7 +62,7 @@ class SeatEffortRestarts(unittest.TestCase):
         record, launched = self.path.read_bytes(), self.launches()
         self.term.keys("Right", "Space")
         self.term.wait(lambda screen: ASK in lines(screen) and "› ✓ Keep" in lines(screen)
-                       and "  ✗ Restart" in lines(screen))
+                       and "  × Restart" in lines(screen))
         self.assertEqual((self.path.read_bytes(), self.launches()), (record, launched))
         return record, launched
 

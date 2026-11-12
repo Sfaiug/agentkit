@@ -26,7 +26,7 @@ CARD = ["  Stop atoll-fix and everything it runs?",
         "  No runs stop with it; the session moves to past sessions, p, where it reopens where"
         " it stopped.",
         "› ✓ Keep",
-        "  ✗ Stop"]
+        "  × Stop"]
 NOW = int(time.time())
 
 
@@ -77,7 +77,7 @@ class StopCard(unittest.TestCase):
     def test_stop_ends_the_seat_marks_it_stopped_by_its_owner_and_offers_the_past(self):
         self.asked()
         self.menu.keys("j")
-        self.menu.wait("› ✗ Stop")
+        self.menu.wait("› × Stop")
         self.menu.keys("Enter")
         self.assertEqual(self.menu.exit_code(), 0)
         deadline = time.monotonic() + 30

@@ -43,7 +43,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, motion, orch, terminal
 
-DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"
+DIM = f"fg=#{terminal.colour('dim').rgb}"
 OWN = "fg=red,bg=blue,bold"         # a style a pane may have of its own
 STYLES = ("window-style", "window-active-style")   # the active pane draws in the second's colour
 # a pane's own styles: none, one or the other, both empty

@@ -13,6 +13,7 @@
 // What it reports, translated to the one protocol hooks/seat-state.sh speaks for every
 // harness (adapters/opencode.toml maps the names to states):
 //   session.inbox.enqueued where the item is a user message -> UserPromptSubmit, with its text
+//     and the session it went into, for the seat to follow (opencode.py `follow`)
 //   session.execution.{succeeded,failed}                   -> Stop, with the session id and
 //     the background work the harness records for it still running; none for a subagent's
 //     session (`recorded`)
@@ -237,7 +238,8 @@ export function seatFact(event) {
     && data.item.type === "user"
     && data.item.payload !== null && typeof data.item.payload === "object"
     && typeof data.item.payload.text === "string") {
-    return { hook_event_name: "UserPromptSubmit", message: data.item.payload.text };
+    return { hook_event_name: "UserPromptSubmit", message: data.item.payload.text,
+      session_id: data.sessionID };
   }
   if ((event.type === "session.execution.succeeded"
     || event.type === "session.execution.failed"

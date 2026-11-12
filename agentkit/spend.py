@@ -59,58 +59,64 @@ def _listed(ours, prices, account, since, until):
     return dollars + (unpriced * dollars / priced if priced else 0.0)
 
 
-def weeks(cfg, provider, meters, windows):
-    """[{account: (its plan as state/logins.json names it now, what a week of that plan holds in
-    listed dollars, and the points and dollars that is read from)}] of each of `windows`,
-    (since, until) each, for each login of `provider` in `meters`, {account, None for the usual
-    one: the meter `usage.shared_week` names for it}.
+def weeks(cfg, meters, windows):
+    """{provider: [{account: (its plan as state/logins.json names it now, what a week of that plan
+    holds in listed dollars, and the points and dollars that is read from)}] of each of `windows`,
+    (since, until) each} for each login of each provider in `meters`, {provider: {account, None
+    for the usual one: the meter `usage.shared_week` names for it}}.
 
     A plan's points over its dollars are the points of a week a listed dollar takes, summed
     over every login's readings on it between `since` and `until`: those its probes kept, as a
     turn's trail them (on 6 Nov one read 75 eight seconds after a probe read 76), one kept with
     no plan its login's plan now's.  A login's readings of one plan and one week, by DRIFT, are
-    cut in time order between any two between which a turn ran whose tokens ak does not know
-    (`_unknown`), as what that turn spent counts nowhere.  Each stretch rose from its earliest
-    reading to its highest, as a probe may read lower than one before it; what the login spent
-    (`listed`) from the earliest to the first at the highest bought that rise, and one whose
-    spend cannot be priced counts for nothing.  A week holds nothing anyone can name while its
-    plan's points are under FEWEST_POINTS or its dollars 0.
+    cut in time order between any two between which a turn of its provider ran whose tokens ak
+    does not know (`_unknown`), as what that turn spent counts nowhere.  Each stretch rose from
+    its earliest reading to its highest, as a probe may read lower than one before it; what the
+    login spent (`listed`) from the earliest to the first at the highest bought that rise, and
+    one whose spend cannot be priced counts for nothing.  A week holds nothing anyone can name
+    while its plan's points are under FEWEST_POINTS or its dollars 0.
     """
     from . import logins    # here, not at the top: logins names subscriptions through the menu
-    plans = {account: logins.whose(provider, account)[1] for account in meters}
+    plans = {(provider, account): logins.whose(provider, account)[1]
+             for provider, accounts in meters.items() for account in accounts}
     groups, start, last = {}, {}, {}
     for window, (since, until) in enumerate(windows):
-        for account, meter in meters.items():
+        for provider, account in plans:
             for used, resets_at, at, plan in _select(
                     "SELECT used, resets_at, at, plan FROM meter_readings WHERE provider = ? AND "
                     "account = ? AND meter = ? AND source = 'probe' AND at >= ? AND at <= ? AND "
                     "used IS NOT NULL AND resets_at IS NOT NULL ORDER BY resets_at",
-                    provider, account or config.DEFAULT_ACCOUNT, meter, since, until):
-                key = window, account, plan or plans[account]
+                    provider, account or config.DEFAULT_ACCOUNT, meters[provider][account],
+                    since, until):
+                key = window, provider, account, plan or plans[provider, account]
                 if key not in last or resets_at - last[key] > DRIFT:
                     start[key] = resets_at
                 last[key] = resets_at
                 groups.setdefault((*key, start[key]), []).append((at, used))
     # read once, from the earliest window, as a turn that ended before a window's first reading
-    # cuts nothing in it: read for each of `usage.plan_checks`'s fourteen, they took the owner 9.4 s
-    unknown = _unknown(cfg, provider, min(since for since, _ in windows))
-    ours, prices = _ours(cfg, provider), _pricing()
+    # cuts nothing in it, and for every provider, as only which harnesses are its (`_ours`)
+    # differs: read for each of `usage.plan_checks`'s fourteen, they took the owner 9.4 s
+    unknown = _unknown(min(since for since, _ in windows))
+    ours, prices = {provider: _ours(cfg, provider) for provider in meters}, _pricing()
     fits = {}
-    for (window, account, plan, _), readings in groups.items():
-        spans = unknown.get(account or config.DEFAULT_ACCOUNT, [])
+    for (window, provider, account, plan, _), readings in groups.items():
+        spans = [(began, end) for began, end, harness in
+                 unknown.get(account or config.DEFAULT_ACCOUNT, []) if ours[provider](harness)]
         for stretch in _stretches(readings, spans):
             began, base = stretch[0]
             top = max(used for _, used in stretch)
-            dollars = _listed(ours, prices, account, began,
+            dollars = _listed(ours[provider], prices, account, began,
                               min(at for at, used in stretch if used == top))
             if dollars is not None:
-                points, spent = fits.get((window, plan), (0, 0))
-                fits[window, plan] = points + top - base, spent + dollars
+                points, spent = fits.get((window, provider, plan), (0, 0))
+                fits[window, provider, plan] = points + top - base, spent + dollars
     held = {key: (100 * dollars / points if points >= FEWEST_POINTS and dollars else None,
                   points, dollars)
             for key, (points, dollars) in fits.items()}
-    return [{account: (plan, *held.get((window, plan), (None, 0, 0)))
-             for account, plan in plans.items()} for window in range(len(windows))]
+    return {provider: [{account: (plan, *held.get((window, provider, plan), (None, 0, 0)))
+                        for (of, account), plan in plans.items() if of == provider}
+                       for window in range(len(windows))]
+            for provider in meters}
 
 
 def roles(cfg):
@@ -179,18 +185,25 @@ def _rows(account, since, until):
         if not share:   # it only touches the time at an end: none of it was spent then
             continue
         counts =[None if count is None else count * share for count in counts]
-        yield _receipt(turn, "harness"), model, sum(count or 0 for count in counts), counts
+        yield _harness(turn), model, sum(count or 0 for count in counts), counts
 
 
-def _unknown(cfg, provider, since):
-    """{login: [(began, end)]} of each worker turn of `provider` (`_ours`) whose tokens ak does
-    not know: one that kept no `turn_usage` row, either one `counted_turns` names or one of a
-    run that has not ended.  A run that ended before `since` ran none since.  A turn is its
+@functools.cache
+def _harness(turn):
+    """The `harness` receipt of a turn that kept a `turn_usage` row, read once in a process: a row
+    is written once its turn has ended, and the receipt changes no more after that.  Read for
+    each of its rows in each provider's pricing, they took the owner 5.9 s of an `ak usage`."""
+    return _receipt(turn, "harness")
+
+
+def _unknown(since):
+    """{login: [(began, end, harness)], in order of `began`} of each worker turn whose tokens ak
+    does not know: one that kept no `turn_usage` row, either one `counted_turns` names or one of
+    a run that has not ended.  A run that ended before `since` ran none since.  A turn is its
     `account` receipt's login, the usual one where it names none, and ran from its `harness`
     receipt to its last event (`history._turn_usage`).
 
     Only these turns' directories are read: listing every run's took the owner 12.7 s cold."""
-    ours = _ours(cfg, provider)
     counted, kept, running = {}, set(), set()   # counted: {turn: when its run ended, or None}
     for run, ended, turns, turn in _select(
             "SELECT run_id, finished_at, counted_turns, turn FROM runs "
@@ -206,9 +219,9 @@ def _unknown(cfg, provider, since):
     for turn in counted.keys() - kept:
         ended = counted[turn]
         began, end, harness, login = _turn(turn) if ended is None else _ended(turn, ended)
-        if began is not None and ours(harness):
-            spans.setdefault(login, []).append((began, end))
-    return spans
+        if began is not None:
+            spans.setdefault(login, []).append((began, end, harness))
+    return {login: sorted(turns, key=lambda turn: turn[0]) for login, turns in spans.items()}
 
 
 def _turn(turn):
@@ -222,17 +235,21 @@ def _turn(turn):
 @functools.cache
 def _ended(turn, ended):
     """`_turn` of a turn of a run that ended at `ended`, read once in a process, as it changes
-    no more and `ak usage` prices each provider's week, then the windows it checks.  A resume
+    no more and `ak usage` prices the plans' weeks, then the windows it checks.  A resume
     reopens its run's last round, so a run that ends again is read anew."""
     return _turn(turn)
 
 
 def _stretches(readings, spans):
-    """`readings`, (at, used) each, in time order, cut between any two a span (began, end)
-    overlaps the time between."""
-    stretch = []
+    """`readings`, (at, used) each, in time order, cut between any two a span (began, end) of
+    `spans`, in order of `began`, overlaps the time between: cut in one pass over both, as
+    testing each reading against every span took the owner 3.6 s of an `ak usage`."""
+    stretch, reach, n = [], float("-inf"), 0    # reach: the latest end of a span begun before
     for at, used in sorted(readings):
-        if stretch and any(began < at and end > stretch[-1][0] for began, end in spans):
+        while n < len(spans) and spans[n][0] < at:
+            reach = max(reach, spans[n][1])
+            n += 1
+        if stretch and reach > stretch[-1][0]:
             yield stretch
             stretch = []
         stretch.append((at, used))

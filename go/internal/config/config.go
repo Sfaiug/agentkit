@@ -41,7 +41,8 @@ func Home() string {
 }
 
 // Repo is the checkout ak runs from, Python's config.REPO: the top of the git checkout its
-// resolved executable sits in, else the folder above the executable's bin/, as in a copied tree.
+// resolved executable sits in, else, as in a copied tree, the folder above the executable's bin/,
+// or above go/ where that bin/ is go/'s, where Go's build lies.
 func Repo() string {
 	executable, err := os.Executable()
 	if err != nil {
@@ -59,7 +60,10 @@ func Repo() string {
 	if top, err := git.Output(); err == nil {
 		return filepath.Clean(strings.TrimSuffix(string(top), "\n"))
 	}
-	return filepath.Dir(bin)
+	if above := filepath.Dir(bin); filepath.Base(above) != "go" {
+		return above
+	}
+	return filepath.Dir(filepath.Dir(bin))
 }
 
 // places are the folders ak keeps under Home, in Python's config.PLACES order.

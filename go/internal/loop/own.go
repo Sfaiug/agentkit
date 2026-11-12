@@ -150,10 +150,13 @@ func ownFirstReview(dir, repo, url, number, target, head string) (string, error)
 		return "", err
 	}
 	if over {
-		// a run with executors off is Python's (run.Carried), so a worker can always build it
 		most, _ := numbers.SeatLines.Most()
-		return fmt.Sprintf("PR #%s adds %d lines (generated files and unchanged moves aside): too big for the seat, which builds at most %d added lines. Write it as a task and launch it; a worker builds it",
-			number, counted, most), nil
+		way := "Write it as a task and launch it; a worker builds it"
+		if numbers.ReviewLines == config.AtMost(0) {
+			way = "Split it into smaller PRs." // no worker builds a task while executors are off
+		}
+		return fmt.Sprintf("PR #%s adds %d lines (generated files and unchanged moves aside): too big for the seat, which builds at most %d added lines. %s",
+			number, counted, most, way), nil
 	}
 	read, _, err := size.Reviewed(at.git(), target, head)
 	if err != nil {

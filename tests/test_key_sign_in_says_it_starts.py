@@ -1,4 +1,4 @@
-"""`↻ log in again` says which harness it opens on the terminal it gives back, before that harness
+"""`→ log in again` says which harness it opens on the terminal it gives back, before that harness
 draws anything.
 
 The owner (20 Oct 2026): "I just performed a relogin for a claude code window, and it took
@@ -26,7 +26,7 @@ class SignInSaysItStarts(unittest.TestCase):
         self.addCleanup(home.close)
         fakeadapter.install(home, claude="pass", codex="pass")["claude"].answer("login", "<refused>", 1)
         akconfig.write(home, {"fable": "claude", "astra": "codex"})
-        # a login ending tomorrow, so `↻ log in again` is offered
+        # a login ending tomorrow, so `→ log in again` is offered
         home.write(".agentkit/state/logins.json", {"anthropic": {"default": {
             "ends": time.time() + 86400, "checked_at": time.time()}}})
         term = Terminal(home, size=(100, 40), env={"NO_COLOR": "1"})
@@ -39,7 +39,7 @@ class SignInSaysItStarts(unittest.TestCase):
         term.wait("› Subscriptions")
         term.keys("Enter")
         term.wait(lambda screen: screen.startswith("agentkit · config · subscriptions")
-                  and "[↻ log in again]" in screen)
+                  and "[→ log in again]" in screen)
         term.keys("Enter")
         shown = [line.rstrip() for line in term.wait("<refused>").split("\n") if line.strip()]
         self.assertEqual(shown[shown.index("<refused>") - 1], "Opening Claude Code to log in…")

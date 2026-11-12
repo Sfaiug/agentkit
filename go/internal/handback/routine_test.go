@@ -29,7 +29,7 @@ func TestRoutineEndingsRecordOrRideWithoutTyping(t *testing.T) {
 				if route != "no plan" {
 					os.WriteFile(filepath.Join(root, "state", "plan-acme.md"), []byte(plan), 0o600)
 				}
-				os.WriteFile(filepath.Join(home, "bin", "tmux"), []byte("#!/bin/sh\ncase \"$*\" in\n*list-sessions*) printf 'acme\\t1\\n';;\n*list-panes*) printf '%%1 0\\n';;\n*capture-pane*) printf '────────\\n❯\\n────────\\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\\n';;\n*'#{pane_id}'*'#{session_created}'*) printf '%%1\\t123\\n';;\n*send-keys*) printf '%s\\n' \"$*\" >>\"$HOME/typed\"; exit 1;;\nesac\n"), 0o700)
+				os.WriteFile(filepath.Join(home, "bin", "tmux"), []byte("#!/bin/sh\ncase \"$*\" in\n*list-sessions*) printf 'acme\\t1\\n';;\n*list-panes*) printf '0 1 %%1 0\\n';;\n*capture-pane*display-message*) printf '────────\\n❯\\n────────\\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\\n0\\n';;\n*capture-pane*) printf '────────\\n❯\\n────────\\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\\n';;\n*'#{pane_id}'*'#{session_created}'*) printf '%%1\\t123\\n';;\n*send-keys*) printf '%s\\n' \"$*\" >>\"$HOME/typed\"; exit 1;;\nesac\n"), 0o700)
 				record := run.Fields("state", state, "run_id", "fix-api", "launched_session", "acme", "finished_at", now(),
 					"not_needed", "already done", "merged", state == "pass", "pr", "https://github.com/acme/api/pull/1", "executor", "opus", "reviewer", "astra", "verdict", "PASS",
 					"review", run.Fields("executor", "opus", "reviewer", "astra", "executor_provider", "test", "reviewer_provider", "test", "verdict", "PASS", "returncode", 0, "done_when", true))

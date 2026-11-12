@@ -106,7 +106,7 @@ class CpuPriority(unittest.TestCase):
                     self.assertEqual(gate.derived_heavy_limit(readings, running=0), expected)
                     output = io.StringIO()
                     with patch.object(host, "host_readings", return_value=readings), \
-                            patch.object(gate, "_heavy_running", return_value=0), \
+                            patch.object(gate, "_heavy_held", return_value=[]), \
                             patch.object(config, "max_gates", return_value=None), \
                             redirect_stdout(output):
                         self.assertEqual(status.cmd_status([]), 0)

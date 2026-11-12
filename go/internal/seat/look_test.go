@@ -339,7 +339,7 @@ func TestALookFollowsTheLastAnswersModel(t *testing.T) {
 	if got == nil || got.Str("orchestrator") != "fable" {
 		t.Fatalf("%v", got)
 	}
-	if said, _ := tmux.Ask(tmux.Own(), "show-options", "-v", "-t", "=acme:", barTop); !strings.Contains(said, "claude-fable") {
+	if said, _ := tmux.Ask(tmux.Own(), "show-options", "-v", "-t", "=acme:", barTop); !strings.Contains(said, "Fable xhigh") {
 		t.Fatalf("its bar: %q", said)
 	}
 }

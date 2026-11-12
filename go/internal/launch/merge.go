@@ -18,7 +18,7 @@ import (
 func Merge(id string, out, errOut io.Writer) (int, string, error) {
 	dir := filepath.Join(run.Runs(), id)
 	record, _ := run.Read(dir)
-	if record == nil || surroundings(id) || !loop.Mergeable(record) || config.Check() != nil || box.Check() != nil || machined() {
+	if record == nil || surroundings(id) || !loop.Mergeable(record) || config.Check() != nil || box.Check() != nil {
 		return 0, "", ErrPython
 	}
 	// a delivery from integration checks the task's own commands once more

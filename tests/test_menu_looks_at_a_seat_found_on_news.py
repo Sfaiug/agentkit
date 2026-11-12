@@ -153,8 +153,7 @@ class MenuLooksAtASeatFoundOnNews(Sandbox):
         live.read()
         self.assertEqual(watch.seat_read(SEAT)["reason"], "session closed: press 2 to reopen")
         row = {row["name"]: row for row in live.last[1][1]}[SEAT]
-        self.assertEqual((row["number"], row["sentence"]),
-                         ("2", "session closed: press 2 to reopen"))
+        self.assertEqual(row["number"], "2")
 
     def test_a_seat_found_while_a_pass_is_going_is_looked_at_once_that_pass_is_over(self):
         """Even when the watcher reads on the pass's own ask before the pass's thread has ended:

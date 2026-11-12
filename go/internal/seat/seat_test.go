@@ -225,6 +225,15 @@ func TestHomesGoKnows(t *testing.T) {
 			},
 			[]row{{"acme", "no project", "idle", "no runs yet", "opus", "opus", closed}},
 		},
+		"what its done check kept and whether it owes one, a write of that on its way too": {
+			func(t *testing.T, home string) {
+				record(t, home, "acme", nil)
+				for _, name := range []string{"checked-acme.txt", "owed-acme.json", "owed-acme.json.123.456"} {
+					write(t, filepath.Join(home, ".agentkit", "state", name), "{}\n")
+				}
+			},
+			[]row{{"acme", "no project", "idle", "no runs yet", "opus", "opus", closed}},
+		},
 		"a Claude record with no conversation has no row": {
 			func(t *testing.T, home string) { record(t, home, "acme", map[string]any{"conversation": ""}) },
 			nil,

@@ -10,7 +10,7 @@ import (
 // line say, as notify.transition does for a closed seat: its card begins when the seat went and
 // goes out with the seat's reason once it has stood a minute.
 func TurnedGoneNeed(name string, said func(string) (string, any), errOut io.Writer) (bool, error) {
-	return questionTransition(name, said, clock, cardWait, errOut, false, goneNeed, func(string) error { return nil })
+	return questionTransition(name, said, clock, cardWait, errOut, nil, goneNeed, func(string) error { return nil })
 }
 
 // goneNeed is the notice a gone seat's needs you stands for, asked at no moment of its own; none

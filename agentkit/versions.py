@@ -13,7 +13,7 @@ record in the repository is locked: a `git worktree prune` that could not see ~/
 take it, and without it no git works there and nothing moves it again.
 
 A move is final only once a tick of the version it put live completes (`final`): until then the
-version it replaced is kept (`kept`) and nothing else moves, for the way back to run from.
+version it replaced is kept (`kept`) and nothing else moves, for the way back (`back`) to run from.
 
 A clone at ~/agentkit is adopted at its first move, once it is main as origin left it
 (`update.left_as_is`): its repository goes to `REPOSITORY`, a link left in its place, and each
@@ -108,17 +108,22 @@ def kept():
         return None
 
 
-def final():
-    """The move that put this tick's version live made final, as the tick completes.  Only a tick
-    that began from the folder at ~/agentkit now proves that version runs: one that began before
-    the move, the tick that made it among them, ran the version it replaced."""
+def final(ended, completed=True):
+    """A tick's end at `ended`.  Only a tick that began from the folder at ~/agentkit now proves
+    that version runs, and one that `completed` makes the move that put it live final.  One that
+    began in the version the move replaced, the tick that made it among them, sets the link's
+    time to its end however it ends: no tick of the version live runs while it holds the tick
+    lock, so `back` counts its hour from there."""
     from . import update     # here, not at the top: it imports this module
     link = keep_link()
     if not (link and config.BEGAN and os.path.lexists(link)):
         return
     with holding():     # as `switch` holds it from a move's link to its exchange
+        replaced = kept()
         try:
-            if os.path.samestat(config.BEGAN, os.stat(update.agentkit_dir())):
+            if replaced and os.path.samestat(config.BEGAN, os.stat(replaced)):
+                os.utime(link, (ended, ended), follow_symlinks=False)
+            elif completed and os.path.samestat(config.BEGAN, os.stat(update.agentkit_dir())):
                 link.unlink(missing_ok=True)
         except OSError:
             pass        # no ~/agentkit: nothing of it ran

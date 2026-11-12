@@ -11,11 +11,11 @@ func TestOpenCodeTypedIsEachUserRowsTextDatedInSeconds(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("OPENCODE_DB", database)
-	if typed := opencodeTyped("ses_Free"); len(typed) != 1 || typed[0] != (Prompt{0.998, "Rename the acme report."}) {
-		t.Fatalf("typed %v", typed)
+	if typed, err := opencodeTyped("ses_Free"); len(typed) != 1 || typed[0] != (Prompt{0.998, "Rename the acme report."}) || err != nil {
+		t.Fatalf("typed %v %v", typed, err)
 	}
 	t.Setenv("OPENCODE_DB", filepath.Join(t.TempDir(), "opencode.db"))
-	if typed := opencodeTyped("ses_Free"); typed != nil {
-		t.Fatalf("typed %v with no database", typed)
+	if typed, err := opencodeTyped("ses_Free"); typed != nil || err != nil {
+		t.Fatalf("typed %v %v with no database", typed, err)
 	}
 }

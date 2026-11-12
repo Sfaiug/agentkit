@@ -110,9 +110,12 @@ func renaming(state, name, new string, auto bool, now time.Time) (string, bool, 
 	err = under(filepath.Join(state, "notify-"+old+".lock"), func() error {
 		// An old name of this seat keeps leading to the lock held above until its record moves
 		// back there: a writer reaching it then takes this lock, and waits for the files to follow.
-		return under(filepath.Join(state, "notify-"+new+".lock"), func() (err error) {
-			carried, err = carry{state, server, old, new, target == old}.do(now)
-			return err
+		return under(filepath.Join(state, "notify-"+new+".lock"), func() error {
+			// no seat claims a conversation under the old name meanwhile
+			return claims(state, func() (err error) {
+				carried, err = carry{state, server, old, new, target == old}.do(now)
+				return err
+			})
 		})
 	})
 	return renamed, carried, err
@@ -130,7 +133,7 @@ func holdings(state string) ([]string, map[string]string) {
 	seats := map[string]string{}
 	for _, session := range tmux.Sessions(tmux.Own()) {
 		held = append(held, session.Name)
-		record, _ := run.ReadJSON(filepath.Join(state, "session-"+session.Name+".json"))
+		record, _ := run.Shared(filepath.Join(state, "session-"+session.Name+".json"))
 		if session.Mark == "1" || record != nil && !record.Has(config.Renamed) || !agent.Agentless(tmux.Own(), []string{session.Name}) {
 			seats[session.Name] = tmux.Own()
 		}

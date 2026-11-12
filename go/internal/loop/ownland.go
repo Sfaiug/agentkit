@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"agentkit/internal/gh"
+	"agentkit/internal/gitcall"
 	"agentkit/internal/run"
 )
 
@@ -158,7 +159,7 @@ func (r *repoPlace) pin(l *loop) error {
 	if err != nil || !record.Truthy("review_pr") {
 		return err
 	}
-	if stopped, err := inProgress(r.git()); err != nil || stopped {
+	if stopped, err := gitcall.InProgress(r.git(), "rebase", "merge"); err != nil || stopped {
 		return err
 	}
 	if err := r.commitLeftovers(l); err != nil {

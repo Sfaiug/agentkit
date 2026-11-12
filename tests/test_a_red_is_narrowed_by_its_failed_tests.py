@@ -1,8 +1,9 @@
 """A red batch whose suite piece named the tests that failed again alone is narrowed by those
 tests first: each halfway step runs them alone, a pass, each named as run, moving the search
 deeper, and the stack right behind the deepest one they pass in is the member that turned them
-red.  A confirmed failure moves the search earlier.  It fixes; the stack just below it, checked
-whole, lands, and the rest rebuild and land in the same pass.  An inconclusive step gets its
+red.  A confirmed failure moves the search earlier.  It fixes; the tests run alone on the top
+rebuilt without it, and passing there, the stack just below it, checked whole, lands, and the rest
+land in the same pass.  An inconclusive step gets its
 whole check, as without them -- a test a later member added is not there yet -- so an empty run
 there alone blames no one; one whose suite names that test as not there passes it, unless the run
 moved its checkout, and a probe on a suite helper passes it only on names the helper handed back.
@@ -97,6 +98,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4, 5, 6), None),       # the deepest, whole: red on t_tax
             (on(1, 2, 3), ["t_tax"]),           # halfway: they pass, deeper
             (on(1, 2, 3, 4), ["t_tax"]),        # confirmed red, behind their pass
+            (on(1, 2, 3, 5, 6), ["t_tax"]),     # rebuilt: they pass, so whole checks go on
             (on(1, 2, 3), None),                # just below it, whole: green
             (on(1, 2, 3, 5, 6), None)])         # rebuilt, whole
         self.assertEqual(fix["tests"], ["t_tax"])
@@ -110,6 +112,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2), ["test_new.sh"]),        # not there yet: runs none, proves nothing
             (on(1, 2), None),                   # its whole check: green
             (on(1, 2, 3), ["test_new.sh"]),      # confirmed red, right behind green
+            (on(1, 2, 4), ["test_new.sh"]),     # rebuilt: not there, proves nothing
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new.sh"])
 
@@ -120,6 +123,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4), None),             # the deepest, whole: red on test_new.sh
             (on(1, 2), ["test_new.sh"]),        # not there: it passes, deeper
             (on(1, 2, 3), ["test_new.sh"]),     # confirmed red, behind its pass
+            (on(1, 2, 4), ["test_new.sh"]),     # rebuilt: not there, it passes
             (on(1, 2), None),                   # just below it, whole: green
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new.sh"])
@@ -136,6 +140,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3), ["t_tax"]),           # moved its checkout: proves nothing
             (on(1, 2, 3), None),                # on the stack itself: green
             (on(1, 2, 3, 4), ["t_tax"]),
+            (on(1, 2, 3, 5, 6), ["t_tax"]),     # moved its checkout: proves nothing
             (on(1, 2, 3, 5, 6), None)])
         self.assertEqual(run.git(self.repo, "rev-parse", "kept"), kept)
 
@@ -149,6 +154,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2), ["test_new.sh"]),        # moved its checkout: proves nothing
             (on(1, 2), None),                   # on the stack itself: green
             (on(1, 2, 3), ["test_new.sh"]),
+            (on(1, 2, 4), ["test_new.sh"]),
             (on(1, 2, 4), None)])
 
 

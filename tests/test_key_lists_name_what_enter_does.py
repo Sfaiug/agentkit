@@ -75,9 +75,9 @@ class ListsNameWhatEnterDoes(unittest.TestCase):
         row = next(n for n, line in enumerate(shown) if "ChatGPT" in line)
         column = shown[row].index("ChatGPT") + 3
         self.term.type(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m")
-        self.on("↻ log in again", "log in again")
+        self.on("→ log in again", "log in again")
         self.term.keys("Down")
-        self.on("↻ spend a reset", "spend a reset")
+        self.on("→ spend a reset", "spend a reset")
 
     def test_add_a_subscription_names_add_open_and_log_in(self):
         self.term.keys("c")

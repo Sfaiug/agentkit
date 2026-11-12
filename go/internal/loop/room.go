@@ -6,9 +6,9 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/logins"
 	"agentkit/internal/pick"
 	"agentkit/internal/usage"
-	"agentkit/internal/worker"
 )
 
 // A ready is a usage read with the harnesses asked if they can run a turn, Python's
@@ -92,7 +92,7 @@ func unready(model config.Model) string {
 		if account != "" {
 			told = append(told, config.AccountEnv(account))
 		}
-		if answered, yes, _ := worker.Login(adapter, told); !answered || yes {
+		if answered, yes, _ := logins.Auth(adapter, told); !answered || yes {
 			return ""
 		}
 	}

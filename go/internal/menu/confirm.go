@@ -29,7 +29,7 @@ func (f Frame) Confirm(s terminal.Screen, name, question, meaning, action string
 			card = append(card, row{line: "  " + line})
 		}
 	}
-	keep, end := "✓ Keep", "✗ "+action
+	keep, end := "✓ Keep", "× "+action
 	if s.ASCII() {
 		keep, end = "v Keep", "x "+action
 	}

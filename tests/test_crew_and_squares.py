@@ -93,13 +93,13 @@ class CrewAndSquares(Sandbox):
                                   None, NOW)
         info["word"] = "working"
         with patch.object(terminal, "colour_depth", return_value=0):
-            [line] = menu.detail(self.cfg, info, 80)
+            [line] = menu.detail(info, 80)
         self.assertEqual(line, "GPT-6-Astra xhigh ⚒   Fable 5.1 xhigh ◎   ■□□  ■■□")
         self.assertNotIn("parser", line)
         # a model that builds and reviews is named once, with both
         info["crew"] = (["opus", "astra"], ["fable", "opus"])
         with patch.object(terminal, "colour_depth", return_value=0):
-            self.assertTrue(menu.detail(self.cfg, info, 80)[0].startswith(
+            self.assertTrue(menu.detail(info, 80)[0].startswith(
                 "opus ⚒◎   astra ⚒   fable ◎   "))
         # the names are the colour of the row's orchestrator, the icons with them
         with patch.object(terminal, "colour_depth", return_value=24):
@@ -109,7 +109,7 @@ class CrewAndSquares(Sandbox):
         info["crew"] = (["astra", "opus"], ["fable", "spark"])
         info["tasks"] = [(0, "moving")]
         with patch.object(terminal, "colour_depth", return_value=0):
-            self.assertEqual(menu.detail(self.cfg, info, 39),
+            self.assertEqual(menu.detail(info, 39),
                              ["astra ⚒   opus ⚒   fable ◎…   ■□□"])
 
     def test_an_orchestrator_building_alone_is_no_builder_on_the_line(self):
@@ -123,7 +123,7 @@ class CrewAndSquares(Sandbox):
                                       None, NOW)
             info["word"] = "working"
             with patch.object(terminal, "colour_depth", return_value=0):
-                [lines[bool(workers)]] = menu.detail(self.cfg, info, 80)
+                [lines[bool(workers)]] = menu.detail(info, 80)
         self.assertEqual(lines, {False: "Fable 5.1 xhigh ◎   ■■□",
                                  True: "GPT-6-Astra xhigh ⚒   Fable 5.1 xhigh ◎   ■■□"})
 

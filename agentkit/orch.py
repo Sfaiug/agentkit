@@ -90,7 +90,7 @@ POPUP_SIZE = "-w 80% -h 70%"          # the popup on a screen with room to spare
 POPUP_FULL = "-w 100% -h 100%"        # ... and on a phone, where the border is all it spares
 POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
-DIM = f"fg=#{terminal.STATE_STYLES['dim'][2]}"   # its border, and the session behind it
+DIM = f"fg=#{terminal.colour('dim').rgb}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
 # opens over: the first popup over it keeps each style the pane has of its own, if it has one
@@ -2610,9 +2610,14 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None, line=N
             (gitcall.repository_lock(cwd) if repository else nullcontext()):
         if repository:
             gitcall.no_auto_gc(cwd)
-        before = config.session_records().get(current) or {}
         name_receipts(current)
-        env = plugin.launched(current, cwd, conversation)
+        # Whatever a claim (`harness.claim`) writes once this launch has read the record and
+        # written its own is where the harness still running went on to: a launch put back
+        # leaves it, and puts back only the rest.
+        with claims():
+            before = config.session_records().get(current) or {}
+            env = plugin.launched(current, cwd, conversation)
+            wrote = config.session_records().get(current) or {}
         if env:
             cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
         facts = config.hook_facts_path(current)
@@ -2654,8 +2659,11 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None, line=N
             else:
                 # the harness that read the old one stays, and goes on writing to its own receipt
                 plugin.retire(config.session_records().get(current) or {})
-                config.update_session(current, **{key: before.get(key)
-                                                  for key in (*LAUNCH_KEYS, *kept)})
+                with claims():
+                    now = config.session_records().get(current) or {}
+                    config.update_session(current, **{
+                        key: before.get(key) for key in (*LAUNCH_KEYS, *kept)
+                        if key in kept or now.get(key) == wrote.get(key)})
                 try:
                     os.link(last, facts)        # refused where that harness wrote one since
                 except OSError:
@@ -3066,6 +3074,14 @@ def cmd_rules(argv):
     return 0
 
 
+def cmd_pair(argv):
+    if len(argv) != 1:
+        raise config.Error("usage: ak orch pair SEAT")
+    # the seat's tool answers: its words and exit status are the verb's own
+    return subprocess.run([sys.executable, str(config.REPO / "tools/codex-seat.py"),
+                           "--pair", argv[0]]).returncode
+
+
 def owns(record, conversation):
     """That conversation is the seat's own: the one its harness says it holds, on evidence the
     harness vouches for -- a launcher-issued id, or its own -- never a guess or a client that
@@ -3247,9 +3263,10 @@ def sweep(log):
 
     A record's week runs from the seat's last sighting in tmux, or from the owner's stop where
     there was one (`watch.seat_stopped_at`): a seat long gone from tmux that the owner stops
-    today keeps its row and its number the whole week.
+    today keeps its row and its number the whole week.  One an older ak put to sleep is kept
+    until the tick reopens it (`watch.slept`).
     """
-    from . import sleep, watch   # here, not at the top: they import this module
+    from . import watch   # here, not at the top: watch imports this module
     found = {s["name"]: s for s in sessions()}
     sweep_finished(found, log)
     protected = set()
@@ -3265,7 +3282,7 @@ def sweep(log):
         seat = found.get(name)
         since = (record.get("exited_since") if seat
                  else watch.seat_stopped_at(name) or record.get("seen"))
-        if (name in protected or unread_question(name) or sleep.asleep(name)
+        if (name in protected or unread_question(name) or watch.slept(name)
                 or not retention.expired(since, now, config.SESSION_STALE)):
             continue
         # Resolve the configured directory, not the record itself: linked home directories
@@ -4900,6 +4917,8 @@ def main(argv):
         return cmd_project(argv[1:])
     if argv[:1] == ["rules"]:
         return cmd_rules(argv[1:])
+    if argv[:1] == ["pair"]:
+        return cmd_pair(argv[1:])
     if argv[:1] == ["check"]:
         from . import done_check   # here, not at the top: it reaches this module through notify
         return done_check.main(argv[1:])

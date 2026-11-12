@@ -63,7 +63,7 @@ class EnterNamedEverywhere(unittest.TestCase):
         self.menu.keys("x")
         self.menu.wait(lambda screen: "› ✓ Keep" in screen and ends(KEEP)(screen))
         self.menu.keys("Down")
-        self.menu.wait(lambda screen: "› ✗ Stop" in screen and ends(STOP)(screen))
+        self.menu.wait(lambda screen: "› × Stop" in screen and ends(STOP)(screen))
         self.menu.keys("Escape")
         self.menu.wait(ends(POPUP_KEYS))
         self.menu.keys("p")
@@ -72,7 +72,7 @@ class EnterNamedEverywhere(unittest.TestCase):
         self.menu.wait(lambda screen: "Remove beta from past sessions?" in screen
                        and ends(KEEP)(screen))
         self.menu.keys("Down")
-        self.menu.wait(lambda screen: "› ✗ Remove" in screen and ends(REMOVE)(screen))
+        self.menu.wait(lambda screen: "› × Remove" in screen and ends(REMOVE)(screen))
         self.menu.keys("Escape")
 
     def test_a_field_typed_in_on_discord_saves_on_enter(self):

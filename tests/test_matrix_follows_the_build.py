@@ -24,17 +24,17 @@ class MatrixFollowsTheBuild(Sandbox):
         rows_test.prepare(self)
 
     def test_a_matrix_another_build_computed_is_computed_again(self):
-        with patch.object(update, "agentkit_version", return_value="abc1234 · 2026-10-01"):
+        with patch.object(update, "agentkit_build", return_value="abc1234"):
             matrix.refresh(self.cfg, now=10000)
-            self.assertEqual(matrix.stored()["build"], "abc1234 · 2026-10-01")
+            self.assertEqual(matrix.stored()["build"], "abc1234")
             # the build that computed it keeps it for the day
             with patch.object(matrix, "lineup", side_effect=AssertionError("computed again")):
                 matrix.refresh(self.cfg, now=10001)
         # another build carries rules the stored matrix was not computed by
-        with patch.object(update, "agentkit_version", return_value="def5678 · 2026-10-02"):
+        with patch.object(update, "agentkit_build", return_value="def5678"):
             matrix.refresh(self.cfg, now=10002)
         held = matrix.stored()
-        self.assertEqual((held["computed_at"], held["build"]), (10002, "def5678 · 2026-10-02"))
+        self.assertEqual((held["computed_at"], held["build"]), (10002, "def5678"))
 
 
 if __name__ == "__main__":

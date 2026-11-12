@@ -75,7 +75,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         with patch.object(delivery, "time", wraps=delivery.time) as clock:
             clock.sleep.side_effect = wait_for_prefix
             attempt(members[-1])
-        clock.sleep.assert_called_once_with(gate.SLOT_POLL)
+        clock.sleep.assert_called_once()
         self.assertEqual(merged, members)
         self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), waits[members[-1]]["land"])
         for directory in members:
@@ -116,11 +116,10 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             {f"member-{n}.txt" for n in range(1, 7)},
             {f"member-{n}.txt" for n in range(1, 4)},
             {f"member-{n}.txt" for n in range(1, 5)},
-            {f"member-{n}.txt" for n in range(1, 4)},
             {f"member-{n}.txt" for n in (1, 2, 3, 5, 6)}])
-        # the halfway steps run the suite alone, covering no stack: the stack below the red, then
-        # the rebuilt one, each checked whole, land them; the red waits for the members ahead of
-        # it to leave the line
+        # a red naming no test is narrowed by whole checks: green, the stack below the red lands
+        # with every stack under it, and the rebuilt one lands the rest; the red waits for the
+        # members ahead of it to leave the line
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
                          [m.name for m in members[:3] + members[4:]])
         self.assertIn("fix", self.wait(members[3]))
@@ -132,7 +131,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             self.assertEqual(wait["after"], {m.name: self.wait(m)["land"] for m in good[:index]})
             self.assertNotIn("broken.txt", self.stacked_files(wait["land"]))
         self.assert_members_deliver_in_order(good)
-        self.assertEqual(len(self.checks), 5)
+        self.assertEqual(len(self.checks), 4)
         self.assertEqual([m for m, _ in land.line(self.turn)], [members[3]])
         self.assert_cleaned()
 
@@ -662,7 +661,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             with patch.object(delivery, "time", wraps=delivery.time) as clock:
                 clock.sleep.side_effect = wait_for_prefix
                 attempt(oldest)
-            clock.sleep.assert_called_once_with(gate.SLOT_POLL)
+            clock.sleep.assert_called_once()
             self.assertEqual(merged, [later, last] if kind == "covered" else [later, last, oldest])
             self.assertEqual(land.line(self.turn), [])
         self.assert_cleaned()

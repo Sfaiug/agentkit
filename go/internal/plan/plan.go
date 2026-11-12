@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
@@ -200,17 +199,14 @@ func read(current string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(plan)
+	text, err := texts.Read(plan)
 	if os.IsNotExist(err) {
 		return nil, nil
-	}
-	if err == nil && !utf8.Valid(data) {
-		err = fmt.Errorf("not UTF-8")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("cannot read the plan %s: %w", plan, err)
 	}
-	return config.SplitLines(string(data)), nil
+	return config.SplitLines(text), nil
 }
 
 func write(current string, lines []string) error {
@@ -226,30 +222,30 @@ func write(current string, lines []string) error {
 }
 
 // List proves the seat's plan (`verify`), then what deliveries left owed meanwhile (`settle`),
-// then is its box lines, as a listing numbers them.  ErrUnread where the plan owes its done check
-// (checkOwed), which Python's listing makes: before a verification here writes a plan it leaves
-// owing, or before one another process wrote is listed.
-func List(ctx context.Context, name string) ([]string, error) {
-	unchecked := func(current string, lines []string) error {
-		if owes, err := checkOwed(current, lines); owes || err != nil {
-			return ErrUnread
+// then is its box lines, as a listing numbers them, and whether the plan as listed owes its done
+// check (checkOwed), which the listing makes.  Wherever a plan a verification here leaves, or one
+// another process wrote, owes it, carried says first whether Go makes that check: its error, as
+// ErrUnread where Go cannot weigh whether the check is owed, writes nothing.
+func List(ctx context.Context, name string, carried func(current string) error) (box []string, owes bool, err error) {
+	unchecked := func(current string, lines []string) (err error) {
+		if owes, err = checkOwed(current, lines); err == nil && owes {
+			err = carried(current)
 		}
-		return nil
+		return err
 	}
 	whole := false
 	if err := verifying(ctx, name, true, func() (err error) {
 		whole, err = verify(ctx, name, "", unchecked)
 		return err
 	}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if whole {
 		if err := settle(ctx, name, unchecked); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 	}
-	var box []string
-	err := notify.Held(ctx, name, func(current string) error {
+	err = notify.Held(ctx, name, func(current string) error {
 		lines, err := read(current)
 		for _, at := range listed(lines) {
 			box = append(box, strings.TrimFunc(lines[at], config.Space))
@@ -259,7 +255,7 @@ func List(ctx context.Context, name string) ([]string, error) {
 		}
 		return unchecked(current, lines)
 	})
-	return box, err
+	return box, owes, err
 }
 
 // listed is where the plan's box lines are, in the order a listing numbers them from 1.

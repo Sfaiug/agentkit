@@ -2,59 +2,176 @@ package history
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
-	"io/fs"
-	"os"
+	"fmt"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+
+	"github.com/ncruces/go-sqlite3"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
-// SeatSources is what Python's seat_tokens.read reads of the seats' records where none has spent
-// anything it could count yet: the files each seat's harness keeps its tokens in, for seat_sources
-// (Sources), how many records it read, and the seats it counts nothing of for want of a file, one
-// whose harness names none though the seat holds a conversation, each named with that harness.
-// False where a record holds text Go cannot read as Python does, a seat's harness keeps its tokens
-// where Go does not look, or one of those files stands, whose lines Python counts.  It writes
-// nothing.
-func SeatSources() (sources []Source, seats int, uncounted []string, ok bool) {
-	for _, file := range config.SeatFiles() {
-		if _, err := run.ReadJSON(file); errors.Is(err, run.ErrLoneSurrogate) {
-			return nil, 0, nil, false // which Python cannot write to history.db
+// seatTables are the tables what seats spend is kept in, each its columns in order, as Python's
+// seat_tokens.TABLES declares them: a table made before a column was added gets it at its end.  A
+// usage row's account is the login of the seat that owned its file when the tick read it; its
+// model and counts by type are NULL where its harness does not tell them.
+var seatTables = []struct {
+	name    string
+	columns []string
+}{
+	{"seat_sources", []string{"path TEXT PRIMARY KEY", "harness TEXT", "repo TEXT", "cursor TEXT", "account TEXT"}},
+	{"seat_usage", []string{"event TEXT PRIMARY KEY", "repo TEXT", "at REAL", "tokens INTEGER", "account TEXT",
+		"model TEXT", "input INTEGER", "cache_write INTEGER", "cache_read INTEGER", "output INTEGER"}},
+}
+
+// errUntold is a source Go cannot tell from another file as Python does here.
+var errUntold = errors.New("a file Go cannot tell as Python does")
+
+// SeatTokens is the tick's seat tokens row, Python's seat_tokens.read: the files each seat's harness
+// keeps what it spends in become sources, known from then on whatever becomes of the seat, and each
+// source is read on from its cursor, each line its harness counts a row of seat_usage once by its
+// event, a row seen again keeping its larger count; the rows and the cursors they were read to in
+// one commit, so a retry counts nothing twice.  A home with no seat and no sources gets no tables.
+// Its seats counted nothing of, sorted, each with its harness, as Python's read names them: one
+// whose harness has no reader, one holding a conversation its harness names no file for, and one
+// whose file does not open; "seat usage unreadable" alone where the write fails.  False, having
+// written nothing, where Python ak's is to do: a record Go cannot read as Python does, a source it
+// cannot tell, or tokens waiting for Python's one-time repair.
+func SeatTokens() (uncounted []string, read bool) {
+	type source struct {
+		path, harness string
+		repo, account any
+	}
+	var sources []source
+	owners := map[string]string{} // each source's seat, the last in name order
+	seated := false
+	for _, path := range config.SeatFiles() {
+		record, err := run.ReadJSON(path)
+		if errors.Is(err, run.ErrLoneSurrogate) {
+			return nil, false
 		}
-		data, err := os.ReadFile(file)
-		var record map[string]any
-		if err != nil || json.Unmarshal(data, &record) != nil || record == nil {
-			continue // no record Python's session_records reads
-		}
-		if _, renamed := record[config.Renamed]; renamed {
+		if record == nil || record.Has(config.Renamed) {
 			continue
 		}
-		seats++
-		name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(file), "session-"), ".json")
-		orchestrator, _ := record["orchestrator"].(string)
-		model, _ := config.ModelNamed(orchestrator) // a model the config does not name runs on no harness Go reads
-		found, known := harness.TokenSources(model.Harness, record)
-		if !known {
-			return nil, 0, nil, false
+		seated = true
+		seat := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "session-"), ".json")
+		model, _ := config.ModelNamed(record.Str("orchestrator"))
+		paths, reader := harness.TokenSources(model.Harness, record)
+		if !reader || len(paths) == 0 && record.Truthy("conversation") {
+			uncounted = append(uncounted, seat+" ("+cmp.Or(model.Harness, "unknown harness")+")")
+			continue
 		}
-		if conversation, _ := record["conversation"].(string); len(found) == 0 && conversation != "" {
-			uncounted = append(uncounted, name+" ("+model.Harness+")")
+		repo, account := any(""), record.Get("account")
+		if record.Truthy("repo") {
+			repo = name(record.Get("repo"))
 		}
-		repo, _ := record["repo"].(string)
-		account, _ := record["account"].(string)
-		for _, path := range found {
-			path = config.Resolve(path)
-			if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
-				return nil, 0, nil, false // Python's reader opens whatever stands there
-			}
-			sources = append(sources, Source{Path: path, Harness: model.Harness, Repo: repo,
-				Account: cmp.Or(account, config.DefaultAccount), Seat: name})
+		if !record.Truthy("account") {
+			account = config.DefaultAccount
+		}
+		for _, each := range paths {
+			sources = append(sources, source{config.Resolve(each), model.Harness, repo, account})
+			owners[config.Resolve(each)] = seat
 		}
 	}
-	return sources, seats, uncounted, true
+	if !seated && !keepsSources() {
+		return nil, true
+	}
+	err := commit(func(db *DB) error {
+		for _, table := range seatTables {
+			if err := db.exec("CREATE TABLE IF NOT EXISTS " + table.name + " (" + strings.Join(table.columns, ", ") + ")"); err != nil {
+				return err
+			}
+			have, err := db.columns(table.name)
+			for _, column := range table.columns {
+				if err == nil && !have[strings.Fields(column)[0]] {
+					err = db.exec("ALTER TABLE " + table.name + " ADD COLUMN " + column)
+				}
+			}
+			if err != nil {
+				return err
+			}
+		}
+		if err := db.exec("CREATE INDEX IF NOT EXISTS seat_usage_at ON seat_usage(at)"); err != nil {
+			return err
+		}
+		for _, each := range sources {
+			if err := db.exec("INSERT INTO seat_sources VALUES (?, ?, ?, '{}', ?) ON CONFLICT(path) "+
+				"DO UPDATE SET repo = excluded.repo, account = excluded.account", each.path, each.harness, each.repo, each.account); err != nil {
+				return err
+			}
+		}
+		// known sources are read on after a clear, rename, harness change or seat removal
+		known, err := db.rows("SELECT * FROM seat_sources")
+		if err != nil {
+			return err
+		}
+		for _, row := range known {
+			path, own := row.Text("path"), row.Text("harness")
+			saved, _ := run.DecodeShown([]byte(row.Text("cursor")))
+			cursor, _ := saved.(*run.Object)
+			if cursor == nil {
+				return fmt.Errorf("no cursor for %s", path)
+			}
+			spends, told, err := harness.Spends(own, path, cursor)
+			if !told {
+				return errUntold
+			}
+			if err != nil { // gone, or not yet written
+				if seat, owned := owners[path]; owned {
+					uncounted = append(uncounted, seat+" ("+own+")")
+				}
+				continue
+			}
+			for _, spend := range spends {
+				event := spend.Event
+				if event == "" {
+					event = path + ":" + strconv.FormatInt(spend.Start, 10)
+				}
+				counts := []any{nil, nil, nil, nil}
+				for i, count := range spend.Counts {
+					counts[i] = count
+				}
+				// a repeat counting more replaces all its line set, so the counts, model and login
+				// stay those of the line that set the tokens
+				if err := db.exec("INSERT INTO seat_usage VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
+					"ON CONFLICT(event) DO UPDATE SET tokens = excluded.tokens, "+
+					"account = excluded.account, model = excluded.model, "+
+					"input = excluded.input, cache_write = excluded.cache_write, "+
+					"cache_read = excluded.cache_read, output = excluded.output "+
+					"WHERE excluded.tokens > tokens",
+					append([]any{own + ":" + event, row["repo"], spend.At, spend.Tokens, row["account"], spend.Model}, counts...)...); err != nil {
+					return err
+				}
+			}
+			if err := db.exec("UPDATE seat_sources SET cursor = ? WHERE path = ?", run.Line(cursor), path); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, errUntold) || errors.Is(err, errOwed) {
+		return nil, false
+	}
+	if !warned(nil, err) {
+		return []string{"seat usage unreadable"}, true
+	}
+	slices.Sort(uncounted)
+	return slices.Compact(uncounted), true
+}
+
+// keepsSources is whether history.db keeps seats' sources, as Python's read asks where no seat
+// is: false where SQLite cannot say.
+func keepsSources() bool {
+	db, err := connect(Path(), sqlite3.OPEN_READONLY)
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	seats, err := db.keepsSeats()
+	return err == nil && seats
 }

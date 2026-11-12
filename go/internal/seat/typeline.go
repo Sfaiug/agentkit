@@ -89,7 +89,10 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 		if stale(current) || !at.settled() {
 			return errUntyped
 		}
-		entry := typingReceipt(own, record, text)
+		entry, err := typingReceipt(own, record, text)
+		if err != nil {
+			return errUntyped
+		}
 		file, err := os.OpenFile(ownFile("input", current), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o666)
 		if err != nil {
 			return err

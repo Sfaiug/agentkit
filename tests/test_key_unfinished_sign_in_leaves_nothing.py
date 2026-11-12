@@ -1,12 +1,12 @@
 """A sign-in for a new account that does not finish leaves nothing of that account behind, and a
-`↻ log in again` that does not finish says so.
+`→ log in again` that does not finish says so.
 
 `+ add a subscription` signs in under a new random account.  On 27 Oct a cancelled `Claude IV`
 left `~/.claude-<account>` behind, and earlier attempts left `~/.gemini/antigravity-cli-<name>`
 and `~/.grok-<name>` for accounts no subscription lists, one holding a signed-in token.  The
 owner's word (26 Oct): a login that is not a subscription's does not stay saved.  So, for each
 harness that keeps more than one login, an add whose sign-in quits leaves the HOME as it was
-before the add, outside ak's own state; and a `↻ log in again` that does not finish says so
+before the add, outside ak's own state; and a `→ log in again` that does not finish says so
 under the page, its login left where it was.
 
 Black-box: the program `AK_BIN` names, its menu in a person's terminal
@@ -157,7 +157,7 @@ class UnfinishedSignInLeavesNothing(unittest.TestCase):
 
     def test_a_log_in_again_that_does_not_finish_says_so_and_keeps_its_login(self):
         self.home.write(".claude-a1/.credentials.json", "{}")
-        # a login ending tomorrow, so `↻ log in again` is offered
+        # a login ending tomorrow, so `→ log in again` is offered
         self.home.write(".agentkit/state/logins.json", {"anthropic": {"a1": {
             "ends": time.time() + 86400, "checked_at": time.time()}}})
         self.open({"fable": "claude"},

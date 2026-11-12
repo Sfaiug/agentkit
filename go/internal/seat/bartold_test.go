@@ -35,7 +35,7 @@ func TestABarPythonToldTheSameIsLeftAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, each := range []struct{ said, told string }{{"\U0001fae9", python}, {"\U0001fae9 again", ""}} {
-		barTell(state, "acme", [][3]string{{target, barWhy, each.said}})
+		barTell(state, "acme", [][3]string{{target, barWhy, each.said}}, nil)
 		shown, _ := tmux.Ask(tmux.Own(), "show-options", "-v", "-t", target, barWhy)
 		told, _ := tmux.Ask(tmux.Own(), "show-options", "-v", "-t", target, barTold)
 		if shown != each.said || (each.told != "") != (told == each.told) {

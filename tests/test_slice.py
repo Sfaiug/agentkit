@@ -571,7 +571,7 @@ class Installer(Slice):
     def install(self, home, **env):
         source = (REPO / "install.sh").read_text()
         body = source[source.index(self.SECTION):source.index(self.NEXT)]
-        prelude = ('set -euo pipefail\n'
+        prelude = ('set -euo pipefail\numask 077\n'   # as install.sh's step (1) leaves it
                    f'HOME={shlex.quote(str(home))}\nREPO={shlex.quote(str(REPO))}\n'
                    'ROLE=server\nSANDBOX=0\n'
                    'have() { command -v "$1" >/dev/null 2>&1; }\n'

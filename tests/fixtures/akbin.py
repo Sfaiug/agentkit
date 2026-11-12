@@ -11,9 +11,9 @@ systemd manager and no repository above its HOME; notifications go nowhere; and 
 PATH.  Only `AK_HANDOVER` passes, where the caller sets it: the file Go's hand-overs go on the end
 of, which tests/unclaimed.py gives each key it runs.  There a fake of each host tool in `REFUSED`
 logs its call and refuses it, so no test reaches GitHub, the live host, the owner's units or a
-harness unless it puts a fake of its own there with `home.fake`.  `tmux` is the real one, held to
-a socket directory of this Home's own: judge it by its state through `home.tmux`, never by the
-commands ak sent it, which another build may send another way.
+harness unless it puts a fake of its own there with `home.fake`, nor, with AK_GO_ALONE=1, Python.
+`tmux` is the real one, held to a socket directory of this Home's own: judge it by its state
+through `home.tmux`, never by the commands ak sent it, which another build may send another way.
 
     from fixtures.akbin import Home
     with Home() as home:
@@ -54,9 +54,11 @@ SYSTEM = ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin")
 REAL_TMUX = shutil.which("tmux", path=os.pathsep.join(SYSTEM))
 
 # GitHub, the live host, the owner's units and crontab, desktop notices, the network and each
-# harness's own login.
+# harness's own login; with AK_GO_ALONE=1 Python too, as the commit switching ak to Go runs none
+# (tests/test_go_keys.py).
 REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journalctl", "crontab",
-           "notify-send", "claude", "codex", "muse", "grok", "opencode", "agy")
+           "notify-send", "claude", "codex", "muse", "grok", "opencode", "agy",
+           *(("python3", "python") if os.environ.get("AK_GO_ALONE") == "1" else ()))
 
 Done = namedtuple("Done", "code out err")
 
@@ -100,12 +102,13 @@ def _binds(*paths):
 BOXED = "AKBIN_BOXED" in os.environ
 
 
-def rerun_boxed():
-    """Run this test file again in one box of `home.tick()`'s kind, every Home and ak of it
-    inside, and exit with its status; inside one, or where bwrap cannot build one, return."""
+def rerun_boxed(box=_BOX):
+    """Run this test file again in one box, of `home.tick()`'s kind unless `box` names bwrap's
+    words, every Home and ak of it inside, and exit with its status; inside one, or where bwrap
+    cannot build one, return."""
     if BOXED or not boxable():
         return
-    sys.exit(subprocess.call([*_BOX, *_binds(REPO, Path(AK).resolve().parent), "--setenv",
+    sys.exit(subprocess.call([*box, *_binds(REPO, Path(AK).resolve().parent), "--setenv",
                               "AKBIN_BOXED", "1", "--", sys.executable,
                               os.path.abspath(sys.argv[0]), *sys.argv[1:]]))
 
@@ -356,6 +359,32 @@ class Home:
         """This Home's environment with `extra` over it; a None value removes the variable."""
         merged = {**self.env, **(extra or {})}
         return {key: value for key, value in merged.items() if value is not None}
+
+
+class Manager:
+    """The control socket a running `systemd --user` listens on, answering nothing."""
+
+    def __init__(self, home):
+        path = Path(home.env["XDG_RUNTIME_DIR"]) / "systemd" / "private"
+        path.parent.mkdir()
+        self.listener = socket.socket(socket.AF_UNIX)
+        self.listener.bind(str(path))
+        self.listener.listen(64)
+        self.thread = threading.Thread(target=self.serve)
+        self.thread.start()
+
+    def serve(self):
+        while True:
+            try:
+                peer, _ = self.listener.accept()
+            except OSError:
+                return
+            peer.close()
+
+    def close(self):
+        self.listener.shutdown(socket.SHUT_RDWR)    # wakes its accept, as a close does not
+        self.thread.join()
+        self.listener.close()
 
 
 # Seconds a Home's cleanup waits for a process to end, or for an exec to finish: a host slower

@@ -360,6 +360,20 @@ class OwnerWords(unittest.TestCase):
         self.assertEqual([row["source"] for row in rows], ["ak", "owner", "ak"])
         self.assertEqual([row["after"] for row in rows], [1, 4, 5])
 
+    def test_a_receipt_takes_one_line_of_two_at_one_time_in_conversations_it_does_not_name(self):
+        # the seat on Grok's "thread", which holds no line yet, having left two sessions
+        config.update_session("lagoon", orchestrator="grok", left=[
+            {"harness": "grokbuild", "conversation": name} for name in ("first", "second")])
+        record = self.record()
+        line = "Run 20261107-0900-fix-api passed and merged."
+        config.seat_file("input", "lagoon").write_text(json.dumps(
+            harness.load("grokbuild").receipt(record, "thread", line)) + "\n")
+        for name in ("first", "second"):
+            path = grokbuild.session_dir(record["cwd"], name) / "updates.jsonl"
+            path.parent.mkdir(parents=True)
+            self.append(update(101, line, sid=name), path=path)
+        self.assertEqual(len(done_check.owner_words("lagoon", notify.conversations_of("lagoon"))), 1)
+
     def test_enter_retry_records_once_and_failed_or_vetoed_typing_records_nothing(self):
         def enter_fails(*args, **_kw):
             return (1, "fake failure") if args[-1] == "Enter" else (0, "")

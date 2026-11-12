@@ -92,13 +92,13 @@ class OnlyWhatIsDrawn(unittest.TestCase):
         self.assertEqual(attached(self.home), ["atoll-ask"])
 
     def test_a_meter_is_its_bar_and_words_never_its_padding(self):
-        row = next(n for n, line in enumerate(self.shown) if "Claude" in line and "▰" in line)
+        row = next(n for n, line in enumerate(self.shown) if "Claude" in line and "% left" in line)
         under = next(n for n in range(row, len(self.shown)) if not self.shown[n])
         self.assertEqual(self.shown[under], "")     # where the detail line goes
         past = self.shown[row].index("21% left") + len("21% left") + 1
         self.term.type(point(past, row + 1))
         self.assertEqual(lines(self.term.wait(lit_none))[under], "")
-        self.term.type(point(self.shown[row].index("▰") + 1, row + 1))
+        self.term.type(point(self.shown[row].index("━") + 1, row + 1))
         self.term.wait(lambda screen: lines(screen)[under] == "  Claude")
 
     def test_on_c_the_gap_between_a_label_and_its_marks_is_on_nothing(self):

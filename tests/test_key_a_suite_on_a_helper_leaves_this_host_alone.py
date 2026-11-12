@@ -14,7 +14,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akline import Line, READINGS, rules
+from fixtures.akline import Line, READINGS
+from fixtures.fakegh import GitHub
 
 # The words after the alias are one `bash -c <mac.sh> mac.sh <verb> ...` line.
 SSH = f"""#!{sys.executable}
@@ -42,8 +43,8 @@ class SuiteOnAHelper(unittest.TestCase):
         self.assertIn("land", line.verdict(1))
         self.assertEqual(line.runs(), [])
 
-    def test_a_check_s_clone_names_its_repository_s_copy_there(self):
-        line = Line({"AGENTS.md": rules(': "$AK_SHARD" "$AK_CHANGED"; sh suite.sh'), "t/a.sh": "true\n",
+    def test_a_run_s_checks_and_its_line_s_name_one_copy_there(self):
+        line = Line({"t/a.sh": "true\n",
                      "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         self.addCleanup(line.close)
         akconfig.write(line.home, ["opus", "astra"], settings={"suite_helper": "acme-mac"})
@@ -51,8 +52,10 @@ class SuiteOnAHelper(unittest.TestCase):
         line.home.fake("ssh", SSH.replace("    sys.stdin.buffer.read()\n", f"""    sys.stdin.buffer.read()
     open({str(named)!r}, "a").write(words[words.index("mac.sh") + 4] + "\\n")\n"""))
         fakeadapter.install(line.home, claude="work", codex="pass")
+        GitHub(line.home).grant(line.rig.slug, "WRITE")
         task = taskfile.write(line.home, line.rig.path, name="retry")
-        line.home.ak("run", str(task), timeout=300, env={"AK_HOST_READINGS": READINGS})    # its round's suite
+        done = line.home.ak("run", str(task), timeout=300, env={"AK_HOST_READINGS": READINGS})
+        self.assertEqual(done.code, 0, done.out + done.err)    # its landing check among them
         line.member({"api.txt": "x\n"})
         self.assertEqual(line.land().code, 0)    # from the checkout itself
         names = named.read_text().split()

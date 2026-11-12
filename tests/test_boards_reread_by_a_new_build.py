@@ -134,11 +134,11 @@ class Reread(Sandbox):
                          {quality.INTEL, *quality.COSTS.values()}
                          | {name for role in quality.ROLES.values() for column, *_ in role
                             for name in (column, *quality.reads(column))})
-        with patch.object(update, "agentkit_version", return_value="abc1234"):
+        with patch.object(update, "agentkit_build", return_value="abc1234"):
             matrix.refresh(self.cfg, now=10000)
         asked = self.asked("huggingface")
         self.forget("arena.ai", "arena.agent.lower95ci")
-        with patch.object(update, "agentkit_version", return_value="def5678"):
+        with patch.object(update, "agentkit_build", return_value="def5678"):
             held, _ = matrix.refresh(self.cfg, now=10001)
         self.assertGreater(self.asked("huggingface"), asked)
         self.assertEqual(held["arena.ai"]["build"], "def5678")

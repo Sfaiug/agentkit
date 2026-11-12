@@ -245,22 +245,28 @@ func museTokens(out string) (float64, bool) {
 	return total, said
 }
 
-// museSpent is the provider tokens a session log entry attributes to one of runs, muse.py
-// `provider_tokens`: the reported input and output a provider usage counts.
+// museSpent is the provider tokens a session log entry attributes to one of runs.
 func museSpent(entry any, runs map[string]bool) (float64, bool) {
 	record := dig(entry, "payload", "event", "record")
 	if id, ok := dig(record, "owner").Get("run_id").(string); !ok || !runs[id] {
 		return 0, false
 	}
+	spent, counted := museProvided(record)
+	return float64(spent), counted
+}
+
+// museProvided is the tokens a usage record counts, muse.py `provider_tokens`: the reported input
+// and output a provider usage counts.
+func museProvided(record *run.Object) (int, bool) {
 	quantity := dig(record, "quantity")
 	if record.Truthy("quantity") && record.Dict("quantity") == nil || // what Python cannot read as one
 		record.Get("usage_family") != "provider" || quantity.Get("reported") == false {
 		return 0, false
 	}
-	total, counted := 0.0, false
+	total, counted := 0, false
 	for _, key := range []string{"input_tokens", "output_tokens"} {
 		if count, ok := quantity.Int(key); ok && count >= 0 {
-			total, counted = total+float64(count), true
+			total, counted = total+count, true
 		}
 	}
 	return total, counted

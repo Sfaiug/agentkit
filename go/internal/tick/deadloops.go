@@ -18,10 +18,8 @@ import (
 	"agentkit/internal/seat"
 )
 
-const (
-	deadBackoff = 600  // a loop that dies again this soon after its resume waits this long
-	deadWindow  = 3600 // a third death inside this parks the run and tells the seat once
-)
+// a loop that dies again this soon after its resume waits this long
+const deadBackoff = 600
 
 // deadLoops is watch.resume_dead_loops: a live record whose loop process is gone has its death
 // recorded and goes on in the same tick, through Go's own resume, so nobody is asked.  A death
@@ -173,7 +171,7 @@ func deadPlan(record *run.Object, now float64) (string, []any, string) {
 	}
 	recent := 0
 	for _, death := range deaths {
-		if at, ok := dated(death.(*run.Object), "at"); ok && upto-at < deadWindow {
+		if at, ok := dated(death.(*run.Object), "at"); ok && upto-at < run.DeadWindow {
 			recent++
 		}
 	}

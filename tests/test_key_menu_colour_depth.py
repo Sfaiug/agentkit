@@ -40,7 +40,7 @@ class ColourDepth(unittest.TestCase):
 
     def test_xterm_256color_without_colorterm_draws_only_fixed_colours(self):
         screen = self.menu(TERM="xterm-256color")
-        self.assertEqual(look(screen, "›"), {"1", "38;5;111"})
+        self.assertEqual(look(screen, "›"), {"1", "38;5;26"})
         drawn = colours(screen)
         self.assertEqual({c for c in drawn if not re.fullmatch(r"[34]8;5;\d+", c)}, set())
 
@@ -62,7 +62,7 @@ class ColourDepth(unittest.TestCase):
 
     def test_true_colour_tmux_reports_is_drawn_though_colorterm_does_not_say_it(self):
         screen = self.menu(TERM="xterm-256color", AGENTKIT_TERMFEATURES="RGB")
-        self.assertEqual(look(screen, "›"), {"1", "38;2;137;180;250"})
+        self.assertEqual(look(screen, "›"), {"1", "38;2;0;103;198"})
 
     def test_no_color_draws_no_colour_even_on_a_true_colour_terminal(self):
         screen = self.menu(NO_COLOR="1", COLORTERM="truecolor")

@@ -9,6 +9,7 @@ the same shares (tests/every_file.py)."""
 import json
 from pathlib import Path
 import re
+import subprocess
 import tempfile
 
 from . import config, gitcall
@@ -62,23 +63,83 @@ def measured(log, offset=0):
 
 
 def refusal(cwd, base, command, timings):
-    """Added files owe each declared suite's own passing piece target, never earlier times."""
-    added, failures = None, []
+    """A test file the change adds owes each declared suite's own passing piece target, never
+    earlier times, where that pass took it over the target.  So does one it edits -- a move or a
+    new file type is an edit -- where the change put it there: timed again at once by the same
+    suite (`timed`), over the target at HEAD and at most it on `base`.  Both versions on one
+    machine at one moment leave host load and other changes' checks out; only both timings
+    decide, so a version that could not be timed refuses nothing."""
+    changed, failures = None, []
     # A rewritten declaration runs beside the target's; neither pass answers for the other.
     for command in dict.fromkeys((command, gitcall.declared(cwd, "tests"))):
         times, pieces = timings.get(command, ({}, 1))
         if not times:
             continue
-        if added is None:
-            added = set(gitcall.git(cwd, "diff", "--diff-filter=A", "--name-only", "-z",
-                                    f"{base}...HEAD").split("\0"))
+        if changed is None:
+            changed = origins(cwd, base)
         # Many pieces must not turn an ordinary file of less than a minute into a refusal.
         target = max(60, sum(times.values()) / pieces)
-        slow = [f"FAIL  {name}: {seconds:g}s exceeds the piece target {target:g}s; split the test file."
-                for name, seconds in sorted(times.items()) if name in added and seconds > target]
+        over = {name: seconds for name, seconds in sorted(times.items())
+                if name in changed and seconds > target}
+        edited = {name: changed[name] for name in over if changed[name]}
+        then, now = (timed(cwd, ((base, edited.values()), ("HEAD", edited)), command)
+                     if edited else ({}, {}))
+        slow = []
+        for name, seconds in over.items():
+            old = changed[name]
+            if old and not (old in then and name in now and then[old] <= target < now[name]):
+                continue
+            said = f"{now[name]:g}s, up from {then[old]:g}s on {base}," if old else f"{seconds:g}s"
+            slow.append(f"FAIL  {name}: {said} exceeds the piece target {target:g}s; "
+                        "split the test file or make it faster.")
         if slow:
             failures.append(f"$ {command}\n[test file over piece target]\n" + "\n".join(slow))
     return "\n\n".join(failures)
+
+
+def origins(cwd, base):
+    """{each file the change adds or edits: its path on `base`, None for one it adds}."""
+    fields, found = iter(gitcall.git(cwd, "diff", "--find-renames", "--name-status", "-z",
+                                     f"{base}...HEAD").split("\0")), {}
+    for status in fields:
+        if not status:
+            break       # the NUL ending the last record
+        old = new = next(fields)
+        if status.startswith("R"):
+            new = next(fields)
+        if status != "D":
+            found[new] = None if status == "A" else old
+    return found
+
+
+def timed(cwd, versions, command):
+    """For each (ref, files) of `versions`, {file: seconds} the suite `command` printed running
+    just those files (`AK_ONLY`) at that commit on this machine, in one clone of `cwd`: each
+    file's own, whatever became of the others.  A run that moved or edited its checkout timed
+    something else, and times none.  None is kept (`keep`): an older commit lacks the files the
+    change adds, and would drop their times from the record."""
+    from . import gate, record, worker
+    found = []
+    config.ensure_dirs()
+    with tempfile.TemporaryDirectory(prefix="timing-", dir=config.TMP) as tmp:
+        checkout, log = Path(tmp) / "checkout", Path(tmp) / "timed.log"
+        gitcall.clone_borrowing(cwd, checkout, "--no-checkout")
+        for ref, files in versions:
+            sha = gitcall.git(cwd, "rev-parse", f"{ref}^{{commit}}")
+            gitcall.git(checkout, "checkout", "--quiet", "--force", "--detach", sha)
+            gitcall.git(checkout, "clean", "-fdqx")
+            with log.open("wb") as output:
+                # `ran`: a runner given AK_ONLY may name what it ran in AK_RAN, as every other
+                # run of named tests lets it.
+                worker.boxed(["bash", "-c", command], 3600 * record.CEILING_HOURS,
+                             cwd=str(checkout), env={**gate.suite_env(), "AK_SHARD": "1/1"},
+                             only=list(files), ran=[], activity=log, output=output,
+                             silence=60 * record.SILENCE_MINUTES, stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL)
+            kept = (gitcall.git(checkout, "rev-parse", "HEAD", check=False) == sha
+                    and gitcall.git_out(checkout, "diff", "--quiet", "HEAD")[0] == 0)
+            found.append(measured(log) if kept else {})
+    return found
 
 
 def keep(cwd, log):

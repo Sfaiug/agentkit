@@ -68,7 +68,7 @@ func TestATurnGoesToTheLeastRoomThatTakesIt(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		away, why, err := Start(repo, each.cpus, 2048, "make test", "", "", each.turn, func(string) {})
+		away, why, err := Start(repo, each.cpus, 2048, "make test", "", each.turn, func(string) {})
 		said, _ := os.ReadFile(filepath.Join(bin, "said"))
 		if err != nil || away == nil || away.Alias != each.want {
 			t.Fatalf("%s: not placed on %s (%q, %v); the machines were asked\n%s", each.name, each.want, why, err, said)

@@ -39,10 +39,12 @@ STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is o
 
 
 def followup_place(text):
-    """The review's site, independent of its wording or Markdown decoration."""
-    site = re.search(r"([^\s`*]+):(\d+)\b", text)
+    """The review's site, independent of its wording or Markdown decoration: the whole path a
+    follow-up begins with (`hand_in.item_text`) or a backtick or star opens, spaces and all, so
+    `beta app/api.py:1` is not `alpha app/api.py:1`, and its line."""
+    site = re.search(r"(?:^|[`*])\s*(?:\./)?([^`*\n]+?):(\d+)\b", text)
     if site:
-        return f"{site[1].removeprefix('./')}:{int(site[2])}"
+        return f"{site[1]}:{int(site[2])}"
     return text.splitlines()[0].strip()
 
 
@@ -71,16 +73,19 @@ def repair_open(state, tip):
     """Whether this repair run holds its command on the target at `tip`.
 
     The one answer to both "does this red get a repair" and "do its waiters retry": one
-    repair per command per tip.  On its way it does, on any tip.  Ended, it holds the tip
-    its launch recorded from the probe that found it failing (`repair_tip`) -- never one
-    read off its branch later, which a rebase or an aborted integration moves -- unless it
-    merged, which moved the target, or found the command passing there (`not needed`).
-    Failed, passed unmerged or blocked, another run of it on that tip would only repeat it;
-    a target that moved past it is a new red.
+    repair per command per tip at a time.  On its way it does, on any tip.  Ended, it holds
+    the tip its launch recorded from the probe that found it failing (`repair_tip`) -- never
+    one read off its branch later, which a rebase or an aborted integration moves -- unless
+    it merged, which moved the target, or found the command passing there (`not needed`).
+    Failed, passed unmerged or blocked, it holds that tip for the retry ladder's step past
+    its top, from its end: then another repair may try, so a red no model mends costs a
+    repair an hour, and never a line that stands still for good.  A target that moved past
+    it is a new red.
     """
     return followup_open(state) or (
         state.get("state") in run_record.ENDED and not transitions.delivered(state)
-        and state.get("repair_tip") == tip)
+        and state.get("repair_tip") == tip
+        and time.time() - (state.get("finished_at") or 0) < turns.TRANSIENT_HOURLY)
 
 
 def open_followup(state, text, repair=None, tip=None, split=None, check=None, held=None,
@@ -1789,7 +1794,7 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
     window, so it is handed back nowhere and nobody is told.  An error the tick will retry
     is the same: its retry is already scheduled, so there is no ending to tell.
     """
-    from . import job as jobs, sleep, watch, worktrees  # here, not at the top: they reach run
+    from . import job as jobs, watch, worktrees  # here, not at the top: they reach run
     if state.get("state") == "stopped":
         return
     if transitions.going(state) and state.get("state") == "error":
@@ -1837,13 +1842,13 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
         if not state.get("handback_pending"):
             mark_delivery(run_dir, state, handback_pending=True)
         return
-    if not sleep.wake(session, log, cfg):
-        mark_delivery(run_dir, state, handback_pending=True)   # owed: the next tick wakes it
-        return
     with launcher_world(session) as live:
         if live:
             hand_back(state, run_dir, log, cfg, busy, records)
             return
+    if watch.slept(session):
+        mark_delivery(run_dir, state, handback_pending=True)   # owed: the tick reopens it first
+        return
     if state.get("state") == "not_needed":
         mark_delivery(run_dir, state, reported=True, handback_pending=None,
                       handback_wait_reason=None, notification_pending=None)
@@ -1896,13 +1901,15 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
         return
     # the seat is gone, so a hand-back left pending for it is over: whatever happens below
     # is what this run says now, and the tick must not come back here every pass for it
+    waited = state.get("handback_pending")
     mark_delivery(run_dir, state, handback_pending=None, handback_wait_reason=None)
     task = state.get("title") or state.get("run_id") or run_dir.name
     verdict = "PASS" if transitions.delivery(state, transitions.report_config(cfg)).startswith("PASS") else "FAIL"
     why = ""
     # A pre-existing ending with a stuck card keeps its retry below, but never wakes its seat.
+    # One that waited for its seat mid-turn is no history, however long it waited.
     if (not watch.seat_closed(session) and watch.orphan_fresh(state, session)
-            and not watch.is_preexisting(state)):
+            and (waited or not watch.is_preexisting(state))):
         log(f"the orchestrator session {session} this run was launched from is gone; "
             "reopening it")
         why = watch.revive(session, f"continue {task}: run {run_dir.name} finished {verdict}, "

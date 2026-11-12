@@ -17,8 +17,8 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/host"
+	"agentkit/internal/logins"
 	"agentkit/internal/run"
-	"agentkit/internal/worker"
 )
 
 const (
@@ -132,7 +132,7 @@ func probe(src source, now float64) *run.Object {
 			}
 		}
 		var loggedIn any
-		if answered, yes, _ := worker.Login(adapter, append(told, config.AccountEnv(src.account), "AGENTKIT_PROVIDER="+src.Name)); answered {
+		if answered, yes, _ := logins.Auth(adapter, append(told, config.AccountEnv(src.account), "AGENTKIT_PROVIDER="+src.Name)); answered {
 			loggedIn = yes
 		}
 		out.Set("logged_in", loggedIn)

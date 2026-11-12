@@ -73,7 +73,6 @@ main() {
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
@@ -344,8 +343,8 @@ def written(launched, payload, held):
     for the seat's row: under the name the seat goes by now, which is the name its row reads,
     and in the order the two hooks heard their events (`config.record_hook_fact`)."""
     try:
-        config.record_hook_fact(resolve(launched), lifecycle.stop_fact(launched, payload,
-                                                                         time.time(), held))
+        fact = lifecycle.stop_fact(launched, payload, config.heard_at(launched), held)
+        config.record_hook_fact(resolve(launched), fact)
     except (OSError, config.Error):
         pass        # a Stop nobody could write down is no reason to let the turn end
 

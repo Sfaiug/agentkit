@@ -48,7 +48,7 @@ class LandingSuiteNamesItsFailedTests(unittest.TestCase):
         root = Path(tmp.name)
         tests = root / "tests"
         tests.mkdir()
-        for name in ("landing.py", "affected.py", "suite_shares.py"):
+        for name in ("landing.py", "suite_shares.py"):
             (tests / name).write_text((REPO / "tests" / name).read_text())
         # The real runner, on this checkout: left to its default it would sweep the repository.
         (tests / "every_file.py").write_text(
@@ -115,6 +115,15 @@ class LandingSuiteNamesItsFailedTests(unittest.TestCase):
         self.assertEqual(failed, ["tests/gate_contract.py", "tests/test_boom.py",
                                   "tests/test_smoked.py"])
         self.assertEqual(self.named, failed)
+
+    def test_a_bad_import_fails_as_the_import_check(self):
+        imports = "tests/every_file.py"
+        proc, _, failed = self.landing(acme_client="import acme_vendored\n")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertIn(imports, set(self.named) & set(failed))
+        # as ak re-runs it alone
+        proc, ran, failed = self.landing(only=[imports], acme_client="import acme_vendored\n")
+        self.assertEqual((proc.returncode, ran, failed, self.named), (1, [], [imports], [imports]))
 
     def test_an_unknown_test_runs_nothing_fails_nothing_and_is_not_named_as_run(self):
         # Every stand-in would fail, and the import check too: no listed test holds it.

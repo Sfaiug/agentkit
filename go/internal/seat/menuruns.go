@@ -17,6 +17,7 @@ type Task struct {
 type runView struct {
 	going, live, needs, parked, undecided bool
 	task                                  *Task
+	place                                 string // where it waits in its landing line (run.LinePlaces)
 }
 
 // screenRuns is what the open screen knows of the runs between its reads: a run at rest is as its
@@ -42,7 +43,7 @@ func menuRuns(held []run.Held, now time.Time) (map[string][]ran, map[string][]ra
 	for i, each := range held {
 		census[i] = each.Record
 	}
-	seats := run.Seats()
+	seats, place := run.Seats(), run.LinePlaces(held) // each line's members found once a read
 	for _, each := range held {
 		if each.Smoke {
 			continue
@@ -57,6 +58,7 @@ func menuRuns(held []run.Held, now time.Time) (map[string][]ran, map[string][]ra
 		if !known {
 			return nil, nil, false
 		}
+		view.place, _ = place(record, each.Name)
 		mine[name] = append(mine[name], ran{name: each.Name, record: record, quiet: silence(filepath.Join(run.Runs(), each.Name), record, now), view: &view, census: census})
 	}
 	index := run.NewIndex(records)

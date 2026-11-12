@@ -88,10 +88,10 @@ class ConfigScreenEdits(unittest.TestCase):
 
     def test_space_on_a_build_effort_steps_it_up_in_the_seat_s_record(self):
         self.term.keys("j", "Right", "Right")
-        self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
+        self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ━━━───  high     ■  ━━━───  high"
                        in rows(screen))
         self.term.keys("Space")
-        self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ▰▰▰▰▱▱  xhigh    ■  ▰▰▰▱▱▱  high"
+        self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ━━━━──  xhigh    ■  ━━━───  high"
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["efforts"]["astra"],
                          {"effort": "high", "exec_effort": "xhigh"})
@@ -107,7 +107,7 @@ class ConfigScreenEdits(unittest.TestCase):
         return self.term.wait(lambda screen: f"  Restart {SEAT} on {model}?" in rows(screen)
                               and "  It starts a new conversation, handed the one it had."
                               in rows(screen) and "› ✓ Keep" in rows(screen)
-                              and "  ✗ Move" in rows(screen))
+                              and "  × Move" in rows(screen))
 
     def test_another_model_s_orchestrator_mark_asks_and_moves_the_seat_on_move(self):
         # the command it opens astra with leaves the pane it runs in, writing nothing on it: a
@@ -117,7 +117,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.fakes["codex"].answer("interactive", f"sh -c 'echo $TMUX_PANE >{ran}; exec sleep 600'")
         # as Codex's adapter does: its TUI takes no conversation id of ak's making
         self.fakes["codex"].answer("interactive", "", 3, given=["new"])
-        marked = "› GPT-6-Astra  [○]                  ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
+        marked = "› GPT-6-Astra  [○]                  ■  ━━━───  high     ■  ━━━───  high"
         self.term.keys("j")
         self.term.wait(lambda screen: marked in rows(screen))
         pane, record = self.pane(), self.record.read_text()
@@ -134,7 +134,7 @@ class ConfigScreenEdits(unittest.TestCase):
         # asked again, and `Move` moves it
         self.asked("GPT-6-Astra")
         self.term.keys("Down", "Enter")
-        self.term.wait(lambda screen: "› GPT-6-Astra  [●] ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high"
+        self.term.wait(lambda screen: "› GPT-6-Astra  [●] ━━━───  high     ■  ━━━───  high     ■  ━━━───  high"
                        in rows(screen)
                        and "  Fable 5.1     ○                   □                   □" in rows(screen)
                        and key_line(screen) == KEYS)
@@ -154,7 +154,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("k")
         self.asked("Fable 5.1")
         self.term.keys("Down", "Enter")
-        self.term.wait(lambda screen: "› Fable 5.1    [●] ▰▰▰▰▱   xhigh    □                   □"
+        self.term.wait(lambda screen: "› Fable 5.1    [●] ━━━━─   xhigh    □                   □"
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["orchestrator"], "fable")
 

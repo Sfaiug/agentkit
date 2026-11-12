@@ -3,7 +3,7 @@
 A blocked reason runs past what a composer shows whole (`watch.too_long`): the seat is handed
 the line cut at a word, naming the job, the task, BLOCKED and a file holding the whole of it,
 whether the job's own loop built the line or the tick reads it back off an older record; and a
-line `watch.too_long` refuses wakes no seat.  The seat is faked as `test_handback` fakes it: no
+line `watch.too_long` refuses is typed into no seat.  The seat is faked as `test_handback` fakes it: no
 tmux, its screen what the classifier is told, the confirmed send keeping what it was given.
 """
 
@@ -108,16 +108,13 @@ class JobEndingFitsComposer(Sandbox):
         jobs.deliver_job_handbacks(self.logs.append)
         self.assertEqual((len(self.typed), self.cards), (1, []))
 
-    def test_an_asleep_seat_is_not_woken_for_a_line_too_long_to_type(self):
-        config.update_session(SEAT, launched=1, asleep=2)
+    def test_a_line_too_long_to_type_is_typed_into_no_seat(self):
         line = f"job job-acme: b.md: BLOCKED: {REASON}. Result: x. Decide the next step."
-        with patch.object(orch, "resume") as resume:
-            self.assertEqual(jobs.job_hand_back(SEAT, line, self.logs.append), "busy")
-            resume.assert_not_called()
-            # the same ending cut to fit is what wakes it
-            self.assertEqual(jobs.job_hand_back(SEAT, jobs.seat_line(self.job_dir, line),
-                                                self.logs.append), "sent")
-            resume.assert_called_once()
+        self.assertEqual(jobs.job_hand_back(SEAT, line, self.logs.append), "busy")
+        self.assertEqual(self.typed, [])
+        # the same ending cut to fit is typed
+        self.assertEqual(jobs.job_hand_back(SEAT, jobs.seat_line(self.job_dir, line),
+                                            self.logs.append), "sent")
         self.assertEqual(len(self.typed), 1)
 
 

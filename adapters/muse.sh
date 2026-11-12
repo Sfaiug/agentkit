@@ -25,6 +25,9 @@
 #                                  written into that launch's receipt, any other handed on to
 #                                  hooks/seat-state.sh, a Stop with the background work its
 #                                  session's log has running: what that launch's hooks run
+#                     call         -> one model call of a seat's muse, on stdin: its model and
+#                                  effort kept as its session's report: what that launch's
+#                                  PreLLMCall hook runs
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `model/list` over `muse serve`, else the [catalog] table
 #                                  of adapters/muse.toml
@@ -191,26 +194,33 @@ interactive)
   # its receipt (agentkit/harness/muse.py).  No prompt hook: a seat that reports prompts has
   # only them answer its questions, and one opened before this, or on an older muse, reports
   # none.  Muse hands a hook almost none of the seat's environment, so the seat's name rides in
-  # its command, and so do the pane and tmux server its look needs and this launch's receipt,
-  # which only the pane's environment knows: `bash -c` writes them in where `@PANE@` stands as
-  # the pane starts.  Muse runs an Interrupt hook only
-  # alongside the turn, and a PostToolBatch one, run on every tool batch, need not hold it up.
-  # Only where this muse's own schema names hook events: an older one refuses a launch carrying
-  # settings it does not know, and its seat stays read off the screen alone, as does a launch
-  # for no seat.
+  # its command, and so do the pane and tmux server its look needs, this launch's receipt and
+  # the data home its sessions are logged under (1.4.15 hands a hook no XDG_DATA_HOME), which
+  # only the pane's environment knows: `bash -c` writes them in where `@PANE@` stands as the
+  # pane starts.  Muse runs an Interrupt hook only
+  # alongside the turn, and a PostToolBatch one, run on every tool batch, need not hold it up,
+  # nor a PreLLMCall one, run as each model call starts: the `call` verb below keeps its model
+  # and effort, the one place Muse names an effort `/effort` set.
+  # Only where this muse's own schema names hook events, PreLLMCall where it names that one: an
+  # older one refuses a launch carrying settings it does not know, and its seat stays read off
+  # the screen alone, as does a launch for no seat.
   hooks="" pane=""
   [ -n "${AGENTKIT_SESSION:-}" ] && schema=$(mktemp -d) && {
     if muse schema generate-json-schema --out "$schema" >/dev/null 2>&1 &&
         grep -q '"notification"' "$schema"/*.json 2>/dev/null; then
-      hook=$(printf 'env @PANE@ AGENTKIT_SESSION=%q bash %q hook' "$AGENTKIT_SESSION" \
+      seat=$(printf 'env @PANE@ AGENTKIT_SESSION=%q bash %q' "$AGENTKIT_SESSION" \
         "$REPO/adapters/muse.sh")
-      for event in SessionStart Stop Notification PostToolBatch Interrupt; do
-        run=$(jq -cn --arg c "$hook" --arg event "$event" '[{hooks: [{type: "command", command: $c}
-          + if $event == "Interrupt" or $event == "PostToolBatch" then {async: true} else {} end]}]')
+      events="SessionStart Stop Notification PostToolBatch Interrupt"
+      grep -q '"preLLMCall"' "$schema"/*.json && events+=" PreLLMCall"
+      for event in $events; do
+        run=$(jq -cn --arg seat "$seat" --arg event "$event" '[{hooks: [{type: "command",
+            command: ($seat + if $event == "PreLLMCall" then " call" else " hook" end)}
+          + if $event | IN("Interrupt", "PostToolBatch", "PreLLMCall") then {async: true}
+            else {} end]}]')
         hooks+=$(printf -- '-c %q ' "hooks.$event=$run")
       done
       # shell-quoted for the hook's shell, then escaped for the JSON string that command is in
-      pane=$(printf 'bash -c %q ' 'p=$(printf "TMUX=%q TMUX_PANE=%q AGENTKIT_MUSE_RECEIPT=%q" "${TMUX-}" "${TMUX_PANE-}" "${AGENTKIT_MUSE_RECEIPT-}" | jq -Rr "tojson[1:-1]"); for a; do case $a in *@PANE@*) a=${a%%@PANE@*}$p${a#*@PANE@} ;; esac; set -- "$@" "$a"; shift; done; exec "$0" "$@"')
+      pane=$(printf 'bash -c %q ' 'p=$(printf "TMUX=%q TMUX_PANE=%q AGENTKIT_MUSE_RECEIPT=%q XDG_DATA_HOME=%q" "${TMUX-}" "${TMUX_PANE-}" "${AGENTKIT_MUSE_RECEIPT-}" "${XDG_DATA_HOME-}" | jq -Rr "tojson[1:-1]"); for a; do case $a in *@PANE@*) a=${a%%@PANE@*}$p${a#*@PANE@} ;; esac; set -- "$@" "$a"; shift; done; exec "$0" "$@"')
     fi
     rm -rf -- "$schema"
   }
@@ -300,7 +310,7 @@ hooks)
   # Muse takes its hooks on the command line, and `interactive` builds that line where its
   # muse runs them (1.4.7): nothing persistent to write here.
   echo "muse: hooks are given per launch by \`adapters/muse.sh interactive\` (SessionStart, Stop," \
-       "Notification, PostToolBatch, Interrupt); nothing to write here" ;;
+       "Notification, PostToolBatch, Interrupt, PreLLMCall); nothing to write here" ;;
 hook)
   # One event of a seat's muse, handed to hooks/seat-state.sh in the shape it reads.  A tool
   # batch names its tools inside it, so it goes on named for its first, as a tool's own hook
@@ -341,6 +351,41 @@ print(json.dumps(muse.background(json.load(sys.stdin)["session_id"])))' "$REPO" 
     | if $asked == "" then . else .message = $asked end
     | if $held == null then . else .background_tasks = $held end' <<<"$payload" |
     bash "$REPO/hooks/seat-state.sh" ;;
+call)
+  # One model call of a seat's muse, on stdin: the model it runs and the effort it runs at, the
+  # level `/effort` set a moment before, kept as its session's report where that session has a
+  # log of its own -- the reminders Muse runs around a turn call under sessions of their own, at
+  # efforts of their own.  Muse goes on with the call while this runs, so the hooks of two calls
+  # can finish in either order: each report is a file of its own, named by the moment its hook
+  # began (agentkit/harness/muse.py `called` reads the latest), and one finding a later call's
+  # leaves it.  A call that keeps the report as it was dates it anew all the same: the seat may
+  # have been moved on `c` and back inside Muse since, and only what is newer than its last move
+  # counts (watch.follow_model).  Only a changed one starts the seat's look, as a Claude seat's
+  # status render does (hooks/claude-status.sh): it runs on every call, so one that changes
+  # nothing runs no Python.  It prints nothing, as Muse was checked running it.
+  at=$(jq -nr 'now * 1e6 | floor') || exit 0     # before the call is read, however long that takes
+  report=$(jq -er 'select(.session_id | strings | test("^[A-Za-z0-9_-]+$"))
+      | select(.model | strings | length > 0)
+      | .session_id, ({model, effort: .options["meta.reasoning.effort"]} | tojson)' 2>/dev/null) ||
+    exit 0
+  sid=${report%%$'\n'*} report=${report#*$'\n'}
+  logs=("${XDG_DATA_HOME:-$HOME/.local/share}"/muse/sessions/*/*/*/"$sid"/session.jsonl)
+  [ -e "${logs[0]}" ] || exit 0
+  kept=("$STATE/model-$sid".*.json)      # earliest first: every moment has sixteen digits
+  last=${kept[${#kept[@]}-1]} mine="$STATE/model-$sid.$at.json"
+  [[ ! -e $last || $last < $mine ]] || exit 0
+  was=$(cat -- "$last" 2>/dev/null)
+  tmp=$(mktemp "$STATE/.model-$sid.XXXXXX" 2>/dev/null) || exit 0
+  printf '%s\n' "$report" >"$tmp" && mv -f -- "$tmp" "$mine" || { rm -f -- "$tmp"; exit 0; }
+  rm -f -- "${kept[@]}"
+  [ "$was" != "$report" ] && [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || exit 0
+  REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+  ( python3 -c 'import contextlib, os, sys
+sys.path.insert(0, sys.argv[1])
+from agentkit import watch
+with contextlib.suppress(OSError):
+    os.setsid()     # a session of its own: Muse ending the hook ends none of this
+watch.hook_look(sys.argv[2])' "$REPO" "$AGENTKIT_SESSION" </dev/null >/dev/null 2>&1 & ) ;;
 models)
   # muse has no command that lists its models, but `muse serve` speaks MSP on stdio (`muse
   # schema`), and its `model/list` names the models this login's provider catalog offers,
@@ -359,6 +404,6 @@ models)
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" muse ;;
 *)
-  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh logout | muse.sh forget | muse.sh login-end | muse.sh lend <home> [own] | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh models" >&2
+  echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh logout | muse.sh forget | muse.sh login-end | muse.sh lend <home> [own] | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh call | muse.sh models" >&2
   exit 2 ;;
 esac

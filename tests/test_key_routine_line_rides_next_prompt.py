@@ -8,8 +8,8 @@ hands a prompt context at all; on one that does not (Grok) it is recorded.  A ch
 live before its merge is told is typed after that merge, in one line.  A failed or blocked ending is
 the seat's to decide, and is typed whatever it waits on.  Black-box: the program `AK_BIN` names runs
 `ak wait` and `ak watch` from outside (tests/fixtures/akbin.py), Claude's hooks as its adapter
-registers them (hookdrive.py), seats of akseat.py, one asleep with a harness of fakeadapter.py
-that would wake it, on a project from gitrig.py and the GitHub of fakegh.py.
+registers them (hookdrive.py), seats of akseat.py, one gone with a harness of fakeadapter.py
+that would reopen it, on a project from gitrig.py and the GitHub of fakegh.py.
 """
 
 import json
@@ -98,7 +98,8 @@ class Routine(unittest.TestCase):
 class Rides(Routine):
     """acme waits on HELD and owes work; two merges of its own and two changes going live, a
     repair's one of them, are not what it waits on, a failed and a blocked run are its to decide;
-    beta, asleep, and delta, on Grok, wait on HELD too, and a merge of each one's own ends."""
+    beta, gone from tmux, and delta, on Grok, wait on HELD too, and a merge of each one's own
+    ends."""
     OLD, NEW = "20261029-0930-old-merge", "20261029-0900-new-merge"
     REPAIR = "20261029-0905-fix-target"
     FAILED, BLOCKED = "20261029-0901-fix-ui", "20261029-0902-fix-cli"
@@ -111,8 +112,7 @@ class Rides(Routine):
                                   planned=True)
         cls.wait("delta", HELD)
         cls.proven("20261029-0904-delta-merge", 300, seat="delta")
-        cls.beta = Seat(cls.home, "beta", alive=False, planned=True,
-                        record={"launched": 1, "asleep": 2})
+        cls.beta = Seat(cls.home, "beta", alive=False, planned=True)
         folder = re.sub(r"[^A-Za-z0-9]", "-", str(cls.beta.cwd))
         cls.home.write(f".claude/projects/{folder}/conv-beta.jsonl",
                        '{"type":"user","message":{"role":"user","content":"hello"}}\n')
@@ -143,7 +143,7 @@ class Rides(Routine):
                          "routine ending: recorded, not typed")
         self.assertTrue(json.loads(path.read_text())["live_notified"])
 
-    def test_a_sleeping_seat_s_merge_wakes_it_not(self):
+    def test_a_gone_seat_s_merge_reopens_it_not(self):
         sessions = self.home.tmux("list-sessions", "-F", "#{session_name}").out.split()
         self.assertNotIn("beta", sessions)
         self.assertEqual(self.fake.calls("interactive"), [])

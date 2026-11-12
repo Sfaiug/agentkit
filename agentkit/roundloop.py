@@ -167,8 +167,8 @@ def settled_gate(lp):
     round would take its own untouched checkout for one that changed under the gate.
     A repo run whose log never recorded one has no settled gate to adopt.
     """
-    if lp.state.get("step") == "done-when" or round_suite(lp):
-        return None     # the round's suite passes on more than exits: it runs again
+    if lp.state.get("step") == "done-when":
+        return None
     if turns.regression_script(lp.run_dir).is_file() and not lp.state.get("regression_checked"):
         return None
     path = lp.round_dir / "donewhen.log"
@@ -471,15 +471,11 @@ def verify_work(lp, cmds=None):
     with history.check((lp.run_dir, lp.rnd, "rules", head), "files_scope, rules_check",
                        time.time()) as ended:
         checks = (files_scope(lp), rules_check(lp))
-        ended.append(int(any(checks)))
+        ended["exit"] = int(any(checks))
     clean = lp.scratch or lp.state.get("review_pr") or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
     ok, text = check(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
                      lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
                      checked=(lp.run_dir, lp.rnd, "done-when", head))
-    suite_ok, suite_text = affected_suite(lp)
-    if suite_text:
-        ok &= suite_ok
-        text = f"{suite_text}\n\n{text}"
     if not lp.scratch and not lp.state.get("review_pr") and (
             not clean or gitcall.commit_identity(lp.wt) != lp.validation or
             gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
@@ -499,100 +495,6 @@ def verify_work(lp, cmds=None):
                 + text)
         (lp.round_dir / "donewhen.log").write_text(text)
     return ok, text
-
-
-def round_suite(lp, ref=None):
-    """The target's `tests:` suite, at `ref` or else as last fetched, where this run lands and
-    it names `AK_CHANGED`, which opts it into every round (`affected_suite`); else None, and
-    None while the run is `landing`, whose landing check runs the suite whole.  Read off the
-    target each time, as a sibling can change the line mid-run."""
-    from . import gate  # here, not at the top: gate reaches run
-    landing = lp.upstream and not lp.state.get("no_merge") and not lp.state.get("landing")
-    suite = landing and gitcall.declared_suite(lp.wt, lp.target, ref=ref)
-    return suite if suite and gate.names_changed(suite) else None
-
-
-def affected_suite(lp):
-    """(whether it passed, what it said) of the round's suite (`round_suite`), which every
-    round runs besides the task's own checks; (True, "") where there is none.
-
-    The suite narrows itself to the tests the change can affect, from the file `AK_CHANGED`
-    names: the paths the change edits relative to the target, one per line.  It runs on HEAD
-    merged onto the target as just fetched, so a sibling merged since meets the change here
-    rather than in the landing line, in a clone of its own, on the heavy-suite turns and shares
-    a landing check takes.  A sibling that arrives during the checks and conflicts is landing's
-    to bring in, in conflict rounds outside the task budget (`integrate`): the round judges its own
-    work, merged onto the target it last integrated with.  The suite is the line of the target
-    the change meets, whose tree holds what it runs.  A red whose failing tests (`AK_FAILED`)
-    all fail again on that target alone (`AK_ONLY`) is the target's, not the change's: it
-    passes, and says which.
-    """
-    from . import gate  # here, not at the top: gate reaches run
-    if not round_suite(lp):
-        return True, ""
-    if gitcall.fetch(lp.wt, "origin", lp.upstream.removeprefix("origin/"))[0]:
-        lp.log(f"WARN cannot fetch {lp.upstream}: the suite meets it as last fetched")
-    tip = gitcall.git(lp.wt, "rev-parse", f"{lp.upstream}^{{commit}}")
-    head = gitcall.git(lp.wt, "rev-parse", "HEAD")
-    with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
-        checkout, changed = Path(tmp) / "checkout", Path(tmp) / "changed"
-
-        def moved(sha):
-            """Whether a run left the checkout off `sha` or edited what it tracks: then its
-            verdict is not that commit's, as `land._check` holds for the landing suite."""
-            return (gitcall.git(checkout, "rev-parse", "HEAD") != sha
-                    or gitcall.git_out(checkout, "diff", "--quiet", "HEAD")[0] != 0)
-
-        gitcall.clone_borrowing(lp.wt, checkout, "--no-checkout")
-        code, tree = gitcall.git_out(checkout, "merge-tree", "--write-tree", "--name-only", tip, head)
-        if code:
-            last = lp.state.get("target_sha") or lp.base_sha
-            lp.log(f"done-when: {lp.upstream} moved to {tip[:12]} with a change conflicting with "
-                   f"this one, which landing brings in; the round meets {last[:12]}")
-            tip = last
-            code, tree = gitcall.git_out(checkout, "merge-tree", "--write-tree", "--name-only",
-                                         tip, head)
-        suite = round_suite(lp, tip)
-        if not suite:
-            return True, ""
-        where = f"{head[:12]} merged onto {lp.upstream} at {tip[:12]}"
-        if code:
-            return False, f"$ {suite}\n[not run: {where} does not merge cleanly]\n{tree}"
-        merged = gitcall.git(checkout, "commit-tree", tree.splitlines()[0], "-p", tip, "-p", head,
-                             "-m", where, env=gitcall.STAMP)
-        gitcall.git(checkout, "checkout", "--quiet", "--detach", merged)
-        paths = [p for p in gitcall.git(checkout, "diff", "--name-only", "-z", "--no-renames",
-                                        tip, merged).split("\0") if p]
-        changed.write_text("".join(f"{path}\n" for path in paths))
-        pieces, confirmed = {}, {}
-        ok, text = gate.run_done_when([suite], checkout, lp.round_dir / "suite.log", set(),
-                                      lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                                      run_dir=lp.run_dir, heavy=True, pieces=pieces,
-                                      confirmed=confirmed, changed=changed,
-                                      checked=(lp.run_dir, lp.rnd, "done-when", merged))
-        text = f"The `tests:` suite on {where}, AK_CHANGED listing its {len(paths)} paths:\n\n{text}"
-        if moved(merged):
-            return False, f"{text}\n\nCheckout changed during the suite; it does not verify {where}."
-        named = confirmed.get(suite, {})
-        reds = [share for share, code in pieces.get(suite, {}).items() if code != 0] or ["1/1"]
-        failed = sorted({test for share in reds for test in named.get(share) or ()})
-        if ok or not all(named.get(share) for share in reds):
-            return ok, text
-        gitcall.git(checkout, "checkout", "--quiet", "--force", "--detach", tip)
-        gitcall.git(checkout, "clean", "-fdqx")
-        again = {}
-        gate.run_done_when([suite], checkout, lp.round_dir / "suite-target.log", set(),
-                           lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
-                           heavy=True, shard="1/1", only=failed, confirmed=again,
-                           checked=(lp.run_dir, lp.rnd, "done-when", tip))
-        if moved(tip):
-            return False, text
-    theirs = [test for test in failed if test in (again.get(suite) or {}).get("1/1", ())]
-    if not theirs:
-        return False, text
-    said = f"failing on {lp.upstream} at {tip[:12]} alone too, the target's own: {' '.join(theirs)}"
-    lp.log(f"done-when: the suite's tests {said}")
-    return theirs == failed, f"{text}\n\nTests {said}"
 
 
 def passed_review_head(state):
@@ -1591,18 +1493,14 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     prompts.record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
     # kept whatever the verdict, every round's, with the commit each was proven on for its plan
-    # line; each defect once, whichever round proved it: the same defect handed in again on a
-    # later head differs only in its proof, which names that head, and the first one is kept
-    known = set((lp.state.get("followup_defects") or {}).values())
-    fresh = []
-    for item, defect in submitted.followup_defects.items():
-        if defect not in known:
-            known.add(defect)
-            fresh.append(item)
+    # line; none at a site an earlier round's names: that is the defect a later round's reviewer
+    # re-found on its head in its own words and check, and the first one is kept
+    known = {handback.followup_place(item) for item in lp.state.get("followups") or []}
+    fresh = [item for item in dict.fromkeys(submitted.followups)
+             if handback.followup_place(item) not in known]
     lp.state["followups"] = (lp.state.get("followups") or []) + fresh
     for key, found in (("followup_checks", submitted.followup_checks),
-                       ("followup_commits", submitted.followup_commits),
-                       ("followup_defects", submitted.followup_defects)):
+                       ("followup_commits", submitted.followup_commits)):
         lp.state[key] = {**(lp.state.get(key) or {}), **{item: found[item] for item in fresh if item in found}}
     if verdict == "PASS":
         prompts.record_flakes(lp.state, dw_log)
@@ -1622,8 +1520,12 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                           "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
+    fixed_from = lp.state.get("reviewed_sha") if lp.rnd > 1 else None     # round 1 judges a build, not a fix
     if validation.get("head_sha"):
         lp.state["delta_from"] = validation["head_sha"]     # every review, recorded or not
+        # the same commit, kept through an integration that takes `delta_from`: the fix the
+        # next review's findings are placed against (`prompts.inside_fix`)
+        lp.state["reviewed_sha"] = validation["head_sha"]
     lp.save()
     own = hand_in.Review([row for row in submitted.records if not row.get("replayed")])   # ak's replays are no reviewer's catch
     history.record_review(lp.state.get("run_id"), str(out),
@@ -1631,7 +1533,9 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                           blocking=len(own.findings), followup=len(own.preexisting),
                           note=len(own.notes), round=lp.rnd, verdict=verdict,
                           effort=config.role_effort(reviewed, "reviewer"),
-                          records=submitted.records + disputes.disputes, log=lp.log)
+                          records=[{**row, "inside_fix": prompts.inside_fix(
+                              lp, row, fixed_from, identity.get("head_sha"))}
+                              for row in submitted.records + disputes.disputes], log=lp.log)
     return verdict
 
 

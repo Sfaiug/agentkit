@@ -81,7 +81,7 @@ class XStopsOnlyItsOwnSeat(unittest.TestCase):
         menu.keys("x")
         menu.wait("  Stop atoll-fix and everything it runs?")
         menu.keys("j")
-        menu.wait("› ✗ Stop")
+        menu.wait("› × Stop")
         menu.keys("Enter")
         self.assertEqual(menu.exit_code(), 0)     # the popup over it goes first
         self.assertTrue(gone(self.home, "atoll-fix"))

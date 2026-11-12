@@ -2,11 +2,15 @@
 
 A shim test holds only if tests/fixtures/shims.py has a seat's launch install the shims and runs
 a command as a seat's shell would: its name found on the seat's PATH, the shim first and the
-Home's own tool behind it, with the seat's name, a worker's role, or neither.
+Home's own tool behind it, with the seat's name, a worker's role, or neither; and only if the
+launch's server is gone by then, as a call that meets it on its way out fails.
 """
 
+import os
+import socket
 import sys
 from pathlib import Path
+import threading
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -50,6 +54,32 @@ class Installed(unittest.TestCase):
     def test_a_tool_with_no_shim_is_a_mistake_in_the_test(self):
         with self.assertRaises(AssertionError):
             self.shims.run("ls")
+
+
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+class LaunchServer(unittest.TestCase):
+    def test_no_call_after_meets_it_on_its_way_out(self):
+        # Its last session stopped, the server exits, and a call that reaches it meanwhile fails
+        # with `server exited unexpectedly`.  A client held a second past the stop keeps it up,
+        # as a loaded host does: the shims are in only once nothing listens there.
+        home = Home()
+        self.addCleanup(home.close)
+        path = str(home.tmux_dir / f"tmux-{os.getuid()}" / SOCKET)
+        hold, ak = socket.socket(socket.AF_UNIX), home.ak
+        self.addCleanup(hold.close)
+
+        def stop(*args, **kwargs):
+            if args[:2] != ("orch", "stop"):
+                return ak(*args, **kwargs)
+            hold.connect(path)
+            done = ak(*args, **kwargs)
+            threading.Timer(1, hold.close).start()
+            return done
+
+        home.ak = stop
+        Shims(home)
+        with socket.socket(socket.AF_UNIX) as call:
+            self.assertRaises((ConnectionRefusedError, FileNotFoundError), call.connect, path)
 
 
 if __name__ == "__main__":

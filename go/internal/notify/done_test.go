@@ -16,8 +16,13 @@ func TestADoneQueuesItsWorkOnceEvenWhenItsCardIsLost(t *testing.T) {
 	if err := os.MkdirAll(state(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for kind, text := range map[string]string{"session": `{"created":1}`, "seat": `{"word":"done","reason":"API ships"}`} {
-		if err := os.WriteFile(seatFile(kind, "acme", "json"), []byte(text), 0o600); err != nil {
+	// a seat as launched: its done's row is read from the conversation its harness keeps
+	for path, text := range map[string]string{
+		filepath.Join(filepath.Dir(state()), "config.toml"): "[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n",
+		seatFile("session", "acme", "json"):                 `{"orchestrator":"opus","cwd":"/code/acme","conversation":"conv-acme","created":1}`,
+		seatFile("seat", "acme", "json"):                    `{"word":"done","reason":"API ships"}`,
+	} {
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

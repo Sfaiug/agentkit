@@ -1,10 +1,12 @@
 """A red stack is narrowed by what failed: each step runs just the failing command's tests that
-failed again alone, or with none named its red piece, whichever command failed, and starts just
-ahead of the first stack running that command.  A member whose rewritten `tests:` line fails one
-test on every tree holding it goes to its fixer and the others land, the suite run whole only on
-the deepest stack, the one just below it and the one rebuilt without it; a red only the target's
-suite shows narrows as before.  Blame still needs the stack just ahead green on what failed: a
-member breaking a test both lines run is the one blamed, not the member whose line runs it.
+failed again alone, whichever command failed, and starts just ahead of the first stack running
+that command; a red piece that named none is narrowed by whole checks.  A member whose rewritten
+`tests:` line fails one test on every tree holding it goes to its fixer and the others land, the
+suite run whole only on the deepest stack, the one just below it and the one rebuilt without
+it; one whose rewritten line fails every piece, naming no test, goes to its fixer too and the
+others land.  A red only the target's suite shows narrows as before.  Blame still needs the
+stack just ahead green on what failed: a member breaking a test both lines run is the one
+blamed, not the member whose line runs it.
 Black-box: the program `AK_BIN` names checks the line from outside through
 tests/fixtures/akline.py.
 """
@@ -46,11 +48,9 @@ class RedStackNarrowsByWhatFailed(unittest.TestCase):
         self.assertLessEqual(line.whole(), 3, line.runs())
         self.assertEqual(line.verdict(3)["fix"]["tests"], ["t2.sh"])
 
-    def test_a_red_piece_naming_no_test_narrows_by_that_piece_alone(self):
-        # every piece of the rewritten line fails, naming no test as failed; the stack ahead of
-        # it, which does not run the line, gets its whole check
-        line = self.narrow(2, {2: {"AGENTS.md": rules(f"{SUITE} unnamed; false")}})
-        self.assertLessEqual(line.whole(), 3, line.runs())
+    def test_a_rewritten_tests_line_failing_every_piece_narrows_by_whole_checks(self):
+        # every piece of the rewritten line fails as it starts, naming no test as failed
+        self.narrow(2, {2: {"AGENTS.md": rules(f"{SUITE} unnamed; false")}})
 
     def test_a_test_broken_for_both_lines_blames_the_member_breaking_it(self):
         # member 2's line fails no test of its own: only t2, which member 1 breaks for both

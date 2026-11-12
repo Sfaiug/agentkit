@@ -1,5 +1,5 @@
 """Every yes-or-no question reads as one calm card, `terminal.confirm`: a blank line, the question,
-one dim line on what the answer means, `✓ Keep` highlighted then `✗ <answer>` in the warn colour,
+one dim line on what the answer means, `✓ Keep` highlighted then `× <answer>` in the warn colour,
 and a blank line.  Esc keeps; Enter or a click on a choice answers.  On the main screen and in the
 popup it opens under the seat's row, the rows below moving down, and on a phone no choice wraps.
 
@@ -68,7 +68,7 @@ class QuestionCard(unittest.TestCase):
     def test_the_card_is_the_question_what_it_means_and_keep_first(self):
         _, card, out = ask([Key("esc")])
         with patch.object(terminal, "colour_depth", return_value=256):
-            dim, warn = terminal.styled("  " + MEANS, "dim"), terminal.styled("✗ Stop", "amber")
+            dim, warn = terminal.styled("  " + MEANS, "dim"), terminal.styled("× Stop", "amber")
         self.assertEqual(card, ["", "  " + QUESTION, dim, "", "", ""])
         # the choices on the card's two rows before its last: Keep lit, Stop in the warn colour
         keep, stop = out.split("\x1b[K")[:2]
@@ -85,7 +85,7 @@ class QuestionCard(unittest.TestCase):
         self.assertFalse(ask([Key("esc")])[0])
         self.assertFalse(ask([Key("enter")])[0])                    # Enter on Keep keeps too
         self.assertTrue(ask([Key("down"), Key("enter")])[0])
-        self.assertTrue(ask([Key("click", col=4, row=9)])[0])      # a click on `✗ Stop`
+        self.assertTrue(ask([Key("click", col=4, row=9)])[0])      # a click on `× Stop`
         # ... and one on nothing leaves the card up for the keys
         self.assertTrue(ask([Key("click", col=4, row=2), Key("down"), Key("enter")])[0])
 
@@ -105,7 +105,7 @@ class QuestionCard(unittest.TestCase):
                 # right under its row, and under the line a phone draws under that row
                 self.assertIn("alpha", asked[first - (2 if cols == 40 else 1)])
                 self.assertIn("beta", asked[first + len(card)])     # the row below, moved down
-                self.assertEqual(answers, ["› ✓ Keep", "  ✗ Stop"])
+                self.assertEqual(answers, ["› ✓ Keep", "  × Stop"])
                 for line in asked:
                     self.assertLessEqual(terminal.cells(line), cols, line)
                 mark = shown.mark()
@@ -131,7 +131,7 @@ class QuestionCard(unittest.TestCase):
         asked = shown.frame(keys="esc back", after=mark)
         its = [f"  {line}" for line in terminal.wrap(menu.stop_means(None), cols - 2)]
         self.assertEqual(asked[top - 1 - len(its):top - 1], its)
-        # down on Keep; the count lands one line shorter, moving `✗ Stop` onto that row; up there
+        # down on Keep; the count lands one line shorter, moving `× Stop` onto that row; up there
         three = [f"  {line}" for line in terminal.wrap(menu.stop_means(3), cols - 2)]
         shown.send(f"\x1b[<0;4;{top}M".encode())
         counted = shown.frame(lambda lines: three[0] in lines, keys="esc back", after=mark)
@@ -174,7 +174,7 @@ class QuestionCard(unittest.TestCase):
         self.assertIn("  " + menu.STOP_ASK.format("omega"), asked)
         for line in terminal.wrap(NONE, 98):           # the pty is 100 columns wide
             self.assertIn("  " + line, asked)
-        self.assertEqual(shown.choices(after=mark)[1], ["› ✓ Keep", "  ✗ Stop"])
+        self.assertEqual(shown.choices(after=mark)[1], ["› ✓ Keep", "  × Stop"])
         mark = shown.mark()
         shown.send(ESC)
         shown.frame(after=mark)

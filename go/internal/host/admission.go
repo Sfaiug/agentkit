@@ -44,10 +44,10 @@ func (r Readings) Limits(first bool) (float64, float64, error) {
 }
 
 // Hold is why these readings hold a run back against those limits and the gate's kind, "" where
-// none does, as Python's gate._gates_admit words it before it asks about a landing suite: peak is
-// the median peak of recent runs, measured false where none was, and starting what the runs let in
-// may still take; frozen is how many of the runs holding a slot the host froze, asked only where a
-// load limit stands and the load alone passes it.
+// none does, as Python's gate._gates_admit words it: peak is the median peak of recent runs,
+// measured false where none was, and starting what the runs let in may still take; frozen is how
+// many of the runs holding a slot the host froze, asked only where a load limit stands and the
+// load alone passes it.
 func (r Readings) Hold(minimum, maximum, peak float64, measured bool, starting Starting, frozen func() int) (string, string) {
 	held := 0
 	if load, ok := r.Number("load", "load1", "load_1m"); maximum != 0 && ok && load <= maximum {

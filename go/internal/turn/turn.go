@@ -142,16 +142,28 @@ func (h *Hold) wait(ctx context.Context, got []held, limit, running int) ([]held
 // Places is the most turns the hold's pieces run on: the limit it was admitted at.
 func (h *Hold) Places() int { return h.places }
 
-// Grow calls start once for each turn the hold has, a place for its pieces, and, while waiting says
-// a piece waits for one, joins the turns this host frees to it, up to Places, and calls start for
-// each, Python's _GateHold.take: the suite waits as one waiter, at the place it was admitted at.
-func (h *Hold) Grow(ctx context.Context, waiting func() bool, start func()) {
+// Grow calls start once for each turn the hold has, a place for its pieces, and, until over says
+// none waits or runs, joins the turns this host frees to it each time waiting says a piece waits for
+// one, as one a machine lost waits again, up to Places, and calls start for each, Python's
+// _GateHold.take: the suite waits as one waiter, at the place it was admitted at.
+func (h *Hold) Grow(ctx context.Context, waiting, over func() bool, start func()) {
 	for range h.turns {
 		start()
 	}
-	if len(h.turns) >= h.places || !waiting() {
-		return
+	for len(h.turns) < h.places && !over() && ctx.Err() == nil {
+		if waiting() {
+			h.join(ctx, waiting, start)
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(time.Second):
+		}
 	}
+}
+
+// join joins the turns this host frees to the hold while waiting says a piece waits, seen waiting
+// meanwhile.
+func (h *Hold) join(ctx context.Context, waiting func() bool, start func()) {
 	h.waited = true
 	defer h.seen()()
 	defer h.marked()()

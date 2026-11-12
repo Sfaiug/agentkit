@@ -209,7 +209,7 @@ func start(state, name, cwd string, cmd []string) error {
 	if err != nil {
 		return err
 	}
-	shims, err := shims()
+	path, err := seatPath(cwd)
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func start(state, name, cwd string, cmd []string) error {
 	}
 	target := "=" + name + ":"
 	args := slices.Concat([]string{"new-session", "-d", "-s", name, "-c", cwd}, paneEnvironment(values), []string{command})
-	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
+	if err := tmux.Spawn(server, path, args...); err != nil {
 		os.Remove(launch)
 		return fmt.Errorf("tmux could not start the session %s in %s: %v", name, cwd, err)
 	}
@@ -256,16 +256,16 @@ func keptEnvironment(target string, values []field) []string {
 }
 
 // environment is what a seat takes from whoever opens it, as Python's orch.seat_env: its home,
-// its name, where its harnesses keep their state and where its pages go; and not the mark of the
-// ak that opened it, which it outlives.  A nil value is one it goes without.  It names its server
-// only where its HOME would not: an ak opened in it under another HOME then reaches that HOME's
-// own, never the seats'.
+// its name, where its harnesses keep their state and where its pages go; and neither the mark of
+// the ak that opened it nor the version a run that opened it is pinned to, which it outlives.  A
+// nil value is one it goes without.  It names its server only where its HOME would not: an ak
+// opened in it under another HOME then reaches that HOME's own, never the seats'.
 func environment(name, server string) ([]field, error) {
 	var socket any
 	if server != tmux.HomeServer() {
 		socket = server
 	}
-	values := []field{{"HOME", config.UserHome()}, {"AGENTKIT_SESSION", name}, {"AGENTKIT_TMUX_SOCKET", socket}, {"AK_OWNER", nil}}
+	values := []field{{"HOME", config.UserHome()}, {"AGENTKIT_SESSION", name}, {"AGENTKIT_TMUX_SOCKET", socket}, {"AK_OWNER", nil}, {config.RunCode, nil}}
 	names, err := config.StateEnv()
 	for _, key := range slices.Compact(slices.Sorted(slices.Values(append(names, notify.EnvNames...)))) {
 		if !slices.ContainsFunc(values, func(f field) bool { return f.key == key }) {

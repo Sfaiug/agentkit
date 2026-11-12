@@ -44,9 +44,9 @@ func (at seatAt) editorIn() bool {
 }
 
 // editorLaunched is aside_editor.launched: the last process down from pid still on that terminal,
-// whose environment the harness inherited, has ak's editor as its $VISUAL.  Each process's parent
-// is read, as a kernel built without CONFIG_PROC_CHILDREN lists no task's children; with no /proc,
-// as on a Mac, none is found.
+// whose environment the harness inherited, has ak's editor, the one a seat is launched with
+// (config.LiveRepo), as its $VISUAL.  Each process's parent is read, as a kernel built without
+// CONFIG_PROC_CHILDREN lists no task's children; with no /proc, as on a Mac, none is found.
 func editorLaunched(pid, tty string) bool {
 	entries, err := os.ReadDir("/proc")
 	if _, number := strconv.Atoi(pid); err != nil || number != nil {
@@ -79,7 +79,7 @@ func editorLaunched(pid, tty string) bool {
 	if err != nil {
 		return false
 	}
-	editor := resolved(filepath.Join(config.Repo(), "tools", "aside-editor"))
+	editor := resolved(filepath.Join(config.LiveRepo(), "tools", "aside-editor"))
 	for _, entry := range bytes.Split(env, []byte{0}) {
 		if visual, ok := bytes.CutPrefix(entry, []byte("VISUAL=")); ok && resolved(string(visual)) == editor {
 			return true

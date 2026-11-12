@@ -1,23 +1,26 @@
 agentkit                           14:02
 ────────────────────────────────────────
-  Claude   ▰▰▱▱▱▱▱▱▱▱  21% left
+  Claude   ━━────────  21% left
   MiMo     — no reading yet
-  Muse     ▰▰▰▰▰▱▱▱▱▱  50% left
+  Muse     ━━━━━─────  50% left
   Gemini   — no reading yet
   Grok     — no reading yet
-  ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left
+  ChatGPT  ━━━━━━━───  69% left
 
 
 ATOLL
   1  atoll-fix   Fable 5.1  ● working
     ──────────────────────── no plan yet
+     Opus 5.5 xhigh ⚒◎   ■□□
   2  atoll-plan  Fable 5.1  ! needs you
-     waiting for you
+     Opus 5.5 xhigh ⚒◎
 
 agentkit
   3  menu        Fable 5.1  ○ idle
+     Opus 5.5 xhigh ⚒◎
 
 newsletter-tool
   4  rent        Fable 5.1  ○ idle
+     Opus 5.5 xhigh ⚒◎
 
   n new   c config   esc leave

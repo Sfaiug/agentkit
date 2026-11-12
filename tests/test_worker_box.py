@@ -21,7 +21,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import box, config, run, turns, worker
+from agentkit import box, config, matrix, run, turns, worker
 
 
 ADAPTER = r'''import json, os, signal, subprocess, sys, time
@@ -496,9 +496,13 @@ class WorkerBox(unittest.TestCase):
                     "BOX_EXIT", "BOX_INSPECT", "BOX_PATHS", "BOX_SIGNAL", "BOX_TERM", "BOX_AGENT",
                     "SSH_AUTH_SOCK"):
             os.environ.pop(key, None)
-        self.stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
+        # config.py read the real HOME at import: the account's model list never judges the fixture
+        for name in ("RUNS", "STATE"):
+            self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         # The only real child is our fixture. No marker sweep may inspect the hosting run.
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
+        # No stored model list: the host's would judge this config, which names no defaults.
+        self.stack.enter_context(patch.object(matrix, "listed", return_value=([], {})))
         gh = self.root / ".config/gh"
         gh.mkdir(parents=True)
         (gh / "hosts.yml").write_text("fixture-login")

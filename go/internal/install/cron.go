@@ -25,6 +25,10 @@ var cronTagged = regexp.MustCompile(`#+[[:space:]]*agentkit[[:space:]]+watch([[:
 // running this program's `watch` every three minutes, as install.sh's step (g) does.  Every
 // line carrying the tag goes first, the live one or a copy the owner commented out to pause the
 // tick, and the owner's other lines stay.  A table already so is not written again.
+//
+// After a move, the version it replaced decides whether the move stays, from outside the new
+// release, which may be what cannot start: so the line runs that keeper first, under the line's
+// PATH and into the tick's log, and then the tick, whatever the keeper did.
 func cron(sandboxed bool, out, errOut io.Writer) error {
 	if sandboxed {
 		fmt.Fprintln(out, "server: sandbox HOME, so the ak watch cron is not installed")
@@ -38,9 +42,10 @@ func cron(sandboxed bool, out, errOut io.Writer) error {
 	home := config.UserHome()
 	path := filepath.Join(home, ".local", "bin") + ":" + filepath.Join(home, ".npm-global", "bin") +
 		":/usr/local/bin:/usr/bin:/bin"
-	line := fmt.Sprintf("*/3 * * * * PATH=%s %s watch >>%s 2>&1 %s", cronWord(path),
-		cronWord(config.Resolve(executable)), cronWord(config.TickLog()),
-		cronTag)
+	keeper, log := cronWord(filepath.Join(config.Home(), "tmp", "keep", "ak")), cronWord(config.TickLog())
+	line := "*/3 * * * * export PATH=" + cronWord(path) + ";" +
+		" [ -x " + keeper + " ] && " + keeper + " back --when-broken >>" + log + " 2>&1;" +
+		" " + cronWord(config.Resolve(executable)) + " watch >>" + log + " 2>&1 " + cronTag
 	listed, err := exec.Command("crontab", "-l").Output()
 	if errors.Is(err, exec.ErrNotFound) {
 		fmt.Fprintln(errOut, "note: no crontab here; run `ak watch` every three minutes some other way")

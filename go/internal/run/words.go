@@ -152,6 +152,10 @@ func Actionable(record *Object, now time.Time) bool {
 // GCAge is the status window: what ended longer ago and needs nothing more is history.
 const GCAge = 7 * 86400
 
+// DeadWindow is how far back a loop's deaths count: a third inside it parks the run, and a job
+// the tick relaunched twice inside it stays as it is once it dies again.
+const DeadWindow = 3600
+
 // firstKey is the first of the keys holding a true value, else the last, as Python's `or` picks.
 func firstKey(record *Object, keys ...string) string {
 	for _, key := range keys[:len(keys)-1] {
@@ -230,20 +234,23 @@ func (index Index) replaced(record *Object, relaunched string) bool {
 	return false
 }
 
-// Word is the listing's word for a run: working, needs you or done; an ending already its
-// orchestrator's -- handed back or waiting for its seat's next quiet prompt, acknowledged,
-// or superseded -- reads done.
-func Word(record *Object, index Index, now time.Time) string {
-	settled := record.Truthy("handed_back") || record.Truthy("handback_pending") ||
-		record.Truthy("recovery_acknowledged_at") || index.superseded(record)
+// Settled is whether an ending is already its orchestrator's (transitions.settled): handed back
+// or waiting for its seat's next quiet prompt, acknowledged, or superseded.
+func (index Index) Settled(record *Object) bool {
 	if record.Str("state") == "exhausted" {
 		// no hand-back settles a wait, only a look or a later merged run taking the work up
-		settled = record.Truthy("recovery_acknowledged_at") || index.MergedOver(record)
+		return record.Truthy("recovery_acknowledged_at") || index.MergedOver(record)
 	}
+	return record.Truthy("handed_back") || record.Truthy("handback_pending") ||
+		record.Truthy("recovery_acknowledged_at") || index.superseded(record)
+}
+
+// Word is the listing's word for a run: working, needs you or done; a Settled ending reads done.
+func Word(record *Object, index Index, now time.Time) string {
 	switch {
 	case Going(record, now):
 		return "working"
-	case (NeedsRecovery(record) || Failed(record)) && !settled:
+	case (NeedsRecovery(record) || Failed(record)) && !index.Settled(record):
 		return "needs you"
 	}
 	return "done"

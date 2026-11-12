@@ -28,7 +28,7 @@ func TestMoveRetiresQueuedSwitchesOnlyAfterRestart(t *testing.T) {
 					write(t, filepath.Join(home, "respawns"), "")
 				}
 				write(t, stateFile(home, "seat-acme.json"), `{"owed_lines":`+queue.before+`}`)
-				known, err := Move("acme", "astra", func() (bool, bool) { return true, true })
+				known, err := Move("acme", "astra", "", func(bool) (bool, bool) { return true, true })
 				if !known || (err == nil) != start {
 					t.Fatal("move result", known, err)
 				}

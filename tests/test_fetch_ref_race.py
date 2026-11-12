@@ -10,6 +10,7 @@ from contextlib import ExitStack
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -18,6 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+from fixtures.clock import Clock
 from fixtures.landing import landing
 from agentkit import config, deliver, gitcall, host, roundloop, run, turns
 from agentkit import record
@@ -42,7 +44,6 @@ FAKE_GIT = """#!/bin/sh
 if [ "$1" = -C ] && [ "$3" = fetch ]; then
     echo fetch >> "$FRR_FETCHES"
     if [ $(wc -l < "$FRR_FETCHES") -le "$FRR_FAILS" ]; then
-        sleep "$FRR_DELAY"
         printf '%s\\n' "$FRR_ANSWER" >&2
         exit 1
     fi
@@ -74,7 +75,6 @@ class FetchRefRace(unittest.TestCase):
             "AK_RUN_ROLE": "", "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
             "FRR_FETCHES": str(self.fetches), "FRR_FAILS": "0", "FRR_ANSWER": "",
-            "FRR_DELAY": "0",
             "PATH": f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"}))
         stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
@@ -141,10 +141,10 @@ class FetchRefRace(unittest.TestCase):
         record.save_state(run_dir, state)
         return run.Loop(cfg, run_dir, state, {}, log, wt, "body", ["true"], "context")
 
-    def land(self, fails, answer, delay=0):
-        """Land the run while its first `fails` fetches answer `answer` after `delay` seconds."""
+    def land(self, fails, answer):
+        """Land the run while its first `fails` fetches answer `answer`."""
         self.fetches.unlink(missing_ok=True)
-        os.environ.update(FRR_FAILS=str(fails), FRR_ANSWER=answer, FRR_DELAY=str(delay))
+        os.environ.update(FRR_FAILS=str(fails), FRR_ANSWER=answer)
         return landing(self.lp)
 
     def attempts(self):
@@ -171,18 +171,27 @@ class FetchRefRace(unittest.TestCase):
         self.merges.assert_not_called()
 
     def test_a_ref_lock_outlasting_the_git_limit_is_reported_not_retried_forever(self):
-        # The second call gets the remaining 0.5s, then one retry with that same budget.  What
-        # each fetch was allowed, not how long the landing took: host load only shrinks it.
-        with patch.object(gitcall, "TOOL_CAP", 2), \
-                patch.object(gitcall, "run_capped", wraps=gitcall.run_capped) as calls:
+        # gitcall's clock moves only by its own pauses and what each fetch takes, never by host
+        # load: the first fetch leaves half a second of the limit, the second is stopped at it,
+        # then one retry with that same budget.
+        passed, took, capped = [], gitcall.TOOL_CAP - 0.5, gitcall.run_capped
+        clock = Clock(passed.append)
+        clock.monotonic = lambda: sum(passed)
+
+        def fetching(cmd, timeout, **popen):
+            if cmd[3:4] == ["fetch"]:
+                passed.append(min(took, timeout))
+                if timeout < took:
+                    raise subprocess.TimeoutExpired(cmd, timeout)     # as run_capped stops it
+            return capped(cmd, timeout, **popen)
+
+        with patch.object(gitcall, "time", clock), \
+                patch.object(gitcall, "run_capped", side_effect=fetching) as calls:
             with self.assertRaises(config.Error) as error:
-                self.land(ALWAYS, LOCKED, delay=1.5)
-        self.assertEqual(self.attempts(), 3)
+                self.land(ALWAYS, LOCKED)
         allowed = [call.kwargs["timeout"] for call in calls.call_args_list
                    if call.args[0][3:4] == ["fetch"]]
-        self.assertEqual(allowed[0], 2)
-        self.assertLessEqual(allowed[1], 2 - 1.5)
-        self.assertEqual(allowed[2:], [allowed[1]])
+        self.assertEqual(allowed, [gitcall.TOOL_CAP, 0.5, 0.5])
         self.assertIn("cannot lock ref 'refs/remotes/origin/main'", str(error.exception))
         self.assertEqual(self.lp.state["state"], "waiting")
         self.assertEqual(self.lp.state["verdict"], "PASS")

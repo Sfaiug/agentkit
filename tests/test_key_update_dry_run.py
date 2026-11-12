@@ -109,11 +109,11 @@ class DryRun(unittest.TestCase):
 
         def git(*args):
             return self.home.run("git", "-C", str(checkout), *args).out.strip()
-        head, short = git("rev-parse", "HEAD"), git("rev-parse", "--short", "HEAD")
+        head = git("rev-parse", "HEAD")
         lines = self.dry_run()
         said = [line for line in lines if line.startswith("update: agentkit")]
         self.assertEqual(len(said), 1, lines)
-        self.assertTrue(said[0].startswith(f"update: agentkit {short}"), said)
+        self.assertTrue(said[0].startswith("update: agentkit 1 · "), said)     # its one commit
         self.assertIn("would move forward", said[0])
         self.assertEqual(git("rev-parse", "HEAD"), head)
         self.assertNotEqual(rig.head(), head)

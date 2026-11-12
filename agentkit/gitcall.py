@@ -1113,13 +1113,15 @@ def no_auto_gc(repo):
 
 def add_worktree(repo, path, *args, mark=None):
     """(exit code, output) of `git worktree add` making `path`, locked as `MAKING` until git
-    has made it and, given `mark`, that file is in the checkout's own git directory."""
+    has made it and, given `mark`, that file, naming this process as its maker
+    (`record.process_owner`), is in the checkout's own git directory."""
     with repository_lock(repo):
         no_auto_gc(repo)
         code, out = git_out(repo, "worktree", "add", "--lock", "--reason", MAKING, str(path), *args)
         if code == 0:
             if mark:
-                (Path(git(path, "rev-parse", "--absolute-git-dir")) / mark).touch()
+                (Path(git(path, "rev-parse", "--absolute-git-dir")) / mark).write_text(
+                    json.dumps(run_record.process_owner()))
             code, out = git_out(repo, "worktree", "unlock", str(path))
     return code, out
 

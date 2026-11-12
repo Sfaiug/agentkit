@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"agentkit/internal/parsed"
 )
 
 // The owner's call on 2 Nov 2026, to bring an idle screen near 0.05 cores: the screen reads again
@@ -25,9 +27,6 @@ const (
 	// costing more than ceiling * share spends more CPU rather than show a staler row.  Not derived
 	// from the machine: it bounds how stale a row may be, which the machine's speed does not change
 	ceiling = 60 * time.Second
-	// since a file's last write in which its stat vouches for no parse: a filesystem's clock can
-	// give two writes in one tick the same times (Python's parsed.FRESH)
-	fresh = time.Second
 )
 
 // A Held is a run with a readable record as a Reader last looked at it: its directory's name, its
@@ -97,7 +96,7 @@ func (reader *Reader) Read() ([]Held, bool) {
 // forgotten.
 func (reader *Reader) list(now time.Time) bool {
 	info, err := os.Stat(Runs())
-	if err == nil && reader.listing != nil && same(reader.listing, info) {
+	if err == nil && reader.listing != nil && parsed.Same(reader.listing, info) {
 		return true
 	}
 	entries, err := os.ReadDir(Runs())
@@ -105,7 +104,7 @@ func (reader *Reader) list(now time.Time) bool {
 		return false
 	}
 	before, listed := reader.held, map[string]bool{}
-	reader.names, reader.held, reader.open, reader.listing = nil, map[string]kept{}, map[string]bool{}, vouching(info, now)
+	reader.names, reader.held, reader.open, reader.listing = nil, map[string]kept{}, map[string]bool{}, parsed.Vouching(info, now)
 	for _, entry := range entries {
 		dir := entry.IsDir()
 		if entry.Type()&fs.ModeSymlink != 0 {
@@ -127,13 +126,13 @@ func (reader *Reader) list(now time.Time) bool {
 }
 
 // look is one run as its run.json now stands: parsed again and its paths resolved once its stat
-// changed or its last read failed, which a chmod can mend without changing what `same` reads, and
-// on a full read its paths resolved again.
+// changed or its last read failed, which a chmod can mend without changing what `parsed.Same`
+// reads, and on a full read its paths resolved again.
 func (reader *Reader) look(name string, full bool, smoke func(*Object) bool, now time.Time) {
 	path := filepath.Join(Runs(), name, "run.json")
 	each := reader.held[name]
 	info, err := os.Stat(path)
-	if each.bad || each.info == nil || err != nil || !same(each.info, info) {
+	if each.bad || each.info == nil || err != nil || !parsed.Same(each.info, info) {
 		var record *Object
 		if err == nil {
 			record, err = ReadJSON(path)
@@ -145,7 +144,7 @@ func (reader *Reader) look(name string, full bool, smoke func(*Object) bool, now
 	} else if full && each.Record != nil {
 		each.Smoke = smoke(each.Record)
 	}
-	if each.info = vouching(info, now); each.Record == nil && !each.bad {
+	if each.info = parsed.Vouching(info, now); each.Record == nil && !each.bad {
 		delete(reader.held, name)
 	} else {
 		reader.held[name] = each
@@ -157,20 +156,4 @@ func (reader *Reader) look(name string, full bool, smoke func(*Object) bool, now
 // it was written within the hour or too freshly to vouch for.
 func (each kept) opens(now time.Time) bool {
 	return each.Record == nil || each.bad || each.info == nil || !Ended(each.Record) || now.Sub(each.Written) < writtenOpen
-}
-
-// vouching is that stat where what was read under it holds while the stat does, else nil: by the
-// file's mtime, where Python's parsed reads its ctime, which Go's standard library reads alike on
-// no two systems.
-func vouching(info os.FileInfo, now time.Time) os.FileInfo {
-	if info == nil || now.Sub(info.ModTime()) < fresh {
-		return nil
-	}
-	return info
-}
-
-// same is whether a file's stat reads as it did: the same file, written last at the same time,
-// the same size.  Every write ak makes replaces the file.
-func same(was, now os.FileInfo) bool {
-	return os.SameFile(was, now) && was.ModTime().Equal(now.ModTime()) && was.Size() == now.Size()
 }

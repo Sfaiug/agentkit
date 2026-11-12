@@ -8,10 +8,12 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tests"))
@@ -40,9 +42,10 @@ class SuiteShares(unittest.TestCase):
         for value in ("1", "0/3", "4/3", "1/0", "-1/3", "01/3", "1/x", "1/3\n"):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "AK_SHARD"):
                 suite.shard(value)
-        self.assertEqual(suite.smoke_source(SMOKE, REPO, (1, 1)),
-                         "".join(":\n" if name in suite.LIVE_CHECKS else body
-                                 for name, body in BLOCKS))
+        self.assertEqual(suite.smoke_source(SMOKE, REPO, (1, 1)), "".join(
+            ":\n" if name in suite.LIVE_CHECKS
+            else f"SMOKE_BLOCK='tests/smoke.sh#{name}'\n{body}" if name else f"SMOKE_BLOCK=\n{body}"
+            for name, body in BLOCKS))
 
     def test_every_real_block_has_exactly_one_owner_and_keeps_its_body(self):
         names = [name for name, _ in BLOCKS if name is not None]
@@ -73,6 +76,15 @@ class SuiteShares(unittest.TestCase):
                     proc = subprocess.run(["bash", "-n"], input=chosen,
                                           capture_output=True, text=True, timeout=30)
                     self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_a_listed_block_runs_with_those_it_depends_on_whatever_the_share(self):
+        listing = self.root / "only"
+        listing.write_text("tests/smoke.sh#7b\n")
+        with patch.dict(os.environ, {"AK_ONLY": str(listing)}):
+            for number in (1, 2, 3):
+                chosen = suite.smoke_source(SMOKE, REPO, (number, 3))
+                self.assertEqual(re.findall(r"^SMOKE_BLOCK='(.+)'$", chosen, re.MULTILINE),
+                                 ["tests/smoke.sh#7", "tests/smoke.sh#7b"])
 
     def test_tmux_guard_stops_every_piece_before_an_unsafe_check(self):
         guard = next(body for _, body in BLOCKS if body.startswith("# --- 0:"))

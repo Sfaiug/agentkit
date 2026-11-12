@@ -71,8 +71,8 @@ class CFollowsTheSeat(unittest.TestCase):
             opus = row(screen, "Opus 5.5")
             astra = row(screen, "GPT-6-Astra")
             return (opus.startswith("›") and opus.split()[3:] == [
-                "○", "■", "▰▱▱▱▱", "low", "■", "▰▰▰▱▱", "high"]
-                and astra.split()[1:] == ["●", "▰▰▰▰▰▱", "max", "■", "▰▰▰▱▱▱", "high", "□"]
+                "○", "■", "━────", "low", "■", "━━━──", "high"]
+                and astra.split()[1:] == ["●", "━━━━━─", "max", "■", "━━━───", "high", "□"]
                 and "␣ step" in screen)
         self.term.wait(followed, bound=5)
         self.term.keys("Space")                       # still Opus's build effort

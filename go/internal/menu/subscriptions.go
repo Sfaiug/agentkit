@@ -16,8 +16,8 @@ const LogInAgain = "log in again"
 
 // actTexts is each act, by its word, as a line draws it with UTF-8 and without
 // (menu.SUBSCRIPTION_ACTS).
-var actTexts = map[string][2]string{LogInAgain: {"↻ log in again", "log in again"},
-	"spend a reset": {"↻ spend a reset", "spend a reset"}, "remove": {"− remove", "- remove"}}
+var actTexts = map[string][2]string{LogInAgain: {"→ log in again", "log in again"},
+	"spend a reset": {"→ spend a reset", "spend a reset"}, "remove": {"− remove", "- remove"}}
 
 // Acts is what a subscription offers, its meter and its row on Subscriptions alike, by the word the
 // key line names each by, where it applies (menu.subscription_acts): `log in again` while its login

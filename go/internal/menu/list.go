@@ -50,10 +50,10 @@ func (l List) Frame(s terminal.Screen, h Highlight) Frame {
 }
 
 // Confirm is the card every yes-or-no question is asked on (terminal.confirm): the question, what
-// answer means dim, then `✓ Keep`, which the highlight starts on, and `✗ <answer>` in the warn
+// answer means dim, then `✓ Keep`, which the highlight starts on, and `× <answer>` in the warn
 // colour, Enter named for the one lit.
 func Confirm(s terminal.Screen, title, clock, question, meaning, answer string) List {
-	keep, end := "✓ Keep", "✗ "+answer
+	keep, end := "✓ Keep", "× "+answer
 	if s.ASCII() {
 		keep, end = "v Keep", "x "+answer
 	}

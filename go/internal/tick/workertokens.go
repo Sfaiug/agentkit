@@ -11,9 +11,9 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
+	"agentkit/internal/logins"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
-	"agentkit/internal/worker"
 )
 
 const tokenPollEvery = 86400 // the verb is asked at most once a day (watch.TOKEN_POLL_EVERY)
@@ -93,7 +93,7 @@ func authOK(harness string, args ...string) (answered, yes bool, why string) {
 		return false, false, ""
 	}
 	env = slices.DeleteFunc(env, func(pair string) bool { return strings.HasPrefix(pair, host.Marker+"=") })
-	return worker.Login(adapter, append(env, "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(harness), " ")), args...)
+	return logins.Auth(adapter, append(env, "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(harness), " ")), args...)
 }
 
 // remindTokens is the token reminder row (watch.remind_worker_tokens): the owner paged once a local

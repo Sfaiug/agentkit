@@ -216,8 +216,9 @@ func GateTurnNote(record *Object) string {
 	return "waiting for a heavy suite turn"
 }
 
-// StopNote is what a cap or a kill that ended the run said, in its own words.
-func StopNote(record *Object) string {
+// StopNote is what a cap or a kill that ended the run said, in its own words, or `<fail> FAIL`
+// for one its review failed (status.stop_note), `fail` the screen's mark for it.
+func StopNote(record *Object, fail string) string {
 	if record.Str("state") == "stopped" {
 		if record.Truthy("lease_restarted") {
 			return "stopped · started again as " + Text(record.Get("lease_restarted"))
@@ -227,6 +228,9 @@ func StopNote(record *Object) string {
 	err := words(firstText(record, "", "error"))
 	if lowered := strings.ToLower(err); strings.Contains(lowered, "killed") || strings.Contains(lowered, "memory cap") {
 		return err
+	}
+	if record.Str("state") == "fail" && record.Str("verdict") == "FAIL" {
+		return fail + " FAIL"
 	}
 	return ""
 }

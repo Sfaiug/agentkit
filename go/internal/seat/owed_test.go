@@ -17,7 +17,8 @@ func TestAnOwedReceiptSurvivesBeforeEnterAndLeavesTheOwnersEditsAlone(t *testing
 	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
 case "$*" in
   *list-sessions*) printf 'acme\t1\n' ;;
-  *list-panes*) echo '%1 0' ;;
+  *list-panes*) echo '0 1 %1 0' ;;
+  *capture-pane*display-message*) cat "$HOME/shown"; printf '\n0\n' ;;
   *capture-pane*) cat "$HOME/shown" ;;
   *display-message*'#{pane_id}'*) printf '%%1\t1000\n' ;;
   *send-keys*)

@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from agentkit import config, host
+from agentkit import config, harness, host
 from agentkit.harness import muse
 
 TOKEN = "a" * 32
@@ -60,8 +60,9 @@ class RegistryOwner(unittest.TestCase):
         self.assertEqual(self.conversation(), "after-new")
         self.new("after-new", "newer")
         self.assertEqual(self.conversation(), "newer")
-        # the session the launch reported, which its first line went into, stays
-        self.assertEqual((self.receipt / "reported").read_text(), "this-launch")
+        # the line the launch opened on went into the session it reported, wherever it is now
+        sent = {"conversation": None, "launch": {"muse_launch": TOKEN}}
+        self.assertEqual(harness.load("muse").went_into(sent), "this-launch")
 
     def test_a_new_before_the_first_read_is_followed_after_a_registration_first(self):
         self.register("this-launch", 4242)

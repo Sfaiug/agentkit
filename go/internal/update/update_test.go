@@ -2,9 +2,7 @@ package update
 
 import (
 	"bytes"
-	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -35,12 +33,6 @@ func sandbox(t *testing.T) (home, repo string) {
 		t.Setenv(key, value)
 	}
 	return home, repo
-}
-
-// wrote is whether ak has made its own folders under home.
-func wrote(home string) bool {
-	_, err := os.Stat(filepath.Join(home, ".agentkit", "runs"))
-	return err == nil
 }
 
 func TestAProgramARelativePathEntryFindsIsInstalled(t *testing.T) {
@@ -80,31 +72,6 @@ func TestAProgramARelativePathEntryFindsIsInstalled(t *testing.T) {
 				t.Errorf("PATH entry %q, %s: the dry run gave %d, %v, %q", entry, program, code, err, out.String())
 			}
 		}
-	}
-}
-
-func TestALogNotInUTF8IsLeftToPythonBeforeAnythingIsWritten(t *testing.T) {
-	home, repo := sandbox(t)
-	checkout := filepath.Join(home, "agentkit")
-	if err := os.Mkdir(checkout, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	git := func(args ...string) {
-		t.Helper()
-		if said, err := exec.Command("git", append([]string{"-C", checkout}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %q: %v: %s", args, err, said)
-		}
-	}
-	git("init", "-q")
-	git("-c", "user.name=acme", "-c", "user.email=acme@example.com", "commit", "-q", "--allow-empty", "-m", "first")
-	git("config", "i18n.logOutputEncoding", "ISO-8859-1")
-	var out, errOut bytes.Buffer
-	if _, err := Main(repo, true, &out, &errOut); !errors.Is(err, ErrPython) || wrote(home) || out.Len() > 0 {
-		t.Errorf("err=%v wrote=%t stdout=%q", err, wrote(home), out.String())
-	}
-	git("config", "--unset", "i18n.logOutputEncoding")
-	if code, err := Main(repo, true, &out, &errOut); code != 0 || err != nil || !strings.Contains(out.String(), " · ") {
-		t.Errorf("a log in UTF-8 gave %d, %v, %q", code, err, out.String())
 	}
 }
 

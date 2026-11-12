@@ -88,7 +88,7 @@ class MovedSeatKeepsItsConversation(unittest.TestCase):
         """Grok's orchestrator mark, and yes to the restart it asks for."""
         self.term.keys("Down", "Space")
         self.term.wait(lambda screen: any(row.startswith(f"  Restart {SEAT} on ")
-                                          for row in rows(screen)) and "  ✗ Move" in rows(screen))
+                                          for row in rows(screen)) and "  × Move" in rows(screen))
         self.term.keys("Down", "Enter")
 
     def test_the_conversation_a_move_leaves_owes_a_check_that_finds_the_gap(self):

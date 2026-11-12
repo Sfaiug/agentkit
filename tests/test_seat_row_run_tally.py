@@ -23,8 +23,6 @@ from agentkit import record
 
 NOW = 1_800_000_000      # what every draw and tally reads as the time
 DAY = 86400
-LONG_Q = ("Should the dashboard filter by workspace and show archived runs by default "
-          "when there are more than twenty items, or keep the current filter behaviour for now?")
 
 
 class Tallies(Sandbox):
@@ -201,9 +199,7 @@ class Tallies(Sandbox):
         self.assertEqual(pages, (0, 1))
         # Seat rows carry number, name, orchestrator, state and one last column, and a
         # working seat's is never `N running`.
-        for row in ("3  herdr", "Fable 5.1",
-                    "2  atoll-proxy", "session closed: press 2 to reopen",
-                    "1  atoll-fix", "4  scribe"):
+        for row in ("3  herdr", "Fable 5.1", "2  atoll-proxy", "1  atoll-fix", "4  scribe"):
             self.assertIn(row, screen)
         self.assertNotIn("1 running", screen)
         self.assertNotIn("Ship the tally", screen)
@@ -233,13 +229,12 @@ class Tallies(Sandbox):
         self.assertEqual(pages, (0, 1))
         # No count of running work, never merges, never a run reason.
         self.assertNotIn("1 running", screen)
-        self.assertIn("session closed: press 2 to reopen", screen)
         self.assertNotIn("merged", screen)
         self.assertNotIn("no runs yet", screen)
         self.assertNotIn("press r", screen)
         # Narrow rows keep the head line and put the last column below it.
         self.assertIn("atoll-proxy", screen)
-        self.assertIn("    session closed: press 2 to reopen\n", screen)
+        self.assertIn("\n    ──────────────────────── no plan yet\n", screen)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in screen.splitlines()))
         # At every width the last column is drawn whole beside whole names, and every
         # line still fits; merges stay off the menu at every width.
@@ -248,17 +243,7 @@ class Tallies(Sandbox):
                 screen, _ = self.draw(width, 40)
                 self.assertTrue(all(terminal.cells(line) <= width for line in screen.splitlines()), screen)
                 self.assertNotIn("1 running", screen)
-                self.assertRegex(screen, r"session\s+closed:\s+press\s+2")
                 self.assertNotIn("merged", screen)
-        # A long note beside the new columns wraps onto one indented line, never past
-        # the width.
-        with patch.object(menu.notify, "last", return_value={"kind": "needs", "text": LONG_Q,
-                                                             "time": NOW - 300}):
-            screen, _ = self.draw(100, 30)
-        self.assertIn("Should the dashboard filter by workspace", screen)
-        self.assertRegex(screen, r"by default when there are more\s+than twenty items")
-        self.assertNotIn("1 running", screen)
-        self.assertTrue(all(terminal.cells(line) <= 100 for line in screen.splitlines()))
 
     def test_v5g_g_ak_orch_list_shows_the_tally(self):
         with patch.object(orch, "listing", return_value=self.seats), \

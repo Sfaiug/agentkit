@@ -291,16 +291,13 @@ class SuiteHelper(unittest.TestCase):
                 self.assertEqual([line[:46] for line in warned],
                                  ["WARN the suite helper cannot build suite_image"])
 
-    def test_a_list_of_paths_one_argument_cannot_hold_keeps_the_suite_here(self):
-        changed = self.root / "changed"
-        self.stack.enter_context(patch.dict(os.environ, {"TMPDIR": str(self.root)}))
-        # the paths alone fit in one argument the second time; with the rest of the line, not
-        for lines, there in ((4096, True), (helper.MAX_ARG_STRLEN // 16, False)):
-            with self.subTest(lines=lines):
-                changed.write_text("acme/widget.py\n" * lines)
-                text = self.check({}, SUITE + '; wc -l <"$AK_CHANGED"', changed=changed)[0]
-                self.assertEqual(("helper ran" in text, f"\n{lines}" in text,
-                                  (self.fake / "calls").exists()), (there, True, there), text)
+    def test_a_line_one_argument_cannot_hold_keeps_the_suite_here(self):
+        # the command alone fits in one argument the second time; with the rest of the line, not
+        for size, there in ((4096, True), (helper.MAX_ARG_STRLEN * 15 // 16, False)):
+            with self.subTest(size=size):
+                text = self.check({}, f"{SUITE} #{'x' * size}")[0]
+                self.assertEqual(("helper ran" in text, (self.fake / "calls").exists()),
+                                 (there, there), text)
                 said = "suite runs here: a piece's line to the suite helper would take"
                 self.assertEqual(any(line.startswith(said) for line in self.logs), not there,
                                  self.logs)

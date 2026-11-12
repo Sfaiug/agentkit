@@ -21,6 +21,7 @@ import io
 import json
 import sys
 from pathlib import Path
+import time
 import unittest
 from unittest.mock import patch
 
@@ -776,7 +777,8 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
         repair = config.RUNS / "target-repair"
         repair.mkdir()
         record.save_state(repair, {"run_id": repair.name, "state": "fail", "merged": False,
-                                  "repair_tip": tip, "repo": str(self.repo)})
+                                  "repair_tip": tip, "repo": str(self.repo),
+                                  "finished_at": time.time()})
         self.assertTrue(handback.repair_open(record.read_state(repair), tip))
         land.note(self.turn, [], repair.name, red={tree: {
             "run": repair.name, "probe": {"sha": tip, "command": suite, "check": f"{suite}  # once",

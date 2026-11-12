@@ -143,7 +143,7 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
             fcntl.flock(lock, fcntl.LOCK_EX)
             update.go_live(said.append, now=now)
         with patch.object(config, "BEGAN", os.stat(self.clone)):
-            versions.final()
+            versions.final(time.time())
         return said
 
     def finish(self, commit):

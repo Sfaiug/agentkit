@@ -757,7 +757,7 @@ def join_line(lp, upstream, deliver):
 @contextmanager
 def landing_mark(lp):
     """Mark the run `landing` until this ends, however it ends: its checks wait as a lander's
-    (`gate`), and its rounds run no suite (`roundloop.round_suite`), as a landing check follows."""
+    (`gate`)."""
     from . import gate  # here, not at the top: it reaches run
     gate.clear_landing_wait(lp.run_dir)
     lp.state["landing"] = True
@@ -804,7 +804,7 @@ def land_from_line(lp, upstream, deliver):
     if landing.green_delivery(wait):
         turn = turn_path(lp, upstream)
         try:
-            with merge_lock(lp, upstream):
+            with landing_weight(lp), merge_lock(lp, upstream):
                 gitcall.fetch(lp.wt, "origin", "--prune", check=True)
                 tip = gitcall.git(lp.wt, "rev-parse", f"{upstream}^{{commit}}")
                 how = roundloop.how_to_integrate(lp)
@@ -917,6 +917,12 @@ def land(lp, upstream, verify, deliver):
             return deliver()
 
 
+# A green delivery further back in its line looks again after this many seconds for each member
+# ahead, the slot poll at most: no delivery ahead is done sooner (each took 15 to 25 in a line of
+# 53 on 11 Nov 2026), so it is waiting on the lock before its turn comes.
+PLACE_WAIT = 5
+
+
 # The lock spans the whole delivery, not only `gh pr merge`: the owner dropped narrowing it on
 # 9 Nov 2026 (write-up row 26), as it was busy under a tenth of the time over that week's 1,143 merges.
 @contextmanager
@@ -928,28 +934,61 @@ def merge_lock(lp, upstream):
     with turn.open("a") as lock:
         try:
             while True:
-                try:
-                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except BlockingIOError:
-                    # Another delivery can spend an hour on PR checks; its waiter is not stalled.
-                    lp.state["delivery_wait"] = os.getpid()
-                    lp.write()
-                    fcntl.flock(lock, fcntl.LOCK_EX)
-                members = landing.line(turn) if landing.green_delivery(
-                    lp.state.get("waiting_on") or {}) else []
-                if (not members or members[0][0] == lp.run_dir
-                        or not landing.green_delivery(members[0][1]["waiting_on"])):
-                    break
-                # Flock does not order contenders; a checked suffix needs its prefix delivered.
-                fcntl.flock(lock, fcntl.LOCK_UN)
+                # Only the first and the next behind it ask for the lock: the next wakes the
+                # moment the first lets go, and nobody further back hands it on in between.
+                ahead = members_ahead(lp, turn)
+                if ahead < 2:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        # Another delivery can spend an hour on PR checks; its waiter is not stalled.
+                        lp.state["delivery_wait"] = os.getpid()
+                        lp.write()
+                        fcntl.flock(lock, fcntl.LOCK_EX)
+                    ahead = members_ahead(lp, turn)
+                    if not ahead:
+                        break
+                    # Flock does not order contenders; a checked suffix needs its prefix delivered.
+                    fcntl.flock(lock, fcntl.LOCK_UN)
                 lp.state["delivery_wait"] = os.getpid()
                 lp.write()
                 run_record.stop_check(lp.run_dir)
-                time.sleep(gate.SLOT_POLL)
+                time.sleep(1 if ahead == 1 else min(PLACE_WAIT * ahead, gate.SLOT_POLL))
         finally:
             if lp.state.pop("delivery_wait", None) is not None:
                 lp.write()
         yield
+
+
+@contextmanager
+def landing_weight(lp):
+    """Deliver a green verdict at its check's CPU weight (`land.start_line`): it is the same
+    landing, and at a run's weight beside a line's check each delivery crawled while every member
+    behind it waited (one merge every 55 s in a line of 53 on 11 Nov 2026; 25 at the check's).
+    A delivery that ends unmerged goes back to a run's weight for the wait or repair ahead."""
+    from . import host, run  # here, not at the top: run imports this module
+    # The record names the unit bare, scope or service alike; the cgroup says which it is.
+    unit = Path(host.process_cgroup() or "").name
+    own = unit in turns._scope_units(lp.state.get("scope"))
+    if own:
+        run.set_property(unit, "CPUWeight", host.CPU_WEIGHT_MAX, lp.log)
+    try:
+        yield
+    finally:
+        if own and not lp.state.get("merged"):
+            run.set_property(unit, "CPUWeight", run.RUN_CPU_WEIGHT, lp.log)
+
+
+def members_ahead(lp, turn):
+    """How many members of its line green delivery `lp` waits behind: none outside a line or
+    behind a first that is no green delivery, the whole line where it holds no place."""
+    if not landing.green_delivery(lp.state.get("waiting_on") or {}):
+        return 0
+    members = landing.line(turn)
+    if not members or not landing.green_delivery(members[0][1]["waiting_on"]):
+        return 0
+    places = [directory for directory, _ in members]
+    return places.index(lp.run_dir) if lp.run_dir in places else len(places)
 
 
 def turn_path(lp, upstream):

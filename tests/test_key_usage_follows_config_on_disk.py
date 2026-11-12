@@ -29,7 +29,7 @@ from fixtures.akterm import SERVER, Terminal
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 PAGE, ADD = "agentkit · config · subscriptions", "agentkit · config · add a subscription"
 PROBE = 70          # the menu probes once a minute; a bound past its next one
-METER = re.compile(r"ChatGPT II\s+[▰▱]+  70% left")
+METER = re.compile(r"ChatGPT II\s+[━╸─]+  70% left")
 
 
 def lines(screen):

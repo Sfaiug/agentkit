@@ -47,7 +47,7 @@ func TestATickDecidesEveryStopBeforeWritingOne(t *testing.T) {
 				return stop(why)
 			}
 		}
-		_, err := plan.List(context.Background(), "fix-api")
+		_, _, err := plan.List(context.Background(), "fix-api", nil) // a seat nobody wrote to owes no check
 		plan.Ending = decide
 		now, _ := os.ReadFile(planned)
 		for _, dir := range repeats {
@@ -70,7 +70,7 @@ func TestAStopThatCannotBeWrittenLeavesItsLineOpen(t *testing.T) {
 	if os.Mkdir(blocked, 0o700) != nil {
 		t.Fatal("not blocked")
 	}
-	_, err := plan.List(context.Background(), "fix-api")
+	_, _, err := plan.List(context.Background(), "fix-api", nil)
 	now, _ := os.ReadFile(planned)
 	if err == nil || errors.Is(err, plan.ErrUnread) || !strings.HasPrefix(string(now), "- [ ] Fix the mode") {
 		t.Fatalf("%v, plan %q", err, now)
@@ -78,7 +78,7 @@ func TestAStopThatCannotBeWrittenLeavesItsLineOpen(t *testing.T) {
 	if os.Remove(blocked) != nil {
 		t.Fatal("still blocked")
 	}
-	_, err = plan.List(context.Background(), "fix-api")
+	_, _, err = plan.List(context.Background(), "fix-api", nil)
 	now, _ = os.ReadFile(planned)
 	for _, dir := range repeats {
 		if record, _ := run.Read(dir); err != nil || !ended(record) || !strings.HasPrefix(string(now), "- [x] Fix the mode") {

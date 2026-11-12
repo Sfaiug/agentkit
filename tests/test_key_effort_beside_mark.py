@@ -51,7 +51,7 @@ class EffortBesideMark(unittest.TestCase):
 
     def test_each_mark_has_its_role_s_effort_after_it_and_no_effort_column(self):
         self.assertEqual(opus(self.opened)[0].split()[3:], [
-            "[●]", "▰▱▱▱▱", "low", "■", "▰▰▰▱▱", "high", "■", "▰▰▱▱▱", "medium"])
+            "[●]", "━────", "low", "■", "━━━──", "high", "■", "━━───", "medium"])
         heads = [line.split() for line in self.opened.split("\n") if line.split()[:1] == ["orch"]]
         self.assertEqual(heads, [["orch", "builds", "reviews"]])
 
@@ -59,7 +59,7 @@ class EffortBesideMark(unittest.TestCase):
         self.term.keys("Right", "Right", "Right", "Space")    # past orch's effort, build's mark
         self.stepped_to(exec_effort="xhigh")
         line, row = opus(self.term.wait(lambda screen: "xhigh" in opus(screen)[0]))
-        column = list(re.finditer("[▰▱]+", line))[2].start() + 5   # the review bar's fifth
+        column = list(re.finditer("[━─]+", line))[2].start() + 5   # the review bar's fifth
         self.term.type(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m")
         self.stepped_to(exec_effort="xhigh", review_effort="max")
 

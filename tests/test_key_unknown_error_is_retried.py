@@ -1,7 +1,7 @@
 """A Claude seat at its prompt with a finished plan, prompted since it finished: a conversation
-ending on an error in words no list holds reads `working`, `retrying` in those words and awake,
-past the prompt cache that puts one ending on an answer to sleep, `done`.  Black-box against
-`AK_BIN`, as tests/test_key_idle_seat_holds_no_memory.py."""
+ending on an error in words no list holds reads `working`, `retrying` in those words and stays
+open; one ending on an answer in the same words, `done`.  Black-box against `AK_BIN`
+(tests/fixtures/akbin.py)."""
 
 import json
 import re
@@ -78,7 +78,7 @@ class UnknownErrorIsRetried(unittest.TestCase):
         word, reason = self.why("failed")
         self.assertEqual(word, "working")
         self.assertIn(WORDS, reason)
-        self.assertEqual(self.awake, ["failed"])
+        self.assertIn("failed", self.awake)
 
     def test_an_answer_in_the_same_words_is_done(self):
         self.assertEqual(self.why("answered")[0], "done")

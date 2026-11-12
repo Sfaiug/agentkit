@@ -1,19 +1,22 @@
 """How many suite pieces start at once follows a piece's measured cost and the host's free CPU.
 
 A repository's finished pieces leave their CPU cost behind, as each piece's box reported it,
-and later pieces of that suite are sized by it; one with no record starts from the estimate.
+the CPU its processes needed, and later pieces of that suite are sized by it; one with no
+record starts from the estimate.
 CPU the host spends outside ak's slice -- ak's own menus, tick and live checks among it --
 takes room the slice's quota would still promise.
 
-Offline: temporary HOME, injected host readings and a fake cgroup tree; only the record test
-runs real boxes, whose CPU is counted in CPU seconds, never against a wall clock.
+Offline: temporary HOME, injected host readings and a fake cgroup tree; only the record and
+wait tests run real boxes, whose CPU is counted in CPU seconds, never against a wall clock.
 """
 
+import fcntl
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -62,6 +65,50 @@ class SuitesFitTheMachine(unittest.TestCase):
         path, _, _ = gate.suite_cost(fixture.SUITE, self.root, self.run_dir)
         gate.write_suite_cost(path, {"cpus": 1.2})
         self.assertEqual(self.started(ROOMY), int(6 / 1.2))
+
+    def test_places_others_hold_count_at_what_their_pieces_cost(self):
+        # 8 idle cores: four checks naming no pieces hold a place each at the initial 0.7, and
+        # a suite whose piece costs 2 fits two beside them, in the 5.2 cores they leave.
+        idle = {"cpus": 8, "load": 0, "free_mb": 32000}
+        path, _, _ = gate.suite_cost(fixture.SUITE, self.root, self.run_dir)
+        gate.write_suite_cost(path, {"cpus": 2.0})
+        with patch.dict(os.environ, {"AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(idle)}), \
+                patch.object(gate.time, "sleep", side_effect=AssertionError("two must fit")):
+            for _ in range(4):
+                self.addCleanup(gate._acquire_gate_turn(self.run_dir, self.root / "light.log",
+                                                        None).release)
+            hold = gate._acquire_gate_turn(self.run_dir, self.root / "pieces.log", None,
+                                           fixture.SUITE, self.root)
+            self.addCleanup(hold.release)
+        self.assertEqual(len(hold.slots), 2)
+
+    def test_a_place_taken_is_read_once_it_says_its_cost(self):
+        # A check has taken two places on 8 idle cores and not yet said they cost 2 each: one
+        # whose piece costs 0.7 reads them once said, and fits five beside them, not nine.
+        idle = {"cpus": 8, "load": 0, "free_mb": 32000}
+        held = []
+        asker = threading.Thread(target=lambda: held.append(gate._acquire_gate_turn(
+            self.run_dir, self.root / "pieces.log", None, fixture.SUITE, self.root)))
+        with patch.dict(os.environ, {"AK_MAX_RUNS": "", "AK_HOST_READINGS": json.dumps(idle)}), \
+                patch.object(gate.time, "sleep", side_effect=AssertionError("five must fit")):
+            with gate._place_costs():
+                taken = [gate.gate_lock(None, index).open("a") for index in range(2)]
+                for slot in taken:
+                    self.addCleanup(slot.close)
+                    fcntl.flock(slot, fcntl.LOCK_EX)
+                asker.start()
+                asker.join(1)   # time for a check that read them unsaid to take nine
+                for slot in taken:
+                    gate._say_cost(slot, (2.0, 410))
+            asker.join()
+        self.assertEqual(len(held), 1)
+        self.addCleanup(held[0].release)
+        self.assertEqual(len(held[0].slots), 5)
+
+    def test_a_place_that_fits_exactly_is_not_lost_to_float_dust(self):
+        # 4 cores less two places at 0.8 leave three more at 0.8, though floats say 2.9999...
+        room = {"cpus": 4, "load": 0, "free_mb": 32000}
+        self.assertEqual(gate.derived_heavy_limit(room, 2, 0.8, others=[(0.8, 410)] * 2), 5)
 
     def test_a_repository_with_no_record_starts_from_the_estimate(self):
         path, _, _ = gate.suite_cost(fixture.SUITE, self.checkout("widget"), None)
@@ -128,6 +175,26 @@ class SuitesFitTheMachine(unittest.TestCase):
         measured = gate.read_suite_cost(path)["cpus"]
         self.assertGreaterEqual(measured, cpus)
         self.assertEqual(gate.suite_cost(suite, repo, None)[1], measured)
+
+    def test_a_box_counts_what_its_processes_waited_for_a_core(self):
+        # Two burners share one core for the three seconds each runs: while one burns the other
+        # waits, so the box's first two looks each find two threads with work.  By the clock, not
+        # by what each spent: burners of a second each ended as the second look came, which then
+        # found them or not (11 Nov 2026: red on a calm host, green on a busy one).
+        core = min(os.sched_getaffinity(0))
+        burn = (f"import os, time; os.sched_setaffinity(0, {{{core}}}); "
+                "end = time.monotonic() + 3; any(iter(lambda: time.monotonic() >= end, True)); "
+                "open(os.environ['N'], 'w'); time.sleep(60)")
+        command = (f"for N in 1 2; do N=$N python3 -c {burn!r} >/dev/null 2>&1 & done; "
+                   "until [ -e 1 ] && [ -e 2 ]; do sleep 0.1; done")
+        cpu = []
+        with patch.dict(os.environ, {"AK_HOST_READINGS": ""}):
+            code, text, _ = worker.boxed(["bash", "-c", command], 600, env=dict(os.environ),
+                                         cwd=str(self.root), activity=self.root / "activity",
+                                         cpu=cpu)
+        self.assertEqual(code, 0, text)
+        # One core gives little over three seconds in three: four are spent and waited.
+        self.assertGreaterEqual(cpu[0][0], 4)
 
 
 if __name__ == "__main__":

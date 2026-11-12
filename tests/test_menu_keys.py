@@ -40,11 +40,10 @@ SEATS = Path(os.environ["MENU_KEYS_SEATS"])
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0} for name in json.loads(SEATS.read_text())]
 orch.job_notices = lambda: []
-ASKS = json.loads(os.environ.get("MENU_KEYS_ASKS") or "{}")    # {seat: what it asks}
+DRAFTS = json.loads(os.environ.get("MENU_KEYS_DRAFTS") or "{}")    # {seat: text left unsent}
 menu.seat_row_state = lambda cfg, session, **facts: {
-    "word": "needs you" if session["name"] in ASKS else
-            "done" if session["name"].startswith("done-") else "working",
-    "reason": ASKS.get(session["name"], ""), "since": None}
+    "word": "done" if session["name"].startswith("done-") else "working",
+    "reason": "", "unsent": DRAFTS.get(session["name"]), "since": None}
 menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
@@ -98,7 +97,7 @@ class Menu:
     """One child menu on a pty: what it wrote so far, and keys sent to it."""
 
     def __init__(self, case, seats, tick=10.0, slow=0.0, rows=40, cols=100, session_reads=False,
-                 saved=False, own=None, asks=None, plans=None):
+                 saved=False, own=None, drafts=None, plans=None):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix=".ak-test-menu-keys-", dir=REPO)
         case.addCleanup(home.cleanup)
@@ -114,7 +113,7 @@ class Menu:
                     "MENU_KEYS_REPO": str(REPO), "MENU_KEYS_SEATS": str(self.seats),
                     "MENU_KEYS_TICK": str(tick), "MENU_KEYS_SLOW": str(slow),
                     "MENU_KEYS_SAVED": "1" if saved else "0", "MENU_KEYS_OWN": own or "",
-                    "MENU_KEYS_ASKS": json.dumps(asks or {}),
+                    "MENU_KEYS_DRAFTS": json.dumps(drafts or {}),
                     "MENU_KEYS_PLANS": json.dumps(plans or {}),
                     "AGENTKIT_SESSION": own or "",
                     "MENU_KEYS_SESSION_READS": "1" if session_reads else "0"})
@@ -360,9 +359,9 @@ class MenuKeys(unittest.TestCase):
 
     def test_a_click_read_while_a_digit_waits_opens_what_was_under_it(self):
         """The click is read before the digit's seat opens, and kept with the page it was on:
-        on its question's last word, which the page seat-01 opens over has nothing under."""
+        on its unsent text's last word, which the page seat-01 opens over has nothing under."""
         menu = Menu(self, [f"seat-{n:02d}" for n in range(1, 13)], rows=14, cols=40,
-                    asks={"seat-12": "Please choose the longest available option for this one."})
+                    drafts={"seat-12": "Please choose the longest available option for this one."})
         menu.frame()
         menu.send(b"j" * 11)
         lines = menu.frame(lambda lines: "seat-12" in menu.highlighted(lines))

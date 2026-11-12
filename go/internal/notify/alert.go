@@ -40,7 +40,7 @@ func sentAlert(name, word string, card *run.Object) bool {
 	if word != "needs you" || card.Str("word") != word || !card.Truthy("sent") {
 		return false
 	}
-	notice := open(name)
+	notice := Last(name)
 	if notice == nil || !notice.Truthy("watcher") {
 		return false
 	}

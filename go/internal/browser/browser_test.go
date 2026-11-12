@@ -112,7 +112,7 @@ func TestAProxyPythonSendsDevToolsThroughIsPythons(t *testing.T) {
 }
 
 // Login reads the password as Python's plaintext does: a blank file under ak's name gives way to
-// the installer's.  With none stored, or one Python's read_text raises on, it is Python's.
+// the installer's.  One Python's read_text raises on is Python's.
 func TestLoginShowsTheStoredPasswordOrIsPythons(t *testing.T) {
 	machine(t)
 	unit := "[Service]\nExecStart=/usr/bin/websockify 100.64.0.7:6080 127.0.0.1:5900\n"
@@ -124,7 +124,7 @@ func TestLoginShowsTheStoredPasswordOrIsPythons(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, example := range []struct{ text, installers, shown string }{
-		{"", "", ""}, {" \n", "Kq7\r\n", "Kq7"}, {"\xff", "Kq7", ""},
+		{" \n", "Kq7\r\n", "Kq7"}, {"\xff", "Kq7", ""},
 	} {
 		for i, content := range []string{example.text, example.installers} {
 			if err := os.WriteFile(filepath.Join(secrets, passwords[i]), []byte(content), 0o600); err != nil {

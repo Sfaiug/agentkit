@@ -543,9 +543,6 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 		if err := drivable(values, l.bound); err != nil {
 			return refuse("", "", err)
 		}
-		if at.repo != "" && machined() {
-			return refuse("", "", ErrPython)
-		}
 	}
 	if later != "" && (at.repo == "" || gated(l.depth())) {
 		return refuse(later, "", nil)

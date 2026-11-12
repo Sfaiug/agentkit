@@ -30,16 +30,7 @@ func OpeningAccount(name string, model config.Model) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	var order []string
-	for _, account := range ranked {
-		order = append(order, account.Name)
-	}
-	for _, account := range listed {
-		if !slices.Contains(order, account) {
-			order = append(order, account)
-		}
-	}
-	for _, account := range order {
+	for _, account := range accountOrder(ranked, listed) {
 		if adapters.SeatAuth(model.Harness, account) {
 			return account, nil
 		}

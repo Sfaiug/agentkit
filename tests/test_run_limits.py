@@ -2,10 +2,12 @@
 
 Real processes throughout -- fake adapters that sleep, done-when commands that spawn children,
 a real git repo with a bare origin whose hook rejects a push -- because the thing under test is
-a kill, and a mocked kill proves nothing.  The limits are made small by patching the loop constants; old task keys are ignored.
+a kill, and a mocked kill proves nothing.  The limits are made small by patching the loop constants,
+git's and gh's only for the call a fixture never answers; old task keys are ignored.
 """
 
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stdout
+import inspect
 import io
 import json
 import os
@@ -32,12 +34,19 @@ from agentkit import task as taskfile
 
 URL = "https://github.com/fixture/repo/pull/7"
 
+def stops(root, tool, args):
+    """Does the fixture `tool` never answer this call: do its words hold, in a row, the words
+    `slow-<tool>` names?  The git shim and the fake gh run this same function."""
+    marker = Path(root) / f"slow-{tool}"
+    want = marker.read_text().split() if marker.exists() else []
+    return bool(want) and any(args[i:i + len(want)] == want for i in range(len(args) - len(want) + 1))
+
+
 # a git that stops on whatever `slow-git` names, and is the real git for everything else
-GIT_SHIM = '''import os, pathlib, sys, time
-marker = pathlib.Path(os.environ["LIMITS_FIXTURE"]) / "slow-git"
-want = marker.read_text().split() if marker.exists() else []
-args = sys.argv[1:]
-if want and any(args[i:i + len(want)] == want for i in range(len(args) - len(want) + 1)):
+GIT_SHIM = f'''import os, sys, time
+from pathlib import Path
+{inspect.getsource(stops)}
+if stops(os.environ["LIMITS_FIXTURE"], "git", sys.argv[1:]):
     time.sleep(60)
 os.execv(REAL_GIT, ["git"] + sys.argv[1:])
 '''
@@ -80,14 +89,14 @@ subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "work %s" % call],
 (out / "final.md").write_text("## Summary\\nwrote work.txt on call %s\\n" % call)
 '''
 
-GH = '''import json, os, pathlib, sys, time
+GH = "from pathlib import Path\n" + inspect.getsource(stops) + '''
+import json, os, pathlib, sys, time
 root = pathlib.Path(os.environ["LIMITS_FIXTURE"])
 url = "https://github.com/fixture/repo/pull/7"
 args = sys.argv[1:]
 with (root / "gh.jsonl").open("a") as fh:
     fh.write(json.dumps(args) + "\\n")
-slow = (root / "slow-gh").read_text().split() if (root / "slow-gh").exists() else []
-if slow and args[:len(slow)] == slow:
+if stops(root, "gh", args):
     time.sleep(60)                        # this verb is the one that never answers
 refuse = (root / "prompt-gh").read_text().split() if (root / "prompt-gh").exists() else []
 if refuse and args[:len(refuse)] == refuse:
@@ -217,6 +226,21 @@ class Limits(unittest.TestCase):
         shim.mkdir(exist_ok=True)
         self.script(shim / "git", GIT_SHIM.replace("REAL_GIT", repr(shutil.which("git"))))
         return patch.dict(os.environ, {"PATH": f"{shim}:{os.environ['PATH']}"})
+
+    @contextmanager
+    def stops_after(self, seconds):
+        """Kill each git or gh call a fixture never answers (`stops`) after `seconds`.  Every
+        other call keeps TOOL_CAP: on a loaded host any git can take seconds, and a short cap
+        on all of them stops whichever ran slowest instead of the one under test."""
+        real = gitcall.tool_run
+
+        def tool_run(cmd, cwd=None, timeout=None, env=None):
+            if stops(self.root, cmd[0], cmd[1:]):
+                timeout = seconds
+            return real(cmd, cwd=cwd, timeout=timeout, env=env)
+
+        with patch.object(gitcall, "tool_run", tool_run), patch.object(run, "tool_run", tool_run):
+            yield
 
     def stopped_run(self, name, **extra):
         """A receipt for a run that stopped, with just enough state to report on."""
@@ -668,7 +692,7 @@ class Limits(unittest.TestCase):
         self.repo()
         (self.root / "slow-gh").write_text("repo view")      # the rights check never answers
         task = self.task(["true"])
-        with patch.object(gitcall, "TOOL_CAP", 5):
+        with self.stops_after(5):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
         self.assertEqual(code, 1)
         self.assertEqual((state["state"], state["verdict"]), ("pass", "PASS"))
@@ -700,7 +724,7 @@ class Limits(unittest.TestCase):
         run.git(state["repo"], "branch", state["branch"], state["delivery_sha"])
         run.git(state["repo"], "worktree", "add", state["worktree"], state["branch"])
         (self.root / "slow-gh").write_text("pr view")
-        with patch.object(gitcall, "TOOL_CAP", 5), redirect_stdout(io.StringIO()):
+        with self.stops_after(5), redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 1)
         state = run_record.read_state(directory)
         self.assertEqual(state["state"], "pass")
@@ -708,7 +732,7 @@ class Limits(unittest.TestCase):
         self.assertIn("was killed after 5s", state["merge_note"])
         self.assertIn("the remote did not answer", (directory / "result.md").read_text())
         (self.root / "slow-gh").unlink()
-        with patch.object(gitcall, "TOOL_CAP", 5), redirect_stdout(io.StringIO()):
+        with redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
         self.assertTrue(run_record.read_state(directory)["merged"])
 
@@ -747,7 +771,7 @@ class Limits(unittest.TestCase):
         # verification reaches first (review runs it before the reviewer turn).
         self.plan({"move_origin": 1, "arm_git_on_review": 1, "arm_git": "ls-files --others"})
         task = self.task(["true"], rounds=2)
-        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 5):
+        with self.git_shim(), self.stops_after(5):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
 
         self.assertEqual(code, 1)
@@ -818,7 +842,7 @@ class Limits(unittest.TestCase):
         # the report itself runs git; a git that has stopped must not stop the report too
         directory, state = self.stopped_run("20260914-1200-stopped")
         (self.root / "slow-git").write_text("diff --stat")
-        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 1):
+        with self.git_shim(), self.stops_after(1):
             run.record_result(directory, state)
         result = (directory / "result.md").read_text()
         self.assertIn("## Why this run stopped", result)
@@ -851,7 +875,7 @@ class Limits(unittest.TestCase):
         self.repo()
         path = self.root / "task.md"
         (self.root / "slow-git").write_text("--show-toplevel")
-        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 1):
+        with self.git_shim(), self.stops_after(1):
             # a task that names its repo never asks git in the first place
             self.assertEqual(run.task_repo({"repo": str(self.work)}, path), self.work)
             self.assertIsNone(run.task_repo({"repo": "none"}, path))
@@ -891,7 +915,7 @@ class Limits(unittest.TestCase):
         tip = run.git(self.work, "rev-parse", "origin/main^{commit}")
         self.plan({"arm_git_on_review": 1, "arm_git": f"rebase {tip}"})
         task = self.task(["true"])
-        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
+        with self.git_shim(), self.stops_after(2):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
 
         self.assertEqual(code, 1)
@@ -1006,7 +1030,7 @@ class Limits(unittest.TestCase):
         for verb in ("fetch origin", "push"):
             # Delivery fails after verification's own fetch and the review have passed.
             self.plan({"arm_git_on_review": len(self.calls("reviewer")) + 1, "arm_git": verb})
-            with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
+            with self.git_shim(), self.stops_after(2):
                 code, directory, state = self.launch(str(task), "--exec", "opus", "--review",
                                                     "astra")
             self.assertEqual(code, 1, verb)
@@ -1029,7 +1053,7 @@ class Limits(unittest.TestCase):
         self.repo()
         task = self.task(["true"])
         (self.root / "slow-git").write_text("fetch origin")
-        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
+        with self.git_shim(), self.stops_after(2):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
         self.assertEqual(code, 1)
         self.assertEqual((state["state"], state["verdict"]), ("exhausted", None))
@@ -1056,7 +1080,7 @@ class Limits(unittest.TestCase):
         (run_dir / "log.txt").touch()
         (self.root / "slow-git").write_text("--show-toplevel")
         log = run.logger(run_dir)
-        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 1), \
+        with self.git_shim(), self.stops_after(1), \
                 redirect_stdout(io.StringIO()):
             # the re-raise is what the foreground parent prints, so it carries the remedy
             with self.assertRaises(run.Stopped) as prelaunch:
@@ -1086,7 +1110,7 @@ class Limits(unittest.TestCase):
                                             verdict="PASS", merged=True, review=review)
         (self.root / "slow-git").write_text("diff --stat")
         logged = []
-        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 1):
+        with self.git_shim(), self.stops_after(1):
             run.record_result(directory, state, logged.append)
         result = (directory / "result.md").read_text()
         self.assertIn("# PASS, merged", result)             # the delivery stands
@@ -1103,7 +1127,7 @@ class Limits(unittest.TestCase):
         self.repo()
         (self.root / "slow-git").write_text("rev-parse --git-path")
         task = self.task(["true"])
-        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
+        with self.git_shim(), self.stops_after(2):
             code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
 
         self.assertEqual(code, 1)
@@ -1224,7 +1248,7 @@ class Limits(unittest.TestCase):
                                       "head": {"sha": state["delivery_sha"]}})
             return real_gh(cwd, *args, **kwargs)
 
-        with patch.object(gitcall, "TOOL_CAP", 5), patch.object(gitcall, "gh", side_effect=confirm_gh), \
+        with self.stops_after(5), patch.object(gitcall, "gh", side_effect=confirm_gh), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", directory.name]), 0)
         state = run_record.read_state(directory)

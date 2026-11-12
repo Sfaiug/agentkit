@@ -5,7 +5,6 @@ package notify
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,9 +16,9 @@ import (
 	"agentkit/internal/run"
 )
 
-// A done card writes its dones row as Python's _intent does, where history.db stands: the done, the
-// owner's first message since the conversation's previous done, the runs the seat started since,
-// and the seat's finished work.  A home with none gets none.
+// A done card writes its dones row as Python's _intent does: the done, the owner's first message
+// since the conversation's previous done, the runs the seat started since, and the seat's finished
+// work.
 func TestADoneCardWritesItsDonesRow(t *testing.T) {
 	home, write := questionHome(t)
 	const start = 1793422800 // 2026-10-31T05:00:00Z
@@ -38,19 +37,6 @@ func TestADoneCardWritesItsDonesRow(t *testing.T) {
 	} {
 		write(filepath.Join(home, ".agentkit", "runs", id, "run.json"), record)
 	}
-	work := []any{[]any{"acme/api", "API ships"}}
-	page := func() {
-		t.Helper()
-		if carried, err := TurnedPlan("acme", func(string) (string, any) { return "done", run.Float(clock()) },
-			func(string) ([]any, error) { return work, nil }); !carried || err != nil {
-			t.Fatalf("carried=%v: %v", carried, err)
-		}
-	}
-	page()
-	if _, err := os.Lstat(history.Path()); err == nil {
-		t.Fatal("a done made history.db")
-	}
-
 	// as Python leaves it in a home with seats: its seat tokens' table beside its own, the
 	// conversation's previous done after the owner's first message
 	conn, err := sqlite3.Open(history.Path())
@@ -68,11 +54,15 @@ func TestADoneCardWritesItsDonesRow(t *testing.T) {
 		}
 	}
 	conn.Close()
-	work = append(work, []any{"acme/docs", "docs ship"})
 	before := clock()
-	page()
+	if carried, err := TurnedPlan("acme", func(string) (string, any) { return "done", run.Float(clock()) },
+		func(string) ([]any, error) {
+			return []any{[]any{"acme/api", "API ships"}, []any{"acme/docs", "docs ship"}}, nil
+		}); !carried || err != nil {
+		t.Fatalf("carried=%v: %v", carried, err)
+	}
 	after := clock()
-	if events, _ := filepath.Glob(filepath.Join(outbox(), "*.json")); len(events) != 2 {
+	if events, _ := filepath.Glob(filepath.Join(outbox(), "*.json")); len(events) != 1 {
 		t.Fatalf("queued %d pages", len(events))
 	}
 

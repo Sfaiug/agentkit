@@ -945,14 +945,16 @@ def _ask_catalog(harness, cfg):
 
 def catalog_held(harness, cfg=None):
     """catalog(harness, cfg) as its logins last listed it, however old, else its manifest's
-    table: for a draw, which asks no harness and waits on none."""
+    table: for a draw, which asks no harness and waits on none.  Each model is labelled as
+    every screen names it (model_label)."""
     held = {account: listed for (on, account), (_, listed) in list(_CATALOGS.items())
             if on == harness}         # a list: a thread may be adding one
     models = {}
     for account in _logins(cfg, harness) if held else ():    # a draw reads no config for none
         for model in held.get(account, ()):
             models.setdefault(model["id"], model)
-    return list(models.values()) or catalog_table(harness)
+    return [{**model, "label": model_label(harness, model["id"], model["label"])}
+            for model in list(models.values()) or catalog_table(harness)]
 
 
 def efforts(harness, model=None, listing=None):
@@ -1199,16 +1201,14 @@ def run_efforts(cfg, record):
 
 def model_name(cfg, name):
     """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
-    running `claude-opus-5-5` -- its harness's catalog label for its id, read off the manifest's
-    table so no draw waits on a listing -- else its id, a provider's prefix off
-    (`acme-flash-free`).  `name` itself where it is no entry or names no id of its
-    own (`default`: the harness picks).
+    running `claude-opus-5-5`, `Nova 7.1` for `claude-nova-7-1` (model_label, off its id alone so
+    no draw waits on a listing).  `name` itself where it is no entry or names no id of its own
+    (`default`: the harness picks).
     """
     entry = (cfg.get("models") or {}).get(name)
     if not isinstance(entry, dict) or entry.get("model") in (None, "", DEFAULT_MODEL):
         return name
-    return (catalog_label(entry.get("harness") or "", entry["model"])
-            or entry["model"].rsplit("/", 1)[-1])
+    return model_label(entry.get("harness") or "", entry["model"])
 
 
 def model_at(cfg, record, name, role):
@@ -1219,11 +1219,31 @@ def model_at(cfg, record, name, role):
     return model_name(cfg, name) + (f" {effort}" if effort and effort != "none" else "")
 
 
-def catalog_label(harness, model):
-    """A model's full name, its harness's catalog label for its id, read off the manifest's
-    table so no draw waits on a listing; None where the table names it no other way."""
-    label = next((row["label"] for row in catalog_table(harness) if row["id"] == model), None)
-    return label if label != model else None
+def model_label(harness, model, said=""):
+    """What every screen calls the model that harness runs as `model` and lists as `said`: the
+    label its manifest's `[catalog]` gives that id, else its name and number, read off what its
+    harness calls it (`said`, else the id) so that a model nobody has written down is named too.
+
+    A provider's prefix (`acme/`) and a trailing date (`-20251101`) are no part of that name, nor
+    its maker's family word, the manifest's `family`, where the name opens with it, unless only
+    numbers follow.  A hyphen is a space, between two numbers a point, and a word in small
+    letters opens with a capital: where the family word is `Acme`, `acme-nova-7-1` is `Nova 7.1`,
+    `ACME-7.2-Vega` is `7.2 Vega` and `acme-7-20251101` is `Acme 7`.
+    """
+    table = manifest(harness).get("catalog")
+    entry = table.get(model) if isinstance(table, dict) else None
+    label = entry.get("label") if isinstance(entry, dict) else None
+    if isinstance(label, str) and label:
+        return label
+    name = re.sub(r"-[0-9]{8}$", "", (said or model).rsplit("/", 1)[-1])
+    family = manifest(harness).get("family")
+    if (isinstance(family, str) and family and name[:len(family)].lower() == family.lower()
+            and name[len(family):len(family) + 1] in ("", "-", " ")):
+        rest = name[len(family) + 1:]
+        name = family + name[len(family):] if not rest.strip("0123456789.- ") else rest
+    name = re.sub(r"(?<=[0-9])-(?=[0-9])", ".", name).replace("-", " ")
+    return " ".join(word[:1].upper() + word[1:] if word.islower() else word
+                    for word in name.split())
 
 
 def normalize_session(name):
@@ -1241,6 +1261,7 @@ SEAT_FILES = {
     "card": "json",      # its notification transition latch
     "seat": "json",      # its last classified live state and since when
     "hook": "json",      # what its harness's own lifecycle hooks say it is doing
+    "heard": "json",     # the last moment those hooks heard an event at (`heard_at`)
     "plan": "md",        # its plan, which the menu row reads its bar from
     "stop": "json",      # this turn's start, for the stop hook's rule
     "live": "txt",       # when its own ssh last reached the live host (`guard.live_reach`)
@@ -2191,9 +2212,29 @@ def hook_facts_path(name):
     return seat_file("hook", name)
 
 
+def heard_at(name):
+    """The moment a hook of that seat hears its event now: the host's clock, or just past the
+    last moment the seat heard one where the clock reads no later, as it does once it steps
+    back.  An event heard after another is so never taken for older and lost under it
+    (`record_hook_fact`).  The seat's clock is kept under the name it goes by now, beside the
+    facts it orders."""
+    path = seat_file("heard", resolve_session(name))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _record_lock(path):
+        try:
+            last = _read_json(path)
+        except Error:
+            last = None
+        at = time.time()
+        if isinstance(last, (int, float)) and not isinstance(last, bool) and last >= at:
+            at = math.nextafter(last, math.inf)
+        _write_json(path, at, prepare=False)
+    return at
+
+
 def record_hook_fact(name, fact, keep=lambda standing: False):
     """Put that lifecycle fact in place of the seat's last one, unless the one standing was
-    heard later or `keep(standing)` keeps it.
+    heard later (`heard_at`) or `keep(standing)` keeps it.
 
     Both hooks writing one -- hooks/seat-state.sh, and hooks/orchestrator-stop.sh for the Stop
     it judges -- read, decide and replace under the record's lock: an event its harness does not

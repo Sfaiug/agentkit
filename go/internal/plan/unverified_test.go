@@ -44,7 +44,7 @@ func TestADeliveryStaysOwedUntilAVerificationChecksEveryLine(t *testing.T) {
 	if os.Remove(filepath.Join(state, "plan-acme.md")) != nil {
 		t.Fatal("plan kept")
 	}
-	if _, err := List(ctx, "acme"); err != nil {
+	if _, _, err := List(ctx, "acme", nil); err != nil { // no plan owes no check
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(count); !os.IsNotExist(err) {

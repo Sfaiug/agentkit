@@ -48,7 +48,7 @@ func Overlap(out, errOut io.Writer) bool {
 			"look at it, and kill it if it is hung", minutes))
 	}
 	if holding >= pageFloor {
-		stopped(run.Float(epoch(began)), fmt.Sprintf("🔴 ak ticks stopped ending · pid %s has held the lock for %d min", pid, minutes), log)
+		stopped(run.Float(epoch(began)), fmt.Sprintf("pid %s has held the lock for %d min", pid, minutes), log)
 	}
 	return true
 }

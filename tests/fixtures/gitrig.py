@@ -37,10 +37,13 @@ class Rig:
         return self._git(self.bare, *args)
 
     def commit(self, files, message="change", *, push=True):
-        """Write files (path -> text) in the clone and commit them on its branch, pushed
-        unless told not to; the commit's sha."""
+        """Write files (path -> text, None removing it) in the clone and commit them on its
+        branch, pushed unless told not to; the commit's sha."""
         for relative, text in files.items():
             path = self.path / relative
+            if text is None:
+                path.unlink()
+                continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
         self.git("add", "-A")
