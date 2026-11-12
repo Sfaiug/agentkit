@@ -98,14 +98,17 @@ class ClaudeStatusLine(Sandbox):
         self.assertEqual(claude.running(record, self.cwd, "conv-acme"), ("claude-opus-5-5", "max", 2000))
         os.utime(self.report, (3000, 3000))
         self.assertEqual(claude.running(record, self.cwd, "conv-acme"), ("claude-sonnet-5-5", None, 3000))
+        limits = config.STATE / "limits-conv-acme.json"
+        limits.write_text(' {"five_hour":null,"seven_day":null}\n')
         config.save_session(self.cfg, "renamed", "opus", ["astra"], {"conversation": "conv-acme"})
         self.assertEqual(list(gc.stale_model_reports()), [])
         config.update_session("renamed", conversation="conv-new")
-        self.assertEqual([item["path"] for item in gc.stale_model_reports()], [str(self.report)])
+        reports = sorted([str(limits), str(self.report)])
+        self.assertEqual(sorted(item["path"] for item in gc.stale_model_reports()), reports)
         with patch.object(gc, "gc_candidates", side_effect=gc.stale_model_reports), \
                 patch.object(gc.jobs, "forget_owner_words"):
-            self.assertEqual(gc.gc(lambda _: None), [str(self.report)])
-        self.assertFalse(self.report.exists())
+            self.assertEqual(sorted(gc.gc(lambda _: None)), reports)
+        self.assertFalse(self.report.exists() or limits.exists())
 
 
 if __name__ == "__main__":

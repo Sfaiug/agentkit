@@ -1054,7 +1054,8 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
 
 def record_turn_meters(cfg, provider, meters, account=None, now=None):
-    """The meters a worker turn reported about the account it ran on become that reading.
+    """The meters a worker turn, or a seat's status render (`watch.hook_meters`), reported about
+    the account it ran on become that reading.
 
     A file and no request, so neither the snapshot's five minutes nor any probe stands
     between it and the menu, `ak usage` and the next pick. The endpoint's own cadence

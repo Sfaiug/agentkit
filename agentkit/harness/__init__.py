@@ -1051,6 +1051,12 @@ class Harness:
             return hook(Path(out))
         return []
 
+    def status_meters(self, limits):
+        """The meters a seat's status render said of its own account, its `rate_limits`
+        parsed, or []: by default a harness's status line says none."""
+        hook = self._hook("status_meters")
+        return hook(limits) if hook else []
+
 
 def load(name):
     """The plugin for that harness: its module's hooks where it has them, defaults elsewhere.

@@ -17,10 +17,12 @@ import (
 // A seat's status line, `ak hook status` as hooks/claude-status.sh, writes down the model and
 // effort each render of its conversation names, in state/model-<conversation>.json, for a look to
 // read without another answer (harness.model_report).  Only an id that names one file is written;
-// a render's file goes in whole, through a dot-file of its own beside it.
+// a render's file goes in whole, through a dot-file of its own beside it.  hooks/claude-status.sh
+// keeps state/limits-<conversation>.json the same way, what its renders last said of their login's
+// limits, which Go does not yet write; a listing reads past both.
 var (
 	reportable = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-	reportFile = regexp.MustCompile(`^(model-[A-Za-z0-9_-]+\.json|\.model-[A-Za-z0-9_-]+\.[A-Za-z0-9]+)$`)
+	reportFile = regexp.MustCompile(`^((model|limits)-[A-Za-z0-9_-]+\.json|\.(model|limits)-[A-Za-z0-9_-]+\.[A-Za-z0-9]+)$`)
 )
 
 // reportPath is the file a status render of that conversation is written down in.

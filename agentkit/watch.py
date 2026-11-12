@@ -2838,6 +2838,21 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     return answer
 
 
+def hook_meters(launched, account, limits):
+    """What a seat's status render said of its login's limits, changed since its conversation's
+    last render, becomes that login's reading, as a worker turn's does.
+
+    hooks/claude-status.sh starts this in the background with the render's `rate_limits` as
+    JSON.  The login is the account the seat's harness was launched on, `account`, the usual one
+    where that is empty, of the provider of the model the seat holds.
+    """
+    cfg = config.load()
+    harness, provider = seat_model(cfg, config.resolve_session(launched))
+    if harness:
+        usage.record_turn_meters(cfg, provider, orch.harness_plugin(harness).status_meters(
+            json.loads(limits)), account or None)
+
+
 def pane_reads(form):
     """What tmux expands that format to for this pane, or None where it cannot say."""
     here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
