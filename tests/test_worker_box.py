@@ -837,9 +837,9 @@ class WorkerBox(unittest.TestCase):
         for home_overlay in (False, True):
             with self.subTest(home_overlay=home_overlay), patch.dict(os.environ, {"HOME": "home"}):
                 with box.command([sys.executable, "-c", read], dict(os.environ), cwd=self.root,
-                                 home_overlay=home_overlay) as (cmd, env, _):
+                                 home_overlay=home_overlay) as (cmd, env, spawn):
                     result = subprocess.run(cmd, env=env, cwd=self.root, capture_output=True,
-                                            text=True, timeout=10)
+                                            text=True, timeout=10, **spawn)
                 self.assertEqual((result.returncode, result.stdout.strip()), (0, ""), result.stderr)
         self.assertEqual(key.read_text(), "fixture-key")
 
@@ -927,9 +927,9 @@ class WorkerBox(unittest.TestCase):
             for home_overlay in (False, True):
                 with self.subTest(home_overlay=home_overlay):
                     with box.command([sys.executable, "-c", read], dict(os.environ), cwd=self.root,
-                                     home_overlay=home_overlay) as (cmd, env, _):
+                                     home_overlay=home_overlay) as (cmd, env, spawn):
                         result = subprocess.run(cmd, env=env, cwd=self.root, capture_output=True,
-                                                text=True, timeout=10)
+                                                text=True, timeout=10, **spawn)
                     self.assertEqual((result.returncode, result.stdout.strip()), (0, ""),
                                      result.stderr)
         # With no Git of ak's own the box refuses; it asks neither of the project's.
