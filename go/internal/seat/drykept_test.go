@@ -54,8 +54,8 @@ func TestDryHealthSaysTheReminderOfAQuestionKeptBack(t *testing.T) {
 	ago := run.Float(seconds(now.Add(-150 * time.Second)))
 	notice := run.Line(run.Fields("session", "acme", "kind", "needs", "text", asked, "time", ago, "source", nil, "watcher", false))
 	write(t, stateFile(home, "notify-acme.json"), notice)
-	write(t, stateFile(home, "seat-acme.json"), run.Line(run.Fields("state", "at_prompt", "stop_said", "Ready",
-		"stop_said_at", ago, "unasked", run.Fields("text", kept, "ended", ago))))
+	prompt := run.Line(run.Fields("state", "at_prompt", "stop_said", "Ready", "stop_said_at", ago, "unasked", run.Fields("text", kept, "ended", ago)))
+	write(t, stateFile(home, "seat-acme.json"), prompt)
 	dry := func() (bool, []string) {
 		t.Helper()
 		var said []string
@@ -85,6 +85,7 @@ func TestDryHealthSaysTheReminderOfAQuestionKeptBack(t *testing.T) {
 			t.Fatalf("saved %s: carried %v, said %q", run.Line(saved), carried, said)
 		}
 	}
+	write(t, stateFile(home, "seat-acme.json"), prompt)
 	if err := os.Remove(stateFile(home, "notify-acme.json")); err != nil {
 		t.Fatal(err)
 	}
