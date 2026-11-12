@@ -5787,11 +5787,9 @@ def show_config(dry_run=False, keyboard=None, session=None):
     scope, selected, note = for_selected(cfg, session or NEW_SEATS)
     fresh = not session       # a seat with no record shows new seats' marks, yet is no fresh window
     session = None if scope == NEW_SEATS else session
-    try:                      # what a seat's flip is refused on, and spent; Esc while it is read
-        providers = waited(lambda: usage.collect(cfg), "config",
-                           keyboard=keyboard, doing=LEFT) if session and selected else {}
-    except Back:
-        return cfg
+    # what a seat's flip is refused on, and spent: the readings held, never an adapter asked,
+    # so the screen is up at once; the menu's probe and the tick keep them current
+    providers = staffing._cached_providers() if session and selected else {}
     # git asked once a visit, not each draw; nothing about a harness and nothing over the network
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
@@ -5875,7 +5873,7 @@ def apply_defaults(cfg, around):
         return ""
     runs = [lead, *defaults["workers"], *defaults.get("reviewers", defaults["workers"])]
     taken = {model: config.efforts_of(cfg["models"][model]) for model in runs}
-    providers = usage.collect(cfg) if moving else {}
+    providers = staffing._cached_providers()     # held, as `c` reads them: no adapter asked
 
     def given(held):
         """`held`'s efforts at the entries', its orchestrator's own effort where it stands."""
