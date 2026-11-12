@@ -1582,6 +1582,24 @@ def write_suite_cost(path, updates):
     Path(saved.name).replace(path)
 
 
+def inherit_suite_cost(command, source, cwd):
+    """`command` takes each part of `source`'s cost on record (`cpus`, `mem_mb`) it has no
+    measure of its own for, `source` a suite of the same repository: a part `source` has none of
+    stays the initial estimate, and `command`'s first measured pass replaces the rest as any
+    measure.  The lander gives a rewritten `tests:` line the target's, as there ak first meets a
+    suite nobody measured, beside the one it replaces (`land._landing_checks`)."""
+    path = suite_cost(command, cwd, None)[0]
+    try:
+        with watch.state_lock():
+            own, given = read_suite_cost(path), read_suite_cost(suite_cost(source, cwd, None)[0])
+            given = {name: given[name] for name in ("cpus", "mem_mb")
+                     if _a_cost(given.get(name)) and not _a_cost(own.get(name))}
+            if given:
+                write_suite_cost(path, given)
+    except OSError:
+        pass    # a cost not given keeps the initial estimate
+
+
 def check_suite_pieces():
     """The split run checks its branch's declaration, never the target's fallback."""
     command = gitcall.declared(Path.cwd(), "tests")
