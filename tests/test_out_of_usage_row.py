@@ -3,8 +3,8 @@ pointer offers waiting for then or going on now with a model that has usage.
 
 The owner's pick of 20 Oct 2026: a spent window is no question for him -- ak resumes the seat
 when the usage comes back, or on another account sooner -- but no word for work going on, as
-nothing moves until then; so `◌ out of usage  back 19:20` in red, and under the pointer
-`✓ Wait for 19:20` and `⇄ Go on now with gpt-6.1-sol`, by its full name, which a click
+nothing moves until then; so `○ out of usage  back 19:20` in red, and under the pointer
+`✓ Wait for 19:20` and `→ Go on now with gpt-6.1-sol`, by its full name, which a click
 answers.  A run waiting for usage is a red square.  A harness upgrade does not wait for such a seat: no turn of it is in
 flight.  A move to another account that failed is no wait that ends by itself, and stays his.
 Offline: a temporary HOME, no tmux.
@@ -119,7 +119,7 @@ class OutOfUsageRow(Sandbox):
             self.assertEqual(update.working_sessions({"providers": {}}), ["busy"])
 
     def test_its_row_and_its_bar_say_when_it_comes_back_in_red(self):
-        self.assertEqual(terminal.state_text("out of usage"), "◌ out of usage")
+        self.assertEqual(terminal.state_text("out of usage"), "○ out of usage")
         self.assertEqual(terminal.colour("out of usage").rgb, RED)
         back = today_at(19, 20)
         self.assertEqual(terminal.plain(menu.last_column("out of usage", 3, 8, back=back)),
@@ -137,16 +137,16 @@ class OutOfUsageRow(Sandbox):
         info = self.info()
         [line] = menu.choices(info, 80)
         text = terminal.ANSI.sub("", line)
-        self.assertEqual(text, "✓ Wait for 19:20   ⇄ Go on now with gpt-6.1-sol")
+        self.assertEqual(text, "✓ Wait for 19:20   → Go on now with gpt-6.1-sol")
         self.assertEqual(menu.choice_cells("     " + text, info, 80),
                          [(6, 21, menu.WAIT), (25, 52, menu.GO_ON)])
         # where both do not fit, each takes a line of its own, where a click still finds it
         wait, go_on = [terminal.ANSI.sub("", line) for line in menu.choices(info, 40)]
-        self.assertEqual((wait, go_on), ("✓ Wait for 19:20", "⇄ Go on now with gpt-6.1-sol"))
+        self.assertEqual((wait, go_on), ("✓ Wait for 19:20", "→ Go on now with gpt-6.1-sol"))
         self.assertEqual(menu.choice_cells("     " + go_on, info, 40), [(6, 33, menu.GO_ON)])
         # and one wider than the room wraps at words, each of its lines a cell of its own
         lines = [terminal.ANSI.sub("", line) for line in menu.choices(info, 12)]
-        self.assertEqual(lines, ["✓ Wait for", "19:20", "⇄ Go on now", "with", "gpt-6.1-sol"])
+        self.assertEqual(lines, ["✓ Wait for", "19:20", "→ Go on now", "with", "gpt-6.1-sol"])
         self.assertEqual([menu.choice_cells("  " + line, info, 12) for line in lines],
                          [[(3, 12, menu.WAIT)], [(3, 7, menu.WAIT)], [(3, 13, menu.GO_ON)],
                           [(3, 6, menu.GO_ON)], [(3, 13, menu.GO_ON)]])
@@ -233,14 +233,14 @@ class OutOfUsageOnScreen(unittest.TestCase):
             screen = pty.Menu(self, {"acme-api": "out of usage"})
         lines = screen.frame()
         [row] = [line for line in lines if "acme-api" in line]
-        self.assertRegex(row, r"◌ out of usage +back \d\d:\d\d")
+        self.assertRegex(row, r"○ out of usage +back \d\d:\d\d")
         screen.send(b"j")      # the highlight on its row opens its lines
         lines = screen.frame(lambda lines: any("Go on now" in line for line in lines))
         at = next(n for n, line in enumerate(lines) if "Go on now" in line)
         self.assertRegex(lines[at - 1], r"^ +Opus \S+ \S+ ⚒◎$")     # its line, the crew alone
-        self.assertRegex(lines[at], r"✓ Wait for \d\d:\d\d   ⇄ Go on now with GPT-6-Astra")   # astra, in full
+        self.assertRegex(lines[at], r"✓ Wait for \d\d:\d\d   → Go on now with GPT-6-Astra")   # astra, in full
         mark = screen.mark()
-        screen.click(lines[at].index("⇄") + 3, at + 1)
+        screen.click(lines[at].index("→") + 3, at + 1)
         screen.saw("<moved acme-api to astra>", after=mark)
         screen.leave()
 

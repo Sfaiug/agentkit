@@ -374,11 +374,11 @@ func unsentMark(s terminal.Screen, text string) string {
 	if s.ASCII() {
 		return "* " + text
 	}
-	return "✎ " + text
+	return "¶ " + text
 }
 
 // lastColumn is a row's one last column in room cells (menu.last_column), none where room is
-// negative saying the fewest cells that hold it: its progress (planBar, barred), and `✎ unsent` two
+// negative saying the fewest cells that hold it: its progress (planBar, barred), and `¶ unsent` two
 // cells after where the owner left text.  The line keeps eight cells at least, unless narrow, where
 // it takes the room and never more: the count alone where no cell of line fits, the mark alone where
 // both do not.
@@ -608,8 +608,9 @@ func projectPages(projects []pageProject, room int, apart bool, opens map[string
 }
 
 // usageLines is the cached weekly allowances as a grid: as many cells to a line as fit, each its
-// label, a meter (`▰` left, `▱` spent) and what it says.  What a cell says is whole: the labels give
-// way to the longest, and a width with no room for a label beside it has no grid.
+// label, a meter (terminal.ShareParts, full for what is left) and what it says.  What a cell says
+// is whole: the labels give way to the longest, and a width with no room for a label beside it has
+// no grid.
 func usageLines(s terminal.Screen, cells []Cell, width int) []string {
 	return meterLines(s, cells, width, usageColumns(width), -1, nil)
 }
@@ -617,10 +618,10 @@ func usageLines(s terminal.Screen, cells []Cell, width int) []string {
 // usageColumns is how many cells a line of the grid holds in width: one to three, two apart.
 func usageColumns(width int) int { return max(1, min(3, width/(cellSize+2))) }
 
-// meterLines is usageLines per cell to a line, cell lit (from 0; -1 for none) with its label and its
-// meter's filled cells in its company's colour and its login's amber left to the line under it, and
-// took, where given, handed each cell's text that takes that colour: its cell, its column from 1,
-// the text and what it is drawn in at rest, "" for plain.
+// meterLines is usageLines per cell to a line, cell lit (from 0; -1 for none) with its label and
+// what its meter has left in its company's colour and its login's amber left to the line under it,
+// and took, where given, handed each cell's text that takes that colour: its cell, its column from
+// 1, the text and what it is drawn in at rest, "" for plain.
 func meterLines(s terminal.Screen, cells []Cell, width, per, lit int, took func(cell, column int, text, rest string)) []string {
 	if len(cells) == 0 {
 		return nil
@@ -646,10 +647,6 @@ func meterLines(s terminal.Screen, cells []Cell, width, per, lit int, took func(
 		return nil
 	}
 	meter := max(4, min(meterSize, room-labelRoom-13))
-	full, empty := "▰", "▱"
-	if s.ASCII() {
-		full, empty = "#", "-"
-	}
 	var lines []string
 	for start := 0; start < len(cells); start += per {
 		var parts []string
@@ -677,28 +674,18 @@ func meterLines(s terminal.Screen, cells []Cell, width, per, lit int, took func(
 					text += each.Said
 				}
 			} else {
-				filled := max(1, roundHalfEven(meter*each.Left, 100))
-				bar := strings.Repeat(full, filled)
+				bar, empty := s.ShareParts(float64(each.Left)/100, meter)
 				took(start+n, column+labelRoom+2, bar, rest)
 				if fill := cmp.Or(ink, rest); fill != "" {
 					bar = s.Styled(bar, fill)
 				}
-				text += bar + s.Styled(strings.Repeat(empty, meter-filled), "dim") + "  " + each.Said
+				text += bar + s.Styled(empty, "dim") + "  " + each.Said
 			}
 			parts = append(parts, text+strings.Repeat(" ", max(0, room-terminal.Cells(text))))
 		}
 		lines = append(lines, strings.TrimRight("  "+strings.Join(parts, "  "), " "))
 	}
 	return lines
-}
-
-// roundHalfEven is a/b rounded as Python rounds it.
-func roundHalfEven(a, b int) int {
-	whole, part := a/b, a%b
-	if 2*part > b || 2*part == b && whole%2 == 1 {
-		whole++
-	}
-	return whole
 }
 
 // usageSummary is the usage folded: each subscription's label and what it has left, whole, as many

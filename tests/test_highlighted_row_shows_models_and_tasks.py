@@ -74,7 +74,7 @@ class RowOpens(Sandbox):
     def test_text_the_owner_left_unsent_opens_first_whole_then_the_same_line(self):
         watch.seat_write("acme-plan", unsent=UNSENT)
         under = self.opened(self.screen("acme-plan"), "acme-plan")
-        self.assertEqual(" ".join(under[:-1]), f"✎ {UNSENT}")
+        self.assertEqual(" ".join(under[:-1]), f"¶ {UNSENT}")
         self.assertEqual(under[-1], f"{CREW}   ■□□  ■■□")
 
     def test_moving_the_highlight_moves_no_other_row(self):

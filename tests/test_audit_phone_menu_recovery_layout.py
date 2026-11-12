@@ -251,7 +251,7 @@ class Pages(Sandbox):
 
     def test_pages_fit_the_height_and_rows_keep_their_numbers(self):
         seats = self.seats(12)
-        usage = re.compile(r"^  Claude +[—▰\d]", re.M)   # its grid, or its one line
+        usage = re.compile(r"^  Claude +[—━╸─\d]", re.M)   # its grid, or its one line
         # Every page keeps the usage and the keys: the whole block where it fits with a few rows
         # under it, else its one line; a screen too short for that drops the frame as well.
         for width, height, keys in (
@@ -682,7 +682,7 @@ class Phone(Sandbox):
     def stop_answered(self, phone):
         """`Stop` picked on the question `x` asks under a row: Down onto it, then Enter."""
         phone.keys("Down")
-        phone.wait(lambda screen: any(re.fullmatch(r"[›>] [✗x] Stop", line.strip())
+        phone.wait(lambda screen: any(re.fullmatch(r"[›>] [×x] Stop", line.strip())
                                       for line in Terminal.inside(screen)), "Stop highlighted")
         phone.keys("Enter")
 

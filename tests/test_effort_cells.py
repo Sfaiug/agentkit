@@ -1,11 +1,11 @@
 """A model's effort on `c` reads as a cell a level before its word, and its highest shimmers.
 
 Before each effort word stands a cell for every level that model offers, full up to its effort
-and the rest open and dim (`▰▰▰▱▱` for high of five, the owner's pick of 18 Oct 2026), the
-words in one column; a model with one effort is its word alone.  A step lights each cell it
+and the rest thin and dim (`━━━──` for high of five, the bar's line, the owner's pick of 10 Nov
+2026), the words in one column; a model with one effort is its word alone.  A step lights each cell it
 fills and dims each it empties, in turn from the level before it, on the menu's animation clock,
 and a step onto the model's highest level sends one light through the word, once.  Without
-UTF-8 a full cell is `#` and an open one `-`, and under NO_COLOR nothing moves.
+UTF-8 a full cell is `=` and an open one `-`, and under NO_COLOR nothing moves.
 
 Each screen is `menu.show_config` in a child on a pty of its own, through
 tests/test_config_matrix.py's Screen: a temporary HOME whose config is the shipped default plus
@@ -27,8 +27,8 @@ from test_config_matrix import DOWN, FULL, RIGHT, SPACE, UP, Screen, draws, on_e
 from agentkit import config, menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
-CELL = re.compile(r"(\x1b\[[0-9;]*m)?([▰▱])")
-BAR = re.compile(r"(?:(?:\x1b\[[0-9;]*m)*[▰▱])+")
+CELL = re.compile(r"(\x1b\[[0-9;]*m)?([━─])")
+BAR = re.compile(r"(?:(?:\x1b\[[0-9;]*m)*[━─])+")
 LIT = "38;"     # a colour of its own: a dim cell's, or the light's on a letter
 
 
@@ -43,7 +43,7 @@ def filled(screen, name):
     line = next(line for line in drawn(screen)
                 if terminal.ANSI.sub("", line)[2:].split("  ")[0] == FULL[name])
     return sum(1 for codes, cell in CELL.findall(BAR.search(line)[0])
-               if cell == "▰" and LIT not in codes)
+               if cell == "━" and LIT not in codes)
 
 
 def shone(written):
@@ -72,7 +72,7 @@ def moved(screen, keys):
 def places(lines, name):
     """`name`'s row on the terminal, the column of its first effort's word and of its first cell."""
     number, line = row(lines, name)
-    bar = re.search("[▰▱]+ +", line)
+    bar = re.search("[━─]+ +", line)
     return number, bar.end() + 1, bar.start() + 1
 
 
@@ -83,12 +83,12 @@ class EffortCells(unittest.TestCase):
         # Claude's five, Codex's and Muse's six, Grok's four, Gemini Flash's three and MiMo's
         # two, each full to its effort in the shipped default
         for name, effort, cells in (
-                ("fable", "xhigh", "▰▰▰▰▱"), ("opus", "xhigh", "▰▰▰▰▱"),
-                ("astra", "xhigh", "▰▰▰▰▱▱"), ("spark", "xhigh", "▰▰▰▰▰▱"),
-                ("grok", "xhigh", "▰▰▰▰"), ("gemini", "high", "▰▰▰"), ("mimo", "high", "▰▰")):
+                ("fable", "xhigh", "━━━━─"), ("opus", "xhigh", "━━━━─"),
+                ("astra", "xhigh", "━━━━──"), ("spark", "xhigh", "━━━━━─"),
+                ("grok", "xhigh", "━━━━"), ("gemini", "high", "━━━"), ("mimo", "high", "━━")):
             with self.subTest(name=name):
                 self.assertEqual(row(lines, name)[1].split()[-2:], [cells, effort])
-                self.assertEqual(filled(screen, name), cells.count("▰"))
+                self.assertEqual(filled(screen, name), cells.count("━"))
         # every word in one column, after the most cells any model has
         self.assertEqual(len({places(lines, name)[1] for name in ("fable", "astra", "mimo")}), 1)
         screen.leave()
@@ -114,23 +114,23 @@ class EffortCells(unittest.TestCase):
         lines = screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))
         number, word, first = places(lines, "opus")
         # a click on its second cell, down from xhigh: its fourth cell, then its third, stay
-        # full but dim and then stand open and dim
+        # full but dim and then stand thin and dim
         cells = moved(screen, f"\x1b[<0;{first + 1};{number}M\x1b[<0;{first + 1};{number}m"
                       .encode())
         self.assertEqual(screen.effort("opus"), "medium")
         self.assertEqual({(at, column) for at, column, _, _ in cells},
                          {(number, first + 3), (number, first + 2)})
-        self.assertEqual([column for _, column, text, _ in cells if text == "▱"],
+        self.assertEqual([column for _, column, text, _ in cells if text == "─"],
                          [first + 3, first + 2], "in turn from the level before it")
         self.assertEqual({column for _, column, text, written in cells
-                          if text == "▰" and LIT in written}, {first + 3, first + 2},
+                          if text == "━" and LIT in written}, {first + 3, first + 2},
                          "each full but dim first")
-        self.assertTrue(all(LIT in written for _, _, text, written in cells if text == "▱"))
+        self.assertTrue(all(LIT in written for _, _, text, written in cells if text == "─"))
         self.assertEqual(filled(screen, "opus"), 2)
         # up again: its third lights and settles into the foreground
         cells = moved(screen, SPACE)
         self.assertEqual({(at, column) for at, column, _, _ in cells}, {(number, first + 2)})
-        self.assertEqual({text for _, _, text, _ in cells}, {"▰"})
+        self.assertEqual({text for _, _, text, _ in cells}, {"━"})
         self.assertIn(LIT, cells[0][3])
         self.assertNotIn(LIT, cells[-1][3])
         # up onto max, Opus's highest, from the word: its last two fill, and one light crosses
@@ -151,24 +151,24 @@ class EffortCells(unittest.TestCase):
             self.assertEqual([cell for cell in cells if cell[0] == number], [])
         screen.leave()
 
-    def test_without_utf8_a_full_cell_is_a_hash_and_an_open_one_a_dash(self):
+    def test_without_utf8_a_full_cell_is_an_equals_sign_and_an_open_one_a_dash(self):
         screen = Screen(self, workers=list(FULL), env={"LANG": "C", "LC_ALL": ""})
         lines = screen.frame()
-        self.assertEqual(row(lines, "opus")[1].split()[-2:], ["####-", "xhigh"])
-        self.assertEqual(row(lines, "gemini")[1].split()[-2:], ["###", "high"])
+        self.assertEqual(row(lines, "opus")[1].split()[-2:], ["====-", "xhigh"])
+        self.assertEqual(row(lines, "gemini")[1].split()[-2:], ["===", "high"])
         self.assertEqual(row(lines, "haiku")[1].split()[-1], "xhigh")
-        self.assertNotIn("#", row(lines, "haiku")[1])
+        self.assertNotIn("=", row(lines, "haiku")[1])
         screen.leave()
 
     def test_under_no_color_nothing_moves(self):
         screen = Screen(self, env={"NO_COLOR": "1"})
         lines = screen.frame()
-        self.assertEqual(row(lines, "opus")[1].split()[-2:], ["▰▰▰▰▱", "xhigh"])
+        self.assertEqual(row(lines, "opus")[1].split()[-2:], ["━━━━─", "xhigh"])
         # with no colour to reverse, the effort is the highlighted row's cell with no mark bracketed
         screen.press(DOWN + RIGHT * 5, lambda lines: row(lines, "opus")[1].startswith("›")
                      and "[" not in row(lines, "opus")[1])
         self.assertEqual(moved(screen, SPACE), [])
-        self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["▰▰▰▰▰", "max"])
+        self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["━━━━━", "max"])
         screen.leave()
 
     def test_a_cell_takes_about_150_ms_and_the_light_about_600(self):
@@ -176,13 +176,13 @@ class EffortCells(unittest.TestCase):
                 patch.object(terminal, "utf8", return_value=True):
             fill, until = motion.filling(True, 10.0)
             self.assertEqual(until, 10.15)
-            self.assertEqual(fill(9.9), terminal.styled("▱", "dim"))      # its turn to come
+            self.assertEqual(fill(9.9), terminal.styled("─", "dim"))      # its turn to come
             self.assertIn(LIT, fill(10.0))
-            self.assertEqual(terminal.ANSI.sub("", fill(10.0)), "▰")
-            self.assertEqual(fill(10.15), "▰")
+            self.assertEqual(terminal.ANSI.sub("", fill(10.0)), "━")
+            self.assertEqual(fill(10.15), "━")
             empty, _ = motion.filling(False, 10.0)
-            self.assertEqual(empty(10.0), terminal.styled("▰", "dim"))
-            self.assertEqual(empty(10.15), terminal.styled("▱", "dim"))
+            self.assertEqual(empty(10.0), terminal.styled("━", "dim"))
+            self.assertEqual(empty(10.15), terminal.styled("─", "dim"))
             shimmer, until = motion.shimmering("max", 10.0)
             self.assertEqual(until, 10.6)
             for t, lit in ((0.1, [0]), (0.3, [1]), (0.5, [2]), (0.65, [])):

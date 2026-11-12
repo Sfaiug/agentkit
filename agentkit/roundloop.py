@@ -471,7 +471,7 @@ def verify_work(lp, cmds=None):
     with history.check((lp.run_dir, lp.rnd, "rules", head), "files_scope, rules_check",
                        time.time()) as ended:
         checks = (files_scope(lp), rules_check(lp))
-        ended.append(int(any(checks)))
+        ended["exit"] = int(any(checks))
     clean = lp.scratch or lp.state.get("review_pr") or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0
     ok, text = check(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
                      lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
@@ -1493,18 +1493,14 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     prompts.record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
     # kept whatever the verdict, every round's, with the commit each was proven on for its plan
-    # line; each defect once, whichever round proved it: the same defect handed in again on a
-    # later head differs only in its proof, which names that head, and the first one is kept
-    known = set((lp.state.get("followup_defects") or {}).values())
-    fresh = []
-    for item, defect in submitted.followup_defects.items():
-        if defect not in known:
-            known.add(defect)
-            fresh.append(item)
+    # line; none at a site an earlier round's names: that is the defect a later round's reviewer
+    # re-found on its head in its own words and check, and the first one is kept
+    known = {handback.followup_place(item) for item in lp.state.get("followups") or []}
+    fresh = [item for item in dict.fromkeys(submitted.followups)
+             if handback.followup_place(item) not in known]
     lp.state["followups"] = (lp.state.get("followups") or []) + fresh
     for key, found in (("followup_checks", submitted.followup_checks),
-                       ("followup_commits", submitted.followup_commits),
-                       ("followup_defects", submitted.followup_defects)):
+                       ("followup_commits", submitted.followup_commits)):
         lp.state[key] = {**(lp.state.get(key) or {}), **{item: found[item] for item in fresh if item in found}}
     if verdict == "PASS":
         prompts.record_flakes(lp.state, dw_log)
@@ -1524,8 +1520,12 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                           "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
+    fixed_from = lp.state.get("reviewed_sha") if lp.rnd > 1 else None     # round 1 judges a build, not a fix
     if validation.get("head_sha"):
         lp.state["delta_from"] = validation["head_sha"]     # every review, recorded or not
+        # the same commit, kept through an integration that takes `delta_from`: the fix the
+        # next review's findings are placed against (`prompts.inside_fix`)
+        lp.state["reviewed_sha"] = validation["head_sha"]
     lp.save()
     own = hand_in.Review([row for row in submitted.records if not row.get("replayed")])   # ak's replays are no reviewer's catch
     history.record_review(lp.state.get("run_id"), str(out),
@@ -1533,7 +1533,9 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                           blocking=len(own.findings), followup=len(own.preexisting),
                           note=len(own.notes), round=lp.rnd, verdict=verdict,
                           effort=config.role_effort(reviewed, "reviewer"),
-                          records=submitted.records + disputes.disputes, log=lp.log)
+                          records=[{**row, "inside_fix": prompts.inside_fix(
+                              lp, row, fixed_from, identity.get("head_sha"))}
+                              for row in submitted.records + disputes.disputes], log=lp.log)
     return verdict
 
 
