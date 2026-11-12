@@ -249,7 +249,7 @@ class Live:
         self.last = None                 # where each read leaves the seats and their groups
         self.read_from = None            # the seats and runs it read them from, a pass's too
         self.kept = {}                   # each seat's row as its reads last decided it
-        self.said = []                   # maintenance's warnings that no notice has shown yet
+        self.said = []                   # warnings no notice has shown yet (`loop`, `tidy`)
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
 
     def close(self):
@@ -349,7 +349,7 @@ class Live:
         self._wake()
 
     def heard(self):
-        """The warnings maintenance gave since last asked, once."""
+        """The warnings no notice has shown yet, once."""
         return [self.said.pop(0) for _ in range(len(self.said))]
 
     def read(self, look=False):
@@ -682,18 +682,25 @@ def waited(work, title, body=list, keys="esc back", keyboard=None, doing=""):
 @terminal.clicks_its_own
 def pause(*lines):
     """Say something and, when someone is there to read it, wait until they have: Esc or Enter,
-    in a frame while the menu holds the screen, else printed where the terminal was given
-    back, with only the keys taken so Esc goes back at once here too."""
+    in a frame while the menu holds the screen, whose pages ↑/↓ turn, so none of a note taller
+    than the screen is lost; else printed where the terminal was given back, with only the keys
+    taken so Esc goes back at once here too.  Its lines are no row: no pointer takes a highlight
+    off them, which Enter would then only bring back (`terminal.unseen`)."""
     if terminal.taken():
+        top = 0
         while True:
             body = ["  " + part for line in lines for part in
                     (terminal.wrap(line, terminal.layout_width() - 2) or [""])]
-            spots = terminal.frame("note", body)
+            room = max(1, page_room([], "esc back"))
+            top = max(0, min(top, len(body) - room))
+            spots = terminal.frame("note", body[top:top + room])
             key = terminal.read_key()
-            if key is not None and (key.name in ("esc", "enter", "eof")
-                                    or key.name == "click"
-                                    and terminal.under(key, spots).cell == "esc"):
+            if key is None:
+                continue
+            if (key.name in ("esc", "enter", "eof")
+                    or key.name == "click" and terminal.under(key, spots).cell == "esc"):
                 return
+            top += room * terminal.step(key)
     for line in lines:
         print(line)
     if sys.stdin.isatty() and sys.stdout.isatty():
@@ -3015,10 +3022,14 @@ def tidy_log(notice):
 
 def show_notices(messages):
     """Read warnings, a job's results and an update's lines once, before the main screen clears
-    them."""
-    if messages:
-        pause(*(" " + part for message in messages for part in terminal.wrap(
-            message.replace(os.path.expanduser("~") + "/", "~/"), terminal.width() - 1)))
+    them: on the screen the menu holds, in the note frame (`pause`); elsewhere printed whole at
+    words."""
+    said = [message.replace(os.path.expanduser("~") + "/", "~/") for message in messages]
+    if not terminal.taken():
+        said = [" " + part for message in said for part in terminal.wrap(
+            message, terminal.width() - 1)]
+    if said:
+        pause(*said)
 
 
 # The rows under the models, each running its own step.
@@ -6389,7 +6400,7 @@ def pressed(key, drawn, found):
     return key.char if key.name == "char" else ""
 
 
-def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
+def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
     """The menu until Esc, or from a pipe until an empty line or the end of input.
 
     `overlay` is the menu as a tmux popup over a running seat, the same menu with its highlight
@@ -6414,7 +6425,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     seat's capture holds up a read or a draw: the first draw is the records as they stand, and
     a look landing has them read and drawn again.  The first draw's meters are the cache's, and
     the probe that follows it runs in a thread and asks for one more draw when it lands.  So
-    does `tidy`, `main`'s maintenance (`Live.tidy`): a warning it gives is a notice as it lands.
+    does `tidy`, `main`'s maintenance (`Live.tidy`): a warning it gives is a notice as it lands;
+    `said`, what `main` had to say before, is the first.
     Nothing here waits on an adapter, and a key typed during a draw is read by the next wait.
     Between draws the working seats' dots breathe, and what changed since the draw before moves
     once, a frame whenever the clock says one is due and no key is waiting (`moving`), so a key
@@ -6457,6 +6469,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                                           # the popup's first draw coming up
     clock.grows = {} if restarted else None     # nothing opened, so no line grows in again
     with closing(Live(cfg)) as live, closing(terminal.Keyboard()) as keyboard:
+        live.said.extend(said)
         if keyboard.take():
             terminal.sense()              # true colour and the background, once, before a draw
         live.watch(last)                  # read once, now: the first draw has nothing else
@@ -6481,7 +6494,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     updating, updated = None, news.get("moved", False)
                     messages += news.get("lines", [])
             if messages:
-                keyboard.give()           # a notice waits for its Enter, like any sub-screen
+                keyboard.take()           # a notice is a sub-screen of the menu's (`pause`)
                 show_notices(messages)
                 clock.forget()            # and the menu it comes back to replays nothing
                 pointing = False
@@ -6776,11 +6789,11 @@ def main(argv):
     messages = []     # a dry run's are what it would do, for the owner to read
     watch.resume_after_boot(config.load(), dry_run=flags["--dry-run"], log=messages.append
                             if flags["--dry-run"] else tidy_log(messages.append))
-    show_notices(messages)
     # what `ak orch` does on the way into a seat, gc and the runs nobody was told about, run
     # behind the menu's first frame
     tidy = None if flags["--dry-run"] or flags["--overlay"] else orch.maintenance
-    code = loop(config.load(), flags["--client"], flags["--dry-run"], flags["--overlay"], tidy)
+    code = loop(config.load(), flags["--client"], flags["--dry-run"], flags["--overlay"], tidy,
+                messages)
     if flags["--overlay"]:
         # The popup comes down when this process ends, and Python's own teardown of all the menu
         # read took most of a second.  Nothing is cut short: a record is only ever replaced
