@@ -811,12 +811,15 @@ sysctl_set() {
   # systemd-sysctl applies entries in the byte order of their names, the last value for a key
   # winning, and a name extended sorts after it: ours is the last of `zz` and every other name
   # (99-sysctl.conf, which is /etc/sysctl.conf, included), extended, so it is applied last.
-  # Only that rule makes these shapes, so an entry of either is ak's: this one's from an earlier
-  # install, or one for another key, which leaves ours its value.
+  # Only that rule makes these two shapes, so an entry of either is an earlier install's.  ak's
+  # entries for other keys take them with their own names, and ours follows such a name only if
+  # it holds this key's last part, which every spelling of the key does, so an owner's entry
+  # named like ak's is still followed and neither of ak's names grows out of the other's.
   while IFS= read -r name; do
     case $name in
       zz"$ours"|*.conf"$ours") sudo -n rm -f -- "$SYSCTL_D/$name" 2>/dev/null || return 1 ;;
-      zz-agentkit-*.conf|*.conf-agentkit-*.conf) ;;
+      zz-agentkit-*.conf|*.conf-agentkit-*.conf)
+        sudo -n grep -qF -- "${2##*.}" "$SYSCTL_D/$name" 2>/dev/null && others+=$'\n'$name ;;
       *.conf) others+=$'\n'$name ;;
     esac
   done <<<"$names"

@@ -123,10 +123,13 @@ class RoomForInotify(unittest.TestCase):
     def test_b_an_entry_sorting_after_ours_moves_ours_after_it(self):
         self.limit.write_text("128\n")
         self.leaves_room_now_and_on_every_boot()
-        (self.sysctl_d / "zzz-local.conf").write_text(f"{KEY} = 128\n")
-        # the next boot applies it after ours, and the next install finds its limit
-        self.limit.write_text(self.boot() + "\n")
-        self.leaves_room_now_and_on_every_boot()
+        # an owner's entry is followed whatever its name, one shaped like ak's too
+        for later in ("zz-agentkit-z-local.conf", "zzz-local.conf",
+                      "zzz-local.conf-agentkit-local.conf"):
+            (self.sysctl_d / later).write_text(f"{KEY} = 128\n")
+            # the next boot applies it after ours, and the next install finds its limit
+            self.limit.write_text(self.boot() + "\n")
+            self.leaves_room_now_and_on_every_boot()
 
     def test_c_a_host_that_allows_more_keeps_its_own(self):
         self.limit.write_text("65536\n")
