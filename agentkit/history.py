@@ -176,7 +176,8 @@ REVIEW_MIGRATIONS = (("round", "INTEGER"), ("verdict", "TEXT"), ("effort", "TEXT
 # reviewed commit and on base (NULL where none ran), `replayed` ak's word on a replay, `reason`
 # why it was weighed down or conceded, and a dispute's `outcome`, upheld or conceded. A finding
 # ends where its last row (same run, path and proof) does: fixed by its replay, or still a
-# finding at the budget.
+# finding at the budget.  `inside_fix` says whether its line is inside the fixer's last change
+# (`prompts.inside_fix`), NULL on a row from before that column.
 FINDINGS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS findings (
     run_id TEXT,
@@ -195,6 +196,7 @@ CREATE TABLE IF NOT EXISTS findings (
     at REAL
 )
 """
+FINDING_MIGRATIONS = (("inside_fix", "INTEGER"),)
 
 # The owner's time, one row per moment, keyed by harness and conversation as dones are: no
 # rename or reused seat name moves it. NULL with no record, an unknown conversation or an older row.
@@ -308,7 +310,8 @@ def _connect(*, readonly=False):
     connection.execute(METER_READINGS_SCHEMA)
     connection.execute(TURN_USAGE_SCHEMA)
     for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
-                              ("reviews", REVIEW_MIGRATIONS), ("owner", OWNER_MIGRATIONS),
+                              ("reviews", REVIEW_MIGRATIONS), ("findings", FINDING_MIGRATIONS),
+                              ("owner", OWNER_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS),
                               ("meter_readings", METER_READING_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
@@ -833,8 +836,8 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
             at = time.time()
             connection.executemany(
                 "INSERT INTO findings (run_id, review_id, round, path, line, handed, kind, proof, "
-                "commit_exit, base_exit, replayed, reason, outcome, at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "commit_exit, base_exit, replayed, reason, outcome, inside_fix, at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [(run_id, review_id, round, *_finding(row), at)
                  for row in records if row["kind"] not in (*hand_in.CLOSING, "concede")])
 
@@ -842,7 +845,7 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
 
 
 def _finding(row):
-    """A record's `findings` columns from `path` to `outcome`.  Its exit on base is its proof's
+    """A record's `findings` columns from `path` to `inside_fix`.  Its exit on base is its proof's
     `base` part, or the proof itself where ak ran it on base alone: a follow-up handed in from
     before the task (`before`) and proven with no base part (`prompts.weigh_review`), never one
     on a reviewed commit that is base's own.  A record whose kind weighing left alone was handed
@@ -852,7 +855,8 @@ def _finding(row):
     return (row["path"], row["line"], row.get("handed", row["kind"]), row["kind"],
             evidence.get("run", evidence.get("quote")),
             None if on_base is evidence else evidence.get("returncode"), on_base.get("returncode"),
-            row.get("replayed"), row.get("conceded") or row.get("outside") or row.get("dropped"), row.get("outcome"))
+            row.get("replayed"), row.get("conceded") or row.get("outside") or row.get("dropped"), row.get("outcome"),
+            row.get("inside_fix"))
 
 
 def reviewed_runs(harness, model):
@@ -1325,15 +1329,16 @@ def conflict_rows(since, until):
 
 def findings(since, until):
     """Weighed rows of real runs by date, plus earlier follow-ups and answered disputes
-    for merged changes' counts. Keep their run's change and whether an earlier blocking
-    round raised the same path and proof, even before the inclusive range."""
+    for merged changes' counts, with every column their table has (`inside_fix` only since it
+    was added). Keep their run's change and whether an earlier blocking round raised the same
+    path and proof, even before the inclusive range."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             connection.row_factory = sqlite3.Row
             try:
                 return [dict(row) for row in connection.execute(
-                    "SELECT f.at, f.kind, f.outcome, runs.*, EXISTS (SELECT 1 FROM findings earlier "
+                    "SELECT f.*, runs.*, EXISTS (SELECT 1 FROM findings earlier "
                     "WHERE earlier.run_id=f.run_id AND earlier.path=f.path AND earlier.proof=f.proof "
                     "AND earlier.kind='finding' AND earlier.round<f.round) AS raised_again "
                     "FROM findings f JOIN runs USING (run_id) WHERE f.at <= ? AND "

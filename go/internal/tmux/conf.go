@@ -20,10 +20,11 @@ const phone = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 // touch scroll on a phone scrolls a seat's output, 50000 lines of it, rather than sending arrow keys
 // to the harness; a harness that quits as it opens keeps its pane, as the file is read before the
 // seat exists; a link it prints, and each repaint, reaches the owner's terminal whole; and Ctrl-b m
-// is this program's menu over whatever is running, the whole client on a phone.  Its hooks are in
-// force before the seat exists too, so even a harness that ends as it starts meets them.
+// is the menu of the program a seat runs (config.Live) over whatever is running, the whole client
+// on a phone.  Its hooks are in force before the seat exists too, so even a harness that ends as
+// it starts meets them.
 func Conf() (string, error) {
-	program, err := os.Executable()
+	program, err := config.Live()
 	hooks, failed := Hooks()
 	if err = cmp.Or(err, failed); err != nil {
 		return "", err

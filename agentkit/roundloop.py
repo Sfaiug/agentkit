@@ -1524,8 +1524,12 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                           "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
+    fixed_from = lp.state.get("reviewed_sha") if lp.rnd > 1 else None     # round 1 judges a build, not a fix
     if validation.get("head_sha"):
         lp.state["delta_from"] = validation["head_sha"]     # every review, recorded or not
+        # the same commit, kept through an integration that takes `delta_from`: the fix the
+        # next review's findings are placed against (`prompts.inside_fix`)
+        lp.state["reviewed_sha"] = validation["head_sha"]
     lp.save()
     own = hand_in.Review([row for row in submitted.records if not row.get("replayed")])   # ak's replays are no reviewer's catch
     history.record_review(lp.state.get("run_id"), str(out),
@@ -1533,7 +1537,9 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                           blocking=len(own.findings), followup=len(own.preexisting),
                           note=len(own.notes), round=lp.rnd, verdict=verdict,
                           effort=config.role_effort(reviewed, "reviewer"),
-                          records=submitted.records + disputes.disputes, log=lp.log)
+                          records=[{**row, "inside_fix": prompts.inside_fix(
+                              lp, row, fixed_from, identity.get("head_sha"))}
+                              for row in submitted.records + disputes.disputes], log=lp.log)
     return verdict
 
 
