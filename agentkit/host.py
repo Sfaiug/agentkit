@@ -523,12 +523,15 @@ def _cpu_weight(cgroup):
 
 def _building(runs):
     """The runs slice's scopes but a line's check: that outweighs every run for the CPU
-    (`land.start_line`, `deliver.landing_weight`), so it never stands waiting behind them."""
+    (`land.start_line`, `deliver.landing_weight`), so it never stands waiting behind them.
+    None where the slice or a scope's weight cannot be read, as that scope may be the check."""
     try:
-        return [scope for scope in runs.iterdir()
-                if scope.is_dir() and _cpu_weight(scope) != CPU_WEIGHT_MAX]
+        weights = {scope: _cpu_weight(scope) for scope in runs.iterdir() if scope.is_dir()}
     except OSError:
-        return []
+        return None
+    if None in weights.values():
+        return None
+    return [scope for scope, weight in weights.items() if weight != CPU_WEIGHT_MAX]
 
 
 def kept_cpu(slice_dir, delay=0.1):
@@ -737,20 +740,23 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     except Exception:
         cpu_quota = None
     cpu_used = outside = None
-    building = []    # (ran, waited) of each scope building
+    building = (None, None)
     if cpu_dir is not None:
         # Sample CPU outside the containing slice alongside both groups, so a burst
         # between readings cannot count a sibling as outside work.
         whole = cgroup_path("", cgroup_root)
-        scopes = _building(cpu_dir) if cpu_dir != slice_dir else []
+        scopes = (_building(cpu_dir) if cpu_dir != slice_dir else None) or []
+        stalls = [scope / "cpu.pressure" for scope in scopes]
         try:
             rates = _cpu_rates([*dict.fromkeys(
                 path for path in (cpu_dir, slice_dir, whole) if path is not None),
-                *(path for scope in scopes for path in (scope, scope / "cpu.pressure"))])
+                *scopes, *stalls])
         except Exception:
             rates = {}
-        building = [(rates[scope], rates[scope / "cpu.pressure"]) for scope in scopes
-                    if scope in rates and scope / "cpu.pressure" in rates]
+        # A sum missing a scope it holds is no sum: the one left out may be the one waiting.
+        if scopes and all(path in rates for path in (*scopes, *stalls)):
+            building = (sum(rates[scope] for scope in scopes),
+                        sum(rates[stall] for stall in stalls))
         cpu_used = rates.get(cpu_dir)
         # Before its first launch a child has no cgroup and holds no CPU.
         if (cpu_dir != slice_dir and slice_dir is not None and slice_dir.is_dir()
@@ -768,8 +774,7 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     readings["slice_cpu_used"] = cpu_used
     readings["outside_cpu_used"] = outside
     # What the runs building ran on a CPU, and stood still waiting for one, in cores.
-    readings["building_cpu_used"], readings["building_cpu_waited"] = (
-        map(sum, zip(*building)) if building else (None, None))
+    readings["building_cpu_used"], readings["building_cpu_waited"] = building
     if mem is not None:
         (readings["slice_memory_used_mb"], readings["slice_memory_high_mb"],
          readings["slice_memory_swap_mb"]) = mem
