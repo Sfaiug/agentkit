@@ -13,7 +13,6 @@ import (
 	"agentkit/internal/logins"
 	"agentkit/internal/menu"
 	"agentkit/internal/terminal"
-	"agentkit/internal/worker"
 )
 
 // signIn is a subscription's `→ log in again` (menu.sign_in): its adapter's `login again` under its
@@ -83,7 +82,7 @@ func ranVerb(harness, verb, account, provider string) bool {
 	if !login {
 		return true
 	}
-	if answered, yes, _ := worker.Login(run.Path, run.Env, "seat"); answered && !yes {
+	if answered, yes, _ := logins.Auth(run.Path, run.Env, "seat"); answered && !yes {
 		return false
 	}
 	signedIn[harness] = true // c reads its models again
