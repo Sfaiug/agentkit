@@ -8,7 +8,8 @@ owner: "WHen we have usage again, sessions should start by themselves."  Black-b
 `AK_BIN` names runs `ak watch` from outside through tests/fixtures/akbin.py, beside a seat of
 tests/fixtures/akseat.py on a fake Claude harness (tests/fixtures/fakeadapter.py) whose `usage`
 answers room; the snapshot it read before says spent, and Claude's adapter was last asked an
-hour ago, so this tick asks it again.
+hour ago, so this tick asks it again.  The seat is told to go on in its first prompt, or, where
+its harness takes none, in a line typed into it.
 """
 
 import json
@@ -40,7 +41,9 @@ def reading(now, used):
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class RefillResumesWaitingSeatsInTheSameTick(unittest.TestCase):
-    def test_the_tick_reading_room_again_restarts_the_waiting_seat_and_tells_it_to_go_on(self):
+    def reopened(self, first_prompt):
+        """After one tick: the first prompt of each restart of the waiting seat, and the lines
+        typed into it, on a harness that takes a first prompt or one that does not."""
         home = Home()
         self.addCleanup(home.close)
         with socket.socket() as probe:     # a port nobody listens on: the tick reaches no board
@@ -48,6 +51,9 @@ class RefillResumesWaitingSeatsInTheSameTick(unittest.TestCase):
             home.env.update(dict.fromkeys(PROXIES, f"http://127.0.0.1:{probe.getsockname()[1]}"))
         akconfig.write(home, ["opus"])
         claude = fakeadapter.install(home, claude="pass")["claude"]
+        if not first_prompt:
+            claude.manifest.write_text(claude.manifest.read_text().replace(
+                "first_prompt = true", "first_prompt = false"))
         now = time.time()
         claude.answer("usage", json.dumps({**reading(now, 10), "error": None}))
         # refused ten minutes ago, its plan still open, with the wait ak recorded then
@@ -70,9 +76,20 @@ class RefillResumesWaitingSeatsInTheSameTick(unittest.TestCase):
         done = home.ak("watch", boxed=True)
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertIn("usage", [call["verb"] for call in claude.calls()], "the tick never asked")
-        told = [call["env"].get("AGENTKIT_FIRST_PROMPT") for call in claude.calls("interactive")]
+        return ([call["env"].get("AGENTKIT_FIRST_PROMPT") for call in claude.calls("interactive")],
+                seat.lines())
+
+    def test_the_tick_reading_room_again_restarts_the_waiting_seat_on_a_line_to_go_on(self):
+        told, typed = self.reopened(first_prompt=True)
         self.assertEqual(len(told), 1, f"restarted {len(told)} times")
         self.assertTrue(told[0], "restarted, told nothing to go on with")
+        self.assertEqual(typed, [])
+
+    def test_a_harness_taking_no_first_prompt_has_that_line_typed_in_the_same_tick(self):
+        told, typed = self.reopened(first_prompt=False)
+        self.assertEqual(len(told), 1, f"restarted {len(told)} times")
+        self.assertEqual(len(typed), 1, typed)
+        self.assertTrue(typed[0].strip(), "typed nothing to go on with")
 
 
 if __name__ == "__main__":

@@ -743,9 +743,9 @@ def prompted_since(name, at):
     return isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at
 
 
-def continue_turns(cfg, log, accounts=False):
+def continue_turns(cfg, log, accounts=False, names=None):
     """Continue rebooted seats or have them ask again, or (`accounts`) continue seats reopened
-    on another subscription.
+    on another subscription; of `names` only, where given.
 
     The mark goes on once the relaunch is back and comes off once the line has landed, so a
     send that failed -- or a tick killed in the warmup -- is tried again by the next tick,
@@ -764,7 +764,7 @@ def continue_turns(cfg, log, accounts=False):
     till the prompt is stamped, or for MIDTURN_TRIES passes.
     """
     boot = boot_id()
-    for name in config.session_records():
+    for name in config.session_records() if names is None else names:
         mark = seat_read(name).get("midturn")
         if not isinstance(mark, dict) or bool(mark.get("account")) != accounts:
             continue
@@ -5474,11 +5474,17 @@ def usage_waits(cfg, state, log):
     """Settle each seat waiting for usage again, on the reading the usage refresh has just made:
     seat health settled it on the one before, so a seat this one frees goes on in this tick, not
     the next.  One out of login (an `auth` stall) is left alone, as `health` leaves it."""
+    reopened = []
     for session in orch.sessions():
         name = session["name"]
         if (seat_read(name).get("usage_wait")
                 and state["stalls"].get(name, {}).get("kind") != "auth"):
             settle_account(cfg, session, log)
+            if not seat_read(name).get("usage_wait"):
+                reopened.append(name)
+    # ... and told to go on now where its harness took no first prompt: `switched turns`, which
+    # tells seat health's, has run this tick, and no other mark may have a second try in it
+    continue_turns(cfg, log, accounts=True, names=reopened)
 
 
 def health(cfg, state, dry_run, log):
