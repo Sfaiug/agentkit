@@ -2492,7 +2492,7 @@ def reopen(cfg, name, **kw):
 #
 # Claude owns its launcher-issued id, following replacements from its own process's hooks.
 # Codex owns only its launch hook's recorded thread.
-# OpenCode owns the session its seat plugin reported into that launch's receipt.
+# OpenCode owns the session its seat followed a prompt into, kept in that launch's receipt.
 # Muse still starts fresh. Cwd and timestamps never establish ownership.
 
 
