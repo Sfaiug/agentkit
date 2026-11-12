@@ -24,6 +24,8 @@ alike are in one phase because each reads one clock.
 """
 
 import math
+import os
+from pathlib import Path
 import re
 import time
 
@@ -387,6 +389,15 @@ def fetching(clock, began):
     return clock
 
 
+def moment():
+    """The time every motion is drawn at, in seconds.  An answer key names its clock in
+    `AK_MOTION_CLOCK`, a file of seconds read anew each time, so it reaches the program the key
+    runs and moves only as the key moves it; unset, the monotonic clock.  Frames still come on
+    real time (`Clock.wait`), each showing the moment it reads."""
+    clock = os.environ.get("AK_MOTION_CLOCK")
+    return float(Path(clock).read_text()) if clock else time.monotonic()
+
+
 def spinning(began):
     """The spinner beside what one of ak's own waits from `began` is for -- a catalog, a
     login, a reset spent -- in the accent, a glyph each SPIN seconds: an animation, for as long
@@ -423,7 +434,7 @@ class Clock:
         is, and so is one no draw before showed: only a change seen while the menu is up moves.
         A key touched is news since then, what it showed before being what it shows.
         """
-        now, seen, self.seen = time.monotonic(), self.seen or {}, {}
+        now, seen, self.seen = moment(), self.seen or {}, {}
         for key, value in values.items():
             was = seen.get(key)
             self.seen[key] = ((value, None, None) if was is None else was if was[0] == value
@@ -436,7 +447,7 @@ class Clock:
 
     def touch(self, key):
         """News at `key` from now that changed nothing: a mark whose change was refused."""
-        self.touched[key] = time.monotonic()
+        self.touched[key] = moment()
 
     def settle(self):
         """A key: whatever moves ends on its last frame, the next draw showing it still, and
@@ -467,7 +478,7 @@ class Clock:
         Nothing moves where colour cannot: off a terminal, under NO_COLOR, at eight colours;
         and news whose time is over does not move again.
         """
-        if terminal.colour_depth() > 8 and (until is None or until > time.monotonic()):
+        if terminal.colour_depth() > 8 and (until is None or until > moment()):
             for cell in cells:
                 self.cells[cell] = animation, until
                 self.effects[cell] = effect
@@ -483,7 +494,7 @@ class Clock:
         `page`'s, where colour can move, whatever is drawn in the FADE seconds from its first
         frame -- a key's draw at once, and news -- each from where the fade has got to.
         """
-        now = time.monotonic()
+        now = moment()
         opened = now if self.opened is None else self.opened    # not yet: by this draw's frame
         if (self.fade or self.page) and terminal.colour_depth() > 8 and now < opened + FADE:
             self.rising = lines
@@ -509,7 +520,7 @@ class Clock:
         """What to write now: the lines still rising and every cell that moves, faded with them,
         or each cell whose text moved since it was last written, no other, with the pointer's
         light where it is (`terminal.pointed`)."""
-        now = self.last = time.monotonic()
+        now, self.last = moment(), time.monotonic()
         out, amount, first = "", 0, 3 if self.page else 1     # where what comes up starts
         if self.rising:
             # from its first frame, not from the draw making it: however long that draw took,

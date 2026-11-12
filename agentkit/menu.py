@@ -616,7 +616,7 @@ class Fetch(threading.Thread):
 
     def __init__(self, work):
         super().__init__(daemon=True)
-        self.work, self.began, self.got = work, time.monotonic(), {}
+        self.work, self.began, self.got = work, motion.moment(), {}
         self.start()
 
     def run(self):
@@ -657,7 +657,7 @@ def waited(work, title, body=list, keys="esc back", keyboard=None, doing=""):
         while fetch.is_alive() and terminal.taken():
             lines = body()            # laid out again after a resize: no line wider than it
             said = [*([""] if lines else []), "  " + motion.spinning(fetch.began)(
-                time.monotonic()) + " " + terminal.styled(terminal.cut(
+                motion.moment()) + " " + terminal.styled(terminal.cut(
                     doing, terminal.layout_width() - 4), "dim")] if doing else []
             # only on a screen it fits: one that scrolls leaves the clock writing on rows moved
             if 3 + len(lines) + len(said) + len(terminal.key_line(keys)) >= terminal.height():
@@ -2053,7 +2053,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         # draws until it has -- the read that lands as it opens draws the screen again at once --
         # each from its own start, until news moves the line instead.
         if clock.grows is None:
-            clock.grows = {name: time.monotonic() + n * motion.STAGGER
+            clock.grows = {name: motion.moment() + n * motion.STAGGER
                            for n, name in enumerate(bars)}
         for name, began in clock.grows.items():
             if name in bars:
@@ -6016,8 +6016,8 @@ def switches(checkout, every=FEATURES_EVERY):
         entry = _SWITCHES.setdefault(str(checkout), {"rows": None, "error": "", "asked": None,
                                                      "going": False, "set": 0, "flips": {}})
         if not entry["going"] and (entry["asked"] is None
-                                   or time.monotonic() - entry["asked"] >= every):
-            entry["asked"], entry["going"] = time.monotonic(), True
+                                   or motion.moment() - entry["asked"] >= every):
+            entry["asked"], entry["going"] = motion.moment(), True     # the rule glides from it
             threading.Thread(target=_list_switches, args=(checkout, entry), daemon=True).start()
         return entry["rows"]
 

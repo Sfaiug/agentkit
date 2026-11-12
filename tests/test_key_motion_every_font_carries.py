@@ -8,10 +8,10 @@ beside what ak waits on turns through the quadrants a terminal draws itself, `�
 
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) with its
 colours, its harnesses the fakes of tests/fixtures/fakeadapter.py, Claude Code's catalog held
-while the test needs it waited on.  Time is ak's own: the test reads what the pane is written,
-in order, from tmux's `pipe-pane`, and a mark's inks from its own draws, never timing anything
-off a capture, and it holds the wait until the spinner has turned, so the host's load can slow
-what is read but not change it.  Fails against `/bin/false`.
+while the test needs it waited on.  Its clock injected: `AK_MOTION_CLOCK` names a file of seconds
+that stands still until the test moves it, so each motion is read off the screen at the moment
+set, however late the host's load makes a frame; every byte the pane is written, from tmux's
+`pipe-pane`, is looked through for a borrowed character.  Fails against `/bin/false`.
 """
 
 import re
@@ -27,35 +27,22 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 
 TURN = "▖▘▝▗"
+SPIN = 0.1      # seconds each of the spinner's glyphs shows (motion.SPIN)
 BORROWED = re.compile("[▣◉\u2800-\u28ff]")     # the old half marks, and every Braille cell
 LISTED = re.compile(r"(?m)^› +([□■]) (.+?) *$")    # the highlight on one of a harness's models
-UPDATE = "\x1b[?2026l"     # the end of what the terminal shows at once
+SGR = r"\x1b\[[\d;]*m"
 
 
-def turns(out):
-    """The spinner's glyphs as written, the same one again left out."""
-    glyphs = [char for char in out if char in TURN]
-    return "".join(char for n, char in enumerate(glyphs) if not n or glyphs[n - 1] != char)
-
-
-def drawn(mark, name):
-    """`mark` as a draw writes it beside the model `name`: its ink alone, the group, no fade
-    over it."""
-    return rf"(\x1b\[[\d;]*m){mark}\x1b\[[\d;]*m {re.escape(name)}"
-
-
-def shown(out, name, was):
-    """The model `name`'s mark as each whole update the pane is written leaves it, from the first
-    to change it from `was` -- its ink and the mark, from a draw beside its name or a frame in
-    its column -- the same one again left out."""
-    mark = re.compile(drawn("([■□])", name) + r"|(\x1b\[[\d;]*m) ([■□]) ")
-    found = [was]
-    for update in out.split(UPDATE)[:-1]:
-        marks = [(ink or framed, glyph or alone)
-                 for ink, glyph, framed, alone in mark.findall(update)]
-        if marks and found[-1] != marks[-1]:
-            found.append(marks[-1])
-    return found[1:]
+def marked(screen, name):
+    """The highlighted mark beside the model `name` on a screen captured in colour, or None: the
+    escapes tmux writes before it, which say what changes from the plain space before it in
+    every form a mark is drawn in, then the mark."""
+    for line in screen.splitlines():
+        plain = re.sub(SGR, "", line).rstrip()
+        if plain.startswith("› ") and plain.endswith(" " + name):
+            found = re.search(rf"((?:{SGR})*) ?([□■])", line)
+            return found and found.groups()
+    return None
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -69,7 +56,9 @@ class MotionEveryFontCarries(unittest.TestCase):
             f'[ "$1" = models ] && while [ -e {shlex.quote(str(self.held))} ]; do sleep 0.05; '
             "done\nexec "), 1))
         akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
-        self.term = Terminal(self.home, size=(100, 30))
+        self.clock = self.home.root / "clock"
+        self.at(1000)
+        self.term = Terminal(self.home, size=(100, 30), env={"AK_MOTION_CLOCK": str(self.clock)})
         self.term.wait("esc leave")
         self.raw = self.home.root / "raw"
         piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane, f"cat >>{self.raw}",
@@ -78,52 +67,55 @@ class MotionEveryFontCarries(unittest.TestCase):
         self.term.keys("c", "j", "j", "Enter")
         self.term.wait("› Claude Code")
 
-    def written(self, until, since=0):
-        """What the pane was written from byte `since` once it holds `until`, a pattern or a test
-        of it."""
+    def at(self, seconds):
+        """ak's motion at `seconds` from now on: its clock's file swapped whole, never read half
+        written."""
+        self.now = seconds
+        new = self.clock.with_name("clock.new")
+        new.write_text(repr(seconds))
+        new.replace(self.clock)
+
+    def shows(self, name, test):
+        """The highlighted mark beside `name`, as `marked` reads it, once `test` holds of it."""
         deadline = time.monotonic() + 30
-        while True:
-            out = (self.raw.read_bytes() if self.raw.exists() else b"")[since:].decode(
-                "utf-8", "replace")
-            if until(out) if callable(until) else re.search(until, out, re.S):
-                return out
-            assert time.monotonic() < deadline, f"never written {until!r}; written:\n{out!r}"
+        while not ((got := marked(self.term.screen(colours=True), name)) and test(*got)):
+            assert time.monotonic() < deadline, f"{name}'s mark never passed; it is {got!r}"
             time.sleep(0.05)
+        return got
+
+    def assertNothingBorrowed(self):
+        out = self.raw.read_bytes().decode("utf-8", "replace")
+        self.assertIsNone(BORROWED.search(out), out)
 
     def test_a_wait_turns_its_spinner_through_the_quadrants(self):
         self.held.touch()
         self.addCleanup(self.held.unlink, missing_ok=True)
-        since = self.raw.stat().st_size
-        self.term.keys("Enter")
-        self.term.wait("reading the models claude offers")
-        out = self.written(lambda out: TURN in turns(out), since)
-        self.assertIsNone(BORROWED.search(out), out)
+        self.term.keys("Enter")         # the wait begins now, on the clock as it stands
+        for n, glyph in enumerate(TURN):
+            self.at(1000 + (n + 0.5) * SPIN)
+            self.term.wait(f"{glyph} reading the models claude offers")
+        self.assertNothingBorrowed()
 
     def test_a_mark_fills_and_empties_through_its_full_shape_in_its_open_ink(self):
         self.term.keys("Enter")
         on = LISTED.search(self.term.wait(LISTED.search))
+        self.at(self.now + 10)          # the page and its list up; the clock moves past each key
         while on[1] != "□":       # down to a model not taken in
             self.term.keys("j")
             on = LISTED.search(self.term.wait(
                 lambda screen, at=on[2]: (found := LISTED.search(screen)) and found[2] != at))
-        empty = re.findall(drawn("□", on[2]), self.written(drawn("□", on[2])))[-1]
-        half = (empty, "■")
+        empty, _ = self.shows(on[2], lambda ink, mark: mark == "□")
 
-        since = self.raw.stat().st_size
-        self.term.keys("Space")
-        out = self.written(lambda out: half in (got := shown(out, on[2], (empty, "□")))
-                           and got[-1] != half, since)
-        full = re.findall(drawn("■", on[2]), out)[-1]      # as a draw has it at rest
-        self.assertNotEqual(full, empty)
-        self.assertEqual(shown(out, on[2], (empty, "□")), [half, (full, "■")])
-        self.assertIsNone(BORROWED.search(out), out)
+        self.term.keys("Space")         # half way while the clock stands
+        self.shows(on[2], lambda ink, mark: (ink, mark) == (empty, "■"))
+        self.at(self.now + 10)
+        full, _ = self.shows(on[2], lambda ink, mark: mark == "■" and ink != empty)
 
-        since = self.raw.stat().st_size
         self.term.keys("Space")
-        out = self.written(lambda out: half in (got := shown(out, on[2], (full, "■")))
-                           and got[-1] != half, since)
-        self.assertEqual(shown(out, on[2], (full, "■")), [half, (empty, "□")])
-        self.assertIsNone(BORROWED.search(out), out)
+        self.shows(on[2], lambda ink, mark: (ink, mark) == (empty, "■"))
+        self.at(self.now + 10)
+        self.shows(on[2], lambda ink, mark: (ink, mark) == (empty, "□"))
+        self.assertNothingBorrowed()
 
 
 if __name__ == "__main__":
