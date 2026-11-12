@@ -4,7 +4,6 @@ import (
 	"slices"
 	"time"
 
-	"agentkit/internal/config"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -27,23 +26,6 @@ func loginTold(entry *run.Object) bool {
 	}
 	_, said := entry.Get("notice").(string)
 	return entry.Get("kind") == "auth" && entry.Get("evidence") == "verb" && entry.Str("harness") != "" && said && entry.Truthy("told")
-}
-
-// unlooked is whether a seat tmux holds with its panes all exited, which Health publishes without
-// its look, has a login for the health row to ask after, as Python's look at such a seat still does
-// (watch.health): a stall of one held, or its own refused on record.  A home with neither is not
-// read again for it.
-func (t *ticking) unlooked(stalls *run.Object) bool {
-	asks := func(name string) bool {
-		held, _ := stalls.Get(name).(*run.Object)
-		return held != nil && held.Get("kind") == "auth" || t.loggedOut(config.SeatHarness(name)) != nil
-	}
-	answers := t.state.Dict("auth_out")
-	if !slices.ContainsFunc(stalls.Keys(), asks) && (answers == nil || !slices.ContainsFunc(answers.Keys(), func(harness string) bool { return t.loggedOut(harness) != nil })) {
-		return false
-	}
-	exited, known := seat.Exited(time.Now())
-	return !known || slices.ContainsFunc(exited, asks)
 }
 
 // askLogins is the health row's first ask (watch.health): every harness an earlier pass recorded a

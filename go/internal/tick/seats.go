@@ -64,15 +64,15 @@ func stays(live seat.Live) bool {
 // asking its owner to log it in once, or asks the login a stall of one is held for and clears that
 // stall and its notice once it passes; the first it would do more at ends the tick there, before
 // its publish.  A stall held of a seat whose record is gone is Python's to forget, and a login to
-// ask after at a seat whose panes have exited Python's to ask (unlooked).  A dry tick's look acts
-// on nothing and says what it would type.
+// ask after at a seat whose panes are all dead Python's to ask.  A dry tick's look acts on nothing
+// and says what it would type.
 func (t *ticking) health() error {
 	if err := t.pollTokens(); err != nil {
 		return err
 	}
 	names, known := seat.Seats(time.Now())
 	stalls := t.state.Dict("stalls")
-	if !known || slices.ContainsFunc(stalls.Keys(), func(name string) bool { return missing(statePath("session-" + name + ".json")) }) || t.unlooked(stalls) {
+	if !known || slices.ContainsFunc(stalls.Keys(), func(name string) bool { return missing(statePath("session-" + name + ".json")) }) {
 		return errLeft
 	}
 	if err := t.askLogins(); err != nil {
@@ -84,6 +84,9 @@ func (t *ticking) health() error {
 		owner, line := "", ""
 		look := func(live seat.Live) bool {
 			held, _ := stalls.Get(live.Name).(*run.Object)
+			if live.Exited { // no screen, though Python's look asks after its login still
+				return !(held != nil && held.Str("kind") == "auth") && t.loggedOut(live.Own) == nil
+			}
 			if held != nil && held.Str("kind") == "auth" {
 				if out != nil { // kept by this seat's look, which asked its login once this pass
 					return ownerWaits(live)
