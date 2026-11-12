@@ -299,7 +299,8 @@ if [ "$MACHINE" = 1 ]; then
     { echo "install.sh: this Mac's Linux machine is not up; see above, then run ./install.sh again" >&2; exit 1; }
   if ! linux_machine_run test -e agentkit/.git; then
     copy=$(mktemp -d)
-    git clone -q --depth 1 -- "file://$REPO" "$copy/agentkit"
+    # Named origin whatever clone.defaultRemoteName says, so the lines below act on it.
+    git clone -q --depth 1 --origin origin -- "file://$REPO" "$copy/agentkit"
     # The clone's own origin is this Mac's folder, which the machine does not mount.
     if origin=$(git -C "$REPO" remote get-url origin 2>/dev/null); then
       git -C "$copy/agentkit" remote set-url origin "$origin"
