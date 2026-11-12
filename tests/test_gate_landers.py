@@ -137,7 +137,7 @@ class GateLanders(unittest.TestCase):
         # its first landing wait starts at its first look at the turns, as its file says
         self.assertLessEqual(lander_first, lander_mark["since"])
         # and its record says the start its file says: a waiter on older code reads the record
-        self.assertIn((True, lander_first, "landing-waiter"), gate._landing_waiters())
+        self.assertIn((True, False, lander_first, "landing-waiter"), gate._landing_waiters())
         repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "round-waiter", round_since))
         self.assertFalse(gate._gate_waiter_before(repo, "landing-waiter", lander_first, True))
@@ -149,7 +149,7 @@ class GateLanders(unittest.TestCase):
         self.assertTrue(plain.result[0] and lander.result[0])
         self.assertEqual(self.marks.read_text(), "lander\nround\n")
 
-    def test_the_line_checkers_wait_holds_round_checks_and_new_runs(self):
+    def test_the_line_checkers_wait_holds_round_checks(self):
         # The line's checker marks no member's record; its wait still goes first.
         plain = Gate(self, "round-waiter", ACME, [self.mark("round")])
         holder = gate.gate_lock(ACME, 0).open("a")
@@ -170,20 +170,12 @@ class GateLanders(unittest.TestCase):
         repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate._gate_waiter_before(repo, "round-waiter",
                                                  self.turn("round-waiter")["since"]))
-        readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
-        new = {"run_id": "new-run", "run_depth": 0}
-        self.assertFalse(gate.claim_slot(new, 0, readings))
-        self.assertEqual(new["slot_wait_kind"], "landing")
-        repair = {"run_id": "repair", "run_depth": 0, "first": True}
-        self.assertTrue(gate.claim_slot(repair, 0, readings))
         fcntl.flock(holder, fcntl.LOCK_UN)
         checker.join(20)
         plain.join(20)
         self.assertIsNone(plain.error, plain.error)
         self.assertEqual(self.marks.read_text(), "lander\nround\n")
         self.assertFalse(gate.landing_waits())
-        self.assertFalse(gate.claim_slot(new, 0, readings))   # a poll behind the repair let in
-        self.assertIn("steady readings", new["slot_wait_reason"])
 
     def test_a_round_check_asks_the_helper_past_a_line_check_waiting_here(self):
         # The line's wait decides this host's turns; a suite on a machine takes nothing from it.
@@ -208,7 +200,7 @@ class GateLanders(unittest.TestCase):
         checker.join(20)
 
     def test_a_landing_check_is_seen_from_its_first_look_at_the_turns(self):
-        # No new run or round check slips in while the checker reads headroom for its pieces.
+        # No round check slips in while the checker reads headroom for its pieces.
         seen, real = [], gate._heavy_max_existing
         def look():
             seen.append(gate.landing_waits())
@@ -220,8 +212,8 @@ class GateLanders(unittest.TestCase):
                 self.assertFalse(gate.landing_waits())    # it holds its turn: no wait left
         self.assertEqual(seen[:1], [True])
 
-    def test_an_older_line_check_takes_the_turn_before_a_younger_one(self):
-        # The line's checkers mark no record; their waits still rank by when they joined.
+    def test_a_line_check_holding_no_turn_is_not_held_back_by_an_older_one_holding_none(self):
+        # Neither holds a turn: the younger takes the one it finds free, and the older the next.
         holder = gate.gate_lock(ACME, 0).open("a")
         self.addCleanup(holder.close)
         fcntl.flock(holder, fcntl.LOCK_EX)
@@ -255,7 +247,7 @@ class GateLanders(unittest.TestCase):
             go["younger"].release()
             for thread in threads:
                 thread.join(20)
-        self.assertEqual(order, ["older", "younger"])
+        self.assertEqual(order, ["younger", "older"])
         self.assertFalse(gate.landing_waits())
 
     def test_a_landing_wait_ranks_by_its_file_alone(self):
@@ -283,15 +275,27 @@ class GateLanders(unittest.TestCase):
         repo = gitcall.main_checkout(ACME)
         self.assertTrue(gate.landing_waits())
         self.assertTrue(gate._gate_waiter_before(repo, "round", time.time()))
-        self.assertTrue(gate._gate_waiter_before(repo, "younger", 2000, True))
+        self.assertTrue(gate._gate_waiter_before(repo, "younger", 2000, True, holds=False))
         self.assertFalse(gate._gate_waiter_before(repo, "older-code", 1000, True))
-        readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
-        new = {"run_id": "new-run", "run_depth": 0}
-        self.assertFalse(gate.claim_slot(new, 0, readings))
-        self.assertEqual(new["slot_wait_kind"], "landing")
+
+    def test_a_wait_that_does_not_say_whether_it_holds_a_turn_ranks_by_its_start_alone(self):
+        # A line's check on code from before 12 Nov 2026 ranks by start, as it reads itself.  A
+        # check asking for more stays ahead of a younger one holding none across it, or each gave
+        # the free turn to the next and none took it; before it, they rank as ever.
+        repo = gitcall.main_checkout(ACME)
+        for waits, held_back in (
+                ((("holds-some", 1000, True), ("older-code", 2000, None),
+                  ("holds-none", 3000, False)), [False, True, True]),
+                ((("holds-some", 1000, True), ("holds-none", 2000, False),
+                  ("older-code", 3000, None)), [True, False, True])):
+            with ExitStack() as files:
+                for name, since, holds in waits:
+                    files.enter_context(gate.landing_wait(True, since, name, True, holds))
+                self.assertEqual([gate._gate_waiter_before(repo, name, since, True, True, holds)
+                                  for name, since, holds in waits], held_back)
 
     def test_a_dead_line_checks_wait_holds_nobody_back(self):
-        # Its holder is gone, so nothing holds its file: no round check or new run waits on it.
+        # Its holder is gone, so nothing holds its file: no round check waits on it.
         dead = config.RUNS / ".landing-wait-gone"
         dead.write_text('{"since": 1, "run_id": "gone"}')
         repo = gitcall.main_checkout(ACME)
@@ -321,9 +325,6 @@ class GateLanders(unittest.TestCase):
         with run_record.record(member) as current:
             current["state"] = "stopped"
         self.until(lambda: not gate.landing_waits(), "the checker to stop holding others back")
-        readings = {"free_mb": 8000, "mem_total_mb": 16000, "slice_cpu_pressure": 0}
-        new = {"run_id": "new-run", "run_depth": 0}
-        self.assertTrue(gate.claim_slot(new, 0, readings))
         repo = gitcall.main_checkout(ACME)
         self.assertFalse(gate._gate_waiter_before(repo, "round", time.time() - 60))
         fcntl.flock(holder, fcntl.LOCK_UN)

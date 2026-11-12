@@ -45,12 +45,12 @@ class LoginMeter(Sandbox):
                     if terminal.plain(line).startswith(label + " "))
 
     def test_a_login_ending_within_a_week_turns_its_meter_amber_at_rest(self):
-        meter = "▰" * 5
+        meter = "━" * 5
         self.assertIn(terminal.styled(meter, "amber"), self.cell("Claude II"))
         # nine days off, or no end written down, it stays grey
         for label in ("Claude I", "ChatGPT"):
             self.assertNotIn(terminal.styled(meter, "amber"), self.cell(label))
-            self.assertIn(meter + terminal.styled("▱" * 5, "dim"), self.cell(label))
+            self.assertIn(meter + terminal.styled("─" * 5, "dim"), self.cell(label))
         # a login that ended, on a subscription with no reading to draw, says so in amber
         self.assertIn(terminal.styled("—", "amber")[:-4], self.cell("Muse"))
         # under the pointer the meter is its company's colour, as every other one is

@@ -83,7 +83,6 @@ func table(t *ticking) []pass {
 		{"server hooks", false, nil, hookOptions},
 		{"seat revival", false, configured, t.revive},
 		{"seat weights", false, nil, func() error { host.Front(); return nil }},
-		{"idle sleep", false, configured, t.sleep},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
 		{"collection", false, nil, func() error {
 			if !gc.Schedule(t.log.line) {

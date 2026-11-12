@@ -1,7 +1,8 @@
-"""Landing refuses only added test files above the passing suite's own piece target.
+"""Landing measures a test file against the passing suite's own piece target.
 
 Black-box through AK_BIN: fabricated PASS times, with the eight-piece helper of
-test_key_a_suite_is_cut_for_the_whole_machine.py, never wall-clock assertions.
+test_key_a_suite_is_cut_for_the_whole_machine.py, never wall-clock assertions. A test file
+holds the seconds the suite prints for it, in its pieces and alone (`AK_ONLY`).
 """
 
 import json
@@ -19,7 +20,14 @@ from fixtures.gitrig import Rig
 FILE = "tests/test_sprout.py"
 ANCHOR = "tests/test_anchor.py"
 SUITE = ': "$AK_SHARD"; sh suite.sh'
-RUNNER = f"""case ${{AK_SHARD:-1/1}} in
+RUNNER = f"""if [ -n "${{AK_ONLY:-}}" ]; then
+  : "${{AK_RAN:?}}"
+  while read -r test; do
+    printf 'PASS  %s (%ss)\\n' "$test" "$(cat "$test")"; echo "$test" >>"$AK_RAN"
+  done <"$AK_ONLY"
+  exit
+fi
+case ${{AK_SHARD:-1/1}} in
   1/*) printf 'PASS  {ANCHOR} (%ss)\\n' "$(cat {ANCHOR})" ;;
   2/*) if [ "${{1:-}}" != anchor ] && [ -f {FILE} ]; then
          printf 'PASS  {FILE} (%ss)\\n' "$(cat {FILE})"; fi ;;
@@ -40,8 +48,10 @@ elif verb == "run":
 """
 
 
-class LandingRefusesASlowTestFile(unittest.TestCase):
-    def land(self, seconds, *, existed=False, anchor=1000, revised=False):
+class Landing(unittest.TestCase):
+    """A change writing `seconds` into FILE, which holds `before` on the target if not None."""
+
+    def land(self, seconds, *, before=None, anchor=1000, revised=False):
         home = Home()
         self.addCleanup(home.close)
         rules = f"---\nhealth: none\ntests: {SUITE}\n---\n# sprouts\n"
@@ -49,7 +59,7 @@ class LandingRefusesASlowTestFile(unittest.TestCase):
             "AGENTS.md": rules.replace(SUITE, SUITE + " anchor") if revised else rules,
             "suite.sh": RUNNER, ANCHOR: f"{anchor}\n",
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n",
-            **({FILE: "600\n"} if existed else {})})
+            **({FILE: f"{before}\n"} if before is not None else {})})
         gh = GitHub(home)
         gh.grant(rig.slug, "WRITE")
         akconfig.write(home, {"maker": "claude", "judge": "codex"},
@@ -84,8 +94,8 @@ class LandingRefusesASlowTestFile(unittest.TestCase):
         self.assertEqual(heads[-1], state["delivery_sha"])
         return rig, directory, fakes, heads
 
-    def refused(self, *, revised=False):
-        rig, directory, fakes, heads = self.land(600, revised=revised)
+    def refused(self, **how):
+        rig, directory, fakes, heads = self.land(600, **how)
         self.assertEqual([turn["role"] for turn in fakes["claude"].runs()],
                          ["executor", "fixer"], (directory / "log.txt").read_text())
         self.assertEqual(len(heads), 2)
@@ -102,10 +112,10 @@ class LandingRefusesASlowTestFile(unittest.TestCase):
         self.assertNotIn(rig.git("rev-parse", f"{heads[0]}^{{tree}}"), trees)
         self.assertIn(rig.git("rev-parse", f"{heads[1]}^{{tree}}"), trees)
         self.assertEqual(rig.origin("show", f"main:{FILE}"), "100")
+        return prompt
 
-    def test_three_times_the_target_gets_one_fixer_then_review_and_a_green_suite(self):
-        self.refused()
 
+class LandingRefusesASlowTestFile(Landing):
     def test_a_revised_suite_refuses_a_new_file_it_alone_covers(self):
         self.refused(revised=True)
 
@@ -114,12 +124,6 @@ class LandingRefusesASlowTestFile(unittest.TestCase):
         _, _, fakes, heads = self.land(140, revised=True)
         self.assertEqual([turn["role"] for turn in fakes["claude"].runs()], ["executor"])
         self.assertEqual(len(heads), 1)
-
-    def test_an_edited_file_already_over_the_target_lands(self):
-        rig, _, fakes, heads = self.land(601, existed=True)
-        self.assertEqual([turn["role"] for turn in fakes["claude"].runs()], ["executor"])
-        self.assertEqual(len(heads), 1)
-        self.assertEqual(rig.origin("show", f"main:{FILE}"), "601")
 
     def test_many_pieces_do_not_refuse_an_ordinary_short_file(self):
         _, _, fakes, _ = self.land(20, anchor=0)

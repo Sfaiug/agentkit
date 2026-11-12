@@ -115,10 +115,10 @@ class NewRow(unittest.TestCase):
         self.assertTrue(rows(screen)[0].startswith("agentkit · new session"), screen)
         self.assertIn("               orch                builds              reviews",
                       rows(screen))
-        self.assertEqual(under(screen, "Claude Code"), "› Fable 5.1    [●] ▰▰▰▰▱   xhigh"
-                         "    ■  ▰▰▰▰▱   xhigh    ■  ▰▰▰▰▱   xhigh")
+        self.assertEqual(under(screen, "Claude Code"), "› Fable 5.1    [●] ━━━━─   xhigh"
+                         "    ■  ━━━━─   xhigh    ■  ━━━━─   xhigh")
         self.assertEqual(under(screen, "Codex"), "  GPT-6-Astra   ○                 "
-                         "  ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high")
+                         "  ■  ━━━───  high     ■  ━━━───  high")
         self.menu.keys("Escape")
         screen = self.menu.wait(ROW_KEYS)
         self.assertTrue(any(BORN.fullmatch(line) for line in rows(screen)), screen)
@@ -132,7 +132,7 @@ class NewRow(unittest.TestCase):
         self.menu.keys("Down", "Right", "Space")    # astra no longer builds
         screen = self.menu.wait("[□]")
         self.assertEqual(under(screen, "Codex"),
-                         "› GPT-6-Astra   ○                  [□]                  ■  ▰▰▰▱▱▱  high")
+                         "› GPT-6-Astra   ○                  [□]                  ■  ━━━───  high")
         self.menu.keys("Escape")
         screen = self.menu.wait(ROW_KEYS)
         # the row's line names the picks: astra only reviews
