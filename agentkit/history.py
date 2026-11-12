@@ -242,8 +242,10 @@ CREATE TABLE IF NOT EXISTS done_runs (
 # plan's meter against the tokens spent on it takes the readings over time.  `account` is
 # `default` for the usual login; `source` is `probe` or `turn`; `plan` is the login's as
 # state/logins.json named it then (`logins.whose`), so a changed plan starts readings of its own,
-# NULL where it named none or on a row from before it.  A reading kept already, the same meter at
-# the same moment, adds nothing.
+# NULL where it named none or on a row from before it; `scope` the model or surface whose own cap
+# the meter is, as its provider names it (adapters/claude.sh), NULL for a meter every model shares
+# or on a row from before it.  A reading kept already, the same meter at the same moment, adds
+# nothing.
 METER_READINGS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS meter_readings (
     provider TEXT,
@@ -257,7 +259,7 @@ CREATE TABLE IF NOT EXISTS meter_readings (
     PRIMARY KEY (provider, account, meter, at)
 )
 """
-METER_READING_MIGRATIONS = (("plan", "TEXT"),)
+METER_READING_MIGRATIONS = (("plan", "TEXT"), ("scope", "TEXT"))
 READINGS_KEPT_FOR = 35 * 86400     # five weeks
 
 
@@ -427,7 +429,7 @@ def keep_readings(rows):
 
     def keep(connection):
         if connection.executemany("INSERT OR IGNORE INTO meter_readings VALUES "
-                                  "(?, ?, ?, ?, ?, ?, ?, ?, ?)", rows).rowcount > 0:
+                                  "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows).rowcount > 0:
             connection.execute("DELETE FROM meter_readings WHERE at < ?",
                                (time.time() - READINGS_KEPT_FOR,))
     _write(keep)

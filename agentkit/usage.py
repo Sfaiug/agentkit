@@ -474,13 +474,13 @@ def _keep_probed(provider, account, cached, fresh):
 
 def _keep(provider, account, meters, at, source):
     """One fresh reading's meters, each a row of history.db's `meter_readings`, with the plan
-    its login is on as state/logins.json names it now."""
+    its login is on as state/logins.json names it now and the scope its provider names."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     account = account or config.DEFAULT_ACCOUNT
     plan = logins.whose(provider, account)[1]
     history.keep_readings([(provider, account, meter["name"], meter["used"],
                             _number(meter.get("resets_at")), _number(meter.get("window_secs")),
-                            at, source, plan) for meter in meters])
+                            at, source, plan, _text(meter.get("scope"))) for meter in meters])
 
 
 def _adapter_json(harness, verb, timeout, account=None):
@@ -499,6 +499,12 @@ def _number(value):
     """`value` as a float when it really is a number, else None -- True is not a 1 here."""
     return (None if isinstance(value, bool) or not isinstance(value, (int, float))
             or not math.isfinite(value) else float(value))
+
+
+def _text(value):
+    """`value` when it is a string with something in it, else None: an adapter's odd answer
+    is no column of a row SQLite refuses whole."""
+    return value if isinstance(value, str) and value else None
 
 
 def _past(meter, now):
