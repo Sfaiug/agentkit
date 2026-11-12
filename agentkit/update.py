@@ -666,7 +666,8 @@ def update_agentkit(progress=None, pull=True):
             if progress:
                 progress(done, len(steps))
             if cmd is swap:
-                target = pull if isinstance(pull, str) else live_target()
+                # one chosen before this lock may have been put back since (back.py)
+                target = pull if isinstance(pull, str) and pull not in _failed() else live_target()
                 if not target:
                     say("update: agentkit: origin/main moves here once its tests/live.sh passed")
                     return 0

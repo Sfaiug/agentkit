@@ -8722,7 +8722,12 @@ def main(argv):
                                  "slowest": {"pass": name, "seconds": round(took, 1)}}
                 if not crashed:
                     state["tick_completed_at"] = state["tick"]["ended_at"]
-                save_state(state)
-                versions.final(state["tick"]["ended_at"], completed=not crashed)
+                try:
+                    save_state(state)
+                except BaseException:
+                    crashed = True      # the next tick finds no completion: nor does the move
+                    raise
+                finally:
+                    versions.final(state["tick"]["ended_at"], completed=not crashed)
                 if not crashed:
                     tick_notice(ended=state["tick"]["ended_at"], log=log)

@@ -4,10 +4,10 @@ A move links that version's bin/ak at `versions.keep_link` until a tick of the v
 live completes (`versions.final`), and while the link is there the cron line runs it with
 --when-broken before each tick, which puts the move back once `WAIT` has passed from the link's
 time: the move gives it, and the tick that made the move sets it to its own end.  `ak back` puts
-it back at once.  Putting back pages the owner, and the commit put back keeps a ref under
-`update.FAILED`, so no move goes to it again.  The exchange puts the version it undoes in the
-folder this process came from, so all of its code loads before it, and every later step reads
-and runs from the version put back at ~/agentkit.
+it back at once.  The commit put back first gets a ref under `update.FAILED`, so no move goes
+to it again, and the owner is paged once it is back.  The exchange puts the version it undoes in
+the folder this process came from, so all of its code loads before it, and every later step
+reads and runs from the version put back at ~/agentkit.
 """
 
 import fcntl
@@ -46,6 +46,12 @@ def main(argv):
             for module in pkgutil.walk_packages(agentkit.__path__, "agentkit."):
                 importlib.import_module(module.name)
             moved, back = (versions.git(path, "rev-parse", "HEAD")[1] for path in (live, kept))
+            # before anything sees the version put back: a move chosen before it looks again
+            # under the lock this holds (update_agentkit)
+            failed, why = versions.git(live, "update-ref", update.FAILED + moved, moved)
+            if failed:
+                print(f"ak back: {moved[:12]} could not be marked failed: {why}", file=sys.stderr)
+                return 1
             try:
                 versions.exchange(live, kept)
             except OSError as exc:
@@ -54,15 +60,14 @@ def main(argv):
             link.unlink()
         # its version is at ~/agentkit now: the adapters every child's environment is made from
         config.REPO = live
-        pending = config.STATE / update.PENDING     # each tick runs install.sh again until it passes
+        pending = config.STATE / update.PENDING     # each tick runs install.sh until it passes
         pending.touch()
         versions.repair(live, kept)
-        versions.git(live, "update-ref", update.FAILED + moved, moved)
         said = f"went back from {moved[:12]} to {back[:12]}" + (
             f": no tick of {moved[:12]} completed within {terminal.format_age(WAIT)}" if argv
             else " by hand")
         print(f"ak back: {said}")
-        notify.page(f"back:{moved}", "ak", f"🔴 ak {said}", line=f"🔴 ak {said}")
+        notify.page(f"back:{moved}", "ak", f"🔴 ak {said}", line=f"🔴 ak {said}", happened=True)
         code, output = versions.run([str(live / "install.sh")], live, **update.PINS)
         if code:
             print(f"{output}\nak back: {live / 'install.sh'} exited {code}", file=sys.stderr)
