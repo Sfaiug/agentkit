@@ -3,24 +3,28 @@ package notify
 import (
 	"context"
 	"io"
+	"time"
 
 	"agentkit/internal/run"
 )
 
 // Needs is ak's own question about a seat, Python's shaped with an event id: recorded beside the
 // standing question, once for its event, and its card evaluated with shaped's zero wait on the
-// seat's word as `word` reads it and its last input.  A `question` waits for the owner to leave
-// the seat and goes out as the seat's look published it; any other need, a failure, goes out as
-// it was asked, whoever is there (watch.session_state's question).  False where that card is
-// Python's to evaluate, the notice written then only where `kept`: one just put to the seat is
-// kept on record for the word to turn, and any other is Python's, nothing written.
-func Needs(name, text, source string, kept, question bool, word func(string) (string, any), errOut io.Writer) (bool, error) {
+// word and last input.  False where that card is Python's to evaluate, the question written then
+// only where `kept`: Go reads no word but the one published since, so a question it just put to
+// the seat is kept on record for the word to turn, and any other is Python's, nothing written.
+func Needs(name, text, source string, kept bool, published func(string) (string, any), errOut io.Writer) (bool, error) {
+	return needs(name, text, source, kept, looked(published), errOut)
+}
+
+// needs is Needs on the word `asked` says the seat says once the question stands.
+func needs(name, text, source string, kept bool, asked Asked, errOut io.Writer) (bool, error) {
 	if Suppressed(false, errOut) {
 		return true, nil
 	}
 	// asking is the notice once it asks this, nil where Go does not read the one it replaces
 	asking := func(current string) (previous, notice *run.Object) {
-		previous = Last(current)
+		previous = open(current)
 		if previous != nil && previous.Str("source") == source {
 			return previous, previous
 		}
@@ -52,8 +56,17 @@ func Needs(name, text, source string, kept, question bool, word func(string) (st
 		}
 	}
 	var previous, notice *run.Object
-	return questionTransition(name, word, clock, 0, errOut, question, func(current string, file *run.Object) *run.Object {
-		if previous, notice = asking(current); notice == nil || !unanswered(current, notice) || file.Str("state") == "asking" {
+	var question bool
+	said := func(current string) (string, any) {
+		if previous, notice = asking(current); notice == nil {
+			return "", nil
+		}
+		word, since, is := asked(current, notice, time.Now())
+		question = is
+		return word, since
+	}
+	return questionTransition(name, said, clock, 0, errOut, func(*run.Object, *run.Object) bool { return question }, func(current string, file *run.Object) *run.Object {
+		if notice == nil || !unanswered(current, notice) || file.Str("state") == "asking" {
 			return nil
 		}
 		return notice

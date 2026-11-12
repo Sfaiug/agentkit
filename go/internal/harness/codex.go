@@ -9,5 +9,6 @@ func init() {
 		fresh: "starts a new Codex conversation", receipt: codexLaunch, registerMCP: codexRegisterMCP,
 		launched: codexLaunched, retire: codexRetire, handed: codexHanded, moveReady: codexMoveReady, forget: codexForget,
 		opens: true, interactive: codexInteractive, serve: codexServeSeat, hookEvent: codexHookEvent,
-		tokens: codexTokens, yolo: codexYolo, rulebook: ".codex/AGENTS.md", holds: codexHolds, auth: codexAuth}
+		tokens: codexTokens, tokenSources: codexTokenSources, tokenUsage: codexTokenUsage, yolo: codexYolo,
+		rulebook: ".codex/AGENTS.md", holds: codexHolds, auth: codexAuth}
 }

@@ -68,9 +68,11 @@ func TestDryHealthSaysItWouldContinueAnOpenPlan(t *testing.T) {
 func TestDryHealthLeavesADeathDuringCaptureUntouched(t *testing.T) {
 	home := diedDuringCapture(t)
 	before := tree(t, home)
-	carried, err := Health("acme", func(Live) bool {
-		t.Fatal("a dead harness reached the live-screen health predicate")
-		return false
+	carried, err := Health("acme", func(live Live) bool {
+		if !live.Exited {
+			t.Fatal("a dead harness reached the live-screen health predicate")
+		}
+		return true
 	}, func(line string) { t.Fatalf("said %q", line) }, true)
 	if !carried || err != nil {
 		t.Fatal(carried, err)

@@ -18,8 +18,8 @@ func TestShareLineDrawsItsShareInEachDepth(t *testing.T) {
 	if got := (Screen{ascii: true}).ShareLine(0.5, 4, "#a6adc8"); got != "==--" {
 		t.Errorf("ascii: %q", got)
 	}
-	// the line's start fades to half way, its tip whole; Python's styled and faded write these
-	if got, want := (Screen{depth: 24}).ShareLine(1, 2, "#a6adc8"), "\x1b[38;2;83;86;100m━\x1b[0m\x1b[38;2;166;173;200m━\x1b[0m"; got != want {
+	// each cell in the colour, as Python's styled writes it
+	if got, want := (Screen{depth: 24}).ShareLine(1, 2, "#a6adc8"), "\x1b[38;2;166;173;200m━\x1b[0m\x1b[38;2;166;173;200m━\x1b[0m"; got != want {
 		t.Errorf("24-bit: %q, want %q", got, want)
 	}
 	if got, want := (Screen{depth: 8}).ShareLine(1, 2, "#a6adc8"), "\x1b[37m━━\x1b[0m"; got != want {
@@ -31,8 +31,13 @@ func TestEffortCellsAreALevelOfMany(t *testing.T) {
 	if got := (Screen{}).EffortCells(1, 1); got != nil {
 		t.Errorf("one effort is no level: %q", got)
 	}
-	got := (Screen{ascii: true}).EffortCells(3, 2)
-	if len(got) != 3 || got[0] != "#" || got[1] != "#" || got[2] != "-" {
+	// a cell each: configBody sizes an effort's column by how many there are
+	got := (Screen{}).EffortCells(5, 4)
+	if len(got) != 5 || got[0] != "━" || got[3] != "━" || got[4] != "─" {
 		t.Errorf("%q", got)
+	}
+	got = (Screen{ascii: true}).EffortCells(3, 2)
+	if len(got) != 3 || got[0] != "=" || got[1] != "=" || got[2] != "-" {
+		t.Errorf("ascii: %q", got)
 	}
 }

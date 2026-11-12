@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"slices"
 
 	"agentkit/internal/config"
@@ -52,10 +53,9 @@ func (catalogs *configCatalog) read(c *matrix.Configuration) error {
 
 // stepConfigEffort steps the effort in column one level on, from the highest round to the lowest,
 // or, `to` 0 or more, takes its to-th level, a level past its last changing nothing.  A seat's
-// orchestrator effort is the one its harness runs, so its step moves the seat (seat.MoveInPlace)
-// where its running harness takes it in place; a restart's card and another model's row are
-// Python's.
-func stepConfigEffort(c *matrix.Configuration, session string, row, column, to int) (string, bool) {
+// orchestrator effort is the one its harness runs, so its step moves the seat (seat.Move), asking
+// on `card` where that restarts it (menu.seat_effort).
+func stepConfigEffort(c *matrix.Configuration, session string, row, column, to int, card seatCard) (string, bool) {
 	name, role := c.Names[row], column-3
 	levels, current := c.Levels[name], c.Effort(name, role)
 	if len(levels) == 0 {
@@ -72,10 +72,9 @@ func stepConfigEffort(c *matrix.Configuration, session string, row, column, to i
 		return stepNewSeatsEffort(c, name, column, word)
 	}
 	if role == 0 {
-		if c.Selected.Str("orchestrator") != name {
-			return "", false
-		}
-		known, err := seat.MoveInPlace(session, name, word)
+		known, err := seat.Move(session, name, word, func(kept bool) (bool, bool) {
+			return card(fmt.Sprintf("Restart %s on %s at %s?", session, config.ModelName(name, c.Models), word), "Restart", kept)
+		})
 		if !known {
 			return "", false
 		}
