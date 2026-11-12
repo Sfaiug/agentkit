@@ -7,10 +7,11 @@ and a watch.json whose boot id is the server's.  A tick there would resume every
 work on a second machine.  So the firing is decided before anything a tick reads or writes: it
 leaves ~/.agentkit as it found it, the tick's log aside.  Without the record the same firing
 resumes the seat.  The client's config.toml still holds a key by its old name, which any other
-command renames, and its log is past the size a tick rolls it at: the firing renames nothing, and
-a roll leaves nothing but the log.  Black-box: the program `AK_BIN` names fires by cron's line,
-boxed, through tests/fixtures/akbin.py, its seat the record tmux lost (tests/fixtures/akseat.py),
-and what it started is the sessions on ak's tmux server; this test fails against `/bin/false`.
+command renames, and its log is past the size a tick rolls it at, under a lock in the state
+folder: the firing renames no key and leaves no lock.  Black-box: the program `AK_BIN` names
+fires by cron's line, boxed, through tests/fixtures/akbin.py, its seat the record tmux lost
+(tests/fixtures/akseat.py), and what it started is the sessions on ak's tmux server; this test
+fails against `/bin/false`.
 """
 
 from pathlib import Path
@@ -26,6 +27,7 @@ from fixtures.akseat import Seat
 BOOT = Path("/proc/sys/kernel/random/boot_id").is_file()
 SERVER = "acme-box"
 LOG = ".agentkit/tmp/watch.log"
+LOGS = (LOG, f"{LOG}.1")    # the tick's log, and the generation a roll of it keeps
 OLD_LINE = "an earlier tick's line\n"
 PAST_ITS_BOUND = 6 * 2**20      # bytes: past the 5 MiB a tick rolls its log at
 OWN = "notes"   # the owner's own session on ak's tmux server, no seat
@@ -73,9 +75,8 @@ class AClient(unittest.TestCase):
         self.assertIn(f"client of {SERVER}", self.said[0])
 
     def test_it_leaves_the_home_as_it_was_the_log_aside(self):
-        def home(tree):     # the log, and the generation a roll keeps of it, aside
-            return {path: data for path, data in tree.items()
-                    if path != LOG and not path.startswith(f"{LOG}.")}
+        def home(tree):
+            return {path: data for path, data in tree.items() if path not in LOGS}
         self.assertEqual(home(self.after), home(self.before))
 
     def test_without_the_record_the_same_firing_resumes_the_seat(self):
