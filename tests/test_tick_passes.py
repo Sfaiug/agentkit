@@ -21,10 +21,10 @@ from fixtures.tick import only_passes  # noqa: E402
 # The passes of the tick this test runs, in its order: the name a raise of each is told by
 # (GitHub's follow the table, under none), and whether a dry run runs it too.
 PASSES = (
-    (watch, "reopen_slept", "slept seats", False),
     (watch, "after_merge_checks", "merge checks", True),
     (notify, "retry_pending", "notification retry", True),
     (watch, "resume_after_boot", "boot resume", True),
+    (watch, "reopen_slept", "slept seats", False),
     (watch, "finish_own_lines", "held lines", False),
     (watch, "continue_turns", "rebooted turns", False),
     (watch, "continue_turns", "switched turns", False),

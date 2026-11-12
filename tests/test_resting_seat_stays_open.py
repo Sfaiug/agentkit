@@ -61,8 +61,6 @@ class SleptSeat(HandBack):
         self.assertEqual(self.cards, [])
 
     def test_a_merge_s_health_notice_waits_for_it_not_for_another_seat(self):
-        names = [name for name, _, _ in watch.local_passes({}, False, print)]
-        self.assertEqual(names[0], "slept seats")       # before the merge checks tell anyone
         other = {**self.live(), "name": "other"}
         with patch.object(watch, "after_merge_fallback", return_value=other):
             self.assertIsNone(watch.after_merge_seat({"launched_session": SEAT}, "acme/api", {}))

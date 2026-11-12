@@ -8514,15 +8514,15 @@ def local_passes(state, dry_run, log):
                      else usage.collect(config.load(), refresh=True))
 
     return (
-        # The owner, 9 Nov 2026, removed seat sleeping: a seat stays open until the owner closes
-        # it, whatever its rest and whatever memory reads.  One an older ak put to sleep comes
-        # back first, as after a reboot, so what the passes below owe it finds it open.
-        ("slept seats", lambda: reopen_slept(config.load(), log), False),
-        # Outside the `gh api user` gate: a merged change's `health:` needs no GitHub, and the
-        # seats' passes below read its `live_at` this tick (`awaiting_live`).  The pass's own gh
-        # calls fail on their own, and the next tick asks again.
+        # First, and outside the `gh api user` gate: a merged change's `health:` needs no GitHub,
+        # and the seats' passes below read its `live_at` this tick (`awaiting_live`).  The pass's
+        # own gh calls fail on their own, and the next tick asks again.
         ("merge checks", lambda: after_merge_checks(state, dry_run, log), True),
         ("boot resume", lambda: resume_after_boot(config.load(), dry_run=dry_run, log=log), True),
+        # The owner, 9 Nov 2026, removed seat sleeping: a seat stays open until the owner closes
+        # it, whatever its rest and whatever memory reads.  One an older ak put to sleep comes
+        # back here, as after a reboot; what is owed it meanwhile waits for it (`slept`).
+        ("slept seats", lambda: reopen_slept(config.load(), log), False),
         ("held lines", lambda: finish_own_lines(config.load(), log), False),
         ("draft return", lambda: drafts_back(config.load()), False),
         ("rebooted turns", lambda: continue_turns(config.load(), log), False),
