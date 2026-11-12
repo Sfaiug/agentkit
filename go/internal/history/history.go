@@ -227,9 +227,8 @@ func Path() string {
 
 // Open is history.db brought up to today's tables, keeping its rows; nil where none stands, as
 // a read makes none.  An error where Go leaves it to Python ak, having written nothing: SQLite
-// cannot open it, it keeps seats' tokens, which Python alone reads on, or its tokens wait for
-// Python's one-time repair.  All of it under Python's writers' lock, so what Go decides on stays
-// as it read it until it is done.
+// cannot open it, or its tokens wait for Python's one-time repair.  All of it under Python's
+// writers' lock, so what Go decides on stays as it read it until it is done.
 func Open() (*DB, error) {
 	path := Path()
 	if _, err := os.Stat(path); err != nil {
@@ -297,10 +296,6 @@ func leftToPython(path string) (recounted bool, err error) {
 		return false, err
 	}
 	defer db.Close()
-	seats, err := db.keepsSeats()
-	if err != nil || seats {
-		return false, cmp.Or(err, errors.New("it keeps seats' tokens, which Python ak alone reads on"))
-	}
 	return db.recounted()
 }
 

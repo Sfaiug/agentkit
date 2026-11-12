@@ -73,6 +73,13 @@ func (db *DB) Dones(since, until float64) ([]Row, bool) {
 		"FROM dones WHERE at >= ? AND at <= ?", since, until)
 }
 
+// SeatUsage is what the seats spent in the inclusive range, by project, as Python's
+// seat_tokens.read returns it once the seats' files are read (SeatTokens): none where no seat
+// ever had a table made.
+func (db *DB) SeatUsage(since, until float64) ([]Row, bool) {
+	return db.read("SELECT repo, at, tokens FROM seat_usage WHERE at >= ? AND at <= ?", since, until)
+}
+
 // Phases are a run's phases in order, the one under way ending at its last checkpoint.
 func (db *DB) Phases(runID string) ([]Row, bool) {
 	return db.read("SELECT phase, started_at, ended_at FROM phases WHERE run_id=? ORDER BY started_at, phase", runID)
