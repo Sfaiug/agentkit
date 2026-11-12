@@ -46,7 +46,7 @@ func Job(paths []string, values map[string]string, flags map[string]bool, out io
 	one, single := maps.Clone(values), maps.Clone(flags)
 	delete(one, "--parallel")
 	delete(single, "--bg")
-	j := &jobRun{values: one, flags: single, out: out}
+	j := &jobRun{seat: seated, values: one, flags: single, out: out}
 	var tasks []*launching
 	for _, path := range paths {
 		l, code, why, err := j.task(path)
@@ -96,11 +96,13 @@ func parks(l *launching) bool {
 	return loop.Parks(rules, l.values["--exec"])
 }
 
-// A jobRun is a job this process carries: its directory and receipt, the options each of its
-// runs takes, and what says a line on its log.
+// A jobRun is a job this process carries: its directory and receipt, the seat that launched it,
+// under which each of its runs is launched however that seat's record fares meanwhile, the options
+// each of its runs takes, and what says a line on its log.
 type jobRun struct {
 	dir     string
 	receipt *run.Object
+	seat    string
 	values  map[string]string
 	flags   map[string]bool
 	out     io.Writer
@@ -122,7 +124,7 @@ func (j *jobRun) task(path string) (*launching, int, string, error) {
 	if err != nil {
 		return nil, 0, "", err
 	}
-	l.job = j
+	l.seat, l.job = j.seat, j
 	return l.judge(path, text, j.values, j.flags)
 }
 
@@ -163,8 +165,8 @@ func (j *jobRun) create(tasks []*launching, parallel any) error {
 			"run_id", nil, "executor", nil, "reviewer", nil, "started_at", nil, "finished_at", nil, "task_file", l.path))
 	}
 	var seat any
-	if tasks[0].seat != "" {
-		seat = tasks[0].seat
+	if j.seat != "" {
+		seat = j.seat
 	}
 	// this process owns the receipt from its first write, so a kill reads as unfinished, not running
 	j.receipt = run.Fields("job_id", j.id(), "seat", seat, "started_at", run.Float(seconds()), "finished_at", nil,
@@ -184,8 +186,10 @@ type ending struct {
 // carry is the job's scheduler, Python's run_job_loop: queued tasks start up to its cap, the
 // receipt's --parallel within a positive max_runs, each run's ending settles its task, and the job
 // ends once every task settled; `ak run`'s exit status.  It touches the receipt on every pass, its
-// heartbeat.
+// heartbeat, and its runs' drivers carry the job's directory, as a `--bg` job's launcher does, so
+// an ending a gone seat cannot take is left to the job's line (handback's muted).
 func (j *jobRun) carry() (int, error) {
+	os.Setenv("AGENTKIT_JOB_DIR", j.dir)
 	parallel, _ := j.receipt.Int("parallel")
 	if limit, _ := config.MaxRuns(); limit > 0 && (parallel == 0 || limit < parallel) {
 		parallel = limit

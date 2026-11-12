@@ -142,7 +142,7 @@ func queuedHome(t *testing.T) string {
 		t.Skip(err) // Python's refusal, before the run's
 	}
 	home, adapters := gatedHome(t, "dry-run"), t.TempDir()
-	for key, value := range map[string]string{"AGENTKIT_SESSION": "", "AGENTKIT_ADAPTER_DIR": adapters, "XDG_RUNTIME_DIR": t.TempDir()} {
+	for key, value := range map[string]string{"AGENTKIT_SESSION": "", "AGENTKIT_ADAPTER_DIR": adapters, "AGENTKIT_JOB_DIR": "", "XDG_RUNTIME_DIR": t.TempDir()} {
 		t.Setenv(key, value)
 	}
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[defaults]\nworkers = ['opus', 'astra']\n"+

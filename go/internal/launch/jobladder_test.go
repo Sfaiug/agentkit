@@ -178,7 +178,7 @@ func jobHome(t *testing.T) string {
 	home, adapters := t.TempDir(), t.TempDir()
 	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "XDG_CACHE_HOME": "", "XDG_RUNTIME_DIR": t.TempDir(),
 		"AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_DEPTH": "", "AK_PARENT_RUN": "", "AK_MAX_RUNS": "0",
-		"AGENTKIT_ADAPTER_DIR": adapters, "PATH": adapters + string(os.PathListSeparator) + os.Getenv("PATH")} {
+		"AGENTKIT_ADAPTER_DIR": adapters, "AGENTKIT_JOB_DIR": "", "PATH": adapters + string(os.PathListSeparator) + os.Getenv("PATH")} {
 		t.Setenv(key, value)
 	}
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), jobConfig)

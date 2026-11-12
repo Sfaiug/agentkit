@@ -65,7 +65,7 @@ func adopt(dir string, receipt *run.Object, out io.Writer) (int, error) {
 			os.Chdir(cwd)
 		}
 	}
-	j := &jobRun{dir: dir, receipt: receipt, values: map[string]string{}, flags: map[string]bool{}, out: out, say: jobLogger(dir, out)}
+	j := &jobRun{dir: dir, receipt: receipt, seat: receipt.Str("seat"), values: map[string]string{}, flags: map[string]bool{}, out: out, say: jobLogger(dir, out)}
 	opts := receipt.Dict("opts")
 	for _, flag := range jobValues {
 		if given, ok := opts.Get(flag).(string); ok {

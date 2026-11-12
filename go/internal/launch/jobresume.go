@@ -23,7 +23,8 @@ import (
 var jobUndelivered = []string{"failed", "blocked", "stopped"}
 
 // ResumeJob is `ak run resume <job>`, Python's cmd_job_resume, for the launcher a `--bg` job
-// started apart, which carries it on (adopt), and for a job that ends at once: each task still to
+// started apart, which carries it on (adopt) while no task of it started yet, a kept run being
+// Python's to adopt (job_adopt_worker), and for a job that ends at once: each task still to
 // do is one from a receipt before `after:` went with no run kept, which no fresh run may start, so
 // it goes back to its seat blocked (job_legacy_refusal), and the job's line is handed back to the
 // seat that launched it, woken where it sleeps.  `ak run`'s exit status; any other job is Python's
@@ -39,7 +40,7 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 	if receipt == nil || config.Check() != nil || box.Check() != nil {
 		return 0, ErrPython
 	}
-	if ownChild(dir, receipt) {
+	if ownChild(dir, receipt) && unstarted(receipt) {
 		return adopt(dir, receipt, out)
 	}
 	if !endsAtOnce(receipt) {
@@ -73,6 +74,16 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 		return 0, saved
 	}
 	return jobEnded(dir, receipt, say)
+}
+
+// unstarted is whether every task of the job is queued and keeps no run, as the job was created.
+func unstarted(receipt *run.Object) bool {
+	for _, each := range receipt.List("tasks") {
+		if task, ok := each.(*run.Object); !ok || task.Str("state") != "queued" || task.Truthy("run_id") {
+			return false
+		}
+	}
+	return true
 }
 
 // jobLogger says a line on out and in the job's log, as Python's job_logger does.

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"agentkit/internal/config"
+	"agentkit/internal/handback"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/run"
@@ -98,14 +100,27 @@ esac
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// done is a driver finding its task done already, saying the job and seat its process runs under.
+// done is a driver finding its task done already, saying the job and seat its process runs under;
+// told AK_TEST_DONE=fail, one whose task failed, its ending handed back as a driver's is, and told
+// AK_TEST_DROP_SEAT, one that first removes its seat's record.
 func done(dir string) int {
 	os.WriteFile(filepath.Join(dir, "done-under"), []byte(os.Getenv("AGENTKIT_JOB_DIR")+"\n"+os.Getenv("AGENTKIT_SESSION")), 0o600)
+	if os.Getenv("AK_TEST_DROP_SEAT") != "" {
+		os.Remove(filepath.Join(config.Home(), "state", "session-"+os.Getenv("AGENTKIT_SESSION")+".json"))
+	}
+	failed := os.Getenv("AK_TEST_DONE") == "fail"
+	marks := []any{"state", "not_needed"}
+	if failed {
+		marks = []any{"state", "fail", "verdict", "FAIL", "rounds", 1, "round_summaries", []any{run.NewObject()}, "executor", "opus"}
+	}
 	if err := run.Change(dir, func(record *run.Object) error {
-		run.SetAll(record, "state", "not_needed", "finished_at", run.Float(float64(time.Now().UnixNano())/1e9))
+		run.SetAll(record, append(marks, "finished_at", run.Float(float64(time.Now().UnixNano())/1e9))...)
 		return nil
 	}); err != nil {
 		return 2
+	}
+	if failed {
+		handback.Give(dir, nil, func(string) {})
 	}
 	return 0
 }
