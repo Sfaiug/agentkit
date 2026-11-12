@@ -94,7 +94,8 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
 
     A review follow-up is the same `check` in the same repository from the same seat: a run
     whose done-when is that command fixes it, whatever its words; any other follow-up is the
-    same site.  Its run is open as `going` reads it.  With `held`, the time its deferred line
+    same site of another run's: this run's own are each another defect (`roundloop`).  Its run
+    is open as `going` reads it.  With `held`, the time its deferred line
     was written, a run that ended delivering it since counts too: the line's work is that
     run's, never a done's (`plan.outcomes`); one that delivered before had only an earlier
     line.  A `repair` is the same repository, target and command from any seat, open at the
@@ -114,7 +115,8 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
                 and (repair.get("revert") or repair_open(other, tip) if repair else
                      transitions.launched_session(other) == transitions.launched_session(state)
                      and ((other["followup"].get("check") or "").strip() == check.strip() if check
-                          else other["followup"]["place"] == followup_place(text))
+                          else other["followup"]["place"] == followup_place(text)
+                          and other["followup"].get("run") != state.get("run_id"))
                      and (going(other) or held is not None and transitions.delivered(other)
                           and (other.get("finished_at") or 0) >= held))):
             return directory.name

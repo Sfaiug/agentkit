@@ -580,6 +580,13 @@ class FollowupRuns(unittest.TestCase):
         fourth, other = self.source("other-seat-source", launched_session="other-seat")
         self.assertEqual(len(self.start(fourth, other)), 1)
 
+    def test_a_runs_own_follow_ups_at_one_site_each_start_a_fix_run(self):
+        # the run kept them as other defects (`roundloop`); a site joins only another run's fix
+        again = "broken.py:1 - None input crashes - base abc123: `first(None)` raises TypeError"
+        directory, state = self.source(followups=[DEFECT, again])
+        self.assertEqual(len(self.start(directory, state)), 2)
+        self.assertEqual(len(self.spawns), 2)
+
     def test_simultaneous_merges_do_not_launch_the_same_fix_twice(self):
         first = self.source("first")
         second = self.source("second")
