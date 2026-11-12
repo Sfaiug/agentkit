@@ -90,6 +90,8 @@ class CFollowsTheSeat(unittest.TestCase):
                          "medium")
 
     def test_unchanged_rows_stay_still(self):
+        # `c` opens on no reading; the menu's probe landing then redraws the meters, rightly
+        self.term.wait(lambda screen: "no reading yet" not in screen)
         raw = self.home.root / "c-output"
         raw.touch()
         done = self.home.tmux("pipe-pane", "-t", self.term.pane, f"cat >{raw}", server=SERVER)
