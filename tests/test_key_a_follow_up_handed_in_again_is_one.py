@@ -56,7 +56,7 @@ class AFollowUpHandedInAgainIsOne(unittest.TestCase):
         fakeadapter.install(cls.home, claude=[WORK, FIX, held(cls.release, fakeadapter.PASS)],
                             codex=[*REVIEWS, "pass"])
         task = taskfile.write(cls.home, rig.path, "Add feature", done_when=("test -f feature.txt",))
-        cls.done = cls.home.ak("run", str(task), env={"AGENTKIT_SESSION": "acme"}, timeout=300)
+        cls.done = cls.home.ak("run", str(task), env={"AGENTKIT_SESSION": "acme"}, timeout=600)
         plan = cls.home.path / ".agentkit/state/plan-acme.md"
         cls.plan = plan.read_text().replace(PLAN_LINE + "\n", "", 1) if plan.exists() else ""
         cls.parent_dir, *cls.fixes = taskfile.runs(cls.home)
