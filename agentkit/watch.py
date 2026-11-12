@@ -3683,11 +3683,13 @@ def stuck_notice(name, harness):
             "open the host, press this session's number, and check this session.")
 
 
-def observe(entry, tail, harness, now):
-    """Age the last error line and the last pane change separately."""
-    if entry.get("pane") != tail:
-        entry.update(pane=tail, changed_at=now, since=now)
-    line = next((line for line in reversed(tail.splitlines())
+def observe(entry, pane, harness, now):
+    """Age the last error line and the last conversation change separately."""
+    lines = content_lines(harness, pane)
+    said = "\n".join(lines)
+    if entry.get("pane") != said:
+        entry.update(pane=said, changed_at=now, since=now)
+    line = next((line for line in reversed(lines)
                  if any(says(line, mark) for mark in stalls(harness))), "")
     if entry.get("stall_line") != line:
         entry.update(stall_line=line, stall_at=now, since=now)
@@ -5749,7 +5751,7 @@ def health(cfg, state, dry_run, log):
                 if owner_question(notice):
                     continue    # a question may have arrived during slow meter I/O
                 current = pane_text(session)
-                if current != pane:
+                if content_lines(harness, current) != content_lines(harness, pane):
                     observe(entry, current, harness, time.time())
                     continue
                 now = time.time()

@@ -1527,7 +1527,7 @@
   {
    "harness": "claude",
    "key": "composer",
-   "pattern": "(?:(?:│\\s*)?[>❯](?:\\s+Try [\"“].*[\"”])?\\s*(?:│)?|⏵⏵ bypass permissions on(?: \\(shift\\+tab to cycle\\))?(?: · \\d+ \\w+)? · ← for agents|● \\w+ · /effort|[✻✽✶✳✢] \\w+ for .+ · done .+|─{3,} \\S.* ─+)$",
+   "pattern": "(?:(?:│\\s*)?[>❯](?:\\s+Try [\"“].*[\"”])?\\s*(?:│)?|⏵⏵ bypass permissions on(?: \\(shift\\+tab to cycle\\))?(?: · \\d+ \\w+)? · ← for agents|● \\w+ · /effort|◎ /goal active \\([^()]+\\)|[✻✽✶✳✢] \\w+ for .+ · done .+|─{3,} \\S.* ─+)$",
    "flags": "",
    "matches": [
     {
