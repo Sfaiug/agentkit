@@ -24,6 +24,7 @@ from .harness import (conversation_stores, end_conversation, idle_conversations,
                       load as harness_plugin, recorded_conversations)
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
+HOUSEKEEPING_INTERVAL = 3600    # the tick's git housekeeping runs at most once an hour
 GC_LOG_LIMIT = 1024 * 1024      # retain two bounded automatic-collection logs
 GC_AGE = 7 * 86400              # failed/blocked/stopped checkouts, finished jobs, the status window
 RUN_DIR_AGE = 30 * 86400        # a run directory whose session is gone is removed whole after this
@@ -907,8 +908,28 @@ def git_busy_paths():
     return paths
 
 
+def housekeeping_mark():
+    """Where ak keeps when the tick's git housekeeping last ran."""
+    return config.STATE / "git-housekeeping"
+
+
+def stamped(mark):
+    """The time a mark holds, or None."""
+    try:
+        return float(mark.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def git_housekeeping(log):
-    """Collect idle repositories in the foreground; busy ones wait only until the next tick."""
+    """Collect idle repositories in the foreground at most once an hour, busy ones waiting for
+    the next hour's: a tick has 3 minutes, and this need not take from every one."""
+    ran, now = housekeeping_mark(), time.time()
+    at = stamped(ran)
+    if at is not None and now - HOUSEKEEPING_INTERVAL < at <= now:
+        return
+    # Marked before the work, so housekeeping that fails or is cut short waits its hour too.
+    ran.write_text(f"{now}\n")
     states = [record.read_state(directory) or {} for directory in record.run_dirs()]
     seats = [seat for seat in orch.sessions() if not seat.get("exited")]
     repos = {*orch.checkouts(), *(Path(state["repo"]) for state in states if state.get("repo")),
@@ -924,10 +945,7 @@ def git_housekeeping(log):
             gitcall.no_auto_gc(repo)
             with gitcall.repository_lock(repo, exclusive=True):
                 mark, now = common / "ak-gc", time.time()
-                try:
-                    at = float(mark.read_text())
-                except (OSError, ValueError):
-                    at = None
+                at = stamped(mark)
                 if at is not None and now - GC_INTERVAL < at <= now:
                     continue
                 paths = git_busy_paths()

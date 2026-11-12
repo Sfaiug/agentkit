@@ -2492,7 +2492,7 @@ def reopen(cfg, name, **kw):
 #
 # Claude owns its launcher-issued id, following replacements from its own process's hooks.
 # Codex owns only its launch hook's recorded thread.
-# OpenCode owns the session its seat plugin reported into that launch's receipt.
+# OpenCode owns the session its seat followed a prompt into, kept in that launch's receipt.
 # Muse still starts fresh. Cwd and timestamps never establish ownership.
 
 
@@ -4284,20 +4284,24 @@ def role_groups(cfg, selected, providers, **groups):
     return changed, ""
 
 
-def role_mark(cfg, selected, name, column, providers):
+def role_mark(cfg, selected, name, column, providers, shown=None):
     """A proposed mark (role_groups), without mutating the saved groups when it cannot form a
-    pair.  Executors may be left empty: the orchestrator then builds everything.  Reviewers
-    keep one."""
+    pair: set where the groups `shown` (`selected` where None) leave it off, else taken off.
+    Executors may be left empty: the orchestrator then builds everything.  Reviewers keep
+    one."""
     if column == 0:
         if selected["orchestrator"] == name:
             return selected, ""
         return role_groups(cfg, selected, providers, orchestrator=name)
     role = "workers" if column == 1 else "reviewers"
-    group = selected["workers"] if column == 1 else selected.get("reviewers", selected["workers"])
-    if name in group and len(group) == 1 and role == "reviewers":
+    group, drawn = (one["workers"] if column == 1 else one.get("reviewers", one["workers"])
+                    for one in (selected, shown or selected))
+    on = name not in drawn
+    if not on and group == [name] and role == "reviewers":
         return selected, "at least one model reviews"
-    return role_groups(cfg, selected, providers, **{
-        role: [peer for peer in group if peer != name] if name in group else [*group, name]})
+    return role_groups(cfg, selected, providers, **{role: (
+        group if name in group else [*group, name]) if on else [
+        peer for peer in group if peer != name]})
 
 
 def handover(record, old_model, old_harness, owned):

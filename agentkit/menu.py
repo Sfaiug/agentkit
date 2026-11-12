@@ -2702,13 +2702,18 @@ def provider_name(cfg, name):
     return own.strip() if isinstance(own, str) and own.strip() else NAMES.get(name, name.title())
 
 
-def colour(cfg, name):
-    """This provider's colour: its own `colour` key, else the shipped one, else the accent."""
+def own_colour(cfg, name):
+    """This provider's own colour: its `colour` key, else the shipped one, else the accent."""
     entry = cfg["providers"].get(name)
     own = entry.get("colour") if isinstance(entry, dict) else None
     if isinstance(own, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", own):
         return own
     return COLOURS.get(name, "accent")
+
+
+def colour(cfg, name):
+    """This provider's colour as it reads here (terminal.on_background)."""
+    return terminal.on_background(own_colour(cfg, name))
 
 
 def hue(kind):
@@ -2734,7 +2739,7 @@ def usage_rows(cfg):
     except (OSError, ValueError, KeyError, TypeError):
         providers = {}
     rows = []
-    for name in sorted(cfg["providers"], key=lambda name: hue(colour(cfg, name))):
+    for name in sorted(cfg["providers"], key=lambda name: hue(own_colour(cfg, name))):
         if cfg["providers"][name].get("mode") == "free":
             continue
         top = providers.get(name)
@@ -3118,7 +3123,8 @@ def model_label(cfg, name, width):
 
 def model_heading(harness):
     """The same heading over the models on `c` and `n`: their harness's name, in its colour."""
-    return terminal.styled(config.harness_name(harness), config.harness_colour(harness) or "accent")
+    return terminal.styled(config.harness_name(harness),
+                           terminal.on_background(config.harness_colour(harness) or "accent"))
 
 
 # each role's group in a record (its config role: matrix.CONFIG_ROLES), which a take sets
@@ -3148,23 +3154,23 @@ def next_choice(cfg, found, row, step):
 def take_choice(cfg, name, selected, providers, role, model, effort, around):
     """A take (next_choice): seat `name`'s `role` becomes `model` at `effort`.  An executor or
     reviewer takes it as the seat's own effort for that role (`exec_effort`, `review_effort`;
-    one at the model's effort or at none leaves it following the effort, _follows), saved to
-    the seat's record (efforts_saved) and then its marks at once as a flipped mark is
-    (marks_saved); efforts that cannot be saved change no mark and say why.  The orchestrator
-    moves the seat, asked first on the card `around` draws where that restarts it
-    (seat_effort).  With no `name`, `selected` being [defaults], the role is taken there, the
-    orchestrator at `effort` as the entry's `effort`, and the entry and [defaults] are saved in
-    one write (defaults_saved), no open seat changing.  What to say under the rows, or ""."""
+    one at the model's effort or at none leaves it following the effort, _follows), the role
+    and the effort saved to the seat's record as it stands in one write (roles_saved), or
+    neither.  The orchestrator moves the seat, asked first on the card `around` draws where
+    that restarts it (seat_effort).  With no `name`, `selected` being [defaults], the role is
+    taken there, the orchestrator at `effort` as the entry's `effort`, and the entry and
+    [defaults] are saved in one write (defaults_saved), no open seat changing.  What to say
+    under the rows, or ""."""
     if name is not None and role == "orchestrate":
         return seat_effort(cfg, name, selected, model, effort, around)
-    changed, note = orch.role_groups(cfg, selected, providers, **{
-        TAKEN[role]: model if role == "orchestrate" else [model]})
+    key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
+    taken = {TAKEN[role]: model if role == "orchestrate" else [model]}
+    if name is not None:
+        return roles_saved(cfg, name, selected, lambda record, now: orch.role_groups(
+            now, record, providers, **taken), [(model, key, effort)])
+    changed, note = orch.role_groups(cfg, selected, providers, **taken)
     if note:
         return note
-    key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
-    if name is not None:
-        return (efforts_saved(cfg, name, selected, [(model, key, effort)])
-                or marks_saved(name, selected, changed))
     before = copy.deepcopy(cfg)
     # the orchestrator's effort leaves the model's builds and reviews where they stood, as a
     # seat's move does (config.orchestrating_at)
@@ -3199,22 +3205,43 @@ def _stepped(cfg, record, steps, hold=()):
     return efforts
 
 
-def marks_saved(name, selected, changed):
-    """A seat's role groups as `changed` has them, saved to its record at once and then into
-    `selected`, its bar redrawn (handback.redress_seat); a save that fails leaves all alone.
-    What to say under the rows, or ""."""
+def roles_saved(cfg, name, selected, change, steps=()):
+    """Seat `name`'s record as `change` makes it, (record, why not), of the record and the
+    config as they stand, each (model, key, effort) of `steps` set on it (_stepped), saved at
+    once (config.change_session): nothing else the screen holds is written, so another
+    window's save since stays.  `selected` then holds the record as the screen reads it
+    (seat_read), its bar redrawn (handback.redress_seat); a refusal or a save that fails
+    leaves all alone.  What to say under the rows, or ""."""
     seat = config.resolve_session(name)     # a screen open across a rename has the old name
+
+    def judged(record, now):
+        changed, note = change(record, now)
+        if note:
+            raise config.Error(note)
+        return {**changed, "efforts": _stepped(now, changed, steps)} if steps else changed
     try:
-        saved = config.update_session(seat, workers=changed["workers"],
-                                      reviewers=changed["reviewers"])
+        saved = config.change_session(seat, judged)
+    except config.Error as exc:
+        return str(exc)
     except OSError as exc:
         return f"session: {exc}"
     if saved is None:
         return f"session: {name} has no saved models"
     handback.redress_seat(seat)
-    # the groups alone: `changed` holds the rest of `selected` as it was, efforts and all
-    selected.update(workers=changed["workers"], reviewers=changed["reviewers"])
+    seat_read(cfg, seat, selected)
     return ""
+
+
+def seat_read(cfg, name, selected):
+    """`selected` as seat `name`'s record reads over `cfg` now, as `c` reads it each tick; kept
+    as it was where the record will not read, until it reads again."""
+    try:
+        current = config.load_session(cfg, name, required=False)
+    except (config.Error, OSError):
+        return
+    if current is not None:
+        selected.clear()
+        selected.update(current)
 
 
 UNITS = {"share": "week %", "money": "$ a task", "board_dollars": "a task"}   # matrix._costs's
@@ -4237,14 +4264,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         column = column if clicked is None else clicked
         if act is None:
             if session and selected is not None:
-                try:
-                    current = config.load_session(cfg, session, required=False)
-                except (config.Error, OSError):
-                    pass              # keep the last readable record until it reads again
-                else:
-                    if current is not None:
-                        selected.clear()
-                        selected.update(current)
+                seat_read(cfg, session, selected)
             continue                  # a resize or the pointer: drawn again
         note = ""
 
@@ -4983,9 +5003,9 @@ def opened_line(told, kind, texts, on, room):
 
 def page_body(rows, at=None, moves=None):
     """The lines of a page `c` opens and the row each is, {line: (row, cells)}: of `rows`,
-    (row, label, value) each, its label and then its
-    value, lined up past the widest label as `c`'s own rows are, or with no label a choice of a
-    list opened under the row above it, indented as `add a subscription`'s are.  A value is
+    (row, label, value) each, its label and then its value, lined up past the widest label
+    beside a value as `c`'s own rows are, or with no label a choice of a list opened under the
+    row above it, indented as `add a subscription`'s are.  A value is
     text, or parts, (text, kind) each -- or (text, kind, cell), its columns one of the line's
     cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
@@ -4993,10 +5013,11 @@ def page_body(rows, at=None, moves=None):
     the row lit, and `moves` is handed each mark leading a value (`■`, `□`, `●`, `○`) as
     config_body hands its own."""
     room = terminal.layout_width()
-    wide = max((terminal.cells(label) for _, label, _ in rows if label is not None), default=0)
+    wide = max((terminal.cells(label) for _, label, value in rows if label is not None and value),
+               default=0)
     lines, places = [], {}
     for row, label, value in rows:
-        # a label is never wider than `wide`, so padding it keeps its colour
+        # a label beside a value is never wider than `wide`, so padding it keeps its colour
         lead = "    " if label is None else f"  {label}{' ' * (wide - terminal.cells(label))}  "
         left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
@@ -5493,7 +5514,9 @@ def work_words(name, cfg):
 
 
 def config_machines(cfg):
-    """Recorded machines; Enter opens their work marks, and the cloud's monthly cap."""
+    """Recorded machines; Enter opens their work marks, and the cloud's monthly cap.  Last,
+    `+ add a machine` takes an ssh address and writes it to config.toml once it answers
+    (machines.add), else says why not."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def save(key, value):
@@ -5509,6 +5532,22 @@ def config_machines(cfg):
         if not re.fullmatch(r"[0-9]+", value.strip()):
             return "the monthly cap must be a whole number of euros, 0 or more"
         return save("max_month", int(value))
+
+    def add_field(draw):
+        name = terminal.field("    ", "its ssh address: a Host of ~/.ssh/config, a host name or "
+                              "user@host", around=lambda line: draw([line]))
+        name = "" if name is None or terminal.is_esc(name) else name.strip()
+        if not name:
+            return ""
+        try:
+            why = waited(lambda: machines.add(name), "config · machines", doing=f"asking {name}")
+        except Back:
+            return ""
+        if why:
+            return why
+        before = copy.deepcopy(cfg)
+        cfg.setdefault("machines", {})[name] = {}
+        return _saved(cfg, cfg, before)
 
     def work_page(name):
         if name and google_cloud.ssh_config(name):
@@ -5549,7 +5588,8 @@ def config_machines(cfg):
                 for machine in machines.known()]
         return [*rows, ("Google Cloud", [(on, "accent") if active else (off, "dim"),
                                          (f"{google_cloud.summary()} · {work_words(None, cfg)}", None)],
-                        ("mark", lambda: save("active", not active), work_page(None)))], ""
+                        ("mark", lambda: save("active", not active), work_page(None))),
+                ("+ add a machine", "", add_field)], ""
     config_page("machines", page)
 
 
@@ -5921,11 +5961,12 @@ def session_mark(cfg, name, selected, model, column, providers, around=None):
     ask me to confirm. As this restarts the session. for exec and review should be instant."
     A harness that is not installed or not logged in, or a meter that is spent, is refused in
     one line before any question with the seat as it was, and so is a record naming a model
-    removed on this screen. Reviewers keep one model, executors may be empty, and a
-    flip leaving no allowed pair is refused. A run launched afterwards reads the record as
-    left here (marks_saved); one already going keeps the groups its receipt saved. A refusal
-    or a save that fails leaves the record, and `selected`, alone. What to say under the
-    rows, or "".
+    removed on this screen. An executor or reviewer mark flips on the record as it stands
+    (roles_saved): the role gains the model `selected` shows unmarked, or loses it.
+    Reviewers keep one model, executors may be empty, and a flip leaving no allowed pair is
+    refused. A run launched afterwards reads the record as left here; one already going
+    keeps the groups its receipt saved. A refusal or a save that fails leaves the record,
+    and `selected`, alone. What to say under the rows, or "".
     """
     if column == 0:
         note = orch.switch_orchestrator(cfg, name, model, providers,
@@ -5935,8 +5976,8 @@ def session_mark(cfg, name, selected, model, column, providers, around=None):
         if note == "":
             selected["orchestrator"] = model
         return note or ""
-    changed, note = orch.role_mark(cfg, selected, model, column, providers)
-    return note or marks_saved(name, selected, changed)
+    return roles_saved(cfg, name, selected, lambda record, now: orch.role_mark(
+        now, record, model, column, providers, shown=selected))
 
 
 # A production project's feature switches are live data in the project, reached through the one
