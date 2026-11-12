@@ -1,6 +1,7 @@
-// Package agent says which of a tmux server's sessions run no agent. It hides one `ps` reading,
-// each interpreter's option grammar, the adapters' program names, and the worker role: a harness
-// an ak worker runs, and everything under it, belongs to a run, not to a seat.
+// Package agent says which of a tmux server's sessions run no agent, and whether a hook is a
+// seat's own client's. It hides one `ps` reading, each interpreter's option grammar, the
+// adapters' program names, and the worker role: a harness an ak worker runs, and everything
+// under it, belongs to a run, not to a seat.
 package agent
 
 import (

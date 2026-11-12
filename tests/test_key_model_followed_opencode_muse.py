@@ -24,6 +24,7 @@ from fixtures.akseat import Seat
 
 FLASH, GLM = "deepseek-v4.1-flash-free", "glm-5.3-flash-free"
 SPARK, WONDER = "muse-spark-1.3-contributor", "muse-wonder-full-1.0"
+WONDER_NAMED = "Wonder Full 1.0"      # what every screen names WONDER (config.model_label)
 MESSAGES = """CREATE TABLE `session_message` (
           `id` text PRIMARY KEY,
           `session_id` text NOT NULL,

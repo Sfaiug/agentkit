@@ -44,9 +44,9 @@ func Resumed(name string, model config.Model, conversation string, opened bool, 
 }
 
 // answering is what answers `interactive` for a harness: the script $AGENTKIT_ADAPTER_DIR holds;
-// else this program, to which the stubs under go/adapters hand every verb, where the manifest
-// gives it the words of a seat's line; else the shell adapter shipped beside the manifest, whose
-// line is the one Python's launch runs.
+// else the program a seat runs (config.Live), to which the stubs under go/adapters hand every
+// verb, where the manifest gives it the words of a seat's line; else the shell adapter shipped
+// beside that program, whose line is the one Python's launch runs.
 func answering(name string) ([]string, error) {
 	adapter, err := config.Adapter(name)
 	if !errors.Is(err, config.ErrNoAdapterDir) {
@@ -57,9 +57,10 @@ func answering(name string) ([]string, error) {
 		return nil, err
 	}
 	if launch["seat"] == nil && harness.Interactive(name) == nil {
-		return []string{filepath.Join(config.Repo(), "adapters", name+".sh")}, nil
+		return []string{filepath.Join(config.LiveRepo(), "adapters", name+".sh")}, nil
 	}
-	return self(name)
+	live, err := config.Live()
+	return []string{live, "adapter", filepath.Dir(filepath.Dir(live)), name}, err
 }
 
 // command is the seat's line from the adapter's answer to `interactive` with first, asked in the
@@ -97,7 +98,7 @@ func command(name string, model config.Model, env []string, dir string, first, t
 	}
 	// ak's editor is the seat's own, so the owner's unsent text can be set aside for a line of
 	// ak's (agentkit/aside_editor.py); the owner's own goes beside it
-	editor := filepath.Join(config.Repo(), "tools", "aside-editor")
+	editor := filepath.Join(config.LiveRepo(), "tools", "aside-editor")
 	owner, set := os.LookupEnv("AK_OWNER_EDITOR")
 	if !set {
 		owner = cmp.Or(os.Getenv("VISUAL"), os.Getenv("EDITOR"))

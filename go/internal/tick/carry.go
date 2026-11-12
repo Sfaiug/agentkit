@@ -28,6 +28,8 @@ type ticking struct {
 	dry         bool     // a dry tick: it runs the rows Python's does, each acting only where it checks this
 	fetched     []string // each project the project rules row fetched, for the rows after it to read
 	report      AuditReport
+
+	asked map[string]bool // each harness whose seat login the health row asked this pass (watch.record_auth)
 }
 
 // Carry is a real `ak watch`, as Python's watch.main runs one: a tick that finds another holding

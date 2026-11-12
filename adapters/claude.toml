@@ -4,6 +4,7 @@
 # Verified against Claude Code 2.1.263; see tests/fixtures/README.md for the captures.
 version = 1
 name = "Claude Code"
+family = "Claude"
 colour = "#D97757"
 
 [check]
@@ -40,9 +41,16 @@ renew = ["env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "AK_RUN_ROLE=worker", "claude",
 
 # The lines its prompt takes to move its conversation to another model or effort, `{model}` the
 # id `interactive` passes as --model (`orch.switch_lines`); Claude Code 2.1.314 takes both.
+# `asks` is what it may ask before it takes one, as the screen's bottom rows draw it, and `yes`
+# the keys that take the move (`watch.type_at_prompt`): 2.1.322 draws this card in the
+# composer's place wherever the prompt cache may be warm, any seat with a turn in the last hour,
+# `Switch model?` after `/model` and `Change effort level?` after an `/effort` that misses that
+# cache; `1` takes it whichever row the cursor is on, and its composer comes back (10 Nov 2026).
 [switch]
 model = "/model {model}"
 effort = "/effort {effort}"
+asks = '^ +(?:Switch model|Change effort level)\?\n(?:.*\n)*? *❯? *1\. .+\n *❯? *2\. .+'
+yes = ["1"]
 
 [worker]
 state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
@@ -85,13 +93,6 @@ probe_every = 900
 pro = 20
 "max 5x" = 100
 "max 20x" = 200
-
-[sleep]
-own = []    # on an idle seat nothing of Claude's runs under it: what does is work (`agentkit.sleep`)
-# how many seconds its prompt cache lives: rested longer, a seat sleeps whatever memory reads, a
-# resume costing nothing staying awake would not, Claude having compacted it idle by then
-# (`idleCompaction`, at about 0.9 of the hour)
-cache = 3600
 
 # "hooks" means adapters/claude.sh hooks installs something that reports this state; "screen"
 # means only the rules below can say it.  A hook fact still gives way to a rule that positively
@@ -402,8 +403,10 @@ levels = ["low", "medium", "high", "xhigh", "max"]
 # capabilities (`effort`, `xhigh_effort`, `max_effort`) let it take, strongest last.  Haiku 4.5
 # has none of them: it runs at no effort, `none`, which claude warns of and ignores.  Sonnet 5.5
 # is newer than 2.1.280's table: Anthropic's models API lists it with all five efforts (29 Sep),
-# and 2.1.280 runs it, warning `unrecognized_model`.
+# and 2.1.280 runs it, warning `unrecognized_model`.  Fable 5.2 is newer too, and like every row
+# with no label is named off its id (`config.model_label`).
 [catalog]
+claude-fable-5-2 = { efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-fable-5-1 = { label = "Fable 5.1", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-opus-5-5 = { label = "Opus 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-sonnet-5-5 = { label = "Sonnet 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }

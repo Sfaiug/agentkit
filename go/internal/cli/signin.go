@@ -15,10 +15,9 @@ import (
 	"agentkit/internal/logins"
 	"agentkit/internal/menu"
 	"agentkit/internal/terminal"
-	"agentkit/internal/worker"
 )
 
-// signIn is a subscription's `↻ log in again` (menu.sign_in): its adapter's `login again` under its
+// signIn is a subscription's `→ log in again` (menu.sign_in): its adapter's `login again` under its
 // account and provider (adapterVerbs), its login left where it was by one that did not finish, which
 // is said under the page; one that finished is asked its end (logins.Renewed).  What to say under the
 // page, or "".
@@ -87,7 +86,7 @@ func ranVerb(harness, verb, account, provider string) bool {
 	}
 	// its `auth` is its script's, whoever signed it in
 	script, _ := config.LoginAdapter(harness)
-	if answered, yes, _ := worker.Login(script, run.Env, "seat"); answered && !yes {
+	if answered, yes, _ := logins.Auth(script, run.Env, "seat"); answered && !yes {
 		return false
 	}
 	signedIn[harness] = true // c reads its models again

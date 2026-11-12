@@ -35,6 +35,7 @@ func TestARunAtRestIsLookedAtAgainOnlyByAFullRead(t *testing.T) {
 	}
 	write("ended", "pass", week)
 	write("going", "running", week)
+	time.Sleep(1100 * time.Millisecond) // their ctime, which no Chtimes sets back, a second old: at rest
 	reader := &Reader{}
 	states(reader)
 	write("ended", "running", week.Add(time.Second))

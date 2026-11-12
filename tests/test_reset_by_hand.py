@@ -2,7 +2,7 @@
 
 A subscription's line under the grid of `ak` says `1 reset in hand` (`2 resets in hand`) while it
 holds any, and nothing with none.  Its meter, on `ak` and over the page of `c` alike, then offers
-`↻ spend a reset` after `↻ log in again`, which its login ending soon offers, Enter on the list
+`→ spend a reset` after `→ log in again`, which its login ending soon offers, Enter on the list
 never landing on the spend; it spends exactly one through `usage.replenish` -- the only caller of
 it in ak -- and the row shows the week that came back.  A fake Codex adapter answers every verb
 in a temporary HOME.
@@ -25,7 +25,7 @@ from agentkit import config, menu, terminal, usage  # noqa: E402
 from test_reset_never_automatic import calls  # noqa: E402
 
 WEEK = 604800
-AGAIN = "↻ log in again"     # what a meter's list opens lit, where offered
+AGAIN = "→ log in again"     # what a meter's list opens lit, where offered
 
 
 # The owner spends one by hand, from its meter. [2 Oct, 20 Oct 2026]
@@ -89,7 +89,7 @@ class ResetByHand(unittest.TestCase):
         first, second = self.rows()
         self.assertRegex(first, r"^ChatGPT I login ends .* · resets .* · 2 resets in hand$")
         self.assertRegex(second, r"^ChatGPT II login ends .* · resets .* · 1 reset in hand$")
-        self.assertEqual(self.offered(1), [([AGAIN, "↻ spend a reset"], AGAIN)])
+        self.assertEqual(self.offered(1), [([AGAIN, "→ spend a reset"], AGAIN)])
         self.held.update({"": 0, "second": 0})
         (config.STATE / "usage.json").unlink()
         usage.collect(self.cfg, refresh=True)
@@ -99,8 +99,8 @@ class ResetByHand(unittest.TestCase):
 
     def test_a_meter_spends_one_of_its_own_and_shows_the_week_back(self):
         usage.collect(self.cfg, refresh=True)
-        self.assertEqual(self.offered(2, "↻ spend a reset"),
-                         [([AGAIN, "↻ spend a reset"], AGAIN)])
+        self.assertEqual(self.offered(2, "→ spend a reset"),
+                         [([AGAIN, "→ spend a reset"], AGAIN)])
         self.assertEqual(self.spent, ["second"])          # exactly one, of the meter picked
         self.assertEqual(self.note, "ChatGPT II · 100% left")
         self.assertEqual(self.offered(2), [([AGAIN], AGAIN)])   # none left to spend
@@ -110,7 +110,7 @@ class ResetByHand(unittest.TestCase):
     def test_a_meter_reads_its_week_back_by_its_name_as_written(self):
         self.cfg["providers"]["openai"]["name"] = "Acme  Plan"     # spaced as its owner typed it
         usage.collect(self.cfg, refresh=True)
-        self.offered(2, "↻ spend a reset")
+        self.offered(2, "→ spend a reset")
         self.assertEqual(self.note, "Acme  Plan II · 100% left")
 
     def test_of_two_subscriptions_of_one_name_a_meter_spends_its_own(self):
@@ -118,7 +118,7 @@ class ResetByHand(unittest.TestCase):
         with patch.object(menu, "usage_rows", return_value=rows), \
                 patch.object(usage, "replenish", return_value=(False, 1)) as replenish:
             self.assertEqual(self.offered(1), [([AGAIN], AGAIN)])   # not its own
-            self.offered(2, "↻ spend a reset")
+            self.offered(2, "→ spend a reset")
         replenish.assert_called_once_with(self.cfg, "acme", account=None)
 
     def test_only_the_owners_act_spends_one(self):

@@ -6,14 +6,14 @@ import (
 	"io"
 	"os"
 
-	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
 // questionTransition cards a need read under its typing lock. Only a question waits for the
-// owner to leave the seat: another failure may need them even while they are there.  `taken` is
-// told once the card is Go's, before anything is written for it.
-func questionTransition(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer, isQuestion bool, question func(string, *run.Object) *run.Object, taken func(current string) error) (bool, error) {
+// owner to leave the seat: another failure may need them even while they are there.  `asks` is
+// whether the seat's word is that question, nil for a need.  `taken` is told once the card is
+// Go's, before anything is written for it.
+func questionTransition(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer, asks func(file, notice *run.Object) bool, question func(string, *run.Object) *run.Object, taken func(current string) error) (bool, error) {
 	if os.Getenv("AK_RUN_ROLE") == "worker" {
 		return true, nil
 	}
@@ -35,9 +35,9 @@ func questionTransition(name string, said func(string) (string, any), clock func
 			return nil
 		}
 		present, last, gone, known := questionActivity(current)
-		present = present && isQuestion
-		// a question is the one its seat's look published; a need is what the ladder says now
-		if !known || isQuestion && !gone && config.Fold(file.Str("reason")) != config.Fold(notice.Str("text")) {
+		present = present && asks != nil
+		// a question is the seat's word; a need is what the ladder says now
+		if !known || asks != nil && !gone && !asks(file, notice) {
 			return nil
 		}
 		card, err := readObject(seatFile("card", current, "json"))
@@ -85,7 +85,7 @@ func questionTransition(name string, said func(string) (string, any), clock func
 		if cardHistory(card) || present || now-number(card, "left") < cardWait || now-max(number(card, "since"), asked, last) < wait {
 			return nil
 		}
-		if gone && isQuestion {
+		if gone && asks != nil {
 			notice = notice.Copy()
 			notice.Set("text", file.Str("reason"))
 		}

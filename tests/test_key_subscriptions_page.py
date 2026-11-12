@@ -1,6 +1,6 @@
 """`Subscriptions` on `c`, as the owner chose on 26 Oct 2026: each subscription under its
 company, drawn as the main screen draws its meter; the row the highlight is on opens one line,
-its login's email and plan, or when it ends while that is soon, then its acts, lit on `↻ log in
+its login's email and plan, or when it ends while that is soon, then its acts, lit on `→ log in
 again` where its login ending soon offers it, so Enter signs it in again, never removes; and
 what `+ add a subscription` adds comes back lit, its line saying whose it is.
 Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over usage and logins in a
@@ -42,7 +42,7 @@ def body(screen):     # the page between its rule and its key line
 
 
 def meters(screen):   # {label: its meter and what it has left}, as the screen draws them
-    return dict(re.findall(r"(Claude I+|ChatGPT)\s+([▰▱]+  \d+% left)", screen))
+    return dict(re.findall(r"(Claude I+|ChatGPT)\s+([━╸─]+  \d+% left)", screen))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -85,11 +85,11 @@ class SubscriptionsPage(unittest.TestCase):
     def test_each_subscription_sits_under_its_company_with_the_main_screen_s_meter(self):
         self.assertEqual(body(self.page), [
             "Anthropic",
-            "› Claude I   ▰▰▰▰▰▰▰▰▱▱  84% left",
+            "› Claude I   ━━━━━━━━╸─  84% left",
             "    owner@acme.test · max 20x   − remove",
-            "  Claude II  ▰▰▰▱▱▱▱▱▱▱  29% left",
+            "  Claude II  ━━━───────  29% left",
             "OpenAI",
-            "  ChatGPT    ▰▰▰▰▰▰▰▰▰▰  100% left · 1 reset in hand",
+            "  ChatGPT    ━━━━━━━━━━  100% left · 1 reset in hand",
             "",
             "  + add a subscription"])
         self.assertEqual(meters(self.page), meters(self.main))
@@ -98,18 +98,18 @@ class SubscriptionsPage(unittest.TestCase):
         self.term.keys("Down")
         pointed = self.term.wait("› Claude II")
         self.assertEqual(body(pointed)[1:5], [
-            "  Claude I   ▰▰▰▰▰▰▰▰▱▱  84% left",
-            "› Claude II  ▰▰▰▱▱▱▱▱▱▱  29% left",
-            self.two + "   [↻ log in again]   − remove",
+            "  Claude I   ━━━━━━━━╸─  84% left",
+            "› Claude II  ━━━───────  29% left",
+            self.two + "   [→ log in again]   − remove",
             "OpenAI"])
         self.term.keys("Down")
-        self.assertIn("    owner@acme.test · plus   ↻ spend a reset   − remove",
+        self.assertIn("    owner@acme.test · plus   → spend a reset   − remove",
                       body(self.term.wait("› ChatGPT")))
         self.term.keys("Right")
-        self.term.wait(lambda screen: "[↻ spend a reset]" in screen
+        self.term.wait(lambda screen: "[→ spend a reset]" in screen
                        and PAGE_KEYS.format("spend a reset") in lines(screen))
         self.term.keys("Up")
-        self.term.wait(self.two + "   [↻ log in again]   − remove")
+        self.term.wait(self.two + "   [→ log in again]   − remove")
         self.term.keys("Enter")
         self.term.wait(lambda screen: title(screen) == PAGE and "› Claude II" in screen
                        and self.fakes["claude"].calls("login"))
@@ -130,19 +130,19 @@ class SubscriptionsPage(unittest.TestCase):
         self.assertEqual(body(added)[3:], [
             "› Claude III  — no reading yet",
             "    new@acme.test   − remove",
-            "OpenAI", "  ChatGPT     ▰▰▰▰▰▰▰▰▰▰  100% left · 1 reset in hand", "",
+            "OpenAI", "  ChatGPT     ━━━━━━━━━━  100% left · 1 reset in hand", "",
             "  + add a subscription"])
 
     def test_the_row_a_removal_lights_opens_lit_as_any_row_opens(self):
         self.term.keys("Down", "Right")
-        self.term.wait(lambda screen: self.two + "   ↻ log in again   [− remove]" in lines(screen)
+        self.term.wait(lambda screen: self.two + "   → log in again   [− remove]" in lines(screen)
                        and PAGE_KEYS.format("remove") in lines(screen))
         self.term.keys("Enter")
         self.term.wait("Remove Claude II?")
         self.term.keys("Down", "Enter")                  # Keep is picked first
         left = self.term.wait(lambda screen: title(screen) == PAGE and "› ChatGPT" in screen)
         # nothing lit: not Claude II's `− remove`, nor a `log in again` its login far off lacks
-        self.assertIn("    owner@acme.test · plus   ↻ spend a reset   − remove", body(left))
+        self.assertIn("    owner@acme.test · plus   → spend a reset   − remove", body(left))
         self.assertIn(UNLIT, lines(left))
 
     def test_a_reading_that_lands_shows_without_a_key(self):
@@ -158,7 +158,7 @@ class SubscriptionsPage(unittest.TestCase):
                                                                     "window_secs": 604800}]},
                                            "two": {"meters": [{"name": "weekly", "used": 50,
                                                                 "window_secs": 604800}]}}}}})
-        self.term.wait("  Claude II  ▰▰▰▰▰▱▱▱▱▱  50% left")
+        self.term.wait("  Claude II  ━━━━━─────  50% left")
 
 
 if __name__ == "__main__":

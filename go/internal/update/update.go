@@ -4,7 +4,8 @@
 // back by its `[update] revert` or, with none, from the snapshot taken before (snapshot.go), its
 // red kept for the tick to hand back; and how it then moves ~/agentkit (agentkit.go): forward on
 // main to a commit whose live check let it through, swapped in whole as Python's
-// agentkit/versions.py swaps it (versions.go), then its install.sh, owed until it passes, all
+// agentkit/versions.py swaps it (versions.go) once its `install.sh --prepare` passed in its folder
+// (prepare.go), then its install.sh, owed until it passes, all
 // under Python's locks.  While a seat works no harness moves (seat.Working); an update with a seat
 // Go does not word, or a move where a user systemd manager would place the gates, is Python's
 // (movable).
@@ -99,11 +100,7 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	}
 	agentkit := "update: agentkit: skipped: no checkout at " + checkout
 	if held && dryRun {
-		said, err := agentkitVersion(env, checkout)
-		if err != nil {
-			return 0, err
-		}
-		agentkit = "update: agentkit " + cmp.Or(said, "?") +
+		agentkit = "update: agentkit " + cmp.Or(agentkitVersion(env, checkout), "?") +
 			": would move forward (the next version swapped in + `install.sh`)"
 	}
 	if config.EnsureDirs() != nil {
@@ -274,16 +271,23 @@ func version(each plan, env []string) (string, error) {
 	return identity, nil
 }
 
-// agentkitVersion is that checkout's short commit and its date, "" when git cannot say them.
-func agentkitVersion(env []string, checkout string) (string, error) {
-	stdout, _, code, err := output(env, time.Minute, "git", "-C", checkout, "log", "-1", "--format=%h · %cs")
-	if err != nil || code != 0 {
-		return "", nil
+// agentkitVersion is that checkout's version as Python's update.agentkit_version says it: how many
+// commits its history holds, then its date; the date alone where git cannot count that history, or
+// it is cut short and its count would be wrong; "" when it is no checkout.
+func agentkitVersion(env []string, checkout string) string {
+	// in UTF-8 whatever log encoding the checkout's config asks for, UTF-16 say
+	date, ok := git(env, checkout, "-c", "i18n.logOutputEncoding=UTF-8", "log", "-1", "--format=%cs")
+	if !ok {
+		return ""
 	}
-	if !utf8.Valid(stdout) {
-		return "", ErrPython // Python puts its own replacement in: its i18n.logOutputEncoding's bytes
+	// cut short first: a count taken before that history was completed would hold too few
+	if shallow, _ := git(env, checkout, "rev-parse", "--is-shallow-repository"); shallow != "false" {
+		return date
 	}
-	return strings.TrimFunc(string(stdout), config.Space), nil
+	if count, counted := git(env, checkout, "rev-list", "--count", "HEAD"); counted {
+		return count + " · " + date
+	}
+	return date
 }
 
 // output is what a command printed, as Python's subprocess.run captures it within a cap: its

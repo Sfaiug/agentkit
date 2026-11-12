@@ -12,25 +12,20 @@ import (
 	"agentkit/internal/config"
 )
 
-// A LineMember is a run holding a place in its landing line (Member), as read.
-type LineMember struct {
-	Dir    string
-	Record *Object
-}
-
-// LineMembers is Python's land.line, which its lander and every reader of a place share: the runs
-// holding a place in the line by that name, green deliveries in tested stack order, then join order.
-func LineMembers(name string) []LineMember {
-	var members []LineMember
-	for _, dir := range Dirs() {
-		if record, _ := Read(dir); record != nil && Member(record) && record.Dict("waiting_on").Str("line") == name {
-			members = append(members, LineMember{dir, record})
+// LineMembers is Python's land.line, which its lander and every reader of a place share: those of
+// the runs, as their reader read them, holding a place in the line by that name, green deliveries
+// in tested stack order, then join order.
+func LineMembers(name string, runs []Held) []Held {
+	var members []Held
+	for _, each := range runs {
+		if Member(each.Record) && each.Record.Dict("waiting_on").Str("line") == name {
+			members = append(members, each)
 		}
 	}
 	deliveries := map[string]string{}
 	for _, m := range members {
 		if wait := m.Record.Dict("waiting_on"); green(wait) {
-			deliveries[filepath.Base(m.Dir)] = wait.Str("land")
+			deliveries[m.Name] = wait.Str("land")
 		}
 	}
 	depth := func(wait *Object) int {
@@ -43,7 +38,7 @@ func LineMembers(name string) []LineMember {
 		}
 		return n
 	}
-	slices.SortFunc(members, func(a, b LineMember) int {
+	slices.SortFunc(members, func(a, b Held) int {
 		aw, bw := a.Record.Dict("waiting_on"), b.Record.Dict("waiting_on")
 		if green(aw) != green(bw) {
 			if green(aw) {
@@ -58,9 +53,21 @@ func LineMembers(name string) []LineMember {
 		}
 		aj, _ := aw.Num("joined")
 		bj, _ := bw.Num("joined")
-		return cmp.Or(cmp.Compare(aj, bj), strings.Compare(a.Dir, b.Dir))
+		return cmp.Or(cmp.Compare(aj, bj), strings.Compare(a.Name, b.Name))
 	})
 	return members
+}
+
+// Standing is every run with a readable record as it stands, by its directory's name: the runs a
+// reader holding none places a line's members among.
+func Standing() []Held {
+	var runs []Held
+	for _, dir := range Dirs() {
+		if record, _ := Read(dir); record != nil {
+			runs = append(runs, Held{Name: filepath.Base(dir), Record: record})
+		}
+	}
+	return runs
 }
 
 // green is whether a member's wait is a green delivery (land.green_delivery), which only needs
@@ -75,17 +82,12 @@ func LandingLine(record *Object) string {
 	return ""
 }
 
-// LinePlace is the line under a run waiting in its landing line (status.parked_line): where it
-// stands there by its directory's name, and what it lands on; "" for one in no line.
-func LinePlace(record *Object, name string) string {
-	place, _ := LinePlaces()(record, name)
-	return place
-}
-
-// LinePlaces is LinePlace for the runs of one read, each line's members read once, and whether
-// that place is landing.line's: not in a line holding a member that is no green delivery while a
-// seat was told its next run goes first (FirstPlaceTold), as landing.line orders such a fix.
-func LinePlaces() func(record *Object, name string) (string, bool) {
+// LinePlaces is the line under a run waiting in its landing line (status.parked_line), among the
+// runs of one read, each line's members found once: where it stands there by its directory's name,
+// and what it lands on, "" for one in no line; and whether that place is landing.line's: not in a
+// line holding a member that is no green delivery while a seat was told its next run goes first
+// (FirstPlaceTold), as landing.line orders such a fix.
+func LinePlaces(runs []Held) func(record *Object, name string) (string, bool) {
 	type order struct {
 		names []string // first in line first
 		read  bool
@@ -98,12 +100,12 @@ func LinePlaces() func(record *Object, name string) (string, bool) {
 		}
 		found, seen := lines[line]
 		if !seen {
-			members := LineMembers(line)
-			found.read = !FirstPlaceTold() || !slices.ContainsFunc(members, func(m LineMember) bool {
+			members := LineMembers(line, runs)
+			found.read = !FirstPlaceTold() || !slices.ContainsFunc(members, func(m Held) bool {
 				return !green(m.Record.Dict("waiting_on"))
 			})
 			for _, m := range members {
-				found.names = append(found.names, filepath.Base(m.Dir))
+				found.names = append(found.names, m.Name)
 			}
 			lines[line] = found
 		}
