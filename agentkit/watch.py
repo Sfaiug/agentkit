@@ -829,16 +829,13 @@ def finish_own_lines(cfg, log):
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
         for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
                      key):
-            def alone(held):
-                return composer_holds(held, session, line, cfg, exact=True) == "line"
-
-            if not line or not alone(name):
+            if not line or composer_holds(name, session, line, cfg, exact=True) != "line":
                 continue
             if (type_checked(session, line, log, harness, pending=True,
                              guard=lambda: notify.session_lock(name),
                              veto=lambda held: line != marked
-                             and owner_question(notify.last(held)),
-                             ready=alone) and line == marked):
+                             and owner_question(notify.last(held)), cfg=cfg)
+                    and line == marked):
                 replace_midturn(name, mark)
             break
 
@@ -3870,7 +3867,7 @@ def kept_asked_first(session, harness=None, held=True):
 
 def type_checked(session, text, log, harness=None, guard=nullcontext,
                  veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak",
-                 ready=lambda name: True):
+                 cfg=None):
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Delivery is at least once: no mark, receipt or transcript read closes every crash window
@@ -3886,13 +3883,13 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
-    `ready` is asked under the guard right before each Enter, after the gap, and the first
-    Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent. None means the line was deferred before its text went in: keys its terminal
-    has not read yet, or, in a seat of a known harness, a composer `composer_draft` does not
-    read empty. Those checks gate new text, never the Enter completing it:
-    withholding that Enter would leave a draft the caller cannot recover, or let a retry
-    append the same text to itself.
+    Each Enter goes only while the composer holds the line alone (`composer_holds`, read under
+    the guard right after the gap, whole where the line is `pending`: no key of this call put
+    it there), and the first waits up to SENT_WAIT for that: the owner can type in the seat,
+    and what they type is never sent.  A line still joined to it after that wait stays, for
+    the owner or a later pass (`finish_own_lines`).  None means the line was deferred before
+    its text went in: keys its terminal has not read yet, a composer `composer_draft` does not
+    read empty, or a seat whose harness has no composer to read.
     """
     text = terminal_mod.keyed(text)    # a typed escape or newline is a key, not text
     try:
@@ -3902,16 +3899,19 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     name = seat["name"]
     if harness is None:
         try:
-            harness, _ = seat_model(config.load(), name)
+            harness, _ = seat_model(config.load() if cfg is None else cfg, name)
         except (config.Error, OSError):
             harness = None
     # New text goes only into a composer read empty: typed onto the owner's text, read whole or
     # in part, its Enter sends both; under a dialog it answers it; where no composer shows it
     # runs as a command.  A line left pending was read in its composer, whatever chrome is
     # drawn around it.
-    if harness is not None and not pending and composer_draft(harness, pane_text(seat)) != "":
+    if not pending and (harness is None or composer_draft(harness, pane_text(seat)) != ""):
         return None
-    confirm = pending or harness is not None
+
+    def alone(held):
+        return composer_holds(held, seat, text, cfg, exact=pending) == "line"
+
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):
@@ -3921,13 +3921,13 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not sent:
                 return sent
             time.sleep(KEY_GAP)
-        if not _wait_ready(ready, held if held is not None else name) or not _send_enter(seat, log):
+        if not _wait_ready(alone, held if held is not None else name) or not _send_enter(seat, log):
             return False
-    if not confirm or _wait_sent(seat, harness, text):
+    if _wait_sent(seat, harness, text):
         return True
     with guard() as held:
         if (veto(held if held is not None else name)
-                or not ready(held if held is not None else name)):
+                or not alone(held if held is not None else name)):
             return False
         if not _send_enter(seat, log):
             return False
@@ -4697,8 +4697,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
 
     return (type_checked(session, text, log, None,
                          guard=lambda: notify.session_lock(session["name"]), veto=veto,
-                         typed=lambda: receipt(mark), source=source,
-                         ready=lambda held: composer_holds(held, session, text, cfg) == "line")
+                         typed=lambda: receipt(mark), source=source, cfg=cfg)
             and composer_holds(session["name"], session, text, cfg) == "empty"
             and not pane_unread(session))
 
