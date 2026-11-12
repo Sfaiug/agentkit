@@ -349,8 +349,9 @@ usage)
   # what its monthly limit has left and the prepaid balance, the limit unbounded when none is
   # set and the balance while auto-reload tops it up -- both unbounded is `unlimited`.  The
   # amounts are minor units of its `currency`, `decimal_places` of them to the unit.  The
-  # one-time credit (`cinder_cove`) adds nothing, as it adds nothing there.
-  jq -c --argjson prepaid "$prepaid" "$READ"' reading
+  # one-time credit (`cinder_cove`) adds nothing, as it adds nothing there.  `-e`: an answer cut
+  # off before its body reads as nothing, which is no reading.
+  jq -ce --argjson prepaid "$prepaid" "$READ"' reading
     + ([.extra_usage | objects | select(.is_enabled == true) | . as $x
         | $prepaid | objects | . as $p
         | ($x.decimal_places // $p.balance.money.exponent) as $e
@@ -387,7 +388,7 @@ reset)
   [ "$result" = reset ] || { jq -c '{code: .result, reason}' <<<"$said"; exit 0; }
   # from here on a reset has gone, so every answer says so, whatever the read after it does
   status
-  { [ "$code" = 200 ] && jq -c "$READ"' reading | {code: "reset", available: .resets, reset_kinds,
+  { [ "$code" = 200 ] && jq -ce "$READ"' reading | {code: "reset", available: .resets, reset_kinds,
       meters}' <<<"$body" 2>/dev/null; } || printf '{"code":"reset","available":%s}\n' "${left:-null}" ;;
 install)
   if command -v claude >/dev/null; then echo "claude: already installed ($(claude --version 2>/dev/null | head -1))"; exit 0; fi

@@ -47,7 +47,8 @@ HELD = [{"kind": "weekly", "left": 1, "usable": True}, {"kind": "Fable", "left":
 
 # Each request, as Anthropic would see it, a line of `asked`: its method, URL, headers (a header
 # file's lines among them), JSON body and the argument list it ran with.  The answer is the next
-# of `usage.json` or `reset.json`, [code, body], the last one again once they run out.
+# of `usage.json` or `reset.json`, [code, body], the last one again once they run out; a null
+# body is an answer cut off after its headers.
 FAKE_CURL = r'''#!/usr/bin/env python3
 import json, os, sys
 args, fake = sys.argv[1:], os.environ["FAKE"]
@@ -68,7 +69,8 @@ with open(log, "a") as out:
 answers = json.load(open(os.path.join(fake, verb + ".json")))
 code, body = answers[min(sum(each["method"] == request["method"] for each in before),
                          len(answers) - 1)]
-sys.stdout.write(json.dumps(body) + "\n" + str(code))
+sys.stdout.write(("" if body is None else json.dumps(body)) + "\n" + str(code))
+sys.exit(28 if body is None else 0)
 '''
 
 
@@ -159,6 +161,8 @@ class Resets(unittest.TestCase):
                   "reset_kinds": [HELD[0], {"kind": "Fable", "left": 1, "usable": True}],
                   "meters": METERS}),
                 ("no read after", [[200, answer()], [503, {"error": "overloaded"}]],
+                 {"code": "reset", "available": 2}),
+                ("a read after cut off", [[200, answer()], [200, None]],
                  {"code": "reset", "available": 2})):
             with self.subTest(case):
                 said, asked = self.adapter("reset", "Fable", usage=usage, spend=[(200, spent)])
@@ -171,7 +175,7 @@ class Resets(unittest.TestCase):
                 if "meters" in said:
                     said["meters"] = [meter["name"] for meter in said["meters"]]
                 self.assertEqual(said, told)
-        self.assertNotEqual(*ids)
+        self.assertEqual(len(set(ids)), len(ids), ids)
 
     def test_a_spend_refused_says_the_endpoint_s_result(self):
         refused = {"result": "cooldown", "reason": "too soon", "resets_left": 1, "cleared": [],
