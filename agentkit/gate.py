@@ -425,15 +425,6 @@ def _wait_reason(readings, minimum, maximum, peak=None, frozen=0, starting=(0, 0
     return None, None
 
 
-def memory_tight(readings=None):
-    """Why memory holds a run back now, else None; off under the tests' `AK_MAX_RUNS=0`."""
-    if os.environ.get("AK_MAX_RUNS") == "0":
-        return None
-    readings = _run_readings() if readings is None else readings
-    return _wait_reason(readings, resource_limits(readings)[0], 0,
-                        history.recent_peak_rss_mb())[0]
-
-
 def _host_admits(state, readings, is_first):
     """The host gates (`_gates_admit`): False, the wait written on `state`, while one holds.
 
@@ -795,12 +786,15 @@ def mark_gate_wait(run_dir, of, since=None):
 
 
 @contextmanager
-def landing_wait(landing, since=None, run_id=None, line=False):
+def landing_wait(landing, since=None, run_id=None, line=False, holds=None):
     """While a landing suite waits for a heavy turn it holds a file of its own, and a line's
     check also `.heavy-landing.wait`.
 
-    Its own file says when its wait began, for which run and whether it is a line's own
-    check, so landing waits rank among themselves (`_landing_waiters`); the line's checkers
+    Its own file says when its wait began, for which run, whether it is a line's own
+    check and whether its check `holds` a turn already, so landing waits rank among themselves
+    (`_gate_waiter_before`); None says nothing of turns held, as a file from before 12 Nov 2026
+    does.  A wait for a first turn holds none and a suite's for more always holds one, so what
+    the file says stays true for as long as it lives.  The line's checkers
     mark no member's record.  `.heavy-landing.wait`, shared by every line's check, says one
     waits: round checks stay behind it (`landing_waits`), as they do behind a waiter on code from
     before 29 Oct 2026, which holds it for any landing wait.  The kernel lets go with the
@@ -818,7 +812,8 @@ def landing_wait(landing, since=None, run_id=None, line=False):
             fcntl.flock(shared, fcntl.LOCK_SH)
         # Locked before it takes its name: a file under that name is never an unheld live one.
         fcntl.flock(fh, fcntl.LOCK_EX)
-        fh.write(json.dumps({"since": since, "run_id": run_id or "", "line": line}))
+        fh.write(json.dumps({"since": since, "run_id": run_id or "", "line": line,
+                             "holds": holds}))
         fh.flush()
         draft.rename(path)
         try:
@@ -841,8 +836,9 @@ def _still_landing(context):
 
 
 def _landing_waiters():
-    """The live landing waits as (not a line's check, since, run id); a dead waiter's file goes,
-    unreadable is none, and one from before line checks were marked is a run's own."""
+    """The live landing waits as (not a line's check, whether it holds a turn, since, run id); a
+    dead waiter's file goes, unreadable is none, one from before line checks were marked is a
+    run's own, and one from before 12 Nov 2026 holds None (`landing_wait`)."""
     found = []
     for path in config.RUNS.glob(".landing-wait-*"):
         try:
@@ -851,8 +847,8 @@ def _landing_waiters():
                     fcntl.flock(fh, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 except BlockingIOError:
                     wait = json.loads(fh.read())
-                    found.append((not wait.get("line"), float(wait["since"]),
-                                  str(wait["run_id"])))
+                    found.append((not wait.get("line"), wait.get("holds"),
+                                  float(wait["since"]), str(wait["run_id"])))
                     continue
                 path.unlink(missing_ok=True)     # its holder is gone
         except (OSError, ValueError, TypeError, KeyError):
@@ -886,13 +882,15 @@ def gate_turn_note(state):
     return "waiting for a heavy suite turn"
 
 
-def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
+def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, holds=None):
     """Whether a live heavy-suite waiter ranks before this gate; `repo` is ignored.
 
     Turns were per repository and only a waiter of the same main checkout counted.
     They are host-wide now, so every live waiter counts whichever repository it
     checks.  Rank is a line's own check (`line`), then a run's own landing check (a fork's,
-    which no line checks), then any round check; within each the longest wait, then the run id.
+    which no line checks), then any round check; within each the longest wait, then the run id,
+    but between two waits that do not say whether their checks hold a turn (`holds`), those
+    holding none go first and never hold each other back.
     `--first` plays no part, or loop repairs starve every other suite under load.  A
     round check stays behind any line's check (`landing_waits`).  A landing wait -- a
     run's, or the line checker's that marks no record -- ranks by its own file
@@ -909,10 +907,9 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
     # Owner, 29 Oct 2026: a line's own check goes first.  The line is where a repository's
     # changes land one at a time, so its wait delays every change behind it, while a run's
     # check before it joins the line only spares the line a red.
-    me = (not is_landing, not line, since, exclude or "")
+    me = (not is_landing, not line, holds, since, exclude or "")
     filed = _landing_waiters()
-    if any((False, *wait) < me for wait in filed if wait[2] != exclude):
-        return True
+    waits = [(False, *wait) for wait in filed if wait[3] != exclude]
     filed = {run_id for *_, run_id in filed}
     for directory in run_record.run_dirs():
         if directory.name == exclude:
@@ -933,9 +930,24 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False):
             waited = turn.get("since") if landing else 0
             if not isinstance(waited, (int, float)) or isinstance(waited, bool):
                 waited = 0
-        if (not landing, True, waited, directory.name) < me:
-            return True
-    return False
+        waits.append((not landing, True, None, waited, directory.name))
+    # 10 Nov 2026: a small line's check, its red target's repair, whose suite runs in a minute,
+    # held no turn for two hours behind two older lines' checks waiting for first turns that fit
+    # neither, then for more turns for their pieces.  So in a rank, one holding none goes before
+    # one asking for more, and two holding none never hold each other back: each takes a turn as
+    # soon as one fits it.  The longest wait still decides each turn past a check's first; a
+    # share by turns held would need a count that its stale copies rank wrong.  A wait that does
+    # not say -- a record's mark, a file from before 12 Nov 2026 -- ranks, and is ranked against,
+    # by its start alone, as its own waiter reads it.  So such waits cut a rank by start, and turns
+    # held order only waits between the same two cuts: across one, a check asking for more yielded
+    # to a younger one holding none, that one to the older wait on older code between them, and
+    # that one to the first, and nobody took the free turn.
+    def place(wait):
+        rank, holds, start = wait[:2], wait[2], wait[3:]
+        cuts = sum(other[:2] == rank and other[2] is None and other[3:] < start
+                   for other in (me, *waits))
+        return (*rank, cuts, 0) if holds is False else (*rank, cuts, 1 if holds else 2, *start)
+    return any(place(wait) < place(me) for wait in waits)
 
 
 class _Pieces:
@@ -1034,9 +1046,9 @@ class _GateHold:
     def take(self, stopped):
         """A held turn no other piece runs on, or None once `stopped()`; `give` it back.
 
-        While any piece waits, the suite is one waiter at the place it was admitted at
-        (`queued`), so a later waiter stays behind it, and one piece at a time asks the
-        host for the turns freed since (`more`).
+        While any piece waits, the suite is one waiter holding turns, at the place it was
+        admitted at (`queued`), and one piece at a time asks the host for the turns freed
+        since (`more`).
         """
         slot = None
         with self.lock:
@@ -1235,7 +1247,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             # Its first landing wait starts here, as its file says: a waiter on older code
             # ranks it by this marker, and must rank it by the same start.
             _seed_landing_wait(run_dir, me_since)
-        waiting.enter_context(landing_wait(is_landing, me_since, self_id, line))
+        waiting.enter_context(landing_wait(is_landing, me_since, self_id, line, False))
         slots = []
         def admit(mine=(), idle=0, cost=cost):
             """`idle` of `mine` run no piece: they are of those the headroom fits, not running."""
@@ -1291,7 +1303,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
         if not limit:
             files.close()
             return None
-        if not slot or _gate_waiter_before(repo, self_id, me_since, is_landing, line):
+        if not slot or _gate_waiter_before(repo, self_id, me_since, is_landing, line, False):
             for fh in slot:
                 fcntl.flock(fh, fcntl.LOCK_UN)
             slot = []
@@ -1329,7 +1341,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                         break
                     said = f"waiting for a heavy suite turn · {held} running · {max(0, limit - held)} more fit"
                     if slot and not _gate_waiter_before(repo, self_id, waited_since,
-                                                        is_landing, line):
+                                                        is_landing, line, False):
                         break
                     for fh in slot:
                         fcntl.flock(fh, fcntl.LOCK_UN)
@@ -1356,18 +1368,22 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
     if not pieces:
         return _GateHold(files, slot, context)
 
-    def more(mine, idle, cost):
-        freed, limit, _ = admit(mine, idle, cost)
-        if freed and _gate_waiter_before(repo, self_id, place, is_landing, line):
+    def beyond(freed):
+        """Of `freed`, turns past this check's first, those it ranks first for as it holds one."""
+        if freed and _gate_waiter_before(repo, self_id, place, is_landing, line, True):
             for fh in freed:
                 fcntl.flock(fh, fcntl.LOCK_UN)
-            freed = []
-        return freed, limit
+            return []
+        return freed
+
+    def more(mine, idle, cost):
+        freed, limit, _ = admit(mine, idle, cost)
+        return beyond(freed), limit
 
     @contextmanager
     def queued():
         counted = (time.time(), time.monotonic())
-        with landing_wait(is_landing, place, self_id, line):
+        with landing_wait(is_landing, place, self_id, line, True):
             if run_dir:
                 mark_gate_wait(run_dir, repo, place)
             try:
@@ -1377,7 +1393,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     mark_gate_wait(run_dir, None)
                 if run_dir or is_landing:
                     count_wait(self_id, "suite" if run_dir else "lander", counted)
-    return _GateHold(files, slot, context, limit, more, queued, cost)
+    return _GateHold(files, slot[:1] + beyond(slot[1:]), context, limit, more, queued, cost)
 
 
 @contextmanager
@@ -1402,8 +1418,8 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     caller with no record or context and the test suites' `AK_MAX_RUNS=0` take no turn;
     `max_gates = 0` also leaves ordinary suites uncapped. The limit is re-read on every poll,
     so a changed pin or a
-    changed headroom reaches runs already queued.  A freed turn goes to the waiter
-    that has waited longest among the highest rank (`_gate_waiter_before`), whether
+    changed headroom reaches runs already queued.  A freed turn goes to the first waiter
+    in rank (`_gate_waiter_before`), whether
     `--first` or not: a suite takes a free turn only when no waiter
     ranks before it, and a lander's wait counts from the start of its first landing
     wait.
@@ -1412,9 +1428,10 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     and a log line naming the problem.
     A check running while this thread already holds a turn takes no second one.
     A command naming AK_SHARD gets as many places as the derived limit fits, using its
-    repository's measured cost when available: it takes the turns free now, then those freed
-    while it ranks first, each running one piece at a time, and once its last piece has started
-    gives back each one a piece ends on, but one (`_GateHold`, `_Pieces.spare`, `run_suite`).
+    repository's measured cost when available: it takes one turn free now, then the others free
+    now and those freed later while it ranks first, each running one piece at a time, and once
+    its last piece has started gives back each one a piece ends on, but one (`_GateHold`,
+    `_Pieces.spare`, `run_suite`).
     A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
     again each poll, and goes there once it has room.
     """
@@ -1814,7 +1831,7 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwa
 def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, flaky=None, named=None, checked=None, asked=None,
-              raw=None, absent=None, **kwargs):
+              raw=None, absent=None, used=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1848,6 +1865,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     another suite changes meanwhile would cut a later piece's share differently.
     With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, its first
     go asked for at `asked`, a later one as the go before it ended: a turn it waits for is wait.
+    `used`, a dict, gets what a command run as one piece used (`worker.boxed`).
     """
     def observed(share, code, killed):
         if raw is not None and (code != SUITE_BUSY or killed):
@@ -1867,7 +1885,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         code, text, killed = worker.boxed(
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
             env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, absent=gone,
-            flaky=flaky, **kwargs)
+            flaky=flaky, used=used, **kwargs)
         observed(shard, code, killed)
         if confirmed is not None and only is not None:
             confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
@@ -1897,7 +1915,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                               output=output, env=env, abort=abort,
                               cpu=measured.cpu if measured else None,
                               quiet=measured.quiet if measured else None, failed=failed,
-                              flaky=flaky, **kwargs)
+                              flaky=flaky, used=used, **kwargs)
         observed("", result[0], result[2])
         if confirmed is not None:
             confirmed["1/1"] = failed if result[0] > 0 else []
@@ -2016,11 +2034,12 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     # A stop ends this piece's own processes, never a sibling's that runs on.
                     own[worker.RUN_MARKER] += f"/piece-{shard.replace('/', '-')}"
                 try:
-                    here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
-                                             "only": only, "failed": tests, "flaky": flaky}
                     kills = measure.oom("oom_kill")
                     with history.check(checked, f"AK_SHARD={shard} {command}",
                                        asked_at.get(shard, asked), there and there.alias) as ended:
+                        here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
+                                                 "only": only, "failed": tests, "flaky": flaky,
+                                                 "used": ended}
                         code, _, killed = (worker.limited if there else worker.boxed)(
                             helper.piece(there, shard, there_command)
                             if there else ["bash", "-c", command],
@@ -2028,7 +2047,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             env=own, abort=abort,
                             on_timeout=stopped, silence=silence if first else later or silence,
                             **here, **kwargs)
-                        ended.append(None if killed else code)
+                        ended["exit"] = None if killed else code
                     if not there or code not in (*helper.GONE, helper.FULL):
                         observed(shard, code, killed)
                     if not there and not killed and measure.starved(code, kills):
@@ -2540,8 +2559,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         only=only, confirmed=reds, flaky=flakes, named=named,
                         # Whole commands retry here; their named outcomes must wait for that.
                         checked=checked if split(cmd) else None, asked=asked, raw=raw,
-                        absent=absent)
-                    ended.append(None if killed else code)
+                        absent=absent, used=ended)
+                    ended["exit"] = None if killed else code
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)
@@ -2662,7 +2681,7 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir, chec
                         limit, cwd=str(cwd), activity=log_path, output=progress,
                         env=suite_env(), silence=silence, stderr=subprocess.STDOUT,
                         stdin=subprocess.DEVNULL)
-                    ended.append(None if killed else code)
+                    ended["exit"] = None if killed else code
             except OSError as exc:
                 # It never started (a list longer than one ssh argument may be): the shell's 126.
                 log_path.write_text(f"{exc}\n")

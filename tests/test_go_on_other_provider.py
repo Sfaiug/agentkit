@@ -54,7 +54,7 @@ class GoOnOtherProvider(Sandbox):
             with self.subTest(width=width):
                 self.assertEqual(menu.choice_lines(info, width), [])
                 self.assertEqual(menu.choices(info, width), [])
-                for text in ("✓ Wait for 19:59", "⇄ Go on now with acme-small",
+                for text in ("✓ Wait for 19:59", "→ Go on now with acme-small",
                              *menu.detail(info, width)):
                     self.assertEqual(menu.choice_cells(text, info, width), [])
 
@@ -62,10 +62,10 @@ class GoOnOtherProvider(Sandbox):
         info = self.cache(20)
         self.assertEqual(info["go_on"], "zeta")
         self.assertEqual(menu.choice_lines(info, 80), [[
-            ("✓ Wait for 19:59", menu.WAIT), ("⇄ Go on now with Zeta", menu.GO_ON)]])
+            ("✓ Wait for 19:59", menu.WAIT), ("→ Go on now with Zeta", menu.GO_ON)]])
         self.assertEqual([terminal.ANSI.sub("", line) for line in menu.choices(info, 80)],
-                         ["✓ Wait for 19:59   ⇄ Go on now with Zeta"])
-        self.assertEqual(menu.choice_cells("✓ Wait for 19:59   ⇄ Go on now with Zeta", info, 80),
+                         ["✓ Wait for 19:59   → Go on now with Zeta"])
+        self.assertEqual(menu.choice_cells("✓ Wait for 19:59   → Go on now with Zeta", info, 80),
                          [(1, 16, menu.WAIT), (20, 40, menu.GO_ON)])
 
 

@@ -43,15 +43,16 @@ var (
 	pullRequest = regexp.MustCompile(`^.+#\d+$`) // a change named by its pull request: `owner/repo#N`
 )
 
-// A board is two weeks of history.db's ended work, as Python's scoreboard.compute reads it.
-// Seats' tokens count in none of its rows: Go reads the board only before a seat has spent any it
-// could count (boardHistory), and names the seats it counts nothing of.
+// A board is two weeks of history.db's ended work, as Python's scoreboard.compute reads it, the
+// seats' tokens among it once their files are read (boardHistory), naming the seats it counts
+// nothing of.
 type board struct {
 	db                                 *history.DB
 	now                                float64
 	own                                map[string]bool // what ak's own checkout is named
 	uncounted                          []string        // the seats whose tokens it counts none of
 	rows, checks, findings, conflicts  []history.Row
+	seats                              []history.Row // what the seats spent, by project
 	parks, owner, dones                []history.Row
 	parksKnown, ownerKnown, donesKnown bool
 	sizes                              [2][]measure // ak's committed size now and seven days ago
@@ -104,6 +105,7 @@ func readScoreboard(db *history.DB, now time.Time) *board {
 	b.parks, b.parksKnown = db.Parks(since, b.now)
 	b.owner, b.ownerKnown = db.Owner(since, b.now)
 	b.dones, b.donesKnown = db.Dones(since, b.now)
+	b.seats, _ = db.SeatUsage(since, b.now)
 	before := ""
 	if out := gitOutput(repo, "rev-list", "--first-parent", "-1",
 		"--before="+now.Add(-7*24*time.Hour).UTC().Format("2006-01-02T15:04:05Z"), "HEAD"); out != nil {
@@ -179,15 +181,25 @@ func (b *board) cells(end float64) []string {
 			tokens += spent(row)
 		}
 	}
+	seats, own := 0.0, 0.0
+	for _, row := range b.seats {
+		if b.in(number(row, "at"), end) {
+			seats += number(row, "tokens")
+			if b.own[row.Text("repo")] {
+				own += number(row, "tokens")
+			}
+		}
+	}
+	tokens += seats
 	changes := b.changes(ended)
 	tokensCell := "no tokens recorded"
 	if tokens != 0 {
-		tokensCell = thousands(tokens) + " tokens; 0 from seats"
+		tokensCell = thousands(tokens) + " tokens; " + thousands(seats) + " from seats"
 	}
 	if len(b.uncounted) > 0 {
 		tokensCell += "; not counted: " + strings.Join(b.uncounted, ", ")
 	}
-	return []string{b.delivered(ended, false, tokens), b.delivered(ended, true, tokens), tokensCell, b.intent(end),
+	return []string{b.delivered(ended, false, 0, tokens), b.delivered(ended, true, own, tokens), tokensCell, b.intent(end),
 		b.asked(end), built(ended), waited(finished), b.split(changes), b.checked(changes), b.parked(end),
 		b.collided(ended, end), sunk(ended, tokens), broke(ended), pairs(ended), b.weighed(ended, end)}
 }
@@ -198,9 +210,10 @@ func (b *board) in(at, end float64) bool {
 }
 
 // delivered is the products or the ak row: what the week's runs on other repositories, or on
-// ak's own checkout, delivered, and with ak's its share of every recorded token.
-func (b *board) delivered(ended []history.Row, ak bool, total float64) string {
-	runs, merged, firstRound, unmerged, share := 0, 0, 0, 0, 0.0
+// ak's own checkout, delivered, and with ak's its share of every recorded token, its seats' spent
+// on it among them.
+func (b *board) delivered(ended []history.Row, ak bool, seats, total float64) string {
+	runs, merged, firstRound, unmerged, share := 0, 0, 0, 0, seats
 	var hours, tokens []float64
 	for _, row := range ended {
 		if b.own[row.Text("repo")] != ak {
@@ -226,8 +239,11 @@ func (b *board) delivered(ended []history.Row, ak bool, total float64) string {
 			tokens = append(tokens, executor+reviewer)
 		}
 	}
-	if runs == 0 {
+	switch {
+	case runs == 0 && seats == 0:
 		return "no runs ended"
+	case runs == 0:
+		return "no runs ended; " + percent(share/total, 0) + " of all recorded tokens"
 	}
 	cell := fmt.Sprintf("%d runs ended; %s merged in round 1; %s ended without merging; ", runs,
 		percent(float64(firstRound)/float64(runs), 0), percent(float64(unmerged)/float64(runs), 0))
@@ -697,7 +713,8 @@ func pairs(ended []history.Row) string {
 
 // weighed is the week's weighed findings: the blocking ones, those disputed, conceded or raised
 // again, and those let go on the week's merged changes, a finding following its change's merge
-// week, and how many of those sat on a change that later broke.
+// week, and how many of those sat on a change that later broke; and of what reviewers handed in
+// as findings after round 1, ak's replays aside, how many sat inside the fix.
 func (b *board) weighed(ended []history.Row, end float64) string {
 	merged, broken := map[[2]string]bool{}, map[[2]string]bool{}
 	for _, row := range ended {
@@ -707,7 +724,7 @@ func (b *board) weighed(ended []history.Row, end float64) string {
 			broken[key] = broken[key] || row.Truthy("broke_after_merge")
 		}
 	}
-	weighed, blocking, disputed, conceded, raised, letGo, letGoBroke := 0, 0, 0, 0, 0, 0, 0
+	weighed, blocking, disputed, conceded, raised, letGo, letGoBroke, later, inside := 0, 0, 0, 0, 0, 0, 0, 0, 0
 	for _, row := range b.findings {
 		dropped := slices.Contains([]string{"dropped", "conceded"}, row.Text("outcome"))
 		if b.in(number(row, "at"), end) {
@@ -717,6 +734,10 @@ func (b *board) weighed(ended []history.Row, end float64) string {
 			if row.Text("kind") == "finding" {
 				blocking++
 				raised += int(number(row, "raised_again"))
+			}
+			if row.Text("handed") == "finding" && row["replayed"] == nil && row["inside_fix"] != nil {
+				later++
+				inside += int(number(row, "inside_fix"))
 			}
 		}
 		if key := [2]string{row.Text("repo"), row.Change()}; (row.Text("kind") == "follow-up" || dropped) && merged[key] {
@@ -728,8 +749,8 @@ func (b *board) weighed(ended []history.Row, end float64) string {
 		return "not recorded"
 	}
 	return fmt.Sprintf("%d blocking; %d disputed; %d of %d conceded; %d of %d raised again; %d let go; "+
-		"%d of %d on a change that broke main or live after merge",
-		blocking, disputed, conceded, disputed, raised, blocking, letGo, letGoBroke, letGo)
+		"%d of %d on a change that broke main or live after merge; %d of %d handed in after round 1 inside the fix",
+		blocking, disputed, conceded, disputed, raised, blocking, letGo, letGoBroke, letGo, inside, later)
 }
 
 // size is ak's committed size at that ref: its code lines and its README's and AGENTS.md's words,

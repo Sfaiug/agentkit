@@ -37,10 +37,9 @@ type plugin struct {
 	report func(model string) (string, error)
 	status []string
 	// conversation is the file a seat's record says its conversation is kept in, "" for none,
-	// readBy ReadBy's where ak gives that file a name of its own beside, and sources TokenSources'.
+	// and readBy ReadBy's where ak gives that file a name of its own beside.
 	conversation func(record map[string]any) string
 	readBy       func(record map[string]any) []string
-	sources      func(record map[string]any) ([]string, bool)
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns), and
 	// resumable whether the seat owns one it may resume, where its own evidence says so, not its
 	// record (orch.resumable).
@@ -114,6 +113,10 @@ type plugin struct {
 	tokens     func(out string) (float64, bool)
 	// turnCounts is TurnCounts': nil where a turn reports no counts by model and kind.
 	turnCounts func(out string) (any, []Counts, bool)
+	// tokenSources and tokenUsage are TokenSources' and Spends': nil where no reader counts what
+	// its seats spend.
+	tokenSources func(record *run.Object) []string
+	tokenUsage   func(entry, cursor *run.Object) (Spend, bool)
 	// failed is TurnFailed's: nil where a failed turn's stderr holds all it says of why.
 	failed func(out string, result map[string]any)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.

@@ -952,7 +952,7 @@ def _probe(directory, state, scratch, tree, command, tests, cost):
                 activity=log_path, output=output, env=gate.suite_env(),
                 silence=gate.quiet_window(command, scratch, None, silence) or silence,
                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-            ended.append(None if killed else code)
+            ended["exit"] = None if killed else code
         if killed or code < 0 or code in (*helper.GONE, helper.FULL):
             return None
         ran, failed, absent = (helper.failed(away, "1/1", named)

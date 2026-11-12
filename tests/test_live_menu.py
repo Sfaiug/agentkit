@@ -99,7 +99,7 @@ class LiveMenu(Sandbox):
         screens = self.run_menu([quit_now], collect)
         self.assertTrue(done.wait(5))          # and the probe still ran, behind the draw
         self.assertEqual(waited, [False])      # the screen was up before the probe answered
-        self.assertRegex(screens[0], r"Claude\s+[▰▱]+\s+52% left")
+        self.assertRegex(screens[0], r"Claude\s+[━╸─]+\s+52% left")
 
     def test_the_probe_landing_draws_again_with_the_meters_it_wrote(self):
         release, done = threading.Event(), threading.Event()
@@ -127,8 +127,8 @@ class LiveMenu(Sandbox):
 
         with patch.object(menu.Live, "watch", watch):
             screens = self.run_menu([woken, lambda wake: ""], collect)
-        self.assertRegex(screens[0], r"Claude\s+[▰▱]+\s+52% left")
-        self.assertRegex(screens[1], r"Claude\s+[▰▱]+\s+30% left")
+        self.assertRegex(screens[0], r"Claude\s+[━╸─]+\s+52% left")
+        self.assertRegex(screens[1], r"Claude\s+[━╸─]+\s+30% left")
 
     def test_a_wait_that_times_out_draws_again_and_the_clock_moves(self):
         clocks = iter(["14:02", "14:03"])
@@ -142,7 +142,7 @@ class LiveMenu(Sandbox):
         self.assertIn("14:02", screens[0].splitlines()[0])
         self.assertIn("14:03", screens[1].splitlines()[0])
         for screen in screens:
-            self.assertRegex(screen, r"Claude\s+[▰▱]+\s+52% left")
+            self.assertRegex(screen, r"Claude\s+[━╸─]+\s+52% left")
             self.assertIn("no sessions; n starts one", screen)
 
     def test_a_key_typed_during_a_draw_is_read_by_the_next_wait(self):

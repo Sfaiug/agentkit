@@ -1,32 +1,16 @@
 package cli
 
-import (
-	"slices"
+import "agentkit/internal/history"
 
-	"agentkit/internal/history"
-)
-
-// boardHistory is history.db opened for the scoreboard (history.Open), nil where none stands, and
-// the seats whose tokens its board counts none of, as Python's seat_tokens.read names them: their
-// sources kept there first, to be read from their start (history.Sources).  errLeft where what
-// they spent is Python's to count, the seats read before anything is written (history.SeatSources),
-// or the sources' write is Python's to say; Open's error where it leaves history.db to Python, one
-// keeping seats' sources among them.
+// boardHistory is history.db opened for the scoreboard (history.Open), nil where none stands, read
+// once the seats' tokens are, as Python's board reads them (history.SeatTokens), with the seats it
+// counts none of; errLeft, having written nothing, where what they spent is Python's to read, and
+// Open's error where it leaves history.db to Python.
 func boardHistory() (*history.DB, []string, error) {
-	sources, seats, uncounted, read := history.SeatSources()
+	uncounted, read := history.SeatTokens()
 	if !read {
 		return nil, nil, errLeft
 	}
 	db, err := history.Open()
-	if err != nil || seats == 0 {
-		return db, nil, err
-	}
-	named, kept := history.Sources(sources)
-	if !kept {
-		db.Close()
-		return nil, nil, errLeft
-	}
-	uncounted = append(uncounted, named...)
-	slices.Sort(uncounted)
-	return db, slices.Compact(uncounted), nil
+	return db, uncounted, err
 }

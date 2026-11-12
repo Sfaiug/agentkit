@@ -75,13 +75,9 @@ func answering(state, name string, heard *Prompt) error {
 // answerWritten is notify.answer_written: a message of the owner's in the seat's conversation,
 // written after what it asked them, answers it.  One kept back whose turn's end is on record is
 // asked first, and one whose turn still runs waits for the look that asks it.  Whether it was
-// answered, and false for known where its harness cannot say whose its messages are. A dry look's
-// is errDry where it would ask or answer anything.
+// answered, and false for known where its harness cannot say whose its messages are.
 func answerWritten(state, name string, at float64, wait time.Duration) (done, known bool, err error) {
 	if Kept(name) {
-		if drying != nil {
-			return false, true, errDry
-		}
 		if err := notify.Held(context.Background(), name, func(current string) error { return askKept(current, true) }); err != nil {
 			return false, true, err
 		}
@@ -103,9 +99,6 @@ func answerWritten(state, name string, at float64, wait time.Duration) (done, kn
 			return false, false, nil
 		}
 		if len(said) > 0 && slices.Max(said) > since {
-			if drying != nil {
-				return false, true, errDry
-			}
 			typed := slices.Max(said)
 			done, err := answered(state, name, at, &typed)
 			return done, true, err
@@ -131,11 +124,17 @@ func answered(state, name string, at float64, typed *float64) (bool, error) {
 // askKeptBack is watch.ask_kept_back: a look that finds the seat's turn ended, at a prompt, a draft
 // there or a Stop on background work, never a dialog, asks what it kept back during it.  The end goes
 // on record first: a look that finds the notice lock taken leaves the asking to whoever next holds it.
+// A dry look asks nothing, as Python's dry tick takes no look, and reads on where a question of the
+// seat's stands, which the ask joins.  Where none does, the ask would open one, which stops any
+// resume Python's dry tick, asking nothing, may still say: that seat is its to say.
 func (seat Seat) askKeptBack(found sight) error {
 	if !Kept(seat.Name) || found.state == "asking" || !found.composerOpen(seat.own) {
 		return nil
 	}
 	if drying != nil {
+		if notify.OwnerQuestion(notify.Last(seat.Name)) {
+			return nil
+		}
 		return errDry
 	}
 	if err := TurnEnded(seat.Name); err != nil {

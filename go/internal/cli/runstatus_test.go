@@ -31,8 +31,6 @@ func TestRunStatusRefusals(t *testing.T) {
 		// the smoke suite's run is no row of its own, yet the job's block reads it
 		"a job's task, its loop gone": {map[string]string{"jobs/batch/job.json": `{"tasks":[{"name":"smoke.md","state":"running","run_id":"20261020-0900-smoke"}]}`,
 			"runs/20261020-0900-smoke/run.json": `{"state":"running","task":"~/.agentkit/tmp/smoke-acme/task.md"}`}, nil},
-		"seat": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
-			"state/session-acme.json": `{"name":"acme"}`}, []string{"--history"}},
 		"seat renamed to what Go cannot keep": {map[string]string{"state/session-acme.json": `{"renamed":"\ud800"}`}, []string{"--history"}},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -31,7 +31,7 @@ func (seat Seat) keepExited(state string, found sight) (sight, error) {
 }
 
 // A death discovered after listing is still a gone seat the health row carries.
-// Publish it without consulting a live-screen predicate; revival reads it later.
+// Publish it without reading its screen; revival reads it later.
 func (home Home) healthDied(state, name string, now time.Time) (bool, error) {
 	for at := range home.Seats {
 		seat := &home.Seats[at]
