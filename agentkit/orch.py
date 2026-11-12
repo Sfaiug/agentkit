@@ -183,20 +183,6 @@ def choose(cfg, providers):
                      f"launching {default} anyway")
 
 
-def going_on(cfg, current, providers):
-    """The model a seat out of usage on `current` goes on with now, or None: the first in
-    `in_order` on another provider, whose harness is here and that has a window left -- none
-    the move would refuse as spent (`_switch_plan`), and none on credits, which cost money a
-    click to go on now never spends unasked (`switch_orchestrator`'s `credits`)."""
-    provider = config.model(cfg, current)["provider"]
-    return next((name for name in in_order(cfg)
-                 if config.model(cfg, name)["provider"] != provider
-                 and config.harness_present(config.model(cfg, name)["harness"])
-                 and not usage.model_spent(cfg, name, providers)[0]
-                 and not usage.spent_meter(cfg, name, providers)
-                 and not usage.on_credits(cfg, name, providers)), None)
-
-
 @contextmanager
 def scratch(dry_run):
     """Where the adapters called inside write a seat's rulebook, and whatever they make beside it.
@@ -4336,7 +4322,7 @@ def handover(record, old_model, old_harness, owned):
     return f"## Its conversation on {old_model}\n\n{told}"
 
 
-def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
+def _switch_plan(cfg, name, model, providers, effort=None):
     """(note, account): why the seat cannot move to `model`, or "" and the login to use; given
     `effort`, its own model is judged as another would be, for the move at it.
 
@@ -4345,8 +4331,7 @@ def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
     picked account, the meter off the cache. The same provider keeps its login; another
     one takes the first of its accounts whose seat login passes, in the seat's order,
     else the default login to be judged below. No answer withholds nothing, the way a
-    turn goes ahead on an `auth` verb that said nothing. Without `credits`, a login that
-    would run on credits refuses the move.
+    turn goes ahead on an `auth` verb that said nothing.
     """
     try:
         record = config.load_session(cfg, name, required=False)
@@ -4389,10 +4374,6 @@ def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
     note = spent_note(cfg, model, providers)
     if note:
         return f"{model} is {note}", None
-    reading = providers.get(new_provider) or {}
-    reading = (reading.get("accounts") or {}).get(account) or reading
-    if not credits and usage.on_credits(cfg, model, {new_provider: reading}):
-        return f"{model} has only credits left", None
     return "", account
 
 
@@ -4489,8 +4470,7 @@ def switch_in_place(cfg, name, chosen, effort):
     return ""
 
 
-def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=None,
-                        effort=None):
+def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=None):
     """Move the open seat to another orchestrator at once, under the same name: inside its
     running harness where that takes lines for it (`switch_lines`), asking nothing; else by a
     restart.
@@ -4511,8 +4491,8 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     The record names the new model before the harness is up, so no redress draws the old
     one after it. Nothing on its screen refuses the move: the owner moving it knows what is
     there, and their unsent text goes on into the new composer (`watch.carry_draft`), or the
-    move is refused where it cannot be kept; a login on credits without `credits` refuses it
-    too. A refusal, and a restart that fails, leave the seat as they found it and say so in
+    move is refused where it cannot be kept.
+    A refusal, and a restart that fails, leave the seat as they found it and say so in
     one line. What to say under the rows, or ""; None where `asked(kept)`, the owner's say on
     a move that passed every refusal -- `kept` whether its conversation goes on -- answered
     False, the seat left as it was.  Given `effort`, `model` runs its orchestrator at it, and the
@@ -4538,7 +4518,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
                 pass    # the note returned already says the restart failed
 
     providers = usage.collect(cfg) if providers is None else providers
-    note, account = _switch_plan(cfg, name, model, providers, credits, effort)
+    note, account = _switch_plan(cfg, name, model, providers, effort)
     if note:
         return note
     name = config.resolve_session(name)    # a screen open across a rename has the old name
