@@ -45,12 +45,9 @@ Words are plain and explain themselves.
 - **Ages:** ages read `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
 - **Tasks, runs and estimates:** no screen names a task or a run, and none says when work
   will finish.
-- **Bars:** every bar is a seat's progress line, `━━━━╸──── 3 of 8`
-  (`terminal.plan_bar`, `terminal.share_line`).
-- **Progress:** a row's count is its plan's, then how many tasks it has in flight, one column
-  joined by ` · `: `3 of 8 · 2 tasks`, `no plan yet · 1 task` (owner, 11 Nov 2026). A task
-  mostly builds a plan line, so the count never adds them. Short of room, the line gives way
-  first, then the tasks. A seat's own bar leaves them to its squares.
+- **Progress:** every bar is a seat's progress line; a row's count ends in its tasks going:
+  `━━━━╸──── 3 of 8 · 2 tasks` (owner, 11 Nov 2026; `terminal.plan_bar`,
+  `terminal.share_line`).
 
 Nothing explains itself on hover. A highlighted row opens its models and squares, never what
 its seat said (owner, 9 Nov 2026).
@@ -59,8 +56,7 @@ its seat said (owner, 9 Nov 2026).
 
 A screen draws only characters every terminal draws alike: Windows-1252, which every font
 carries, `−≈≤≥`, `●○■□✓▸◂←↑→↓⏎␣`, and Box Drawing and Block Elements, which a terminal draws
-itself. A terminal borrows any other from whatever font it finds, at another size in each
-(`tests/test_boundaries.py`).
+itself (`tests/test_boundaries.py`).
 
 ## States
 
