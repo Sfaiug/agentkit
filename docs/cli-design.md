@@ -47,6 +47,10 @@ Words are plain and explain themselves.
   will finish.
 - **Bars:** every bar is a seat's progress line, `━━━━╸──── 3 of 8`
   (`terminal.plan_bar`, `terminal.share_line`).
+- **Progress:** a row's count is its plan's, then how many tasks it has in flight, one column
+  joined by ` · `: `3 of 8 · 2 tasks`, `no plan yet · 1 task` (owner, 11 Nov 2026). A task
+  mostly builds a plan line, so the count never adds them. Short of room, the line gives way
+  first, then the tasks. A seat's own bar leaves them to its squares.
 
 Nothing explains itself on hover. A highlighted row opens its models and squares, never what
 its seat said (owner, 9 Nov 2026).

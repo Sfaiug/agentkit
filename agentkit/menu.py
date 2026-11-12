@@ -30,8 +30,9 @@ seat's own status bar and its window title.  `ak orch why <seat>` says what deci
 
 A row is one line: number, name, orchestrator, state, and one last column, its progress line
 in the room the row has (`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under
-any name a rename led from, else from its unfinished jobs) while it is not at rest, its work
-waiting to land too, else empty -- and `¶ unsent` after it where the owner left text unsent.
+any name a rename led from, else from its unfinished jobs) and how many tasks it has in flight
+(`own_tasks`), `3 of 8 · 2 tasks`, while it is not at rest, its work waiting to land too, else
+empty -- and `¶ unsent` after it where the owner left text unsent.
 What the owner left unsent, then who builds and reviews and each task's squares (`crew`,
 `squares`), open under the row (`detail`), never what a seat said.  Never two state words on a row,
 never `N running`, and never a time estimate.
@@ -1177,9 +1178,10 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
 
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is its progress line from `seat_progress` -- its plan, else its
-    unfinished jobs -- while it is not at rest, and for `working` its place in the landing
-    line (`_last_text`), else empty, then `¶ unsent` where the owner left text unsent -- never
-    two state words on one row; who builds, who reviews and its tasks open under it (`detail`).
+    unfinished jobs -- and how many `tasks` it has in flight, while it is not at rest, and for
+    `working` its place in the landing line (`_last_text`), else empty, then `¶ unsent` where
+    the owner left text unsent -- never two state words on one row; who builds, who reviews and
+    its tasks open under it (`detail`).
     Every seat `orch.listing` offers gets a row: the ones tmux holds, and the ones only their
     record does -- a seat whose tmux instance is gone keeps its row and its number opens the
     conversation where it stopped.
@@ -1515,9 +1517,11 @@ def unsent_mark(text="unsent"):
     return f"{'¶' if terminal.utf8() else '*'} {text}"
 
 
-def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", back=None):
+def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", back=None,
+                tasks=0):
     """The one last column of a seat's row, and of its status bar's line one: its progress
-    (`terminal.plan_bar`, a smooth line and `done of total`) in `room` cells, in its word's
+    (`terminal.plan_bar`, a smooth line and `done of total`, then a row's `tasks` in flight,
+    `· 2 tasks`; a bar's line one leaves them to its squares) in `room` cells, in its word's
     colour, while `seat_progress` finds a plan or an unfinished job and it is not at rest, its
     work waiting in the line to land too, which its squares say (`detail`); a `working` seat
     with neither draws that line with nothing done and `no plan yet`, a light going round it
@@ -1525,8 +1529,9 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     sentence.  Where the owner left text `unsent`, `¶ unsent` follows two cells after,
     in the needs-you colour.  The line keeps 8 cells at least; where `room` is all there is
     (`narrow`) -- a row's last column, each width of a seat's bar -- it takes that room and
-    never more, the count alone where no cell of line fits, the mark alone where both do not;
-    a `room` of None, the fewest cells that hold its count and mark both.
+    never more, the count alone where no cell of line fits, without its tasks where they do not
+    fit either, the mark alone where neither count does; a `room` of None, the fewest cells that
+    hold the plan's count and mark both.
     `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two
     can never disagree.  A seat out of usage says when it comes back, `back 19:20` (`back`), in
     its word's colour, in its progress's place."""
@@ -1538,8 +1543,8 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     elif word in (None, "idle") or not total and word != "working":
         text = bar = ""
     else:
-        text = terminal.plan_bar(done, total, left, 0)
-        bar = terminal.plan_bar(done, total, left, 0 if narrow else 8, word, tmux)
+        text = terminal.plan_bar(done, total, left, 0, tasks=tasks)
+        bar = terminal.plan_bar(done, total, left, 0 if narrow else 8, word, tmux, tasks)
     if narrow and mark and room is not None and terminal.cells(text) > left:
         bar = ""
     if not mark:
@@ -1549,11 +1554,12 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
 
 
 def _last_text(info, room, narrow=False):
-    """The row's one last column in `room` cells (`last_column`)."""
+    """The row's one last column in `room` cells (`last_column`), counting the tasks whose
+    squares open under it, so the two never disagree."""
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
     return last_column(info.get("word"), done, total, room, narrow, unsent=info.get("unsent"),
-                       back=info.get("back"))
+                       back=info.get("back"), tasks=len(info.get("tasks") or ()))
 
 
 def detail(info, room):
