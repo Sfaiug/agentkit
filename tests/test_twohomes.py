@@ -31,6 +31,11 @@ class TwoHomes(unittest.TestCase):
             self.assertEqual((done.code, done.out), (0, f"{other.name}\n"))
             self.assertEqual(machine.run("ssh", "acme-nas", "hostname").code, 255)
 
+    def test_a_command_of_any_length_reaches_the_other_whole(self):
+        for machine, other in self.pairs:
+            done = machine.run("ssh", other.name, f"printf %s {'x' * 70000} | wc -c", timeout=30)
+            self.assertEqual((done.code, done.out.strip()), (0, "70000"), done.err)
+
     def test_each_has_its_own_files_at_the_one_home(self):
         homes = {machine.run("sh", "-c", 'echo "$HOME"; pwd').out for machine in self.machines}
         self.assertEqual(len(homes), 1, homes)

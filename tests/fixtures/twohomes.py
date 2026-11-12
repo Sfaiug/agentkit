@@ -29,8 +29,9 @@ from pathlib import Path
 
 from .akbin import _FILES, AK, REPO, Home, _binds, _end
 
-# ssh [-o OPTION | -FLAG]... NAME [COMMAND]...: NAME and COMMAND to the sshd on $1, with this
-# ssh's own input and outputs, and its answer, the exit of COMMAND or 255, as this one's.
+# ssh [-o OPTION | -FLAG]... NAME [COMMAND]...: NAME and COMMAND, a line however long, to the
+# sshd on $1, with this ssh's own input and outputs, and its answer, the exit of COMMAND or 255,
+# as this one's.
 SSH = r"""
 import json, socket, sys
 sshd, *words = sys.argv[1:]
@@ -39,7 +40,8 @@ while words[:1] and words[0].startswith("-"):
 name, *command = words or [""]
 with socket.socket(socket.AF_UNIX) as asked:
     asked.connect(sshd)
-    socket.send_fds(asked, [json.dumps([name, " ".join(command)]).encode()], [0, 1, 2])
+    line = json.dumps([name, " ".join(command)]).encode() + b"\n"
+    asked.sendall(line[socket.send_fds(asked, [line], [0, 1, 2]):])
     sys.exit(int(asked.recv(16) or 255))
 """
 
@@ -57,12 +59,12 @@ class Machine(Home):
     def on(self, env=None, cwd=None):
         """bwrap's words starting a command on this machine, with `env` over its environment, in
         `cwd` on it or else its home; every machine's root, where the test's side keeps it,
-        is an empty folder there."""
+        is an empty folder there, past every bind that holds it, a checkout's TMPDIR's too."""
         return ["bwrap", "--dev-bind", "/", "/", "--unshare-uts", "--hostname", self.name,
-                *(word for machine in self.machines
-                  for word in ("--tmpfs", machine.root, "--remount-ro", machine.root)),
                 "--bind", self.root / "tmp", "/tmp",
                 *_binds(self.tmux_dir, REPO, Path(AK).resolve().parent),
+                *(word for machine in self.machines
+                  for word in ("--tmpfs", machine.root, "--remount-ro", machine.root)),
                 "--bind", self.root, self.at, "--chdir", cwd or self.env["HOME"], "--clearenv",
                 *(word for item in self._env(env).items() for word in ("--setenv", *item)), "--"]
 
@@ -119,11 +121,15 @@ def _session(peer, machines):
     exit; an ssh gone before it ends ends it, as sshd does."""
     with peer:
         asked, fds, _, _ = socket.recv_fds(peer, 1 << 16, 3)
-        if not asked:
-            return
-        name, command = json.loads(asked)
-        machine, code = next((machine for machine in machines if machine.name == name), None), 255
-        try:
+        machine, code = None, 255
+        try:     # whatever it asks, its input and outputs are this side's no longer
+            while not asked.endswith(b"\n"):     # the rest of its line
+                more = peer.recv(1 << 16)
+                if not more:
+                    return
+                asked += more
+            name, command = json.loads(asked)
+            machine = next((machine for machine in machines if machine.name == name), None)
             if machine is None:
                 os.write(fds[2], f"ssh: Could not resolve hostname {name}: "
                                  "Name or service not known\n".encode())
