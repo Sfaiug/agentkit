@@ -3359,8 +3359,8 @@ grep -q '^would run ssh -t srv ak --client$' "$WORK/client-dry.log" || CLIENT=1
 
 # --- 20d: finished-run receipts stay off the menu entirely (offline) --------
 # Drive startup through the menu: warnings appear once after the first frame and never enter the
-# main screen, and an ending owned by a live seat -- including one older than the runs list --
-# is nowhere on it, because that seat reports it.
+# main screen, what ak did by itself goes to the tick's log, and an ending owned by a live seat
+# -- including one older than the runs list -- is nowhere on it, because that seat reports it.
 NOTICEH="$WORK/home-notice"
 mkdir -p -- "$NOTICEH/.agentkit/state"
 NOTICERC=0
@@ -3371,7 +3371,7 @@ import time
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from agentkit import config, menu, orch, run, record
+from agentkit import config, menu, orch, run, record, watch
 
 config.ensure_dirs()
 LONG = ("Rewrite the finished-run notice so a phone can read it "
@@ -3407,9 +3407,10 @@ for name, extra in {
                             "finished_at": time.time()}, **extra))
 
 WARNING = "WARN could not check the runs: a run record could not be read"
-starts = [["agentkit: reaped a loop whose process was gone", WARNING], []]
+REAPED = "agentkit: reaped a loop whose process was gone"
+starts = [[REAPED, WARNING], []]
 real_maintenance, real_wait_key = orch.maintenance, menu.wait_key
-def maintenance(log):                          # the notices a menu opening prints, injected:
+def maintenance(log):                          # what a menu opening says, injected:
     for line in starts.pop(0):                 # nothing on this path touches git any more
         log(line)
     real_maintenance(log)
@@ -3440,10 +3441,11 @@ def menu_lines():
 
 lines = menu_lines()
 assert lines[0].startswith("agentkit"), lines        # the first frame, before any notice
-told = lines.index(" agentkit: reaped a loop whose process was gone")
+told = lines.index(f" {WARNING}")
 again = next(i for i in range(told, len(lines)) if lines[i].startswith("agentkit"))
 screen, said = lines[:told], lines[told:again]
-assert f" {WARNING}" in said and WARNING not in "\n".join(screen + lines[again:]), lines
+assert WARNING not in "\n".join(screen + lines[again:]), lines
+assert not any(REAPED in line for line in lines) and REAPED in watch.log_path().read_text(), lines
 assert not [line for line in said if " — " in line], said   # no ending is handed back here
 assert any(line.strip().startswith("1  orch-notice") for line in screen), screen
 assert any("no reading yet" in line or "% left" in line for line in screen), screen
@@ -3463,12 +3465,12 @@ for frame in (screen, lines[again:], second):
     assert not any(RECEIPT.search(line) or "Rewrite the finished" in line
                    for line in frame), frame
 assert not any(WARNING in line for line in second), second
-assert not any("reaped a loop whose process was gone" in line for line in second), second
+assert not any(REAPED in line for line in second), second
 # opening the menu tells nobody anything, so nothing on it is marked told: `r` still owes them
 assert not any(record.read_state(config.RUNS / n)["reported"] for n in
                ("run-1-by-hand", "run-2-owned", "run-3-broken", "run-4-huge", "run-5-path"))
 PY
-[ "$NOTICERC" = 0 ] && ok "20d warnings shown once, after the menu's first frame; a live seat's endings -- an eight-hour-old result included -- are nowhere on it and stay unreported" \
+[ "$NOTICERC" = 0 ] && ok "20d warnings shown once, after the menu's first frame, and what ak did by itself only logged; a live seat's endings -- an eight-hour-old result included -- are nowhere on it and stay unreported" \
                   || { no "20d warnings and hidden finished-run receipts"; sed 's/^/      /' "$WORK/menu-notice.log" | head -14; }
 
 # --- 20e: the menu as a popup inside a seat (offline, real tmux seats) --------
@@ -3890,7 +3892,7 @@ from pathlib import Path
 import sys
 from unittest.mock import patch
 
-from agentkit import config, menu
+from agentkit import config, menu, watch
 
 for path in map(Path, sys.argv[1:]):
     live, waited = menu.Live(config.load()), False
@@ -3899,19 +3901,19 @@ for path in map(Path, sys.argv[1:]):
         if not waited:
             assert live.tidied.wait(30)
             waited = True
-            return None     # a finished sweep may still have its notice queued
+            return None     # a draw after the sweep, where a notice would have been
         return ""
     with patch.object(menu, "Live", return_value=live), \
             patch.object(menu, "wait_key", side_effect=wait_key), redirect_stdout(io.StringIO()) as out:
         assert menu.main([]) == 0
     path.write_text(out.getvalue())
 
-# The sweep is reported once, as a notice after the first frame, and never on a frame.
+# The sweep is ak's by itself: logged once for the tick's log, and neither a notice nor a frame.
 text = Path(sys.argv[1]).read_text()
-lines = text.splitlines()
-said = [i for i, line in enumerate(lines) if "forgot the session stale-seat" in line]
-assert lines[0].startswith("agentkit") and len(said) == 1, text
-assert lines[said[0]] == " forgot the session stale-seat, gone for 8d", text
+assert text.startswith("agentkit") and "forgot the session stale-seat" not in text, text
+logged = watch.log_path().read_text().splitlines()
+assert [line.split(" ", 2)[2] for line in logged if "forgot the session stale-seat" in line] \
+    == ["forgot the session stale-seat, gone for 8d"], logged
 assert "forgot the session stale-seat" not in Path(sys.argv[2]).read_text()
 assert not config.session_path("stale-seat").exists()
 SWEEP

@@ -68,8 +68,11 @@ def checkout(build):
         built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"], env=ENV,
                                cwd=Path(tree, "go"), capture_output=True,
                                text=True) if build and not named else None
-        # a checkout, as Go finds the one it runs from (config.Repo), without the history
+        # a checkout, as Go finds the one it runs from (config.Repo), without the history; its
+        # files staged, so what reads the checkout's tracked files (akinstall.py) finds them as
+        # it does in the checkout Python runs from
         subprocess.run(["git", "init", "-q", tree], check=True)
+        subprocess.run(["git", "-C", tree, "add", "-A"], check=True)
         yield tree, program, built
 
 
@@ -121,12 +124,16 @@ class Claims(unittest.TestCase):
             failed, took = [], {}
             # One after another: every_file.py already runs other files beside this one.
             for name, *parts in listed:
+                claim = " ".join((name, *parts))
+                # Named as it starts: a few claims on a loaded host, or all of go/keys.txt, run
+                # longer than a check may stay silent, and a claim that hangs is then the last line.
+                print(f"--- {claim}", flush=True)
                 began = time.monotonic()
                 done, passed = run(tree, program, name, *parts)
                 took[name] = time.monotonic() - began
                 if not passed:
-                    failed.append(" ".join((name, *parts)))
-                    print(f"--- {failed[-1]}\n{done.stdout}{done.stderr}", flush=True)
+                    failed.append(claim)
+                    print(f"{done.stdout}{done.stderr}", flush=True)
         failing = [claim.split()[0] for claim in failed]
         name_failed(failing, "FAILED_PARTS")
         name_timed({name: seconds for name, seconds in took.items() if name not in failing})

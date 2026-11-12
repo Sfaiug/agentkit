@@ -3,7 +3,7 @@ the moment it is pressed, and from a pipe it is a line.
 
     agentkit                                                              14:02
     ────────────────────────────────────────────────────────────────────────
-      Claude I    ▰▰▱▱▱▱▱▱▱▱  21% left   ChatGPT     ▰▰▰▰▰▰▰▱▱▱  69% left
+      Claude I    ━━────────  21% left   ChatGPT     ━━━━━━━───  69% left
 
 
     atoll
@@ -222,7 +222,7 @@ class Live:
     `ak usage` -- `usage.PROBE_EVERY` -- so a second seat's screen costs no adapter request at
     all; Muse's adapter keeps its own ten-minute cache besides.  The same pipe is how a seat's
     word moving anywhere asks for a draw, and how a read landing does: see `watch`; and how
-    a line maintenance says does (`tidy`).  `cfg` is config.toml as it last loaded, read again
+    a warning maintenance gives does (`tidy`).  `cfg` is config.toml as it last loaded, read again
     whenever the file changes, whoever wrote it (`configure`).
     """
 
@@ -249,7 +249,7 @@ class Live:
         self.last = None                 # where each read leaves the seats and their groups
         self.read_from = None            # the seats and runs it read them from, a pass's too
         self.kept = {}                   # each seat's row as its reads last decided it
-        self.said = []                   # what maintenance said that no notice has shown yet
+        self.said = []                   # maintenance's warnings that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
 
     def close(self):
@@ -335,11 +335,11 @@ class Live:
 
     def tidy(self, work):
         """`work(log)` -- `main`'s maintenance -- in a thread of its own, begun behind the first
-        frame: each line it says is kept for the loop's next notice and asks for a draw, and
-        once it is done everything is read again, for what it reaped and retired to leave the
-        rows."""
+        frame: each line it says goes to the tick's log, and a warning is kept for the loop's next
+        notice too and asks for a draw (`tidy_log`); once it is done everything is read again,
+        for what it reaped and retired to leave the rows."""
         def run():
-            work(self.say)
+            work(tidy_log(self.say))
             self.ask()
             self.tidied.set()
         threading.Thread(target=run, daemon=True).start()
@@ -349,7 +349,7 @@ class Live:
         self._wake()
 
     def heard(self):
-        """What maintenance said since last asked, once."""
+        """The warnings maintenance gave since last asked, once."""
         return [self.said.pop(0) for _ in range(len(self.said))]
 
     def read(self, look=False):
@@ -2820,11 +2820,11 @@ def usage_columns(width):
 def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, columns=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
-    a meter -- `▰` left, `▱` spent -- and what its cell says.  At rest no company's colour is
-    drawn; `lit`, from 1, the one the pointer is on, has its label and its meter's filled cells
-    in its provider's (`colour`), and one whose login ends soon (`login_notes`) has its meter
-    amber the rest of the time.  The rest is said under the grid (`usage_detail`).  What
-    each cell says is whole: the labels give way to the longest, and a width with no room for
+    a meter -- the bar (terminal.share_parts), full for what is left -- and what its cell says.
+    At rest no company's colour is drawn; `lit`, from 1, the one the pointer is on, has its
+    label and what its meter has left in its provider's (`colour`), and one whose login ends
+    soon (`login_notes`) has that amber the rest of the time.  The rest is said under the grid
+    (`usage_detail`).  What each cell says is whole: the labels give way to the longest, and a width with no room for
     a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`).
     `spans`, where handed in, gets each one's cells that take its colour: {number: [(line,
     column, text, what it is drawn in at rest)]}, the line from 0 and the column from 1;
@@ -2843,7 +2843,6 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, column
         return []
     # a phone's one column is its width: the meter gives way first, down to four cells
     meter = max(4, min(METER, room - label_room - 13))
-    full, empty = ("▰", "▱") if terminal.utf8() else ("#", "-")
     ending = login_notes(rows) if ending is None else ending
     lines = []
     for start in range(0, len(found), columns):
@@ -2861,12 +2860,11 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, column
                 text += (terminal.styled(said, "amber") if warn
                          else terminal.styled(said, "dim") if left is None else said)
             else:
-                filled = max(1, round(meter * left / 100))
+                full, rest = terminal.share_parts(left / 100, meter)
                 fill = ink or warn and "amber"
-                took.append((at[0], at[1] + label_room + 2, full * filled,
-                             ending[number - 1] and "amber"))
-                text += ((terminal.styled(full * filled, fill) if fill else full * filled)
-                         + terminal.styled(empty * (meter - filled), "dim") + "  " + said)
+                took.append((at[0], at[1] + label_room + 2, full, ending[number - 1] and "amber"))
+                text += ((terminal.styled(full, fill) if fill else full)
+                         + terminal.styled(rest, "dim") + "  " + said)
             cells.append(text + " " * max(0, room - terminal.cells(text)))
             if spans is not None:
                 spans[number] = took
@@ -2989,8 +2987,28 @@ def table(rows):
     print("\n".join(terminal.seats(rows, terminal.width())))
 
 
+def tidy_log(notice):
+    """The log the menu hands what it does by itself as it opens (`orch.maintenance`,
+    `watch.resume_after_boot`): each line goes to the tick's log (`watch.note`), where the tick's
+    same sweep writes it every three minutes, and a warning -- a line opening with WARN, as every
+    one of ak's does -- to `notice` as well; the rest asked nothing of the owner.  A line the log
+    cannot take is the owner's to read instead, and the work goes on: a sweep stopped there would
+    keep the record it was retiring, a boot resume the turn it was bringing back."""
+    from . import watch    # here, not at the top: watch imports this module
+
+    def log(line):
+        try:
+            watch.note(line)
+        except OSError as exc:
+            return notice(f"WARN not logged ({exc}): {line}")
+        if line.startswith("WARN"):
+            notice(line)
+    return log
+
+
 def show_notices(messages):
-    """Read boot resume, maintenance and job messages once, before the main screen clears them."""
+    """Read warnings, a job's results and an update's lines once, before the main screen clears
+    them."""
     if messages:
         pause(*(" " + part for message in messages for part in terminal.wrap(
             message.replace(os.path.expanduser("~") + "/", "~/"), terminal.width() - 1)))
@@ -6353,7 +6371,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     seat's capture holds up a read or a draw: the first draw is the records as they stand, and
     a look landing has them read and drawn again.  The first draw's meters are the cache's, and
     the probe that follows it runs in a thread and asks for one more draw when it lands.  So
-    does `tidy`, `main`'s maintenance (`Live.tidy`): what it says is a notice as it lands.
+    does `tidy`, `main`'s maintenance (`Live.tidy`): a warning it gives is a notice as it lands.
     Nothing here waits on an adapter, and a key typed during a draw is read by the next wait.
     Between draws the working seats' dots breathe, and what changed since the draw before moves
     once, a frame whenever the clock says one is due and no key is waiting (`moving`), so a key
@@ -6712,8 +6730,9 @@ def main(argv):
             update_first()
         return client(alias, flags["--dry-run"])
     from . import watch
-    messages = []
-    watch.resume_after_boot(config.load(), dry_run=flags["--dry-run"], log=messages.append)
+    messages = []     # a dry run's are what it would do, for the owner to read
+    watch.resume_after_boot(config.load(), dry_run=flags["--dry-run"], log=messages.append
+                            if flags["--dry-run"] else tidy_log(messages.append))
     show_notices(messages)
     # what `ak orch` does on the way into a seat, gc and the runs nobody was told about, run
     # behind the menu's first frame

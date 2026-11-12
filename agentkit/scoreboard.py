@@ -34,7 +34,8 @@ MEASURES = (
     ("sunk", "sunk", ("share", "tokens")),
     ("broke", "broke", ("merged", "after_merge", "landing", "flakes", "unknown")),
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
-    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again", "let_go", "let_go_broke")),
+    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again", "let_go", "let_go_broke",
+                              "later", "inside_fix")),
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
 
@@ -334,6 +335,10 @@ def compute(now=None):
         review_pairs.append(pairs(ended))
         weighed = [row for row in finding_rows if in_week(row["at"], end)]
         blocking = [row for row in weighed if row["kind"] == "finding"]
+        # what reviewers handed in as findings after round 1, ak's replays aside, whose site
+        # `inside_fix` places: inside the fix, or new ground
+        later = [row["inside_fix"] for row in weighed if row.get("handed") == "finding"
+                 and row.get("replayed") is None and row.get("inside_fix") is not None]
         merged = [row for row in ended if history.merged(row)]
         changes_merged = {(row["repo"], row.get("change") or row["run_id"]) for row in merged}
         changes_broke = {(row["repo"], row.get("change") or row["run_id"]) for row in merged
@@ -349,7 +354,8 @@ def compute(now=None):
             "raised_again": sum(row["raised_again"] for row in blocking),
             "let_go": len(let_go),
             "let_go_broke": sum((row["repo"], row.get("change") or row["run_id"]) in changes_broke
-                                for row in let_go)} if weighed or let_go else None)
+                                for row in let_go),
+            "later": len(later), "inside_fix": sum(later)} if weighed or let_go else None)
         built.append(who_built(ended))
         parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
         conflicts.append(collided(ended, end))
@@ -506,7 +512,8 @@ def render(board=None):
                 f"{stats['conceded']} of {stats['disputed']} conceded; "
                 f"{stats['raised_again']} of {stats['blocking']} raised again; "
                 f"{stats['let_go']} let go; {stats['let_go_broke']} of {stats['let_go']} "
-                "on a change that broke main or live after merge")
+                "on a change that broke main or live after merge; "
+                f"{stats['inside_fix']} of {stats['later']} handed in after round 1 inside the fix")
 
     def size(stats):
         if stats is None:
