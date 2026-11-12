@@ -336,7 +336,9 @@ class TickHealth(unittest.TestCase):
         log, kept = watch.log_path(), watch.log_path().with_name(watch.LOG_KEPT)
         log.write_bytes(b"x" * (watch.LOG_MAX + 1))
         rolled = []
-        with self.as_cron(), watch.log_lock_path().open("a") as held:
+        held = os.open(log.parent, os.O_RDONLY)     # the lock a roll takes: the log's directory
+        self.addCleanup(os.close, held)
+        with self.as_cron():
             fcntl.flock(held, fcntl.LOCK_EX)        # the other writer is mid-roll
             other = threading.Thread(target=lambda: rolled.append(watch.rotate_log()))
             other.start()

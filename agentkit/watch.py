@@ -352,10 +352,6 @@ def follow_log():
         pass        # a log we cannot reopen is no reason to lose the tick
 
 
-def log_lock_path():
-    return config.STATE / f"{LOG_NAME}.lock"
-
-
 def rotate_log():
     """Roll the log this tick is writing into over to one kept generation past LOG_MAX.
 
@@ -364,6 +360,8 @@ def rotate_log():
     that both saw the file oversized would otherwise both rename: the second rename would put
     the first one's brand-new log where the kept generation goes and unlink the generation
     itself -- five megabytes of history gone, and whoever still held it writing into nothing.
+    The lock is the log's directory, which the rename leaves in place, so a roll leaves no file
+    beyond the log's own: a client's line rolls it too, and changes nothing else of its home.
     Whether we rolled or somebody else did, we rejoin the live log before returning.  True
     when this call was the one that rolled.
     """
@@ -372,11 +370,14 @@ def rotate_log():
     path, rolled = log_path(), False
     try:
         if path.stat().st_size > LOG_MAX:
-            with log_lock_path().open("a") as lock:
-                fcntl.flock(lock, fcntl.LOCK_EX)
+            directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                fcntl.flock(directory, fcntl.LOCK_EX)
                 if path.stat().st_size > LOG_MAX:
                     path.replace(path.with_name(LOG_KEPT))
                     rolled = True
+            finally:
+                os.close(directory)
     except OSError:
         pass            # a log that cannot be rolled is no reason to skip the tick
     follow_log()
