@@ -121,7 +121,7 @@ class StopQuestionAsked(unittest.TestCase):
         self.assertIsNone(self.stop("Waiting for your answer.", entries=[self.question(), result]))
 
     def test_answered_questions_do_not_exempt_later_stops(self):
-        for tool in ("AskUserQuestion", "request_user_input", "functions.request_user_input_async"):
+        for tool in ("AskUserQuestion", "request_user_input"):
             for ending in ("recommendation", "parked", "prose"):
                 with self.subTest(tool=tool, ending=ending):
                     self.setUp()
@@ -129,11 +129,6 @@ class StopQuestionAsked(unittest.TestCase):
                         entries = [self.question(), {"type": "user", "message": {
                             "role": "user", "content": [{"type": "tool_result",
                                 "tool_use_id": "question", "content": "schema-a"}]}}]
-                    elif tool.endswith("_async"):
-                        # the call's output only says the question went out; the owner's
-                        # answer comes back later as the user's own input
-                        entries = [self.codex_question(tool), self.codex_output(
-                            ACCEPTED), *self.codex_said("schema-a")]
                     else:
                         entries = [self.codex_question(tool), self.codex_output("schema-a")]
                     if ending == "parked":
@@ -169,51 +164,32 @@ class StopQuestionAsked(unittest.TestCase):
                 self.assertEqual(self.stop(entries=entries)["decision"], "block")
 
     def test_codex_question_calls_are_scoped_to_the_current_turn(self):
-        for tool in ("request_user_input", "functions.request_user_input_async"):
-            for old in (False, True):
-                with self.subTest(tool=tool, old=old):
-                    self.setUp()
-                    entries = [{"type": "event_msg", "payload": {"type": "task_started"}},
-                               {"type": "response_item", "payload": {
-                                   "type": "function_call", "call_id": "question", "name": tool,
-                                   "arguments": json.dumps({"questions": [{"question": QUESTION}]})}}]
-                    if tool.endswith("_async"):
-                        entries.append(self.codex_output(ACCEPTED))
-                    if old:
-                        entries += self.codex_said("Now build it.")
-                    result = self.stop(entries=entries)
-                    if old:
-                        self.assertEqual(result["decision"], "block")
-                    else:
-                        self.assertIsNone(result)
+        for old in (False, True):
+            with self.subTest(old=old):
+                self.setUp()
+                entries = self.asked() + self.codex_said("Now build it.") * old
+                result = self.stop(entries=entries)
+                if old:
+                    self.assertEqual(result["decision"], "block")
+                else:
+                    self.assertIsNone(result)
 
-    def test_an_async_questions_acknowledgment_is_no_answer(self):
+    def test_an_async_card_ends_a_turn_by_ak_s_record_alone(self):
+        """Codex's async card is recorded before Codex draws it (`harness.codex.ask`): a turn
+        ends on it while that record stands, and not once the seat took it back, whatever its
+        call's acknowledgment says."""
         entries = [{"type": "event_msg", "payload": {"type": "task_started"}},
                    self.codex_question("functions.request_user_input_async"),
                    self.codex_output(ACCEPTED)]
+        self.notice(self.turn + 1)
         self.assertIsNone(self.stop(entries=entries))
-        # the owner's answer, as Codex records a submitted message, ends that question
-        self.setUp()
-        entries.append({"type": "event_msg", "payload": {"type": "item_completed", "item": {
-            "type": "UserMessage", "content": [{"type": "text", "text": "Use main."}]}}})
+        self.notice(self.turn + 1, seen=True)
         self.assertEqual(self.stop(entries=entries)["decision"], "block")
 
-    def test_a_refused_async_question_asked_nothing(self):
-        """Codex records a question it sent as accepted; any other output is a call refused."""
-        for output in ("Error parsing function call: missing field `questions`",
-                       '{"accepted":false}', ""):
-            with self.subTest(output=output):
-                self.setUp()
-                entries = [{"type": "event_msg", "payload": {"type": "task_started"}},
-                           self.codex_question("functions.request_user_input_async"),
-                           self.codex_output(output)]
-                self.assertEqual(self.stop("Waiting for your answer.", entries=entries)["decision"],
-                                 "block")
-
     def asked(self):
+        """Codex's blocking question card, open: the call has no output yet."""
         return [{"type": "event_msg", "payload": {"type": "task_started"}},
-                self.codex_question("functions.request_user_input_async"),
-                self.codex_output(ACCEPTED)]
+                self.codex_question("request_user_input")]
 
     def test_a_question_stays_open_past_any_amount_of_later_output(self):
         output = {"type": "response_item", "payload": {"type": "function_call_output",

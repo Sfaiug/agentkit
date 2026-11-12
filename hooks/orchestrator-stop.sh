@@ -193,8 +193,10 @@ def questioned(payload):
 
     Input in the owner's words, as their harness tells them from its bookkeeping
     (`harness.prompt`), ends the scan: what was asked before it is answered or set aside.
+    Codex's async card is not read here: ak records it before Codex draws it
+    (`harness.codex.ask`), and that record says whether it stands, taken back too.
     """
-    answered, accepted = set(), set()
+    answered = set()
     for entry in transcript(payload):
         item = entry.get("payload")
         item = item if isinstance(item, dict) else {}
@@ -209,11 +211,6 @@ def questioned(payload):
                             and isinstance(part.get("tool_use_id"), str))
         if item.get("type") == "function_call_output" and isinstance(item.get("call_id"), str):
             answered.add(item["call_id"])
-            try:
-                if json.loads(item.get("output")) == {"accepted": True}:
-                    accepted.add(item["call_id"])
-            except (TypeError, ValueError):
-                pass
         if entry.get("type") == "assistant" and isinstance(content, list) and any(
                 isinstance(part, dict) and part.get("type") == "tool_use"
                 and part.get("name") == "AskUserQuestion"
@@ -222,12 +219,8 @@ def questioned(payload):
             return True
         name = item.get("name")
         tool = name.rsplit(".", 1)[-1] if isinstance(name, str) else ""
-        # The async call's output only says whether the question went out; the owner answers
-        # later, as input of their own, which ends this scan above.  A refused call asked nothing.
-        if (item.get("type") == "function_call" and tool in ("request_user_input",
-                                                             "request_user_input_async")
-                and (item.get("call_id") in accepted if tool.endswith("_async")
-                     else item.get("call_id") not in answered)):
+        if (item.get("type") == "function_call" and tool == "request_user_input"
+                and item.get("call_id") not in answered):
             return True
     return False
 
