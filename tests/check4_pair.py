@@ -11,15 +11,13 @@ cache, as `spent_until` reads it.
     python3 tests/check4_pair.py <the suite's usage.json> <the host's usage.json>
 """
 
-import json
-import os
 from pathlib import Path
 import sys
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, run, usage
-from agentkit.contract import login, providers  # noqa: F401 (smoke.sh asks login here)
+from agentkit.contract import login, providers  # noqa: F401 (smoke.sh and check 3a ask login here)
 
 
 def main(suite, host):
