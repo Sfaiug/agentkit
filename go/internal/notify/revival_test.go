@@ -4,9 +4,6 @@ import (
 	"io"
 	"os"
 	"testing"
-	"time"
-
-	"agentkit/internal/run"
 )
 
 func TestAWorkerRevivalAsksNothing(t *testing.T) {
@@ -15,9 +12,9 @@ func TestAWorkerRevivalAsksNothing(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("AK_RUN_ROLE", "worker")
 	t.Setenv("AK_RUN_LOG", "")
-	if carried, err := NeedsAsked("acme", "could not reopen", "revive:acme:turn:1", true, func(string, *run.Object, time.Time) (string, any, bool) {
+	if carried, err := Failed("acme", "could not reopen", "revive:acme:turn:1", func(string) (string, any) {
 		t.Fatal("a worker read a card")
-		return "", nil, false
+		return "", nil
 	}, io.Discard); !carried || err != nil {
 		t.Fatal(carried, err)
 	}

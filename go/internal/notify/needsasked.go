@@ -9,9 +9,9 @@ import (
 )
 
 // NeedsAsked is Needs carded on the word the seat says once the question stands, as Python's shaped
-// reads session_state after recording it.
-func NeedsAsked(name, text, source string, kept bool, asked Asked, errOut io.Writer) (bool, error) {
-	return needs(name, text, source, kept, asked, errOut)
+// reads session_state after recording it: nothing is written where Go does not card it now.
+func NeedsAsked(name, text, source string, asked Asked, errOut io.Writer) (bool, error) {
+	return needs(name, text, source, false, false, asked, errOut)
 }
 
 // looked is the word a seat's look published as an Asked, the question's only where the look

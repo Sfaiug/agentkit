@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"agentkit/internal/run"
 )
@@ -26,10 +25,9 @@ func TestAFailedRevivalPagesAtOnceInItsExistingEpisode(t *testing.T) {
 				card.Set("left", asked)
 			}
 			write(seatFile("card", "acme", "json"), run.Line(card))
-			// a failure is no question: the ladder's word for it is needs you, not the question's
-			word := func(string, *run.Object, time.Time) (string, any, bool) { return "needs you", nil, false }
+			published := func(string) (string, any) { return "needs you", nil }
 			for range 2 {
-				if carried, err := NeedsAsked("acme", "The seat could not reopen; say continue.", "revive:acme:turn:1", true, word, io.Discard); !carried || err != nil {
+				if carried, err := Failed("acme", "The seat could not reopen; say continue.", "revive:acme:turn:1", published, io.Discard); !carried || err != nil {
 					t.Fatal(carried, err)
 				}
 			}
@@ -42,7 +40,7 @@ func TestAFailedRevivalPagesAtOnceInItsExistingEpisode(t *testing.T) {
 				t.Fatal("the failed revival did not queue its page", event, err)
 			}
 			if event != nil {
-				// so its page says what failed, not what the seat published
+				// a failure is no question: its page says what failed, not what the seat published
 				if notice, _ := readObject(seatFile("notify", "acme", "json")); event.Str("text") != notice.Str("text") {
 					t.Fatal("the failed revival paged another text", run.Line(event))
 				}
