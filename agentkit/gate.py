@@ -76,7 +76,8 @@ def _slot_seat(state):
     return (*slot_order(state)[:3], seat, "" if seat else state.get("run_id") or "")
 
 
-# Memory is what admission guards: CPU is shared, and a check given less of it only runs
+# Memory is what admission guards, and the CPU only once the runs building stand still for it
+# longer than they run (`_starved_reason`): CPU is shared, and a check given less of it only runs
 # slower, while the heavy-suite turns and the line's CPU weights pace the CPU-heavy work.
 MEMORY_PRESSURE_LIMIT = 10   # runs stalled on memory a tenth of the time
 
@@ -102,7 +103,7 @@ def host_status_line():
     Two lines: the admission gates, then the heavy-suite turns in force and whether
     an explicit `max_gates` pins them or the slice's headroom derives them.  A
     positive `max_runs` is a gate like the others, so the first line names it:
-    `at most 4 runs at once`.  Only a pinned `max_load` gates CPU, so only it shows the load.
+    `at most 4 runs at once`.  Only a pinned `max_load` reads the load, so only it shows it.
     """
     readings = _run_readings()
     minimum, maximum = resource_limits(readings)
@@ -378,6 +379,20 @@ def _memory_pressure_reason(readings):
     return None, None
 
 
+def _starved_reason(readings):
+    """(reason, kind) while the runs building stand still for want of a CPU longer than they run
+    on one (`host._building`), else (None, None): a run let in then adds only waiting (12 Nov
+    2026: 54 building waited 16 to 28 cores' worth for the 5 to 7 they ran on, and a line's check
+    crawled beside them).  Host load and pressure as a percent each need a limit no one number
+    fits (#74, #1775); this sets none.  Unread, or with nothing building, it admits."""
+    used = host._reading(readings, "building_cpu_used")
+    waited = host._reading(readings, "building_cpu_waited")
+    if used is not None and waited is not None and waited > used:
+        return (f"waiting for the runs' CPU · {round(waited, 1):g} cores waiting, "
+                f"{round(used, 1):g} running", "cpu")
+    return None, None
+
+
 def _strain(readings, minimum):
     """(reason, kind) while the host really strains, else (None, None): its available memory or
     the kernel's own stall readings, all that holds a run stalled first in line."""
@@ -471,6 +486,8 @@ def _gates_admit(state, readings, is_first):
         reason, kind = _wait_reason(readings, minimum, maximum, peak, frozen, starting)
     else:
         reason, kind = _wait_reason(readings, minimum, 0, peak, starting=starting)
+    if not (reason or is_first):
+        reason, kind = _starved_reason(readings)
     if reason:
         return _held(state, reason, kind)
     if peak is None and 0 <= time.time() - slot_queue()[6] < SLOT_POLL:
