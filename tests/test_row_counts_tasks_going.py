@@ -92,6 +92,16 @@ class RowCountsTasksGoing(Sandbox):
         self.assertEqual(drawn[15], "3 of 8")
         self.assertEqual(drawn[6], "3 of 8")
 
+    def test_without_utf8_the_tasks_join_the_count_in_ascii(self):
+        config.plan_path("fix-api").write_text("- [x] done\n" * 3 + "- [ ] todo\n" * 5)
+        self.going("20261111-0900-one", "20261111-0901-two")
+        with patch.dict(os.environ, {"LANG": "C", "LC_ALL": "C"}):
+            row = self.row()[1]
+            self.assertRegex(row, r"\* working =+-+ 3 of 8, 2 tasks$")
+            self.assertTrue(row.isascii(), row)
+            self.assertEqual(terminal.plain(menu._last_text(self.info(), 15, narrow=True)),
+                             "3 of 8, 2 tasks")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
