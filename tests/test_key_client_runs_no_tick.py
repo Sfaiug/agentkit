@@ -27,7 +27,6 @@ from fixtures.akseat import Seat
 BOOT = Path("/proc/sys/kernel/random/boot_id").is_file()
 SERVER = "acme-box"
 LOG = ".agentkit/tmp/watch.log"
-LOGS = (LOG, f"{LOG}.1")    # the tick's log, and the generation a roll of it keeps
 OLD_LINE = "an earlier tick's line\n"
 PAST_ITS_BOUND = 6 * 2**20      # bytes: past the 5 MiB a tick rolls its log at
 OWN = "notes"   # the owner's own session on ak's tmux server, no seat
@@ -75,8 +74,10 @@ class AClient(unittest.TestCase):
         self.assertIn(f"client of {SERVER}", self.said[0])
 
     def test_it_leaves_the_home_as_it_was_the_log_aside(self):
+        logs = (LOG, f"{LOG}.1")    # the tick's log, and the generation a roll of it keeps
+
         def home(tree):
-            return {path: data for path, data in tree.items() if path not in LOGS}
+            return {path: data for path, data in tree.items() if path not in logs}
         self.assertEqual(home(self.after), home(self.before))
 
     def test_without_the_record_the_same_firing_resumes_the_seat(self):
