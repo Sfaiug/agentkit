@@ -41,10 +41,10 @@ def blocks(infos, width, most=None):
 
 
 def said(block):
-    """The text a seat's block opens, its lines joined: what follows the last `✎ `, the row's own
+    """The text a seat's block opens, its lines joined: what follows the last `¶ `, the row's own
     mark going under it where the row has no room."""
     lines = [terminal.plain(line) for line in block[1:]]
-    return " ".join(" ".join(lines).split()).rpartition("✎ ")[2]
+    return " ".join(" ".join(lines).split()).rpartition("¶ ")[2]
 
 
 class UnsentTextWhole(Sandbox):
@@ -94,9 +94,9 @@ class UnsentTextWhole(Sandbox):
                 with self.subTest(width=width, keyboard=keyboard):
                     # with the keyboard it opens under its row once that row is highlighted
                     screen, _, _ = self.draw("fix-api", width, 60, keyboard)
-                    self.assertIn(f"✎ {TEXT}", screen)
+                    self.assertIn(f"¶ {TEXT}", screen)
                     screen, _, _ = self.draw("acme-web", width, 60, keyboard)
-                    self.assertEqual(f"✎ {TEXT}" in screen, not keyboard)
+                    self.assertEqual(f"¶ {TEXT}" in screen, not keyboard)
 
     def test_in_the_popup_over_a_seat_text_past_its_page_is_cut_to_it(self):
         # the popup over an 80x27 terminal: 80% by 70%, less its border

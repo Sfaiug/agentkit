@@ -14,11 +14,12 @@ func lasts(ends []googlecloud.Rental, alias string, more time.Duration) bool {
 	return at < 0 || time.Until(time.Unix(ends[at].Until, 0)) >= more
 }
 
-// soon is whether Google ends each of aliases with room before a machine asked for now serves: the
-// next is then ready as the chosen one stops taking work, not run here meanwhile.
-func soon(aliases []string, fits []fit, ends []googlecloud.Rental) bool {
+// soon is whether Google ends each of aliases with room before a machine asked for now serves, and
+// the work lasting more: the next is then ready as the chosen one stops taking work, not run here
+// meanwhile.
+func soon(aliases []string, fits []fit, ends []googlecloud.Rental, lasting time.Duration) bool {
 	for i, alias := range aliases {
-		if fits[i].count > 0 && lasts(ends, alias, googlecloud.Lead) {
+		if fits[i].count > 0 && lasts(ends, alias, lasting+googlecloud.Lead) {
 			return false
 		}
 	}

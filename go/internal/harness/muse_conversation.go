@@ -20,8 +20,7 @@ import (
 // question card going up and its settling, answered or Esc's `interrupted`, is logged too, named
 // by its prompt and tool call, hooks or none: `/new` leaves a launch's hooks behind (muse.py).
 
-// museLog is the log Muse keeps that session in, its first under YYYY/MM/DD/<session>/, "" for none
-// (muse.py `session_log`).
+// museLog is the log Muse keeps that session in, its first, "" for none (muse.py `session_log`).
 func museLog(session string) string {
 	log, _ := museLogFound(session)
 	return log
@@ -30,8 +29,18 @@ func museLog(session string) string {
 // museLogFound is museLog, and where it finds none, the error of a folder or log it could not look
 // at, which may hold it: one that says nothing is there, or no folder, hides none.
 func museLogFound(session string) (string, error) {
+	logs, unread := museSessionLogs(session)
+	if len(logs) > 0 {
+		return logs[0], nil
+	}
+	return "", unread
+}
+
+// museSessionLogs is every log Muse keeps that session in, each under YYYY/MM/DD/<session>/, in path
+// order (muse.py `session_logs`), and the first error of a folder or log it could not look at.
+func museSessionLogs(session string) ([]string, error) {
 	if !museSession.MatchString(session) {
-		return "", nil
+		return nil, nil
 	}
 	var unread error
 	hidden := func(err error) {
@@ -52,15 +61,16 @@ func museLogFound(session string) (string, error) {
 		}
 		folders = deeper
 	}
+	var logs []string
 	for _, folder := range folders {
 		log := filepath.Join(folder, session, "session.jsonl")
 		_, err := os.Stat(log)
 		if err == nil {
-			return log, nil
+			logs = append(logs, log)
 		}
 		hidden(err)
 	}
-	return "", unread
+	return logs, unread
 }
 
 // exists is whether a file is at that path, through links, as a glob finds one.

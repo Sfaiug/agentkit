@@ -31,8 +31,13 @@ func TestEffortCellsAreALevelOfMany(t *testing.T) {
 	if got := (Screen{}).EffortCells(1, 1); got != nil {
 		t.Errorf("one effort is no level: %q", got)
 	}
-	got := (Screen{ascii: true}).EffortCells(3, 2)
-	if len(got) != 3 || got[0] != "#" || got[1] != "#" || got[2] != "-" {
+	// a cell each: configBody sizes an effort's column by how many there are
+	got := (Screen{}).EffortCells(5, 4)
+	if len(got) != 5 || got[0] != "━" || got[3] != "━" || got[4] != "─" {
 		t.Errorf("%q", got)
+	}
+	got = (Screen{ascii: true}).EffortCells(3, 2)
+	if len(got) != 3 || got[0] != "=" || got[1] != "=" || got[2] != "-" {
+		t.Errorf("ascii: %q", got)
 	}
 }
