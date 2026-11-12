@@ -43,6 +43,7 @@ SANDBOX_PREFIX = ".ak-test-"
 
 
 TOOL_CAP = 120                  # seconds allowed for each git or gh attempt
+LOCAL_CEILING = 3600            # the most `local_cap` gives a git asking no remote
 # seconds a timed-out git or gh gets between SIGTERM and SIGKILL, a ceiling: on SIGTERM git
 # removes its index and ref locks and exits at once, where SIGKILL leaves them for the next
 # git to fail on ("File exists"); one that ignores SIGTERM is killed when this ends
@@ -169,6 +170,18 @@ def run_capped(cmd, timeout, **popen):
     return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
 
 
+def local_cap():
+    """Seconds a git that asks no remote gets before it counts as hung: TOOL_CAP times the host's
+    load per core, where that is over one -- a git waiting its turn for a core is not hung -- and
+    LOCAL_CEILING at most.  On 12 Nov 2026, at 16 times its cores' load, `git diff --name-only
+    HEAD` ran past 120 s in a new checkout: killing such calls stopped seven runs in a morning."""
+    try:
+        busy = os.getloadavg()[0] / (os.cpu_count() or 1)
+    except OSError:     # a platform that keeps no load average
+        busy = 1
+    return min(LOCAL_CEILING, TOOL_CAP * max(1, busy))
+
+
 def tool_run(cmd, cwd=None, timeout=None, env=None):
     """(exit code, stdout, stderr) for every git and gh call this module makes, in `tool_env`
     as `env` changes it (None drops a variable), with `merge_config` for a git that merges.
@@ -177,13 +190,14 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
     callers can recover any unfinished checkout edits. The code is None on timeout;
     a refused prompt gets credential advice, no retry. The run's outcome names the next command.
     """
-    timeout = TOOL_CAP if timeout is None else timeout
     # Repeating checkout edits can turn a timeout into an "already in progress" failure.
     start = 1
     while cmd[0] == "git" and start < len(cmd) and cmd[start].startswith("-"):
         start += 2 if cmd[start] in guard.GIT_VALUED else 1     # git's own options, `-C`, `-c`
     args = cmd[start:]
     retry = cmd[0] == "gh" or (cmd[0] == "git" and args and args[0] in ("fetch", "push", "ls-remote"))
+    if timeout is None:
+        timeout = TOOL_CAP if retry else local_cap()    # every other call asks no remote
     merges = cmd[0] == "git" and args and args[0] in MERGES
     for attempt in range(2):
         try:

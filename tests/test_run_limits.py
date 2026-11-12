@@ -404,7 +404,7 @@ class Limits(unittest.TestCase):
         self.assertTrue([cmd for cmd, _, _ in seen if cmd[0] == "git"])
         for cmd, timeout, env in seen:
             self.assertIsInstance(timeout, (int, float), cmd)
-            self.assertTrue(0 < timeout <= run.TOOL_CAP, (cmd, timeout))
+            self.assertTrue(0 < timeout <= gitcall.LOCAL_CEILING, (cmd, timeout))
             self.assertEqual(env.get("GIT_TERMINAL_PROMPT"), "0", cmd)
             self.assertEqual(env.get("GH_PROMPT_DISABLED"), "1", cmd)
 
