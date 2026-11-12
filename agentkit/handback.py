@@ -1794,7 +1794,7 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
     window, so it is handed back nowhere and nobody is told.  An error the tick will retry
     is the same: its retry is already scheduled, so there is no ending to tell.
     """
-    from . import job as jobs, sleep, watch, worktrees  # here, not at the top: they reach run
+    from . import job as jobs, watch, worktrees  # here, not at the top: they reach run
     if state.get("state") == "stopped":
         return
     if transitions.going(state) and state.get("state") == "error":
@@ -1842,13 +1842,13 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
         if not state.get("handback_pending"):
             mark_delivery(run_dir, state, handback_pending=True)
         return
-    if not sleep.wake(session, log, cfg):
-        mark_delivery(run_dir, state, handback_pending=True)   # owed: the next tick wakes it
-        return
     with launcher_world(session) as live:
         if live:
             hand_back(state, run_dir, log, cfg, busy, records)
             return
+    if watch.slept(session):
+        mark_delivery(run_dir, state, handback_pending=True)   # owed: the tick reopens it first
+        return
     if state.get("state") == "not_needed":
         mark_delivery(run_dir, state, reported=True, handback_pending=None,
                       handback_wait_reason=None, notification_pending=None)

@@ -5845,8 +5845,8 @@ def apply_defaults(cfg, around):
     that restarts; one not running [defaults]'s orchestrator at its entry's effort then moves to
     it at that effort (orch.switch_orchestrator), the only way a seat's orchestrator effort
     changes, so a move refused or failed leaves its record on the one its harness runs, its
-    other changes kept.  Listed: it has a row on the main screen, asleep or
-    gone from tmux too.  Each one's bar names what it took at once (handback.redress_seat).
+    other changes kept.  Listed: it has a row on the main screen, gone from tmux
+    too.  Each one's bar names what it took at once (handback.redress_seat).
     config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
     from . import audit     # here, not at the top: audit imports this module
     defaults, records = cfg["defaults"], config.session_records()
