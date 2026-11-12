@@ -119,4 +119,11 @@ func TestAkLineInAnotherConversationOfTheSeatIsNotTheOwners(t *testing.T) {
 	if err != nil || len(had) != 2 || len(had[0].Messages) != 1 || len(had[1].Messages) != 1 || had[1].Messages[0].At != start+4 {
 		t.Fatalf("%#v, %v", had, err)
 	}
+	// one that cannot be read may hold ak's line where it stopped: the owner's lines stay theirs
+	if os.Remove(filepath.Join(chats, "conv-before.jsonl")) != nil || os.Mkdir(filepath.Join(chats, "conv-before.jsonl"), 0o700) != nil {
+		t.Fatal(chats)
+	}
+	if _, said, err := OwnerMessages("acme"); len(said) != 2 || err != nil {
+		t.Fatalf("an unread conversation's receipt: %v, %v", said, err)
+	}
 }

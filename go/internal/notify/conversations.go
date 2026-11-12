@@ -80,6 +80,7 @@ func Listed(name string, strictly bool) (string, []Conversation, error) {
 // Read gives each conversation Listed gave for the seat that goes by current its name and the
 // owner's messages in it, as Conversations reads them: the error Conversations gives.
 func Read(current string, had []Conversation, strictly bool) error {
+	whole := make([]bool, len(had)) // each read to its end, where no error stopped it
 	for i := range had {
 		owned, typed, known, err := transcript.Typed(had[i].Harness, had[i].Record, had[i].Name)
 		if !known {
@@ -89,7 +90,7 @@ func Read(current string, had []Conversation, strictly bool) error {
 			return err
 		}
 		had[i].Name, _ = owned.(string)
-		had[i].Messages = typed
+		had[i].Messages, whole[i] = typed, err == nil
 	}
-	return withoutAk(current, had)
+	return withoutAk(current, had, whole)
 }

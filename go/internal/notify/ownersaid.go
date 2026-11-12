@@ -47,26 +47,27 @@ func OwnerMessages(name string) (string, []transcript.Prompt, error) {
 // withoutAk takes the lines ak typed itself out of each conversation the seat that goes by current
 // had, as each reads as the owner's (Python's `user_messages`): each of the seat's typing receipts
 // takes one line in its words, the first not before the messages it came `after` in the
-// conversation it went into, else, where that one is the seat's, the first at or after its `at`
-// in another of its harness's, as a screen showing another than the record names takes it.  One
-// the owner relayed stays theirs, as do identical later lines.
-func withoutAk(current string, had []Conversation) error {
+// conversation it went into, else, where that one is the seat's and was read whole, the first at
+// or after its `at` in another of its harness's, as a screen showing another than the record
+// names takes it: one read only in part may hold that line where it stopped.  One the owner
+// relayed stays theirs, as do identical later lines.  whole says which of had were read whole.
+func withoutAk(current string, had []Conversation, whole []bool) error {
 	type conversation struct{ harness, name string }
 	type line struct {
 		conversation
 		index int
 	}
-	said := map[conversation][]transcript.Prompt{}
+	said, read := map[conversation][]transcript.Prompt{}, map[conversation]bool{}
 	var lines []line
-	for _, each := range had {
-		read := conversation{each.Harness, each.Name}
+	for i, each := range had {
+		of := conversation{each.Harness, each.Name}
 		// one its harness has not named yet no receipt names; one the seat went back to, once
-		if _, again := said[read]; each.Name == "" || again {
+		if _, again := said[of]; each.Name == "" || again {
 			continue
 		}
-		said[read] = each.Messages
+		said[of], read[of] = each.Messages, whole[i]
 		for index := range each.Messages {
-			lines = append(lines, line{read, index})
+			lines = append(lines, line{of, index})
 		}
 	}
 	message := func(of line) transcript.Prompt { return said[of.conversation][of.index] }
@@ -79,7 +80,7 @@ func withoutAk(current string, had []Conversation) error {
 	taken, ours := map[line]bool{}, map[line]bool{}
 	take := func(sent *run.Object) (line, bool) {
 		named := conversation{sent.Str("harness"), harness.WentInto(sent.Str("harness"), sent)}
-		_, held := said[named]
+		held := read[named]
 		after, dated := sent.Num("after")
 		since, timed := sent.Num("at")
 		var other line
