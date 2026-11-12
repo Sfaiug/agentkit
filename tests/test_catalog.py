@@ -206,14 +206,13 @@ class Catalog(unittest.TestCase):
         self.assertEqual(self.models("opencode", 1), "")
 
     def test_a_listing_read_stands_until_a_newer_one_is_read(self):
-        # an adapter answering what `listing` holds after `sleep` seconds, failing without one
+        # an adapter answering what `listing` holds after $ACME_SLEEP seconds, failing without one
         fake = self.root / "adapters"
         fake.mkdir()
         (fake / "antigravity.sh").write_text(
-            '#!/usr/bin/env bash\nd=$(dirname "$0")\nsleep "$(cat "$d/sleep")"\n'
-            'cat "$d/listing" 2>/dev/null || exit 1\n')
+            '#!/usr/bin/env bash\nd=$(dirname "$0")\nl=$(cat "$d/listing") || exit 1\n'
+            'sleep "${ACME_SLEEP:-0}" && echo "$l"\n')
         (fake / "antigravity.sh").chmod(0o755)
-        (fake / "sleep").write_text("0")
 
         def look(again=True):
             if again:                 # a login asked anew, as after a sign-in
@@ -230,21 +229,25 @@ class Catalog(unittest.TestCase):
             self.assertEqual(look(), ["acme-9"])
             (fake / "listing").unlink()
             self.assertEqual(look(), ["acme-9"], "a failure replaces nothing")
-            config._ASKED.clear()                                   # as a process of its own
-            self.assertEqual(look(again=False), ["acme-9"])
             answers("acme-9", "acme-10")
             self.assertEqual(look(), ["acme-9", "acme-10"], "a newer listing replaces it")
-            # one answering past the wait is kept all the same, for the next look
+            # one answering past the wait is kept, for the next look, though an ask after it failed
             answers("acme-11")
-            (fake / "sleep").write_text("1")
+            os.environ["ACME_SLEEP"] = "1"
             with patch.object(config, "CATALOG_WAIT", 0.1):
                 self.assertEqual(look(), ["acme-9", "acme-10"])
-            config._ASKED["antigravity", config.DEFAULT_ACCOUNT][1].join()
-            self.assertEqual(config.catalog_held("antigravity")[0]["id"], "acme-11")
+                late = config._ASKED["antigravity", config.DEFAULT_ACCOUNT][1]
+                with patch.dict(os.environ, ACME_SLEEP="never"):     # an ask that fails
+                    self.assertEqual(look(), ["acme-9", "acme-10"])
+            late.wait()
+            self.assertEqual(look(again=False), ["acme-11"])
             # and one past its time replaces nothing
             answers("acme-12")
             with patch.object(config, "CATALOG_TTL", 0.1):
-                self.assertEqual(look(), ["acme-11"])
+                config._keep(config._kept("antigravity"), "antigravity", config.DEFAULT_ACCOUNT)
+            with patch.object(config, "_logins", return_value={config.DEFAULT_ACCOUNT: [], "acme": []}):
+                self.assertEqual([model["id"] for model in config.catalog_held("antigravity")],
+                                 ["acme-11", *table], "acme: never listed")
 
     # -- what the rest of agentkit makes of it ------------------------------------------------
 

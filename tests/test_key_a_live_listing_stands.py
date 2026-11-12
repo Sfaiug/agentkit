@@ -2,14 +2,12 @@
 newer one is read: a listing that fails replaces nothing, and the harness's `[catalog]` table
 stands in only for a login no listing was ever read of.
 
-On 12 Nov 2026 a harness's own listing answered in 8 to 36 seconds on a loaded host, each answer
-naming the model the owner's upgraded subscription had just opened, and its table, which does
-not hold that model, stood in for every answer past ten seconds: `+ add a subscription` never
-offered it.  Black-box: the program `AK_BIN` names, its menu in a person's terminal
+On 12 Nov 2026 a harness's own listing answered in 8 to 36 seconds on a loaded host, and its
+table, without the model the owner's upgraded subscription had just opened, stood in for every
+answer past ten seconds.  Black-box: `AK_BIN`'s menu in a person's terminal
 (tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py, the fake
-OpenCode logged in to MiMo and Acme, its `models` listing `acme/acme-9`, which its table does not
-hold, then failing.  Judged by what `+ add a subscription` offers under OpenCode and the fake's
-calls; this test fails against `/bin/false`.
+OpenCode logged in to MiMo and Acme and listing `acme/acme-9`, then failing.  Judged by what
+`+ add a subscription` offers under OpenCode; this test fails against `/bin/false`.
 """
 
 import sys
