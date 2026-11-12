@@ -19,11 +19,12 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 from test_key_lists_name_what_enter_does import KEYS, downs_to_opencode
-from test_key_lists_space_marks_enter_picks import MAIN_KEYS, key_line, lines
+from test_key_lists_space_marks_enter_picks import MAIN_KEYS, lines
 
 # before the fake itself: the providers OpenCode is logged in to
 PROVIDERS = """[ "$1" = providers ] && { printf 'mimo\\tMiMo\\tpayg\\nacme\\tAcme\\tsubscription\\n'; exit 0; }
 """
+LOGGED_IN = ("MiMo", "Acme")
 ACME_9 = "acme/acme-9\tAcme 9\thigh"
 
 
@@ -55,11 +56,15 @@ class LiveListingStands(unittest.TestCase):
         term.wait(KEYS.format("open"))
         term.keys("Enter")
         term.keys(*["Down"] * downs_to_opencode(term), "Enter")
-        shown = lines(term.wait(lambda screen: "add a subscription · OpenCode" in screen
-                                and key_line(screen) == KEYS.format("open")
-                                and any(line.startswith("› ") for line in lines(screen))))
+        # its frame is drawn before its rows: read once the highlighted row is a model, beside
+        # the provider it runs through, never the row the list before left there
+        model = lambda screen: next((line[2:].strip().split("  ")[0] for line in lines(screen)
+                                     if line.startswith("› ") and line.split()[-1] in LOGGED_IN),
+                                    None)
+        shown = term.wait(lambda screen: "· add a subscription · OpenCode" in screen
+                          and model(screen))
         self.home.tmux("respawn-pane", "-k", "-t", term.pane, "sleep 86400", server=SERVER)
-        return next(line for line in shown if line.startswith("› "))[2:].strip().split("  ")[0]
+        return model(shown)
 
     def test_a_listing_read_stands_after_a_failure_and_in_a_new_process(self):
         self.opencode.answer("models", ACME_9)
