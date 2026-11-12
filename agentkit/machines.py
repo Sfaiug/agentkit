@@ -6,6 +6,7 @@ checks.
 """
 
 from collections import namedtuple
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 import shlex
@@ -92,16 +93,22 @@ def known():
 
 
 def check():
-    """The tick's: asks each machine once, side by side, and records what it answered."""
-    now, machines = time.time(), known()
-    answers = ask([_probe(machine.name) for machine in machines])
-    record = {}
-    for machine, (answer, _) in zip(machines, answers):
-        said = _said(answer)
-        checks = [one for one in machine.checks if one[0] > now - KEPT]
-        record[machine.name] = {"checks": [*checks, [now, bool(said)]],
-                                "said": {**said, "at": now} if said else machine.said}
-    _write(record)
+    """The tick's: asks each machine once, side by side, and records what it answered.  The
+    record keeps the last three days' checks of each machine, of one the tick did not ask too:
+    one `add` asked meanwhile."""
+    now, names = time.time(), [machine.name for machine in known()]
+    answers = ask([_probe(name) for name in names])
+
+    def change(record):
+        for name, (answer, _) in zip(names, answers):
+            said, was = _said(answer), record.get(name, {})
+            record[name] = {"checks": [*was.get("checks", []), [now, bool(said)]],
+                            "said": {**said, "at": now} if said else was.get("said")}
+        for name, was in list(record.items()):
+            was["checks"] = [one for one in was.get("checks", []) if one[0] > now - KEPT]
+            if not was["checks"]:
+                del record[name]
+    _write(change)
 
 
 def add(name):
@@ -117,7 +124,8 @@ def add(name):
         last = (errors or "").strip().splitlines()[-1:]     # ssh's own, or the probe's
         return (f"{name} did not answer in {TIMEOUT} seconds" if errors is None
                 else f"{name} did not answer" + "".join(f": {line}" for line in last))
-    _write({**_record(), name: {"checks": [[now, True]], "said": {**said, "at": now}}})
+    _write(lambda record: record.update({name: {"checks": [[now, True]],
+                                                "said": {**said, "at": now}}}))
     return ""
 
 
@@ -135,10 +143,15 @@ def _record():
         return {}
 
 
-def _write(record):
-    temp = _path().with_suffix(".tmp")
-    temp.write_text(json.dumps(record) + "\n", encoding="utf-8")
-    temp.replace(_path())
+def _write(change):
+    """`change` the record under its lock: the tick and `add` each read it, change it and write
+    it whole, through the one temporary file, so each keeps what the other wrote."""
+    with config._record_lock(_path()):
+        record = _record()
+        change(record)
+        temp = _path().with_suffix(".tmp")
+        temp.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        temp.replace(_path())
 
 
 def _path():
@@ -148,22 +161,23 @@ def _path():
 def ask(commands):
     """Of each of `commands`, run side by side: what it printed, None if it failed or still ran
     TIMEOUT on, and what it said on stderr, None if it still ran.  It ends with all it started.
-    Their lines fit the pipes: waited for, then read."""
+    Each is read while it runs, so no pipe it fills, as with a long ssh banner, holds it."""
     deadline = time.monotonic() + TIMEOUT
     procs = [subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True, errors="replace",
                               start_new_session=True) for command in commands]
-    return [_answer(proc, deadline) for proc in procs]
+    with ThreadPoolExecutor(max(1, len(procs))) as pool:
+        return list(pool.map(lambda proc: _answer(proc, deadline), procs))
 
 
 def _answer(proc, deadline):
     with proc:
         try:
-            failed = proc.wait(max(0, deadline - time.monotonic()))
+            out, errors = proc.communicate(timeout=max(0, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
             os.killpg(proc.pid, signal.SIGKILL)     # unreaped, it still names its group
             return None, None
-        return None if failed else proc.stdout.read(), proc.stderr.read()
+        return None if proc.returncode else out, errors
 
 
 def _said(answer):

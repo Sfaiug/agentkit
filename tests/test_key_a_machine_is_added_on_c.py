@@ -2,8 +2,8 @@
 
 Owner, 29 Oct and 3 Nov 2026: add another machine on the settings screen, and ak tells what it
 is.  Black-box: AK_BIN runs under a terminal in a temporary HOME.  ssh is a fake: an address in
-ANSWERING runs the command it is given, the real probe, on a Mac's tools; any other is refused
-as ssh refuses a key, with a warning before it.
+ANSWERING runs the command it is given, the real probe, on a Mac's tools, after a login banner
+longer than a pipe holds; any other is refused as ssh refuses a key, with a warning before it.
 """
 
 import json
@@ -22,7 +22,10 @@ SSH = """#!/bin/sh
 while :; do case $1 in --) shift; break ;; -[bcDEeFIiJLlmOoPpQRSWw]) shift 2 ;; -*) shift ;;
   *) break ;; esac; done
 echo "$1" >>{asked}
-if grep -qxF -e "$1" {answering}; then shift; PATH={tools}:$PATH exec sh -c "$*"; fi
+if grep -qxF -e "$1" {answering}; then
+  yes 'Welcome to acme.' | head -c 200000 >&2
+  shift; PATH={tools}:$PATH exec sh -c "$*"
+fi
 echo "Warning: Permanently added '$1' (ED25519) to the list of known hosts." >&2
 echo "$1: Permission denied (publickey)." >&2
 exit 255
