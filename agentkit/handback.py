@@ -39,11 +39,10 @@ STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is o
 
 
 def followup_place(text):
-    """The review's site, independent of its wording or Markdown decoration."""
-    site = re.search(r"([^\s`*]+):(\d+)\b", text)
-    if site:
-        return f"{site[1].removeprefix('./')}:{int(site[2])}"
-    return text.splitlines()[0].strip()
+    """The review's site, independent of its wording: the whole `path:line` a follow-up begins
+    with (`hand_in.item_text`), so `beta app/api.py:1` is not `alpha app/api.py:1`."""
+    site = re.match(r".+?:\d+(?= - )", text)
+    return site[0] if site else text.splitlines()[0].strip()
 
 
 def followup_moving(state):

@@ -113,9 +113,10 @@ class FollowupRule(unittest.TestCase):
     def test_a_re_review_adds_to_the_list_and_an_empty_one_drops_nothing(self):
         self.review(DEFECT, OTHER)
         self.assert_followups([DEFECT, OTHER])
-        # the same site in other words is the defect already kept; another site is another
+        # the same site in other words is the defect already kept; another site is another,
+        # though its path ends as the kept one's does
         updated = DEFECT + "; also reproduced on main before the task"
-        later = "c.py:3 - negative input crashes - base abc123: `parse([-1])` raises ValueError"
+        later = "lib a.py:1 - negative input crashes - base abc123: `parse([-1])` raises ValueError"
         self.review(updated, later, record=False)
         self.assert_followups([DEFECT, OTHER, later])
         self.review(record=False)
