@@ -757,7 +757,7 @@ class Limits(unittest.TestCase):
         slow.mkdir()
         self.script(slow / "git", 'import time\ntime.sleep(60)\n')
         with patch.dict(os.environ, {"PATH": f"{slow}:{os.environ['PATH']}"}), \
-                patch.object(gitcall, "TOOL_CAP", 1):
+                patch.object(gitcall, "local_cap", return_value=1):
             with self.assertRaisesRegex(config.Error, "was killed after 1s"):
                 run.git(self.work, "remote", check=False)
 

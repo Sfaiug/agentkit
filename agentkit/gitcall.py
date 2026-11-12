@@ -172,14 +172,13 @@ def run_capped(cmd, timeout, **popen):
 
 def local_cap():
     """Seconds a git that asks no remote gets before it counts as hung: TOOL_CAP times the host's
-    load per core, where that is over one -- a git waiting its turn for a core is not hung -- and
-    LOCAL_CEILING at most.  On 12 Nov 2026, at 16 times its cores' load, `git diff --name-only
-    HEAD` ran past 120 s in a new checkout: killing such calls stopped seven runs in a morning."""
+    load per core where that is over one, as a git waiting its turn for a core is not hung, and
+    LOCAL_CEILING at most.  (12 Nov 2026: at 16 times its cores' load, seven runs stopped so.)"""
     try:
         busy = os.getloadavg()[0] / (os.cpu_count() or 1)
     except OSError:     # a platform that keeps no load average
         busy = 1
-    return min(LOCAL_CEILING, TOOL_CAP * max(1, busy))
+    return min(LOCAL_CEILING, round(TOOL_CAP * max(1, busy)))
 
 
 def tool_run(cmd, cwd=None, timeout=None, env=None):
