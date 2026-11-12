@@ -646,6 +646,22 @@ def left_scratch():
                 yield {"action": "remove", "kind": "run-scratch", "path": str(folder)}
 
 
+def clear_scratch(folder):
+    """Remove `folder`, one `left_scratch` named, its mark last: one a removal cannot finish
+    keeps it, and the next collection tries again.  What its command closed to its owner is
+    opened first, as `TemporaryDirectory`'s own removal does."""
+    folder.chmod(0o700)
+    for root, dirs, _ in os.walk(folder):
+        for name in dirs:
+            if not os.path.islink(path := os.path.join(root, name)):
+                os.chmod(path, 0o700)
+    for entry in os.scandir(folder):
+        if entry.name != record.SCRATCH:
+            retention.remove(Path(entry.path), directory=entry.is_dir(follow_symlinks=False))
+    retention.remove(folder / record.SCRATCH)
+    folder.rmdir()
+
+
 def stale_worktrees(now, paths):
     if not retention.safe(config.WT):
         return []
@@ -1236,8 +1252,8 @@ def gc(report, automatic=False):
                                 clear_tree(path, report)
                                 done = not left_behind(path, report)
                     elif item["kind"] == "run-scratch":
-                        retention.remove(path, directory=True)    # a maker gone stays gone
-                        done = not retention.present(path)
+                        clear_scratch(path)    # a maker gone stays gone: nothing to judge again
+                        done = True
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
                     elif item["kind"] in ("tmp-entry", "home-entry") or item.get("tmp"):
