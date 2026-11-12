@@ -116,7 +116,7 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
 
     def test_on_subscriptions_enter_or_a_click_runs_an_act_and_space_runs_nothing(self):
         acts = "  ↑↓←→ move   ⏎ log in again   esc back"
-        # a login ending tomorrow, as each sign-in here answers, so `↻ log in again` stays offered
+        # a login ending tomorrow, as each sign-in here answers, so `→ log in again` stays offered
         login = {"email": None, "ends": time.time() + 86400}
         self.home.write(".agentkit/state/logins.json", {"anthropic": {"default": login}})
         self.fakes["claude"].answer("login-end", json.dumps(login))
@@ -131,8 +131,8 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.term.keys("Enter")
         self.term.wait(lambda screen: len(self.fakes["claude"].calls("login")) == 1)
         shown = lines(self.to("Claude", acts))
-        row = next(n for n, line in enumerate(shown) if "[↻ log in again]" in line)
-        column = shown[row].index("[↻ log in again]") + 3
+        row = next(n for n, line in enumerate(shown) if "[→ log in again]" in line)
+        column = shown[row].index("[→ log in again]") + 3
         self.term.type(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m")
         self.term.wait(lambda screen: len(self.fakes["claude"].calls("login")) == 2)
 

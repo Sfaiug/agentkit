@@ -91,8 +91,8 @@ class Palette(unittest.TestCase):
                                                               "-p", "#{client_termfeatures}"])
                     self.assertEqual(terminal.colour_depth(), depth)
                     self.assertEqual(terminal.styled("working", "working"),
-                                     "\033[38;2;137;180;250mworking\033[0m" if depth == 24 else
-                                     "\033[38;5;111mworking\033[0m")
+                                     "\033[38;2;0;103;198mworking\033[0m" if depth == 24 else
+                                     "\033[38;5;26mworking\033[0m")
                     with patch.dict(os.environ, {"NO_COLOR": ""}):
                         self.assertEqual(terminal.colour_depth(), 0)   # whatever tmux says
         # outside tmux nothing is asked of it
@@ -109,15 +109,16 @@ class Palette(unittest.TestCase):
                 self.sense()
                 self.assertIs(terminal._RGB, rgb)
 
-    def test_a_white_answer_picks_the_light_palette_and_none_in_time_the_dark(self):
+    def test_a_white_answer_turns_needs_you_orange_and_none_in_time_leaves_it_yellow(self):
         self.assertFalse(self.sense(WHITE, ATTRIBUTES))
         self.assertTrue(terminal._LIGHT)
         with patch.object(terminal, "colour_depth", return_value=24):
-            for kind, rgb in (("accent", "30;102;245"), ("working", "30;102;245"),
-                              ("needs you", "156;99;20"), ("done", "51;128;34"),
-                              ("FAIL", "210;15;57"), ("dim", "108;111;133")):
+            # yellow cannot be read on white; every other colour is the owner's on both
+            for kind, rgb in (("accent", "0;103;198"), ("working", "0;103;198"),
+                              ("needs you", "222;104;0"), ("done", "0;126;70"),
+                              ("FAIL", "190;34;42"), ("dim", "108;112;134")):
                 self.assertIn(f"38;2;{rgb}m", terminal.styled("x", kind), kind)
-            self.assertIn("38;2;30;102;245m", terminal.highlight(" row"))
+            self.assertIn("38;2;0;103;198m", terminal.highlight(" row"))
         # a dark answer, BEL-ended, and no answer at all within a tenth of a second: dark
         self.sense(b"\033]11;rgb:1e1e/1e1e/2e2e\007", ATTRIBUTES)
         self.assertFalse(terminal._LIGHT)
@@ -125,7 +126,7 @@ class Palette(unittest.TestCase):
         self.assertTrue(self.sense())
         self.assertFalse(terminal._LIGHT)
         with patch.object(terminal, "colour_depth", return_value=24):
-            self.assertIn("38;2;137;180;250m", terminal.styled("x", "accent"))
+            self.assertIn("38;2;246;196;0m", terminal.styled("x", "needs you"))
 
     def test_attributes_alone_end_the_wait_at_once_and_read_as_dark(self):
         # tmux, in a popup: no answer to OSC 11, its own to DA1 at once
@@ -167,13 +168,13 @@ class Bars(Sandbox):
             with self.subTest(depth=depth), \
                     patch.object(terminal, "colour_depth", return_value=depth):
                 rest = "\n".join(menu.usage_lines(self.cfg, 120))
-                # 50% left is five cells of ten, 15% two, and 3% still one, none in a colour
-                for cells in (5, 2, 1):
-                    self.assertIn("▰" * cells + terminal.styled("▱" * (10 - cells), "dim"), rest)
+                # 50% left is five cells of ten, 15% one and a half, 3% a half, none in a colour
+                for left in ("━━━━━", "━╸", "╸"):
+                    self.assertIn(left + terminal.styled("─" * (10 - len(left)), "dim"), rest)
                 lit = "\n".join(menu.usage_lines(self.cfg, 120, lit=1))
                 self.assertIn(terminal.styled("Claude", "#D97757"), lit)
-                self.assertIn(terminal.styled("▰" * 5, "#D97757") +
-                              terminal.styled("▱" * 5, "dim"), lit)
+                self.assertIn(terminal.styled("━" * 5, "#D97757") +
+                              terminal.styled("─" * 5, "dim"), lit)
                 self.assertNotIn(terminal.styled("Claude", "#D97757"), rest)
 
     def test_a_light_grey_of_the_callers_reads_as_its_mirror_on_a_light_background(self):

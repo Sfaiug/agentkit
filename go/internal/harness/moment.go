@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"math"
 	"time"
 
 	"agentkit/internal/run"
@@ -18,6 +19,8 @@ func Moment(value any) float64 {
 		}
 		return float64(stamp.UnixMicro()) / 1e6
 	}
-	seconds, _ := run.Num(value)
-	return seconds
+	if seconds, _ := run.Num(value); !math.IsNaN(seconds) && !math.IsInf(seconds, 0) {
+		return seconds
+	}
+	return 0
 }

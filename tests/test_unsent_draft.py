@@ -3,7 +3,7 @@
 On 25 Sep three seats read `working` for up to nineteen hours over text the owner had typed
 and never sent, and drafts were made `needs you`.  The owner's rule of 14 Oct 2026: text in
 the composer never changes the word.  Once no client is attached, the answer carries it as
-`unsent`, so the row ends in `✎ unsent` and opens the text under it; while they are in the seat
+`unsent`, so the row ends in `¶ unsent` and opens the text under it; while they are in the seat
 it is their typing, and mid-turn the composer is the turn's.  A question on its screen needs
 them whatever its runs are doing.
 Offline: fake captures, fake hook records, a fake tmux that answers the attached-client
@@ -42,7 +42,7 @@ RUNS = "2 running · Parked on a window"
 
 
 # Text in the composer never changes the word; once the owner leaves, its row ends
-# in `✎ unsent`. Reason: seats read `needs you` for idle prompts, drafts and answered
+# in `¶ unsent`. Reason: seats read `needs you` for idle prompts, drafts and answered
 # questions, and stale for minutes. [14, 20 Oct 2026]
 class UnsentDraft(Sandbox):
     def setUp(self):
@@ -158,10 +158,10 @@ class UnsentDraft(Sandbox):
         for look in (True, False):
             with self.subTest(look=look):
                 head, under = self.row(170, look=look)
-                self.assertTrue(head.endswith("✎ unsent"), head)
-                self.assertEqual(under.strip(), f"✎ {TEXT}")
+                self.assertTrue(head.endswith("¶ unsent"), head)
+                self.assertEqual(under.strip(), f"¶ {TEXT}")
         # ... and so does its own bar, which reads the same last column
-        self.assertIn("✎ unsent", self.bar())
+        self.assertIn("¶ unsent", self.bar())
         # the same seat with its text sent is its runs' again
         self.pane = PROMPT
         self.assertEqual(self.decide(), ("working", RUNS, ""))
@@ -244,7 +244,7 @@ class UnsentDraft(Sandbox):
         config.plan_path(SEAT).write_text("- [ ] Explain composer drafts\n")
         for shown in (" ".join(self.row(170)), self.bar()):
             with self.subTest(shown=shown):
-                self.assertNotIn("✎ unsent", shown)
+                self.assertNotIn("¶ unsent", shown)
                 self.assertIn("0 of 1", shown)
 
     def test_f_a_seat_nobody_is_in_is_never_read_by_its_last_draft(self):

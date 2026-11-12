@@ -33,8 +33,9 @@ KEEP = 24 * 3600    # a recorded tree older than a day lands through its own sui
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
 FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees this close get one
                         # repair, which holds the file as long unless a change editing it merges
-# A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
-# left, whatever it holds, and no other checkout for it.
+# A stack's scratch checkout says so in its own git directory, naming the checker that made it:
+# one a killed checker left goes when a checker next starts a pass (`_clear_left`), or with gc a
+# day unused, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
 WAKE = 10           # a blamed run waits at most this long once no run it waits on is in line
 
@@ -314,21 +315,37 @@ def _scratch(repo, commit, opened):
     return (scratch, "") if not code else (None, f"[exit {code}]\nERROR: checkout of {commit} failed\n{out}")
 
 
+def _clear_left():
+    """Remove each scratch checkout (`_scratch`), of any line, whose checker is gone: a killed
+    one removes none of its own (two left 187, about 28 GiB, 10 Nov 2026).  One whose mark names
+    no maker yet is gc's."""
+    for scratch in config.WT.glob("land-*"):
+        code, private = gitcall.git_out(scratch, "rev-parse", "--absolute-git-dir")
+        try:
+            maker = None if code else json.loads(Path(private, SCRATCH_MARK).read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(maker, dict) and not record.process_active(maker):
+            # twice: one killed before `add_worktree` unlocked it is still locked as its own
+            gitcall.git_out(scratch, "worktree", "remove", "--force", "--force", str(scratch))
+
+
 def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log, green,
                tests=None):
     """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, the target's tip
     alone, for the member in `directory`: True when it passes there, so the red is the
-    member's own, the piece then in `green`, the pieces the tip passed on this pass.  Where
+    member's own, the piece then in `green`, what the tip passed on this pass.  Where
     the stack's red was its `tests` failing again alone, those alone run there first: passing
     there, each named as run (`gate.run_suite(only=)`), the member's change is what fails them,
     and the piece need not run.  Failing there again, named as run and as failed by a run that
     ended in a failing exit on the pinned tip (`gate.run_suite(confirmed=)`), they are a red that
     repeats, which no step of the retry ladder would clear: the target's own, repaired at once,
     and the piece need not run either.  Anything else proves nothing -- a test the member added
-    is not on the tip -- so the whole piece then decides, as without them.
+    is not on the tip -- so the whole piece then decides.
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
-    target's one repair (`_repair`)."""
+    target's one repair (`_repair`); a repeat of named tests walks for the commit that first
+    turned the target red (`_blame_tip`)."""
     path = directory / "target-probe.log"
     again = None
     if tests:
@@ -365,7 +382,10 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
                f"{what} alone through the retry ladder")
         log(f"{upstream} at {tip[:12]} fails {how}: the target's own red, repaired")
         _repair(turn, directory, state, tree, red, log)
-        _blame_tip(directory, state, scratch, tip, suite, piece, again, log)
+        # A red that named no test blames nobody: on an earlier commit a piece's number holds
+        # other tests, and six whole suites are not worth a history row.
+        if again:
+            _blame_tip(directory, state, scratch, tip, suite, piece, again, log)
     else:
         log(f"{upstream} at {tip[:12]} fails {what} alone: the line waits, nobody is blamed; "
             f"probed again in {turns.transient_delay(probes) // 60} min")
@@ -373,11 +393,13 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
 
 
 def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
-    """Find the first red first-parent commit within KEEP and 64 commits (six steps).
+    """Find the first red first-parent commit within KEEP and 64 commits (six steps), by just
+    the `tests` of `suite`'s `piece` that failed again alone on the tip.
 
     The tip already failed twice. Start its repair before walking; no blame waits on a
-    repair's outcome, and no repair waits on these checks. Missing tests fall back to the
-    piece, as in the probe. A fail followed by a pass ends the walk, never a green boundary.
+    repair's outcome, and no repair waits on these checks. A commit that does not hold the
+    tests passes them (`gate.passes_what_it_holds`); one red without failing them again by name
+    ends the walk, as a fail followed by a pass does, never a green boundary.
     """
     from . import history, run
     try:
@@ -387,23 +409,19 @@ def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
         while high - low > 1:
             mid = (low + high) // 2
             sha = commits[mid]
-            for only in (tests, None) if tests else (None,):
-                _put_back(scratch, sha)
-                exits, flaky = [], []
-                ok, _, red = _check(directory, state, scratch, [suite],
-                                    directory / f"tip-{sha}.log", log, suite=suite,
-                                    shard=piece or None, only=only, kind="tip",
-                                    exits=exits, flaky=flaky)
-                if flaky or any(0 in attempts and any(code != 0 for code in attempts)
-                                for attempts in exits):
-                    log(f"{sha[:12]} is flaky: nobody is blamed")
-                    return
-                if not ok and only and not red.get("tests"):
-                    continue
-                break
+            _put_back(scratch, sha)
+            exits, flaky, absent = [], [], []
+            ok, _, red = _check(directory, state, scratch, [suite], directory / f"tip-{sha}.log",
+                                log, suite=suite, shard=piece or None, only=tests, kind="tip",
+                                exits=exits, flaky=flaky, absent=absent)
+            if flaky or any(0 in attempts and any(code != 0 for code in attempts)
+                            for attempts in exits):
+                log(f"{sha[:12]} is flaky: nobody is blamed")
+                return
+            ok = ok or bool(absent)
             repeated = any(len(attempts) >= 2 and all(code is not None and code > 0
                                                      for code in attempts) for attempts in exits)
-            if not exits or red.get("short") or (not ok and not repeated):
+            if not exits or red.get("short") or not (ok or repeated and red.get("tests")):
                 log(f"{sha[:12]} has no repeated red: nobody is blamed")
                 return
             if ok:
@@ -549,6 +567,7 @@ def check_line(turn, log=lambda _: None):
     with _pass(turn) as held, ExitStack() as waking:
         if not held:
             return
+        _clear_left()
         # Checks may return after their first group; no saved red waits for that walk to reach it.
         wake = waking.enter_context(_waking(turn, log))
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
@@ -596,12 +615,17 @@ def check_line(turn, log=lambda _: None):
                     and not state.get("review_pr")):
                 name = red.get("run")
                 repair = record.read_state(config.RUNS / name) if name else None
-                if repair is None:
+                holds = repair and handback.repair_open(repair, red["probe"]["sha"])
+                if not (holds or repair and transitions.delivered(repair)):
+                    # none yet, or the last let go of this red unmended: another goes first
+                    if repair:
+                        log(f"{name} ended without mending {upstream} at {tip[:12]}: "
+                            f"another repair")
                     name = _repair(turn, directory, state, target_tree, red, log)
                     if not name:
-                        return
-                elif not handback.repair_open(repair, red["probe"]["sha"]):
-                    name = None
+                        continue    # refused: a later member may start it, a PR may mend it
+                elif not holds:
+                    name = None     # it mended the target: merged, or found it passing there
                 if name and directory.name != name:
                     continue
             verdict = {key: state["waiting_on"][key] for key in ("land", "fix")
@@ -682,7 +706,7 @@ def check_line(turn, log=lambda _: None):
                 prefix.append((directory, state))
 
 
-def red_part(cmds, marks, pieces, confirmed, suite, ok):
+def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None):
     """What the checks found red, from the exits the runner saw (`marks`, and `pieces` by
     command and share): the first failing `command`, its first confirmed red `piece`'s share
     (`k/N`), or its first red piece where none is confirmed, and
@@ -692,7 +716,8 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
     checkout changed under them, the suite's own doing as far as the lander can tell); {}
     where the checks passed or no exits were reported.  A piece out of memory
     (`gate.OUT_OF_MEMORY`) is red only where no other is, and then `short`: the host's red,
-    nobody's."""
+    nobody's.  `parts`, a list, gets every red piece of that command that confirmed tests, each
+    as this names one and this one first, where this one confirmed any."""
     from . import gate
     if ok or not marks:
         return {}
@@ -708,15 +733,20 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
         if piece and codes[piece] == gate.OUT_OF_MEMORY:
             return {"command": cmd, "piece": piece, "short": True}
         tests = (confirmed.get(cmd) or {}).get(piece) if piece else None
+        if tests and parts is not None:
+            parts.extend({"command": cmd, "piece": share, "tests": confirmed[cmd][share]}
+                         for share in reds
+                         if codes[share] != gate.OUT_OF_MEMORY and confirmed[cmd].get(share))
         return {"command": cmd, "piece": piece, **({"tests": tests} if tests else {})}
     return {"command": suite, "piece": ""} if suite else {}
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None, kind="landing", exits=None, flaky=None, absent=None):
+           only=None, kind="landing", exits=None, flaky=None, absent=None, parts=None):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
-    `suite` standing for a red no command showed); with `shard` every command runs as that
-    one piece alone, on one turn, and with `only` just those tests, on none, `absent` getting
+    `suite` standing for a red no command showed, `parts` getting its pieces that confirmed
+    tests); with `shard` every command runs as that one piece alone, on one turn, and with
+    `only` just those tests, on none, `absent` getting
     those not there where it passed the rest (`gate.passes_what_it_holds`).  Each command, or
     piece of one, leaves its `kind` row in history under the member's run, on the commit
     checked: `landing`, or `tip` for a probe of the target's. `exits` keeps each piece's attempt
@@ -769,7 +799,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                  for cmd in cmds},
                 {cmd: only if shard else None for cmd, mark in zip(cmds, marks)
                  if mark == 0 and (only or not shard)})
-    return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok)
+    return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok, parts)
 
 
 def _upstream(state):
@@ -854,6 +884,13 @@ def _landing_checks(directory, state, scratch, tip):
     _, body, _ = task.parse_task(directory / "task.md")
     # A review PR owes the target's suite, never an earlier head's suite too.
     cmds = [] if state.get("review_pr") else task.done_when(body, directory / "task.md")
+    # A `# once` line written as the suite the member started from is that suite: it runs once,
+    # as the target declares it now, not in both spellings.  So is a repair's, written as the
+    # suite of the tip it repairs (`_probe_tip`, `_flaked`): started as the target's line
+    # changed, or rebased onto the change since, its base declares the new line already.
+    earlier = [(gitcall.declared_at(scratch, state[commit], "tests"), True)
+               for commit in ("base_sha", "repair_tip") if state.get(commit)]
+    cmds = [cmd for cmd in cmds if task.split_once(cmd) not in earlier]
     once = task.group_commands(gitcall.with_suite(cmds, scratch, ref=tip))[1]
     # Added after grouping: a shell line with an odd quote would hide a `# once` marker.
     own = gitcall.declared(scratch, "tests")
@@ -863,25 +900,24 @@ def _landing_checks(directory, state, scratch, tip):
 
 
 def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
-    """The stack's answer from just `tests` of `command`'s `piece`, or with none that piece
-    alone ("" the command whole), or {} if inconclusive.  A pass, each test named as run or as
-    not there, one a later member adds (`gate.passes_what_it_holds`), moves the narrowing
-    deeper and answers for nothing else; a failure, of the tests confirmed, moves it earlier.
-    Anything else proves nothing -- a test the suite skips without naming it -- so that stack
-    gets its whole check on its original checkout.
+    """The stack's answer from just `tests` of `command`'s `piece`, or {} if inconclusive.  A
+    pass, each test named as run or as not there, one a later member adds
+    (`gate.passes_what_it_holds`), moves the narrowing deeper and answers for nothing else; a
+    failure, of the tests confirmed, moves it earlier.  Anything else proves nothing -- a test
+    the suite skips without naming it -- so that stack gets its whole check on its original
+    checkout.
     """
     from . import run
     head = run.git(scratch, "rev-parse", "HEAD")
     log_path = directory / f"lander-{tree}-tests.log"
     absent = []
     ok, text, red = _check(directory, state, scratch, [command], log_path, log, suite=command,
-                           shard=piece or None, only=list(tests) if tests else None,
-                           absent=absent)
+                           shard=piece or None, only=list(tests), absent=absent)
     _put_back(scratch, head)
     if ok or absent:
         return {"land": tree}
     return {"fix": {"line": prompts.first_failure(text), "log": str(log_path),
-                    **red}} if red.get("tests") or not tests else {}
+                    **red}} if red.get("tests") else {}
 
 
 def _probe(directory, state, scratch, tree, command, tests, cost):
@@ -911,7 +947,7 @@ def _probe(directory, state, scratch, tree, command, tests, cost):
                 activity=log_path, output=output, env=gate.suite_env(),
                 silence=gate.quiet_window(command, scratch, None, silence) or silence,
                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-            ended.append(None if killed else code)
+            ended["exit"] = None if killed else code
         if killed or code < 0 or code in (*helper.GONE, helper.FULL):
             return None
         ran, failed, absent = (helper.failed(away, "1/1", named)
@@ -947,14 +983,18 @@ def _round(stacks, floor, high, command, tests, log):
 
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
+    """The stack's answer from its whole check, a red one with the `parts` it confirmed
+    (`red_part`), or {} where it ran out of memory again."""
     log_path = directory / f"lander-{tree}.log"
-    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite)
+    parts = []
+    ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite,
+                           parts=parts)
     if red.get("short"):
         log(f"AK_SHARD={red['piece']} of {directory.name}'s tree ran out of memory again, run "
             "alone: nobody is blamed; the next pass checks it again")
         return {}
     return {"land": tree} if ok else {"fix": {"line": prompts.first_failure(text),
-                                              "log": str(log_path), **red}}
+                                              "log": str(log_path), **red}, "parts": parts}
 
 
 def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
@@ -974,6 +1014,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                        # pass's own re-probe of a paused piece included
     limit = None
     below = -1      # the stack just below the last culprit, unchanged by the rebuild without it
+    carried = []    # the red parts the pass's last red whole check confirmed (`_check_tree`)
 
     def ahead(index):
         """The runs under the stack at `index`, by name, with the tree each was checked as."""
@@ -1059,10 +1100,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 return {"land": tree} if tree == tested else {"land": tree, "tested": tested}
 
             def commands(index):
-                # A covered member still owes its own once-commands, on the tested tree.
-                groups = dict.fromkeys(stack[4] for stack in stacks[:index + 1])
-                return tuple(cmd for group in groups for cmd in group if cmd != suite) + (
-                    (suite,) if suite else ())
+                # A covered member still owes its own once-commands, on the tested tree.  What
+                # two of them owe runs there once: a `tests:` line a change ahead rewrote is
+                # every later stack's own too.
+                owed = dict.fromkeys(cmd for stack in stacks[:index + 1] for cmd in stack[4])
+                return tuple(cmd for cmd in owed if cmd != suite) + ((suite,) if suite else ())
 
             positions = {stack[3]: index for index, stack in enumerate(stacks)}
             # Coverage can be reused only when this line can still deliver its tested tip.
@@ -1115,6 +1157,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 elif "land" in answer:
                     cover(index, checks, tree)
                 else:
+                    if failed is None:
+                        carried[:] = answer.pop("parts")
                     answers[tree, own] = answer
                     note(turn, [], directory.name, checks=checks, red_stacks={tree: answer["fix"]})
 
@@ -1141,24 +1185,27 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # one ahead may be the culprit, and removing it changes every later tree.
                     if answer is None or ("fix" in answer and index and not green_prefix):
                         break
-                    # The target's tip answers for a red suite before anyone is blamed: its red
-                    # piece (`red_part`, from the exits the runner saw) runs there alone,
-                    # whatever pass the target has on record, as the host, not the change, may
-                    # have failed it.  A red check of the member's own is the member's.  A
-                    # piece the tip passed whole on this pass answers again, tests named or not:
-                    # failing there, they would hand the probe back to that same piece.
-                    if index == 0 and not prefix and "fix" in answer and not saved.get("repair"):
-                        piece = (answer["fix"].get("piece")
-                                 if answer["fix"].get("command") == suite else None)
-                        if piece is not None and piece not in tip_green:
-                            if stopped():
-                                return
-                            _put_back(scratch, tip)
-                            if not _probe_tip(turn, member, saved, scratch, tip, upstream,
-                                              target_tree, suite, piece, log, tip_green,
-                                              answer["fix"].get("tests")):
-                                target_red = True
-                                return
+                    # The target's tip answers for a red suite before anyone is blamed, whatever
+                    # pass the target has on record, as the host, not the change, may have
+                    # failed it: the red piece's failed tests (`red_part`, from the exits the
+                    # runner saw) run there alone, and a red that named none asks the suite
+                    # whole there, as the suite deals each tree's test files into its pieces,
+                    # so on the tip that piece's number holds other tests (11 Nov 2026).  A red
+                    # check of the member's own is the member's.  What the tip passed on this
+                    # pass, that piece or the suite whole, answers again, tests named or not:
+                    # failing there, they would hand the probe back to that piece.
+                    fix = answer.get("fix") or {}
+                    tests = fix.get("tests")
+                    piece = fix.get("piece") if tests else ""
+                    if (index == 0 and not prefix and "piece" in fix and fix["command"] == suite
+                            and not saved.get("repair") and not {piece, ""} & tip_green):
+                        if stopped():
+                            return
+                        _put_back(scratch, tip)
+                        if not _probe_tip(turn, member, saved, scratch, tip, upstream,
+                                          target_tree, suite, piece, log, tip_green, tests):
+                            target_red = True
+                            return
                     if member not in verdicts:
                         answer = verdicts[member] = {**answer, "after": ahead(index)}
                         ready({member: answer})
@@ -1175,14 +1222,39 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 running = {}
                 try:
                     decide()
+                    # The parts the pass's last red whole check confirmed run alone on the top
+                    # rebuilt without the culprit, before any whole check: checked whole, it
+                    # failed again on those known red since, two more whole checks a culprit (a
+                    # stack of 61 holding five landed nothing in 14 hours, 11 Nov 2026).
+                    # Failing, a part is that top's red, narrowed as a batch's however many whole
+                    # checks fit, and tried again on the next top, as another member may break
+                    # it too; passing, proving nothing or its command run there no more, it is
+                    # dropped.
+                    top = len(stacks) - 1
+                    carried[:] = [part for part in carried if part["command"] in commands(top)]
+                    for part in list(carried):
+                        if (tuple(stacks[top][3:]) in answers or rebuild or target_red
+                                or stopped()):
+                            break
+                        answer_tree(top, None, pool.submit(
+                            _check_tests, *stacks[top][:4], part["command"], part["piece"],
+                            part["tests"], log), (part["command"], tuple(part["tests"])))
+                        if tuple(stacks[top][3:]) in answers:
+                            batched = True
+                        else:
+                            carried.remove(part)
+                        decide()
                     while not rebuild and not target_red and not short and not stopped():
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         narrowing, command, owner = None, None, 0
-                        if below in unchecked:
+                        if below in unchecked and not any("fix" in answer
+                                                          for answer in answers.values()):
                             # It waits on no culprit above it: its whole check comes before the
                             # new top's, named tests passing there being no evidence, and green
-                            # lands every stack under it (40 members waited, 30 Oct 2026).
+                            # lands every stack under it (40 members waited, 30 Oct 2026).  A red
+                            # already known, a part's on the top, is narrowed first: its steps
+                            # run just what failed.
                             unchecked = [below]
                         elif batched and unchecked:
                             # Narrow the first unresolved red between the last green and it.
@@ -1191,14 +1263,18 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             low = unchecked[0] - 1
                             high = red_index
                             if red_index is not None:
-                                # Each step runs just what failed: the tests of the first failing
-                                # command's piece that failed again alone, or with none that
-                                # piece, from the deepest stack it passed in; a failure narrows
-                                # earlier, and only an inconclusive run gets its whole check.
+                                # Each step runs just the tests of the first failing command's
+                                # piece that failed again alone, from the deepest stack they
+                                # passed in; a failure narrows earlier, and only an inconclusive
+                                # run gets its whole check.  A piece that named none narrows by
+                                # whole checks: the suite deals each tree's test files into its
+                                # pieces, so on another stack its number stands for other tests,
+                                # and passing there it sent bystanders to their fixers
+                                # (10 Nov 2026).
                                 failing = answers[tuple(stacks[red_index][3:])]
                                 command = failing["fix"].get("command")
-                                tests = tuple(failing["fix"].get("tests") or ()) or None
-                                if command:
+                                tests = tuple(failing["fix"].get("tests") or ())
+                                if command and tests:
                                     narrowing = command, tests
                                     owner = next((index for index, stack in enumerate(stacks)
                                                   if command in stack[4]), 0)
@@ -1225,7 +1301,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             # No stack below the command's first runs it: the search starts
                             # just ahead of that one, and it reaches lower only on evidence.
                             floor = max(low, owner - 1)
-                            if narrowing and tests and floor + 1 < high:
+                            if narrowing and floor + 1 < high:
                                 # The stacks between go to the suite helpers, many at once, a
                                 # round at a time: here each step took minutes, one after the
                                 # other (127 of a pass's 370, 5 Nov 2026).  A round that proves
@@ -1250,7 +1326,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             # Ahead of the command's first stack the target's suite runs where
                             # that stack's `tests:` line does: its tests that failed run there.
                             runs = narrowing and (index, narrowing) not in passed_alone and (
-                                command if index >= owner else tests and suite)
+                                command if index >= owner else suite)
                             if runs:
                                 job = pool.submit(_check_tests, member, saved, scratch, tree,
                                                   runs, failing["fix"]["piece"], tests, log)

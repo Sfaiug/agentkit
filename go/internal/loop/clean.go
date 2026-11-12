@@ -178,7 +178,7 @@ func saveWork(record *run.Object) error {
 	if err != nil {
 		return err
 	}
-	stopped, err := inProgress(g)
+	stopped, err := gitcall.InProgress(g, "rebase", "merge")
 	if err != nil {
 		return err
 	}
@@ -238,25 +238,6 @@ func saveWork(record *run.Object) error {
 		return fmt.Errorf("the branch in %s does not hold the checkout's commit", record.Str("repo"))
 	}
 	return nil
-}
-
-// inProgress is whether a rebase or a merge is still sitting in the checkout, its own git
-// directory's name kept byte for byte.
-func inProgress(g gitcall.Git) (bool, error) {
-	code, out, said, err := g.Bytes("rev-parse", "--absolute-git-dir")
-	if err != nil {
-		return false, err
-	}
-	if code != 0 {
-		return false, fmt.Errorf("git rev-parse --absolute-git-dir failed in %s: %s", g.Repo, gitcall.Strip(string(said)))
-	}
-	own := strings.TrimSuffix(string(out), "\n")
-	for _, name := range []string{"rebase-merge", "rebase-apply", "MERGE_HEAD"} {
-		if _, err := os.Stat(filepath.Join(own, name)); err == nil {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // runCleanup is the repository's `cleanup:` line, once, in the checkout before it goes, Python's

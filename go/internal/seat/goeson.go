@@ -75,24 +75,33 @@ func (seat reopening) receipted(name string) error {
 	if err != nil {
 		return err
 	}
+	sent, err := typingReceipt(seat.model.Harness, record, seat.line)
+	if err != nil {
+		return err
+	}
 	file, err := os.OpenFile(ownFile("input", name), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
-	_, err = file.WriteString(run.Line(typingReceipt(seat.model.Harness, record, seat.line)) + "\n")
+	_, err = file.WriteString(run.Line(sent) + "\n")
 	return err
 }
 
 // typingReceipt is the typing receipt a line of ak's is told by (Harness.receipt), written before it
 // goes into the seat's conversation: the messages already there are `after` it, and where its
-// harness names that conversation only later, its launch (harness.Launch) says which it is.
-func typingReceipt(own string, record map[string]any, text string) *run.Object {
-	conversation, prompts, _, _ := script.Typed(own, record, "")
+// harness names that conversation only later, its launch (harness.Launch) says which it is.  The
+// error where those messages cannot be read: counting none would take an earlier message of the
+// owner's in those words for ak's.
+func typingReceipt(own string, record map[string]any, text string) (*run.Object, error) {
+	conversation, prompts, _, err := script.Typed(own, record, "")
+	if err != nil {
+		return nil, err
+	}
 	sent := run.Fields("at", run.Float(seconds(time.Now())), "text", text, "source", "ak", "harness", own,
 		"conversation", conversation, "after", len(prompts))
 	if conversation == nil {
 		sent.Set("launch", harness.Launch(record))
 	}
-	return sent
+	return sent, nil
 }

@@ -1,10 +1,10 @@
 """A seat's status bar: what each of its two lines says, and how tmux draws them.
 
 The bar is the seat's row on the `ak` screen with the line under it always open.  Line one is
-its state -- `! needs you` in dark bold text on its amber, the one loud thing on the bar, any
-other word as its glyph and word in its colour -- then the seat's name in bold, then its model
+its state as a chip -- its glyph and word on its colour in the text that reads on it, bold for
+`! needs you` (`chip`) -- then the seat's name in bold, then its model
 and orchestrator effort, dim, then its progress line, as its menu row draws it, as wide as `BARS`
-lets it be.  Its right end, while another seat on ak's own server needs you, says so in amber,
+lets it be.  Its right end, while another seat on ak's own server needs you, says so in its yellow,
 `! 2 other seats need you`, a click away from the first of them; where it does not fit beside
 the left part the line narrows, then it folds to `! 2 need you`, and only then is the left part
 cut.  Line two shows what the seat needs you for where its chat cannot: an expired login, a
@@ -51,11 +51,10 @@ AT = "#{e|-:#{client_width},#{mouse_x}}"
 CLICK = ("bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + HIT + "}",
          # a target is not a format, and the command run-shell -C runs is
          "run-shell -C \"switch-client -t '#{E:" + HIT + "}'\"")
-INK = terminal.BAR_TONES["ink"][0]  # the chip's dark text, Mocha's crust
 CELLS = 36                         # a working seat's progress line and its count
 BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one is short of room
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
-DIM = terminal.STATE_STYLES["dim"][2]
+DIM = terminal.colour("dim").rgb
 # Line two: who builds and reviews and every task's squares, then the squares cut to six, then
 # the squares alone, then cut to six, then to one (`whys`).
 WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 5)))
@@ -108,13 +107,11 @@ LAYOUT = (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
 
 
 def chip(word):
-    """The state as its bar opens with it: `! needs you` in dark bold text on its amber, the one
-    loud thing on the bar; any other word as its glyph and word in its colour."""
-    rgb = "#" + terminal.STATE_STYLES[word][2]
-    said = orch.tmux_text(terminal.state_text(word))
-    if word == "needs you":
-        return f"#[fg=#{INK},bg={rgb},bold] {said} #[default]"
-    return f"#[fg={rgb}]{said}#[default]"
+    """The state as its bar opens with it: its glyph and word on its colour in the text that
+    reads on it, bold where the word is -- `! needs you`, the one loud thing on the bar."""
+    rgb, ink = terminal.colour(word)
+    bold = ",bold" * (terminal.STATE_STYLES[word][4] == "1")
+    return f"#[fg=#{ink},bg=#{rgb}{bold}] {orch.tmux_text(terminal.state_text(word))} #[default]"
 
 
 def lines(name, model, word=None, last="", why=""):
@@ -206,7 +203,7 @@ def others(found, name):
     short = f"{mark} {many} {'needs' if many == 1 else 'need'} you"
     edge = terminal.cells(said) + 1     # the space after it, at the client's edge
     hit = f"#{{?#{{&&:#{{e|>:{AT},1}},#{{e|<=:{AT},{edge}}}}},{needs[0]},}}"
-    return tuple(f"#[range=right]#[fg=#{terminal.STATE_STYLES['needs you'][2]},bold]"
+    return tuple(f"#[range=right]#[fg=#{terminal.colour('needs you').rgb},bold]"
                  f"{orch.tmux_text(text)}#[default]#[norange] " for text in (said, short)) + (hit,)
 
 
