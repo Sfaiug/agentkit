@@ -354,8 +354,12 @@ none = ["esc to interrupt"]
 # `harness.claude.error`), a headless `result` record's `api_error`.  With no typed kind, "You've
 # hit your" begins every window's refusal (session limit, weekly limit, 2.1.314's "5-hour limit")
 # and no warning: "You've used 84% of your weekly limit" has room left.
+# `model_requires_usage_credits` is one model's own cap, spent in a week with room, and "You've
+# reached your" begins it (2.1.322, 12 Nov 2026): "You've reached your Fable limit. Run
+# /usage-credits to continue or switch models with /model."
 signatures = ["API Error", "Overloaded", "rate limit", "rate_limit_error",
               "Usage limit reached", "usage_limit_reached", "You've hit your",
+              "model_requires_usage_credits", "You've reached your",
               "Can't reach the API server"]
 refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529",
             "500", "502", "503", "504", "Internal server error", "API Error",
@@ -363,7 +367,8 @@ refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529"
 # What 2.1.316 says resuming an id it does not hold (2 Nov 2026): `turns.resume_failed`.
 lost = ["No conversation found with session ID"]
 quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit",
-          "usage_limit_reached", "You've hit your", "429", "insufficient_quota", "insufficient quota"]
+          "usage_limit_reached", "You've hit your", "429", "insufficient_quota", "insufficient quota",
+          "model_requires_usage_credits", "You've reached your"]
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,
 # which is what adapters/claude.sh reads final.md out of, failure or not.
 terminal = "result"

@@ -92,6 +92,9 @@ POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
 DIM = f"fg=#{terminal.colour('dim').rgb}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
+# The tmux client a popup opened on, by name, handed to that popup alone: the window a seat
+# picked in it opens in (`attach`).  Nothing outside it holds the name (`tmux_env`, `warm.serve`).
+CLIENT_ENV = "AGENTKIT_CLIENT"
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
 # opens over: the first popup over it keeps each style the pane has of its own, if it has one
 # (`h`), every one counts itself in, the pane draws dim, the popup is held until it is down, and
@@ -178,20 +181,6 @@ def choose(cfg, providers):
         return credits
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
-
-
-def going_on(cfg, current, providers):
-    """The model a seat out of usage on `current` goes on with now, or None: the first in
-    `in_order` on another provider, whose harness is here and that has a window left -- none
-    the move would refuse as spent (`_switch_plan`), and none on credits, which cost money a
-    click to go on now never spends unasked (`switch_orchestrator`'s `credits`)."""
-    provider = config.model(cfg, current)["provider"]
-    return next((name for name in in_order(cfg)
-                 if config.model(cfg, name)["provider"] != provider
-                 and config.harness_present(config.model(cfg, name)["harness"])
-                 and not usage.model_spent(cfg, name, providers)[0]
-                 and not usage.spent_meter(cfg, name, providers)
-                 and not usage.on_credits(cfg, name, providers)), None)
 
 
 @contextmanager
@@ -1141,11 +1130,13 @@ def tmux_env(client=False):
     Inside somebody else's tmux, $TMUX is what a bare tmux command would follow -- so it goes,
     and the server named on the command line is the only one that can be reached.  Only
     `switch-client` keeps it, because without it there is no client to switch.  The mark goes
-    from every one (`owner`), and so does the version a run is pinned to (`versions.unpinned`):
-    any may start a server, whose global environment is the starting client's, a pane takes the
-    PATH of the client that spawns it, and both outlive the caller.
+    from every one (`owner`), and so does the version a run is pinned to (`versions.unpinned`),
+    and the popup's client (CLIENT_ENV): any may start a server, whose global environment is the
+    starting client's, a pane takes the PATH of the client that spawns it, and both outlive the
+    caller.
     """
-    return {k: v for k, v in versions.unpinned(owner.unmarked()).items() if client or k != "TMUX"}
+    return {k: v for k, v in versions.unpinned(owner.unmarked()).items()
+            if k != CLIENT_ENV and (client or k != "TMUX")}
 
 
 def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
@@ -2057,7 +2048,9 @@ def tmux_conf():
     press it on; anywhere larger it is the 80% by 70% it always was.  `display-popup` takes
     no format for its size, so the choice is `if-shell -F`'s.  The client's terminal features
     ride in with it (`terminal.FEATURES_ENV`), read as the key is pressed, so the menu's first
-    frame waits on no tmux call to learn whether it takes true colour.
+    frame waits on no tmux call to learn whether it takes true colour; and so does the client's
+    name (CLIENT_ENV), so a seat picked in it opens in that window, whichever window tmux last
+    heard a key from: a key pressed in a popup is none.
 
     The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
     popup, and says nothing): a rounded border in the dim colour with ` agentkit ` set into
@@ -2074,14 +2067,14 @@ def tmux_conf():
     small, large = f"display-popup -E {POPUP_FULL}", f"display-popup -E {POPUP_SIZE}"
     if tmux_version() >= FLOATS:
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
+        handed = f'-e "{terminal.FEATURES_ENV}=$f" -e "{CLIENT_ENV}=$c"'
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "
                                         "f='#{client_termfeatures}'; " + tmux_text(
                 FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
                          "popup": popup, "command": shlex.quote(popup_command())}))
-            for popup in (f'{small} {border} -e "{terminal.FEATURES_ENV}=$f"',
-                          f'{large} {border} -e "{terminal.FEATURES_ENV}=$f"'
-                          f" -e {terminal.PAD_ENV}={POPUP_PADDING}"))
+            for popup in (f"{small} {border} {handed}",
+                          f"{large} {border} {handed} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
         small, large = (f"{popup} {tmux_word(popup_command())}" for popup in (small, large))
     text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
@@ -2357,8 +2350,12 @@ def attach(name, log=print, wait=False, session=None):
             f"`{shlex.join(tmux_argv(socket, 'attach', '-t', name))}`")
         return 0
     if inside(session):
-        # a client on this seat's own server: switch it, rather than nest one tmux in another
-        rc, out = tmux_out("switch-client", "-t", f"={name}", socket=socket, client=True)
+        # a client on this seat's own server: switch it, rather than nest one tmux in another --
+        # the popup's own, where it names one (CLIENT_ENV); else the one tmux finds, as for `ak`
+        # typed in a pane
+        named = os.environ.get(CLIENT_ENV)
+        rc, out = tmux_out("switch-client", *(("-c", named) if named else ()), "-t", f"={name}",
+                           socket=socket, client=True)
         if rc != 0:
             raise config.Error(f"cannot switch to the session {name}: {out}")
         seen_by_user(name, session)
@@ -2492,7 +2489,7 @@ def reopen(cfg, name, **kw):
 #
 # Claude owns its launcher-issued id, following replacements from its own process's hooks.
 # Codex owns only its launch hook's recorded thread.
-# OpenCode owns the session its seat plugin reported into that launch's receipt.
+# OpenCode owns the session its seat followed a prompt into, kept in that launch's receipt.
 # Muse still starts fresh. Cwd and timestamps never establish ownership.
 
 
@@ -4284,20 +4281,24 @@ def role_groups(cfg, selected, providers, **groups):
     return changed, ""
 
 
-def role_mark(cfg, selected, name, column, providers):
+def role_mark(cfg, selected, name, column, providers, shown=None):
     """A proposed mark (role_groups), without mutating the saved groups when it cannot form a
-    pair.  Executors may be left empty: the orchestrator then builds everything.  Reviewers
-    keep one."""
+    pair: set where the groups `shown` (`selected` where None) leave it off, else taken off.
+    Executors may be left empty: the orchestrator then builds everything.  Reviewers keep
+    one."""
     if column == 0:
         if selected["orchestrator"] == name:
             return selected, ""
         return role_groups(cfg, selected, providers, orchestrator=name)
     role = "workers" if column == 1 else "reviewers"
-    group = selected["workers"] if column == 1 else selected.get("reviewers", selected["workers"])
-    if name in group and len(group) == 1 and role == "reviewers":
+    group, drawn = (one["workers"] if column == 1 else one.get("reviewers", one["workers"])
+                    for one in (selected, shown or selected))
+    on = name not in drawn
+    if not on and group == [name] and role == "reviewers":
         return selected, "at least one model reviews"
-    return role_groups(cfg, selected, providers, **{
-        role: [peer for peer in group if peer != name] if name in group else [*group, name]})
+    return role_groups(cfg, selected, providers, **{role: (
+        group if name in group else [*group, name]) if on else [
+        peer for peer in group if peer != name]})
 
 
 def handover(record, old_model, old_harness, owned):
@@ -4321,7 +4322,7 @@ def handover(record, old_model, old_harness, owned):
     return f"## Its conversation on {old_model}\n\n{told}"
 
 
-def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
+def _switch_plan(cfg, name, model, providers, effort=None):
     """(note, account): why the seat cannot move to `model`, or "" and the login to use; given
     `effort`, its own model is judged as another would be, for the move at it.
 
@@ -4330,8 +4331,7 @@ def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
     picked account, the meter off the cache. The same provider keeps its login; another
     one takes the first of its accounts whose seat login passes, in the seat's order,
     else the default login to be judged below. No answer withholds nothing, the way a
-    turn goes ahead on an `auth` verb that said nothing. Without `credits`, a login that
-    would run on credits refuses the move.
+    turn goes ahead on an `auth` verb that said nothing.
     """
     try:
         record = config.load_session(cfg, name, required=False)
@@ -4374,10 +4374,6 @@ def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
     note = spent_note(cfg, model, providers)
     if note:
         return f"{model} is {note}", None
-    reading = providers.get(new_provider) or {}
-    reading = (reading.get("accounts") or {}).get(account) or reading
-    if not credits and usage.on_credits(cfg, model, {new_provider: reading}):
-        return f"{model} has only credits left", None
     return "", account
 
 
@@ -4474,8 +4470,7 @@ def switch_in_place(cfg, name, chosen, effort):
     return ""
 
 
-def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=None,
-                        effort=None):
+def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=None):
     """Move the open seat to another orchestrator at once, under the same name: inside its
     running harness where that takes lines for it (`switch_lines`), asking nothing; else by a
     restart.
@@ -4496,8 +4491,8 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     The record names the new model before the harness is up, so no redress draws the old
     one after it. Nothing on its screen refuses the move: the owner moving it knows what is
     there, and their unsent text goes on into the new composer (`watch.carry_draft`), or the
-    move is refused where it cannot be kept; a login on credits without `credits` refuses it
-    too. A refusal, and a restart that fails, leave the seat as they found it and say so in
+    move is refused where it cannot be kept.
+    A refusal, and a restart that fails, leave the seat as they found it and say so in
     one line. What to say under the rows, or ""; None where `asked(kept)`, the owner's say on
     a move that passed every refusal -- `kept` whether its conversation goes on -- answered
     False, the seat left as it was.  Given `effort`, `model` runs its orchestrator at it, and the
@@ -4523,7 +4518,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
                 pass    # the note returned already says the restart failed
 
     providers = usage.collect(cfg) if providers is None else providers
-    note, account = _switch_plan(cfg, name, model, providers, credits, effort)
+    note, account = _switch_plan(cfg, name, model, providers, effort)
     if note:
         return note
     name = config.resolve_session(name)    # a screen open across a rename has the old name

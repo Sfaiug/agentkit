@@ -5,7 +5,6 @@ import (
 	"math"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"agentkit/internal/history"
@@ -13,13 +12,13 @@ import (
 )
 
 // RoundsChart is how `runs` ended (history.RoundEndings), drawn under `Review rounds`' note
-// (menu.rounds_chart): the evidence its number is set from.  Under a heading, a bar of each ending -- each round from round
-// 1, or a merge with review off, up to the last a run merged in, then `failed` -- its share of the
-// runs taking the room the columns after it leave: its count, that share as a whole percent and its
-// median hours from start to finish.  Below 60 columns each bar folds under its ending.
+// (menu.rounds_chart): the evidence its number is set from.  Under a heading, a bar of each ending
+// -- each round from round 1, or a merge with review off, up to the last a run merged in, then
+// `failed` -- its share of the runs taking the room the columns after it leave: its count, that
+// share as a whole percent and its median hours from start to finish (barChart).
 func RoundsChart(s terminal.Screen, runs []history.Row) []string {
 	if len(runs) == 0 {
-		return []string{"", "  no finished runs yet"}
+		return barChart(s, "no finished runs yet", nil)
 	}
 	first, last := 1, 0
 	for _, run := range runs {
@@ -38,55 +37,28 @@ func RoundsChart(s terminal.Screen, runs []history.Row) []string {
 		finished, _ := run.Num("finished_at")
 		hours[at] = append(hours[at], (finished-started)/3600)
 	}
-	names, numbers := make([]string, len(hours)), make([][3]string, len(hours))
-	widths, wide := [3]int{}, 0
+	bars := make([]bar, len(hours))
 	for at, each := range hours {
-		names[at] = "merged in round " + strconv.Itoa(first+at)
+		name, word, held := "merged in round "+strconv.Itoa(first+at), "done", ""
 		switch {
 		case at == len(hours)-1:
-			names[at] = "failed"
+			name, word = "failed", "FAIL"
 		case first+at == 0:
-			names[at] = "merged with no review"
+			name = "merged with no review"
 		}
-		numbers[at] = [3]string{strconv.Itoa(len(each)), fmt.Sprintf("%d%%", int(math.RoundToEven(100*float64(len(each))/float64(len(runs)))))}
 		if len(each) > 0 {
-			numbers[at][2] = fmt.Sprintf("median %.1f h", median(each))
+			held = fmt.Sprintf("median %.1f h", median(each))
 		}
-		for n, number := range numbers[at] {
-			widths[n] = max(widths[n], len(number))
-		}
-		wide = max(wide, len(names[at]))
+		bars[at] = bar{name, float64(len(each)) / float64(len(runs)), word, []string{strconv.Itoa(len(each)),
+			fmt.Sprintf("%d%%", int(math.RoundToEven(100*float64(len(each))/float64(len(runs))))), held}}
 	}
-	room := s.LayoutWidth()
-	folded, lead := room < 60, 4+wide
-	if folded {
-		lead = 4
-	}
-	size := max(1, room-lead-6-widths[0]-widths[1]-widths[2])
 	plural := "s"
 	if len(runs) == 1 {
 		plural = ""
 	}
-	lines := []string{""}
 	since, _ := runs[0].Num("started_at")
-	for _, part := range terminal.Wrap(fmt.Sprintf("how your %d run%s ended, since %s", len(runs), plural,
-		time.Unix(int64(since), 0).Format("2 Jan")), room-2) {
-		lines = append(lines, "  "+part)
-	}
-	for at, each := range hours {
-		word := "done"
-		if at == len(hours)-1 {
-			word = "FAIL"
-		}
-		tail := strings.TrimRight(fmt.Sprintf("%s  %*s  %*s  %s", s.ShareLine(float64(len(each))/float64(len(runs)), size, word),
-			widths[0], numbers[at][0], widths[1], numbers[at][1], numbers[at][2]), " ")
-		if folded {
-			lines = append(lines, "  "+names[at], "    "+tail)
-		} else {
-			lines = append(lines, "  "+terminal.Pad(names[at], wide)+"  "+tail)
-		}
-	}
-	return lines
+	return barChart(s, fmt.Sprintf("how your %d run%s ended, since %s", len(runs), plural,
+		time.Unix(int64(since), 0).Format("2 Jan")), bars)
 }
 
 // median is Python's statistics.median: the middle of the sorted values, or the mean of the two
