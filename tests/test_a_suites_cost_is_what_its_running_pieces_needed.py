@@ -73,7 +73,7 @@ class ASuitesCostIsWhatItsRunningPiecesNeeded(unittest.TestCase):
                 SUITE, 3600, cwd=self.root, activity=self.run_dir / "live.log",
                 output=BytesIO(), run_dir=self.run_dir)
         self.assertEqual((code, killed), (red, False), text)
-        self.assertGreaterEqual(text.count("--- AK_SHARD="), len(ends))
+        self.assertEqual(text.count("--- AK_SHARD="), len(ends))
         return gate.read_suite_cost(gate.suite_cost(SUITE, self.root, self.run_dir)[0])
 
     def test_pieces_run_all_at_once_cost_what_each_needed(self):
