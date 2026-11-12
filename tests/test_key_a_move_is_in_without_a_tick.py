@@ -34,7 +34,7 @@ OFFLINE = {name: "http://127.0.0.1:9"
 CARD = "claude-switch-model-card-pane.txt"
 # A harness that took `/model <id>` and draws no composer, nor anything it asks.
 TAKING = "\n" * 20 + "● ok\n\n✻ Switching model\n" + "\n" * 7
-# How long a seat may take to show what ak did: as long as a tick is given (tests/fixtures/akbin.py).
+# How long a seat may take to show what ak did, as long as `Seat.wait_lines` waits.
 BOUND = 300
 
 
@@ -76,7 +76,7 @@ class AMoveIsInWithoutATick(unittest.TestCase):
 
     def moved(self, seat):
         """What the seat took once both its lines are in and it is owed nothing."""
-        seat.wait_lines(2, bound=BOUND)
+        seat.wait_lines(2)
         self.until(lambda: not self.owed(seat.name), f"{seat.name} still owes {{}}",
                    lambda: self.owed(seat.name))
         return seat.typed()
