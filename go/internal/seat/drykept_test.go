@@ -19,8 +19,8 @@ import (
 // A dry look at a Muse seat at its prompt holding a question it kept back, whose chat showed
 // neither that one nor the question standing, says the reminder of both the real look would type
 // once it asked the kept one, and asks, answers, types and keeps nothing, the owner's reply since
-// left unread. With no question of the seat's standing, which that ask would open, the seat is
-// Python's dry tick's.
+// left unread. Where the look found the seat otherwise than its saved file says, or with no
+// question of the seat's standing, which that ask would open, the seat is Python's dry tick's.
 func TestDryHealthSaysTheReminderOfAQuestionKeptBack(t *testing.T) {
 	home := sandbox(t)
 	t.Setenv("XDG_DATA_HOME", "")
@@ -72,6 +72,18 @@ func TestDryHealthSaysTheReminderOfAQuestionKeptBack(t *testing.T) {
 	reminder := "would resume acme, left its question out of the chat, with " + commandhelp.Quote(Reminder("Ready", []string{asked, kept}))
 	if carried, said := dry(); !carried || !slices.Equal(said, []string{reminder}) {
 		t.Fatalf("carried %v, said %q", carried, said)
+	}
+	// Python's dry tick, which takes no look, reads the seat file as saved: saved working,
+	// interrupted, or with no stop on record, the look's reminder is not its to say
+	for _, saved := range []*run.Object{
+		run.Fields("state", "working", "stop_said", "Ready", "stop_said_at", ago, "unasked", run.Fields("text", kept, "ended", ago)),
+		run.Fields("state", "at_prompt", "interrupted", true, "stop_said", "Ready", "stop_said_at", ago, "unasked", run.Fields("text", kept, "ended", ago)),
+		run.Fields("state", "at_prompt", "unasked", run.Fields("text", kept, "ended", ago)),
+	} {
+		write(t, stateFile(home, "seat-acme.json"), run.Line(saved))
+		if carried, said := dry(); carried || len(said) > 0 {
+			t.Fatalf("saved %s: carried %v, said %q", run.Line(saved), carried, said)
+		}
 	}
 	if err := os.Remove(stateFile(home, "notify-acme.json")); err != nil {
 		t.Fatal(err)

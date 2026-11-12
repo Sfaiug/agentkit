@@ -14,7 +14,8 @@ import (
 // message left out of the chat (questions.unseen): the reminder goes back, once a stop, past the
 // question standing and with no turn watched to its end, and a reply of the owner's answers it
 // first.  A dry look asks and answers nothing, reads what the seat kept back as asked, as the real
-// look's askKeptBack has asked it by then, and says the reminder it would type.  Under Health's
+// look's askKeptBack has asked it by then, and says the reminder it would type where the seat file
+// as saved passes its guards (savedStop), Python's dry tick's to say otherwise.  Under Health's
 // announce lock, as nudgeOpenWork; the confirmed send rechecks the composer under the typing lock.
 func (seat Seat) nudgeQuestion(state string, found sight, log func(string)) (sight, error) {
 	flight, _ := found.turnInFlight(seat.own)
@@ -43,6 +44,9 @@ func (seat Seat) nudgeQuestion(state string, found sight, log func(string)) (sig
 	}
 	const why = "left its question out of the chat"
 	if drying != nil {
+		if !seat.savedStop(state) {
+			return found, errDry
+		}
 		log("would resume " + seat.Name + ", " + why + ", with " + commandhelp.Quote(reminder))
 		return found, nil
 	}
