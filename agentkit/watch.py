@@ -81,8 +81,9 @@ KEY_GAP = 0.5           # text and Enter go separately: a return in the same rea
                         # 0.153.4 and Muse 1.2.1, 0.10 s still lost it and 0.15 s did not
 SENT_WAIT = 5.0         # how long a typed line gets to show whole in its composer, and to leave it
 SENT_POLL = 0.5         # ... polling the pane this often for its absence
-MOVE_STANDS = 3 * SENT_WAIT     # a move's lines unchanged this long are the tick's: Claude Code
-                        # 2.1.322 drew its card up to 4 s after `/model`, at a load of 68 on 18 cores
+MOVE_STANDS = 3 * SENT_WAIT     # a move's lines unchanged this long are the tick's: a harness
+                        # drew what it asks up to 4 s after the line, at a load of 68 on 18 cores
+                        # (11 Nov 2026)
 RESUME_EVERY = 600      # seconds between resume attempts for one exhausted run: a start that
                         # failed -- and a launch already on its way -- is retried at most this often
 DEAD_BACKOFF = 600      # a loop that dies again this soon after its resume waits this long
@@ -5041,7 +5042,7 @@ def move_behind(name):
     """`tell_moves` for that seat in a process of its own session, as a look goes
     (`start_look`), saying what it did in the tick's log (`note`): a move owes its lines and goes
     on, so no menu waits for a harness to redraw, and seats moved together move side by side.
-    It marks itself.  None types where none starts: the tick does it then."""
+    It marks itself.  Where it cannot start, the tick types the lines."""
     try:
         subprocess.Popen(
             [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "

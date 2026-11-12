@@ -4482,7 +4482,8 @@ def switch_in_place(cfg, name, chosen, effort):
     """Move that seat to the record fields `chosen` name -- its orchestrator, and the account
     of another provider -- at `effort` where given, by owing its harness the lines
     `switch_lines` gives (`watch.owe_line`), a turn its usage cut off told to go on after them,
-    typed in behind it (`watch.move_behind`): nothing restarts, so nothing is cut or asked.  The record takes the move first, those fields and the effort, put
+    typed in behind it (`watch.move_behind`): nothing restarts, so nothing is cut or asked.
+    The record takes the move first, those fields and the effort, put
     back where it or the lines cannot be written, so a refused move is left to make again; the
     harness's next answer puts it back where it refused a line (`watch.follow_model`).  What to
     say under the rows, or ""; None where the seat, as it stands under its lock, must restart
