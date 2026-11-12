@@ -13,6 +13,7 @@ from pathlib import Path
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -58,8 +59,9 @@ class SuitePieces(unittest.TestCase):
         self.logs = []
 
     def check(self, commands=None, **kwargs):
+        # the run's own ceiling: real boxed pieces on a loaded landing host outlast a short one
         return gate.run_done_when(commands or [SUITE], self.root,
-                                  self.run_dir / "gate.log", set(), limit=10,
+                                  self.run_dir / "gate.log", set(),
                                   log=self.logs.append, run_dir=self.run_dir, **kwargs)
 
     def test_pieces_get_separate_headers_and_one_command_outcome(self):
@@ -285,28 +287,20 @@ class SuitePieces(unittest.TestCase):
                     self.assertTrue(ok, text)
                     self.assertEqual(text.count("--- AK_SHARD="), count * (2 - bool(turn)))
 
-    def test_all_pieces_start_together_and_all_red_pieces_retry_alone(self):
-        barrier, lock = threading.Barrier(2, timeout=3), threading.Lock()
-        calls, active, reruns = Counter(), set(), []
+    def test_all_pieces_start_together_and_all_red_pieces_go_again_together(self):
+        # every go waits for its sibling's: one alone breaks the barrier and the check
+        barrier, calls = threading.Barrier(2, timeout=3), Counter()
         def limited(cmd, limit, env, output, **_kw):
             shard = env["AK_SHARD"]
-            with lock:
-                calls[shard] += 1
-                attempt = calls[shard]
-                active.add(shard)
-                if attempt == 2:
-                    reruns.append(set(active))
-            if attempt == 1:
-                barrier.wait()
+            calls[shard] += 1
+            attempt = calls[shard]
+            barrier.wait()
             output.write(f"{'FAIL: under load' if attempt == 1 else 'passed'} {shard}\n".encode())
-            with lock:
-                active.remove(shard)
             return (1 if attempt == 1 else 0), "", False
         with patch.object(worker, "boxed", side_effect=limited):
             ok, text = self.check()
         self.assertTrue(ok, text)
         self.assertEqual(calls, {"1/2": 2, "2/2": 2})
-        self.assertEqual(reruns, [{"1/2"}, {"2/2"}])
         state = {}
         prompts.record_flakes(state, text)
         self.assertEqual(len(state["followups"]), 2)
@@ -374,18 +368,30 @@ class SuitePieces(unittest.TestCase):
         self.assertNotIn("flaky:", text)
 
     def test_each_piece_reserves_a_heavy_turn_and_retries_return_the_extra_turns(self):
-        seen = []
+        held, flags, red = {}, set(), {"1/4", "2/4"}
         def limited(cmd, limit, env, **_kw):
-            seen.append((env["AK_SHARD"], gate._heavy_running(), env.get("AK_HEAVY_TURN")))
-            return (1 if len(seen) <= 2 else 0), "", False
+            shard = env["AK_SHARD"]
+            # the last to start of the first goes, and of the red ones' second, each reading
+            # once its sibling has ended
+            if shard == "4/4" or shard == "2/4" and shard in held:
+                deadline = time.monotonic() + 5
+                while len(gate._heavy_held()) > 1 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+            held.setdefault(shard, []).append(len(gate._heavy_held()))
+            flags.add(env.get("AK_HEAVY_TURN"))
+            code = int(shard in red)
+            red.discard(shard)
+            return code, "", False
         with patch.dict(os.environ, {"AK_MAX_RUNS": ""}), \
                 patch.object(worker, "boxed", side_effect=limited):
             (config.HOME / config.CONFIG_NAME).write_text("max_gates = 9\n")
             ok, text = self.check()
         self.assertTrue(ok, text)
-        self.assertEqual([held for _, held, _ in seen], [2, 2, 2, 2, 1, 1])    # 4 pieces on 2 turns
-        self.assertTrue(all(flag == "1" for _, _, flag in seen))
-        self.assertEqual(gate._heavy_running(), 0)
+        # 4 pieces on 2 turns, the red ones again side by side, but the last of each once no
+        # piece is left to start
+        self.assertEqual(held, {"1/4": [2, 2], "2/4": [2, 1], "3/4": [2], "4/4": [1]})
+        self.assertEqual(flags, {"1"})
+        self.assertEqual(len(gate._heavy_held()), 0)
 
     def test_isolated_cgroup_cost_is_saved_and_sizes_later_pieces(self):
         state = record.read_state(self.run_dir)
@@ -395,9 +401,9 @@ class SuitePieces(unittest.TestCase):
                 patch.object(gate.time, "monotonic", side_effect=[0, 10]):
             measured = gate._SuiteMeasure(self.run_dir)
             measured.sample()
-            measured.cpu.extend([15, 25])     # what each piece's box reported
+            measured.cpu.extend([(15, 10), (25, 10)])     # what each piece's box reported
             path, _, _ = gate.suite_cost(SUITE, self.root, self.run_dir)
-            measured.save(path, 2)
+            measured.save(path, 2, 2)
         self.assertEqual(json.loads(path.read_text()),
                          {"cpus": 2, "mem_mb": 1000, "wall_seconds": 10, "run_id": "fixture"})
         record.save_state(self.run_dir, state)

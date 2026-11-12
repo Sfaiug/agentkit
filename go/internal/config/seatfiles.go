@@ -9,7 +9,7 @@ import (
 // Python's config.SEAT_FILES, where each says what it holds and its test holds this copy to.  A
 // rename moves them, and a stop and the daily collector find them by this table.
 var seatFiles = map[string]string{"log": "txt", "session": "json", "notify": "json", "card": "json", "seat": "json",
-	"hook": "json", "plan": "md", "stop": "json", "live": "txt", "title": "json", "input": "jsonl", "rulebook": "md",
+	"hook": "json", "heard": "json", "plan": "md", "stop": "json", "live": "txt", "title": "json", "input": "jsonl", "rulebook": "md",
 	"verify": "lock", "unverified": "txt", "verified": "txt", "checked": "txt", "owed": "json", "pictures": "jsonl", "rules": "md",
 	"change": "md", "held": "md", "launch": "sh", "refused": "txt", "handover": "md", "tell": "json"}
 

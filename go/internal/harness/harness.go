@@ -37,10 +37,9 @@ type plugin struct {
 	report func(model string) (string, error)
 	status []string
 	// conversation is the file a seat's record says its conversation is kept in, "" for none,
-	// readBy ReadBy's where ak gives that file a name of its own beside, and sources TokenSources'.
+	// and readBy ReadBy's where ak gives that file a name of its own beside.
 	conversation func(record map[string]any) string
 	readBy       func(record map[string]any) []string
-	sources      func(record map[string]any) ([]string, bool)
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns), and
 	// resumable whether the seat owns one it may resume, where its own evidence says so, not its
 	// record (orch.resumable).
@@ -80,12 +79,12 @@ type plugin struct {
 	// notices above say which of them only record the owner interrupting.
 	last func(conversation, cwd, account string) *run.Object
 	// card is the question card its harness keeps in the conversation the seat owns, said that
-	// conversation as its harness shows it, and typed what the user side typed in it, and the error
-	// where that is there and cannot be read, of a harness Go reads strictly (Reads) (Python's
-	// plugin `card`, `said` and `user_messages`).
+	// conversation as its harness shows it, and typed what the user side typed in it, read with the
+	// record naming it, and the error where that is there and cannot be read, of a harness Go reads
+	// strictly (Reads) (Python's plugin `card`, `said` and `user_messages`).
 	card  func(conversation string) (hookfact.Fact, bool)
 	said  func(conversation string) []Turn
-	typed func(conversation string) ([]Prompt, error)
+	typed func(record map[string]any, conversation string) ([]Prompt, error)
 	// answered is Answered's: nil where Go reads neither that conversation nor its cards' answers,
 	// and loose where it reads a record naming them less strictly than Python's done check does.
 	answered func(record map[string]any) ([]Turn, []Card, error)
@@ -114,6 +113,10 @@ type plugin struct {
 	tokens     func(out string) (float64, bool)
 	// turnCounts is TurnCounts': nil where a turn reports no counts by model and kind.
 	turnCounts func(out string) (any, []Counts, bool)
+	// tokenSources and tokenUsage are TokenSources' and Spends': nil where no reader counts what
+	// its seats spend.
+	tokenSources func(record *run.Object) []string
+	tokenUsage   func(entry, cursor *run.Object) (Spend, bool)
 	// failed is TurnFailed's: nil where a failed turn's stderr holds all it says of why.
 	failed func(out string, result map[string]any)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.

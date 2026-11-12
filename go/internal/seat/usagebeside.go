@@ -62,7 +62,7 @@ func (facts climbing) news() string {
 		if !run.OwesEnding(each.record, time.Unix(0, int64(facts.now*1e9))) {
 			continue
 		}
-		if recorded, pending := EndingDelivery(each.record, each.census, facts.name); !recorded && (!pending || each.record.Truthy("handback_typed")) {
+		if recorded, pending, _ := EndingDelivery(each.record, each.census, facts.name); !recorded && (!pending || each.record.Truthy("handback_typed")) {
 			return fmt.Sprintf("telling it how run %s ended", each.name)
 		}
 	}

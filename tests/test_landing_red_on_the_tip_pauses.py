@@ -1,13 +1,14 @@
-"""A red landing piece runs again on the target's tip alone before anyone is blamed.
+"""A red landing suite runs again on the target's tip alone before anyone is blamed: whole,
+where its red piece named no test.
 
 Red there pauses the line on the retry ladder: nobody is woken, no repair starts, and at each
-step the piece runs there again; green there is the change's own red and goes to its fixer,
-whatever pass the target has on record; red through the whole ladder is the target's own and
-gets its one repair as before.  A piece that named the tests failing it, red again alone, has
-those alone run there first: passing, each named as run, the red is the member's own; failing
-again, each named as run and as failed by a run that ended in a failing exit, the target's own,
-repaired at once; anything else proves nothing, and the piece runs.  Offline: local Git, the
-fixture's shell suites, fake launches and wakes, a stopped clock.
+step it runs there again; green there is the change's own red and goes to its fixer, whatever
+pass the target has on record; red through the whole ladder is the target's own and gets its
+one repair as before.  A piece that named the tests failing it, red again alone, has those alone
+run there first: passing, each named as run, the red is the member's own; failing again, each
+named as run and as failed by a run that ended in a failing exit, the target's own, repaired at
+once; anything else proves nothing, and the piece runs.  Offline: local Git, the fixture's shell
+suites, fake launches and wakes, a stopped clock.
 """
 
 from pathlib import Path
@@ -126,7 +127,7 @@ class RedOnTheTip(unittest.TestCase):
         self.wake.assert_called_once_with(first.name, ANY)
         self.assertIsNone(self.red())
 
-    def test_a_sharded_suites_red_piece_alone_runs_on_the_tip(self):
+    def test_a_sharded_suites_red_that_named_no_test_runs_whole_on_the_tip(self):
         suite = 'case "$AK_SHARD" in 2/*) echo piece-two-broke; test ! -f ../flake;; *) true;; esac'
         self.declare(suite)
         first = self.member()
@@ -136,19 +137,18 @@ class RedOnTheTip(unittest.TestCase):
         said = []
         with patch.object(gate, "derived_heavy_limit", return_value=2):
             land.check_line(self.turn, said.append)
-        # the probe is the suite run as that one piece, its share set by the runner, never a
-        # command of its own: a project's suite line may set AK_SHARD itself and still be split
+        # on the tip, without the stack's own test files, the red piece's number holds others:
+        # the suite runs there whole, split as anywhere, a project's suite line setting
+        # AK_SHARD itself included
         self.assertEqual(self.commands(), [["true", suite], [suite]])
-        self.assertEqual(self.checks[-1][2].get("shard"), "2/2")
+        self.assertIsNone(self.checks[-1][2].get("shard"))
         self.assertTrue(gate.names_shard("export AK_SHARD=${AK_SHARD:-1/1}; make test"))
-        self.assertEqual(self.red()["probe"]["piece"], "2/2")
-        # what the piece printed on the tip is what a repair or a PR's fixer is told
-        shown = f"$ {suite}\n[exit 1]\n--- AK_SHARD=2/2 ---\npiece-two-broke"
-        self.assertIn(shown, (first / "target-probe.log").read_text())
-        self.assertIn(f"`{suite}`, its piece AK_SHARD=2/2, fails on origin/main at",
-                      self.red()["probe"]["text"])
-        self.assertIn(shown.replace("\n", "\n    "), self.red()["probe"]["text"])
-        self.assertIn("fails its piece AK_SHARD=2/2 alone", said[-1])
+        self.assertEqual(self.red()["probe"]["piece"], "")
+        # what the suite printed on the tip is what a repair or a PR's fixer is told
+        self.assertIn("piece-two-broke", (first / "target-probe.log").read_text())
+        self.assertIn(f"`{suite}` fails on origin/main at", self.red()["probe"]["text"])
+        self.assertIn("    piece-two-broke", self.red()["probe"]["text"])
+        self.assertIn("fails its suite alone", said[-1])
         self.wake.assert_not_called()
         self.assertEqual(self.prepared, [])
 
@@ -162,7 +162,7 @@ class RedOnTheTip(unittest.TestCase):
         self.clock()
         with patch.object(gate, "derived_heavy_limit", return_value=2):
             land.check_line(self.turn)
-        self.assertEqual(self.checks[-1][2].get("shard"), "2/2")
+        self.assertEqual(self.commands(), [["true", suite], [suite]])
         self.assertIsNone(self.red())
         self.assertIn("flaky:", (first / "target-probe.log").read_text())
         self.wake.assert_called_once_with(first.name, ANY)
@@ -213,9 +213,11 @@ class RedOnTheTip(unittest.TestCase):
             land.check_line(self.turn)
         # the narrowing first runs the deeper red's tests alone on the first stack: red there,
         # they prove nothing, and its whole check follows; the whole piece passing on the tip
-        # answers for the later member's red in it too
+        # answers for the later member's red in it too, which those tests, run alone on the
+        # stack rebuilt without the first, find
         self.assertEqual(self.probes(), [("2/2", ["test_later.sh", "test_new.sh"]),
-                                         ("2/2", ["test_new.sh"]), ("2/2", None)])
+                                         ("2/2", ["test_new.sh"]), ("2/2", None),
+                                         ("2/2", ["test_later.sh", "test_new.sh"])])
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
                          [first.name, later.name])
         self.assertIsNone(self.red())
@@ -226,11 +228,20 @@ class RedOnTheTip(unittest.TestCase):
         self.advance(**{"test_tax.sh": "exit 1\n"})
         self.clock()
         said = []
-        with patch.object(gate, "derived_heavy_limit", return_value=2):
+        blame_tip = land._blame_tip
+
+        def after_launch(*args, **kw):
+            self.assertEqual(len(self.prepared), 1)     # no repair waits on the walk
+            return blame_tip(*args, **kw)
+
+        with (patch.object(gate, "derived_heavy_limit", return_value=2),
+              patch.object(land, "_blame_tip", side_effect=after_launch) as walk):
             land.check_line(self.turn, said.append)
-            # a red that repeats: no step of the ladder would clear it, nor the piece add to it
-            self.assertEqual(self.probes(), [("2/2", ["test_tax.sh"])] +
-                             [("2/2", ["test_tax.sh"]), ("2/2", None)] * 2)
+            walk.assert_called_once()
+            # a red that repeats: no step of the ladder would clear it, nor the piece add to it;
+            # the walk for its first red commit runs them alone, and an earlier commit, without
+            # them and not naming them as not there, proves nothing
+            self.assertEqual(self.probes(), [("2/2", ["test_tax.sh"])] * 2)
             self.assertIn("fails test_tax.sh of its piece AK_SHARD=2/2 again, run alone: the "
                           "target's own red, repaired", "\n".join(said))
             self.assertEqual(len(self.prepared), 1)
@@ -238,7 +249,7 @@ class RedOnTheTip(unittest.TestCase):
             # kept as the ladder climbed, whoever takes it: a PR's fixer notes no repair run
             self.assertEqual(self.red()["probes"], len(turns.TRANSIENT_BACKOFF) + 1)
             land.check_line(self.turn)      # the repair holds the line from here
-        self.assertEqual((len(self.probes()), len(self.prepared)), (5, 1))
+        self.assertEqual((len(self.probes()), len(self.prepared)), (2, 1))
         self.wake.assert_not_called()
 
     def ladder(self, suite):
@@ -254,6 +265,7 @@ class RedOnTheTip(unittest.TestCase):
             land.check_line(self.turn)
             self.assertEqual(self.probes(), [("2/2", ["test_tax.sh"]), ("2/2", None)])
             self.assertNotIn("tests", self.red()["probe"])
+            self.assertIn("its piece AK_SHARD=2/2, fails on", self.red()["probe"]["text"])
             self.assert_parked({first: before})
             held[0] += turns.TRANSIENT_BACKOFF[0]
             land.check_line(self.turn)      # the ladder runs the piece itself
@@ -269,32 +281,26 @@ class RedOnTheTip(unittest.TestCase):
         # run alone, each is named as run and as failed before the runner dies
         self.ladder(NAMING.replace("exit $code", '[ -z "$AK_ONLY" ] || kill -9 $$; exit $code'))
 
-    def test_the_red_piece_is_read_from_its_exit_never_from_what_a_piece_printed(self):
-        # piece 1 prints a red piece's record lines and passes; piece 2 fails on every checkout
-        suite = 'case "$AK_SHARD" in 1/*) echo "--- AK_SHARD=1/2 ---"; echo "[exit 1]";; *) test ! -f ../flake;; esac'
+    def red_piece(self, suite):
+        """The red piece of `suite` on a member adding broken.txt, the tip passing it whole."""
         self.declare(suite)
-        self.member()
+        first = self.member(**{"broken.txt": "own\n"})
         self.advance()
-        self.flag()
-        self.clock()
         with patch.object(gate, "derived_heavy_limit", return_value=2):
             land.check_line(self.turn)
-        self.assertEqual(self.checks[-1][2].get("shard"), "2/2")
-        self.assertEqual(self.red()["probe"]["piece"], "2/2")
-        self.wake.assert_not_called()
-        self.assertEqual(self.prepared, [])
+        self.assertIsNone(self.red())
+        return self.wait(first)["fix"]["piece"]
+
+    def test_the_red_piece_is_read_from_its_exit_never_from_what_a_piece_printed(self):
+        # piece 1 prints a red piece's record lines and passes; piece 2 fails on the member
+        self.assertEqual(self.red_piece(
+            'case "$AK_SHARD" in 1/*) echo "--- AK_SHARD=1/2 ---"; echo "[exit 1]";; '
+            '*) test ! -f broken.txt;; esac'), "2/2")
 
     def test_a_piece_killed_by_a_signal_is_the_red_piece(self):
-        suite = 'case "$AK_SHARD" in 2/*) kill -9 $$;; *) true;; esac'
-        self.declare(suite)
-        self.member()
-        self.advance()
-        self.clock()
-        with patch.object(gate, "derived_heavy_limit", return_value=2):
-            land.check_line(self.turn)
-        self.assertEqual(self.checks[-1][2].get("shard"), "2/2")
-        self.assertEqual(self.red()["probe"]["piece"], "2/2")
-        self.wake.assert_not_called()
+        self.assertEqual(self.red_piece(
+            'case "$AK_SHARD" in 2/*) test ! -f broken.txt || kill -9 $$;; *) true;; esac'),
+            "2/2")
 
     def test_red_through_the_ladder_is_the_targets_own_and_gets_its_repair(self):
         self.declare(FLAKY)
@@ -307,7 +313,9 @@ class RedOnTheTip(unittest.TestCase):
             held[0] += turns.transient_delay(step)
             land.check_line(self.turn)
             self.assertEqual(self.red()["probes"], step + 1)
-        self.assertEqual(len(self.checks), 4 + len(turns.TRANSIENT_BACKOFF))
+        # the member's check, then each probe of the tip: a red that named no test walks no
+        # earlier commit
+        self.assertEqual(len(self.checks), 2 + len(turns.TRANSIENT_BACKOFF))
         self.assertEqual(len(self.prepared), 1)
         directory, opts = self.prepared[0]
         self.assertTrue(opts["--first"])
@@ -317,7 +325,7 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.red()["run"], directory.name)
         self.wake.assert_not_called()
         land.check_line(self.turn)       # the repair holds the line from here, as before
-        self.assertEqual(len(self.checks), 4 + len(turns.TRANSIENT_BACKOFF))
+        self.assertEqual(len(self.checks), 2 + len(turns.TRANSIENT_BACKOFF))
         self.assertEqual(len(self.prepared), 1)
 
     def test_green_on_the_tip_is_the_members_own_red_whatever_pass_the_target_has(self):

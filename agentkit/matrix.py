@@ -479,7 +479,7 @@ def refresh(cfg, *, refresh=False, now=None):
     Returns (boards, the lineup)."""
     from . import update        # here, not at the top: update reaches this module through orch
     now = time.time() if now is None else now
-    harnesses, build = present(), update.agentkit_version()
+    harnesses, build = present(), update.agentkit_build()
     boards = collect(refresh=refresh, now=now, needs=needed(), build=build)
     held = stored()
     fetched = max((board.get("fetched_at") or 0 for board in boards.values()), default=0)

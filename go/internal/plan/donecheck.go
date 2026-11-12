@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
@@ -29,9 +31,11 @@ type Said struct {
 // checkOwed is whether the seat, its plan's lines holding box lines and every one done, owes a
 // done check (done_check.owed): one is on, the owner wrote it a message or answered a question
 // card in one of its conversations, and no check that found no gap read what they have said and
-// what the plan holds now (Fingerprint).  A record or config that is there and cannot be read
-// holds the seat; ErrUnread where Go does not read the owner's words as Python does.  Nothing here
-// makes a check.
+// what the plan holds now (Fingerprint).  Their words are read only where what an answer was kept
+// from changed since (asked), and the answer held with what it read, for the command's end to keep
+// (KeepAnswers).  A record or config that is there and cannot be read holds the seat and keeps
+// nothing; ErrUnread, before anything is read, where Go does not read the owner's words as Python
+// does.  Nothing here makes a check.
 func checkOwed(name string, lines []string) (bool, error) {
 	if !slices.ContainsFunc(lines, boxed) || slices.ContainsFunc(lines, open) {
 		return false, nil
@@ -42,7 +46,27 @@ func checkOwed(name string, lines []string) (bool, error) {
 	case !on:
 		return false, nil
 	}
-	had, err := notify.Conversations(name, true)
+	current, had, err := notify.Listed(name, true)
+	if err != nil {
+		return false, ErrUnread
+	}
+	var kept any // none where no check was kept
+	switch text, err := os.ReadFile(seatFile("checked", name, "txt")); {
+	case err == nil && utf8.Valid(text):
+		kept = strings.TrimFunc(string(text), config.Space)
+	case !errors.Is(err, fs.ErrNotExist):
+		return true, nil
+	}
+	path := seatFile("owed", name, "json")
+	read, err := asked(current, had, lines, kept)
+	if err != nil {
+		return true, nil
+	}
+	if owes, ok := answered(path, read); ok {
+		return owes, nil
+	}
+	// read as Listed gave them, so the conversations read are those the digest claimed
+	err = notify.Read(current, had, true)
 	var owner []Said
 	if err == nil {
 		_, owner, err = OwnerWords(had)
@@ -52,12 +76,10 @@ func checkOwed(name string, lines []string) (bool, error) {
 		return false, ErrUnread
 	case err != nil:
 		return true, nil
-	case len(owner) == 0:
-		return false, nil // none with no conversation
 	}
-	// a check never kept, or kept where nothing can read it, read nothing
-	kept, err := os.ReadFile(seatFile("checked", name, "txt"))
-	return err != nil || strings.TrimFunc(string(kept), config.Space) != Fingerprint(owner, lines), nil
+	owes := len(owner) > 0 && kept != Fingerprint(owner, lines) // none with no conversation
+	keepAnswer(path, read, owes)
+	return owes, nil
 }
 
 // OwnerWords is each conversation of had, as notify.Conversations gives them, as its harness shows

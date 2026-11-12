@@ -29,8 +29,7 @@ const (
 	barTop  = "@ak_top"
 	barWhy  = "@ak_why"
 	// where the pointer is: its cells counted from the client's right edge, the right end's own edge
-	barAt  = "#{e|-:#{client_width},#{mouse_x}}"
-	barInk = "11111b" // the chip's dark text
+	barAt = "#{e|-:#{client_width},#{mouse_x}}"
 )
 
 var (
@@ -81,14 +80,15 @@ func barPaint(text, word string) string {
 	return "#[fg=#" + terminal.RGB(word) + "]" + tmuxText(text) + "#[default]"
 }
 
-// barChip is the state as the bar opens with it: `! needs you` in dark bold text on its amber, the
-// one loud thing on the bar; any other word as its glyph and word in its colour.
+// barChip is the state as the bar opens with it: its glyph and word on its colour in the text that
+// reads on it, bold for `! needs you`, the one loud thing on the bar.
 func barChip(screen terminal.Screen, word string) string {
-	said := tmuxText(screen.StateText(word))
+	bold := ""
 	if word == "needs you" {
-		return "#[fg=#" + barInk + ",bg=#" + terminal.RGB(word) + ",bold] " + said + " #[default]"
+		bold = ",bold"
 	}
-	return barPaint(screen.StateText(word), word)
+	return "#[fg=#" + terminal.Ink(word) + ",bg=#" + terminal.RGB(word) + bold + "] " +
+		tmuxText(screen.StateText(word)) + " #[default]"
 }
 
 // barProgress is the seat's plan as line one's last part in room cells (menu.last_column): a smooth
@@ -98,7 +98,7 @@ func barChip(screen terminal.Screen, word string) string {
 func barProgress(screen terminal.Screen, word, back string, unsent bool, done, total, room int) string {
 	mark, left := "", room
 	if unsent {
-		mark = "✎ unsent"
+		mark = "¶ unsent"
 		if screen.ASCII() {
 			mark = "* unsent"
 		}
@@ -140,33 +140,14 @@ func barLine(screen terminal.Screen, word string, done, total, room int) (string
 		halves = 2 * int(math.RoundToEven(float64(size)*share))
 	}
 	ends := (halves + 1) / 2
-	line := strings.Builder{}
-	for n := range ends {
-		amount := 0.0
-		if ends > 1 {
-			amount = 0.5 * (1 - float64(n)/float64(max(1, ends-1)))
-		}
-		char := half
-		if n < halves/2 {
-			char = full
-		}
-		line.WriteString("#[fg=" + barFaded(word, amount) + "]" + char)
+	line := strings.Repeat(full, halves/2) + strings.Repeat(half, halves%2)
+	if line != "" {
+		line = "#[fg=#" + terminal.RGB(word) + "]" + line
 	}
 	if ends < size {
-		line.WriteString("#[fg=#" + terminal.RGB("dim") + "]" + strings.Repeat(empty, size-ends))
+		line += "#[fg=#" + terminal.RGB("dim") + "]" + strings.Repeat(empty, size-ends)
 	}
-	return line.String() + "#[default] " + count, size + 1 + len(count)
-}
-
-// barFaded is a word's colour that far of the way to a dark terminal's background.
-func barFaded(word string, amount float64) string {
-	var parts [3]int
-	fmt.Sscanf(terminal.RGB(word), "%02x%02x%02x", &parts[0], &parts[1], &parts[2])
-	out := "#"
-	for _, part := range parts {
-		out += fmt.Sprintf("%02x", int(math.RoundToEven(float64(part)*(1-amount))))
-	}
-	return out
+	return line + "#[default] " + count, size + 1 + len(count)
 }
 
 // barCrew is who builds and reviews a seat's work, each named once with its marks, all dim (menu.crew).
