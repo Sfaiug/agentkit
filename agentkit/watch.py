@@ -3882,11 +3882,13 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
-    Each Enter goes only while the composer holds the line alone (`composer_holds`, read under
-    the guard right after the gap, and whole where the line is `pending`: no key of this call
-    is proof it is ak's), and the first waits up to SENT_WAIT for that: the owner can type in
-    the seat, and what they type is never sent.  A line the owner's text still joins after
-    that wait stays in the composer, for the owner or a later pass (`finish_own_lines`).
+    The owner can type in the seat: each Enter goes only while `composer_holds`, under the
+    guard right after the gap, reads the composer as the line -- whitespace never compared, and
+    whole where the line is `pending`: no key of this call is proof it is ak's -- and the
+    first waits up to SENT_WAIT for that.  Read as anything else, the line gets no Enter and
+    stays in the composer with what joined it, none of it removed, and this answers False as
+    for any line not sent: only a later pass that knows the line sends it (`finish_own_lines`),
+    and any other is the owner's to send or delete.
     None means the line was deferred before its text went in: keys its terminal has not read
     yet, a composer `composer_draft` does not read empty, or a seat whose harness has no
     composer to read.
@@ -4634,10 +4636,10 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     too, with the name the seat goes by then, before each key and a mark's confirmation: a line
     that has stopped being this seat's to have, or a pane whose process changed since its pin
     (`_respawned`), is typed no further.  Every Enter, the first, its retry and a mark's,
-    goes only while the composer holds the line alone (`composer_holds`): what the owner typed
-    in the gap before it is never sent.  The line is delivered only once its composer reads
-    empty with no unread terminal input, the first pass's as a mark's: one the owner edited
-    while its Enter was confirmed no longer reads whole there, and is still theirs to send.
+    goes only while the composer holds the line alone (`composer_holds`, `type_checked`).  The
+    line is delivered only once its composer reads empty with no unread terminal input, the
+    first pass's as a mark's: one the owner edited while its Enter was confirmed no longer
+    reads whole there, and is still theirs to send.
     Text left standing in a seat launched with ak's editor holds none of it back: the line goes
     in through that editor, which sets the text aside and gives it back (`_past_text`), and a
     mark naming the pane it went into is that editor's to read (`_line_left`).

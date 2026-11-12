@@ -1,7 +1,7 @@
-"""ak presses Enter only while a seat's composer holds ak's line alone, whoever types the line:
-a key the owner adds once ak's text is in, before its Enter, is never sent joined to it, and
-the line goes once that key is gone again (12 Nov 2026).  Offline: fixtures.editor_seat; the
-owner types in the pauses ak takes before the Enter.
+"""ak presses Enter only while `composer_holds` reads a seat's composer as ak's line, whoever
+types it: a character the owner adds once ak's text is in, before its Enter, gets no Enter and
+stays there with the line; once it is gone, a line `finish_own_lines` knows is sent (12 Nov
+2026).  Offline: fixtures.editor_seat; the owner types in the pause ak takes before the Enter.
 """
 
 import unittest
@@ -9,16 +9,17 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.editor_seat import EditorSeat
-from fixtures.seats import LINE, NOW
+from fixtures.seats import NOW
 from agentkit import watch
 
-OWNER = "x"     # one key of the owner's
+LINE = watch.ACCOUNT_LINE   # a fixed line finish_own_lines knows
+OWNER = "x"                 # one character of the owner's
 
 
 class TypedThroughTypeInto(EditorSeat):
     def setUp(self):
         super().setUp()
-        self.joined, self.unpressed, self.kept = 0, None, 3
+        self.owner = OWNER
         clock = Clock(self.pause)
         clock.time = lambda: NOW
         patcher = patch.object(watch, "time", clock)
@@ -29,23 +30,17 @@ class TypedThroughTypeInto(EditorSeat):
         return watch.type_into(self.seat, LINE, lambda _: None)
 
     def pause(self, _seconds):
-        """The owner's key joins ak's line once it is in, and goes again after `kept` pauses."""
-        if self.composer == LINE and not self.joined:
-            self.show(LINE + OWNER)
-        elif self.composer == LINE + OWNER:
-            self.joined += 1
-            if self.joined == self.kept:
-                self.unpressed = list(self.keys)
-                self.show(LINE)
+        """The owner's character joins ak's line once it is in, once."""
+        if self.composer == LINE and self.owner:
+            self.show(LINE + self.owner)
+            self.owner = ""
 
-    def test_the_owner_s_key_holds_the_enter_back_until_it_is_gone(self):
-        self.assertTrue(self.type_line())
-        self.assertEqual((self.unpressed, self.keys, self.sent), ([], ["Enter"], [LINE]))
-
-    def test_a_key_the_owner_leaves_there_is_never_sent(self):
-        self.kept = None
+    def test_no_enter_while_the_owner_s_character_joins_the_line(self):
         self.assertFalse(self.type_line())
         self.assertEqual((self.keys, self.sent, self.composer), ([], [], LINE + OWNER))
+        self.show(LINE)
+        watch.finish_own_lines(self.cfg, lambda _: None)
+        self.assertEqual((self.keys, self.sent), (["Enter"], [LINE]))
 
 
 class TypedThroughTypeAtPrompt(TypedThroughTypeInto):
