@@ -3885,10 +3885,11 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     Each Enter goes only while the composer holds the line alone (`composer_holds`, read under
     the guard right after the gap, and whole where the line is `pending`: no key of this call
     is proof it is ak's), and the first waits up to SENT_WAIT for that: the owner can type in
-    the seat, and what they type is never sent.  A line still joined to it after that wait stays, for
-    the owner or a later pass (`finish_own_lines`).  None means the line was deferred before
-    its text went in: keys its terminal has not read yet, a composer `composer_draft` does not
-    read empty, or a seat whose harness has no composer to read.
+    the seat, and what they type is never sent.  A line the owner's text still joins after
+    that wait stays in the composer, for the owner or a later pass (`finish_own_lines`).
+    None means the line was deferred before its text went in: keys its terminal has not read
+    yet, a composer `composer_draft` does not read empty, or a seat whose harness has no
+    composer to read.
     """
     text = terminal_mod.keyed(text)    # a typed escape or newline is a key, not text
     try:
