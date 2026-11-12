@@ -4,8 +4,9 @@ A live change whose outcome had to be rewritten that soon missed its intent, how
 tests.  `ak plan check` replaces a line's check; each run of that seat naming the line
 (`runs.session` with `runs.plan_line`, its outcome and written stamp) that went live in the last
 14 days is stamped once, and the board's `rewritten` row counts, in the week each went live, how
-many of that week's live plan lines were rewritten.  Another seat's run naming a line in the same
-words and stamp is not that seat's line, and a run live 20 days ago is past the window.
+many of that week's live plan lines were rewritten.  A run recorded under a name the seat was
+renamed from serves the same line; another seat's run naming a line in the same words and stamp
+does not, and a run live 20 days ago is past the window.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, against
 a history.db holding the live runs as their launches wrote them, read with sqlite3.
 """
@@ -42,10 +43,11 @@ class PlanRewriteCounted(unittest.TestCase):
         self.home.write(f".agentkit/state/plan-{SEAT}.md", "".join(
             f"- [ ] {what} · check: `{check}` · ~/code/acme#{root} · written {self.written(days)} "
             f"on {base}\n" for what, check, days in LINES))
-        # the seat's runs, and another seat's naming a line in the same words and stamp, live
-        # the same day
+        # the seat's runs, one recorded before it was renamed from `api`, whose pointer a rename
+        # leaves; and another seat's naming a line in the same words and stamp, live the same day
+        self.home.write(".agentkit/state/session-api.json", {"renamed": SEAT})
         runs = [(f"{SEAT}-{days}", SEAT, what, days) for what, _, days in LINES]
-        runs.append(("fix-web-3", "fix-web", LINES[0][0], 3))
+        runs += [("api-3", "api", LINES[0][0], 3), ("fix-web-3", "fix-web", LINES[0][0], 3)]
         self.db = sqlite3.connect(self.home.path / DATABASE)
         self.addCleanup(self.db.close)
         self.db.execute("CREATE TABLE runs (%s, plan_line TEXT, live_at REAL, changed_lines INTEGER)"
@@ -79,7 +81,7 @@ class PlanRewriteCounted(unittest.TestCase):
         self.assertEqual(self.counted(), ("0 of 2 live plan lines rewritten within 14 days",
                                           "no plan line went live"))
         self.ak("plan", "check", "1", "test -f parser-v2.txt")
-        self.assertEqual(self.stamped(), {f"{SEAT}-3"})
+        self.assertEqual(self.stamped(), {f"{SEAT}-3", "api-3"})
         self.assertEqual(self.counted(), ("1 of 2 live plan lines rewritten within 14 days",
                                           "no plan line went live"))
 

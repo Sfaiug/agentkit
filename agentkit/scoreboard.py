@@ -143,6 +143,14 @@ def split_hours(row):
     return hours
 
 
+def seat_now(name):
+    """The seat a recorded name leads to now; the name itself where its renames cannot be followed."""
+    try:
+        return config.resolve_session(name)
+    except config.Error:
+        return name
+
+
 def compute(now=None):
     """Two weeks of ended work, newest first, and the installed ak's committed size.
 
@@ -334,11 +342,14 @@ def compute(now=None):
         merged_changes.append(per_change(grouped))
         check_costs.append(checked(grouped))
         broken.append(breaks(ended))
-        # a plan line counts once in each week its run went live, so a recent week's count can grow
+        # a plan line counts once in each week its run went live, so a recent week's count can
+        # grow; it is its seat's by the name each run's leads to now, as `ak plan check` reaches
+        # them (`plan.names`): a rename leaves the runs recorded before it under the old name
         week_lines = {}
         for session, line, at, done in live_lines or ():
             if in_week(at, end):
-                week_lines[session, line] = week_lines.get((session, line), False) or bool(done)
+                key = seat_now(session), line
+                week_lines[key] = week_lines.get(key, False) or bool(done)
         rewritten.append(None if live_lines is None
                          else {"live": len(week_lines), "rewritten": sum(week_lines.values())})
         review_pairs.append(pairs(ended))

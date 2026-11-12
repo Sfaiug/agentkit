@@ -678,7 +678,8 @@ func broke(ended []history.Row) string {
 
 // rewritten is how many of the plan lines whose run went live in the week had their check
 // replaced within 14 days of going live: a line counts once in each week its run went live, so a
-// recent week's count can still grow.
+// recent week's count can still grow.  It is its seat's by the name each run's leads to now, as
+// `ak plan check` reaches them: a rename leaves the runs recorded before it under the old name.
 func (b *board) rewritten(end float64) string {
 	if !b.rewritesKnown {
 		return "not recorded"
@@ -686,7 +687,11 @@ func (b *board) rewritten(end float64) string {
 	lines := map[[2]any]bool{}
 	for _, row := range b.rewrites {
 		if b.in(number(row, "live_at"), end) {
-			key := [2]any{row["session"], row["plan_line"]}
+			seat, _, err := config.ResolveSession(row.Text("session"))
+			if err != nil { // renames that cannot be followed: the name as recorded
+				seat = row.Text("session")
+			}
+			key := [2]any{seat, row["plan_line"]}
 			lines[key] = lines[key] || row.Truthy("rewritten")
 		}
 	}
