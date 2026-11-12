@@ -371,6 +371,7 @@ def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
     `typed` and `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the
     composer is never typed a second time.  A line `watch.too_long` refuses is never typed.
     """
+    seat = config.resolve_session(seat)     # a receipt names the seat as it was launched
     refusal = watch.too_long(line)
     if refusal:
         log(f"WARN {line[:60]}… not handed to {seat}: {refusal}")
