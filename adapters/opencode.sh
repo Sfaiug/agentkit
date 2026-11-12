@@ -556,8 +556,12 @@ login)
   p=${PROVIDERS%% *}
   [ "${1:-}" != again ] && logged_in "$p" && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
   [ -t 0 ] || { echo "opencode: not logged in${p:+ to $p}; run \`opencode auth login${p:+ $p}\` in a terminal" >&2; exit 1; }
-  method=$([ -n "$p" ] && ask integration.list "{id, method: $SIGN_IN}" \
-    | jq -r --arg p "$p" 'first(.[] | select(.id == $p) | .method | strings)')
+  # A list that does not answer cannot say the provider takes only a key: no login rather
+  # than the key prompt for a provider offered as a sign-in.
+  method=""
+  [ -z "$p" ] || method=$(ask integration.list "{id, method: $SIGN_IN}" \
+    | jq -er --arg p "$p" '[.[] | select(.id == $p) | .method][0] // ""') || {
+    echo "opencode: OpenCode did not list how $p signs in; no login started" >&2; exit 1; }
   opencode auth login ${method:+--method "$method"} ${p:+"$p"} ;;
 logout)
   # 2.0.24 asks which credential, on a terminal, where none is named

@@ -791,6 +791,31 @@ cat "$dir/bridge-eval"
         self.assertEqual(proc.returncode, 0)
         self.assertIn("nothing to write", proc.stdout)
 
+    def test_login_starts_the_sign_in_its_provider_offers_and_none_unlisted(self):
+        # MiMo, as setUp names it, taking a key or an account's sign-in; a terminal on stdin
+        env = {"STUB_ARGV_LOG": str(self.argv_log), "STUB_INTEGRATION_LIST": json.dumps(
+            {"data": [{"id": "mimo", "name": "MiMo", "methods": [
+                {"type": "key"}, {"id": "mimo-account", "type": "oauth", "label": "Sign in"}]}]})}
+
+        def login(**more):
+            self.argv_log.unlink(missing_ok=True)
+            typist, terminal = os.openpty()
+            try:
+                proc = self.adapter("login", stdin=terminal, env={**env, **more})
+            finally:
+                os.close(typist)
+                os.close(terminal)
+            return proc, [line.split() for line in self.argv_log.read_text().splitlines()
+                          if line.startswith("auth login")]
+
+        proc, logins = login()
+        self.assertEqual((proc.returncode, logins),
+                         (0, [["auth", "login", "--method", "mimo-account", "mimo"]]), proc.stderr)
+        # a list that does not answer starts no login, never the key prompt in its place
+        proc, logins = login(STUB_API_RC="7")
+        self.assertEqual((proc.returncode, logins), (1, []))
+        self.assertIn("did not list how mimo signs in", proc.stderr)
+
     # --- accounts ------------------------------------------------------------
     def test_a_named_account_is_refused_by_every_verb(self):
         # A login of its own would be a database of its own, conversations and all: every verb
