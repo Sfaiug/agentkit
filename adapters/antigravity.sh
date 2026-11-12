@@ -189,7 +189,8 @@ interactive)
   # This launch's hooks, in the same `.agents` directory agy reads the agent from: a
   # PreInvocation at invocationNum 0 is the turn's prompt, which hooks/seat-state.sh writes
   # down as UserPromptSubmit (its stdout discarded, as agy parses a PreInvocation hook's
-  # stdout as a PreInvocationHookResult), and Stop is the end-of-turn gate itself.
+  # stdout as a PreInvocationHookResult) in the conversation it names, which the seat follows
+  # (agentkit/harness/antigravity.py `follow`), and Stop is the end-of-turn gate itself.
   quoted=$(printf '%q' "$REPO")
   pre="jq -c 'select((.invocationNum // 0) == 0) | {prompt: (.lastUserInput // \"\"), session_id: (.conversationId // \"\"), hook_event_name: \"UserPromptSubmit\"}' | bash $quoted/hooks/seat-state.sh >/dev/null; exit 0"
   stop="bash $quoted/hooks/orchestrator-stop.sh"

@@ -65,7 +65,7 @@ class TheScreen(unittest.TestCase):
         home, menu, cls.screen = opened(cls)
         record = home.path / ".agentkit/state/session-fix-web.json"
         menu.keys("Down", "x")
-        cls.card = menu.wait("✗ Remove")      # the choices are drawn after the question
+        cls.card = menu.wait("× Remove")      # the choices are drawn after the question
         menu.keys("Enter")
         cls.kept = menu.wait(lambda screen: KEYS in screen and "Remove fix-web" not in screen)
         cls.records = [record.exists()]
@@ -92,7 +92,7 @@ class TheScreen(unittest.TestCase):
         card = lines(self.card)
         at = card.index("  Remove fix-web from past sessions?")
         self.assertEqual(card[at + 1:at + 4],
-                         ["  It can no longer be reopened.", "› ✓ Keep", "  ✗ Remove"])
+                         ["  It can no longer be reopened.", "› ✓ Keep", "  × Remove"])
         self.assertIn("2  fix-web", self.kept)
         self.assertIn("2  add-docs", self.removed)
         self.assertEqual(self.records, [True, False])       # kept, then removed

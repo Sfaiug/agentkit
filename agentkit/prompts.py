@@ -16,7 +16,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import gitcall, hand_in, history, record as run_record, task as taskfile, turns, worker
+from . import config, gitcall, hand_in, history, record as run_record, task as taskfile, turns, worker
 
 
 DIFF_CAP = 300 * 1024
@@ -339,13 +339,15 @@ TEST_DIRS = ("tests", "test", "spec", "specs", "__tests__")
 TEST_NAMES = ("*_test.*", "*_spec.*", "*.test.*", "*.spec.*")
 
 
-def hunks(lp, path, since, head):
+def hunks(lp, path, since, head, was=None):
     """The hunks of `path` from the commit `since` to `head`, no context, as git reads a
     conflict: (old start, old count, new start, new count) each, in order.  Two commits'
     trees, not their merge base's: after a rebased push the coordinates are the reviewed
-    commit's own, and the base is already the merge base."""
+    commit's own, and the base is already the merge base.  `was` names where a renamed or
+    copied `path` was on `since`: the diff is then of those two files."""
+    sides = (f"{since}:{was}", f"{head}:{path}") if was else (since, head, "--", f":(literal){path}")
     diff = gitcall.git(lp.wt, "diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames",
-               "--unified=0", since, head, "--", f":(literal){path}")
+               "--unified=0", *sides)
     return [(int(hunk[1]), int(hunk[2] or 1), int(hunk[3]), int(hunk[4] or 1))
             for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", diff, re.M)]
 
@@ -361,6 +363,27 @@ def changed_line(lp, row, head, since=None):
     """Whether the finding's line is inside the diff to `head` from `since`: the base, or the
     commit the last review judged, for a later round."""
     return in_hunks(row["line"], hunks(lp, row["path"], since or lp.base_sha, head))
+
+
+def inside_fix(lp, row, since, head):
+    """A `findings` row's `inside_fix`: 1 where its line is one the fix wrote from `since`, the
+    commit the last review judged, to `head` (the new side of git's diff between them, renames
+    and copies followed: a pure removal writes none), else 0; None with no `since` or line, or
+    where git cannot read that diff."""
+    if since is None or row.get("line") is None:
+        return None
+    try:
+        # -z: each path as it is, never quoted
+        named = iter(gitcall.git(lp.wt, "diff", "-M", "-z", "--name-status", since, head).split("\0"))
+        for status, path in zip(named, named):
+            # a rename or a copy names its source first
+            path, was = (next(named), path) if status[0] in "RC" else (path, None)
+            if path == row["path"] and status != "D":
+                return int(any(start <= row["line"] < start + count
+                               for _, _, start, count in hunks(lp, path, since, head, was)))
+        return 0
+    except config.Error:
+        return None
 
 
 def capped(lp, diff):
@@ -405,11 +428,11 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
                     code, _, killed = worker.boxed(
                         ["bash", "-c", command], lp.done_when_limit, silence=lp.turn_limit,
                         activity=log_path, output=progress, stderr=subprocess.STDOUT,
-                        stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env)
+                        stdin=subprocess.DEVNULL, cwd=str(lp.wt), env=env, used=ended)
                 except (FileNotFoundError, PermissionError) as exc:
                     code, killed = (127 if isinstance(exc, FileNotFoundError) else 126), False
                     progress.write(str(exc).encode())
-                ended.append(None if killed else code)
+                ended["exit"] = None if killed else code
             output = hand_in.output_excerpt(progress, start)
             progress.write(f"\n[{'did not finish' if killed or code < 0 else f'exit {code}'}]\n".encode())
         turns.memory_cap_note(lp.run_dir, lp.log)

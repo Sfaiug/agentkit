@@ -11,7 +11,8 @@ import (
 
 func TestNewCompletionPagesEvenWithoutAnInterveningWordChange(t *testing.T) {
 	_, write := questionHome(t)
-	write(seatFile("session", "acme", "json"), `{"created":1}`)
+	// a seat as launched: its done's row is read from the conversation its harness keeps
+	write(seatFile("session", "acme", "json"), `{"orchestrator":"opus","cwd":"/code/acme","conversation":"conv-acme","created":1}`)
 	write(seatFile("seat", "acme", "json"), `{"word":"done","reason":"Ship the release"}`)
 	word := "done"
 	said := func(string) (string, any) { return word, run.Float(clock()) }
