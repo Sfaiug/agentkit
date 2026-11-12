@@ -25,7 +25,7 @@ const (
 // A Seat is one row of the screen: its place in the whole list, what it is, and what opens under it.
 type Seat struct {
 	Number                                    int
-	Name, Checkout, Model, Word, Unsent, Said string // Checkout "" is filed under none
+	Name, Checkout, Model, Word, Unsent, Said string // Checkout "" is filed under none; Said, the past screen's
 	Alone                                     string // its model without the effort Model names
 	Done, Total                               int    // its plan's lines done, of how many; none without one
 	Builds, Reviews                           []string
@@ -64,7 +64,7 @@ type View struct {
 	New         *Draft
 	Motion      *motion.Clock  // where what moves is this frame; nil, all still
 	Switches    map[string]int // each project naming its feature switches, by checkout: how many are hidden
-	Pipe        bool           // drawn for a pipe: no row is lit, and each opens what it says (piped)
+	Pipe        bool           // drawn for a pipe: no row is lit, and every row opens its detail
 }
 
 // Keys is the main screen's key line, `p past` on it while a seat the owner stopped is offered.
@@ -117,16 +117,16 @@ func Draw(view View, width, height int) Frame {
 	paging := len(keyLine(s, view.Keys, width, pageMark(s, 98, 99, false, false)))
 
 	saidRoom := max(1, sized.room-(2+sized.num+2))
-	said := map[string]int{}
+	said := map[string][]string{}
 	opens := 0
 	for _, seat := range view.Seats {
-		said[seat.Name] = len(detail(s, seat, saidRoom, nil))
-		opens = max(opens, said[seat.Name])
+		said[seat.Name] = detail(s, seat, saidRoom, nil)
+		opens = max(opens, len(said[seat.Name]))
 	}
 	opens = min(opens, max(1, height/2))
 	cursor, opened := Step(view.Seats, view.Switches, view.Highlight.Cursor, 0), map[string][]string(nil)
-	if view.Pipe {
-		cursor, opens, opened = "", 0, piped(s, view.Seats, saidRoom)
+	if view.Pipe { // nothing is highlighted there to open a row, so every row opens (menu.draw)
+		cursor, opens, opened = "", 0, said
 	}
 	frame := Frame{cursor: cursor, hidden: view.Highlight.Hidden, width: width, height: height, order: seatOrder(view.Seats, view.Switches)}
 
@@ -214,8 +214,8 @@ func Draw(view View, width, height int) Frame {
 	pages := [][]row{flat}
 	if paged {
 		kept := map[string]int{}
-		for name, count := range said {
-			kept[name] = min(count, opens)
+		for name, lines := range said {
+			kept[name] = min(len(lines), opens)
 		}
 		var cut []pageProject
 		for i, blocks := range blocks(room - 1) {

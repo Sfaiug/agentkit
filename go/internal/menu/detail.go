@@ -13,6 +13,8 @@ import (
 // Task is a task's progress as the seat read it, independent of how its squares are drawn.
 type Task = seat.Task
 
+// detail is the lines under a seat's row (menu.detail): the text the owner left unsent, then,
+// whatever its word, who builds and who reviews and its tasks' squares, never what it said.
 func detail(s terminal.Screen, seat Seat, room int, clock *motion.Clock) []string {
 	if seat.draft != nil {
 		return nil // the draft's crew or refusal is part of its row block
@@ -22,13 +24,6 @@ func detail(s terminal.Screen, seat Seat, room int, clock *motion.Clock) []strin
 		for _, line := range terminal.Wrap(unsentMark(s, seat.Unsent), room) {
 			lines = append(lines, s.Styled(line, "amber"))
 		}
-	}
-	said := ""
-	if seat.Word != "working" {
-		said = terminal.Plain(seat.Said)
-	}
-	if said != "" || seat.Word == "needs you" || seat.Word == "done" || seat.Word == "out of usage" {
-		return append(lines, terminal.Wrap(said, room)...)
 	}
 	least := 0
 	if len(seat.Tasks) > 0 {

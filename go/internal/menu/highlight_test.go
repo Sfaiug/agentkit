@@ -7,9 +7,9 @@ import (
 	"agentkit/internal/terminal"
 )
 
-func TestAnOpenQuestionKeepsTheFrameAndItsPointerPlaces(t *testing.T) {
+func TestAnOpenLongTextKeepsTheFrameAndItsPointerPlaces(t *testing.T) {
 	view := fourSeats()
-	view.Seats[0].Said = strings.Repeat("What should happen next? ", 80)
+	view.Seats[0].Unsent = strings.Repeat("What should happen next? ", 80)
 	view.Highlight = Highlight{Cursor: view.Seats[0].Name, Open: true}
 	for _, size := range [][2]int{{100, 30}, {40, 20}, {24, 16}, {20, 8}} {
 		drawn := Draw(view, size[0], size[1])

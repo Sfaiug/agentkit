@@ -84,7 +84,7 @@ func readFrame(now time.Time, announce bool) (reading, bool) {
 		builds, reviews := home.Crew(each)
 		model, alone := home.ModelName(each)
 		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: model, Alone: alone,
-			Word: each.Word, Unsent: each.Unsent(), Said: each.Said(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
+			Word: each.Word, Unsent: each.Unsent(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
 	}
 	found.switches = hiddenFeatures(found.seats)
 	return found, true

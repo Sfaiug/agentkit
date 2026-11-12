@@ -74,12 +74,3 @@ func TestTheScreenReadsLiveSeatsWithRuns(t *testing.T) {
 		t.Fatalf("known %v: %+v", known, got.Seats)
 	}
 }
-
-func TestADoneSeatOpensItsPlanEvenWhileAsleep(t *testing.T) {
-	home := sandbox(t)
-	write(t, stateFile(home, "plan-acme.md"), "- [x] The parser is shipped\n")
-	seat := Seat{Name: "acme", Word: "done", reason: "asleep: press 1 to wake it"}
-	if said := seat.Said(); said != "The parser is shipped" {
-		t.Fatal(said)
-	}
-}
