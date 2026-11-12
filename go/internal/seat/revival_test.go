@@ -35,7 +35,7 @@ case "$*" in '-L seat-test '*) ;; *) exit 1 ;; esac
 case "$*" in
   *new-session*|*respawn-pane*) printf '%s\n' "$*" >> "$HOME/started"; [ "$RECOVERY_REFUSE" != 1 ] ;;
   *list-sessions*) [ "$RECOVERY_HELD" = 1 ] || exit 1; printf 'acme\t1\n' ;;
-  *'#{pane_id} #{pane_dead}') printf '%%1 %s\n' "$RECOVERY_DEAD" ;;
+  *'#{pane_id} #{pane_dead}') printf '0 1 %%1 %s\n' "$RECOVERY_DEAD" ;;
   *list-panes*) printf 'acme\t%s\n' "$RECOVERY_DEAD" ;;
   *show-options*) echo '%1' ;;
   *session_activity*) printf '0\t1\n' ;;
@@ -353,7 +353,8 @@ func TestADeathBetweenListingAndCaptureKeepsTheLastPrompt(t *testing.T) {
 	bin := filepath.Join(home, "bin")
 	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
 case "$*" in
-  *list-panes*) echo '%1 0' ;;
+  *list-panes*) echo '0 1 %1 0' ;;
+  *capture-pane*display-message*) printf 'Pane is dead (status 0)\n1\n' ;;
   *capture-pane*) echo 'Pane is dead (status 0)' ;;
   *display-message*) echo 1 ;;
 esac
@@ -386,7 +387,8 @@ case "$*" in *'-L seat-test '*) ;; *) exit 1 ;; esac
 case "$*" in
   *list-sessions*) printf 'acme\t1\n' ;;
   *list-panes*-a*) printf 'acme\t0\n' ;;
-  *list-panes*) echo '%1 0' ;;
+  *list-panes*) echo '0 1 %1 0' ;;
+  *capture-pane*display-message*) printf 'Pane is dead (status 0)\n1\n' ;;
   *capture-pane*) echo 'Pane is dead (status 0)' ;;
   *display-message*'#{pane_dead}'*) echo 1 ;;
   *display-message*'#{session_attached}'*) printf '0\t%%1\t%s/work/acme\n' "$HOME" ;;
@@ -404,9 +406,19 @@ func TestADeathAfterListingLeavesLiveRowsForTheRevivalRow(t *testing.T) {
 	if live, known := Lives(time.Now()); !known || len(live) != 0 {
 		t.Fatalf("a known death prevented the live rows: known=%v, lives=%v", known, live)
 	}
-	carried, err := Health("acme", func(Live) bool {
-		t.Fatal("a dead harness reached the live-screen health predicate")
-		return false
+	// asked of the dead seat before anything of it is kept, as watch.health still reads its login
+	before, _ := os.ReadFile(seatFile("acme"))
+	if carried, err := Health("acme", func(live Live) bool { return !live.Exited }, func(string) {}, false); carried || err != nil {
+		t.Fatal("a dead seat its look refused was carried:", carried, err)
+	}
+	if after, _ := os.ReadFile(seatFile("acme")); string(after) != string(before) {
+		t.Fatalf("a dead seat its look refused was kept: %s", after)
+	}
+	carried, err := Health("acme", func(live Live) bool {
+		if !live.Exited || live.Name != "acme" || live.Pane != "" {
+			t.Fatalf("a dead harness reached the live-screen health predicate: %+v", live)
+		}
+		return true
 	}, func(string) {}, false)
 	if !carried || err != nil {
 		t.Fatal(carried, err)

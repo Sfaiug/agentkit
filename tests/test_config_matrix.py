@@ -46,7 +46,7 @@ EFFORTS = {"claude-haiku-4-5": ["none"],
 config.catalog = lambda harness, cfg=None: [{"id": model, "label": model, "efforts": efforts}
                                   for model, efforts in EFFORTS.items() if harness == "claude"]
 update.version = lambda harness: print("<harness version>", flush=True)
-update.agentkit_version = lambda: "abc1234 · 2026-09-29"
+update.agentkit_version = lambda: "2816 · 2026-09-29"
 menu.config_discord = lambda: print("<discord step>", flush=True)
 session = os.environ["MATRIX_SESSION"] or None
 if session:     # the seat whose roles the marks are, with no reviewers of its own
@@ -172,7 +172,7 @@ class Screen:
                 lines = Lines(terminal.ANSI.sub("", line).rstrip("\r") for line in raw)
                 lines.lit = next(((number, line.split("\x1b[7m")[1].split("\x1b[")[0].strip())
                                   for number, line in enumerate(raw) if "\x1b[7m" in line), None)
-                if lines and "agentkit · config" in lines[0]:
+                if lines and lines[0].startswith("agentkit · "):   # a narrow one sheds `config`
                     return lines if where is None or where(lines) else None
             return None
         return self.until(ready, "the config screen")
@@ -206,9 +206,10 @@ class Screen:
         self.case.assertEqual(self.proc.wait(15), 0, self.text()[-3000:])
 
 
-# Each model by the full name its row shows (config.model_name), the shipped catalog's labels.
+# Each model by the full name its row shows (config.model_name): the shipped catalog's label, else
+# its name and number off its id.
 FULL = {"fable": "Fable 5.1", "opus": "Opus 5.5", "haiku": "Haiku 4.5", "astra": "GPT-6-Astra",
-        "spark": "muse-spark-1.3-contributor", "grok": "Grok 4.7", "gemini": "Gemini 3.8 Flash",
+        "spark": "Spark 1.3 Contributor", "grok": "Grok 4.7", "gemini": "Gemini 3.8 Flash",
         "mimo": "MiMo V2.6 Pro"}
 
 
@@ -268,8 +269,8 @@ class Matrix(unittest.TestCase):
                         "OpenCode"):           # each model under its harness
             self.assertIn(f"\n{heading}\n", body)
         self.assertEqual(row(lines, "fable")[1].split(), ["›", "Fable", "5.1", "○", "□", "□"])
-        self.assertEqual(row(lines, "opus")[1].split(), ["Opus", "5.5", *("●", "▰▰▰▰▱", "xhigh"),
-                                                         *("■", "▰▰▰▰▱", "xhigh") * 2])
+        self.assertEqual(row(lines, "opus")[1].split(), ["Opus", "5.5", *("●", "━━━━─", "xhigh"),
+                                                         *("■", "━━━━─", "xhigh") * 2])
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("Models", tail)
@@ -277,9 +278,9 @@ class Matrix(unittest.TestCase):
         self.assertTrue(any(line.startswith("Discord") and line.endswith("not connected")
                             for line in tail), tail)
         # the build under the last row, nothing said of the highlighted model
-        version = tail.index("Version abc1234 · 2026-09-29")
+        version = tail.index("Version 2816 · 2026-09-29")
         self.assertEqual(tail[version - 2].split()[0], "Limits", tail)
-        self.assertEqual(tail[version - 1:], ["", "Version abc1234 · 2026-09-29", "",
+        self.assertEqual(tail[version - 1:], ["", "Version 2816 · 2026-09-29", "",
                                               KEYS.strip()])
         self.assertEqual(lines[-1], KEYS)
         screen.leave()
@@ -391,7 +392,7 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         number, line = row(lines, "opus")                 # low, medium, high: its third
-        lines = screen.click(line.index("▰") + 3, number,
+        lines = screen.click(line.index("━") + 3, number,
                              lambda lines: effort(lines, "opus") == "high")
         self.assertIn("Opus 5.5", highlighted(lines))
         self.assertEqual(screen.effort("opus"), "high")
@@ -480,7 +481,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(lines[-1], OPEN_KEYS)   # its step, like Discord's
         # the last stop: the build under the page is read, and never highlighted
         lines = screen.press(DOWN * 3, lambda lines: highlighted(lines).startswith("› Limits"))
-        self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])
+        self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])
         screen.leave()
         self.assertEqual(screen.text().count("<discord step>"), 1)
 
@@ -488,7 +489,7 @@ class Matrix(unittest.TestCase):
         screen = Screen(self, workers=["opus"], rows=24, cols=40)
         lines = screen.frame()
         self.assertLessEqual(len(lines), 23)
-        self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # on the first page
+        self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # on the first page
         for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
         self.assertEqual(lines[headings(lines)].split(), ["orch", "builds", "reviews"])
@@ -500,7 +501,7 @@ class Matrix(unittest.TestCase):
         lines = screen.press(DOWN * 14,
                              lambda lines: highlighted(lines).startswith("› Limits"))
         self.assertLessEqual(len(lines), 23)
-        self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # and on the last
+        self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
         lines = screen.press(UP * 6, lambda lines: highlighted(lines) == "› Models")

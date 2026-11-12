@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import (box, config, deliver, gitcall, handback, host, notify, orch, retention, run,
-               sleep, staffing, task as taskfile, transitions, turns, watch)
+               staffing, task as taskfile, transitions, turns, watch)
 from . import land, record
 
 JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at most this often
@@ -345,22 +345,39 @@ def job_verdict_line(task, run_state=None):
     return f"{name}: FAIL after {rounds} rounds: needs you"
 
 
+def seat_line(job_dir, line):
+    """The job's `line` as its seat can be handed it (`watch.too_long`), cut as a run's notice is
+    (`handback.seat_notice`): as it is while it fits, else its reason cut at a word and the whole
+    of it in `ending.txt`, which the cut line names as its result."""
+    if not watch.too_long(line):
+        return line
+    whole = job_dir / "ending.txt"
+    whole.write_text(line + "\n")
+    tail = f"… Result: {config.tilde(whole)}. Decide the next step."
+    said = line.rpartition(". Result: ")[0][:watch.longest()]    # no word past it can fit
+    while said and watch.too_long(said + tail):
+        said = said.rpartition(" ")[0]
+    return said + tail
+
+
 def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
     """Type a finished job's line into its seat: `sent`, `busy` or `gone`.
 
     The seat has to be found and typed into in the same world -- see `launcher_world` -- and
     only at its own prompt, exactly as a single run's ending is handed back.  `busy` is a seat
-    that is there with a turn in flight, or asleep and not yet back (`sleep.wake`): the line waits
-    on the job's record and the tick types it at the next quiet prompt, because a seat still in
-    its chair is never a reason to ask the owner instead.  Only `gone` is.  `typed` and
-    `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the composer is
-    never typed a second time.
+    that is there with a turn in flight: the line waits on the job's record and the tick types
+    it at the next quiet prompt, because a seat still in its chair is never a reason to ask the
+    owner instead, and nor is one the tick has yet to reopen (`watch.slept`).  Only `gone` is.
+    `typed` and `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the
+    composer is never typed a second time.  A line `watch.too_long` refuses is never typed.
     """
-    if not sleep.wake(seat, log):
+    refusal = watch.too_long(line)
+    if refusal:
+        log(f"WARN {line[:60]}… not handed to {seat}: {refusal}")
         return "busy"
     with handback.launcher_world(seat) as live:
         if not live:
-            return "gone"
+            return "busy" if watch.slept(seat) else "gone"
         if watch.type_at_prompt(orch.find(seat) or {"name": seat}, line, log,
                                 typed=typed, receipt=receipt):
             return "sent"
@@ -407,6 +424,7 @@ def deliver_job_handbacks(log):
             seat = (job or {}).get("seat")
             if not line or not seat:
                 continue
+            line = seat_line(job_dir, line)
             answer = job_hand_back(seat, line, log, job.get("handback_typed"),
                                    lambda mark: mark_job_delivery(job_dir, job, handback_typed=mark))
             if answer == "busy":
@@ -540,18 +558,19 @@ def job_adopting(run_name):
         _JOB_MUTE.adopt = previous
 
 
-def job_budget_exhausted(error):
-    """Whether an `exhausted` error is spent provider budget (wait) rather than a stop.
+def job_budget_exhausted(run_state):
+    """Whether an `exhausted` run is spent provider budget (wait) rather than a stop.
 
-    Only these messages mean more budget later: gate meters at 100% and no eligible
-    reviewer. A twice-silent reviewer names the same spare
+    The run says so itself: `quota_dry`, the flag the tick resumes it by, whatever words the
+    provider refused in.  On a record without it only these messages mean more budget later:
+    gate meters at 100% and no eligible reviewer. A twice-silent reviewer names the same spare
     shortage but spends reviewer turns on every resume, so it waits capped below
     instead. A stopped tool, a refused prompt, or a structural delivery complaint
     needs the owner instead.
     """
-    text = error or ""
-    return "100% used" in text or ("no eligible reviewer" in text
-                                   and "gave no verdict twice" not in text)
+    text = run_state.get("error") or ""
+    return bool(run_state.get("quota_dry")) or "100% used" in text or (
+        "no eligible reviewer" in text and "gave no verdict twice" not in text)
 
 
 def job_transport_exhausted(error):
@@ -872,7 +891,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         return
     if run_state.get("state") == "exhausted":
         error = run_state.get("error") or "no reason was recorded"
-        if job_budget_exhausted(error) or job_transport_exhausted(error):
+        if job_budget_exhausted(run_state) or job_transport_exhausted(error):
             # the message decides first: a pending review parked on spent meters waits
             # for budget even with `review_pending` still set -- the resume the shortfall
             # rule would spend has nothing to bill to
@@ -1006,7 +1025,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             if run_state2.get("state") == "exhausted" \
                     and not job_round_shortfall(run_state2):
                 error2 = run_state2.get("error") or "no reason was recorded"
-                if job_budget_exhausted(error2) or job_transport_exhausted(error2):
+                if job_budget_exhausted(run_state2) or job_transport_exhausted(error2):
                     job_wait_budget(job_dir, job, task, log, lock, error2, "on rerun",
                                     rounds=len(run_state2.get("round_summaries") or []))
                     return
@@ -1092,27 +1111,29 @@ def job_adopt_worker(cfg, job_dir, job, task, run_dir, lock, log):
         current = record.read_state(run_dir) or {}
         moved = ((current.get("state"), current.get("merged"))
                  != (run_state.get("state"), run_state.get("merged")))
-        if moved and current.get("state") in (*record.ACTIVE, "waiting"):
-            # another process took it on after this one read it -- a resume, or its delivery
-            # parked in its line -- so the resume was refused: its attempt is still the task's,
-            # looked at again at the picker's pace
-            log(f"{task['name']}: taken on elsewhere while adopted: {current.get('state')}")
-            task["retry_after"] = time.time() + JOB_PICKER_INTERVAL
-            task["state"] = "queued"
-            with lock:
-                save_job(job_dir, job)
-            return
-        if moved and (current.get("merged") or current.get("state") in
-                      ("pass", "fail", "blocked", "stopped", "not_needed")):
+        if moved and current.get("state") not in (*record.ACTIVE, "waiting") and (
+                current.get("merged") or current.get("state") in
+                ("pass", "fail", "blocked", "stopped", "not_needed")):
             # another process ended it after this one read it -- a resume or a delivery --
             # so the resume was refused: that ending is the task's, never a fresh start
             log(f"{task['name']}: ended elsewhere while adopted: {current.get('state')}")
             job_ladder(cfg, job_dir, job, task, run_dir, current,
                        0 if job_classify(current, cfg) in ("merged", "passed") else 1, log, lock)
             return
-        # the kept run refuses resume (e.g. a budget FAIL rerun from scratch is the ladder's
-        # job, not this adoption's): clear it and let the scheduler start the task over with
-        # its ladder flags intact
+        if current != run_state:
+            # another process changed it after this one read it -- a resume, the tick's rung
+            # stamped before its own resume, or its delivery parked in its line -- so the
+            # refusal is that race's, even where the state reads as before: its attempt is
+            # still the task's, looked at again at the picker's pace
+            log(f"{task['name']}: taken on elsewhere while adopted: {current.get('state')}")
+            task["retry_after"] = time.time() + JOB_PICKER_INTERVAL
+            task["state"] = "queued"
+            with lock:
+                save_job(job_dir, job)
+            return
+        # nobody changed it, so the kept run refuses resume itself (e.g. a budget FAIL rerun
+        # from scratch is the ladder's job, not this adoption's): clear it and let the
+        # scheduler start the task over with its ladder flags intact
         log(f"{task['name']}: resume refused: {exc}")
         task["run_id"] = None
         task["state"] = "queued"
@@ -1451,7 +1472,7 @@ def run_job_loop(cfg, job_dir, job):
         unstarted = ", ".join(task["name"] for task in job["tasks"] if task["state"] == "skipped")
         text = (f"job {job['job_id']}: {ender['verdict_line']}"
                 + (f"; not started: {unstarted}" if unstarted else ""))
-    line = (f"{text}. Result: {job_dir / 'log.txt'}. Decide the next step.")
+    line = seat_line(job_dir, f"{text}. Result: {job_dir / 'log.txt'}. Decide the next step.")
     # the seat that launched the job is there, so its end is the seat's to act on -- its
     # failures, and the done it says itself once the whole of its work is -- and the owner is
     # asked only once it is gone, the same rule a single run's ending obeys.  Under the job's

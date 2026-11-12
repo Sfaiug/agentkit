@@ -20,7 +20,7 @@ import (
 // Report says all of it and is the exit: 2 for a config Python's config.load refuses, after what
 // it reads without one, 1 where the tick reads as hung or a dead run has outlasted two ticks.
 // False, with nothing said, where a read is one Go cannot make. The first lines come out before
-// the efforts, which ask each harness, and the best machine to rent, which asks Google.
+// the efforts, which ask each harness, and the best machine to rent, which may ask Google.
 func Report(out, errOut io.Writer) (int, bool) {
 	health, stuck, read := tick.Health()
 	if !read {
@@ -62,7 +62,7 @@ func Report(out, errOut io.Writer) (int, bool) {
 	}
 	fmt.Fprintln(out, strings.Join(wrong, "\n"))
 	if bill == nil {
-		bill = []string{rented()}
+		bill = []string{googlecloud.Cheapest(host.MBPerCPU())}
 	}
 	for _, line := range bill {
 		fmt.Fprintln(out, "rented machines: "+line)

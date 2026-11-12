@@ -18,16 +18,37 @@ func Awaiting(record *run.Object, now time.Time) bool {
 }
 
 // Reaches is whether Give reaches the seat that launched the run, the owner in its stead, or the
-// job whose one line says it: up on ak's own server, nothing left of it (Orphaned), gone from under
-// a job's task (muted), or asleep where Go wakes it, for an ending typed into it
-// (handback.announce): one that merged or was not needed may be recorded or ride on its next
-// prompt, which wakes nothing.  Never where Go cannot read how its change going live meets it.
-func Reaches(record *run.Object) bool {
+// job whose one line says it: up on ak's own server, nothing left of it (Orphaned), or neither, for
+// an ending that wakes nothing, recorded, riding on its next prompt or held for its change to go
+// live, as Python's announce decides before it wakes anything, or a job's task's gone from under
+// it (muted); else asleep where Go wakes it, for an ending typed into it.  Never where Go cannot
+// read how the seat hears it, or how its change going live meets it.  From census as Give reads it.
+func Reaches(record *run.Object, census []*run.Object) bool {
+	reaches, _ := reach(record, census)
+	return reaches
+}
+
+// reach is Reaches, and whether Give wakes the seat first.
+func reach(record *run.Object, census []*run.Object) (reaches, wakes bool) {
 	session := run.Seat(record)
-	_, _, unread := liveEnding(record)
-	return (seat.Watching(session) || Orphaned(record) || muted(record) ||
-		run.Ended(record) && !record.Truthy("merged") && record.Str("state") != "not_needed" && seat.Wakes(session)) &&
-		unread == nil
+	held, _, err := liveEnding(record, census)
+	switch {
+	case err != nil:
+		return false, false
+	case seat.Watching(session) || Orphaned(record):
+		return true, false
+	case !run.Ended(record):
+		return false, false // an interruption's notice to a seat not up is Python's (notify_recovery)
+	}
+	recordOnly, pending, err := seat.EndingDelivery(record, census, session)
+	switch {
+	case err != nil:
+		return false, false
+	case recordOnly || pending || held || muted(record):
+		return true, false
+	}
+	wakes = seat.Wakes(session)
+	return wakes, wakes
 }
 
 // Announce offers an ending through the run's own hand-back, from census as Give reads it, keeping

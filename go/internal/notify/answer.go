@@ -15,7 +15,7 @@ import (
 // asked (notify.answer_context), "" for none.  Read without the notice's lock: a sender holds it
 // while typing a prompt and waiting for this hook.
 func AnswerContext(name, said string) string {
-	notice := open(name)
+	notice := Last(name)
 	if notice == nil || notice.Get("watcher") == true || akPrompt(name, said, notice) {
 		return ""
 	}

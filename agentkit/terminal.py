@@ -15,32 +15,30 @@ from collections import namedtuple
 from functools import lru_cache, wraps
 
 from . import guard, motion, warm
+from .palette import PALETTE
 
-
-# glyph, ASCII glyph, Mocha RGB, eight-colour tone, emphasis. Words remain the contract
-# with the classifier; every presentation (including tmux formats) comes from this table,
-# and its RGB is the palette on a dark background, the one ak takes when it cannot tell.
+# glyph, ASCII glyph, colour of the palette, eight-colour tone, emphasis. Words remain the
+# contract with the classifier; every presentation (including tmux formats) comes from this
+# table, and its colour is the same on any background but where LIGHT gives one.
 # The five words a session reads, and the two presentation-only kinds the screens ask for
 # by name: `dim` for a note beside a row, `FAIL` for a verdict, which is no session state.
 STATE_STYLES = {
-    "needs you": ("!", "!", "f9e2af", "33", "1"),
-    "working": ("●", "*", "89b4fa", "36", ""),
-    "done": ("✓", "v", "a6e3a1", "32", ""),
+    "needs you": ("!", "!", "yellow", "33", "1"),
+    "working": ("●", "*", "blue", "36", ""),
+    "done": ("✓", "v", "green", "32", ""),
     # nothing running, asked or owed: quiet, as the eye should pass over it
-    "idle": ("○", "o", "6c7086", "37", "2"),
+    "idle": ("○", "o", "grey", "37", "2"),
     # its subscriptions are spent: red, as nothing moves until usage comes back or the owner
-    # moves it, and the hollow circle says it comes back by itself
-    "out of usage": ("◌", "o", "f38ba8", "31", ""),
-    "FAIL": ("✗", "x", "f38ba8", "31", ""),
-    "dim": ("·", ".", "6c7086", "37", "2"),
+    # moves it, and idle's open circle says it comes back by itself
+    "out of usage": ("○", "o", "red", "31", ""),
+    "FAIL": ("×", "x", "red", "31", ""),
+    "dim": ("·", ".", "grey", "37", "2"),
     # No session word: a run parked on something that lifts by itself says what it waits for
     # instead of a word, and the open circle is what says nobody has to act on it.
-    "waiting": ("○", "o", "6c7086", "37", "2"),
+    "waiting": ("○", "o", "grey", "37", "2"),
 }
-# The same words on a light background (`sense`): Catppuccin Latte, its yellow and green
-# darkened until every one reads on white; the accent and the highlight's `›` are `working`'s.
-LIGHT = {"needs you": "9c6314", "working": "1e66f5", "done": "338022", "idle": "6c6f85",
-         "out of usage": "d20f39", "FAIL": "d20f39", "dim": "6c6f85", "waiting": "6c6f85"}
+# A word's own colour on a light background (`sense`): yellow cannot be read on white.
+LIGHT = {"needs you": "orange"}
 GREY = 0.15        # saturation under which a colour is a grey rather than a hue
 # The background the pointer lights a key-line item or a cell on: a step off the terminal's own,
 # Mocha's surface0 on a dark one and Latte's on a light one.
@@ -78,6 +76,13 @@ def style_of(word):
     and it takes `waiting`'s glyph and colour, so no screen has to spell either out.
     """
     return STATE_STYLES.get(word) or STATE_STYLES.get(str(word).split(" ")[0])
+
+
+def colour(word, light=False):
+    """`word`'s colour of the palette -- a state's, or a kind's as `styled` reads it -- with the
+    text that reads on it; `light`, on a light background."""
+    word = KINDS.get(word, word)
+    return PALETTE[light and LIGHT.get(word) or STATE_STYLES[word][2]]
 
 
 def glyph(word):
@@ -147,15 +152,12 @@ def basic_colour(rgb):
     return str(30 + sum(1 << i for i in range(3) if int(rgb[2 * i:2 * i + 2], 16) >= 128))
 
 
-def faded(word, amount, dark=False):
+def faded(word, amount):
     """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
     background, or with a negative one that far toward the foreground, where it is lit; as
-    `#RRGGBB` for `styled`.  `dark` takes a dark terminal's, whatever this one's background is."""
-    light = _LIGHT and not dark
-    word = KINDS.get(word, word)
-    rgb = ((on_background(word[1:]) if light else word[1:]) if word.startswith("#") else
-           LIGHT.get(word, STATE_STYLES[word][2]) if light else STATE_STYLES[word][2])
-    to, amount = (255 if light else 0) if amount >= 0 else (0 if light else 255), abs(amount)
+    `#RRGGBB` for `styled`."""
+    rgb = on_background(word[1:]) if word.startswith("#") else colour(word, _LIGHT).rgb
+    to, amount = (255 if _LIGHT else 0) if amount >= 0 else (0 if _LIGHT else 255), abs(amount)
     return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + to * amount):02x}"
                          for i in (0, 2, 4))
 
@@ -364,9 +366,8 @@ def styled(text, kind):
         # `#RRGGBB` is a colour of the caller's own -- a provider's, on its usage bar -- and
         # takes the nearest the terminal has, as a state's colour does
         own = kind.startswith("#") and on_background(kind[1:])
-        _, _, rgb, tone, emphasis = (("", "", own, basic_colour(own), "")
-                                     if own else STATE_STYLES[word])
-        rgb = LIGHT.get(word, rgb) if _LIGHT else rgb
+        tone, emphasis = (basic_colour(own), "") if own else STATE_STYLES[word][3:]
+        rgb = own or colour(word, _LIGHT).rgb
         code = ("38;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4))
                 if depth == 24 else f"38;5;{xterm_colour(rgb)}" if depth == 256 else tone)
         if kind == "dim" and depth == 8:
@@ -390,7 +391,7 @@ STATES = {
     "needs you": ("!", "attention"),
     "done": ("✓", "good"),
     "idle": ("○", "dim"),
-    "out of usage": ("◌", "spent"),
+    "out of usage": ("○", "spent"),
 }
 
 
@@ -400,7 +401,7 @@ def state_glyph(word):
         return glyph(word)
     mark, _ = STATES[word]
     if not utf8():
-        return {"●": "*", "✓": "v", "!": "!", "○": "o", "◌": "o"}.get(mark, mark)
+        return {"●": "*", "✓": "v", "!": "!", "○": "o"}.get(mark, mark)
     return mark
 
 
@@ -465,13 +466,16 @@ def content_width(term_width=None):
 def header_line(screen, clock, term_width=None):
     """`agentkit` at the left, the screen name after it, the clock at the right.
 
-    The title gives way, never the clock: a name too long for the width is cut to leave
-    the clock and one space whole.
+    The title gives way, never the clock: a name too wide sheds its first parts, where you came
+    from, then what is left is cut, to leave the clock and one space whole.
     """
     room = layout_width(term_width)
     if room <= cells(clock):
         return cut(clock, room)
-    title = cut("agentkit" if not screen else f"agentkit · {screen}", room - cells(clock) - 1)
+    parts = ["agentkit", *(screen.split(" · ") if screen else [])]
+    while len(parts) > 2 and cells(" · ".join(parts)) > room - cells(clock) - 1:
+        del parts[1]
+    title = cut(" · ".join(parts), room - cells(clock) - 1)
     return title + " " * (room - cells(title) - cells(clock)) + clock
 
 
@@ -484,14 +488,19 @@ def rule_line(term_width=None, filled=0):
     return styled("━" * done, "accent") + styled("─" * (room - done), "dim")
 
 
+AFTER = ("→", ">")      # a key pointing right stands after its word, on the side it points to
+
+
 def key_parts(text):
-    """(key, word) pairs for the key line: each key dim, its word plain."""
+    """(key, word) pairs for the key line: each key dim, its word plain, a key of AFTER after
+    its word (`better →`) and any other before it."""
     parts = []
     for phrase in text.split("   "):
         phrase = phrase.strip()
         if not phrase:
             continue
-        key, _, word = phrase.partition(" ")
+        head, _, last = phrase.rpartition(" ")
+        key, word = (last, head) if head and last in AFTER else phrase.partition(" ")[::2]
         parts.append((key.strip(), word.strip()))
     return parts
 
@@ -524,7 +533,8 @@ def key_line(text, term_width=None, first=None):
     room = layout_width(term_width) - 2
     rendered = [first] if first else []
     for key, word in key_parts(text):
-        rendered.append(styled(key, "dim") + (f" {word}" if word else ""))
+        dim = styled(key, "dim")
+        rendered.append(dim if not word else f"{word} {dim}" if key in AFTER else f"{dim} {word}")
     lines, line = [], ""
     for piece in rendered:
         join = "   " + piece if line else piece
@@ -536,11 +546,6 @@ def key_line(text, term_width=None, first=None):
     if line:
         lines.append(line)
     return ["  " + line for line in lines]
-
-
-# A tasks bar's own tones beside a state's, (Mocha RGB, eight-colour tone): the chip's dark ink
-# and the track under the tasks not merged yet, so the bar reads on any background.
-BAR_TONES = {"ink": ("11111b", "30")}   # a chip's dark text, Mocha's crust
 
 
 NO_PLAN = "no plan yet"     # a working seat's count where it has no plan (`plan_bar`)
@@ -562,37 +567,40 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     return share_line(done / (total or 1), size, word, tmux) + f" {count}"
 
 
-def share_line(share, size, word="working", tmux=False):
-    """A smooth line `size` cells long, `share` of it (0 to 1) full: `━` in `word`'s colour, on a
-    terminal of more than eight colours fading in from half way to its background at the
-    line's start to the colour at its tip, with a half cell `╸` where the share ends inside one;
-    the rest is a dim `─`.  Without colour the shapes carry it, and without UTF-8 it is
-    `===------`.  `tmux` draws it as a tmux format, a seat's bar's, the same line: its fade is a
-    dark terminal's whichever process writes the bar, as the bar's colours are, so the menu's
-    draws and the tick's never disagree."""
+def share_parts(share, size):
+    """A bar `size` cells long, `share` of it (0 to 1) full, uncoloured: its full part, heavy `━`
+    with a half cell `╸` where the share ends inside one, and its empty rest, thin `─`; without
+    UTF-8 `===` and `---`.  Every bar is this line, which a terminal draws itself, alike in any
+    one: a seat's progress (`share_line`), a subscription's meter (menu.usage_lines) and an
+    effort's level (`effort_cells`), the owner's pick of 10 Nov 2026."""
     full, half, empty = "━╸─" if utf8() else "=--"
     halves = round(2 * size * share) if utf8() else 2 * round(size * share)
-    ends = (halves + 1) // 2
-    cells = [full if n < halves // 2 else half for n in range(ends)]
-    rest = empty * (size - ends)
-    tip = max(1, ends - 1)
-    fades = [0.5 * (1 - n / tip) if ends > 1 else 0 for n in range(ends)]
+    return full * (halves // 2) + half * (halves % 2), empty * (size - (halves + 1) // 2)
+
+
+def share_line(share, size, word="working", tmux=False):
+    """The bar (`share_parts`) its full part in `word`'s colour, the rest dim.  `tmux` draws it
+    as a tmux format, a seat's bar's, the same line in a dark terminal's colours whichever
+    process writes the bar, as the bar's colours are, so the menu's draws and the tick's never
+    disagree."""
+    cells, rest = share_parts(share, size)
     if tmux:
-        line = "".join(f"#[fg={faded(word, amount, dark=True)}]{char}"
-                       for amount, char in zip(fades, cells))
-        return line + (f"#[fg=#{STATE_STYLES['dim'][2]}]" + rest if rest else "") + "#[default]"
-    if colour_depth() <= 8:   # no tone between the word's colour and the background
-        return styled("".join(cells), word) + styled(rest, "dim")
-    line = "".join(styled(char, faded(word, amount)) for amount, char in zip(fades, cells))
-    return line + styled(rest, "dim")
+        return "".join(f"#[fg=#{colour(kind).rgb}]{text}"
+                       for kind, text in ((word, cells), ("dim", rest)) if text) + "#[default]"
+    if colour_depth() <= 8:   # nothing breathes there
+        return styled(cells, word) + styled(rest, "dim")
+    # a cell at a time, so the tip is found to breathe (`menu.tips`)
+    return "".join(styled(char, word) for char in cells) + styled(rest, "dim")
 
 
 def effort_cells(count, filled):
-    """An effort's level before its word, a cell for each of the `count` its model offers: the
-    first `filled` full and the rest open and dim (`▰▰▰▱▱` for high of five, the owner's pick of
-    18 Oct 2026); without UTF-8 `#` and `-`.  One effort is no level to show: no cell."""
-    full, empty = "▰▱" if utf8() else "#-"
-    return [full if n < filled else styled(empty, "dim") for n in range(count)] * (count > 1)
+    """An effort's level before its word: the bar (`share_parts`) a cell for each of the
+    `count` efforts its model offers, full up to its `filled`th and the rest dim, `━━━──` for
+    high of five.  One effort is no level to show: no cell."""
+    if count < 2:
+        return []
+    cells, rest = share_parts(filled / count, count)
+    return [*cells, *(styled(cell, "dim") for cell in rest)]
 
 
 def toggle(mark, width, kind=None):
@@ -1240,7 +1248,7 @@ def key_spans(line):
     """(first column, last column, key) for each item of a drawn key line, counted from 1."""
     text = ANSI.sub("", line)
     return [(cells(text[:item.start()]) + 1, cells(text[:item.end()]),
-             item.group().split(" ")[0]) for item in re.finditer(r"\S+(?: \S+)*", text)]
+             key_parts(item.group())[0][0]) for item in re.finditer(r"\S+(?: \S+)*", text)]
 
 
 def key_spots(lines, row):
@@ -1630,7 +1638,7 @@ def confirm(question, meaning, answer, around, wait=None):
     is asked on; False, kept, on Esc.
 
     The card is a blank line, the question, what the answer means dim, the two choices and a
-    blank line: `✓ Keep` first and highlighted, then `✗ <answer>` in the warn colour, read as
+    blank line: `✓ Keep` first and highlighted, then `× <answer>` in the warn colour, read as
     `choose` reads them, so Enter or a click answers.  `around(card, keys)` draws the screen it
     is asked on with the card's lines where they go, under the card's own key line, `keys`:
     Enter named for the highlighted answer (`⏎ keep`, `⏎ stop`), nothing of that screen's.  It

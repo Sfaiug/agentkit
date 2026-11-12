@@ -251,7 +251,7 @@ class Pages(Sandbox):
 
     def test_pages_fit_the_height_and_rows_keep_their_numbers(self):
         seats = self.seats(12)
-        usage = re.compile(r"^  Claude +[—▰\d]", re.M)   # its grid, or its one line
+        usage = re.compile(r"^  Claude +[—━╸─\d]", re.M)   # its grid, or its one line
         # Every page keeps the usage and the keys: the whole block where it fits with a few rows
         # under it, else its one line; a screen too short for that drops the frame as well.
         for width, height, keys in (
@@ -312,9 +312,9 @@ class Pages(Sandbox):
                 patch.object(terminal, "height", return_value=12), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg), 0)
-        marks = re.findall(r"(?m)^  (\d+) / 6\b", out.getvalue())
-        # six pages of two seats each: the usage's one line keeps its row on every page
-        self.assertEqual(marks, ["1", "2", "1", "2", "3", "4", "4", "4"])
+        marks = re.findall(r"(?m)^  (\d+) / 3\b", out.getvalue())
+        # three pages of five seats, the last turning to the first: the usage keeps its row
+        self.assertEqual(marks, ["1", "2", "1", "2", "3", "1", "1", "1"])
         self.assertEqual(opened, [LONG_NAME, "seat-03"])   # 12 answered from the first page
 
     def test_the_menu_has_no_runs_list(self):
@@ -361,7 +361,7 @@ class Bar(Sandbox):
         fable = "#[bold]herdr#[nobold]   #[fg=#6c7086]fable#[default]"
         with patch.dict(os.environ, env, clear=True):
             self.assertEqual(statusbar.lines("herdr", "fable", "working", "tasks x 2/5"),
-                             (f" #[fg=#89b4fa]● working#[default]   {fable}   tasks x 2/5",
+                             (f" #[fg=#ffffff,bg=#0067c6] ● working #[default]   {fable}   tasks x 2/5",
                               "", key, "herdr · working"))
             self.assertEqual(statusbar.lines("herdr", "fable"),
                              (f" {fable}", "", key, "herdr"))
@@ -506,13 +506,23 @@ class Terminal:
 
 
 class Synchronization(Sandbox):
+    # A stand-in process: says it runs, then lives until its stdin closes.
+    WAITS = "import sys; print(flush=True); sys.stdin.read()\n"
+
+    def running(self, *argv):
+        """Python on `argv`, once /proc shows its command line: Popen returns as the exec
+        begins, and the kernel fills that line in only a moment later."""
+        process = subprocess.Popen([sys.executable, *argv], env=self.env,
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        self.addCleanup(process.communicate)
+        process.stdout.readline()
+        return process
+
     def test_a_checkout_path_does_not_make_an_attached_client_a_popup(self):
         entry = self.root / "display-popup-checkout" / "bin" / "ak"
         entry.parent.mkdir(parents=True)
-        self.script(entry, "import sys; sys.stdin.read()\n")
-        client = subprocess.Popen([sys.executable, str(entry), "attach", "--client"],
-                                  env=self.env, stdin=subprocess.PIPE)
-        self.addCleanup(client.communicate)
+        self.script(entry, self.WAITS)
+        client = self.running(str(entry), "attach", "--client")
         phone = Terminal.__new__(Terminal)
         phone.case = self
         phone.settled(timeout=0)
@@ -521,9 +531,7 @@ class Synchronization(Sandbox):
     def test_the_tmux_popup_command_must_finish_after_the_menu_exits(self):
         # display-popup outlives its menu: no overlay process is left, but keys still go to
         # the closing popup. End that command only once settled has waited for it.
-        popup = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()",
-                                  "display-popup"], env=self.env, stdin=subprocess.PIPE)
-        self.addCleanup(popup.communicate)
+        popup = self.running("-c", self.WAITS, "display-popup")
         phone = Terminal.__new__(Terminal)
         phone.case = self
         with patch(f"{__name__}.time", Clock(lambda _: popup.communicate(timeout=HANG))):
@@ -674,7 +682,7 @@ class Phone(Sandbox):
     def stop_answered(self, phone):
         """`Stop` picked on the question `x` asks under a row: Down onto it, then Enter."""
         phone.keys("Down")
-        phone.wait(lambda screen: any(re.fullmatch(r"[›>] [✗x] Stop", line.strip())
+        phone.wait(lambda screen: any(re.fullmatch(r"[›>] [×x] Stop", line.strip())
                                       for line in Terminal.inside(screen)), "Stop highlighted")
         phone.keys("Enter")
 
@@ -715,7 +723,7 @@ class Phone(Sandbox):
         phone.keys("Right", "Right")         # past its orch effort to the executor column, then
                                              # every worker added
         # each by its full name, as much of it as a phone's screen holds
-        for title, steps in (("Fable", ("Up", "Up")), ("muse-sp", ("Down",) * 3),
+        for title, steps in (("Fable", ("Up", "Up")), ("Spark", ("Down",) * 3),
                              ("Grok", ("Down",)), ("Gemini", ("Down",)),
                              ("MiMo", ("Down",))):
             phone.keys(*steps, "Space")

@@ -1,9 +1,10 @@
 """Boundaries: each piece of knowledge has one home, and the copies outside it only shrink.
 
-A rule names the knowledge, a pattern `git grep` finds it by, the path prefixes that are its
-home, and `max`: the count of matching lines outside that home on the day the rule was written.
-A rule's `names` are ak's own, or another rule's, that the pattern also finds: a line counts
-only if the pattern still finds something once they are taken out of it.
+A rule names the knowledge, a pattern `git grep` finds it by, the pathspecs that are its home,
+and `max`: the count of matching lines outside that home on the day the rule was written.
+A rule's `names` are what the pattern also finds that is not that knowledge, such as ak's own
+names or another rule's: a line counts only if the pattern still finds something once they are
+taken out of it.
 A count above `max` fails with every path:line; a count below it passes and says which `max`
 to lower.  Any task may lower a `max` in the area it touches, and no task raises one.
 Existing maxima cannot exceed origin/main's; an unreadable target skips that comparison.
@@ -242,26 +243,58 @@ RULES = [
      "pattern": r"\b(WITNESS|marked_pid|stop_placed)\b",
      "home": ("agentkit/orch.py",),
      "max": 0},
+    # ak draws only in the owner's palette (10 Nov 2026), one table in each build, a file of
+    # its own, so the next palette is that table.  Left, each a task of its own: a company's
+    # colour (menu.COLOURS, Go's harness.Company), each manifest's `colour`, in both builds,
+    # and the pointer's background (terminal.POINTED).  A git file mode and the zeros padding
+    # a fraction of a second are six digits in quotes, no colour.
+    {"name": "colours",
+     "flags": (),
+     "pattern": r"#[0-9a-fA-F]{6}\b|[\"'`][0-9a-fA-F]{6}[\"'`]",
+     "names": r'"100(644|755)"|"0{6}"\)\[:6\]',
+     "home": ("agentkit/palette.py", "go/internal/terminal/palette.go"),
+     "max": 16},
+    # A character has one shape in every terminal only where the terminal draws it itself (Box
+    # Drawing and Block Elements) or every font it opens with carries it: SF Mono, Menlo,
+    # JetBrains Mono, Cascadia Mono and DejaVu Sans Mono hold Windows-1252, `−≈≤≥` and
+    # `●○■□✓▸◂←↑→↓⏎␣` (docs/cli-design.md, Characters).  Any other is borrowed from whatever font
+    # the terminal finds, at another size and width in each.  The pattern is any byte past ASCII,
+    # written as bytes because git's -E has no \x; `names` is the set past ASCII.  Its home is
+    # where a character is not a screen's: the patterns ak reads another program's screen by,
+    # Go's included, and what it sends to Discord or a phone.
+    {"name": "a character terminal fonts do not carry",
+     "flags": (),
+     "pattern": "[^\x01-\x7f]",
+     "names": "[\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ−≈≤≥\u2500-\u259f●○■□✓▸◂←↑→↓⏎␣]",
+     "home": ("agentkit/watch.py", "adapters/*.toml", "go/adapters/*.toml",
+              "go/internal/config/adapters/*.toml", "go/internal/screen/",
+              "go/internal/seat/said.go", "go/internal/seat/screen.go",
+              "agentkit/notify.py", "agentkit/alive.py", "go/internal/notify/",
+              "go/internal/tick/alive.go", "go/internal/tick/stopped.go"),
+     "max": 70},
 ]
 
 # Every model ak runs is handed these whole, so each word costs every task some of its attention
 # (the owner's yes, 15 Oct 2026, set at their size of 16 Oct).  A line added makes room: a rule
 # turned into a check, what one area needs moved to a comment at that code, or what is stale
 # deleted.  No task raises a max; the owner raises one by merging that change by hand.
-WORDS = {"AGENTS.md": 1182, "orchestrator.md": 1817}
+WORDS = {"AGENTS.md": 1181, "orchestrator.md": 1817}
 
 
 def outside(rule):
     """Each `path:line: text` matching the rule outside its home."""
     proc = subprocess.run(["git", "-C", str(REPO), "grep", "-n", "-I", "--no-color", "-E",
-                           *rule["flags"], "-e", rule["pattern"], *SCOPE],
+                           *rule["flags"], "-e", rule["pattern"], *SCOPE,
+                           *(f":!{home}" for home in rule["home"])],
                           capture_output=True, text=True)
     if proc.returncode not in (0, 1):     # 1 is no match at all
         raise AssertionError(f"git grep failed: {proc.stderr}")
-    found = [line for line in proc.stdout.splitlines() if not line.startswith(rule["home"])]
+    # git ends a line at \n alone, where splitlines() would also cut one holding a U+2028
+    found = proc.stdout.split("\n")[:-1]
     if rule.get("names"):
+        case = re.I if "-i" in rule["flags"] else 0     # as git grep matched: `İ` folds to `i`
         found = [line for line in found if re.search(
-            rule["pattern"], re.sub(rule["names"], "", line.split(":", 2)[2], flags=re.I), re.I)]
+            rule["pattern"], re.sub(rule["names"], "", line.split(":", 2)[2], flags=case), case)]
     return found
 
 

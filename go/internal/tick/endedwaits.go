@@ -46,7 +46,7 @@ func (t *ticking) endedWaits() error {
 	// transition reads it anew (notify.transition), as each seat nobody is in is published
 	for _, name := range paged {
 		if err == nil {
-			_, err = seat.Health(name, func(seat.Live) bool { return false }, t.log.line, t.dry)
+			_, err = seat.Health(name, func(live seat.Live) bool { return live.Exited }, t.log.line, t.dry)
 		}
 	}
 	return err

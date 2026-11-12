@@ -31,10 +31,6 @@ func Places(cpus, memoryMB float64, cwd string) int {
 // the file AK_ONLY names, handed the record of each test's seconds as it stands now; nil where no
 // machine took it.
 func Probe(cwd string, cpus, memoryMB float64, command string, only []string) (*Away, error) {
-	line, err := pinned(command, suitetimes.Handed(cwd), "", only)
-	if err != nil {
-		return nil, err
-	}
-	away, _, err := start(cwd, cpus, memoryMB, line, nil, true, func(string) {})
+	away, _, err := start(cwd, cpus, memoryMB, pinned(command, suitetimes.Handed(cwd), only), nil, true, func(string) {})
 	return away, err
 }

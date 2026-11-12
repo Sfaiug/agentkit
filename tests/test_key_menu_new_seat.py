@@ -10,6 +10,7 @@ menu on a terminal of tests/fixtures/akterm.py, its harnesses tests/fixtures/fak
 and tests/fixtures/adapters/echo.sh, and this test fails against `/bin/false`.
 """
 
+import fcntl
 import json
 import re
 import sys
@@ -98,16 +99,26 @@ class NewRow(unittest.TestCase):
         self.assertLess(shown.index("not assigned yet"),
                         next(at for at, line in enumerate(shown) if "  fix-api  " in line))
 
+    # Writing a seat's word down waits on whatever else is writing it, and the menu that comes
+    # back from the new seat draws first: here another `ak` holds acme's announce lock all along.
+    def test_back_from_the_new_seat_the_menu_waits_on_no_word_being_written_down(self):
+        self.menu.type("fix-api")
+        self.menu.keys("Enter")
+        self.opened("fix-api")
+        with open(self.home.path / ".agentkit/state/seat-acme.announce", "a") as announcing:
+            fcntl.flock(announcing, fcntl.LOCK_EX)
+            self.back_on_the_menu("fix-api", "2  fix-api  Fable 5.1 xhigh  ○ idle")
+
     def test_tab_opens_the_model_picker_and_esc_comes_back_to_the_row(self):
         self.menu.keys("Tab")
         screen = self.menu.wait(PICKER_KEYS)
         self.assertTrue(rows(screen)[0].startswith("agentkit · new session"), screen)
         self.assertIn("               orch                builds              reviews",
                       rows(screen))
-        self.assertEqual(under(screen, "Claude Code"), "› Fable 5.1    [●] ▰▰▰▰▱   xhigh"
-                         "    ■  ▰▰▰▰▱   xhigh    ■  ▰▰▰▰▱   xhigh")
+        self.assertEqual(under(screen, "Claude Code"), "› Fable 5.1    [●] ━━━━─   xhigh"
+                         "    ■  ━━━━─   xhigh    ■  ━━━━─   xhigh")
         self.assertEqual(under(screen, "Codex"), "  GPT-6-Astra   ○                 "
-                         "  ■  ▰▰▰▱▱▱  high     ■  ▰▰▰▱▱▱  high")
+                         "  ■  ━━━───  high     ■  ━━━───  high")
         self.menu.keys("Escape")
         screen = self.menu.wait(ROW_KEYS)
         self.assertTrue(any(BORN.fullmatch(line) for line in rows(screen)), screen)
@@ -121,7 +132,7 @@ class NewRow(unittest.TestCase):
         self.menu.keys("Down", "Right", "Space")    # astra no longer builds
         screen = self.menu.wait("[□]")
         self.assertEqual(under(screen, "Codex"),
-                         "› GPT-6-Astra   ○                  [□]                  ■  ▰▰▰▱▱▱  high")
+                         "› GPT-6-Astra   ○                  [□]                  ■  ━━━───  high")
         self.menu.keys("Escape")
         screen = self.menu.wait(ROW_KEYS)
         # the row's line names the picks: astra only reviews

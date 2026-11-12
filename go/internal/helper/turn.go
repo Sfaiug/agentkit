@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -78,7 +79,13 @@ func turnFiles(model config.Model, adapter, cwd, out string, env map[string]stri
 	// what this host's Python compiled stays here, unread, as Python's parcel leaves it
 	compiled := func(name string) bool { return strings.Contains(name, "__pycache__") }
 	for _, name := range ak {
-		if err := add(files, filepath.Join(checkout(), name), "ak/"+name, true, compiled); err != nil {
+		// a checkout without Python's ak, as Go's keys run from, carries the rest: the machine
+		// makes each part's folder, held or not
+		from := filepath.Join(checkout(), name)
+		if _, err := os.Lstat(from); errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err := add(files, from, "ak/"+name, true, compiled); err != nil {
 			return nil, err
 		}
 	}
@@ -217,17 +224,26 @@ func fetched(harness string) (string, map[string]string) {
 	return harness + "/" + version + "/" + program, urls
 }
 
-// conversation is the names under home of the conversation session, as Python's
-// machine_turn._conversation has glob find them: what the harness's `[worker] sessions` match with
-// `{id}` the id, and all under them.  An id with a `/` names no file, so an id a turn reported
-// reaches nowhere else, nor one holding what a glob reads as a pattern.
-func conversation(places []string, home, session string) []string {
+// patterns are the globs under HOME of the conversation session, Python's
+// machine_turn._conversation: the harness's `[worker] sessions`, places with `{id}` the id.  None
+// for an id with a `/`, which names no file, so an id a turn reported reaches nowhere else, nor
+// for one holding what a glob reads as a pattern.
+func patterns(places []string, session string) []string {
 	if session == "" || strings.ContainsAny(session, `/\*?[`) {
 		return nil
 	}
-	var names []string
+	var globs []string
 	for _, place := range places {
-		pattern := strings.ReplaceAll(strings.TrimPrefix(place, "~/"), "{id}", session)
+		globs = append(globs, strings.ReplaceAll(strings.TrimPrefix(place, "~/"), "{id}", session))
+	}
+	return globs
+}
+
+// conversation is the names under home of the conversation session, as Python's glob finds them:
+// what its patterns match, and all under them.
+func conversation(places []string, home, session string) []string {
+	var names []string
+	for _, pattern := range patterns(places, session) {
 		matches, _ := filepath.Glob(filepath.Join(home, filepath.FromSlash(pattern)))
 		for _, at := range matches {
 			name, _ := filepath.Rel(home, at)

@@ -23,6 +23,9 @@ func RunCheck(ctx context.Context, watch host.Watch, argv []string, env map[stri
 	return 0, "", errors.ErrUnsupported
 }
 
+// Up is nil: there is no box here to come up.
+func Up(out string) func() bool { return nil }
+
 // First is false: nothing starts this program as a box's first process here.
 func First() (int, bool) { return 0, false }
 

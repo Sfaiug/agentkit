@@ -1,5 +1,5 @@
 """A click on a meter lists what it offers, as Enter on it over `c` does (test_meter_acts.py),
-and `↻ log in again` on an amber one hands the terminal to that login's `login again`, the ak
+and `→ log in again` on an amber one hands the terminal to that login's `login again`, the ak
 screen back as soon as it ends, the meter grey once the login it made stands; Esc on the list
 signs nothing in.  `menu.loop` in-process, its keys and picks scripted, with a fake Claude adapter
 whose `login again` makes a login 30 days out, or fails where $FAKE/fail exists.
@@ -65,7 +65,7 @@ class LoginClick(Sandbox):
 
     def signed_in(self):
         """The meters amber on the last screen drawn, and the login kept, as the owner clicks
-        the grey meter, which lists nothing, then the amber one and picks `↻ log in again`,
+        the grey meter, which lists nothing, then the amber one and picks `→ log in again`,
         then Esc."""
         draws, amber, offered = [], [], []
         real = menu.draw
@@ -78,14 +78,14 @@ class LoginClick(Sandbox):
         script = iter([lambda: self.click(draws[-1], "ChatGPT"),   # grey: no login ends soon
                        lambda: self.click(draws[-1], "Claude"),    # amber: it ends in 2 days
                        lambda: terminal.Key("esc")])
-        picks = iter(["↻ log in again"])
+        picks = iter(["→ log in again"])
         with patch.object(menu, "draw", side_effect=draw), \
                 patch.object(menu, "moving", side_effect=lambda *a, **k: next(script)()), \
                 patch.object(terminal, "choose", side_effect=lambda choices, **_kw:
                              offered.append(choices) or next(picks)), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
-        self.assertEqual(offered, [["↻ log in again", "↻ spend a reset"]])
+        self.assertEqual(offered, [["→ log in again", "→ spend a reset"]])
         calls = self.fake / "calls"
         self.assertEqual(calls.read_text() if calls.exists() else "", "again default\n")
         self.assertEqual(len(draws), 3)   # the screen came back by itself before Esc left it
