@@ -102,7 +102,9 @@ RULES = [
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and
     # provider by one config.default.toml entry: every other copy of a name is harness
     # knowledge that adding, renaming or dropping a harness has to find and change.
-    # Go embeds generated copies; TestEmbeddedDefault and TestEmbeddedAdapters refuse any
+    # A seat plugin's folder is named for its harness and goes with it, so nothing in it is a
+    # copy to find.  Go embeds generated copies, and ships one of the seat plugin;
+    # TestEmbeddedDefault, TestEmbeddedAdapters and TestShippedSeatPlugin refuse any
     # difference from the sources.  Go's plugins are go/internal/harness/.
     {"name": "harness and provider names",
      "flags": ("-i", "-w"),
@@ -110,8 +112,8 @@ RULES = [
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml",
               "go/internal/config/default.toml", "go/internal/config/adapters/",
-              "go/internal/harness/"),
-     "max": 186},
+              "go/internal/harness/", "hooks/opencode-seat/", "go/hooks/opencode-seat/"),
+     "max": 176},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     # Every provider word counts, in code or comment, but none of ak's own names: the

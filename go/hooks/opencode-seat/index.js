@@ -1,12 +1,9 @@
-// The seat plugin -- the seat-state facts for a seat of the harness this directory is named for.
-// Go's copy of the one of this name under hooks/, its code the same, so both programs' hooks
-// read one protocol: it finds its hooks beside itself, so here it runs go/hooks/'s, and after
-// the switch hooks/ holds this one.
+// hooks/opencode-seat/index.js -- the seat-state facts for an OpenCode seat.
 //
-// A 2.0.14 plugin of that harness (the v2 shape: a default-exported {id, setup}), installed per
-// launch: its adapter's `interactive` names this directory in OPENCODE_CONFIG_CONTENT,
+// An OpenCode 2.0.14 plugin (the v2 shape: a default-exported {id, setup}), installed per
+// launch: adapters/opencode.sh `interactive` names this directory in OPENCODE_CONFIG_CONTENT,
 // beside the rulebook, so every seat carries that launch's hooks and nothing is written into
-// the user's own config directory.  The package.json beside this file pins ESM: without
+// the user's own ~/.config/opencode.  The package.json beside this file pins ESM: without
 // `"type": "module"` the imports below load only where Node auto-detects module syntax, and
 // an older Node would fail the plugin and silently cost the seat its hooks.  Headless worker
 // turns never load it -- the launch variable is dropped from every run environment -- and
@@ -14,8 +11,9 @@
 // nothing without $AGENTKIT_SESSION.
 //
 // What it reports, translated to the one protocol hooks/seat-state.sh speaks for every
-// harness (its adapter's manifest maps the names to states):
+// harness (adapters/opencode.toml maps the names to states):
 //   session.inbox.enqueued where the item is a user message -> UserPromptSubmit, with its text
+//     and the session it went into, for the seat to follow (opencode.py `follow`)
 //   session.execution.{succeeded,failed}                   -> Stop, with the session id and
 //     the background work the harness records for it still running; none for a subagent's
 //     session (`recorded`)
@@ -30,8 +28,8 @@
 // asks it: the reason it gives is thrown, which 2.1.1 hands the model as the tool's error.
 //
 // And the session the seat is talking in, for the seat to come back to: where a prompt goes in,
-// its id is written into this launch's receipt, the directory the launch
-// named in $AGENTKIT_OPENCODE_RECEIPT.  A subagent's session is never the seat's: the harness's
+// its id is written into this launch's receipt, the directory agentkit/harness/opencode.py
+// named in $AGENTKIT_OPENCODE_RECEIPT.  A subagent's session is never the seat's: OpenCode's
 // own record of it names its parent, and nothing of it is written.
 //
 // And `/ak-model <provider/model[#variant]> <effort>`, the line the adapter's [switch] types to
@@ -149,7 +147,7 @@ function titleSync(ctx) {
 }
 
 // Whether the applied file already confirms this request on this session: the shape
-// the launch's reader accepts, exactly, so a stale or foreign ack never quiets.
+// agentkit/harness/opencode.py accepts, exactly, so a stale or foreign ack never quiets.
 function confirmed(title, id, sessionID) {
   try {
     const applied = JSON.parse(readFileSync(join(RECEIPT, "title-applied.json"), "utf8"));
@@ -240,7 +238,8 @@ export function seatFact(event) {
     && data.item.type === "user"
     && data.item.payload !== null && typeof data.item.payload === "object"
     && typeof data.item.payload.text === "string") {
-    return { hook_event_name: "UserPromptSubmit", message: data.item.payload.text };
+    return { hook_event_name: "UserPromptSubmit", message: data.item.payload.text,
+      session_id: data.sessionID };
   }
   if ((event.type === "session.execution.succeeded"
     || event.type === "session.execution.failed"
