@@ -1195,9 +1195,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     bar = (done, total) if total > 0 else None
     word = found["word"]
     back = found.get("resumes_at") if word == "out of usage" else None
-    go_on = back and orch.going_on(cfg, orchestrator, staffing._cached_providers())
     return {"number": str(number), "name": name, "session": session, "back": back,
-            "go_on": go_on, "go_on_name": go_on and config.model_name(cfg, go_on),
             "crew": seat_crew(cfg, selection),
             "tasks": own_tasks(own, now),
             "count": word, "orchestrator": shown, "worker": shown,
@@ -1576,56 +1574,6 @@ def detail(info, room):
     return unsent + ([line] if terminal.plain(line) else [])
 
 
-WAIT, GO_ON = "wait", "go on"     # the choices under a seat out of usage, as the click reads them
-GAP = "   "                       # between them, on a line both fit
-
-
-def choice_lines(info, room):
-    """The choices under a seat out of usage's row (`detail`), with the keyboard or the pointer
-    on it, where another provider has usage now: `✓ Wait for 19:20`, what happens unasked, and
-    `→ Go on now with gpt-6.1-sol`, which moves the seat and its conversation there.  Each drawn
-    line in `room` cells, as its (text, choice) parts: both on one line where they fit, else
-    each on lines of its own wrapped at words, so none runs past the edge of the screen and
-    away from where a click finds it (`choice_cells`).  [] without an alternative or for any
-    other row."""
-    if (info.get("word") != "out of usage" or not info.get("go_on")
-            or not back_at(info.get("back"))):
-        return []
-    said = [(choice_text(choice, info), choice) for choice in (WAIT, GO_ON)]
-    if terminal.cells(GAP.join(text for text, _ in said)) <= room:
-        return [said]
-    return [[(piece, choice)] for text, choice in said for piece in terminal.wrap(text, room)]
-
-
-def choices(info, room):
-    """The lines `choice_lines` draws, each choice in its colour."""
-    return [GAP.join(terminal.styled(text, {WAIT: "ok", GO_ON: "amber"}[choice])
-                     for text, choice in line) for line in choice_lines(info, room)]
-
-
-def choice_text(choice, info):
-    """One choice under a seat out of usage, whole (`choice_lines`)."""
-    mark = {WAIT: "✓", GO_ON: "→"}[choice] if terminal.utf8() else {WAIT: "v", GO_ON: ">"}[choice]
-    if choice == WAIT:
-        return f"{mark} Wait for {back_at(info.get('back'))}"
-    return f"{mark} Go on now with {info.get('go_on_name')}"
-
-
-def choice_cells(text, info, room):
-    """Where each choice of `choice_lines` in `room` is on its drawn line `text`, as a screen's
-    spots hold a cell: (first, last, choice); [] on any other line."""
-    for line in choice_lines(info, room):
-        drawn = GAP.join(part for part, _ in line)
-        if text.strip() == drawn:
-            first = terminal.cells(text[:text.index(drawn)]) + 1
-            found = []
-            for part, choice in line:
-                found.append((first, first + terminal.cells(part) - 1, choice))
-                first += terminal.cells(part + GAP)
-            return found
-    return []
-
-
 def v5o_column_widths(infos, term_width):
     """Fixed columns sized once per draw from every row on screen.
 
@@ -1840,8 +1788,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     # What opens under a row (`detail`): from a pipe under every row, as nothing is highlighted
     # there; with the keyboard under the highlighted row alone, below.
     said_room = max(1, widths["room"] - (2 + widths["num"] + 2))
-    said = {info["name"]: detail(info, said_room) + (choices(info, said_room) if owned else [])
-            for info in infos}
+    # A seat out of usage opens what any row opens and offers nothing: ak takes it on when its
+    # usage is back.  The owner, 12 Nov 2026, of `Wait for` and `Go on now with` under it: "I
+    # dont like either. I want both to be removed", "the same view as needs you and done".
+    said = {info["name"]: detail(info, said_room) for info in infos}
     opened = {} if owned else said
 
     def _seat_blocks(most=None):
@@ -2004,8 +1954,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             for column, task in task_cells(line, info.get("tasks") or []):
                 moves.append((("task", getattr(task, "run", None)), tuple(task),
                               (len(out), column), lit))
-        if seat is None and info and (cells := choice_cells(text, info, said_room)):
-            explains[len(out)] = cells     # the choices under a seat out of usage: a click answers
         if word and terminal.state_text(word) in text:
             first = terminal.cells(text[:text.index(terminal.state_text(word))]) + 1
             moves.append((("word", name), word, (len(out), first), lit))
@@ -2125,8 +2073,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                            if isinstance(name, (str, Path)) and name not in before), None))
         before.update(name for _, name in lines)
     drawn.update(order=order, cursor=cursor, pointing=pointing, words=words,
-                 ask=top + at + 1 if at else None, spots=spots, turns=turns,
-                 go_on={info["name"]: info["go_on"] for info in infos if info.get("go_on")})
+                 ask=top + at + 1 if at else None, spots=spots, turns=turns)
     return page, (len(pages) if ordered else 1)
 
 
@@ -2148,18 +2095,6 @@ def stop_means(runs):
 def stop_question(name):
     """The one confirmation `x` asks: the seat, and everything that goes with it."""
     return f"stop {name} and everything it is running? [y/N] "
-
-
-def go_on_now(cfg, name, model, dry_run=False):
-    """`→ Go on now` under a seat out of usage: it moves to `model`, its conversation and the
-    turn its usage cut off with it, as its orchestrator mark moved on its models screen does
-    (`orch.switch_orchestrator`), never onto credits; a refusal is said."""
-    if dry_run:
-        print(f"would move {name} to {model}")
-        return
-    note = orch.switch_orchestrator(cfg, name, model, staffing._cached_providers(), credits=False)
-    if note:
-        pause(note)
 
 
 def close_seat(name, dry_run, refused=None):
@@ -6595,11 +6530,6 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 if isinstance(cell, tuple) and cell[0] == "usage":
                     pointing = False          # and opens no line
                     meter_acts(cfg, keyboard, cell[1], usage_rows(cfg)[cell[1] - 1][1])
-                    continue
-                if spot.what is not None and cell in (WAIT, GO_ON):
-                    pointing = False          # answered: its lines close
-                    if cell == GO_ON and shown.get("go_on", {}).get(spot.what):
-                        go_on_now(cfg, spot.what, shown["go_on"][spot.what], dry_run)
                     continue
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
