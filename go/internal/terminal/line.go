@@ -57,9 +57,25 @@ func (s Screen) faded(word string, amount float64) string {
 	return out
 }
 
-// ShareLine is a smooth line size cells long, share of it (0 to 1) full: `━` in word's colour, with
-// a half cell `╸` where the share ends inside one; the rest is a dim `─`.  Without colour the shapes
-// carry it, and without UTF-8 it is `===------`.
+// shapes are a bar's: its full, half and empty cell, and how many halves of size cells share (0
+// to 1) fills; without UTF-8 whole cells, `=` and `-`.
+func (s Screen) shapes(share float64, size int) (full, half, empty string, halves int) {
+	if s.ascii {
+		return "=", "-", "-", 2 * int(math.RoundToEven(float64(size)*share))
+	}
+	return "━", "╸", "─", int(math.RoundToEven(float64(2*size) * share))
+}
+
+// ShareParts is a bar size cells long, share of it (0 to 1) full, uncoloured: its full part, heavy
+// `━` with a half cell `╸` where the share ends inside one, and its empty rest, thin `─`; without
+// UTF-8 `===` and `---`.  Every bar is this line, which a terminal draws itself, alike in any one: a
+// seat's progress (ShareLine), a subscription's meter and an effort's level (EffortCells).
+func (s Screen) ShareParts(share float64, size int) (string, string) {
+	full, half, empty, halves := s.shapes(share, size)
+	return strings.Repeat(full, halves/2) + strings.Repeat(half, halves%2), strings.Repeat(empty, size-(halves+1)/2)
+}
+
+// ShareLine is the bar (ShareParts) its full part in word's colour, the rest dim.
 func (s Screen) ShareLine(share float64, size int, word string) string {
 	return s.GlidingLine(share, share, 1, false, size, word)
 }
@@ -69,12 +85,7 @@ func (s Screen) ShareLine(share float64, size int, word string) string {
 // full in word's colour, the rest the empty track.  While lit, where colour can move, its head is
 // half way from word's colour to the foreground.
 func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word string) string {
-	full, half, empty := "━", "╸", "─"
-	halves := int(math.RoundToEven(float64(2*size) * share))
-	if s.ascii {
-		full, half, empty = "=", "-", "-"
-		halves = 2 * int(math.RoundToEven(float64(size)*share))
-	}
+	full, half, empty, halves := s.shapes(share, size)
 	ends := (halves + 1) / 2
 	start := math.RoundToEven(float64(size) * from)
 	head := int(math.RoundToEven(start + (float64(ends)-start)*moved))
@@ -99,23 +110,17 @@ func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word
 	return line.String() + s.Styled(strings.Repeat(empty, size-head), "dim")
 }
 
-// EffortCells is an effort's level before its word, a cell for each of the count its model offers:
-// the first filled full and the rest open and dim (`▰▰▰▱▱` for high of five); without UTF-8 `#` and
-// `-`.  One effort is no level to show: no cell.
+// EffortCells is an effort's level before its word: the bar (ShareParts) a cell for each of the
+// count efforts its model offers, full up to its filled-th and the rest dim, `━━━──` for high of
+// five.  One effort is no level to show: no cell.
 func (s Screen) EffortCells(count, filled int) []string {
 	if count < 2 {
 		return nil
 	}
-	full, empty := "▰", "▱"
-	if s.ascii {
-		full, empty = "#", "-"
-	}
-	cells := make([]string, count)
-	for n := range cells {
-		cells[n] = s.Styled(empty, "dim")
-		if n < filled {
-			cells[n] = full
-		}
+	full, rest := s.ShareParts(float64(filled)/float64(count), count)
+	cells := strings.Split(full, "")
+	for _, cell := range strings.Split(rest, "") {
+		cells = append(cells, s.Styled(cell, "dim"))
 	}
 	return cells
 }

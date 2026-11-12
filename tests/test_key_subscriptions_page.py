@@ -42,7 +42,7 @@ def body(screen):     # the page between its rule and its key line
 
 
 def meters(screen):   # {label: its meter and what it has left}, as the screen draws them
-    return dict(re.findall(r"(Claude I+|ChatGPT)\s+([▰▱]+  \d+% left)", screen))
+    return dict(re.findall(r"(Claude I+|ChatGPT)\s+([━╸─]+  \d+% left)", screen))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -85,11 +85,11 @@ class SubscriptionsPage(unittest.TestCase):
     def test_each_subscription_sits_under_its_company_with_the_main_screen_s_meter(self):
         self.assertEqual(body(self.page), [
             "Anthropic",
-            "› Claude I   ▰▰▰▰▰▰▰▰▱▱  84% left",
+            "› Claude I   ━━━━━━━━╸─  84% left",
             "    owner@acme.test · max 20x   − remove",
-            "  Claude II  ▰▰▰▱▱▱▱▱▱▱  29% left",
+            "  Claude II  ━━━───────  29% left",
             "OpenAI",
-            "  ChatGPT    ▰▰▰▰▰▰▰▰▰▰  100% left · 1 reset in hand",
+            "  ChatGPT    ━━━━━━━━━━  100% left · 1 reset in hand",
             "",
             "  + add a subscription"])
         self.assertEqual(meters(self.page), meters(self.main))
@@ -98,8 +98,8 @@ class SubscriptionsPage(unittest.TestCase):
         self.term.keys("Down")
         pointed = self.term.wait("› Claude II")
         self.assertEqual(body(pointed)[1:5], [
-            "  Claude I   ▰▰▰▰▰▰▰▰▱▱  84% left",
-            "› Claude II  ▰▰▰▱▱▱▱▱▱▱  29% left",
+            "  Claude I   ━━━━━━━━╸─  84% left",
+            "› Claude II  ━━━───────  29% left",
             self.two + "   [↻ log in again]   − remove",
             "OpenAI"])
         self.term.keys("Down")
@@ -130,7 +130,7 @@ class SubscriptionsPage(unittest.TestCase):
         self.assertEqual(body(added)[3:], [
             "› Claude III  — no reading yet",
             "    new@acme.test   − remove",
-            "OpenAI", "  ChatGPT     ▰▰▰▰▰▰▰▰▰▰  100% left · 1 reset in hand", "",
+            "OpenAI", "  ChatGPT     ━━━━━━━━━━  100% left · 1 reset in hand", "",
             "  + add a subscription"])
 
     def test_the_row_a_removal_lights_opens_lit_as_any_row_opens(self):
@@ -158,7 +158,7 @@ class SubscriptionsPage(unittest.TestCase):
                                                                     "window_secs": 604800}]},
                                            "two": {"meters": [{"name": "weekly", "used": 50,
                                                                 "window_secs": 604800}]}}}}})
-        self.term.wait("  Claude II  ▰▰▰▰▰▱▱▱▱▱  50% left")
+        self.term.wait("  Claude II  ━━━━━─────  50% left")
 
 
 if __name__ == "__main__":

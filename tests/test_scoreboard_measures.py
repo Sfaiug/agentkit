@@ -52,7 +52,9 @@ PINNED = (
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
     # findings: write-up task 18 (30 Oct 2026), changed on review under the Owner rule of 27 Oct 2026.
     # let_go and let_go_broke: write-up task 18, under the Owner rule of 27 Oct 2026.
-    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again", "let_go", "let_go_broke")),
+    # later and inside_fix: write-up task 18, under the Owner rule of 27 Oct 2026.
+    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again", "let_go", "let_go_broke",
+                              "later", "inside_fix")),
     # AGENTS.md words beside README words: the owner's yes, 15 Oct 2026, so its growth shows.
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
@@ -104,7 +106,8 @@ class Measures(unittest.TestCase):
         with patch.object(scoreboard.history, "ended_runs", return_value=rows), \
                 patch.object(scoreboard.history, "checks", return_value=checks), \
                 patch.object(scoreboard.history, "findings", return_value=[{
-                    "at": NOW - 60, "kind": "finding", "outcome": None, "raised_again": False}]), \
+                    "at": NOW - 60, "kind": "finding", "handed": "finding", "replayed": None,
+                    "inside_fix": 1, "outcome": None, "raised_again": False}]), \
                 patch.object(scoreboard.history, "parks", return_value=[NOW - 60]), \
                 patch.object(scoreboard.history, "owner",
                              return_value=[(NOW - 90, "asked", None), (NOW - 80, "paged", None),
