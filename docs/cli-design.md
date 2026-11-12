@@ -104,13 +104,12 @@ under the pointer, on its meter, lighting its meter and models.
 
 ## Motion
 
-Something moves only while a model works on it, once when it changes, or under the pointer:
+Something moves only while it is worked on, once when it changes, or under the pointer:
 
-- **While a model works:** a working seat's `●` breathes, and so do the tip of its progress
-  line and its tasks' squares.
-- **When something changes:** the change moves once. A seat that turns `needs you` pulses,
-  one that turns `done` settles, a mark fills over two frames, and a refused change nudges
-  its mark.
+- **While work runs:** a working seat's `●` breathes, as do its progress line's tip, its
+  tasks' squares and ak's spinner, `▖▘▝▗`.
+- **When something changes:** a seat that turns `needs you` pulses, one that turns `done`
+  settles, a mark fills or empties through a dim `■`, and a refused change nudges its mark.
 
 Every animation runs on one clock, `motion.Clock`. A key ends an animation on its last frame.
 Nothing moves off a terminal or under `NO_COLOR`.
