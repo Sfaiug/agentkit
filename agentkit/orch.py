@@ -4692,6 +4692,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
                 given_back()
         if line and not failed:
             watch.relaunched(name, new_harness, line, at)
+        if not (kept or failed):    # the old conversation's notice, while the lock is the
+            notify.clear(name)      # switch's: past it the text's return may hold it a while
     if failed:
         try:
             config.update_session(name, **{key: record.get(key) for key in chosen})
@@ -4704,7 +4706,7 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     if not kept:
         if old_harness:
             harness_plugin(old_harness).forget(record)
-        watch.forget(name)    # a new conversation: no latch of the old one's survives it
+        watch.forget(name, acknowledge=False)    # no latch of the old conversation survives it
     return ""
 
 

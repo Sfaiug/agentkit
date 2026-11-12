@@ -4499,8 +4499,9 @@ def drafts_back(cfg):
     back, every read and key of the step on that pane, whichever the owner selects: the editor
     hands it back only into an empty composer, however the pass that put ak's line in its place
     ended.  A line still in the composer is the mark's pass to send first, and a line the seat
-    is owed (a `midturn` mark) goes before any text back.  Text a switch carried goes back
-    sooner, by these same rules (`carried_back`); this pass gives back what that could not."""
+    is owed (a `midturn` mark no prompt has gone in since, as `continue_turns` reads it) goes
+    before any text back.  Text a switch carried goes back sooner, by these same rules
+    (`carried_back`); this pass gives back what that could not."""
     for session in orch.sessions():
         _draft_back(session, cfg)
 
@@ -4512,7 +4513,8 @@ def _draft_back(session, cfg):
             or not _editor_kept(session)):  # most keep nothing: no seat's send lock waited on
         return False
     with notify.session_lock(session["name"]):
-        if seat_read(session["name"]).get("midturn"):
+        mark = seat_read(session["name"]).get("midturn")
+        if mark and not prompted_since(session["name"], mark.get("at", math.inf)):
             return True     # its line goes first: text back in the composer would go with it
         aside = False
         for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
