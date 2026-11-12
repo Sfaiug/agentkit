@@ -23,7 +23,8 @@ var terminalFailure = regexp.MustCompile(`(?i)\b(?:cannot|can't|unable to) (?:pr
 	`\b(?:session|connection|stream|transport)\b.*\b(?:closed|lost|terminated)\b|\bunexpected status [45]\d\d\b`)
 
 // A Live is a seat its panes run on, as one capture shows it: what a look would find on its screen
-// and in its conversation, read with nothing written.
+// and in its conversation, read with nothing written; or one tmux holds with all its panes dead
+// (Exited), only who it is and its harness, for Health to ask before it publishes it gone.
 type Live struct {
 	Name, Own    string // its name, and the harness its screen is read as
 	State        string // what the look finds it doing, and since when
@@ -40,6 +41,7 @@ type Live struct {
 	Title        any      // its conversation's custom title: "" for none, nil where none is read
 	WrappedUp    bool     // its harness ended its last turn for a spent subscription (watch.limit_ended)
 	Record, File *run.Object
+	Exited       bool // tmux holds it with all its panes dead: watch.health still reads its login
 }
 
 // Seats is the name of every seat the home holds but a legacy one, another program's session that
@@ -137,9 +139,10 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 // published, so unsupported recovery leaves no publish behind. The account decision may reopen
 // the seat through its shared launch path; a refusal its record ends on, or its one subscription
 // spent, is instead waited on, and a wait the owner's own turn ends is ended, either written before
-// the publish (waitOnUsage). False where either decision leaves work to Python. A dry look decides
-// as the real one and acts on nothing (dryLook), and says through log the line it would type;
-// a seat it would do anything else at, or cannot decide, is not carried.
+// the publish (waitOnUsage). A seat tmux holds with all its panes dead is published gone where ok,
+// asked of it (Live.Exited), says so. False where either decision leaves work to Python. A dry
+// look decides as the real one and acts on nothing (dryLook), and says through log the line it
+// would type; a seat it would do anything else at, or cannot decide, is not carried.
 func Health(name string, ok func(Live) bool, log func(string), dry bool) (bool, error) {
 	if !dry {
 		return health(name, ok, log)
@@ -190,7 +193,9 @@ func health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		now := time.Now()
 		home, seat, known := liveSeat(name, now, lookRuns, nil, true)
 		if !known {
-			carried, err = home.healthGone(state, name, now)
+			if carried = home.deadOK(name, ok); carried {
+				carried, err = home.healthGone(state, name, now)
+			}
 			return err
 		}
 		if carried = !seat.looked(); carried { // a seat nothing here started
@@ -198,7 +203,9 @@ func health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		}
 		pane, exited := harnessScreen(name)
 		if exited {
-			carried, err = home.healthDied(state, name, now)
+			if carried = ok(seat.dead()); carried {
+				carried, err = home.healthDied(state, name, now)
+			}
 			return err
 		}
 		found, previous := observed(state, name, seat.reader, pane, seconds(now))

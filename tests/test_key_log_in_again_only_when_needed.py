@@ -13,6 +13,7 @@ over usage and logins in a temporary HOME (TZ=UTC), harnesses faked
 `/bin/false`.
 """
 
+import re
 import sys
 from pathlib import Path
 import time
@@ -27,6 +28,7 @@ DAY = 86400
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 UNLIT, LIT = "  ↑↓←→ move   esc back", "  ↑↓←→ move   ⏎ {}   esc back"
 PAGE = "agentkit · config · subscriptions"
+METER = re.compile(r"[━╸─]+  \d+% left")
 
 
 def lines(screen):
@@ -36,7 +38,7 @@ def lines(screen):
 def under_grid(screen):
     """The ak screen's line under the usage grid: what the meter under the pointer says."""
     shown = lines(screen)
-    return shown[max(number for number, line in enumerate(shown) if "▰" in line) + 1]
+    return shown[max(number for number, line in enumerate(shown) if METER.search(line)) + 1]
 
 
 def acts(screen):

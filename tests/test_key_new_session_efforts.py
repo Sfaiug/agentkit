@@ -63,14 +63,14 @@ class NewSessionEfforts(unittest.TestCase):
 
     def test_each_marked_role_shows_its_effort_beside_its_mark(self):
         self.assertEqual(opus(self.screen), [
-            "[●]", "▰▱▱▱▱", "low", "■", "▰▰▰▱▱", "high", "■", "▰▰▱▱▱", "medium"])
+            "[●]", "━────", "low", "■", "━━━──", "high", "■", "━━───", "medium"])
 
     def test_a_reviewer_effort_stepped_is_the_new_seat_s_and_the_config_s_bytes_stay(self):
         before = self.config.read_bytes()
         self.menu.keys(*["Right"] * 5)          # past each mark and effort to the review one
         self.menu.wait(lambda screen: key_line(screen) == KEYS.replace("mark", "step"))
         self.menu.keys("Space")
-        self.menu.wait(lambda screen: opus(screen)[-3:] == ["■", "▰▰▰▱▱", "high"])
+        self.menu.wait(lambda screen: opus(screen)[-3:] == ["■", "━━━──", "high"])
         self.menu.keys("Escape")
         self.menu.wait(ROW_KEYS)
         self.menu.keys("Enter")
@@ -79,7 +79,7 @@ class NewSessionEfforts(unittest.TestCase):
 
     def test_the_orchestrator_effort_stepped_launches_the_seat_at_it(self):
         self.menu.keys("Right", "Space")
-        self.menu.wait(lambda screen: opus(screen)[1:3] == ["▰▰▱▱▱", "medium"])
+        self.menu.wait(lambda screen: opus(screen)[1:3] == ["━━───", "medium"])
         self.menu.keys("Enter")                  # on the effort: the session starts
         self.assertEqual(self.started()["efforts"]["opus"]["effort"], "medium")
         deadline = time.monotonic() + 30

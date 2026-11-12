@@ -44,13 +44,13 @@ func (t *ticking) unended(began, previous time.Time) {
 	since := generation(t.state.Get("tick_completed_at"))
 	silent := epoch(began) - at(since)
 	if at(since) != 0 && silent >= pageFloor.Seconds() && !previous.IsZero() && began.Sub(previous) < hung {
-		stopped(since, fmt.Sprintf("🔴 ak ticks stopped ending · no tick has ended for %d min", int(silent/60)), t.log)
+		stopped(since, fmt.Sprintf("no tick has ended for %d min", int(silent/60)), t.log)
 	}
 }
 
-// stopped pages the owner with line that no tick has ended since that stamp, once an episode
-// however many ticks ask; nothing where a tick completed since, as a paused observer may find.
-func stopped(since any, line string, l *log) {
+// stopped pages the owner that no tick has ended since that stamp, and why it says so, once an
+// episode however many ticks ask; nothing where a tick completed since, as a paused observer may find.
+func stopped(since any, why string, l *log) {
 	episode(l, func(stop *run.Object) error {
 		state, ok := loadState()
 		if !ok {
@@ -65,7 +65,7 @@ func stopped(since any, line string, l *log) {
 				return err
 			}
 		}
-		_, err := notify.Page("tick-stopped:"+run.Text(stop.Get("since")), line, true, l.errOut)
+		_, err := notify.Page("tick-stopped:"+run.Text(stop.Get("since")), "🔴 ak ticks stopped ending · "+why, true, l.errOut)
 		return err
 	})
 }

@@ -338,17 +338,19 @@ class DesktopAndBoot(Sandbox):
             self.assertTrue(notify.terminal_notice("source", "source · needs you"))
             self.assertEqual(write.call_count, 2)
 
-    def test_menu_reports_each_recovered_seat_once_before_maintenance(self):
+    def test_menu_logs_each_recovered_seat_once_and_says_nothing(self):
+        # done by itself, so the tick's log's, dated, and no notice the owner must dismiss
         self.boot_fixture()
         with patch.object(config, "server_alias", return_value=None), \
                 patch("agentkit.macbridge.start_background"), patch.object(menu, "loop", return_value=0), \
                 patch.object(menu.os, "_exit"), patch.object(menu, "show_notices") as notices:
             menu.main(["--overlay"])
-            self.assertEqual(notices.call_args.args[0],
-                             ["resumed claude after reboot", "resumed codex after reboot"])
             menu.main(["--overlay"])
-            self.assertEqual(notices.call_args.args[0], [])
+        self.assertEqual([call.args[0] for call in notices.call_args_list], [[], []])
         self.assertEqual(self.started.call_count, 2)
+        self.assertEqual([line.split(" ", 2)[2] for line in
+                          watch.log_path().read_text().splitlines()],
+                         ["resumed claude after reboot", "resumed codex after reboot"])
 
     def test_missing_boot_id_baseline_and_missing_directory_never_start_fresh(self):
         self.save_seat("old")
