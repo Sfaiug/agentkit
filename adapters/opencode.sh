@@ -16,7 +16,8 @@
 #                                  restart where it needs one (agentkit/harness/opencode.py)
 #                     install      -> the owner's installer, unless opencode is already here
 #                     login [again] -> `opencode auth login <provider>`, unless already logged
-#                                  in; `again` signs in afresh over a login that still stands
+#                                  in, by the provider's sign-in where it has one; `again`
+#                                  signs in afresh over a login that still stands
 #                     logout       -> `opencode auth logout` of each login saved for the
 #                                  provider named, and of no other provider
 #                     lend <home>  -> a copy of the config, with the keys OpenCode saved in it,
@@ -30,9 +31,9 @@
 #                                  OpenCode's own list, with the label of the [catalog]
 #                                  table of adapters/opencode.toml where it has one, and its
 #                                  efforts where OpenCode says none (MiMo's), else that table
-#                     providers    -> one `id<TAB>name<TAB>mode` line per provider OpenCode
-#                                  can log in to: logged-in ones first, with their mode, then
-#                                  the rest with none
+#                     providers    -> one `id<TAB>name<TAB>mode<TAB>takes` line per provider
+#                                  OpenCode can log in to: logged-in ones first, with their
+#                                  mode, then the rest with none, each taking `sign-in` or `key`
 #                     $AGENTKIT_PROVIDER names the providers a call is about, by OpenCode's own
 #                     ids (config.provider_env); none named is any provider with a login
 #                     $AGENTKIT_ACCOUNT naming one of the provider's `accounts` is refused by
@@ -71,6 +72,17 @@ unset OPENCODE_CONFIG_CONTENT
 CFGDIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}"
 CFG="$CFGDIR/opencode.json"
 cmd=${1:-}; shift 2>/dev/null || true
+
+# One of the background service's lists, $1, each entry cut to the fields jq $2 reads, so
+# settings, keys among them, never leave jq.  Lists asked at once while it starts can fail, so
+# each is asked alone, within 20 seconds where `timeout` is here.
+bound=""; command -v timeout >/dev/null && bound="timeout -k 1 20"
+ask() { $bound opencode api "$1" 2>/dev/null | jq -ce "[.data[] | $2]" 2>/dev/null; }
+# The sign-in an integration.list entry offers (2.2.7): the id of its first method that takes an
+# account's own login -- `oauth`, or `external`, one held elsewhere (an AWS profile) -- else null,
+# where its methods are a key's alone (`key`, `env`).  `login` names it to `opencode auth login`,
+# which would otherwise ask for a key.
+SIGN_IN='[.methods[]? | select(.type == "oauth" or .type == "external") | .id][0]'
 
 # The first non-blank apiKey configured for provider $1, or for any provider where $1 is
 # empty, in $CFG or the config file $2, failing when there is none.  OpenCode (2.2.0) reads a
@@ -538,13 +550,15 @@ install)
   command -v curl >/dev/null || { echo "opencode.sh install: curl is required" >&2; exit 2; }
   curl -fsSL https://opencode.ai/v2/install | bash ;;   # v2: the v1 channel's latest rejects --standalone
 login)
-  # The provider named, through OpenCode's own login for it; none named is OpenCode's own
-  # list of every provider it can log in to.
+  # The provider named, through OpenCode's own login for it, its sign-in where it has one; none
+  # named is OpenCode's own list of every provider it can log in to.
   command -v opencode >/dev/null || { echo "opencode.sh login: opencode is not installed" >&2; exit 2; }
   p=${PROVIDERS%% *}
   [ "${1:-}" != again ] && logged_in "$p" && { echo "opencode: already logged in${p:+ to $p}"; exit 0; }
   [ -t 0 ] || { echo "opencode: not logged in${p:+ to $p}; run \`opencode auth login${p:+ $p}\` in a terminal" >&2; exit 1; }
-  opencode auth login ${p:+"$p"} ;;
+  method=$([ -n "$p" ] && ask integration.list "{id, method: $SIGN_IN}" \
+    | jq -r --arg p "$p" 'first(.[] | select(.id == $p) | .method | strings)')
+  opencode auth login ${method:+--method "$method"} ${p:+"$p"} ;;
 logout)
   # 2.0.24 asks which credential, on a terminal, where none is named
   p=${PROVIDERS%% *}
@@ -649,14 +663,10 @@ providers)
   # `subscription` where OpenCode prices every one of its models at nothing behind a login (a
   # plan's), `free` where it does with none (its own free ones), and `payg` where it prices one
   # or says nothing of one (MiMo's), which never spends money unasked; then the rest, with no
-  # mode, in OpenCode's own order.  Its
-  # background service is asked one list at a time, since lists asked at once while it starts
-  # can fail, each cut to the fields read here: settings, keys among them, never leave jq.  A
-  # list of providers that fails is a failed verb: nothing to offer.
+  # mode, in OpenCode's own order, each taking `sign-in` where OpenCode offers a sign-in to it
+  # (SIGN_IN), else `key`.  A list of providers that fails is a failed verb: nothing to offer.
   command -v jq >/dev/null || { echo "opencode: listing providers needs jq" >&2; exit 2; }
-  bound=""; command -v timeout >/dev/null && bound="timeout -k 1 20"
-  ask() { $bound opencode api "$1" 2>/dev/null | jq -ce "[.data[] | $2]" 2>/dev/null; }
-  if all=$(ask integration.list '{id, name}'); then
+  if all=$(ask integration.list "{id, name, takes: (if $SIGN_IN then \"sign-in\" else \"key\" end)}"); then
     saved=$($bound opencode auth list --standalone --format json 2>/dev/null | jq -c '[.[]?.id]')
     keyed=$(jq -c '[(.provider, .providers) | objects | to_entries[]
         | select([.value | .. | objects | .apiKey? | strings | select(length > 0)] != []) | .key]' \
@@ -670,8 +680,8 @@ providers)
       | ($in[] | . as $p | [$costs[] | select(.id == $p) | .cost] as $priced
         | [$p, $names[$p] // $p, if ($priced | length) > 0 and all($priced[]; length > 0
             and all(.[]; type == "object" and .input == 0 and .output == 0))
-          then (if $login | index([$p]) then "subscription" else "free" end) else "payg" end]),
-        ($all[] | select(.id | IN($in[]) | not) | [.id, .name // .id, ""])
+          then (if $login | index([$p]) then "subscription" else "free" end) else "payg" end, ""]),
+        ($all[] | select(.id | IN($in[]) | not) | [.id, .name // .id, "", .takes])
       | join("\t")'
   else
     echo "opencode: OpenCode did not list its providers" >&2; exit 1

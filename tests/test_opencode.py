@@ -499,11 +499,15 @@ cat "$dir/bridge-eval"
         self.cfgdir.mkdir(parents=True, exist_ok=True)
         (self.cfgdir / "opencode.json").write_text(json.dumps({"provider": {
             "acme": {"options": {"apiKey": "acme-dummy"}}, "nova": {"options": {}}}}))
-        # and OpenCode runs its own free one, enabled with no entry in its config, with none
+        # and OpenCode runs its own free one, enabled with no entry in its config, with none;
+        # nova takes an account's sign-in beside a key, and coda a key alone
+        key, env_key = {"type": "key", "label": "API key"}, {"type": "env", "names": ["KEY"]}
+        methods = {"nova": [key, {"id": "nova-account", "type": "oauth", "label": "Sign in"}],
+                   "coda": [key, env_key]}
         env = {"STUB_AUTH_LIST": listed("zeta", "vega"), "STUB_MODEL_LIST": str(models),
                "STUB_INTEGRATION_LIST": json.dumps({"data": [
-                   {"id": name, "name": name.title()}
-                   for name in ("vega", "nova", "zeta", "opencode", "acme")]}),
+                   {"id": name, "name": name.title(), "methods": methods.get(name, [key])}
+                   for name in ("vega", "nova", "zeta", "opencode", "acme", "coda")]}),
                "STUB_PROVIDER_LIST": json.dumps({"data": [
                    {"id": name, "activation": "enabled"} for name in ("acme", "nova", "opencode")]}),
                "STUB_CONFIG_GET": json.dumps([{"type": "document", "info": json.loads(
@@ -512,10 +516,11 @@ cat "$dir/bridge-eval"
         self.assertEqual(proc.returncode, 0, proc.stderr)
         # a plan prices every model at nothing behind a login, and OpenCode's own free provider
         # with none; one priced, or not priced at all (MiMo's), is pay as you go; the rest have
-        # no login, so no mode
+        # no login, so no mode, and each says what a login to it takes
         self.assertEqual([line.split("\t") for line in proc.stdout.splitlines()], [
-            ["acme", "Acme", "subscription"], ["zeta", "Zeta", "payg"], ["vega", "Vega", "payg"],
-            ["opencode", "Opencode", "free"], ["nova", "Nova", ""]])
+            ["acme", "Acme", "subscription", ""], ["zeta", "Zeta", "payg", ""],
+            ["vega", "Vega", "payg", ""], ["opencode", "Opencode", "free", ""],
+            ["nova", "Nova", "", "sign-in"], ["coda", "Coda", "", "key"]])
         self.assertNotIn("dummy", proc.stdout + proc.stderr)
         proc = self.adapter("providers", env={**env, "STUB_INTEGRATION_LIST": ""})
         self.assertEqual((proc.returncode, proc.stdout), (1, ""))
