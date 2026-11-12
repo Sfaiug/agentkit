@@ -1,15 +1,13 @@
 """Text the owner typed and had not sent goes on into the composer of the harness a switch opens.
 
 The switch refused while a draft was up, even after the owner said yes.  Now ak's editor lifts
-the composer whole into the pane's kept buffer, which a respawn keeps with the pane, and it goes
-back to the new harness byte for byte, once any line the new launch is owed has gone -- by the
-tick's `watch.drafts_back` where it could not go back at once; text it cannot keep refuses the
-switch, as the owner would lose it.  Offline: fixtures.editor_seat's seat; `watch.carry_draft`,
-the respawn and the line marked in one hold of the seat's lock, as `orch.switch_orchestrator`
-holds it.
+the composer whole into the pane's kept buffer, which a respawn keeps with the pane, and hands it
+to the new harness byte for byte, once any line the new launch is owed has gone, the tick's pass
+too; text it cannot keep refuses the switch, as the owner would lose it.  Offline:
+fixtures.editor_seat's seat; `watch.carry_draft` before the respawn, the tick's
+`watch.drafts_back` after it.
 """
 
-from contextlib import contextmanager
 import unittest
 from unittest.mock import patch
 
@@ -26,31 +24,22 @@ class SwitchCarriesDraft(EditorSeat):
         self.untouched(0)               # the owner was typing into it a moment ago
         self.show(DRAFT)
 
-    @contextmanager
-    def switching(self, to="claude", harness="claude"):
-        """A switch, yielding whether it kept the text, inside its hold of the seat's lock; what
-        it started behind has ended once it is over."""
+    def switched(self, to="claude", harness="claude", owed=None):
+        """A switch, in one hold of the seat's lock as `orch.switch_orchestrator`'s: the text
+        lifted, the harness respawned and the line it is `owed` marked; what it started behind
+        then ended."""
         with notify.session_lock(self.seat["name"]):
             kept = watch.carry_draft(self.seat, harness, self.pane, to, self.cfg)
             if kept:
                 self.show("")           # the respawned harness, its composer empty
-            yield kept
+                watch.seat_write(self.seat["name"], midturn=owed and {"line": owed})
         self.settle()
-
-    def switched(self, to="claude", harness="claude"):
-        with self.switching(to, harness) as kept:
-            return kept
-
-    def owed(self):
-        """The new launch owed a line (`watch.relaunched`)."""
-        watch.seat_write(self.seat["name"], midturn={"line": watch.MIDTURN_LINE})
+        return kept
 
     def test_the_draft_goes_on_into_the_new_composer_after_any_line_it_is_owed(self):
-        with self.switching() as kept:
-            self.assertTrue(kept)
-            self.assertEqual(self.buffers, {aside_editor.kept(PANE): aside_editor.pack(
-                aside_editor.ASIDE, b"", DRAFT.encode())})
-            self.owed()
+        self.assertTrue(self.switched(owed=watch.MIDTURN_LINE))
+        self.assertEqual(self.buffers, {aside_editor.kept(PANE): aside_editor.pack(
+            aside_editor.ASIDE, b"", DRAFT.encode())})
         watch.drafts_back(self.cfg)
         self.assertEqual(self.composer, "")
         watch.seat_write(self.seat["name"], midturn=None)
@@ -61,9 +50,7 @@ class SwitchCarriesDraft(EditorSeat):
     def test_text_set_aside_for_ak_s_line_goes_on_though_the_line_was_never_sent(self):
         watch._edit(self.seat, watch.seat_editor(self.seat, self.cfg), "line", "ak notice")
         self.show(self.composer)                # ak's line, drawn
-        with self.switching() as kept:
-            self.assertTrue(kept)
-            self.owed()
+        self.assertTrue(self.switched(owed=watch.MIDTURN_LINE))
         self.untouched(watch.DRAFT_STILL)       # as any text set aside for a line goes back
         watch.drafts_back(self.cfg)
         self.assertEqual(self.composer, "")     # never before the line the new launch is owed
@@ -75,10 +62,9 @@ class SwitchCarriesDraft(EditorSeat):
         self.cfg["models"]["opus"]["harness"] = "codex"
         self.pane = (REPO / "tests/fixtures/codex-tall-line-pane.txt").read_text()
         self.assertIsNone(watch.composer_draft("codex", self.pane))    # its prompt row is above
-        with self.switching(harness="codex") as kept:
-            self.assertTrue(kept)
-            self.assertEqual(self.buffers, {aside_editor.kept(PANE): aside_editor.pack(
-                aside_editor.ASIDE, b"", DRAFT.encode())})
+        self.assertTrue(self.switched(harness="codex", owed=watch.MIDTURN_LINE))    # kept aside
+        self.assertEqual(self.buffers, {aside_editor.kept(PANE): aside_editor.pack(
+            aside_editor.ASIDE, b"", DRAFT.encode())})
 
     def test_text_the_editor_cannot_keep_stays_in_the_composer(self):
         self.deaf = True                        # the key goes unanswered
