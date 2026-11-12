@@ -329,10 +329,10 @@ class Screens(Sandbox):
             end = mark + updates[number + 1].start() if number + 1 < len(updates) else len(text)
             with self.subTest(frame=frames):
                 grid = played(text[:end])
-                self.assertEqual(marked(grid, "lit"), {row: "▰▰▰▰▰   max"})
+                self.assertEqual(marked(grid, "lit"), {row: "━━━━━   max"})
                 self.assertEqual(marked(grid, "reverse"), {})
         self.assertGreaterEqual(frames, 4)       # each letter shone, then the word settled
-        self.assertEqual(marked(played(text), "lit"), {row: "▰▰▰▰▰   max"})
+        self.assertEqual(marked(played(text), "lit"), {row: "━━━━━   max"})
         self.assertEqual(marked(played(text), "reverse"), {})
         screen.leave()
 

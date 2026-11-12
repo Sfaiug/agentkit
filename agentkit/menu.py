@@ -3,7 +3,7 @@ the moment it is pressed, and from a pipe it is a line.
 
     agentkit                                                              14:02
     ────────────────────────────────────────────────────────────────────────
-      Claude I    ▰▰▱▱▱▱▱▱▱▱  21% left   ChatGPT     ▰▰▰▰▰▰▰▱▱▱  69% left
+      Claude I    ━━────────  21% left   ChatGPT     ━━━━━━━───  69% left
 
 
     atoll
@@ -2820,11 +2820,11 @@ def usage_columns(width):
 def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, columns=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
-    a meter -- `▰` left, `▱` spent -- and what its cell says.  At rest no company's colour is
-    drawn; `lit`, from 1, the one the pointer is on, has its label and its meter's filled cells
-    in its provider's (`colour`), and one whose login ends soon (`login_notes`) has its meter
-    amber the rest of the time.  The rest is said under the grid (`usage_detail`).  What
-    each cell says is whole: the labels give way to the longest, and a width with no room for
+    a meter -- the bar (terminal.share_parts), full for what is left -- and what its cell says.
+    At rest no company's colour is drawn; `lit`, from 1, the one the pointer is on, has its
+    label and what its meter has left in its provider's (`colour`), and one whose login ends
+    soon (`login_notes`) has that amber the rest of the time.  The rest is said under the grid
+    (`usage_detail`).  What each cell says is whole: the labels give way to the longest, and a width with no room for
     a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`).
     `spans`, where handed in, gets each one's cells that take its colour: {number: [(line,
     column, text, what it is drawn in at rest)]}, the line from 0 and the column from 1;
@@ -2843,7 +2843,6 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, column
         return []
     # a phone's one column is its width: the meter gives way first, down to four cells
     meter = max(4, min(METER, room - label_room - 13))
-    full, empty = ("▰", "▱") if terminal.utf8() else ("#", "-")
     ending = login_notes(rows) if ending is None else ending
     lines = []
     for start in range(0, len(found), columns):
@@ -2861,12 +2860,11 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, column
                 text += (terminal.styled(said, "amber") if warn
                          else terminal.styled(said, "dim") if left is None else said)
             else:
-                filled = max(1, round(meter * left / 100))
+                full, rest = terminal.share_parts(left / 100, meter)
                 fill = ink or warn and "amber"
-                took.append((at[0], at[1] + label_room + 2, full * filled,
-                             ending[number - 1] and "amber"))
-                text += ((terminal.styled(full * filled, fill) if fill else full * filled)
-                         + terminal.styled(empty * (meter - filled), "dim") + "  " + said)
+                took.append((at[0], at[1] + label_room + 2, full, ending[number - 1] and "amber"))
+                text += ((terminal.styled(full, fill) if fill else full)
+                         + terminal.styled(rest, "dim") + "  " + said)
             cells.append(text + " " * max(0, room - terminal.cells(text)))
             if spans is not None:
                 spans[number] = took
