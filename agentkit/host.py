@@ -470,10 +470,17 @@ def _slice_cpu_quota(cgroup):
         return None
 
 
-def _cpu_usage_usec(cgroup):
-    """The cgroup's cumulative `cpu.stat` `usage_usec`, or None when it cannot be read."""
+def _cpu_usec(path):
+    """Cumulative microseconds, or None where unread: a cgroup's on a CPU (`cpu.stat`
+    `usage_usec`), or, for a cgroup's `cpu.pressure`, those it stood still for want of one
+    (`full` `total`: none of its threads ran)."""
     try:
-        for line in (cgroup / "cpu.stat").read_text().splitlines():
+        if path.name == "cpu.pressure":
+            for line in path.read_text().splitlines():
+                if line.startswith("full "):
+                    return float(line.rsplit("total=", 1)[1])
+            return None
+        for line in (path / "cpu.stat").read_text().splitlines():
             if line.startswith("usage_usec"):
                 return float(line.split()[1])
     except (OSError, ValueError, IndexError):
@@ -482,20 +489,21 @@ def _cpu_usage_usec(cgroup):
 
 
 def _cpu_rates(cgroups, delay=0.1):
-    """Each readable cgroup's live CPU use in cores, from one shared sample window.
+    """Each readable cgroup's live CPU use in cores, and each named `cpu.pressure`'s cores'
+    worth of standing still for want of one (`_cpu_usec`), from one shared sample window.
 
-    Two samples of `usage_usec` around a tenth of a second of sleep: the rate over the
+    Two samples around a tenth of a second of sleep: the rate over the
     measured window.  A single sample is cumulative since the cgroup was made, which says
     nothing live; dividing by the measured elapsed rather than the requested sleep keeps
     a delayed wakeup from overestimating.  A cgroup unreadable at either sample is left out.
     """
-    first = {cgroup: _cpu_usage_usec(cgroup) for cgroup in cgroups}
+    first = {cgroup: _cpu_usec(cgroup) for cgroup in cgroups}
     first = {cgroup: value for cgroup, value in first.items() if value is not None}
     if not first:
         return {}
     start = time.monotonic()
     time.sleep(delay)
-    second = {cgroup: _cpu_usage_usec(cgroup) for cgroup in first}
+    second = {cgroup: _cpu_usec(cgroup) for cgroup in first}
     elapsed = time.monotonic() - start
     if elapsed <= 0:
         return {}
@@ -511,6 +519,16 @@ def _cpu_weight(cgroup):
         return int((cgroup / "cpu.weight").read_text())
     except (OSError, ValueError):
         return None
+
+
+def _building(runs):
+    """The runs slice's scopes but a line's check: that outweighs every run for the CPU
+    (`land.start_line`, `deliver.landing_weight`), so it never stands waiting behind them."""
+    try:
+        return [scope for scope in runs.iterdir()
+                if scope.is_dir() and _cpu_weight(scope) != CPU_WEIGHT_MAX]
+    except OSError:
+        return []
 
 
 def kept_cpu(slice_dir, delay=0.1):
@@ -664,8 +682,9 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     """Host and caller-named cgroup readings; an injected snapshot avoids all reads.
 
     `slice_dir` may be a directory or a callable locating it after injection is checked.
-    `cpu_dir` selects a child for CPU readings and the runs' swap; memory and CPU used outside
-    the containing slice still read `slice_dir`, so sibling CPU is reclaimable.
+    `cpu_dir` selects a child for CPU readings, the runs' swap and the CPU its scopes building
+    ran on and waited for (`_building`); memory and CPU used outside the containing slice still
+    read `slice_dir`, so sibling CPU is reclaimable.
     `pressure_window` samples live CPU stalls on the host, slice and caller's cgroup;
     `all_limits` includes hard memory caps and enclosing groups.
     """
@@ -718,15 +737,20 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     except Exception:
         cpu_quota = None
     cpu_used = outside = None
+    building = []    # (ran, waited) of each scope building
     if cpu_dir is not None:
         # Sample CPU outside the containing slice alongside both groups, so a burst
         # between readings cannot count a sibling as outside work.
         whole = cgroup_path("", cgroup_root)
+        scopes = _building(cpu_dir) if cpu_dir != slice_dir else []
         try:
-            rates = _cpu_rates(list(dict.fromkeys(
-                path for path in (cpu_dir, slice_dir, whole) if path is not None)))
+            rates = _cpu_rates([*dict.fromkeys(
+                path for path in (cpu_dir, slice_dir, whole) if path is not None),
+                *(path for scope in scopes for path in (scope, scope / "cpu.pressure"))])
         except Exception:
             rates = {}
+        building = [(rates[scope], rates[scope / "cpu.pressure"]) for scope in scopes
+                    if scope in rates and scope / "cpu.pressure" in rates]
         cpu_used = rates.get(cpu_dir)
         # Before its first launch a child has no cgroup and holds no CPU.
         if (cpu_dir != slice_dir and slice_dir is not None and slice_dir.is_dir()
@@ -743,6 +767,9 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
     readings["slice_cpu_quota"] = cpu_quota
     readings["slice_cpu_used"] = cpu_used
     readings["outside_cpu_used"] = outside
+    # What the runs building ran on a CPU, and stood still waiting for one, in cores.
+    readings["building_cpu_used"], readings["building_cpu_waited"] = (
+        map(sum, zip(*building)) if building else (None, None))
     if mem is not None:
         (readings["slice_memory_used_mb"], readings["slice_memory_high_mb"],
          readings["slice_memory_swap_mb"]) = mem

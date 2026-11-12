@@ -35,7 +35,8 @@ STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds"
 # A landing check's wait for a heavy-suite turn is the lander's, inside the run's line wait.
 # Each counted in its `<wait>_wait_seconds` column (`waiter.add_wait`).
 WAITS = ("slot", "suite", "merge", "lander")
-SLOT_GATES = {"count": "admission", "load": "admission", "memory": "memory", "unit memory": "memory"}
+SLOT_GATES = {"count": "admission", "load": "admission", "cpu": "admission", "memory": "memory",
+              "unit memory": "memory"}
 _OPEN = {}     # run_id -> [step, since, opened]: the step this process runs, counted up to
                # `since`, and its phase row's start
 _OPEN_LOCK = threading.Lock()

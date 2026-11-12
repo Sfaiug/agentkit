@@ -1,9 +1,10 @@
-"""Admission gates no CPU unless the owner pinned max_load.
+"""Admission reads neither host load nor CPU pressure unless the owner pinned max_load.
 
 A run starts whatever the host load or the runs slice's CPU pressure is; a pinned
-max_load restores the old host-load check. Offline: a throwaway HOME, mocked slot
-counts, and injected host readings. The real machine's load, pressure and cgroups
-are never read.
+max_load restores the old host-load check. What the runs building ran on a CPU and stood
+still waiting for one is read from the runs slice's scopes, a line's lander left out.
+Offline: a throwaway HOME, mocked slot counts, and injected host readings or a made-up
+cgroup tree. The real machine's load, pressure and cgroups are never read.
 """
 
 import json
@@ -117,6 +118,34 @@ class AdmissionSliceCpu(unittest.TestCase):
             "nr_throttled": 290683, "throttled_usec": 1831801260})
         (slice_dir / "cpu.stat").unlink()
         self.assertIsNone(host._slice_cpu_stat(slice_dir))
+
+    def test_only_the_runs_building_give_their_cpu_run_and_waited_for(self):
+        root = self.root / "cgroup"
+        parent = root / "agentkit.slice"
+        runs = parent / "agentkit-runs.slice"
+        run, lander = runs / "agentkit-run-fix-api.scope", runs / "agentkit-lander-acme-1.scope"
+        for scope in (run, lander):
+            scope.mkdir(parents=True)
+        (lander / "cpu.weight").write_text(f"{host.CPU_WEIGHT_MAX}\n")
+        (run / "cpu.weight").write_text("40\n")
+
+        def sample(counters):
+            for scope, (used, waited) in counters.items():
+                (scope / "cpu.stat").write_text(f"usage_usec {used}\nuser_usec {used}\n")
+                (scope / "cpu.pressure").write_text(
+                    f"some avg10=0.00 avg60=0.00 avg300=0.00 total={waited}\n"
+                    f"full avg10=0.00 avg60=0.00 avg300=0.00 total={waited}\n")
+
+        sample({run: (0, 0), lander: (0, 0)})
+        # a second apart: the run ran 2 cores and stood waiting 6, the lander ran 8
+        later = {run: (2000000, 6000000), lander: (8000000, 0)}
+        with patch.dict(os.environ, {"AK_HOST_READINGS": ""}), \
+                patch.object(host, "PROC", self.root / "no-proc"), \
+                patch.object(host.time, "sleep", side_effect=lambda _: sample(later)), \
+                patch.object(host.time, "monotonic", side_effect=[100.0, 101.0]):
+            readings = host.host_readings(cgroup_file=self.root / "no-cgroup", cgroup_root=root,
+                                          slice_dir=parent, cpu_dir=runs)
+        self.assertEqual((readings["building_cpu_used"], readings["building_cpu_waited"]), (2, 6))
 
     def test_host_line_names_only_the_gates(self):
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(READINGS)}):
