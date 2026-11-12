@@ -494,8 +494,8 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual([plan.deferred(line) for line in lines()], [True])
         # the same site with another check is another follow-up: a run and a line of its own
         other = "python3 -c 'from broken import first; first(None)'"
-        second, later = self.source("later", followups=["broken.py:1 - different words - another reason"],
-                                    followup_checks={"broken.py:1 - different words - another reason": other})
+        second, later = self.source("later", followups=["`./broken.py:01` - different words"],
+                                    followup_checks={"`./broken.py:01` - different words": other})
         [again] = self.start(second, later)
         self.assertNotEqual(again, child)
         self.assertEqual([plan.deferred(line) for line in lines()], [True, True])
@@ -569,7 +569,7 @@ class FollowupRuns(unittest.TestCase):
     def test_same_site_suppressed_only_for_an_open_fix_in_the_same_session(self):
         directory, state = self.source()
         child = self.start(directory, state)[0]
-        second, later = self.source("later", followups=["broken.py:1 - different words - another reason"])
+        second, later = self.source("later", followups=["`./broken.py:01` - different words"])
         self.assertEqual(self.start(second, later), [])
         receipt = record.read_state(child)
         receipt.update(state="not_needed", not_needed="already fixed")
