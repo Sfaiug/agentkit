@@ -55,10 +55,10 @@ func menuRuns(held []run.Held, now time.Time) (map[string][]ran, map[string][]ra
 		}
 		records = append(records, record)
 		view, known := viewRun(record, now)
-		if !known {
+		var read bool
+		if view.place, read = place(record, each.Name); !known || !read {
 			return nil, nil, false
 		}
-		view.place, _ = place(record, each.Name)
 		mine[name] = append(mine[name], ran{name: each.Name, record: record, quiet: silence(filepath.Join(run.Runs(), each.Name), record, now), view: &view, census: census})
 	}
 	index := run.NewIndex(records)
