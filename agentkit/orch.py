@@ -4615,14 +4615,12 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     old_model = record["orchestrator"]
     if old_model == model and effort is None:
         return ""
-    # A seat moved to another provider, or off a login its provider lists no more, makes the
-    # account it moved on its home.  Else a running process keeps the login it has, as its record
-    # holds it under the lock: a recovery made since `_switch_plan` read it is not undone by a
-    # move in place.
-    provider = config.model(cfg, model)["provider"]
+    # A seat moved to another provider makes the account it moved on its home, as does one
+    # restarted off a login its provider lists no more (below).  Within its provider a running
+    # process keeps the login it has, as its record holds it under the lock: a recovery made
+    # since `_switch_plan` read it is not undone by a move in place.
     try:
-        moved = (provider != config.model(cfg, old_model)["provider"]
-                 or not config.lists(cfg, provider, record.get("account")))
+        moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
     except config.Error:
         moved = True          # its model is gone: no provider to stay home on
     homed = {"account": account, "home_account": account} if moved else {}
@@ -4675,6 +4673,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
         return _one_line(exc)
+    if not config.lists(cfg, config.model(cfg, model)["provider"], record.get("account")):
+        homed = {"home_account": account}
     from . import notify
     # the conversation it leaves stays the seat's, for its done check to read the owner's words
     # in (`notify.conversations_of`); a restart that fails puts every one of these back
