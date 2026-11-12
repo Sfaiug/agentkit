@@ -223,9 +223,10 @@ def alive_line(state, scope_dir=None, _marker=None, _rss=None, _active=None):
 
 
 def stop_note(state):
-    """`stopped · <why>` for a run a cap or a kill ended, else "".
+    """`stopped · <why>` for a run a cap or a kill ended, `× FAIL` for one its review failed,
+    else "".
 
-    The one dim line a stopped run keeps under its row: what ended it, in the
+    The one dim line a stopped or failed run keeps under its row: what ended it, in the
     run's own words.  A run the memory cap killed says its ceiling here too,
     so a `fail` on `killed: memory cap 4 GB` never reads as work that was judged.
     """
@@ -236,6 +237,9 @@ def stop_note(state):
     lowered = err.lower()
     if "killed" in lowered or "memory cap" in lowered:
         return err
+    if (state or {}).get("state") == "fail" and state.get("verdict") == "FAIL":
+        from . import terminal
+        return terminal.state_label("FAIL")
     return ""
 
 

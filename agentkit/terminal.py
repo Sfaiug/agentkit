@@ -29,9 +29,9 @@ STATE_STYLES = {
     # nothing running, asked or owed: quiet, as the eye should pass over it
     "idle": ("○", "o", "grey", "37", "2"),
     # its subscriptions are spent: red, as nothing moves until usage comes back or the owner
-    # moves it, and the hollow circle says it comes back by itself
-    "out of usage": ("◌", "o", "red", "31", ""),
-    "FAIL": ("✗", "x", "red", "31", ""),
+    # moves it, and idle's open circle says it comes back by itself
+    "out of usage": ("○", "o", "red", "31", ""),
+    "FAIL": ("×", "x", "red", "31", ""),
     "dim": ("·", ".", "grey", "37", "2"),
     # No session word: a run parked on something that lifts by itself says what it waits for
     # instead of a word, and the open circle is what says nobody has to act on it.
@@ -391,7 +391,7 @@ STATES = {
     "needs you": ("!", "attention"),
     "done": ("✓", "good"),
     "idle": ("○", "dim"),
-    "out of usage": ("◌", "spent"),
+    "out of usage": ("○", "spent"),
 }
 
 
@@ -401,7 +401,7 @@ def state_glyph(word):
         return glyph(word)
     mark, _ = STATES[word]
     if not utf8():
-        return {"●": "*", "✓": "v", "!": "!", "○": "o", "◌": "o"}.get(mark, mark)
+        return {"●": "*", "✓": "v", "!": "!", "○": "o"}.get(mark, mark)
     return mark
 
 
@@ -1638,7 +1638,7 @@ def confirm(question, meaning, answer, around, wait=None):
     is asked on; False, kept, on Esc.
 
     The card is a blank line, the question, what the answer means dim, the two choices and a
-    blank line: `✓ Keep` first and highlighted, then `✗ <answer>` in the warn colour, read as
+    blank line: `✓ Keep` first and highlighted, then `× <answer>` in the warn colour, read as
     `choose` reads them, so Enter or a click answers.  `around(card, keys)` draws the screen it
     is asked on with the card's lines where they go, under the card's own key line, `keys`:
     Enter named for the highlighted answer (`⏎ keep`, `⏎ stop`), nothing of that screen's.  It
