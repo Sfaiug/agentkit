@@ -1,11 +1,12 @@
 """A killed checker's folder in a run's folder goes at the next `ak run gc`, and a living
 checker's stays through it.
 
-Black-box: `AK_BIN` checks two landing lines in one Home through tests/fixtures/akline.py.  Each
-line's one test marks its start in its project's Git storage and runs until the test here lets
-it end.  A checker's folders are those its member's run folder gains once its suite started;
-the run is waiting in its line, as a stopped lander leaves it.  Each collection is boxed with a
-/tmp of its own (`home.ak(boxed=True)`), on the host's processes.
+Black-box: `AK_BIN` checks two landing lines in one Home through tests/fixtures/akline.py, each
+suite one command, never split into pieces that end at once.  Each line's one test marks its
+start in its project's Git storage and runs until the test here lets it end.  A checker's
+folders are those its member's run folder gains once its suite started; the run is waiting in
+its line, as a stopped lander leaves it.  The collection is boxed with a /tmp of its own
+(`home.ak(boxed=True)`), on the host's processes.
 """
 
 import os
@@ -16,19 +17,19 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akline import READINGS, Line
+from fixtures.akline import READINGS, Line, rules
 from fixtures.garbage import ROOM
 
-HELD = """cd "$(git rev-parse --git-common-dir)" && touch started
+HELD = {"t/held.sh": """cd "$(git rev-parse --git-common-dir)" && touch started
 until [ -e release ]; do sleep 0.1; done
-"""
+""", "AGENTS.md": rules("sh suite.sh")}
 
 
 class AKilledProcessSRunScratchGoes(unittest.TestCase):
     def setUp(self):
-        self.one = Line({"t/held.sh": HELD})
+        self.one = Line(HELD)
         self.addCleanup(self.one.close)
-        self.two = Line({"t/held.sh": HELD}, home=self.one.home, name="widgets")
+        self.two = Line(HELD, home=self.one.home, name="widgets")
         for line in (self.one, self.two):
             line.member({"api.txt": f"{line.rig.name}\n"})
             self.addCleanup((line.rig.path / ".git" / "release").touch)
