@@ -5,24 +5,91 @@ package terminal
 
 import (
 	"io"
+	"math"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
 
-// A style is a word's glyph, its ASCII stand-in, its colour on a dark background, its
-// eight-colour tone and its emphasis.  `dim` is a note beside a row and `FAIL` a verdict, no
-// state; `idle` is drawn as dim is.
-type style struct{ glyph, ascii, rgb, tone, emphasis string }
+// A style is a word's glyph, its ASCII stand-in, its colour of the palette, its eight-colour tone
+// and its emphasis.  `dim` is a note beside a row and `FAIL` a verdict, no state; `idle` is drawn
+// as dim is.
+type style struct{ glyph, ascii, colour, tone, emphasis string }
 
 var styles = map[string]style{
-	"needs you": {"!", "!", "f9e2af", "33", "1"},
-	"working":   {"●", "*", "89b4fa", "36", ""},
-	"done":      {"✓", "v", "a6e3a1", "32", ""},
-	"FAIL":      {"✗", "x", "f38ba8", "31", ""},
-	"idle":      {"○", "o", "6c7086", "37", "2"},
-	"dim":       {"·", ".", "6c7086", "37", "2"},
-	"quiet":     {"", "", "a6adc8", "37", ""},
+	"needs you":    {"!", "!", "yellow", "33", "1"},
+	"working":      {"●", "*", "blue", "36", ""},
+	"done":         {"✓", "v", "green", "32", ""},
+	"out of usage": {"○", "o", "red", "31", ""},
+	"FAIL":         {"×", "x", "red", "31", ""},
+	"idle":         {"○", "o", "grey", "37", "2"},
+	"dim":          {"·", ".", "grey", "37", "2"},
+	"quiet":        {"", "", "grey", "37", ""},
+}
+
+// kinds are the roles a screen asks Styled for, each the word whose colour it is.
+var kinds = map[string]string{"accent": "working", "amber": "needs you"}
+
+// onLight is a word's own colour on a light background: yellow cannot be read on white.
+var onLight = map[string]string{"needs you": "orange"}
+
+// colourOf is a word's colour of the palette, or a role's (kinds); light, on a light background.
+func colourOf(word string, light bool) colour {
+	if role, ok := kinds[word]; ok {
+		word = role
+	}
+	if name, ok := onLight[word]; ok && light {
+		return palette[name]
+	}
+	return palette[styles[word].colour]
+}
+
+var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
+
+// isLight is whether an answer's luma is past half way.
+func isLight(answer string) bool {
+	found := backgroundRGB.FindStringSubmatch(answer)
+	if found == nil {
+		return false
+	}
+	var channel [3]float64
+	for i, part := range found[1:] {
+		value, err := strconv.ParseUint(part, 16, 64)
+		if err != nil {
+			return false
+		}
+		channel[i] = float64(value) / (math.Pow(16, float64(len(part))) - 1)
+	}
+	return 0.2126*channel[0]+0.7152*channel[1]+0.0722*channel[2] > 0.5
+}
+
+// trueColour is whether a tmux client's features say it takes true colour, as tmux and ssh both
+// drop COLORTERM on the way in.
+func trueColour(features string) bool {
+	for _, each := range strings.Split(strings.TrimSpace(features), ",") {
+		if each == "RGB" || each == "Tc" {
+			return true
+		}
+	}
+	return false
+}
+
+// Highlight is a list's highlighted row: with mark, `›` in the accent colour in its first column,
+// every row starting on a space it takes, and its text bright; each colour in it ends in a reset,
+// and every reset turns the brightness back on.
+func (s Screen) Highlight(line string, mark bool) string {
+	if mark {
+		glyph := "›"
+		if s.ascii {
+			glyph = ">"
+		}
+		line = s.Styled(glyph, "accent") + line[1:]
+	}
+	if s.depth == 0 {
+		return line
+	}
+	return "\x1b[1m" + strings.ReplaceAll(line, "\x1b[0m", "\x1b[0;1m") + "\x1b[0m"
 }
 
 // A Screen is one output's colour depth, background, glyphs and size, read once: a screen asks for
@@ -121,19 +188,16 @@ func (s Screen) Styled(text, word string) string {
 	if role, ok := kinds[word]; ok {
 		word = role
 	}
-	look := lookOf(word)
+	look, rgb := s.lookOf(word)
 	if s.depth == 0 || text == "" {
 		return text
-	}
-	if rgb, ok := lightRGB[word]; ok && s.light {
-		look.rgb = rgb
 	}
 	code := look.tone
 	switch s.depth {
 	case 24:
-		code = "38;2;" + strings.Join(channels(look.rgb), ";")
+		code = "38;2;" + strings.Join(channels(rgb), ";")
 	case 256:
-		code = "38;5;" + strconv.Itoa(xterm(look.rgb))
+		code = "38;5;" + strconv.Itoa(xterm(rgb))
 	}
 	if (word == "dim" || word == "idle") && s.depth == 8 {
 		code = "2"

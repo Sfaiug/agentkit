@@ -59,14 +59,16 @@ class FindingsRow(unittest.TestCase):
         self.assertIn("findings", rows, self.done.out)
         self.assertEqual(rows["findings"][0],
                          "4 blocking; 3 disputed; 2 of 3 conceded; 1 of 4 raised again; "
-                         "0 let go; 0 of 0 on a change that broke main or live after merge")
+                         "0 let go; 0 of 0 on a change that broke main or live after merge; "
+                         "0 of 0 handed in after round 1 inside the fix")
 
     def test_previous_week_recognises_a_finding_raised_before_both_weeks(self):
         rows = {label: (this, last) for label, this, last in scoreboard(self.done.out)}
         self.assertIn("findings", rows, self.done.out)
         self.assertEqual(rows["findings"][1],
                          "1 blocking; 0 disputed; 0 of 0 conceded; 1 of 1 raised again; "
-                         "0 let go; 0 of 0 on a change that broke main or live after merge")
+                         "0 let go; 0 of 0 on a change that broke main or live after merge; "
+                         "0 of 0 handed in after round 1 inside the fix")
 
 
 if __name__ == "__main__":

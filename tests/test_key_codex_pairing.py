@@ -4,9 +4,9 @@ Pairing the provider's app with a seat is optional and never blocks terminal wor
 resuming a Codex seat sends no setup alert and asks Codex for no pairing code
 (tests/test_key_codex_pairing.py).
 Older seats paged the owner with optional setup as if it were a question.  The owner who wants
-app access asks on the host, `python3 <ak>/tools/codex-seat.py --pair <seat>` (docs/guide.md),
-by the seat's name, a name it had before or the Codex home an older card named; the code is
-printed there and paged nowhere, and the seat works on.
+app access asks on the host, `ak orch pair <seat>`, by the seat's name, a name it had before or
+the Codex home an older card named; the code is printed there and paged nowhere, and the seat
+works on.
 
 Black-box: the program `AK_BIN` names opens each seat from a person's terminal
 (tests/fixtures/akterm.py), paging tests/fixtures/sink.py; `codex` is
@@ -29,12 +29,11 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import FIXTURES, Seat
 from fixtures.akterm import Terminal
 from fixtures.sink import Sink
 
-PAIR = Path(AK).resolve().parents[1] / "tools" / "codex-seat.py"   # beside the program
 CODE = "Pairing code: ACME-1234\n"      # the stand-in's manual code
 OPEN = ("--model", "astra", "--workers", "astra")     # the shipped config's Codex model
 
@@ -179,7 +178,7 @@ class PairingOnRequest(CodexHost, unittest.TestCase):
             (cls.home.path / name).mkdir()
 
     def pair(self, target):
-        return tuple(self.home.run("python3", str(PAIR), "--pair", target))
+        return tuple(self.home.ak("orch", "pair", target))
 
     # Pairing is requested when the owner wants app access: a code comes only on request.
     # [7 Oct 2026]

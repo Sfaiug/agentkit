@@ -329,10 +329,10 @@ class Screens(Sandbox):
             end = mark + updates[number + 1].start() if number + 1 < len(updates) else len(text)
             with self.subTest(frame=frames):
                 grid = played(text[:end])
-                self.assertEqual(marked(grid, "lit"), {row: "▰▰▰▰▰   max"})
+                self.assertEqual(marked(grid, "lit"), {row: "━━━━━   max"})
                 self.assertEqual(marked(grid, "reverse"), {})
         self.assertGreaterEqual(frames, 4)       # each letter shone, then the word settled
-        self.assertEqual(marked(played(text), "lit"), {row: "▰▰▰▰▰   max"})
+        self.assertEqual(marked(played(text), "lit"), {row: "━━━━━   max"})
         self.assertEqual(marked(played(text), "reverse"), {})
         screen.leave()
 
@@ -461,6 +461,10 @@ class Screens(Sandbox):
                             ("uses", dict.fromkeys(menu.quality.ROLES, (None, None, None)))):
             self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))
         self.stack.enter_context(patch.object(menu, "models_said", return_value=said))
+        # the boards' read lands before the screen first draws: landing later, on a loaded host,
+        # it would draw the screen once more between the screens counted below
+        self.stack.enter_context(patch.object(
+            menu.Fetch, "start", lambda fetch: (threading.Thread.start(fetch), fetch.join())))
         # the pointer on the header puts `▸` out, and a key brings it back where it was
         screens = run(lambda: menu.models_screen(self.cfg, None, {}, {}), move(1, 1), b"\x1b[A",
                       ESC)[1]

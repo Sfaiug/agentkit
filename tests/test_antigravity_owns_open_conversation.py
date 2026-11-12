@@ -2,10 +2,12 @@
 
 A fake process table under the test's HOME stands for /proc: each process its environment and
 fd links into agy's store.  What a launch was seen holding outlives the process; a database
-held by a stale launch, one another seat owns, or one of two held at once is never the seat's.
+held by a stale launch, one another seat's record names, or one of two held at once is never the
+seat's, nor one a seat's prompt is claiming meanwhile.
 """
 
 import json
+import os
 import shutil
 import sys
 import threading
@@ -15,7 +17,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox
-from agentkit import config
+from agentkit import config, notify, orch
 from agentkit.harness import antigravity
 
 
@@ -81,6 +83,36 @@ class OwnsOpenConversation(Sandbox):
         self.assertIsNone(self.owns("acme"))
         self.agy(self.seat("gamma"), "c-one", "c-two")
         self.assertIsNone(self.owns("gamma"))
+
+    def test_one_another_seats_record_names_unproven_or_left_is_never_its_own(self):
+        self.seat("beta")
+        config.update_session("beta", conversation="c-named",
+                              left=[{"harness": "antigravity", "conversation": "c-left"}])
+        for named in ("c-named", "c-left"):
+            self.agy(self.seat("acme"), named)
+            self.assertIsNone(self.owns("acme"), named)
+
+    def test_a_prompts_claim_and_a_launch_learning_the_same_one_never_both_take_it(self):
+        self.agy(self.seat("acme"), "c-acme")
+        config.update_session("acme", cwd=str(self.root))
+        self.assertEqual(self.owns("acme"), "c-acme")
+        self.agy(self.seat("beta"), "c-new")
+        (self.store / "c-new.db").touch()
+        left, beta = notify.left, []
+
+        def leaving(*args):     # beta learns while acme's prompt is between its check and write
+            beta.append(threading.Thread(target=lambda: beta.append(self.owns("beta"))))
+            beta[0].start()
+            beta[0].join(0.2)
+            return left(*args)
+        with (patch.dict(os.environ, {"AK_RUN_ROLE": "seat"}),
+              patch.object(orch, "find", return_value={"name": "acme"}),
+              patch.object(orch, "owns_hook", return_value=True),
+              patch.object(notify, "left", leaving)):
+            antigravity.follow("acme", {"hook_event_name": "UserPromptSubmit",
+                                        "session_id": "c-new"}, 1)
+            beta[0].join()
+        self.assertEqual((self.owns("acme"), beta[1:]), ("c-new", [None]))
 
     def test_a_host_without_a_process_table_owns_nothing(self):
         self.seat("acme")
