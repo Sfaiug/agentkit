@@ -556,7 +556,7 @@ def _gate_flags(providers, now, cfg):
                                        [_normalized(meter, now) for meter in recorded], now),
                         error=None)
         # a provider that refused a worker is parked until it said it would have
-        # capacity, or until the meter that showed the refusal opens a new window
+        # capacity, or until the meter that showed the refusal opens a new window or falls
         until = _number(prov.get("exhausted_until"))
         if until is None or until <= now or _fresh_window(prov, prov, now):
             for key in MARK:
@@ -593,7 +593,7 @@ def _gate_flags(providers, now, cfg):
 
 
 _WRITES = itertools.count()   # a temporary name of each writer's own; see `_write`
-MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_by")
+MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_used", "exhausted_by")
 
 
 def _write(change, fetched_at=None):
@@ -718,33 +718,39 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
 
 
 def _fresh_window(prov, mark, now):
-    """Whether the meter that showed the refusal `mark` records now reports a later reset with
-    room left.
+    """Whether the meter that showed the refusal `mark` records now has room again: a later
+    reset, or a lower reading asked after the refusal.
 
     That meter is the one `mark_exhausted` named (`exhausted_by`).  Another meter's new window
     says nothing of the refusal: the 5-hour session rolling over under a weekly refusal leaves
     that week as spent as it was.  A mark that names none ends at its deadline alone.
-    Only reported reset times identify a replacement: a window's nominal length says
-    nothing about when it began.  Without a recorded reset there is nothing to compare.
+    Only reported reset times identify a replacement, and inside the same window only a reading
+    asked after the refusal that fell by more than a point of jitter counts: a meter below 100
+    that never fell is not permission to be refused again.
     """
-    ends = mark.get("exhausted_ends") if isinstance(mark, dict) else None
-    if not isinstance(prov, dict) or not isinstance(ends, dict):
+    name = mark.get("exhausted_by") if isinstance(mark, dict) else None
+    if not isinstance(prov, dict) or not isinstance(name, str) or not name:
         return False
+    ends = mark.get("exhausted_ends")
+    levels = mark.get("exhausted_used")
+    at = _number(mark.get("exhausted_at"))
+    probed, taken = _number(prov.get("probed_at")), _taken(prov)
+    asked = (at is not None and not prov.get("probe_error")
+             and probed is not None and probed > at
+             and taken is not None and taken > at)
     for meter in prov.get("meters") or []:
-        if not isinstance(meter, dict) or meter.get("name") != mark.get("exhausted_by"):
+        if not isinstance(meter, dict) or meter.get("name") != name:
             continue
         used = _number(meter.get("used"))
-        if used is None or used >= 100:
+        if used is None or used >= 100 or _past(meter, now):
             continue
+        stood = _number(levels.get(name)) if isinstance(levels, dict) else None
+        if asked and stood is not None and round(stood - used, 6) > 1:
+            return True
         resets_at = _number(meter.get("resets_at"))
-        if resets_at is None:
-            continue
-        if resets_at <= now:
-            continue          # a window already rolled over answers for nothing
-        old = _number(ends.get(meter.get("name")))
-        if old is None or resets_at <= old:
-            continue          # the window the mark was made in, mismeasured or not
-        return True
+        old = _number(ends.get(name)) if isinstance(ends, dict) else None
+        if resets_at is not None and old is not None and resets_at > old:
+            return True
     return False
 
 
@@ -754,8 +760,8 @@ def _carry_mark(old, prov, now):
     A provider that has just refused a worker is parked until it says it has capacity again,
     and the meters it reports meanwhile are not that answer: the one that is, is the time the
     refusal itself named.  Once that time is behind us the mark is gone and the probe decides.
-    A new window with room on the meter that showed the refusal ends it sooner, and is that
-    same answer.
+    A new window with room on the meter that showed the refusal, or an asked reading where that
+    meter has fallen, ends it sooner and is that same answer.
 
     Every write carries the mark the file holds this way (`_onto`) but the credit's own: the
     meters a spend hands back are the capacity the mark said was missing, and re-applying it
@@ -773,6 +779,8 @@ def _carry_mark(old, prov, now):
         mark["exhausted_at"] = marked_at
     if isinstance(ends, dict):
         mark["exhausted_ends"] = ends
+    if isinstance(old.get("exhausted_used"), dict):
+        mark["exhausted_used"] = old["exhausted_used"]
     if isinstance(old.get("exhausted_by"), str):
         mark["exhausted_by"] = old["exhausted_by"]
     return mark
@@ -1016,32 +1024,35 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
-    passed, or the meter that showed the refusal reports a later reset than recorded at
-    marking, with room; a refusal no meter showed waits for its deadline.  An account's mark
+    passed, or the meter that showed the refusal reports a later reset or an asked fall with
+    room; a refusal no meter showed waits for its deadline.  An account's mark
     is its own: the provider stays eligible on its other accounts.  Returns the deadline
     recorded.
     """
-    now = time.time()
     try:
         prov = collect(cfg).get(provider) or {}
     except config.Error:
         prov = {}
     if account is not None:
         prov = (prov.get("accounts") or {}).get(account) or {}
+    now = time.time()
     said = _number(until) is not None and until > now
     if not said:
         until = _next_window(prov, now) or now + DRY_FOR
-    ends, shown = {}, []
+    ends, levels, shown = {}, {}, []
     for meter in prov.get("meters") or []:
         if not isinstance(meter, dict) or not isinstance(meter.get("name"), str):
             continue
+        used = _number(meter.get("used"))
+        if used is not None:
+            levels[meter["name"]] = used
         end = _number(meter.get("resets_at"))
         if end is not None:
             ends[meter["name"]] = end
             # the refusal shows on a meter spent as it came, of several the last to reset,
             # and never on a session -- or a window that does not say it is none -- when the
             # refusal outlasts one
-            if (_number(meter.get("used")) or 0) >= 100 and not (
+            if (used or 0) >= 100 and not (
                     _number(meter.get("window_secs")) in (SESSION_SECS, None)
                     and until - now > SESSION_SECS):
                 shown.append((end, meter["name"]))
@@ -1049,6 +1060,7 @@ def mark_exhausted(cfg, provider, until=None, account=None):
         until = min(until, now + DRY_FOR)
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
+                                          "exhausted_used": levels,
                                           "exhausted_by": max(shown, default=(0, None))[1]})
     return float(until)
 
@@ -1127,11 +1139,11 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
             prov.setdefault("via", via)
         except config.Error:
             pass
-    prov.update(meters=merged, probed_at=measured, error=None,
+    prov.update(meters=merged, fetched_at=measured, error=None,
                 pace=max((m["pace"] for m in merged
                             if isinstance(m, dict) and m.get("pace") is not None),
                            default=None))
-    for key in ("fetched_at", "probe_error", "probe_failed_at", "stale_since"):
+    for key in ("probed_at", "probe_error", "probe_failed_at", "stale_since"):
         prov.pop(key, None)
     _patch(provider, prov, account)
     return True

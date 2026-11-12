@@ -652,6 +652,73 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.assertNotIn("exhausted_until", self.stored_account("first"))
             self.assertEqual(usage.account(self.cfg, "alpha"), ("first", True))
 
+    def test_asked_fall_inside_the_window_ends_the_mark_across_usage_menu_and_pick(self):
+        from agentkit import menu, staffing
+        self.set_meters("alpha", self.old_window(used=100))
+        self.set_meters("beta", self.old_window(used=10))
+        until = NOW + 5 * 86400
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            usage.mark_exhausted(self.cfg, "alpha", until)
+            # A fall of 1 point is jitter; only more than 1 point with room ends the mark.
+            self.now += usage.PROBE_EVERY + 1
+            self.set_meters("alpha", self.old_window(used=99))
+            self.stale_cache()
+            self.assertTrue(usage.collect(self.cfg)["alpha"]["exhausted"])
+            # A worker turn's stream reading (and a 429 probe after it) was not asked.
+            self.assertTrue(usage.record_turn_meters(
+                self.cfg, "alpha", self.old_window(used=76), now=self.now + 10))
+            self.now += usage.PROBE_EVERY + 20
+            with patch.object(usage, "_probe", return_value={
+                    "provider": "alpha", "meters": [],
+                    "error": "unknown: HTTP 429", "probed_at": self.now}):
+                self.stale_cache()
+                still = usage.collect(self.cfg)
+            self.assertTrue(still["alpha"]["exhausted"])
+            self.assertNotIn("one", usage.pick_order(self.cfg, still, ["one", "two"], quiet=True))
+            # An asked reading of 76 with the same resets_at ends the mark in one pass.
+            self.now += usage.PROBE_EVERY + 1
+            self.set_meters("alpha", self.old_window(used=76))
+            self.stale_cache()
+            providers = usage.collect(self.cfg)
+            for key in usage.MARK:
+                self.assertNotIn(key, providers["alpha"])
+            self.assertFalse(providers["alpha"]["exhausted"])
+            self.assertNotEqual(usage.outlook(providers["alpha"]), "exhausted")
+            self.assertEqual(dict((name, (left, said))
+                                  for name, _, left, said in menu.usage_cells(self.cfg))["alpha"],
+                             (24, "24% left"))
+            self.assertIn("one", usage.pick_order(self.cfg, providers, ["one", "two"], quiet=True))
+            self.assertIn(("one", "alpha"),
+                          staffing.executable_models(self.cfg, providers, ["one", "two"], self.now))
+
+    def test_a_mark_below_100_ends_on_a_real_fall_and_ignores_one_point_of_jitter(self):
+        self.set_meters("alpha", self.old_window(used=95))
+        self.set_meters("beta", self.old_window(used=10))
+        until = NOW + 5 * 86400
+        cache = config.STATE / "usage.json"
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            usage.mark_exhausted(self.cfg, "alpha", until)
+            blob = json.loads(cache.read_text())
+            blob["providers"]["alpha"]["exhausted_by"] = "weekly"
+            cache.write_text(json.dumps(blob))
+            for used in (96, 95, 94):
+                with self.subTest(used=used):
+                    self.now += usage.PROBE_EVERY + 1
+                    self.set_meters("alpha", self.old_window(used=used))
+                    self.stale_cache()
+                    providers = usage.collect(self.cfg)
+                    self.assertTrue(providers["alpha"]["exhausted"])
+                    self.assertEqual(providers["alpha"]["exhausted_used"], {"weekly": 95.0})
+                    self.assertNotIn("one", usage.pick_order(
+                        self.cfg, providers, ["one", "two"], quiet=True))
+            self.now += usage.PROBE_EVERY + 1
+            self.set_meters("alpha", self.old_window(used=0))
+            self.stale_cache()
+            providers = usage.collect(self.cfg)
+            self.assertFalse(providers["alpha"]["exhausted"])
+            self.assertIn("one", usage.pick_order(
+                self.cfg, providers, ["one", "two"], quiet=True))
+
 
 if __name__ == "__main__":
     unittest.main()
