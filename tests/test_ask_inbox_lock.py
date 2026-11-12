@@ -11,6 +11,7 @@ import fcntl
 import io
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 import textwrap
@@ -52,6 +53,11 @@ HELD = {
     # an empty prompt row with the owner's text on the row under it reads `at_prompt`
     "continued": fixture("prompt").replace("\n❯\xa0\n", "\n❯\xa0\n  the rest of my line\n"),
 }
+def typed_into(pane, text):
+    """That pane with `text` in its composer's empty prompt row, as its harness draws a line."""
+    return re.sub("^❯\xa0?$", f"❯\xa0{text}", pane, count=1, flags=re.M) if text else pane
+
+
 # an empty composer, whatever is drawn under its rule
 EMPTY = {
     "status": above_footer(fixture("prompt"), "❯ acme main*"),
@@ -75,7 +81,7 @@ class AskInboxLock(unittest.TestCase):
         stack.enter_context(redirect_stdout(io.StringIO()))
         stack.enter_context(redirect_stderr(io.StringIO()))
         config.ensure_dirs()
-        self.sent, self.logs, self.pane = [], [], IDLE
+        self.sent, self.logs, self.pane, self.composer = [], [], IDLE, ""
         stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         stack.enter_context(patch.object(orch, "ensure", return_value=False))
         stack.enter_context(patch.object(orch, "find", return_value={"name": "inbox"}))
@@ -83,9 +89,12 @@ class AskInboxLock(unittest.TestCase):
         self.pinged = stack.enter_context(patch.object(notify, "shaped", return_value=0))
 
     def tmux(self, *args, socket=None, client=False, **_kw):
+        """The inbox seat's server: a scripted pane, or a fixed one that draws what is typed
+        into its composer until its Enter takes it."""
         if args[0] == "send-keys":
             self.sent.append(args[-1])
-        pane = self.pane() if callable(self.pane) else self.pane
+            self.composer = args[-1] if "-l" in args else ""
+        pane = self.pane() if callable(self.pane) else typed_into(self.pane, self.composer)
         if args[-1] == "#{cursor_y}":
             return 0, cursor_row(pane)
         return 0, pane if args[0] == "capture-pane" else ""
@@ -94,7 +103,8 @@ class AskInboxLock(unittest.TestCase):
         return watch.ask_inbox({}, question, PR, SHA, self.logs.append)
 
     def test_another_sender_waits_for_the_question_and_its_enter(self):
-        reached = threading.Event()
+        read = threading.Event()        # the second sender has read the composer empty
+        senders = []
 
         def second():
             with config.notify_path("inbox").with_suffix(".lock").open("a") as handle:
@@ -105,25 +115,22 @@ class AskInboxLock(unittest.TestCase):
                 else:
                     held = False
                     fcntl.flock(handle, fcntl.LOCK_UN)
-            if held:
-                reached.set()     # it waits on the lock; the question's Enter comes first
-            try:
-                return watch.type_into({"name": "inbox"}, "/rename quay", self.logs.append)
-            finally:
-                reached.set()
+            return held, watch.type_into({"name": "inbox"}, "/rename quay", self.logs.append)
 
-        senders = []
-
-        def sleep(seconds):
-            # the question is in the composer and its Enter not yet sent: the key gap
-            if seconds == watch.KEY_GAP and len(self.sent) == 1:
+        def tmux(*args, **kw):
+            if args[0] == "send-keys" and not senders:
+                # the question goes in under the inbox's lock: the second sender reads the
+                # composer still empty, and waits on that lock for the question's Enter
                 senders.append(pool.submit(second))
-                self.assertTrue(reached.wait(5), "the second sender never reached the lock")
+                self.assertTrue(read.wait(5), "the second sender never read the composer")
+            if args[0] == "capture-pane" and threading.current_thread() is not threading.main_thread():
+                read.set()
+            return self.tmux(*args, **kw)
 
         with ThreadPoolExecutor(max_workers=1) as pool, \
-                patch.object(watch.time, "sleep", side_effect=sleep):
+                patch.object(orch, "tmux_out", side_effect=tmux), patch.object(watch.time, "sleep"):
             self.assertEqual(self.ask(), 0)
-            self.assertTrue(senders[0].result(timeout=5))
+            self.assertEqual(senders[0].result(timeout=5), (True, True))
         self.assertEqual([sent[:9] for sent in self.sent],
                          [QUESTION[:9], "Enter", "/rename q", "Enter"])
         self.assertIn(f"asked the inbox seat: {QUESTION}", self.logs)

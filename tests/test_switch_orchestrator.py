@@ -87,7 +87,7 @@ class Switch(Sandbox):
             path.chmod(0o755)
         self.stack.enter_context(patch.dict(
             os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
-        self.calls, self.fail = [], set()
+        self.calls, self.fail, self.composer = [], set(), ""
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.seat = {"name": "fix-api", "path": str(self.root), "created": 100,
                      "attached": False, "exited": False, "legacy": False}
@@ -120,7 +120,10 @@ class Switch(Sandbox):
         self.calls.append(pane.resolved(args))
         if args[0] in self.fail:
             return 1, "boom"
-        return 0, PROMPT if args[0] == "capture-pane" else ""
+        if args[0] == "send-keys":     # a typed line stands in the composer until its Enter
+            self.composer = args[-1] if "-l" in args else ""
+        return 0, (PROMPT.replace("❯\xa0\n", f"❯\xa0{self.composer}\n")
+                   if args[0] == "capture-pane" else "")
 
     def rulebook(self, name="fix-api"):
         return config.rulebook_path(name).read_text()

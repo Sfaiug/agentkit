@@ -126,7 +126,15 @@ class OwnerWords(unittest.TestCase):
                                     seat=config.current_session())
 
     def type(self, text, **kwargs):
-        with patch.object(orch, "tmux_out", return_value=(0, "")):
+        """`text` typed into the seat, whose composer shows it -- from the start, `pending` --
+        until its Enter takes it."""
+        composer = [text if kwargs.get("pending") else ""]
+
+        def keys(*args, **_kw):
+            composer[0] = args[-1] if "-l" in args else ""
+            return 0, ""
+        with patch.object(orch, "tmux_out", side_effect=keys), \
+                patch.object(watch, "pane_text", side_effect=lambda *_a, **_kw: f"❯ {composer[0]}"):
             return watch.type_checked(self.seat, text, lambda _: None, "claude", **kwargs)
 
     def launch(self, model, line=None, conversation=None):

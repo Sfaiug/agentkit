@@ -834,7 +834,7 @@ def finish_own_lines(cfg, log):
             if (type_checked(session, line, log, harness, pending=True,
                              guard=lambda: notify.session_lock(name),
                              veto=lambda held: line != marked
-                             and owner_question(notify.last(held)), cfg=cfg)
+                             and owner_question(notify.last(held)))
                     and line == marked):
                 replace_midturn(name, mark)
             break
@@ -3866,8 +3866,7 @@ def kept_asked_first(session, harness=None, held=True):
 
 
 def type_checked(session, text, log, harness=None, guard=nullcontext,
-                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak",
-                 cfg=None):
+                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak"):
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Delivery is at least once: no mark, receipt or transcript read closes every crash window
@@ -3884,9 +3883,8 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     Each Enter goes only while the composer holds the line alone (`composer_holds`, read under
-    the guard right after the gap, whole where the line is `pending`: no key of this call put
-    it there), and the first waits up to SENT_WAIT for that: the owner can type in the seat,
-    and what they type is never sent.  A line still joined to it after that wait stays, for
+    the guard right after the gap), and the first waits up to SENT_WAIT for that: the owner
+    can type in the seat, and what they type is never sent.  A line still joined to it after that wait stays, for
     the owner or a later pass (`finish_own_lines`).  None means the line was deferred before
     its text went in: keys its terminal has not read yet, a composer `composer_draft` does not
     read empty, or a seat whose harness has no composer to read.
@@ -3899,7 +3897,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     name = seat["name"]
     if harness is None:
         try:
-            harness, _ = seat_model(config.load() if cfg is None else cfg, name)
+            harness, _ = seat_model(config.load(), name)
         except (config.Error, OSError):
             harness = None
     # New text goes only into a composer read empty: typed onto the owner's text, read whole or
@@ -3910,7 +3908,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
         return None
 
     def alone(held):
-        return composer_holds(held, seat, text, cfg, exact=pending) == "line"
+        return composer_holds(held, seat, text, harness=harness) == "line"
 
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
@@ -4085,7 +4083,7 @@ def _cropped_composer_rows(harness, pane):
     return _unscrolled(chrome, [_inside_box(row) for row in tail])
 
 
-def composer_holds(name, session, line, cfg=None, *, exact=False):
+def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     """What that seat's composer holds now, off one capture: "line", "empty", or "other" --
     anything else, nothing read, or a question to the owner on the screen, as a dialog that
     keeps the composer drawn is.
@@ -4098,11 +4096,12 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     owner's.  It is also a composer read whole holding that line joined in order with the
     others ak typed there last (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
-    scrolled composer, suffix or paste fold is no proof without a delivery mark.
+    scrolled composer, suffix or paste fold is no proof without a delivery mark.  `harness`,
+    given, is the one a caller read the seat as, and the composer is read as that one's.
     """
     try:
         name = config.resolve_session(name)
-        harness = seat_model(config.load() if cfg is None else cfg, name)[0]
+        harness = harness or seat_model(config.load() if cfg is None else cfg, name)[0]
     except (config.Error, OSError):
         return "other"
     pane = pane_text(session)
@@ -4697,7 +4696,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
 
     return (type_checked(session, text, log, None,
                          guard=lambda: notify.session_lock(session["name"]), veto=veto,
-                         typed=lambda: receipt(mark), source=source, cfg=cfg)
+                         typed=lambda: receipt(mark), source=source)
             and composer_holds(session["name"], session, text, cfg) == "empty"
             and not pane_unread(session))
 
