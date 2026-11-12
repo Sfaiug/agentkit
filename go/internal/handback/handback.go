@@ -8,7 +8,8 @@
 // for an ending typed into it; an ending it does not type is marked pending, which the tick offers
 // at the next quiet prompt: a seat that takes no line now, or a line whose compact form cannot fit.
 // A seat nothing is left of has its ending reported to the owner (Orphaned); any other seat not
-// up there is still Python's to wake, reopen or wait for.
+// up there is still Python's to wake, reopen or wait for, but for an ending that wakes nothing
+// (Reaches).
 package handback
 
 import (
@@ -40,11 +41,15 @@ func Give(dir string, census []*run.Object, say func(string)) bool {
 	}
 	session, id := run.Seat(record), filepath.Base(dir)
 	if session == "" || !run.Ended(record) && !recoveryEnding(record) || record.Str("state") == "stopped" ||
-		record.Str("state") == "error" && run.Going(record, time.Now()) || !Reaches(record) {
+		record.Str("state") == "error" && run.Going(record, time.Now()) {
+		return false
+	}
+	reaches, wakes := reach(record, census)
+	if !reaches {
 		return false
 	}
 	gone := !seat.Watching(session)
-	if gone && !Orphaned(record) {
+	if wakes {
 		awake, carried := seat.Wake(session, say)
 		if carried && !awake {
 			mark(dir, record, "handback_pending", true) // owed: what next wakes it hands it back
@@ -74,13 +79,11 @@ func Give(dir string, census []*run.Object, say func(string)) bool {
 		say(fmt.Sprintf("run %s is a %s", id, preexisting))
 		return true
 	}
-	if gone {
-		if Orphaned(said) {
-			orphan(dir, said, session, id, say)
-		}
-		return false // the seat was told nothing
+	if gone && Orphaned(said) {
+		orphan(dir, said, session, id, say)
+		return false
 	}
-	recordOnly, pending := seat.EndingDelivery(said, census, session)
+	recordOnly, pending, unread := seat.EndingDelivery(said, census, session)
 	if recordOnly {
 		if !mark(dir, record, "handed_back", now(), "reported", true, "handback_note", routine,
 			"handback_pending", nil, "handback_typed", nil, "handback_wait_reason", nil, "notification_pending", nil) {
@@ -89,7 +92,7 @@ func Give(dir string, census []*run.Object, say func(string)) bool {
 		say(fmt.Sprintf("run %s ended: recorded, not typed", id))
 		return true
 	}
-	holds, live, err := liveEnding(said)
+	holds, live, err := liveEnding(said, census)
 	if err != nil {
 		return false // Python's to read, as the tick leaves it (Reaches)
 	}
@@ -98,6 +101,20 @@ func Give(dir string, census []*run.Object, say func(string)) bool {
 			mark(dir, record, "handback_pending", true)
 		}
 		return false // told in one line with its change gone live, once it is
+	}
+	if pending && unread == nil {
+		// typed into no seat, it wakes none (ending_rides)
+		word := "merged"
+		if !said.Truthy("merged") {
+			word = "not needed"
+		}
+		if !said.Truthy("handback_pending") && mark(dir, record, "handback_pending", true) {
+			say(fmt.Sprintf("run %s ended %s: rides on the %s seat's next prompt", id, word, session))
+		}
+		return false
+	}
+	if gone {
+		return false // the seat was told nothing
 	}
 	// a mark an earlier pass left is a line already in the composer, whose Enter is the tick's
 	line := ""

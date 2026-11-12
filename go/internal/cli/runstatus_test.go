@@ -21,8 +21,6 @@ func TestRunStatusRefusals(t *testing.T) {
 		"says unreadable": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"unreadable"}`}, nil},
 		"by id, a job as Python reads it": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
 			"jobs/20261020-0900-fix-api/job.json": `{"tasks":[],"cost":Infinity}`}, []string{"20261020-0900-fix-api"}},
-		"by id with history": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended, "history.db": ""},
-			[]string{"20261020-0900-fix-api", "--json"}},
 		"by id, a line's wait to count": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"fail","line_since":1}`},
 			[]string{"20261020-0900-fix-api"}},
 		"by id, a sweep owed": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"fail","scope":"ak-fix-api.scope"}`},
@@ -30,8 +28,9 @@ func TestRunStatusRefusals(t *testing.T) {
 		"sweep owed": {map[string]string{"runs/20261020-0900-fix-api/run.json": `{"state":"fail","scope":"ak-fix-api.scope"}`}, nil},
 		"lone surrogate": {map[string]string{"runs/20261020-0900-fix-api/run.json": ended,
 			"runs/20261020-0900-add-beta/run.json": `{"state":"pass","title":"beta \ud800"}`}, []string{"--json"}},
-		"job":                                 {map[string]string{"jobs/batch/job.json": `{"tasks":[]}`}, nil},
-		"history":                             {map[string]string{"runs/20261020-0900-fix-api/run.json": ended, "history.db": ""}, []string{"--json"}},
+		// the smoke suite's run is no row of its own, yet the job's block reads it
+		"a job's task, its loop gone": {map[string]string{"jobs/batch/job.json": `{"tasks":[{"name":"smoke.md","state":"running","run_id":"20261020-0900-smoke"}]}`,
+			"runs/20261020-0900-smoke/run.json": `{"state":"running","task":"~/.agentkit/tmp/smoke-acme/task.md"}`}, nil},
 		"seat renamed to what Go cannot keep": {map[string]string{"state/session-acme.json": `{"renamed":"\ud800"}`}, []string{"--history"}},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
@@ -23,16 +24,31 @@ var opencodeSession = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 // opencodeConversation is the session that seat's launch reported into its receipt (opencode.py
 // `conversation`), "" where it reported none yet: OpenCode's TUI is never told an id.
 func opencodeConversation(record map[string]any) string {
+	session, _ := opencodeFound(record)
+	return session
+}
+
+// opencodeFound is opencodeConversation, and the error of a receipt that is there and cannot be
+// read, or is not UTF-8, as Python's raises where it reads strictly (harness.unread): one that is
+// gone names none.
+func opencodeFound(record map[string]any) (string, error) {
 	token, _ := record["opencode_launch"].(string)
 	if !launchToken.MatchString(token) {
-		return ""
+		return "", nil
 	}
-	reported, err := os.ReadFile(filepath.Join(opencodeReceipt(token), "session"))
-	session := strings.TrimFunc(string(reported), config.Space)
-	if err != nil || !opencodeSession.MatchString(session) {
-		return ""
+	path := filepath.Join(opencodeReceipt(token), "session")
+	reported, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	} else if !utf8.Valid(reported) {
+		return "", fmt.Errorf("%s is not UTF-8", path)
 	}
-	return session
+	if session := strings.TrimFunc(string(reported), config.Space); opencodeSession.MatchString(session) {
+		return session, nil
+	}
+	return "", nil
 }
 
 // opencodeEnd is `opencode session delete`, which takes the session with its children and

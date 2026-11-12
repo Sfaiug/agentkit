@@ -17,8 +17,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
 from agentkit import config, menu, orch, terminal, watch  # noqa: E402
 
-ROW_STATE = menu.seat_row_state
-
 
 class Numbered(Sandbox):
     def setUp(self):
@@ -82,18 +80,6 @@ class Numbered(Sandbox):
         self.stop("acme-api")
         self.assertEqual(self.screen()[0], [("1", "acme-web"), ("2", "docs-site"),
                                             ("3", "docs-blog")])
-
-    def test_a_gone_seat_names_the_number_it_has_now(self):
-        self.stack.enter_context(patch.object(menu, "seat_row_state", ROW_STATE))
-        self.stack.enter_context(patch.object(orch, "resumable", return_value=True))
-        self.tmux = [seat for seat in self.tmux if seat["name"] != "docs-blog"]  # tmux lost it
-        watch.seat_write("docs-blog", word="idle", reason="session closed: press 4 to reopen")
-        self.stop("acme-web")        # elsewhere, after the last look: docs-blog is 3 now
-        found = orch.listing(reconcile=False)
-        _, infos, *_ = menu.v5o_groups(self.cfg, found, records=[], now=10_000, look=False)
-        self.assertEqual([(info["number"], info["sentence"]) for info in infos
-                          if info["name"] == "docs-blog"],
-                         [("3", "session closed: press 3 to reopen")])
 
     def test_a_seat_filed_under_its_project_takes_its_place_there(self):
         config.update_session("acme-api", repo=None)

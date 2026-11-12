@@ -139,15 +139,16 @@ func museTyped(entry *run.Object) string {
 }
 
 // museTyping is what museTyped reads in that session, dated when Muse recorded it, in seconds; a
-// line dated otherwise is nobody's answer (muse.py `user_messages`).
-func museTyping(session string) (typed []Prompt) {
+// line dated otherwise is nobody's answer (muse.py `user_messages`).  Never an error: the done
+// check hands Muse's to Python (Reads).
+func museTyping(session string) (typed []Prompt, _ error) {
 	for entry := range museEntries(museLog(session)) {
 		micro, whole := entry.Int("recorded_at")
 		if text := museTyped(entry); whole && text != "" {
 			typed = append(typed, Prompt{float64(micro) / 1e6, text})
 		}
 	}
-	return typed
+	return typed, nil
 }
 
 // museSaid is that session's conversation as its chat shows it, oldest first, none where it has no
