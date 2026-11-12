@@ -634,6 +634,18 @@ def submodule_set_up(wt, private):
         for entry in staged.split(b"\0") if entry.startswith(b"160000 "))
 
 
+def left_scratch():
+    """Each folder `record.scratch` made in a run's folder whose maker is gone, the run in any
+    state: a killed one removes none of its own, and a run's folder stays 30 days (645 in 226
+    runs, 27 GiB, 12 Nov 2026).  Its mark alone decides: a box's processes see the folder
+    under another path, so no look at who holds it proves anything."""
+    for directory in retention.children(config.RUNS):
+        for folder in retention.children(directory):
+            maker = retention.read_json(folder / record.SCRATCH)
+            if maker is not None and not retention.writer_active(maker):
+                yield {"action": "remove", "kind": "run-scratch", "path": str(folder)}
+
+
 def stale_worktrees(now, paths):
     if not retention.safe(config.WT):
         return []
@@ -853,6 +865,7 @@ def gc_candidates(now=None):
                    "job": str(directory),
                    "state_identity": jobs.job_fingerprint(directory)}
     yield from retention.ephemeral_plan(now, pressure, paths)
+    yield from left_scratch()
     yield from stale_worktrees(now, paths)
     yield from stale_seat_files(now)
     yield from stale_model_reports()
@@ -1222,6 +1235,9 @@ def gc(report, automatic=False):
                             else:
                                 clear_tree(path, report)
                                 done = not left_behind(path, report)
+                    elif item["kind"] == "run-scratch":
+                        retention.remove(path, directory=True)    # a maker gone stays gone
+                        done = not retention.present(path)
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
                     elif item["kind"] in ("tmp-entry", "home-entry") or item.get("tmp"):
