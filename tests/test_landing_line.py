@@ -122,9 +122,9 @@ class LandingLine(Sandbox):
         self.assertEqual(answer["reason"], sentence)
         with patch.object(menu, "seat_row_state", return_value=answer):
             info = menu.v5o_seat_info(self.cfg, 1, session, [(directory, state)], {}, {}, 200000)
-        # working includes landing: its row keeps its line, its squares saying it lands (the
-        # owner's word of 19 Oct 2026)
-        self.assertEqual(terminal.plain(menu._last_text(info, 40)).split()[-3:], ["1", "of", "3"])
+        # working includes landing: its row keeps its line and counts the task landing, its
+        # squares saying it lands (the owner's word of 19 Oct 2026)
+        self.assertTrue(terminal.plain(menu._last_text(info, 40)).endswith(" 1 of 3 · 1 task"))
 
     def test_job_follows_members_to_their_ending_including_after_merge(self):
         for after_merge in (False, True):

@@ -1532,8 +1532,8 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     never more, the count alone where no cell of line fits, without its tasks where they do not
     fit either, the mark alone where neither count does; a `room` of None, the fewest cells that
     hold the plan's count and mark both.
-    `tmux` draws it for a seat's bar.  The row and the bar read this one function, so the two
-    can never disagree.  A seat out of usage says when it comes back, `back 19:20` (`back`), in
+    `tmux` draws it for a seat's bar.  The row and the bar read this one function, so their
+    progress can never disagree.  A seat out of usage says when it comes back, `back 19:20` (`back`), in
     its word's colour, in its progress's place."""
     mark = unsent_mark() if unsent else ""
     left = (room or 0) - (terminal.cells(mark) + 2 if mark else 0)

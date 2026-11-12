@@ -143,7 +143,8 @@ class OpenLine(unittest.TestCase):
 
     def test_a_working_seat_opens_who_builds_who_reviews_and_its_tasks_squares(self):
         row, line = self.screens["fix-api"]
-        self.assertRegex(row, r"● working +─+ no plan yet$")
+        # the row counts the tasks whose squares open under it
+        self.assertRegex(row, r"● working +─+ no plan yet · 4 tasks$")
         # build moving, build waiting its turn, review moving, then waiting in the landing line
         self.assertEqual(line, f"{UNDER}Opus 5.5 xhigh orchestrates, reviews   Spark 1.3 "
                                "Contributor xhigh builds   ■□□  ■□□  ■■□  ■■■")
