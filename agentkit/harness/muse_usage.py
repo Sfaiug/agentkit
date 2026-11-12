@@ -159,7 +159,10 @@ def exhausted(body):
 
 
 def model_policy():
-    """The probe uses a config.toml model key and effort, with no catalogue fallback.
+    """The (model, effort) pairs the probe may ask, in turn: a config.toml model key and effort,
+    with no catalogue fallback, then, where they differ, those its harness checks a login with
+    (`[check]` in its manifest), for when Meta has retired the first: a subscription's usage is
+    not one model's.
 
     Whether that entry is this probe's to run is its harness's own answer
     (`agentkit/harness/muse.py`): a model on any other harness has no policy here to satisfy.
@@ -172,10 +175,22 @@ def model_policy():
     if (entry["provider"] != "meta"
             or not harness_plugin(entry["harness"]).usage_policy(entry, effort)):
         raise config.Error("invalid Muse usage policy")
-    return entry["model"], effort
+    check = config.manifest(entry["harness"])["check"]
+    return list(dict.fromkeys([(entry["model"], effort), (check["model"], check["effort"])]))
 
 
-def probe(key, origin, model, effort):
+def retired(text):
+    """Meta's answer, as a 404, to a model it no longer serves."""
+    try:
+        return json.loads(text)["error"]["code"] == "model_not_found"
+    except (ValueError, LookupError, TypeError):
+        return False
+
+
+def probe(key, origin, policy, *fallbacks):
+    """Ask Meta one (model, effort) for its usage frame, and the next only where Meta no longer
+    serves that model; every ask spends the one budget `left` reads."""
+    model, effort = policy
     body = json.dumps({"model": model,
                        "input": "x",
                        "max_output_tokens": 16,   # the API's documented floor
@@ -193,6 +208,8 @@ def probe(key, origin, model, effort):
         resp = conn.getresponse()
         if resp.status != 200:
             text = resp.read(4096).decode("utf-8", "replace").strip()
+            if resp.status == 404 and fallbacks and retired(text):
+                return probe(key, origin, *fallbacks)
             if resp.status == 429:
                 meters = exhausted(text)
                 if meters:
@@ -227,7 +244,7 @@ def probe(key, origin, model, effort):
 
 def fresh():
     try:
-        model, effort = model_policy()
+        policies = model_policy()
     except (config.Error, KeyError, TypeError, ValueError):
         return result(error="invalid Muse usage policy in ~/.agentkit/config.toml")
     key, base = auth_file()
@@ -244,7 +261,7 @@ def fresh():
             return result(error=err or "could not obtain a Meta credential")
     if left() <= 0:
         return result(error="Muse usage probe timed out")
-    meters, err = probe(key, origin, model, effort)
+    meters, err = probe(key, origin, *policies)
     meters = [meter for meter in meters or [] if meter["resets_at"] > time.time()]
     return result(meters, err or (None if meters else "no current subscription meters"))
 
