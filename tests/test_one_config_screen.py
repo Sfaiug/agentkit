@@ -39,7 +39,7 @@ from agentkit import config, terminal
 CHILD = r"""
 import os, sys
 sys.path.insert(0, os.environ["ONE_REPO"])
-from agentkit import config, handback, menu, motion, orch, run, staffing, usage
+from agentkit import config, handback, menu, motion, orch, run, usage
 motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
 
 cfg = config.load()
@@ -56,7 +56,7 @@ menu.Live.probe = lambda self, now=None: False
 down = usage.Readings({})           # the harnesses ONE_DOWN names are not logged in
 down.harnesses = {name: f"{name} is not logged in" for name in os.environ["ONE_DOWN"].split()}
 usage.collect = lambda cfg, **kwargs: down
-staffing._cached_providers = lambda: down     # what `c` reads
+usage.held = lambda cfg: down       # what `c` reads
 orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: (
     config.update_session(name, orchestrator=model), "")[1]
 orch.fresh_command = lambda cfg, name, seat=None, account=None, **_kw: (["harness"], None)

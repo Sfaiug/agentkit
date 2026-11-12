@@ -902,6 +902,22 @@ def collect(cfg, *, refresh=False):
     return Readings(_gate_flags(providers, now, cfg))
 
 
+def held(cfg):
+    """What `collect` answers from the snapshot, however old, asking no adapter and waiting on
+    none, so a screen is up at once: a provider the config no longer has left out, a meter past
+    its reset dropped, each account's too, and the flags derived again.  {} with none held; the
+    menu's probe and the tick keep it current."""
+    now, providers = time.time(), {}
+    for name, prov in staffing._cached_providers().items():
+        if name in cfg["providers"] and isinstance(prov, dict):
+            providers[name] = _without_past(prov, now, "the cache")
+            if _record(prov.get("accounts")):
+                providers[name]["accounts"] = {
+                    account: _without_past(_record(record), now, "the cache")
+                    for account, record in prov["accounts"].items()}
+    return Readings(_gate_flags(providers, now, cfg))
+
+
 class Readings(dict):
     """A usage read this module made, and beside it `harnesses`: why each harness cannot run.
 
