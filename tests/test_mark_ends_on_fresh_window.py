@@ -759,9 +759,20 @@ class FreshWindowEndsMark(unittest.TestCase):
         until, cache = NOW + 5 * 86400, config.STATE / "usage.json"
         with patch.object(usage, "_probe", side_effect=self.fake_probe):
             usage.mark_exhausted(self.cfg, "alpha", until)
+            # Inherited pre-upgrade snapshot: no `exhausted_used` or `probed_meters`, and
+            # `probed_at` moved by a pre-upgrade worker turn. Reading without probing keeps
+            # the mark.
             blob = json.loads(cache.read_text())
-            del blob["providers"]["alpha"]["exhausted_used"]
+            alpha = blob["providers"]["alpha"]
+            del alpha["exhausted_used"]
+            alpha.pop("probed_meters", None)
+            alpha["meters"] = [usage._normalized(m, NOW + 10) for m in self.old_window(used=76)]
+            alpha["probed_at"] = NOW + 10
             cache.write_text(json.dumps(blob))
+            self.now = NOW + 10
+            inherited = usage.collect(self.cfg)
+            self.assertTrue(inherited["alpha"]["exhausted"])
+            self.assertEqual(inherited["alpha"].get("exhausted_until"), until)
             self.now += usage.PROBE_EVERY + 1
             self.set_meters("alpha", self.old_window(used=99))
             self.stale_cache()

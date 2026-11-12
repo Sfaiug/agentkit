@@ -343,8 +343,8 @@ def _kept(cached, fresh, now):
         return {**fresh, "meters": meters, "fetched_at": _taken(cached), "probed_meters": asked}
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
-    keys = ("meters", "fetched_at", "resets", "credits", "currency", "error", "notes", "none",
-            "none_reason")
+    keys = ("meters", "fetched_at", "probed_meters", "resets", "credits", "currency", "error",
+            "notes", "none", "none_reason")
     if cached.get("none") or not cached.get("meters"):
         # No reading to keep, so nothing overwrites the ask's own error: dropping none here
         # is how a meterless row came to say `window reset`, and keeping an old error here
@@ -355,8 +355,6 @@ def _kept(cached, fresh, now):
     # The ask that follows is this moment's; the measurement is not, so it is written down
     # here rather than inferred from it.
     kept["fetched_at"] = _taken(cached)
-    if not cached.get("none") and cached.get("meters"):
-        kept["probed_meters"] = _meter_asked(cached)
     return {**fresh, **kept, "probe_error": fresh.get("error"), "probe_failed_at": now,
             "stale_since": now if since is None else since}
 
@@ -386,26 +384,25 @@ def _taken(prov):
     return _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
 
 
-def _asked_at(prov):
-    """When `prov`, an uncombined reading, was both asked and measured, or None."""
-    if not isinstance(prov, dict) or prov.get("probe_error"):
-        return None
-    probed, taken = _number(prov.get("probed_at")), _taken(prov)
-    return min(probed, taken) if probed is not None and taken is not None else None
+def _ask_probe(cfg, provider, now, account=None):
+    """`_probe`, with each answered meter dated by when it was both asked and measured."""
+    fresh = _probe(cfg, provider, now, account)
+    probed, taken = _number(fresh.get("probed_at")), _taken(fresh)
+    if (fresh.get("meters") and not fresh.get("probe_error")
+            and probed is not None and taken is not None):
+        at = min(probed, taken)
+        fresh = {**fresh, "probed_meters": {
+            m["name"]: at for m in fresh["meters"]
+            if isinstance(m, dict) and isinstance(m.get("name"), str)}}
+    return fresh
 
 
 def _meter_asked(prov):
-    """{meter_name: when it was last asked and measured}, for `prov`'s meters."""
-    if not isinstance(prov, dict):
+    """{meter_name: when it was last asked and measured}, for `prov`'s probed meters."""
+    if not isinstance(prov, dict) or not isinstance(prov.get("probed_meters"), dict):
         return {}
-    if isinstance(prov.get("probed_meters"), dict):
-        return {name: at for name, value in prov["probed_meters"].items()
-                if isinstance(name, str) and (at := _number(value)) is not None}
-    at = _asked_at(prov)
-    if at is None:
-        return {}
-    return {m["name"]: at for m in prov.get("meters") or []
-            if isinstance(m, dict) and isinstance(m.get("name"), str)}
+    return {name: at for name, value in prov["probed_meters"].items()
+            if isinstance(name, str) and (at := _number(value)) is not None}
 
 
 def _probe_gently(cfg, provider, account=None):
@@ -445,7 +442,7 @@ def _probe_gently(cfg, provider, account=None):
         handle = lock.open("a")          # never "w": the file keeps when it was last asked
     except OSError:
         now = time.time()                # no lock to take: still one probe
-        fresh = _probe(cfg, provider, now, account)
+        fresh = _ask_probe(cfg, provider, now, account)
         _note_retry(provider, fresh, time.time(), account)
         cached = _cached_provider(provider, account)
         _keep_probed(provider, account, cached, fresh)
@@ -458,7 +455,7 @@ def _probe_gently(cfg, provider, account=None):
             return cached
         now = time.time()
         lock.write_text(repr(now))
-        fresh = _probe(cfg, provider, now, account)
+        fresh = _ask_probe(cfg, provider, now, account)
         _note_retry(provider, fresh, time.time(), account)
         _keep_probed(provider, account, cached, fresh)
         # The mark on disk travels with the record that replaces it (`_onto`), not the one
@@ -1174,11 +1171,11 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
             prov.setdefault("via", via)
         except config.Error:
             pass
-    prov.update(meters=merged, fetched_at=measured, probed_meters=asked, error=None,
+    prov.update(meters=merged, probed_at=measured, probed_meters=asked, error=None,
                 pace=max((m["pace"] for m in merged
                             if isinstance(m, dict) and m.get("pace") is not None),
                            default=None))
-    for key in ("probed_at", "probe_error", "probe_failed_at", "stale_since"):
+    for key in ("fetched_at", "probe_error", "probe_failed_at", "stale_since"):
         prov.pop(key, None)
     _patch(provider, prov, account)
     return True
