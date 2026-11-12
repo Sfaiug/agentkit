@@ -222,7 +222,7 @@ class Live:
     `ak usage` -- `usage.PROBE_EVERY` -- so a second seat's screen costs no adapter request at
     all; Muse's adapter keeps its own ten-minute cache besides.  The same pipe is how a seat's
     word moving anywhere asks for a draw, and how a read landing does: see `watch`; and how
-    a line maintenance says does (`tidy`).  `cfg` is config.toml as it last loaded, read again
+    a warning maintenance gives does (`tidy`).  `cfg` is config.toml as it last loaded, read again
     whenever the file changes, whoever wrote it (`configure`).
     """
 
@@ -249,7 +249,7 @@ class Live:
         self.last = None                 # where each read leaves the seats and their groups
         self.read_from = None            # the seats and runs it read them from, a pass's too
         self.kept = {}                   # each seat's row as its reads last decided it
-        self.said = []                   # what maintenance said that no notice has shown yet
+        self.said = []                   # maintenance's warnings that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
 
     def close(self):
@@ -335,11 +335,11 @@ class Live:
 
     def tidy(self, work):
         """`work(log)` -- `main`'s maintenance -- in a thread of its own, begun behind the first
-        frame: each line it says is kept for the loop's next notice and asks for a draw, and
-        once it is done everything is read again, for what it reaped and retired to leave the
-        rows."""
+        frame: each line it says goes to the tick's log, and a warning is kept for the loop's next
+        notice too and asks for a draw (`tidy_log`); once it is done everything is read again,
+        for what it reaped and retired to leave the rows."""
         def run():
-            work(self.say)
+            work(tidy_log(self.say))
             self.ask()
             self.tidied.set()
         threading.Thread(target=run, daemon=True).start()
@@ -349,7 +349,7 @@ class Live:
         self._wake()
 
     def heard(self):
-        """What maintenance said since last asked, once."""
+        """The warnings maintenance gave since last asked, once."""
         return [self.said.pop(0) for _ in range(len(self.said))]
 
     def read(self, look=False):
@@ -2987,8 +2987,28 @@ def table(rows):
     print("\n".join(terminal.seats(rows, terminal.width())))
 
 
+def tidy_log(notice):
+    """The log the menu hands what it does by itself as it opens (`orch.maintenance`,
+    `watch.resume_after_boot`): each line goes to the tick's log (`watch.note`), where the tick's
+    same sweep writes it every three minutes, and a warning -- a line opening with WARN, as every
+    one of ak's does -- to `notice` as well; the rest asked nothing of the owner.  A line the log
+    cannot take is the owner's to read instead, and the work goes on: a sweep stopped there would
+    keep the record it was retiring, a boot resume the turn it was bringing back."""
+    from . import watch    # here, not at the top: watch imports this module
+
+    def log(line):
+        try:
+            watch.note(line)
+        except OSError as exc:
+            return notice(f"WARN not logged ({exc}): {line}")
+        if line.startswith("WARN"):
+            notice(line)
+    return log
+
+
 def show_notices(messages):
-    """Read boot resume, maintenance and job messages once, before the main screen clears them."""
+    """Read warnings, a job's results and an update's lines once, before the main screen clears
+    them."""
     if messages:
         pause(*(" " + part for message in messages for part in terminal.wrap(
             message.replace(os.path.expanduser("~") + "/", "~/"), terminal.width() - 1)))
@@ -6351,7 +6371,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     seat's capture holds up a read or a draw: the first draw is the records as they stand, and
     a look landing has them read and drawn again.  The first draw's meters are the cache's, and
     the probe that follows it runs in a thread and asks for one more draw when it lands.  So
-    does `tidy`, `main`'s maintenance (`Live.tidy`): what it says is a notice as it lands.
+    does `tidy`, `main`'s maintenance (`Live.tidy`): a warning it gives is a notice as it lands.
     Nothing here waits on an adapter, and a key typed during a draw is read by the next wait.
     Between draws the working seats' dots breathe, and what changed since the draw before moves
     once, a frame whenever the clock says one is due and no key is waiting (`moving`), so a key
@@ -6710,8 +6730,9 @@ def main(argv):
             update_first()
         return client(alias, flags["--dry-run"])
     from . import watch
-    messages = []
-    watch.resume_after_boot(config.load(), dry_run=flags["--dry-run"], log=messages.append)
+    messages = []     # a dry run's are what it would do, for the owner to read
+    watch.resume_after_boot(config.load(), dry_run=flags["--dry-run"], log=messages.append
+                            if flags["--dry-run"] else tidy_log(messages.append))
     show_notices(messages)
     # what `ak orch` does on the way into a seat, gc and the runs nobody was told about, run
     # behind the menu's first frame
