@@ -2301,8 +2301,7 @@ def born_lines(info, room):
     refusal = born_refusal(info["born"])
     if refusal:
         return [terminal.styled(line, "amber") for line in terminal.wrap(refusal, room)]
-    line = crew(info)
-    return [line if terminal.cells(line) <= room else terminal.cut(line, room)]
+    return [crew(info, room=room)]
 
 
 def born_key(born, key, drawn):

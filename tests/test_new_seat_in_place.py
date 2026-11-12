@@ -161,6 +161,13 @@ class Row(unittest.TestCase):
             self.assertEqual(menu.v5o_header({"name": menu.UNFILED, "checkout": None}, 100),
                              terminal.styled("not assigned yet", "dim"))
 
+    def test_on_a_phone_its_crew_is_one_dim_line_cut_to_its_room(self):
+        info = {"born": {}, "crew": ("opus", ["astra"], ["fable"])}
+        with patch.object(menu, "born_refusal", lambda born: ""), \
+                patch.object(terminal, "colour_depth", lambda: 256):
+            self.assertEqual(menu.born_lines(info, 35),
+                             [terminal.styled("opus orchestrates   astra builds…", "dim")])
+
     def test_a_seat_left_unnamed_is_named_off_the_names_taken_now(self):
         born = {"cfg": {}, "typed": "", "taken": set(), "name": "new",
                 "selected": {"orchestrator": "opus", "workers": ["astra"], "reviewers": ["fable"]}}
