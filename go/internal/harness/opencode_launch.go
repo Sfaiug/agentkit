@@ -14,8 +14,8 @@ import (
 const opencodeReceiptEnv = "AGENTKIT_OPENCODE_RECEIPT"
 
 // OpenCode's TUI cannot be told the id of a session it has not opened, so each launch learns its
-// own: a receipt, a folder in state/ named in its record and its environment, into which the seat
-// plugin writes the session the seat talks in (opencode.py `launched`).  A resumed session is in
+// own: a receipt, a folder in state/ named in its record and its environment, into which ak
+// writes the session the seat is in (opencode.py `launched`, `follow`).  A resumed session is in
 // it from the start, and the plugin is asked there to title the session as the seat is named
 // (`sync_title`).
 func opencodeLaunched(seat, _, conversation string, _ *run.Object) (*run.Object, []string, error) {

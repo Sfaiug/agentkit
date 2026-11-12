@@ -69,7 +69,7 @@ probe_every = 900
 # An OpenCode seat owns only the session its own server opened, and the launcher cannot hand
 # one out: the TUI takes `--session` for a conversation that already exists and has no flag
 # for one that does not, so `interactive` refuses a launcher-issued id.  The seat plugin
-# reports the id OpenCode made instead, into a receipt of that launch's own
+# reports the id OpenCode made instead, which ak keeps in a receipt of that launch's own
 # (agentkit/harness/opencode.py), and a seat that dies comes back on it with `--session`.
 # One that died before its first prompt has nothing to come back to and starts a new session.
 [conversation]
