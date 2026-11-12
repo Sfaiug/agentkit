@@ -562,7 +562,7 @@ sleep() { :; }
             fake = root / "tmux"
             fake.write_text('''#!/bin/sh
 case "$*" in
-  *list-sessions*) printf 'smoke-shape\\t/tmp\\t10000\\t0\\t1\\n' ;;
+  *list-sessions*) printf 'smoke-shape\\t/tmp\\t10000\\t0\\t1\\t$0\\n' ;;
   *list-panes*) printf 'smoke-shape\\t0\\n' ;;
   *) exit 1 ;;
 esac

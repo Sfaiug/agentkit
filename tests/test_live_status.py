@@ -38,7 +38,7 @@ socket=
 if [[ $1 = -L ]]; then socket=$2; shift 2; fi
 case $1 in
   list-sessions) [[ $socket = agentkit-test ]] || exit 1
-                 printf 'herdr\t%s\t1\t0\t1\n' "$HOME" ;;
+                 printf 'herdr\t%s\t1\t0\t1\t$0\n' "$HOME" ;;
   list-panes) printf 'herdr\t0\n' ;;
   display-message) [[ $4 = %7 ]] && printf '/fake/agentkit-test\therdr\n' ;;
   capture-pane) sleep "${FAKE_TMUX_SLOW:-0}"; printf '$ \n' ;;

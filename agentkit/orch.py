@@ -1140,11 +1140,11 @@ def tmux_env(client=False):
 
 
 def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
-             rows=False, utf8=False):
+             rows=False, utf8=False, input=None):
     """(exit code, output) of one tmux command; 127 when there is no tmux to ask.  The output is
     stripped, unless `rows` keeps a capture's leading blank rows, where each row's place counts.
     `utf8` asks as a UTF-8 client, for what must come back as it is: tmux shows a client outside
-    a UTF-8 locale every other letter as `_`.
+    a UTF-8 locale every other letter as `_`.  `input` is what the command reads on stdin.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
     server -- and every pane it ever opens -- lives in agentkit's slice.  Where the scope
@@ -1169,7 +1169,7 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
     timeout = TMUX_CEILING if timeout is None else timeout
     try:
         proc = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
-                              env=env, timeout=timeout)
+                              env=env, timeout=timeout, input=input)
     except OSError as exc:
         return 127, str(exc)
     except subprocess.TimeoutExpired:
@@ -1177,7 +1177,7 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
         return 124, f"tmux did not answer {next(iter(args), '')} within {timeout:g} s"
     if proc.returncode != 0 and argv != plain:
         return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim,
-                        rows=rows, utf8=utf8)
+                        rows=rows, utf8=utf8, input=input)
     out = proc.stdout + proc.stderr
     return proc.returncode, out.rstrip() if rows else out.strip()
 
@@ -1528,42 +1528,68 @@ def owns_hook(session, pid, is_client):
     return False
 
 
-def seated(socket, marks):
-    """Of one tmux server's sessions, each name with its mark, the names that are seats.
+def tagged(socket, ids):
+    """Of those sessions, by id, the ones a seat's tmux shim tagged as that seat's
+    (`guard.tmux_owned`), asked in one call however many there are.
+
+    Only the session's own environment counts: `#{}` falls back to the server's, which holds a
+    tag whenever a process in a tagged pane started the server.  `source-file` reads the asks on
+    stdin, which no call's size caps, and each line as a command list of its own, whose
+    `show-environment` fails, before the session is named, where the session holds no tag of
+    its own; an empty tag names no seat.
+    """
+    asks = "".join(f"show-environment -t '{sid}' {guard.TMUX_OWNER} ; display-message -p -t "
+                   f"'{sid}' '{sid} #{{{guard.TMUX_OWNER}}}'\n"
+                   for sid in ids if re.fullmatch(r"\$[0-9]+", sid))
+    if not asks:
+        return set()
+    _, out = tmux_out("source-file", "-", socket=socket, input=asks)
+    return {sid for sid, _, owner in (line.partition(" ") for line in out.splitlines())
+            if sid in ids and owner}
+
+
+def seated(socket, sessions):
+    """Of one tmux server's sessions, each name with its id and mark, the names that are seats.
 
     A session agentkit did not start -- no mark and no record -- is a seat only while an agent
-    runs in it: somebody's `tmux new` with a harness in it is one, and a watcher loop an
-    orchestrator left there is nobody's, so it is never listed, carded or counted, on any
-    screen or bar.  The process table is read only when there is such a session to ask about.
+    runs in it, and never once a seat has tagged it (`tagged`): somebody's `tmux new` with a
+    harness in it is one; a watcher loop an orchestrator left there is nobody's, and a session
+    a seat started is that seat's, whatever runs in it, so neither is ever listed, carded or
+    counted, on any screen or bar.  The process table is read only when there is an untagged
+    such session to ask about.
     """
-    strangers = {name for name, mark in marks.items() if mark != "1"}
-    idle = agentless(socket, strangers - set(config.session_records())) if strangers else set()
-    return set(marks) - idle
+    unmarked = {name: sid for name, (sid, mark) in sessions.items() if mark != "1"}
+    records = config.session_records() if unmarked else {}
+    strangers = {name: sid for name, sid in unmarked.items() if name not in records}
+    owned = tagged(socket, set(strangers.values()))
+    untagged = {name for name, sid in strangers.items() if sid not in owned}
+    return (set(sessions) - set(strangers)) | (untagged - agentless(socket, untagged))
 
 
 def server_sessions(socket, marked_only, legacy):
     """The seats one tmux server is holding (`seated`): name, path, created, attached, exited."""
     rc, out = tmux_out("list-sessions", "-F",
                        f"#{{session_name}}\t#{{session_path}}\t#{{session_created}}\t"
-                       f"#{{session_attached}}\t#{{{MARK}}}", socket=socket)
+                       f"#{{session_attached}}\t#{{{MARK}}}\t#{{session_id}}", socket=socket)
     if rc != 0:
         return []
-    found, marks = [], {}
+    found, listed = [], {}
     for line in out.splitlines():
         parts = line.split("\t")
-        if len(parts) == 4:
-            parts.append("")   # no mark: the last line's empty field went with the output's strip
-        if len(parts) != 5 or parts[0] == CONTROL or (marked_only and parts[4] != "1"):
+        if len(parts) != 6:
+            continue
+        name, path, created, attached, mark, sid = parts
+        if name == CONTROL or (marked_only and mark != "1"):
             continue
         try:
-            created = int(parts[2])
+            created = int(created)
         except ValueError:
             created = int(time.time())
-        found.append({"name": parts[0], "path": parts[1], "created": created,
-                      "attached": parts[3] not in ("", "0"), "exited": False,
+        found.append({"name": name, "path": path, "created": created,
+                      "attached": attached not in ("", "0"), "exited": False,
                       "legacy": legacy, "resumable": False})
-        marks[parts[0]] = parts[4]
-    seats = seated(socket, marks)
+        listed[name] = (sid, mark)
+    seats = seated(socket, listed)
     found = [session for session in found if session["name"] in seats]
     exited = dead(socket) if found else set()   # a second ask, and only where there is a seat
     for session in found:
@@ -1576,7 +1602,7 @@ def sessions():
 
     The toolkit's server is the toolkit's, so every agent on it is a seat -- including one made
     by hand with `tmux new`, which is listed with no models rather than not at all -- and what
-    runs no agent there is not (see server_sessions).  The user's
+    runs no agent there, or runs in a session a seat started, is not (see `seated`).  The user's
     default server is theirs, so only what carries agentkit's own mark is taken from it: the
     seats started before the toolkit had a server of its own.  Those are `legacy`; they attach
     where they are, and no new one is ever made there.
@@ -3141,15 +3167,18 @@ def no_server(said):
 
 
 def seatless(name):
-    """No seat holds that name, on tmux's own word: no session by it, or one with no agent in it.
+    """No seat holds that name, on tmux's own word: no session by it, or one that is no seat
+    (`seated`).
 
     Asked of that one session afresh, and never taken from a listing a failed probe left empty.
     """
     if find(name) is not None:
         return False
-    if tmux_out("has-session", "-t", f"={name}")[0] != 0:
+    rc, out = tmux_out("display-message", "-p", "-t", f"={name}:", f"#{{session_id}}\t#{{{MARK}}}")
+    if rc != 0:
         return session_absent(name)
-    return name in agentless(None, {name})
+    sid, _, mark = out.partition("\t")
+    return name not in seated(None, {name: (sid, mark)})
 
 
 def unread_question(name):
