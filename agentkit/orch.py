@@ -1278,7 +1278,8 @@ def dead(socket):
 
 
 def agent_programs():
-    """The names a process in a pane goes by when it is an agent: every adapter's harness.
+    """{harness: the names a process in a pane goes by when it runs that harness}, for every
+    adapter's.
 
     Each adapter names its harness's program as the first word of its `[update] version`
     command -- `grok` for Grok's -- and the adapter's own name stands for it besides;
@@ -1289,14 +1290,14 @@ def agent_programs():
     override = os.environ.get(config.ADAPTER_DIR_ENV)
     roots = ([Path(override).expanduser(), config.REPO / "adapters"] if override
              else [config.REPO / "adapters"])
-    found = set()
+    found = {}
     for root in roots:
         try:
             paths = sorted(root.glob("*.toml"))
         except OSError:
             continue
         for path in paths:
-            found.add(path.stem)
+            names = found.setdefault(path.stem, {path.stem})
             try:
                 facts = config.manifest(path.stem)
             except config.Error:
@@ -1304,10 +1305,10 @@ def agent_programs():
             block = facts.get("update")
             version = block.get("version") if isinstance(block, dict) else None
             if isinstance(version, list) and version and isinstance(version[0], str):
-                found.add(Path(version[0]).name)
+                names.add(Path(version[0]).name)
             block = facts.get("launch")
             named = block.get("programs") if isinstance(block, dict) else None
-            found.update(n for n in named or [] if isinstance(n, str))
+            names.update(n for n in named or [] if isinstance(n, str))
     return found
 
 
@@ -1403,9 +1404,9 @@ def processes():
 
 
 def agentless(socket, names):
-    """Of those sessions, the ones with no interactive harness under a live pane of theirs.
+    """Of those sessions, the ones with no interactive harness under a live pane of theirs
+    (`agent_in`).
 
-    An ak worker and everything under it belong to a run, not an interactive seat.
     A pane the reading has not seen is newer than it, so the table is read again: a session
     just started is judged by what it runs, and a watcher is no seat for as long as a reading
     is kept.  A pane that reading has not seen either has ended, and runs nothing.
@@ -1422,37 +1423,56 @@ def agentless(socket, names):
         parts = line.split("\t")
         if len(parts) == 3 and parts[0] in panes and parts[1].isdigit() and parts[2] != "1":
             panes[parts[0]].append(int(parts[1]))
-    table = processes()
-    if table is not None and any(pid not in table for pids in panes.values() for pid in pids):
-        _PROCESSES.pop("table", None)
-        table = processes()
+    table = processes_of([pid for pids in panes.values() for pid in pids])
     if table is None:
         return set()
+    return {name for name, pids in panes.items() if not agent_in(pids, table)}
+
+
+def pane_harness(pid):
+    """The harness running in the pane whose process that is (`agent_in`), or None where none
+    does or `ps` cannot say: a seat whose model left the config runs one all the same."""
+    table = processes_of([pid])
+    return agent_in([pid], table) if table else None
+
+
+def processes_of(pids):
+    """`processes`, read again where its reading has not seen one of those: a pane started
+    since it is judged by what it runs."""
+    table = processes()
+    if table is not None and any(pid not in table for pid in pids):
+        _PROCESSES.pop("table", None)
+        table = processes()
+    return table
+
+
+def agent_in(pids, table):
+    """The harness of the agent at or under those processes of that table (`processes`), by the
+    names its program goes by (`agent_programs`), or None.  An ak worker and everything under
+    it belong to a run, not an interactive seat."""
     children = {}
     for pid, (ppid, _) in table.items():
         children.setdefault(ppid, []).append(pid)
-    patterns = agent_programs()
-    found = set()
-    for name, pids in panes.items():
-        stack, seen = [pid for pid in pids if pid in table], set()
-        while stack:
-            pid = stack.pop()
-            if pid in seen:
-                continue
-            seen.add(pid)
-            running = program(table[pid][1])
-            if any(fnmatch.fnmatchcase(running, pattern) for pattern in patterns):
-                try:
-                    env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
-                    if b"AK_RUN_ROLE=worker" in env:
-                        continue         # its descendants cannot make a seat either
-                except OSError:
-                    pass                 # an unreadable role is no proof this is a worker
-                break
-            stack.extend(children.get(pid, []))
-        else:
-            found.add(name)
-    return found
+    programs = agent_programs()
+    stack, seen = [pid for pid in pids if pid in table], set()
+    while stack:
+        pid = stack.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        running = program(table[pid][1])
+        harness = next((harness for harness, names in programs.items()
+                        if any(fnmatch.fnmatchcase(running, name) for name in names)), None)
+        if harness:
+            try:
+                env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+                if b"AK_RUN_ROLE=worker" in env:
+                    continue         # its descendants cannot make a seat either
+            except OSError:
+                pass                 # an unreadable role is no proof this is a worker
+            return harness
+        stack.extend(children.get(pid, []))
+    return None
 
 
 def bind_pane(session):
@@ -4570,7 +4590,7 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     try:
         old_harness = config.model(cfg, old_model)["harness"]
     except config.Error:
-        old_harness = None    # its model is gone: nothing names its harness or transcript
+        old_harness = None    # its model is gone: its record names no harness or transcript
     owned = seat_conversation(record, old_harness) if old_harness else None
     kept = owned if old_harness == new_harness and resumable(record, cfg=cfg) else None
     if asked and not asked(bool(kept)):
