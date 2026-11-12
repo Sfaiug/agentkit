@@ -2702,13 +2702,18 @@ def provider_name(cfg, name):
     return own.strip() if isinstance(own, str) and own.strip() else NAMES.get(name, name.title())
 
 
-def colour(cfg, name):
-    """This provider's colour: its own `colour` key, else the shipped one, else the accent."""
+def own_colour(cfg, name):
+    """This provider's own colour: its `colour` key, else the shipped one, else the accent."""
     entry = cfg["providers"].get(name)
     own = entry.get("colour") if isinstance(entry, dict) else None
     if isinstance(own, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", own):
         return own
     return COLOURS.get(name, "accent")
+
+
+def colour(cfg, name):
+    """This provider's colour as it reads here (terminal.on_background)."""
+    return terminal.on_background(own_colour(cfg, name))
 
 
 def hue(kind):
@@ -2734,7 +2739,7 @@ def usage_rows(cfg):
     except (OSError, ValueError, KeyError, TypeError):
         providers = {}
     rows = []
-    for name in sorted(cfg["providers"], key=lambda name: hue(colour(cfg, name))):
+    for name in sorted(cfg["providers"], key=lambda name: hue(own_colour(cfg, name))):
         if cfg["providers"][name].get("mode") == "free":
             continue
         top = providers.get(name)
@@ -3118,7 +3123,8 @@ def model_label(cfg, name, width):
 
 def model_heading(harness):
     """The same heading over the models on `c` and `n`: their harness's name, in its colour."""
-    return terminal.styled(config.harness_name(harness), config.harness_colour(harness) or "accent")
+    return terminal.styled(config.harness_name(harness),
+                           terminal.on_background(config.harness_colour(harness) or "accent"))
 
 
 # each role's group in a record (its config role: matrix.CONFIG_ROLES), which a take sets
