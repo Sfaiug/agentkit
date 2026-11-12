@@ -25,12 +25,13 @@ COMPANY = (208, 248, 248)       # #D0F8F8: pale, but a hue, so drawn as it is on
 AMBER = (222, 104, 0)           # a meter whose login ends, on a light background
 POINT = "\x1b[<35;8;{row}M"     # the pointer moved, no button down, at column 8 of a row
 SGR = re.compile(r"\x1b\[([\d;]*)m")
+FULL = "━╸"                     # a meter's full cells (terminal.share_parts)
 TRIPS = 4                       # washes in and out: each frame mixes one cell part of the way
 
 
 def meters(out, row):
-    """Each write of a meter's cells from its own first cell on `row`: the colour each `▰` is
-    written in, None for none."""
+    """Each write of a meter's cells from its own first cell on `row`: the colour each full cell
+    is written in, None for none."""
     found = []
     for at in (place.end() for place in re.finditer(rf"\x1b\[{row};\d+H", out)):
         ink, inks = None, []
@@ -40,7 +41,7 @@ def meters(out, row):
                 reset = style[1] in ("", "0") or style[1].startswith("0;")
                 ink = tuple(map(int, rgb[-1])) if rgb else None if reset else ink
                 at = style.end()
-            elif out[at] == "▰":
+            elif out[at] in FULL:
                 inks, at = [*inks, ink], at + 1
             else:
                 break
@@ -113,7 +114,7 @@ class WashOnALightBackground(unittest.TestCase):
         """The colour Claude II's meter is drawn in on the screen, None for none."""
         line = next((line for line in self.term.screen(colours=True).split("\n")
                      if "Claude II" in line), "")
-        found = re.search(r"38;2;(\d+);(\d+);(\d+)m▰", line)
+        found = re.search(rf"38;2;(\d+);(\d+);(\d+)m[{FULL}]", line)
         return found and tuple(map(int, found.groups()))
 
     def written(self, until, since):
