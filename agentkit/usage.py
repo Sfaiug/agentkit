@@ -1218,7 +1218,7 @@ def _gating_meters(cfg, name, providers):
     meters less each cap that is another model's: `weekly_scoped` is Fable's, so it must not
     gate Opus -- otherwise the orchestrator fallback from Fable to Opus could never fire.  A cap
     is the model's its provider names in its `scope`, each word of which is a word of that
-    model's id or of the name every screen shows it by (`Fable` names `claude-fable-5-2`);
+    model's id or of the name every screen shows it by (`Fable` names `acme-fable-5-2`);
     without a `scope`, the model's whose `meter` claims it.
     """
     entry = config.model(cfg, name)
