@@ -2025,7 +2025,7 @@ def adapter(harness, code=None):
 
     It has three duties: hand the worker the prompt as written, let it close its turn with
     `ak hand-in done`, and return `final.md` and a `session_id` a second turn resumes; ak ends
-    whatever a turn leaves running.  `python3 tests/check_harness_contract.py [harness]` proves
+    whatever a turn leaves running.  `ak contract [harness]` proves
     them on each harness installed with a login, at the model and effort its `[check]` names.
     The verbs:
 

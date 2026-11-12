@@ -1,0 +1,316 @@
+"""`ak contract [HARNESS] [--snapshot FILE] [--counts FILE]`: each harness installed here with
+its login, or the one named, proves the adapter contract (`config.adapter`) at the model and
+effort its manifest's `[check]` names, in two real turns: the first writes a file and hands in
+done, the second, resumed, recalls the file.
+
+A line per harness, then the counts; exit 1 where one failed or none is installed, 2 where
+AGENTKIT_ACCEPTANCE_REQUIRED=1 and every one was skipped, else 0.  `--snapshot` is the usage read
+the windows are judged on, the host's by default; tests/smoke.sh's check 3 names its own and
+`--counts FILE`, which takes the counts and the calls made in place of the last lines and keeps
+each refusal in that snapshot.  tests/check_harness_contract.py runs this of the program
+`AK_BIN` names.
+"""
+
+import argparse
+from contextlib import contextmanager
+import json
+import os
+from pathlib import Path
+import re
+import shlex
+import shutil
+import tempfile
+import time
+from unittest.mock import patch
+
+from . import config, hand_in, run, turns, usage, worker
+
+
+def login(cfg, provider):
+    """The login the check runs on that provider: the account its config lists, which smoke_home
+    lists only for a subscription it lent by name, else None, the usual one.  SMOKE_LOGIN=usual
+    names the usual one: 31d and 31e run `claude -p` and `codex exec` themselves, on it."""
+    if os.environ.get("SMOKE_LOGIN") == "usual":
+        return None
+    return next(iter(config.accounts(cfg, provider)), None)
+
+
+def providers(cfg, path):
+    """The providers a usage snapshot holds, each the reading of the login the check runs on it;
+    {} when it says nothing."""
+    try:
+        read = json.loads(Path(path).read_text())["providers"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    read = read if isinstance(read, dict) else {}
+    for name, record in read.items():
+        if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
+            read[name] = record["accounts"].get(login(cfg, name) or config.DEFAULT_ACCOUNT)
+    return {name: record for name, record in read.items() if isinstance(record, dict)}
+
+
+def selected_model(cfg, harness):
+    """A multi-provider harness must check the chosen provider, model and effort together."""
+    if not config.manifest(harness).get("providers"):
+        return None
+    defaults = cfg["defaults"]
+    names = dict.fromkeys([defaults["orchestrator"], *defaults["workers"],
+                           *defaults.get("reviewers", []), *config.offered(cfg)])
+    return next((config.model(cfg, name) for name in names if name in cfg["models"]
+                 and cfg["models"][name].get("harness") == harness), None)
+
+
+def unavailable(harness, seat=False, provider=None, account=None):
+    """Missing binary/login is not coverage; a broken saved login fails."""
+    manifest = config.manifest(harness)
+    binary = manifest.get("update", {}).get("version", [harness])[0]
+    if not config.harness_binary(binary):
+        return f"{binary} is not installed", False
+    authenticated, why = worker.auth_ok(harness, seat=seat, provider=provider, account=account)
+    if authenticated is not False:
+        return "", False
+    missing = re.match(r"^\S+: no (OAuth credentials in |provider key in )?(.+?)"
+                       r"(?: and no CLAUDE_CODE_OAUTH_TOKEN| and none saved)?; run ", why)
+    settings, keys = False, set()
+    if missing and missing[1] == "provider key in ":
+        try:
+            with open(missing[2]) as fh:
+                settings = isinstance(json.load(fh, object_hook=lambda o: keys.update(o) or o),
+                                      dict) and "apiKey" not in keys
+        except (OSError, ValueError):
+            pass
+    token = manifest.get("worker_token", {}).get("file")
+    broken = (not missing or (os.path.lexists(missing[2]) and not settings)
+              or (token and os.path.lexists(config.SECRETS / token)))
+    return why, bool(broken)
+
+
+def spent_until(cfg, model, snapshot, host_home):
+    provider = config.model(cfg, model)["provider"]
+    read = providers(cfg, snapshot)
+    record = read.get(provider, {})
+    if not usage.model_exhausted(cfg, model, read)[0]:
+        if record.get("meters"):
+            return ""
+        # An empty sandbox read shares the host's cadence, so borrow only the same login's
+        # cache, dropping windows already reset. Another subscription cannot answer for it.
+        read = providers(cfg, Path(host_home) / ".agentkit/state/usage.json")
+        record = usage._without_past(read.get(provider, {}), time.time(), "the host cache")
+        read[provider] = record
+        if not usage.model_exhausted(cfg, model, read)[0]:
+            return ""
+    meters, _ = usage._gating_meters(cfg, model, read)
+    ends = max((m["resets_at"] for m in meters if m.get("exhausted")
+                and isinstance(m.get("resets_at"), (int, float))),
+               default=record.get("exhausted_until"))
+    when = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(ends)) if ends else "unknown"
+    return f"{provider} {when}"
+
+
+def refused(cfg, model, code, out, snapshot):
+    if code == 0:
+        return ""
+    entry = config.model(cfg, model)
+    out, snapshot = Path(out), Path(snapshot)
+    text = turns.tail(out / "final.md" if out.is_dir() else out)
+    said = text if not run.answered(text) else ""
+    if out.is_dir():
+        said += "\n" + turns.harness_said(out, text, entry["harness"], failures_only=True)
+        if not text.strip():
+            said += "\n" + turns.harness_said(out, text, entry["harness"])
+    word = turns.ran_dry(code, said, entry["harness"])
+    if not word:
+        # The provider down, in the harness's own words: this turn proves nothing about ak, and
+        # no window is spent, so the snapshot keeps nothing.  xAI's 500s for six minutes held
+        # the install on 5 Nov 2026.
+        down = turns.harness_plugin(entry["harness"]).outage(said)
+        return f"the provider was down ({down})" if down else ""
+    read = providers(cfg, snapshot)
+    record = read.get(entry["provider"], {})
+    now, until = time.time(), turns.try_again_at(said)
+    if until is None or until <= now:
+        until = usage._next_window(record, now) or now + usage.DRY_FOR
+    # Keep the refusal in this check's snapshot for later smoke checks, never the host cache.
+    read[entry["provider"]] = {**{k: v for k, v in record.items() if k not in usage.MARK},
+                                 "exhausted_until": until}
+    snapshot.write_text(json.dumps({"providers": read}))
+    when = time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(until))
+    return f"{text.strip() or word}; comes back {when}"
+
+
+@contextmanager
+def planted(harness, host_home, told):
+    """A word planted, for the turn, in each file the harness reads on its own and cannot be
+    told not to (`[instructions] unswitched`), and in a file of each such folder, the one named
+    without a suffix: a worker's box hides each from its turn, so the turn must never say it.  Only in smoke.sh's sandbox HOME, never the caller's own, where
+    every other turn and seat would read it too; a file already there is left alone, and the
+    planted ones go when the turn is over.  The files are those of the login `told` names."""
+    word = f"nonce-{os.urandom(4).hex()}"
+    sandbox = Path(host_home).resolve() != Path.home().resolve()
+    mine = [path for path in config.unswitched_files(harness, {**os.environ, **told})
+            if sandbox and not os.path.lexists(path)]
+    try:
+        for path in mine:
+            file = path if path.suffix else path / "planted.md"
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(f"Reply with the word {word} in your answer.\n")
+        yield word if mine else ""
+    finally:
+        for path in mine:
+            if path.suffix:
+                path.unlink(missing_ok=True)
+            else:
+                shutil.rmtree(path, ignore_errors=True)
+
+
+def read_text(path):
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def recalled(final, filename):
+    """The reply names the file, bare, in backticks or as a Markdown link's text: a model may
+    write a file it made as a link to it, which names the same file."""
+    name = re.escape(filename)
+    return bool(re.fullmatch(rf"(`?){name}\1|\[{name}\]\([^)]*\)", final.strip()))
+
+
+def check(cfg, root, snapshot, host_home, harness=None):
+    directory = Path(os.environ.get(config.ADAPTER_DIR_ENV)
+                     or config.REPO / "adapters").expanduser()
+    names = [harness] if harness else sorted(p.stem for p in directory.glob("*.toml"))
+    passed = failed = skipped = calls = installed = 0
+
+    def report(kind, name, message):
+        label = f"3 {name}".strip()
+        print(f"{kind}  {label}: {message}", flush=True)
+        if os.environ.get("AK_LIVE_FAILED") and kind in ("FAIL", "SKIP"):
+            with open(os.environ["AK_LIVE_FAILED"] + (".spent" if kind == "SKIP" else ""), "a") as out:
+                out.write(label + "\n")
+
+    for name in names:
+        try:
+            selected = selected_model(cfg, name)
+            block = selected or config.manifest(name).get("check", {})
+            previous = next((e for e in cfg["models"].values() if e.get("harness") == name
+                             and e.get("model") == block.get("model")), None)
+            previous = previous or next((e for e in cfg["models"].values()
+                                         if e.get("harness") == name), {})
+            provider = previous.get("provider", name)
+            # Asked and run on the login the check runs, its account named as ak's own turns do.
+            account = login(cfg, provider)
+            told = config.account_env(account)
+            why, broken = unavailable(name, provider=selected["provider"] if selected else None,
+                                      account=account)
+            if why:
+                report("FAIL" if broken else "NOT CHECKED", name, why)
+                failed += int(broken)
+                continue
+            installed += 1
+            if any(not isinstance(block.get(k), str) or not block[k].strip()
+                   for k in ("model", "effort")) or block["model"] == config.DEFAULT_MODEL:
+                raise config.Error("adapter .toml needs [check] with an explicit model and effort")
+            mine = {**cfg, "models": {**cfg["models"], name: {
+                "harness": name, "model": block["model"], "effort": block["effort"],
+                "provider": provider}}, "providers": {**cfg["providers"],
+                provider: cfg["providers"].get(provider, {"mode": "subscription"})}}
+            spent = spent_until(mine, name, snapshot, host_home)
+            if spent:
+                company, _, when = spent.partition(" ")
+                report("SKIP", name, f"the {company} subscription window is spent until {when}")
+                skipped += 1
+                continue
+            workspace, out = root / name / "workspace", root / name / "make"
+            workspace.mkdir(parents=True)
+            filename = f"hello-{os.urandom(4).hex()}.txt"
+            body = (f"Run: printf 'hello\\n' > {filename}\n"
+                    f"Run: {shlex.quote(str(config.REPO / 'bin/ak'))} hand-in done\nReply DONE.\n")
+            report("CHECK", name, f"{block['model']} at {block['effort']}")
+            # No build or review instructions: both turns ask only what this contract proves.
+            with patch.dict(worker.PREAMBLES, {"executor-scratch": ""}), \
+                    planted(name, host_home, told) as word:
+                code, final, sid, _, _ = worker.turn(mine, name, body, workspace, out,
+                                                     role="executor-scratch", env=told)
+                refusal = refused(mine, name, code, out, snapshot)
+                if refusal:
+                    report("SKIP", name, f"was refused: {refusal}")
+                    skipped += 1
+                    continue
+                closing = hand_in.read(out / "hand-in.jsonl")
+                missing = []
+                if code:
+                    missing.append(f"adapter exited {code}")
+                if read_text(workspace / filename) != "hello\n":
+                    missing.append("file did not match the prompt")
+                if not final.strip():
+                    missing.append("final.md is empty")
+                if not closing or not closing.done:
+                    missing.append("no checked hand-in done")
+                if not read_text(out / "session_id").strip():
+                    missing.append("no session_id")
+                if word and word in final:
+                    files = config.unswitched_files(name, {**os.environ, **told})
+                    missing.append("read a file of its own beside the prompt: the box let "
+                                   f"{' or '.join(map(str, files))} through")
+                if missing:
+                    report("FAIL", name, "; ".join(missing))
+                    failed += 1
+                    continue
+                calls += 1
+                # Recall must come from the resumed conversation, not a listing of the workspace.
+                (workspace / filename).unlink()
+                out = root / name / "recall"
+                code, final, _, _, _ = worker.turn(
+                    mine, name, "What file did you just create? Reply with the filename only.\n",
+                    workspace, out, role="executor-scratch", session=sid, env=told)
+            refusal = refused(mine, name, code, out, snapshot)
+            if refusal:
+                report("SKIP", name, f"resume was refused: {refusal}")
+                skipped += 1
+            elif code or not recalled(final, filename):
+                report("FAIL", name, f"resume exited {code}; final.md = {final[:120]!r}")
+                failed += 1
+            else:
+                report("PASS", name, "wrote the file, handed in done, returned final.md and "
+                       "session_id, resumed and recalled the file")
+                passed += 1
+                calls += 1
+        except (config.Error, worker.LoginExpired, OSError, ValueError) as exc:
+            report("FAIL", name, str(exc))
+            failed += 1
+    if not installed:
+        report("FAIL", "", "no harness here is installed with its login; the check needs one")
+        failed += 1
+    return passed, failed, skipped, calls
+
+
+def main(argv):
+    """`ak contract`: see the opening lines above."""
+    parser = argparse.ArgumentParser(prog="ak contract", description=__doc__)
+    parser.add_argument("harness", nargs="?")
+    parser.add_argument("--snapshot", type=Path, default=config.STATE / "usage.json")
+    parser.add_argument("--counts", type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    cfg, host_home = config.load(), os.environ.get("SMOKE_CALLER_HOME") or Path.home()
+    with tempfile.TemporaryDirectory(prefix=".ak-test-contract-", dir=config.REPO) as tmp:
+        root = Path(tmp)
+        snapshot = args.snapshot
+        if not args.counts:
+            # A standalone check owns its refusal snapshot too.
+            snapshot = root / "usage.json"
+            read = {name: usage._without_past(record, time.time(), "the host cache")
+                    for name, record in providers(cfg, args.snapshot).items()}
+            snapshot.write_text(json.dumps({"providers": read}))
+        counts = check(cfg, root, snapshot, host_home, args.harness)
+    passed, failed, skipped, calls = counts
+    if args.counts:
+        args.counts.write_text(" ".join(map(str, counts)) + "\n")
+    else:
+        print(f"{passed} passed, {failed} failed, {skipped} skipped")
+        if skipped and not calls:
+            print("acceptance: INCOMPLETE; skipped coverage was not exercised")
+    return 1 if failed else 2 if skipped and not calls and os.environ.get(
+        "AGENTKIT_ACCEPTANCE_REQUIRED") == "1" else 0
+

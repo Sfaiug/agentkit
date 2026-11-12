@@ -19,29 +19,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, run, usage
-
-
-def login(cfg, provider):
-    """The login the check runs on that provider: the account its config lists, which smoke_home
-    lists only for a subscription it lent by name, else None, the usual one.  SMOKE_LOGIN=usual
-    names the usual one: 31d and 31e run `claude -p` and `codex exec` themselves, on it."""
-    if os.environ.get("SMOKE_LOGIN") == "usual":
-        return None
-    return next(iter(config.accounts(cfg, provider)), None)
-
-
-def providers(cfg, path):
-    """The providers a usage snapshot holds, each the reading of the login the check runs on it;
-    {} when it says nothing."""
-    try:
-        read = json.loads(Path(path).read_text())["providers"]
-    except (OSError, ValueError, KeyError, TypeError):
-        return {}
-    read = read if isinstance(read, dict) else {}
-    for name, record in read.items():
-        if isinstance(record, dict) and isinstance(record.get("accounts"), dict):
-            read[name] = record["accounts"].get(login(cfg, name) or config.DEFAULT_ACCOUNT)
-    return {name: record for name, record in read.items() if isinstance(record, dict)}
+from agentkit.contract import login, providers  # noqa: F401 (smoke.sh asks login here)
 
 
 def main(suite, host):
