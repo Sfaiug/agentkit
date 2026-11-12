@@ -30,7 +30,7 @@ const week = 7 * 86400.0
 
 // The board's rows in Python's scoreboard.MEASURES order, ak's size last.
 var measures = []string{"products", "ak", "tokens", "intent", "owner", "built", "waits", "merged", "checks", "parks",
-	"conflicts", "sunk", "broke", "review pairs", "findings", "ak size"}
+	"conflicts", "sunk", "broke", "rewritten", "review pairs", "findings", "ak size"}
 
 // The phases a merged change's hours are split into, each second in the first that holds it: a
 // model turn, else ak's own work, else a wait; and the steps, each its phase and the column of
@@ -55,6 +55,8 @@ type board struct {
 	seats                              []history.Row // what the seats spent, by project
 	parks, owner, dones                []history.Row
 	parksKnown, ownerKnown, donesKnown bool
+	rewrites                           []history.Row // the runs that took a plan line live
+	rewritesKnown                      bool
 	sizes                              [2][]measure // ak's committed size now and seven days ago
 }
 
@@ -105,6 +107,7 @@ func readScoreboard(db *history.DB, now time.Time) *board {
 	b.parks, b.parksKnown = db.Parks(since, b.now)
 	b.owner, b.ownerKnown = db.Owner(since, b.now)
 	b.dones, b.donesKnown = db.Dones(since, b.now)
+	b.rewrites, b.rewritesKnown = db.Rewrites(since, b.now)
 	b.seats, _ = db.SeatUsage(since, b.now)
 	before := ""
 	if out := gitOutput(repo, "rev-list", "--first-parent", "-1",
@@ -201,7 +204,7 @@ func (b *board) cells(end float64) []string {
 	}
 	return []string{b.delivered(ended, false, 0, tokens), b.delivered(ended, true, own, tokens), tokensCell, b.intent(end),
 		b.asked(end), built(ended), waited(finished), b.split(changes), b.checked(changes), b.parked(end),
-		b.collided(ended, end), sunk(ended, tokens), broke(ended), pairs(ended), b.weighed(ended, end)}
+		b.collided(ended, end), sunk(ended, tokens), broke(ended), b.rewritten(end), pairs(ended), b.weighed(ended, end)}
 }
 
 // in is whether that moment falls in the week ending at end, the last seven days' including now.
@@ -671,6 +674,30 @@ func broke(ended []history.Row) string {
 		cell += fmt.Sprintf("; %d merged before breaks were recorded", merged-known)
 	}
 	return cell
+}
+
+// rewritten is how many of the plan lines whose run went live in the week had their check
+// replaced within 14 days of going live: a line counts once in each week its run went live, so a
+// recent week's count can still grow.
+func (b *board) rewritten(end float64) string {
+	if !b.rewritesKnown {
+		return "not recorded"
+	}
+	lines := map[[2]any]bool{}
+	for _, row := range b.rewrites {
+		if b.in(number(row, "live_at"), end) {
+			key := [2]any{row["session"], row["plan_line"]}
+			lines[key] = lines[key] || row.Truthy("rewritten")
+		}
+	}
+	if len(lines) == 0 {
+		return "no plan line went live"
+	}
+	rewritten := 0
+	for _, done := range lines {
+		rewritten += count(done)
+	}
+	return fmt.Sprintf("%d of %d live plan lines rewritten within 14 days", rewritten, len(lines))
 }
 
 // pairs is the week's merged changes, each by its last run, by their recorded review pair;

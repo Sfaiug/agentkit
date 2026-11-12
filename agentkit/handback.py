@@ -1051,7 +1051,7 @@ def _unserved_line(session, going):
         for line in plan.lines(session):
             if plan.owed(session, line):
                 found = plan.LINE.match(line.strip())
-                if not found or f"{found['what']} · written {found['when']}" not in served:
+                if not found or plan.link(found) not in served:
                     return True
     except config.Error:
         return True     # an unread plan proves no line served

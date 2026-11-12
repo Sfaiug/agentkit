@@ -33,6 +33,7 @@ MEASURES = (
     ("conflicts", "conflicts", ("share", "files")),
     ("sunk", "sunk", ("share", "tokens")),
     ("broke", "broke", ("merged", "after_merge", "landing", "flakes", "unknown")),
+    ("rewritten", "rewritten", ("live", "rewritten")),
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
     ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again", "let_go", "let_go_broke",
                               "later", "inside_fix")),
@@ -301,10 +302,11 @@ def compute(now=None):
     held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
     moments = history.owner(now - 2 * week, now)
     dones = history.dones(now - 2 * week, now)
+    live_lines = history.rewrites(now - 2 * week, now)
     seats, not_counted = seat_tokens.read(now - 2 * week, now)
     board, waits, merged_changes, broken = {"products": [], "ak": [], "tokens": []}, [], [], []
     built, parks, sunk, owner, intent, check_costs = [], [], [], [], [], []
-    review_pairs, finding_counts = [], []
+    review_pairs, finding_counts, rewritten = [], [], []
     conflicts = []
     for end in (now, now - week):
         finished = [row for row in rows if in_week(row["finished_at"], end)]
@@ -332,6 +334,13 @@ def compute(now=None):
         merged_changes.append(per_change(grouped))
         check_costs.append(checked(grouped))
         broken.append(breaks(ended))
+        # a plan line counts once in each week its run went live, so a recent week's count can grow
+        week_lines = {}
+        for session, line, at, done in live_lines or ():
+            if in_week(at, end):
+                week_lines[session, line] = week_lines.get((session, line), False) or bool(done)
+        rewritten.append(None if live_lines is None
+                         else {"live": len(week_lines), "rewritten": sum(week_lines.values())})
         review_pairs.append(pairs(ended))
         weighed = [row for row in finding_rows if in_week(row["at"], end)]
         blocking = [row for row in weighed if row["kind"] == "finding"]
@@ -429,6 +438,7 @@ def compute(now=None):
     board["conflicts"] = conflicts
     board["sunk"] = sunk
     board["broke"] = broken
+    board["rewritten"] = rewritten
     board["pairs"] = review_pairs
     board["findings"] = finding_counts
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
@@ -492,6 +502,14 @@ def render(board=None):
         if stats["unknown"]:
             text += f"; {stats['unknown']} merged before breaks were recorded"
         return text
+
+    def rewrote(stats):
+        if stats is None:
+            return "not recorded"
+        if not stats["live"]:
+            return "no plan line went live"
+        return (f"{stats['rewritten']} of {stats['live']} live plan lines rewritten within "
+                f"{history.REWRITE_WINDOW // 86400} days")
 
     def pairs(stats):
         if stats is None:
@@ -596,8 +614,8 @@ def render(board=None):
 
     words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True), "tokens": tokens,
              "intent": intent, "owner": owner, "built": built, "waits": waited, "merged": split, "parks": parked,
-             "checks": checks, "conflicts": conflicts, "sunk": sunk, "broke": broke, "pairs": pairs,
-             "findings": findings, "size": size}
+             "checks": checks, "conflicts": conflicts, "sunk": sunk, "broke": broke, "rewritten": rewrote,
+             "pairs": pairs, "findings": findings, "size": size}
     rows = [("", "last 7 days", "7 days before"),
             *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]
     label_width = max(len(label) for _, label, _ in MEASURES)
