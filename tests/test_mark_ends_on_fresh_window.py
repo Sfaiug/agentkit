@@ -664,17 +664,30 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.set_meters("alpha", self.old_window(used=99))
             self.stale_cache()
             self.assertTrue(usage.collect(self.cfg)["alpha"]["exhausted"])
-            # A worker turn's stream reading (and a 429 probe after it) was not asked.
+            # A worker turn's stream reading (and a 429 or partial session probe after it)
+            # never asked the weekly meter.
             self.assertTrue(usage.record_turn_meters(
                 self.cfg, "alpha", self.old_window(used=76), now=self.now + 10))
-            self.now += usage.PROBE_EVERY + 20
-            with patch.object(usage, "_probe", return_value={
-                    "provider": "alpha", "meters": [],
-                    "error": "unknown: HTTP 429", "probed_at": self.now}):
-                self.stale_cache()
-                still = usage.collect(self.cfg)
-            self.assertTrue(still["alpha"]["exhausted"])
-            self.assertNotIn("one", usage.pick_order(self.cfg, still, ["one", "two"], quiet=True))
+            for failed in (True, False):
+                self.now += usage.PROBE_EVERY + 20
+                self.set_meters("alpha", [{"name": "session", "used": 100,
+                                           "resets_at": self.now + 3600,
+                                           "window_secs": usage.SESSION_SECS}])
+                ctx = (patch.object(usage, "_probe", return_value={
+                           "provider": "alpha", "meters": [],
+                           "error": "unknown: HTTP 429", "probed_at": self.now})
+                       if failed else ExitStack())
+                with ctx:
+                    self.stale_cache()
+                    still = usage.collect(self.cfg)
+                raw = json.loads((config.STATE / "usage.json").read_text())["providers"]
+                self.assertEqual(still["alpha"].get("exhausted_until"), until)
+                self.assertTrue(still["alpha"]["exhausted"])
+                self.assertTrue(usage.model_exhausted(self.cfg, "one", raw)[0])
+                self.assertNotIn(("one", "alpha"), staffing.executable_models(
+                    self.cfg, raw, ["one", "two"], self.now))
+                self.assertNotIn(("one", "alpha"), staffing.reviewable_models(
+                    self.cfg, raw, ["one", "two"], self.now))
             # An asked reading of 76 with the same resets_at ends the mark in one pass.
             self.now += usage.PROBE_EVERY + 1
             self.set_meters("alpha", self.old_window(used=76))
@@ -718,6 +731,51 @@ class FreshWindowEndsMark(unittest.TestCase):
             self.assertFalse(providers["alpha"]["exhausted"])
             self.assertIn("one", usage.pick_order(
                 self.cfg, providers, ["one", "two"], quiet=True))
+
+    def test_a_credit_spent_during_a_refusals_collection_stays_lifted(self):
+        self.reset_adapter()
+        self.set_meters("alpha", self.old_window(used=100))
+        self.set_meters("beta", self.old_window(used=10))
+        until, spent = NOW + 5 * 86400, []
+
+        def probe(cfg, provider, now, account=None):
+            if provider == "beta" and not spent:
+                self.now += 1
+                spent.append(usage.replenish(self.cfg, "alpha"))
+                self.now += 1
+            return {**self.fake_probe(cfg, provider, now, account), "resets": 1.0}
+
+        with patch.object(usage, "_probe", side_effect=probe):
+            usage.mark_exhausted(self.cfg, "alpha", until)
+            self.assertEqual(spent, [(True, 0.0)])
+            providers = usage.collect(self.cfg)
+        self.assertNotIn("exhausted_until", providers["alpha"])
+        self.assertFalse(providers["alpha"]["exhausted"])
+
+    def test_a_pre_upgrade_mark_without_exhausted_used_ends_on_a_refill(self):
+        from agentkit import staffing
+        self.set_meters("alpha", self.old_window(used=100))
+        self.set_meters("beta", self.old_window(used=10))
+        until, cache = NOW + 5 * 86400, config.STATE / "usage.json"
+        with patch.object(usage, "_probe", side_effect=self.fake_probe):
+            usage.mark_exhausted(self.cfg, "alpha", until)
+            blob = json.loads(cache.read_text())
+            del blob["providers"]["alpha"]["exhausted_used"]
+            cache.write_text(json.dumps(blob))
+            self.now += usage.PROBE_EVERY + 1
+            self.set_meters("alpha", self.old_window(used=99))
+            self.stale_cache()
+            still = usage.collect(self.cfg)
+            self.assertTrue(still["alpha"]["exhausted"])
+            self.assertNotIn("exhausted_used", still["alpha"])
+            self.now += usage.PROBE_EVERY + 1
+            self.set_meters("alpha", self.old_window(used=76))
+            self.stale_cache()
+            providers = usage.collect(self.cfg)
+            self.assertNotIn("exhausted_until", providers["alpha"])
+            self.assertFalse(providers["alpha"]["exhausted"])
+            self.assertIn(("one", "alpha"), staffing.executable_models(
+                self.cfg, providers, ["one", "two"], self.now))
 
 
 if __name__ == "__main__":

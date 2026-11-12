@@ -335,8 +335,12 @@ def _kept(cached, fresh, now):
     if fresh.get("meters") or fresh.get("none"):
         meters = _beside(cached.get("meters") if isinstance(cached, dict) else None,
                          fresh.get("meters"), now)
-        return (fresh if meters is fresh.get("meters")
-                else {**fresh, "meters": meters, "fetched_at": _taken(cached)})
+        if meters is fresh.get("meters"):
+            return fresh
+        asked = {name: at for name, at in _meter_asked(cached).items()
+                 if any(m.get("name") == name for m in meters)}
+        asked.update(_meter_asked(fresh))
+        return {**fresh, "meters": meters, "fetched_at": _taken(cached), "probed_meters": asked}
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
     keys = ("meters", "fetched_at", "resets", "credits", "currency", "error", "notes", "none",
@@ -351,6 +355,8 @@ def _kept(cached, fresh, now):
     # The ask that follows is this moment's; the measurement is not, so it is written down
     # here rather than inferred from it.
     kept["fetched_at"] = _taken(cached)
+    if not cached.get("none") and cached.get("meters"):
+        kept["probed_meters"] = _meter_asked(cached)
     return {**fresh, **kept, "probe_error": fresh.get("error"), "probe_failed_at": now,
             "stale_since": now if since is None else since}
 
@@ -378,6 +384,28 @@ def _taken(prov):
     number, has an age nobody can vouch for, which is not an age: None.
     """
     return _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
+
+
+def _asked_at(prov):
+    """When `prov`, an uncombined reading, was both asked and measured, or None."""
+    if not isinstance(prov, dict) or prov.get("probe_error"):
+        return None
+    probed, taken = _number(prov.get("probed_at")), _taken(prov)
+    return min(probed, taken) if probed is not None and taken is not None else None
+
+
+def _meter_asked(prov):
+    """{meter_name: when it was last asked and measured}, for `prov`'s meters."""
+    if not isinstance(prov, dict):
+        return {}
+    if isinstance(prov.get("probed_meters"), dict):
+        return {name: at for name, value in prov["probed_meters"].items()
+                if isinstance(name, str) and (at := _number(value)) is not None}
+    at = _asked_at(prov)
+    if at is None:
+        return {}
+    return {m["name"]: at for m in prov.get("meters") or []
+            if isinstance(m, dict) and isinstance(m.get("name"), str)}
 
 
 def _probe_gently(cfg, provider, account=None):
@@ -491,15 +519,18 @@ def _without_past(prov, now, name):
     """
     meters = [m for m in prov.get("meters") or [] if not _past(m, now)]
     paces = [m["pace"] for m in meters if m.get("pace") is not None]
+    extra = ({"probed_meters": {k: v for k, v in _meter_asked(prov).items()
+                                if any(m.get("name") == k for m in meters)}}
+             if "probed_meters" in prov else {})
     if prov.get("none") and not prov.get("error"):
-        return {**prov, "meters": meters, "pace": max(paces, default=None)}
+        return {**prov, **extra, "meters": meters, "pace": max(paces, default=None)}
     if meters or prov.get("error"):
         error = prov.get("error")
     elif prov.get("meters"):
         error = f"unknown: every meter {name} reports has already reset"
     else:   # its reading gone or never taken: it had no window to roll over
         error = f"unknown: {name} returned no meters"
-    return {**prov, "meters": meters, "pace": max(paces, default=None), "error": error}
+    return {**prov, **extra, "meters": meters, "pace": max(paces, default=None), "error": error}
 
 
 def _reread(cfg, provider, cached, now):
@@ -552,9 +583,12 @@ def _gate_flags(providers, now, cfg):
         # names only the window it hit, so the week beside it stays (`_beside`).
         recorded = harness_plugin(prov.get("harness")).usage_recorded(config.STATE, now)
         if recorded:
-            prov.update(meters=_beside(prov.get("meters"),
-                                       [_normalized(meter, now) for meter in recorded], now),
-                        error=None)
+            asked = _meter_asked(prov)
+            fresh = [_normalized(meter, now) for meter in recorded]
+            meters = _beside(prov.get("meters"), fresh, now)
+            kept = {m.get("name") for m in meters} - {m.get("name") for m in fresh}
+            prov.update(meters=meters, error=None,
+                        probed_meters={k: v for k, v in asked.items() if k in kept})
         # a provider that refused a worker is parked until it said it would have
         # capacity, or until the meter that showed the refusal opens a new window or falls
         until = _number(prov.get("exhausted_until"))
@@ -734,18 +768,18 @@ def _fresh_window(prov, mark, now):
     ends = mark.get("exhausted_ends")
     levels = mark.get("exhausted_used")
     at = _number(mark.get("exhausted_at"))
-    probed, taken = _number(prov.get("probed_at")), _taken(prov)
-    asked = (at is not None and not prov.get("probe_error")
-             and probed is not None and probed > at
-             and taken is not None and taken > at)
+    asked = _meter_asked(prov).get(name)
+    # Marks written before `exhausted_used` existed named a meter only at 100%+.
+    stood = (_number(levels.get(name)) if isinstance(levels, dict)
+             else 100.0 if "exhausted_used" not in mark else None)
     for meter in prov.get("meters") or []:
         if not isinstance(meter, dict) or meter.get("name") != name:
             continue
         used = _number(meter.get("used"))
         if used is None or used >= 100 or _past(meter, now):
             continue
-        stood = _number(levels.get(name)) if isinstance(levels, dict) else None
-        if asked and stood is not None and round(stood - used, 6) > 1:
+        if (at is not None and asked is not None and asked > at
+                and stood is not None and round(stood - used, 6) > 1):
             return True
         resets_at = _number(meter.get("resets_at"))
         old = _number(ends.get(name)) if isinstance(ends, dict) else None
@@ -972,8 +1006,8 @@ def replenish(cfg, provider, account=None):
     week = ([_normalized({**weekly, "used": used, "resets_at": until}, now)]
             if weekly and _number(used) is not None and _number(until) is not None else [])
     kept = {key: value for key, value in prov.items() if key not in ("accounts", "account")
-            and (not week or key not in ("fetched_at", "probe_error", "probe_failed_at",
-                                         "stale_since"))}
+            and (not week or key not in ("fetched_at", "probed_meters", "probe_error",
+                                         "probe_failed_at", "stale_since"))}
     fresh = _without_past({**kept, "meters": week, "resets": None}
                           if _cooling(provider, account, _probe_every(cfg, provider))
                           else _probe_gently(cfg, provider, account),
@@ -1029,13 +1063,13 @@ def mark_exhausted(cfg, provider, until=None, account=None):
     is its own: the provider stays eligible on its other accounts.  Returns the deadline
     recorded.
     """
+    now = time.time()
     try:
         prov = collect(cfg).get(provider) or {}
     except config.Error:
         prov = {}
     if account is not None:
         prov = (prov.get("accounts") or {}).get(account) or {}
-    now = time.time()
     said = _number(until) is not None and until > now
     if not said:
         until = _next_window(prov, now) or now + DRY_FOR
@@ -1126,6 +1160,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     old = cached.get("meters") if isinstance(cached.get("meters"), list) else []
     # Normalized as a probed meter is, because every reader of the snapshot reads one.
     new = {m["name"]: _normalized(m, measured) for m in fresh}
+    asked = {name: at for name, at in _meter_asked(cached).items() if name not in new}
     merged = [new[m["name"]] if isinstance(m, dict) and m.get("name") in new else m
               for m in old if isinstance(m, dict) and isinstance(m.get("name"), str)]
     merged += [meter for name, meter in new.items()
@@ -1139,7 +1174,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
             prov.setdefault("via", via)
         except config.Error:
             pass
-    prov.update(meters=merged, fetched_at=measured, error=None,
+    prov.update(meters=merged, fetched_at=measured, probed_meters=asked, error=None,
                 pace=max((m["pace"] for m in merged
                             if isinstance(m, dict) and m.get("pace") is not None),
                            default=None))
