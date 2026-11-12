@@ -130,11 +130,11 @@ class TwoDigitNumbers(Listing):
             for name in self.attached():
                 self.home.tmux("detach-client", "-s", f"={name}")
             if then:
-                # what reached the seat is a draft its row would show as `✎ unsent` to every
+                # what reached the seat is a draft its row would show as `¶ unsent` to every
                 # later case; Ctrl-U empties the composer
                 self.home.tmux("send-keys", "-t", self.seats[seat].pane, "C-u")
             self.term.wait(lambda screen: KEYS in screen and not self.attached()
-                           and "✎ unsent" not in screen)
+                           and "¶ unsent" not in screen)
 
     def test_past_nine_seats_every_number_is_two_wide(self):
         # the other cases move the highlight to the seat each opened

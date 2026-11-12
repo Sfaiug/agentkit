@@ -4,6 +4,7 @@ Offline: real loop processes and fake adapters, all files beneath this checkout.
 """
 from contextlib import ExitStack, redirect_stdout
 import errno
+import fcntl
 import io
 import json
 import os
@@ -21,7 +22,19 @@ from fixtures.hand_in import scripted, stateful
 from agentkit import config, gate, handback, host, job as jobs, menu, notify, orch, run, status, watch
 from agentkit import record
 
-ADAPTER = r'''import json, os, pathlib, sys, time
+# The test locks hold while it lives: a fixture waiting on the test ends with it, as no clock can
+# say how long a loaded host keeps the test from its next step (a lock reaches across PID namespaces).
+HELD = r'''import fcntl, time
+def held(root):
+    with (root / "hold").open() as hold:
+        try:
+            fcntl.flock(hold, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            time.sleep(.02)
+            return
+    raise SystemExit("the test that holds this fixture is gone")
+'''
+ADAPTER = HELD + r'''import json, os, pathlib, sys
 if sys.argv[1] == "usage":
     print('{"meters":[{"name":"weekly","used":0}]}')
     sys.exit(0)
@@ -38,10 +51,8 @@ with (root / "calls.jsonl").open("a") as fh:
     fh.write(json.dumps({"id":rid, "role":role, "depth":os.environ["AK_RUN_DEPTH"],
                          "parent":os.environ.get("AK_PARENT_RUN")}) + "\n")
 if role == "executor":
-    deadline = time.monotonic() + 40
     while not (root / ("release-" + rid)).exists() and not (root / "release-all").exists():
-        assert time.monotonic() < deadline, "fixture was not released"
-        time.sleep(.02)
+        held(root)
     pathlib.Path(sys.argv[4], "deliverable").write_text("fixture\n")
 (out / "final.md").write_text("VERDICT: PASS\n\n## Findings\n- none\n" if role == "reviewer"
                               else "## Summary\nFixture work.\n")
@@ -109,6 +120,9 @@ class Slots(unittest.TestCase):
                              if config.model(self.cfg, name)["provider"] !=
                              config.model(self.cfg, self.executor)["provider"])
         config.ensure_dirs()
+        self.hold = (self.root / "hold").open("w")
+        fcntl.flock(self.hold, fcntl.LOCK_EX)
+        self.addCleanup(self.hold.close)
         self.procs = []
         self.addCleanup(self.cleanup_processes)
 
@@ -126,7 +140,7 @@ class Slots(unittest.TestCase):
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 proc.kill()
-                proc.wait(timeout=5)
+                proc.wait()
 
     def title(self, name, root=None):
         # A run's end sweeps its id's marker host-wide, and the id is its minute and title:
@@ -157,15 +171,16 @@ class Slots(unittest.TestCase):
     def states(self):
         return [(d, s) for d in record.run_dirs() if (s := record.read_state(d))]
 
-    def wait(self, predicate, seconds=15):
-        end = time.monotonic() + seconds
-        while time.monotonic() < end:
-            result = predicate()
-            if result:
-                return result
+    def wait(self, predicate):
+        # A run comes up through interpreters, a slot wait, its turns and its checks as slowly as
+        # the host's load makes them, so no clock ends this wait: the state does, or no process
+        # started here being left to reach it (read once more after, for what it did last).
+        while not (result := predicate()):
+            if all(proc.poll() is not None for proc, _ in self.procs) and not (result := predicate()):
+                logs = "\n".join(path.read_text() for _, path in self.procs)
+                self.fail("fixture ended first\n" + logs[-12000:])
             time.sleep(.03)
-        logs = "\n".join(path.read_text() for _, path in self.procs)
-        self.fail("fixture timed out\n" + logs[-12000:])
+        return result
 
     def receipt(self, name, state=None):
         return self.wait(lambda: next(((d, s) for d, s in self.states()
@@ -189,7 +204,7 @@ class Slots(unittest.TestCase):
     def finish_all(self):
         (self.root / "release-all").touch()
         for proc, path in self.procs:
-            self.assertEqual(proc.wait(timeout=20), 0, path.read_text())
+            self.assertEqual(proc.wait(), 0, path.read_text())
 
     def recover(self):
         popen = subprocess.Popen
@@ -283,7 +298,7 @@ class Slots(unittest.TestCase):
         self.launch("three")
         self.receipt("three", "queued")
         second_proc.terminate()
-        second_proc.wait(timeout=5)
+        second_proc.wait()
         self.release(first)
         time.sleep(.15)
         self.assertEqual(len(self.calls()), 1)  # a live waiter cannot jump a dead one
@@ -295,7 +310,7 @@ class Slots(unittest.TestCase):
         self.assertEqual([c["id"].rsplit("-", 1)[-1] for c in self.calls()], ["one", "two", "three"])
         (self.root / "release-all").touch()
         for proc, _ in self.procs:
-            proc.wait(timeout=15)
+            proc.wait()
         self.wait(lambda: all(s["state"] == "pass" for _, s in self.states()))
         self.wait(lambda: not record.process_active(record.read_state(second)))
 
@@ -304,7 +319,7 @@ class Slots(unittest.TestCase):
         victim = self.launch("resume-me")
         saved, _ = self.started("resume-me")
         watch.kill_tree(victim.pid, log=lambda _: None)
-        victim.wait(timeout=5)
+        victim.wait()
         with patch.object(handback, "notify_recovery"):
             run.reap(saved, record.read_state(saved))
         self.launch("occupier")
@@ -316,7 +331,7 @@ class Slots(unittest.TestCase):
         self.wait(lambda: len([c for c in self.calls() if c["id"] == saved.name]) == 2)
         self.release(saved)
         for proc, _ in self.procs[1:]:
-            self.assertEqual(proc.wait(timeout=15), 0)
+            self.assertEqual(proc.wait(), 0)
 
     def test_v5am_job_parallel_four_never_exceeds_two(self):
         tasks = [self.task(name) for name in ("one", "two", "three", "four")]
@@ -359,7 +374,7 @@ class Slots(unittest.TestCase):
         for args in ([self.task("forbidden")], ["resume", "missing"],
                      [self.task("a"), self.task("b")]):
             proc = self.start(*args, env={"AK_RUN_DEPTH": "2", "AK_MAX_RUNS": "0"})
-            self.assertEqual(proc.wait(timeout=5), 2)
+            self.assertEqual(proc.wait(), 2)
             self.assertEqual(self.procs[-1][1].read_text().strip(), REFUSAL)
             self.assertEqual(record.run_dirs(), [])
             self.assertEqual(jobs.job_dirs(), [])
@@ -371,7 +386,7 @@ class Slots(unittest.TestCase):
         proc = self.launch("orphan")
         orphan, state = self.receipt("orphan", "queued")
         proc.terminate()
-        proc.wait(timeout=5)
+        proc.wait()
         self.assertEqual(run.reap(orphan, record.read_state(orphan))["state"], "queued")
         self.release(first)
         with patch.object(subprocess, "Popen", side_effect=OSError("temporary fork failure")):
@@ -386,7 +401,7 @@ class Slots(unittest.TestCase):
         self.assertEqual(adopted["queued_at"], state["queued_at"])
         self.release(orphan)
         self.wait(lambda: not record.process_active(record.read_state(orphan)))
-        self.procs[0][0].wait(timeout=5)
+        self.procs[0][0].wait()
 
     def test_v5am_status_menu_and_seat_bar_say_waiting(self):
         os.environ["AK_MAX_RUNS"] = "1"
@@ -420,7 +435,7 @@ class Slots(unittest.TestCase):
         other = self.start(self.task("one", root=beside), "--exec", self.executor,
                            "--review", self.reviewer,
                            env={"HOME": str(beside), "V5AM_FIXTURE": str(beside)})
-        self.assertEqual(other.wait(timeout=20), 0, self.procs[-1][1].read_text())
+        self.assertEqual(other.wait(), 0, self.procs[-1][1].read_text())
         self.release(first)
         self.assertEqual(len(self.calls()), 1)
         self.finish_all()
@@ -438,16 +453,14 @@ class Slots(unittest.TestCase):
         # Hold all four readers once each has assembled its snapshot, and let them all write it
         # at once: every write takes the cache's one lock, so every rename succeeds.  Only
         # collect's own publish is held; a probe publishes its answer the moment it has it.
-        barrier = '''import os, pathlib, time
+        barrier = HELD + '''import os, pathlib
 from agentkit import usage
 root = pathlib.Path(os.environ["V5AM_FIXTURE"])
 store, replace = usage._store, pathlib.Path.replace
 def publish(*args, **kwargs):
     (root / ("cache-ready-" + str(os.getpid()))).touch()
-    end = time.monotonic() + 10
     while len(list(root.glob("cache-ready-*"))) < 4:
-        assert time.monotonic() < end, "cache publishers did not meet"
-        time.sleep(.01)
+        held(root)
     return store(*args, **kwargs)
 def rename(path, target):
     try:
@@ -539,7 +552,7 @@ usage._store, pathlib.Path.replace = publish, rename
         victim = self.launch("stalled")
         saved, _ = self.started("stalled")
         watch.kill_tree(victim.pid, log=lambda _: None)
-        victim.wait(timeout=5)
+        victim.wait()
         state = record.read_state(saved)
         state["stall_resume_at"] = time.time()
         record.save_state(saved, state)
@@ -549,7 +562,7 @@ usage._store, pathlib.Path.replace = publish, rename
         _, state = self.receipt("stalled", "queued")
         self.assertEqual(state["resume_from"], "running")
         waiter.terminate()
-        waiter.wait(timeout=5)
+        waiter.wait()
         self.release(first)
         self.recover()
         self.wait(lambda: len([c for c in self.calls() if c["id"] == saved.name]) == 2)
@@ -565,7 +578,7 @@ usage._store, pathlib.Path.replace = publish, rename
         proc = self.launch("broken")
         broken, _ = self.receipt("broken", "queued")
         proc.terminate()
-        proc.wait(timeout=5)
+        proc.wait()
         (broken / "task.md").unlink()
         self.launch("three")
         self.receipt("three", "queued")

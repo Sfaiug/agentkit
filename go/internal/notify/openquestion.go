@@ -6,7 +6,7 @@ import "context"
 func OpenedQuestion(name string, capture func(string) string) (bool, error) {
 	carried := false
 	err := Held(context.Background(), name, func(current string) error {
-		notice := Last(current)
+		notice := open(current)
 		if !OwnerQuestion(notice) {
 			return nil
 		}

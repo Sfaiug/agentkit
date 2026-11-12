@@ -269,6 +269,14 @@ func TestGoogleListsWhatAkRentsAndGivesOneBack(t *testing.T) {
 	if at, kept := Kept(); at != 0 || kept != nil {
 		t.Errorf("four fields kept at %v: %+v", at, kept)
 	}
+	write("state/google-cloud-offers.json", `{"at": null, "offers": [["n2d-standard-8", "europe-west4", 4.0, 32768, 0.1]]}`)
+	if at, kept := Kept(); possible(at) || len(kept) != 1 {
+		t.Errorf("kept at null as %v: %+v", at, kept)
+	}
+	write("state/google-cloud-offers.json", `{"offers": [["n2d-standard-8", "europe-west4", 4.0, 32768, 0.1]]}`)
+	if at, kept := Kept(); at != 0 || kept != nil {
+		t.Errorf("kept with no at as %v: %+v", at, kept)
+	}
 
 	// A reply cut short, in its body or its header, fails that call alone; once Google does not
 	// answer, with no connection, a certificate refused, one closed before any reply or a reply
