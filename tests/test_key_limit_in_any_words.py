@@ -43,9 +43,10 @@ FINISHED, OWING = "- [x] Shipped it\n", "- [x] Shipped it\n- [ ] Ship the rest\n
 # A seat with nothing to continue keeps its own word while that usage is gone.
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class LimitInAnyWords(unittest.TestCase):
-    def words(self, seats, ticks=1):
+    def words(self, seats, ticks=1, acted=None):
         """Each seat's word after `ticks` ticks, on one subscription; `seats` gives each name what
-        its conversation ends on and its plan."""
+        its conversation ends on and its plan.  With `acted`, ak acted on a refusal in the words
+        each ends on that many seconds ago, its turn over since."""
         home = Home()
         self.addCleanup(home.close)
         with socket.socket() as probe:     # a port nobody listens on: the tick reaches no board
@@ -66,6 +67,10 @@ class LimitInAnyWords(unittest.TestCase):
             hooks.fire("Stop", {"background_tasks": [], "transcript_path": "",
                                 "last_assistant_message": "Done."}, seat=name, pane=seat,
                        finished=True)
+            if acted is not None:
+                home.write(f".agentkit/state/seat-{name}.json", {"session": name, "usage_refusal": {
+                    "line": f'{end["message"]["content"][0]["text"]}\n{end["apiError"]}',
+                    "at": time.time() - acted, "handled": True}})
         for _ in range(ticks):
             done = home.ak("watch", boxed=True, env={"AK_HOST_READINGS": json.dumps(FINE)})
             self.assertEqual(done.code, 0, done.out + done.err)
@@ -82,6 +87,14 @@ class LimitInAnyWords(unittest.TestCase):
             with self.subTest(end["message"]["content"][0]["text"]):
                 self.assertEqual(self.words({"refused": (end, FINISHED)}),
                                  {"refused": "out of usage"})
+
+    def test_a_refusal_in_the_words_of_one_acted_on_before_its_prompt_is_a_new_one(self):
+        # 12 Nov 2026: a seat prompted an hour after its refusal was refused in the same words,
+        # taken for the one before, and stood for six hours.
+        self.assertEqual(self.words({"refused": (TYPED, FINISHED)}, acted=3600),
+                         {"refused": "out of usage"})
+        self.assertEqual(self.words({"refused": (TYPED, FINISHED)}, acted=0),
+                         {"refused": "working"})    # acted on since that turn: it goes on
 
     def test_a_conversation_ending_on_an_answer_was_refused_nothing(self):
         self.assertEqual(self.words({"answered": (ANSWER, FINISHED)}), {"answered": "done"})

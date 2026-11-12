@@ -725,8 +725,8 @@ def relaunched(name, harness, line, at, boot=None, account=False):
                               **({"account": True} if account else {})})
 
 
-def prompted_since(name, at):
-    """Has a prompt gone into that seat since `at` -- the line, or his own?
+def prompted_at(name):
+    """When the last prompt went into that seat -- the line, or his own -- or 0 with none.
 
     hooks/seat-state.sh stamps each prompt's moment into the seat's stop file, whichever
     harness it came from, and a turn that has since finished keeps that stamp.
@@ -734,8 +734,13 @@ def prompted_since(name, at):
     try:
         turn = json.loads(config.stop_path(name).read_text(encoding="utf-8")).get("turn")
     except (OSError, ValueError, AttributeError, config.Error):
-        return False
-    return isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at
+        return 0
+    return _stamp(turn) or 0
+
+
+def prompted_since(name, at):
+    """Has a prompt gone into that seat since `at` (`prompted_at`)?"""
+    return prompted_at(name) > at
 
 
 def continue_turns(cfg, log, accounts=False):
@@ -5261,6 +5266,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         # Nothing to continue and no wait to suppress: the between-turns move
         # home below still applies, and starts no turn.
     observed = live.get("usage_refusal") or {}
+    if observed.get("handled") and observed["at"] < prompted_at(name) < (
+            _stamp(live.get("hooked_at")) or 0):
+        # A provider refuses every turn of a spent model in the same words, so the words do not
+        # make a refusal the one acted on: a prompt went in since, and its turn is over too --
+        # until then the conversation still ends on the old one.
+        observed = {}
     until = turns.try_again_at(line) if refusal else None
     handled = observed.get("line") == line and observed.get("handled")
     if handled and not waiting and not spent(current):
