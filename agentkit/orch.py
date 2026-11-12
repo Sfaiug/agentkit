@@ -92,6 +92,9 @@ POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
 DIM = f"fg=#{terminal.colour('dim').rgb}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
+# The tmux client a popup opened on, by name, handed to that popup alone: the window a seat
+# picked in it opens in (`attach`).  Nothing outside it holds the name (`tmux_env`, `warm.serve`).
+CLIENT_ENV = "AGENTKIT_CLIENT"
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
 # opens over: the first popup over it keeps each style the pane has of its own, if it has one
 # (`h`), every one counts itself in, the pane draws dim, the popup is held until it is down, and
@@ -1141,11 +1144,13 @@ def tmux_env(client=False):
     Inside somebody else's tmux, $TMUX is what a bare tmux command would follow -- so it goes,
     and the server named on the command line is the only one that can be reached.  Only
     `switch-client` keeps it, because without it there is no client to switch.  The mark goes
-    from every one (`owner`), and so does the version a run is pinned to (`versions.unpinned`):
-    any may start a server, whose global environment is the starting client's, a pane takes the
-    PATH of the client that spawns it, and both outlive the caller.
+    from every one (`owner`), and so does the version a run is pinned to (`versions.unpinned`),
+    and the popup's client (CLIENT_ENV): any may start a server, whose global environment is the
+    starting client's, a pane takes the PATH of the client that spawns it, and both outlive the
+    caller.
     """
-    return {k: v for k, v in versions.unpinned(owner.unmarked()).items() if client or k != "TMUX"}
+    return {k: v for k, v in versions.unpinned(owner.unmarked()).items()
+            if k != CLIENT_ENV and (client or k != "TMUX")}
 
 
 def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
@@ -2057,7 +2062,9 @@ def tmux_conf():
     press it on; anywhere larger it is the 80% by 70% it always was.  `display-popup` takes
     no format for its size, so the choice is `if-shell -F`'s.  The client's terminal features
     ride in with it (`terminal.FEATURES_ENV`), read as the key is pressed, so the menu's first
-    frame waits on no tmux call to learn whether it takes true colour.
+    frame waits on no tmux call to learn whether it takes true colour; and so does the client's
+    name (CLIENT_ENV), so a seat picked in it opens in that window, whichever window tmux last
+    heard a key from: a key pressed in a popup is none.
 
     The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
     popup, and says nothing): a rounded border in the dim colour with ` agentkit ` set into
@@ -2074,14 +2081,14 @@ def tmux_conf():
     small, large = f"display-popup -E {POPUP_FULL}", f"display-popup -E {POPUP_SIZE}"
     if tmux_version() >= FLOATS:
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
+        handed = f'-e "{terminal.FEATURES_ENV}=$f" -e "{CLIENT_ENV}=$c"'
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "
                                         "f='#{client_termfeatures}'; " + tmux_text(
                 FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
                          "popup": popup, "command": shlex.quote(popup_command())}))
-            for popup in (f'{small} {border} -e "{terminal.FEATURES_ENV}=$f"',
-                          f'{large} {border} -e "{terminal.FEATURES_ENV}=$f"'
-                          f" -e {terminal.PAD_ENV}={POPUP_PADDING}"))
+            for popup in (f"{small} {border} {handed}",
+                          f"{large} {border} {handed} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
         small, large = (f"{popup} {tmux_word(popup_command())}" for popup in (small, large))
     text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
@@ -2357,8 +2364,12 @@ def attach(name, log=print, wait=False, session=None):
             f"`{shlex.join(tmux_argv(socket, 'attach', '-t', name))}`")
         return 0
     if inside(session):
-        # a client on this seat's own server: switch it, rather than nest one tmux in another
-        rc, out = tmux_out("switch-client", "-t", f"={name}", socket=socket, client=True)
+        # a client on this seat's own server: switch it, rather than nest one tmux in another --
+        # the popup's own, where it names one (CLIENT_ENV); else the one tmux finds, as for `ak`
+        # typed in a pane
+        named = os.environ.get(CLIENT_ENV)
+        rc, out = tmux_out("switch-client", *(("-c", named) if named else ()), "-t", f"={name}",
+                           socket=socket, client=True)
         if rc != 0:
             raise config.Error(f"cannot switch to the session {name}: {out}")
         seen_by_user(name, session)
