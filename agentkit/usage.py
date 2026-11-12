@@ -1215,8 +1215,11 @@ def _gating_meters(cfg, name, providers):
 
     A model naming a `meter` is gated by that one, the shared weekly_all and the 5h session
     window, which every model of the subscription runs inside.  Otherwise use the provider's
-    meters minus any meter another model claims: `weekly_scoped` is Fable's cap, so it must not
-    gate Opus -- otherwise the orchestrator fallback from Fable to Opus could never fire.
+    meters less each cap that is another model's: `weekly_scoped` is Fable's, so it must not
+    gate Opus -- otherwise the orchestrator fallback from Fable to Opus could never fire.  A cap
+    is the model's its provider names in its `scope`, each word of which is a word of that
+    model's id or of the name every screen shows it by (`Fable` names `claude-fable-5-2`);
+    without a `scope`, the model's whose `meter` claims it.
     """
     entry = config.model(cfg, name)
     meters = providers.get(entry["provider"], {}).get("meters", [])
@@ -1226,7 +1229,13 @@ def _gating_meters(cfg, name, providers):
                 or m.get("window_secs") == SESSION_SECS], want
     claimed = {e["meter"] for n, e in cfg["models"].items()
                if n != name and e.get("meter") and e["provider"] == entry["provider"]}
-    return [m for m in meters if m["name"] not in claimed], PROVIDER_METERS
+
+    def words(text):
+        return set(re.findall(r"[^\W_]+", str(text).lower()))
+
+    own = words(entry["model"]) | words(config.model_name(cfg, name))
+    return [m for m in meters if (words(m["scope"]) <= own if m.get("scope")
+                                  else m["name"] not in claimed)], PROVIDER_METERS
 
 
 def model_pace(cfg, name, providers):
@@ -1282,7 +1291,7 @@ def shared_week(cfg, provider, prov, now=None):
     52% is wrong on its face.  So when every week that can be read is somebody's private cap
     there is no shared week at all, and this says None rather than borrowing one of them: a row
     that cannot be drawn is better than a wrong one.
-    The picker is unaffected -- it ranks on the tightest meter, whoever owns it.
+    The picker is unaffected -- it ranks each model on the meters gating it (`_gating_meters`).
 
     The menu's row and the `resets` column of the table both read this one answer, so the two
     can never disagree about which week they are naming the reset time of.
