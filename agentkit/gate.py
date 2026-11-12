@@ -1700,18 +1700,20 @@ class _SuiteMeasure:
                 with self.lock:
                     self.peak = max(self.peak, held)
 
-    def save(self, path, pieces, places):
+    def save(self, path, pieces, places, green):
         """`pieces` the ones that ran here, each to its end, on `places` at once, or None where
         one waited for a place: a peak of fewer at once is no piece's memory.  A piece's CPU is
-        what each needed while its box ran, so a place waited for or left empty counts none."""
+        what each needed while its box ran, so a place waited for or left empty counts none.
+        A pass not `green` says how long it took and nothing of what a piece needs: one red in
+        its first seconds ran no whole length, and those seconds set the next pass's pieces."""
         elapsed = time.monotonic() - self.started
         if elapsed <= 0:
             return
         cost = {"wall_seconds": elapsed, "run_id": self.run_id}
         ran = sum(seconds for _, seconds in self.cpu)
-        if len(self.cpu) == pieces and ran > 0:
+        if green and len(self.cpu) == pieces and ran > 0:
             cost["cpus"] = max(HEAVY_CPUS, sum(spent for spent, _ in self.cpu) / ran)
-        if self.baseline is not None and places:
+        if green and self.baseline is not None and places:
             cost["mem_mb"] = self.mem_mb = max(HEAVY_MEM_MB, (self.peak - self.baseline) / places)
         try:
             with watch.state_lock():
@@ -1913,7 +1915,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         if named is not None and result[0] > 0:
             named.extend(failed)
         if measured and not result[2] and result[0] != SUITE_BUSY:
-            measured.save(path, 1, 1)
+            measured.save(path, 1, 1, not result[0])
             measured.paced(path, 1)
         if measured:
             measured.overflowed(path, planned)
@@ -2173,7 +2175,8 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if ran and not any(
                     result[2] or result[0] == SUITE_BUSY for result in results if result):
                 measure.save(path, len(ran), None if hold and hold.waited else
-                             min(len(ran), hold.pieces if hold else count))
+                             min(len(ran), hold.pieces if hold else count),
+                             not any(result[0] for result in results if result))
             named = {}    # by index, a piece red on a machine: what it printed there, its tests
             if any(where) and log is not None and not pieces_left.lost and all(
                     result and not result[0] and not result[2] for result in results):
