@@ -1822,7 +1822,7 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwa
 def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, flaky=None, named=None, checked=None, asked=None,
-              raw=None, absent=None, **kwargs):
+              raw=None, absent=None, used=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1856,6 +1856,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     another suite changes meanwhile would cut a later piece's share differently.
     With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, its first
     go asked for at `asked`, a later one as the go before it ended: a turn it waits for is wait.
+    `used`, a dict, gets what a command run as one piece used (`worker.boxed`).
     """
     def observed(share, code, killed):
         if raw is not None and (code != SUITE_BUSY or killed):
@@ -1875,7 +1876,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         code, text, killed = worker.boxed(
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
             env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, absent=gone,
-            flaky=flaky, **kwargs)
+            flaky=flaky, used=used, **kwargs)
         observed(shard, code, killed)
         if confirmed is not None and only is not None:
             confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
@@ -1905,7 +1906,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                               output=output, env=env, abort=abort,
                               cpu=measured.cpu if measured else None,
                               quiet=measured.quiet if measured else None, failed=failed,
-                              flaky=flaky, **kwargs)
+                              flaky=flaky, used=used, **kwargs)
         observed("", result[0], result[2])
         if confirmed is not None:
             confirmed["1/1"] = failed if result[0] > 0 else []
@@ -2024,11 +2025,12 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     # A stop ends this piece's own processes, never a sibling's that runs on.
                     own[worker.RUN_MARKER] += f"/piece-{shard.replace('/', '-')}"
                 try:
-                    here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
-                                             "only": only, "failed": tests, "flaky": flaky}
                     kills = measure.oom("oom_kill")
                     with history.check(checked, f"AK_SHARD={shard} {command}",
                                        asked_at.get(shard, asked), there and there.alias) as ended:
+                        here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
+                                                 "only": only, "failed": tests, "flaky": flaky,
+                                                 "used": ended}
                         code, _, killed = (worker.limited if there else worker.boxed)(
                             helper.piece(there, shard, there_command)
                             if there else ["bash", "-c", command],
@@ -2036,7 +2038,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             env=own, abort=abort,
                             on_timeout=stopped, silence=silence if first else later or silence,
                             **here, **kwargs)
-                        ended.append(None if killed else code)
+                        ended["exit"] = None if killed else code
                     if not there or code not in (*helper.GONE, helper.FULL):
                         observed(shard, code, killed)
                     if not there and not killed and measure.starved(code, kills):
@@ -2548,8 +2550,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         only=only, confirmed=reds, flaky=flakes, named=named,
                         # Whole commands retry here; their named outcomes must wait for that.
                         checked=checked if split(cmd) else None, asked=asked, raw=raw,
-                        absent=absent)
-                    ended.append(None if killed else code)
+                        absent=absent, used=ended)
+                    ended["exit"] = None if killed else code
                     end = progress.tell()
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)
@@ -2670,7 +2672,7 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir, chec
                         limit, cwd=str(cwd), activity=log_path, output=progress,
                         env=suite_env(), silence=silence, stderr=subprocess.STDOUT,
                         stdin=subprocess.DEVNULL)
-                    ended.append(None if killed else code)
+                    ended["exit"] = None if killed else code
             except OSError as exc:
                 # It never started (a list longer than one ssh argument may be): the shell's 126.
                 log_path.write_text(f"{exc}\n")

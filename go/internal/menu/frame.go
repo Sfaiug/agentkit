@@ -374,11 +374,11 @@ func unsentMark(s terminal.Screen, text string) string {
 	if s.ASCII() {
 		return "* " + text
 	}
-	return "✎ " + text
+	return "¶ " + text
 }
 
 // lastColumn is a row's one last column in room cells (menu.last_column), none where room is
-// negative saying the fewest cells that hold it: its progress (planBar, barred), and `✎ unsent` two
+// negative saying the fewest cells that hold it: its progress (planBar, barred), and `¶ unsent` two
 // cells after where the owner left text.  The line keeps eight cells at least, unless narrow, where
 // it takes the room and never more: the count alone where no cell of line fits, the mark alone where
 // both do not.

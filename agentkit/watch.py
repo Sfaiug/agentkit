@@ -47,9 +47,10 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import (aside_editor, browser, command_help, config, front, gc, gitcall, handback, history,
-               host, login_refusals, look, notify, orch, owner, parsed, questions, seat_tokens,
-               staffing, statusbar, transitions, turns, update, usage, versions, worker)
+from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, handback,
+               history, host, login_refusals, look, notify, orch, owner, parsed, questions,
+               seat_tokens, staffing, statusbar, transitions, turns, update, usage, versions,
+               worker)
 from . import record as run_record
 from . import sleep
 from . import terminal as terminal_mod
@@ -7483,23 +7484,19 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
                                     env={**os.environ, "AK_MERGE_SHA": sha},
                                     stdin=subprocess.DEVNULL, stdout=output,
                                     stderr=subprocess.STDOUT, start_new_session=True)
-            timed_out = False
             try:
-                proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                timed_out = True
+                reaped = box.reaped(proc.pid, timeout)
             finally:
                 # Even a shell that exited can have left children in its process group.
                 try:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-            ended.append(None if timed_out else proc.returncode)
-            if timed_out:
-                try:
-                    proc.wait(timeout=1)
-                except subprocess.TimeoutExpired:
-                    pass
+            timed_out = reaped is None
+            if reaped := reaped or box.reaped(proc.pid, 1):
+                proc.returncode = os.waitstatus_to_exitcode(reaped[1])
+                ended.update(reaped[2])
+            ended["exit"] = None if timed_out else proc.returncode
             size = output.seek(0, os.SEEK_END)
             start = max(0, size - 4096)
             if start:

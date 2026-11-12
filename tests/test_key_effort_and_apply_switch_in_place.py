@@ -71,7 +71,7 @@ class SwitchInPlace(unittest.TestCase):
             line.lstrip("› ").startswith("Opus 5.5") and line.split()[5] == "max"
             for line in rows(screen)))
         self.assertNotIn("  Restart acme-fix on Opus 5.5 at max?", rows(screen))
-        self.assertNotIn("  ✗ Restart", rows(screen))
+        self.assertNotIn("  × Restart", rows(screen))
         self.assertEqual(self.record("acme-fix")["efforts"]["opus"]["effort"], "max")
         self.assertEqual(self.pid(seat), pid)
         self.assertEqual(self.fakes["claude"].calls("interactive"), [])
@@ -89,7 +89,7 @@ class SwitchInPlace(unittest.TestCase):
         term.keys("c")
         term.wait(lambda screen: "a apply to all sessions" in key_line(screen))
         term.keys("a")
-        screen = term.wait(lambda screen: "  ✗ Apply" in rows(screen))
+        screen = term.wait(lambda screen: "  × Apply" in rows(screen))
         self.assertIn("  acme-away restarts on Fable 5.1 at xhigh.", rows(screen))
         term.keys("Down", "Enter")
         self.assertEqual(here.wait_lines(2), ["/model claude-fable-5-1", "/effort xhigh"])

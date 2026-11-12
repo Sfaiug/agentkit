@@ -19,12 +19,15 @@ import (
 // process does not wait for goes on as it stands; a waiting one polls now, then once a poll
 // (slotPoll), asking the decision its launch's first poll asked (decide), and says in its log what holds it,
 // once, and, let in after a gate held it, that it waited.  Behind the first in line, which alone
-// can be let in, it skips its polls, which are count waits.  loop.ErrLeft where Go leaves the wait
-// to Python, nothing of that poll written.
+// can be let in, it skips its polls, which are count waits, in its waiter where it has one
+// (becomeWaiter).  loop.ErrLeft where Go leaves the wait to Python, nothing of that poll written.
 func waitSlot(ctx context.Context, dir string) error {
 	poll, _ := slotPoll()
 	id := filepath.Base(dir)
-	kind, skipped, announced := "", false, false
+	// back from its waiter, it skipped polls, and said what held it before it went
+	kind, skipped := "", cameBack()
+	announced := skipped
+	var record *run.Object // the receipt as its last poll left it
 	for polled := false; ; polled = true {
 		if polled {
 			select {
@@ -34,6 +37,7 @@ func waitSlot(ctx context.Context, dir string) error {
 			}
 			if behindFirst(id, poll) {
 				skipped = true
+				becomeWaiter(dir, record)
 				continue
 			}
 		}
@@ -42,7 +46,6 @@ func waitSlot(ctx context.Context, dir string) error {
 			return err
 		}
 		var decided *admission
-		var record *run.Object
 		err = run.Change(dir, func(waiting *run.Object) error {
 			if pid, _ := waiting.Int("pid"); waiting.Str("state") != "queued" || !waiting.Truthy("slot_waiting") || pid != os.Getpid() {
 				return nil // let in by its launch, stopped, or another process's: the driver's adoption says

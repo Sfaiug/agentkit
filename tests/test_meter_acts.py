@@ -3,8 +3,8 @@
 The owner (20 Oct 2026): "Pressing on the usage meters inside the config and on the menu has a
 different effect, should always be the same one. I dont want removing to be able this way, just
 actions such as spendign a reset, or claude relogin".  Enter on a meter over `c` lists what a
-click on one on the ak screen lists (tests/test_login_click.py), `↻ log in again` while its login
-ends soon (here every one's does) and `↻ spend a reset` while one is in hand, never `− remove`,
+click on one on the ak screen lists (tests/test_login_click.py), `→ log in again` while its login
+ends soon (here every one's does) and `→ spend a reset` while one is in hand, never `− remove`,
 which is under each subscription's row on `Subscriptions`.  `log in again` only where its harness
 signs in afresh: Antigravity's usual login cannot (`[auth] again = false`).  In-process, in a
 temporary HOME: `c`'s key reader faked and every list let go, so nothing is signed in, spent or
@@ -56,8 +56,8 @@ class MeterActs(Sandbox):
                    [*(("enter", ("usage", number)) for number in range(1, len(self.rows) + 1)),
                     ("back", None)])
         # Gemini's holds no reset and its harness cannot sign in afresh: its meter lists nothing
-        self.assertEqual(self.offered, [["↻ log in again", "↻ spend a reset"] if row == "Claude"
-                                        else ["↻ log in again"]
+        self.assertEqual(self.offered, [["→ log in again", "→ spend a reset"] if row == "Claude"
+                                        else ["→ log in again"]
                                         for row in self.rows if row != "Gemini"])
 
     def test_subscriptions_lists_every_subscription_with_its_removal_under_it(self):
@@ -72,8 +72,8 @@ class MeterActs(Sandbox):
             return lines[next(at for at, line in enumerate(lines)
                               if line[2:].startswith(label + " ")) + 1].strip().split("   ")[1:]
         self.assertEqual(under(drawn[0], "Claude"),
-                         ["[↻ log in again]", "↻ spend a reset", "− remove"])
-        self.assertEqual(under(drawn[1], "ChatGPT"), ["[↻ log in again]", "− remove"])
+                         ["[→ log in again]", "→ spend a reset", "− remove"])
+        self.assertEqual(under(drawn[1], "ChatGPT"), ["[→ log in again]", "− remove"])
         self.assertEqual(under(drawn[2], "Gemini"), ["− remove"])    # lit only by a move
         self.assertEqual(self.offered, [])         # the page's own line, no other list
 
