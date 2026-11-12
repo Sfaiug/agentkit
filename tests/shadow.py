@@ -53,31 +53,72 @@ PREVIEWS = (("watch", "--dry-run"), ("doctor",), ("run", "gc", "--dry-run"), ("r
 WHOLE = 30 * 60     # seconds the previews may take in all: the live check's suite waits on them
 # akbin's refusing fakes, tmux, and the copiers that would carry a file to another machine
 FAKES = (*akbin.REFUSED, "tmux", "scp", "rsync")
-# Every box's seccomp filter, classic BPF as bwrap takes it.  It refuses a socket or a socket pair
-# of the Unix family, either of which could reach a service of the host's by a path the read-only
-# root still shows: the warm menu server's in HOME, a session bus.  It refuses io_uring, which
-# makes one without either call, and every call of an architecture whose numbers it does not know:
-# on a machine not named here, all of them, so no box can run.
-ARCH, SOCKET, PAIR = {"x86_64": (0xC000003E, 41, 53),
-                      "aarch64": (0xC00000B7, 198, 199)}.get(os.uname().machine, (0, 0, 0))
-FILTER = b"".join(struct.pack("HBBI", *op) for op in (
-    (0x20, 0, 0, 4), (0x15, 0, 8, ARCH),                # the architecture
-    (0x20, 0, 0, 0), (0x35, 6, 0, 0x40000000),          # the call, by number: x32's refused
-    (0x15, 5, 0, 425),                                  # io_uring_setup refused
-    (0x15, 1, 0, SOCKET), (0x15, 0, 2, PAIR),           # socket(2) or socketpair(2) ...
-    (0x20, 0, 0, 16), (0x15, 1, 0, socket.AF_UNIX),     # ... of the Unix family refused
-    (0x06, 0, 0, 0x7FFF0000), (0x06, 0, 0, 0x50000 | errno.EACCES)))    # allowed, refused
+# The host's memory and load, which ak's admission reads and `ak run status` prints: read once as
+# the shadow begins, and so in each of its runs, else Go would differ by the moment it ran in.
+MOMENT = ("meminfo", "loadavg")
+# The calls a box makes only with these arguments, each (index, value, whether it must equal or
+# differ from it), else they are refused.  A socket or a socket pair of the Unix family could reach
+# a service of the host's by a path the read-only root still shows: the warm menu server's in HOME,
+# a session bus.  The box's user owns the host's processes too, and Landlock keeps only signals and
+# traces in, so a box sets limits, priority, I/O priority, scheduling and CPUs only of the caller
+# itself, as `nice` and a raised file limit do: process 0, of the kind PRIO_PROCESS or
+# IOPRIO_WHO_PROCESS, as another kind names a whole group or user.
+UNIX, OWN = ((0, socket.AF_UNIX, False),), ((0, 0, True),)
+RULED = dict(socket=UNIX, socketpair=UNIX, setpriority=((0, 0, True), (1, 0, True)),
+             ioprio_set=((0, 1, True), (1, 0, True)), prlimit64=OWN, sched_setparam=OWN,
+             sched_setscheduler=OWN, sched_setattr=OWN, sched_setaffinity=OWN)
+# Each machine's architecture and the numbers of its calls `RULED` names.  On a machine not named
+# here, every call is refused, so no box can run.
+ARCH, NUMBER = {
+    "x86_64": (0xC000003E, dict(socket=41, socketpair=53, setpriority=141, ioprio_set=251,
+                                prlimit64=302, sched_setparam=142, sched_setscheduler=144,
+                                sched_setattr=314, sched_setaffinity=203)),
+    "aarch64": (0xC00000B7, dict(socket=198, socketpair=199, setpriority=140, ioprio_set=30,
+                                 prlimit64=261, sched_setparam=118, sched_setscheduler=119,
+                                 sched_setattr=274, sched_setaffinity=122)),
+}.get(os.uname().machine, (0, {}))
+
+
+def _filter():
+    """Every box's seccomp filter, classic BPF as bwrap takes it: `RULED`, and io_uring refused,
+    which makes a socket without either call, as is every call of another architecture or x32's.
+    An argument is read by its low 32 bits: the kernel reads a pid, a kind or a family as an int."""
+    allowed, refused = (0x06, 0, 0, 0x7FFF0000), (0x06, 0, 0, 0x50000 | errno.EACCES)
+    program = [(0x20, 0, 0, 4), (0x15, 0, "refused", ARCH), (0x20, 0, 0, 0),
+               (0x35, "refused", 0, 0x40000000), (0x15, "refused", 0, 425),
+               *((0x15, name, 0, number) for name, number in NUMBER.items()), allowed]
+    at = {}     # where each jump to a name lands
+    for name in NUMBER:
+        at[name] = len(program)
+        for index, value, equal in RULED[name]:
+            program += [(0x20, 0, 0, 16 + 8 * index),
+                        (0x15, 0, "refused", value) if equal else (0x15, "refused", 0, value)]
+        program.append(allowed)
+    at["refused"] = len(program)
+    program.append(refused)
+    return b"".join(struct.pack("HBBI", code, *(at[jump] - n - 1 if isinstance(jump, str) else jump
+                                                for jump in (true, false)), k)
+                    for n, (code, true, false, k) in enumerate(program))
+
+
+FILTER = _filter()
 # The first breath in every box: Landlock lets nothing open for writing outside the folders it is
-# given, the run's own, then the command runs.  The read-only root still opens a named pipe or a
-# device for writing, which would reach whatever of the host's reads it.  Its calls are 444-446 on
-# every machine, and a kernel without Landlock builds no box.
+# given, the run's own, and no signal or trace leave the box, then the command runs.  The read-only
+# root still opens a named pipe or a device for writing, which would reach whatever of the host's
+# reads it.  The box shares the host's process table, so ak reads each process there as it is: by
+# its /proc/<pid>/stat, and by kill(pid, 0), which Landlock answers with EPERM for one alive
+# outside, as ak reads alive.  Its calls are 444-446 on every machine, and a kernel whose Landlock
+# cannot keep signals in, below ABI 6, builds no box.
 SEAL = """import ctypes, os, struct, sys
 libc, cut = ctypes.CDLL(None, use_errno=True), sys.argv.index("--")
 def call(number, *args):
     if (done := libc.syscall(number, *args)) < 0:
         sys.exit("landlock: " + os.strerror(ctypes.get_errno()))
     return done
-ruleset = call(444, struct.pack("Q", 2), 8, 0)     # it rules writing to a file, right 2
+if (abi := call(444, None, 0, 1)) < 6:
+    sys.exit(f"landlock: ABI {abi}, which cannot keep signals inside a box, as ABI 6 can")
+# it rules writing to a file, right 2, and signals, scope 2
+ruleset = call(444, struct.pack("QQQ", 2, 0, 2), 24, 0)
 for path in sys.argv[1:cut]:
     call(445, ruleset, 1, struct.pack("=Qi", 2, os.open(path, os.O_PATH)), 0)
 libc.prctl(38, 1, 0, 0, 0)     # no new privileges, which Landlock asks of what it binds
@@ -85,26 +126,30 @@ libc.prctl(36, 1, 0, 0, 0)     # subreaper: what the command's children detach i
 call(446, ruleset, 0)
 os.execvp(sys.argv[cut + 1], sys.argv[cut + 1:])
 """
-# A run in its box: the program, then all it detached, which bwrap's init would kill as the
-# program ends, waited out till only that init and this shell are left.  The seal made this shell
-# their reaper, not that init, so their peaks are its children's too.  The shell then becomes a
-# Python that writes down its children's peak memory, which exec keeps: a child's peak starts
-# from its parent's, some 20 MB for this script.  The shell's own words, as its `Killed` for what
-# is killed at the cap, go nowhere: only the program's are compared.  dash says it on the killed
-# command's stderr, so the program is a subshell that becomes it.
+# A run in its box: the program, then all it detached, waited out.  The seal made this shell their
+# reaper, so each is its child once what started it ends, and a Python the shell becomes, which
+# keeps them, waits till it has no child left, none of the run's.  Their peaks are its children's
+# too, and it writes them down: a child's peak starts from its parent's, some 20 MB for this
+# script.  The shell's own words, as its `Killed` for what is killed at the cap, go nowhere: only
+# the program's are compared.  dash says it on the killed command's stderr, so the program is a
+# subshell that becomes it.
 WAIT = """python=$1 peak=$2; shift 2
 exec 3>&2 2>/dev/null
 ("$@" 2>&3 3>&-); code=$?
-while set -- /proc/[0-9]*; [ $# -gt 2 ]; do sleep 0.1; done
-exec "$python" -I -c 'import resource, sys
-print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+exec "$python" -I -c 'import os, resource, sys
+try:
+    while True:
+        os.wait()
+except ChildProcessError:
+    print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
 sys.exit(int(sys.argv[1]))' "$code" >"$peak"
 """
 
 
 def box(home, scratch):
     """bwrap's words sealing a command over `home`, its environment, and its folder in `scratch`,
-    whose `box` is all it may write besides HOME, /tmp and /dev: the fakes' logs, its pages."""
+    whose `box` is all it may write besides HOME, /tmp and /dev: the fakes' logs, its pages.  Its
+    /proc shows the MOMENT `scratch` holds."""
     folder = Path(tempfile.mkdtemp(dir=scratch))
     inside = folder / "box"
     for part in ("upper", "work", "box/bin", "box/logs", "box/runtime"):
@@ -140,15 +185,17 @@ def box(home, scratch):
                # Pages go nowhere, and each one aimed at a configured webhook leaves a line here.
                AK_NOTIFY_SINK="dry-run", AK_NOTIFY_SINK_LOG=str(inside / "pages"),
                AK_HANDOVER=str(inside / "handover"))
-    # A shell hands bwrap the filter on descriptor 3.  /tmp comes before the overlay: a home under
-    # /tmp is mounted inside the box's own.
+    # A shell hands bwrap the filter on descriptor 3.  All --unshare-all unshares but the process
+    # table, whose /proc the read-only root shows, the MOMENT over it.  /tmp comes before the
+    # overlay: a home under /tmp is mounted inside the box's own.
     return ["sh", "-c", 'exec "$@" 3<"$0"', folder / "filter",
-            "bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--seccomp", "3",
-            "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
-            "--bind", inside, inside,
+            "bwrap", "--unshare-user-try", "--unshare-ipc", "--unshare-net", "--unshare-uts",
+            "--unshare-cgroup-try", "--die-with-parent", "--new-session", "--seccomp", "3",
+            "--ro-bind", "/", "/", "--dev", "/dev",
+            *(arg for name in MOMENT for arg in ("--ro-bind", scratch / name, f"/proc/{name}")),
+            "--tmpfs", "/tmp", "--bind", inside, inside,
             "--overlay-src", home, "--overlay", folder / "upper", folder / "work", home,
-            "--", sys.executable, "-I", "-c", SEAL, home, "/tmp", "/dev", "/proc", inside,
-            "--"], env, folder
+            "--", sys.executable, "-I", "-c", SEAL, home, "/tmp", "/dev", inside, "--"], env, folder
 
 
 def run(label, program, argv, home, scratch):
@@ -157,19 +204,24 @@ def run(label, program, argv, home, scratch):
     inside = folder / "box"
     began = time.monotonic()
     with (folder / "stdout").open("wb") as out, (folder / "stderr").open("wb") as err:
+        # bwrap's end kills the shell waiting in the box and leaves the rest running, so its own
+        # session keeps it from a stop meant for this script, as a terminal's ^C, till the box
+        # is halted.
         proc = subprocess.Popen([*command, "sh", "-c", WAIT, "sh", sys.executable,
-                                 inside / "peak", program, *argv],
+                                 inside / "peak", program, *argv], start_new_session=True,
                                 stdin=subprocess.DEVNULL, stdout=out, stderr=err, env=env)
     try:
         code, cut = proc.wait(CAP), False
     except subprocess.TimeoutExpired:
         code, cut = f"none (killed at {CAP // 60} minutes)", True
-        end = time.monotonic() + 10     # for the shell to write down the peak
+    finally:
+        # past the cap, or this script was stopped: the box is halted, and its shell writes down
+        # the peak
+        end = time.monotonic() + 10
         while proc.poll() is None and time.monotonic() < end:
             _halt(proc.pid)
             time.sleep(0.1)
-    finally:
-        proc.kill()     # past that, or this script was stopped: the box goes with it
+        proc.kill()     # past that, the box's shell goes and leaves what still runs to end alone
         proc.wait()
     seconds, peak = time.monotonic() - began, _lines(inside / "peak")
     peak = f"{int(peak[0]) / 1024:.0f} MB at its peak" if peak else "its peak unread"
@@ -185,27 +237,26 @@ def run(label, program, argv, home, scratch):
 
 
 def _halt(bwrap):
-    """Kill all that `bwrap`'s box runs but its init and the shell waiting in it, boxed pids 1 and
-    2, from here, out of the box's reach, and wake that shell, which what it ran may have stopped.
-    What it detached is below that shell, by the parents /proc names."""
-    parent, boxed = {}, {}
+    """Kill all that `bwrap`'s box runs but the shell waiting in it, bwrap's child, from here, out
+    of the box's reach, and wake that shell, which what it ran may have stopped.  What it detached
+    is below that shell, by the parents /proc names."""
+    parent = {}
     for status in Path("/proc").glob("[0-9]*/status"):
         try:
             fields = {key: value.split() for key, _, value in
                       (line.partition(":") for line in status.read_text().splitlines())}
         except OSError:
             continue    # ended meanwhile
-        pid = int(status.parent.name)
-        parent[pid], boxed[pid] = int(fields["PPid"][0]), fields["NSpid"][1:2]
-    under = {bwrap}
+        parent[int(status.parent.name)] = int(fields["PPid"][0])
+    shell = {pid for pid, up in parent.items() if up == bwrap}
+    under = set(shell)
     while more := {pid for pid, up in parent.items() if up in under} - under:
         under |= more
-    for pid in under - {bwrap}:
-        if boxed[pid] != ["1"]:
-            try:
-                os.kill(pid, signal.SIGCONT if boxed[pid] == ["2"] else signal.SIGKILL)
-            except ProcessLookupError:
-                pass    # ended meanwhile
+    for pid in under:
+        try:
+            os.kill(pid, signal.SIGCONT if pid in shell else signal.SIGKILL)
+        except ProcessLookupError:
+            pass    # ended meanwhile
 
 
 def _lines(path):
@@ -355,9 +406,9 @@ def ready(go, python, home, scratch, until):
             return False
 
     command, env, _ = box(home, scratch)
-    # bwrap, or the shell that finds no bwrap, says what failed
+    # bwrap, the shell that finds no bwrap, or the seal says what failed
     if not done([*command, sys.executable, "-c", ""], env=env, stdin=subprocess.DEVNULL):
-        return None, "bwrap cannot build a box here"
+        return None, "no box can be built here"
     if go:
         return python if go == "python" else os.path.abspath(go), None
     go = str(REPO / "go" / "bin" / "ak")    # in the checkout, where Go finds it
@@ -393,6 +444,20 @@ def previews(found, python, go, home, scratch, until):
                 found[n] = json.loads(written.read_text())["previews"][0]
 
 
+def _on_stop(handler):
+    """Have a stop, SIGTERM or SIGINT, call `handler` from now on."""
+    for each in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(each, handler)
+
+
+def _stopped(*_):
+    """End the script through its `finally`s, which halt the box and remove the scratch folder.
+    A second stop waits for them: a preview's run is stopped by its parent and by the check's own
+    stop alike."""
+    _on_stop(signal.SIG_IGN)
+    raise KeyboardInterrupt
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--python", default=str(REPO / "bin" / "ak"))
@@ -408,11 +473,12 @@ def main():
     why = None
     # A shadow gives the host's real work way: the build and every run at nice 19.
     os.nice(19)
-    # A stop ends the script through its `finally`, which removes its scratch folder.
-    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    _on_stop(_stopped)
     until = time.monotonic() + WHOLE if every else math.inf
     scratch = Path(tempfile.mkdtemp(prefix="shadow-", dir="/var/tmp"))
     try:
+        for name in MOMENT:
+            (scratch / name).write_bytes((Path("/proc") / name).read_bytes())
         go, why = ready(args.go, python, home, scratch, until)
         confirmed = False
         if why:
@@ -432,9 +498,7 @@ def main():
     except KeyboardInterrupt:   # a stop, as a preview's run gets at the cap, has nothing to tell
         return 130
     finally:
-        # A second stop waits for the cleanup and the record: a preview's run is stopped by its
-        # parent and by the check's own stop alike.
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        _on_stop(signal.SIG_IGN)    # a stop waits for the cleanup and the record
         # Overlayfs leaves the `work` in a work folder unreadable, and an upper layer keeps the
         # modes of the home's folders it copied.  The system's chmod: the caller's PATH may lack it.
         subprocess.run(["chmod", "-R", "u+rwx", scratch], env={"PATH": os.defpath})

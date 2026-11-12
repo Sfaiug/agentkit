@@ -27,8 +27,9 @@ const stallCleanup = 7
 // stallRecovery is watch.recover_runs: a hung model or test would otherwise hold a slot and its
 // seat for ever, so every running run silent past the limit it launched with, measured from
 // outside by its newest write, climbs one rung a tick (`rung`), and a parked run whose notice did
-// not go out is told again.  A slot waiter whose process died, a loop the host froze and a rung Go
-// does not carry are Python's, handed over before anything of that run is written.
+// not go out is told again, and a slot waiter whose process died starts again (`restartWaiter`).  A
+// loop the host froze and a rung Go does not carry are Python's, handed over before anything of that
+// run is written.
 func (t *ticking) stallRecovery() error {
 	if !run.Every(func(dir string, record *run.Object) bool {
 		err := t.climb(dir, record)
@@ -50,7 +51,7 @@ func (t *ticking) climb(dir string, record *run.Object) error {
 		if run.ProcessActive(record) || run.ResumeOrdered(record, now) {
 			return nil
 		}
-		return errLeft
+		return t.restartWaiter(dir, record)
 	case state == "stalled" && !record.Truthy("stalled_notified"):
 		if t.dry {
 			t.log.line("would notify the parking of " + id + " again")

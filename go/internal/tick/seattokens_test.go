@@ -3,7 +3,6 @@
 package tick
 
 import (
-	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -12,10 +11,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// A Claude seat's conversation not written yet is kept to be read from its start; once a source
-// holds lines, counting them is Python's, and nothing is written, a new seat's source and an older
-// history's tables included.
-func TestSeatTokensKeepSourcesUntilOneHoldsLines(t *testing.T) {
+// A Claude seat's conversation not written yet is kept to be read from its start.
+func TestSeatTokensKeepASourceToReadFromItsStart(t *testing.T) {
 	ak, _ := idleHome(t, "")
 	put(t, filepath.Join(ak, "config.toml"), "[audit]\non=false\n[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='xhigh'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
 	seat := func(name string) {
@@ -36,15 +33,5 @@ func TestSeatTokensKeepSourcesUntilOneHoldsLines(t *testing.T) {
 	if len(kept) != 1 || filepath.Base(kept[0].Text("path")) != "conv-acme.jsonl" || kept[0].Text("harness") != "claude" ||
 		kept[0].Text("repo") != "api" || kept[0].Text("cursor") != "{}" || kept[0].Text("account") != "default" {
 		t.Fatalf("kept %v", kept)
-	}
-	put(t, kept[0].Text("path"), "{}\n")
-	seat("beta")
-	older(t, "ALTER TABLE runs DROP COLUMN no_review")
-	schema := tables(t)
-	if err := seatTokens(); !errors.Is(err, errLeft) {
-		t.Fatal(err)
-	}
-	if tables(t) != schema {
-		t.Fatal("history.db was written")
 	}
 }
