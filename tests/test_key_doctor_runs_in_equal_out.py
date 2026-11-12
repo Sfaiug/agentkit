@@ -174,8 +174,10 @@ class DoctorRunsInEqualOut(unittest.TestCase):
         self.start("sleep", "600", run=f"{directory}-other")
         self.start("tail", "-F", str(directory / "log.txt"))
         self.start("tail", "-F", *resume)
-        # one reading as its resume with a word more: xargs, waiting on its input to run it
+        # ones reading as its resume with a word more, or a count only isdigit takes for one:
+        # xargs, waiting on its input to run it
         self.start(*resume, "--extra", executable="xargs")
+        self.start(*resume, "--rounds", "²", executable="xargs")
         self.doctor(1, "2 started in the last day · 0 ended · 1 going · 0 endings owed · "
                        "lost: lost (4m since last write)")
 

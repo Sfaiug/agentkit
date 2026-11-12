@@ -1722,10 +1722,13 @@ def resume_args(argv):
     """(run id, rounds or None) of `ak run resume`'s arguments, None where they are not its usage."""
     argv = [arg for arg in argv if arg != "--bg"]
     n_rounds = None
-    if len(argv) == 3 and argv[1] == "--rounds" and argv[2].isdigit() and int(argv[2]) > 0:
-        n_rounds = int(argv[2])
+    if len(argv) == 3 and argv[1] == "--rounds" and argv[2].isdigit():
+        try:
+            n_rounds = int(argv[2])
+        except ValueError:      # isdigit holds for "²", and int reads only so many digits
+            return None
         argv = argv[:1]
-    if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
+    if len(argv) != 1 or n_rounds == 0 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
         return None
     return argv[0], n_rounds
 
