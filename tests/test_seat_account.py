@@ -723,14 +723,20 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         watch.seat_write(NAME, usage_refusal={"line": "Usage limit reached", "at": self.now - 3600,
                                               "handled": True})
 
-        def spent(event, at):
-            config.record_hook_fact(NAME, {"session": NAME, "event": event, "kind": "", "text": "",
-                                           "at": at})
+        def spent(event, at, kind=""):
+            config.record_hook_fact(NAME, {"session": NAME, "event": event, "kind": kind,
+                                           "text": "", "at": at})
             self.tick()
             return usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"]
         self.assertFalse(spent("Stop", self.now - 1800))        # no prompt since: the one acted on
         config.stop_path(NAME).write_text(json.dumps({"turn": self.now - 60}))
         self.assertFalse(spent("UserPromptSubmit", self.now - 60))      # its turn still runs
+        for event, kind, at in (("PreCompact", "manual", 50), ("PostToolUse", "", 45),
+                                ("Stop", "held", 40)):
+            # heard while it still runs, the old refusal still last on the pane
+            self.assertFalse(spent(event, self.now - at, kind), event)
+        self.assertEqual(self.commands, [])
+        self.assertEqual(config.session_records()[NAME]["account"], "default")
         self.assertTrue(spent("StopFailure", self.now - 30))    # and has ended on them again
 
     def test_refusal_deadline_comes_only_from_the_current_output_line(self):

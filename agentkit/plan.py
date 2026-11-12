@@ -16,6 +16,7 @@ file the menu's bar counts, and a line names its outcome, its check, the project
 """
 
 import fcntl
+import json
 import os
 import re
 import shutil
@@ -81,6 +82,27 @@ def path(name):
                 raise config.Error(f"cannot read the plan {plan}: {exc}") from None
         if config.resolve_session(name) == current:
             return max(found)[1] if found else config.plan_path(current)
+
+
+def prompted(name):
+    """When the last prompt went into that seat -- the line, or the owner's -- and the name it is
+    stamped under, or (0, None) with none.  hooks/seat-state.sh stamps each prompt's moment in
+    the stop file of the name its harness was launched with, which a rename leaves behind, and a
+    turn that has since finished keeps it: of every name the seat had, the newest stamp is its
+    running launch's."""
+    found = []
+    try:
+        every = names(name)
+    except config.Error:
+        every = []
+    for each in every:
+        try:
+            turn = json.loads(config.stop_path(each).read_text(encoding="utf-8")).get("turn")
+        except (OSError, ValueError, AttributeError, config.Error):
+            continue
+        if isinstance(turn, (int, float)) and not isinstance(turn, bool):
+            found.append((turn, each))
+    return max(found, default=(0, None))
 
 
 _HELD = threading.local()
