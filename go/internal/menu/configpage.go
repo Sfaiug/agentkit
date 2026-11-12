@@ -144,12 +144,12 @@ func pageTop(lines []pageEntry, at pageEntry, top, page int) int {
 
 // ConfigPage draws a page `c` opens as page_body draws one: each row's label, then its value lined
 // up past the widest label and wrapped at a word under itself, never cut, or folded under its
-// label where a word is too wide beside it; an open list's choices under its row, indented, or an
-// open field under the row's last line (fieldLine).  The highlighted row stays on the page, a page
-// of it where it is taller, or the field, no row lit; what was said and the note under the rows,
-// and the key line names what Space and Enter do there.  On the clock the page comes up as it
-// opens (comeUp), a list comes up under its row, and a mark that flips goes through its half
-// (motion.Clock.Mark).
+// label where a word, or a value with arrows whole, is too wide beside it; an open list's choices
+// under its row, indented, or an open field under the row's last line (fieldLine).  The
+// highlighted row stays on the page, a page of it where it is taller, or the field, no row lit;
+// what was said and the note under the rows, and the key line names what Space and Enter do
+// there.  On the clock the page comes up as it opens (comeUp), a list comes up under its row, and
+// a mark that flips goes through its half (motion.Clock.Mark).
 func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	room, wide, clock := s.LayoutWidth(), 0, view.Motion
 	for _, row := range view.Rows {
@@ -207,10 +207,17 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 		} else if entry.choice >= 0 {
 			parts[0].kind = "dim" // why the list holds no choice
 		}
+		// what never parts across lines: each word, and a value with arrows whole, so an arrow
+		// stays beside what it steps
+		var whole []string
+		for _, p := range parts {
+			whole = append(whole, strings.Fields(p.text)...)
+		}
+		if slices.ContainsFunc(parts, func(p part) bool { return p.by != 0 }) {
+			whole = []string{strings.Join(whole, " ")}
+		}
 		// against the room the label leaves, which a label wider than the page leaves none of
-		folded := entry.choice < 0 && slices.ContainsFunc(parts, func(p part) bool {
-			return slices.ContainsFunc(strings.Fields(p.text), func(word string) bool { return terminal.Cells(word) > room-terminal.Cells(lead) })
-		})
+		folded := entry.choice < 0 && slices.ContainsFunc(whole, func(word string) bool { return terminal.Cells(word) > room-terminal.Cells(lead) })
 		if folded {
 			line := "  " + terminal.Cut(row.Label, room-2)
 			if row.Colour != "" {

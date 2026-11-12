@@ -4,6 +4,7 @@ Offline: real throwaway repositories under HOME, traced git children and an inje
 inventory. No host process, seat, service, global config or remote is read or changed.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
 import fcntl
 import hashlib
@@ -13,6 +14,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -96,6 +98,24 @@ class NoBackgroundGit(Sandbox):
             self.assertEqual(self.git(checkout, "config", "gc.auto"), "0")
             self.assertEqual(self.git(checkout, "config", "maintenance.auto"), "false")
         self.assertEqual(self.global_config.read_bytes(), self.original)
+
+    def test_preparations_at_once_all_settle_the_policy_none_fails_on_another_ones_write(self):
+        tree = self.worktree()
+        self.git(self.repo, "config", "extensions.worktreeConfig", "true")
+        for scope in ("--local", "--worktree"):
+            with self.subTest(scope=scope):
+                self.git(tree, "config", scope, "gc.auto", "1")
+                self.git(tree, "config", scope, "maintenance.auto", "true")
+                ready = threading.Barrier(8)
+
+                def prepare(_):
+                    ready.wait(timeout=10)
+                    gitcall.no_auto_gc(tree)
+
+                with ThreadPoolExecutor(8) as pool:
+                    list(pool.map(prepare, range(8)))     # re-raises the first that failed
+                self.assertEqual(self.git(tree, "config", "gc.auto"), "0")
+                self.assertEqual(self.git(tree, "config", "maintenance.auto"), "false")
 
     def test_a_commit_above_the_auto_gc_threshold_starts_no_housekeeping_child(self):
         tree = self.worktree()

@@ -6287,10 +6287,15 @@ def _run_working(run_dir):
                  if status not in ("Z", "X")}
     if any(pid in processes for pid in worker.run_pids(str(run_dir))):
         return True
-    resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
-    # The env python3 shebang leaves "python3" as argv[0].
-    return any(args in (resume, [sys.executable, *resume], ["python3", *resume])
-               for args in processes.values())
+    from . import run as run_mod
+    resume = [str(config.REPO / "bin/ak"), "run", "resume"]
+    for args in processes.values():
+        # The env python3 shebang leaves "python3" as argv[0].
+        args = args[1:] if args[:1] in ([sys.executable], ["python3"]) else args
+        parsed = args[:3] == resume and run_mod.resume_args(args[3:])
+        if parsed and parsed[0] == run_dir.name:
+            return True
+    return False
 
 
 def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
