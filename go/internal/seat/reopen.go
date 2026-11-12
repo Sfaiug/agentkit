@@ -528,7 +528,7 @@ func (seat reopening) start(state, name string, cmd []string, frozen *frozenPane
 	if err != nil {
 		return false, err
 	}
-	shims, err := shims()
+	path, err := seatPath(seat.cwd)
 	if err != nil {
 		return false, err
 	}
@@ -539,7 +539,7 @@ func (seat reopening) start(state, name string, cmd []string, frozen *frozenPane
 	// one command list: a failed respawn keeps the old terminal's name, and a new wrapper's client
 	// cannot publish its own before the old one is gone
 	args := slices.Concat([]string{"respawn-pane", "-k", "-t", target}, paneEnvironment(values), []string{command, ";", "set-option", "-pu", "-t", target, tmux.InputTTY})
-	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), frozen.guarded(args)...); err != nil {
+	if err := tmux.Spawn(server, path, frozen.guarded(args)...); err != nil {
 		os.Remove(launch)
 		return false, Refusal(fmt.Sprintf("cannot resume the session %s: %v", name, err))
 	}

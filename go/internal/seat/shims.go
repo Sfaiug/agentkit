@@ -19,16 +19,14 @@ var shimBody []byte
 var shimmed = []string{"tmux", "gh", "git", "scp", "rsync", "sftp", "ssh"}
 
 // shims puts ak's shims in ~/.agentkit/bin, and returns that folder: in a folder of its own the
-// body with a link beside it to this program, which a later opening points at itself, and in bin
-// one link to the body for each tool.  A link an older install left at a checkout since moved, or
-// one at another tool, is replaced, as Python's guard.install_shim replaces it.
+// body with a link beside it to the program a seat runs (config.Live), which a later opening
+// points at its own, and in bin one link to the body for each tool.  A link an older install left
+// at a checkout since moved, or one at another tool, is replaced, as Python's guard.install_shim
+// replaces it.
 func shims() (string, error) {
 	dir, own := filepath.Join(config.Home(), "bin"), filepath.Join(config.Home(), "shim")
 	body := filepath.Join(own, "shim")
-	program, err := os.Executable()
-	if err == nil {
-		program, err = filepath.EvalSymlinks(program)
-	}
+	program, err := config.Live()
 	if err != nil {
 		return "", err
 	}
