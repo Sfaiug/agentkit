@@ -736,6 +736,7 @@ sys.exit(1)
                 self.assertEqual(task["state"], "queued")
                 self.assertTrue(task.get("budget_wait"))
                 self.assertEqual(task.get("exhausted_waits"), 1)
+                self.assertNotIn("resume_attempted", task)
                 self.assertEqual(bool(task.get("rerun_attempted")), where == "on rerun")
 
     def test_v5q_transport_cap_counts_one_outage_not_history(self):
