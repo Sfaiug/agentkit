@@ -787,18 +787,15 @@ def mark_gate_wait(run_dir, of, since=None):
 
 @contextmanager
 def landing_wait(landing, since=None, run_id=None, line=False, holds=None):
-    """While a landing suite waits for a heavy turn it holds a file of its own, and a line's
-    check also `.heavy-landing.wait`.
+    """While a landing suite waits for a heavy turn it holds a file of its own.
 
-    Its own file says when its wait began, for which run, whether it is a line's own
-    check and whether its check `holds` a turn already, so landing waits rank among themselves
-    (`_gate_waiter_before`); None says nothing of turns held, as a file from before 12 Nov 2026
-    does.  A wait for a first turn holds none and a suite's for more always holds one, so what
-    the file says stays true for as long as it lives.  The line's checkers
-    mark no member's record.  `.heavy-landing.wait`, shared by every line's check, says one
-    waits: round checks stay behind it (`landing_waits`), as they do behind a waiter on code from
-    before 29 Oct 2026, which holds it for any landing wait.  The kernel lets go with the
-    holder, so a dead waiter holds nobody back.
+    The file says when its wait began, for which run, whether it is a line's own check and
+    whether its check `holds` a turn already, so landing waits rank among themselves and ahead
+    of every round check (`_gate_waiter_before`); None says nothing of turns held, as a file
+    from before 12 Nov 2026 does.  A wait for a first turn holds none and a suite's for more
+    always holds one, so what the file says stays true for as long as it lives.  The line's
+    checkers mark no member's record.  The kernel lets go with the holder, so a dead waiter
+    holds nobody back.
     """
     if not landing:
         yield
@@ -806,10 +803,7 @@ def landing_wait(landing, since=None, run_id=None, line=False, holds=None):
     config.RUNS.mkdir(parents=True, exist_ok=True)
     token = f"{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
     draft, path = config.RUNS / f".landing-draft-{token}", config.RUNS / f".landing-wait-{token}"
-    with ((config.RUNS / ".heavy-landing.wait").open("a") if line else nullcontext()) as shared, \
-            draft.open("w") as fh:
-        if line:
-            fcntl.flock(shared, fcntl.LOCK_SH)
+    with draft.open("w") as fh:
         # Locked before it takes its name: a file under that name is never an unheld live one.
         fcntl.flock(fh, fcntl.LOCK_EX)
         fh.write(json.dumps({"since": since, "run_id": run_id or "", "line": line,
@@ -856,23 +850,6 @@ def _landing_waiters():
     return found
 
 
-def landing_waits():
-    """Whether a line's own check waits for a heavy turn now (`landing_wait`); unreadable is no.
-
-    Probes take turns on their own file, so one probe never reads another as a waiter.
-    """
-    try:
-        with (config.RUNS / ".heavy-landing.probe").open("a") as turn, \
-                (config.RUNS / ".heavy-landing.wait").open("a") as probe:
-            fcntl.flock(turn, fcntl.LOCK_EX)
-            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return True
-    except OSError:
-        pass
-    return False
-
-
 def gate_turn_note(state):
     """`waiting for a heavy suite turn` while a run waits in `gate_turn`, else ""."""
     turn = state.get("gate_turn")
@@ -891,9 +868,8 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
     which no line checks), then any round check; within each the longest wait, then the run id,
     but between two waits that do not say whether their checks hold a turn (`holds`), those
     holding none go first and never hold each other back.
-    `--first` plays no part, or loop repairs starve every other suite under load.  A
-    round check stays behind any line's check (`landing_waits`).  A landing wait -- a
-    run's, or the line checker's that marks no record -- ranks by its own file
+    `--first` plays no part, or loop repairs starve every other suite under load.  A landing
+    wait -- a run's, or the line checker's that marks no record -- ranks by its own file
     (`landing_wait`), whose start is the one its waiter ranks itself by: a lander's counts
     from its first landing wait, not from the lap.
     A record's landing mark ranks only a lander with no live file, one still on code
@@ -902,8 +878,6 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
     whose process is gone, or whose pid no longer matches its record -- a kill or
     a resume left it behind -- holds nobody back.
     """
-    if not is_landing and landing_waits():
-        return True
     # Owner, 29 Oct 2026: a line's own check goes first.  The line is where a repository's
     # changes land one at a time, so its wait delays every change behind it, while a run's
     # check before it joins the line only spares the line a red.
@@ -1328,10 +1302,10 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     # a checker's wait is its member's, kept beside that member's line time
                     if run_dir or is_landing:
                         counted = count_wait(self_id, "suite" if run_dir else "lander", counted)
-                    # Rank and a line's own check waiting decide this host's turns, never who
-                    # asks the helper (owner, 30 Oct 2026: nothing waits for compute), as the
-                    # first may not ask for long: it waits here to rerun what a machine failed,
-                    # or sets up a new machine, and a suite on one takes nothing from a wait here.
+                    # Rank decides this host's turns, never who asks the helper (owner, 30 Oct
+                    # 2026: nothing waits for compute), as the first may not ask for long: it
+                    # waits here to rerun what a machine failed, or sets up a new machine, and a
+                    # suite on one takes nothing from a wait here.
                     if elsewhere and elsewhere():
                         turnless = True
                         break

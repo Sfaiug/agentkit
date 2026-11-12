@@ -1613,6 +1613,25 @@ def change_efforts(name, change):
     return data
 
 
+def change_session(name, change):
+    """Seat `name`'s record as `change` makes it of the record and the config as they stand, the
+    record as load_session reads it: read, changed and written under the record's lock, so no
+    other window's step on either since is lost or undone, and a model the config no longer has
+    falls back in the file as it does in a read.  `change` raises Error to leave the record as
+    it was; a model it takes on runs at its entry's efforts as of now (own_efforts).  The record
+    as written, or None for a seat with no record."""
+    path = session_path(name)
+    with _record_lock(path):
+        data = _read_json(path)
+        if not isinstance(data, dict) or "renamed" in data:
+            return None
+        cfg = load()
+        changed = own_efforts(cfg["models"], name, change(_as_read(cfg, name, data), cfg))
+        if changed != data:
+            _write_json(path, changed, prepare=False)
+    return changed
+
+
 def own_efforts(models, name, data):
     """Seat `name`'s record `data` holding the efforts of each model it runs: one it holds none
     for takes its entry's in `models`, the defaults, once -- at the seat's creation, a model
@@ -1635,8 +1654,7 @@ def keep_efforts(cfg, name):
     while that lock was waited for."""
     def kept(data):
         try:
-            return own_efforts(cfg["models"], name, _validate_session(
-                cfg, name, data, prune=True)).get("efforts")
+            return _as_read(cfg, name, data).get("efforts")
         except Error:
             return data.get("efforts")      # a record that will not read is left as it is
     if change_efforts(name, kept) is None:
@@ -1739,6 +1757,11 @@ def load_session(cfg, name, required=True):
         if not required:
             return None
         raise Error(f"{SESSION_ENV}={name!r}, but {path} does not exist")
+    return _as_read(cfg, name, data)
+
+
+def _as_read(cfg, name, data):
+    """Seat `name`'s record `data` as load_session reads it over `cfg`."""
     return own_efforts(cfg["models"], name, _validate_session(cfg, name, data, prune=True))
 
 

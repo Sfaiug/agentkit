@@ -373,8 +373,10 @@ def inside_fix(lp, row, since, head):
     if since is None or row.get("line") is None:
         return None
     try:
-        # -z: each path as it is, never quoted
-        named = iter(gitcall.git(lp.wt, "diff", "-M", "-z", "--name-status", since, head).split("\0"))
+        # -z and every byte kept: each path as it is, never quoted, and handed back to git a
+        # source name that is not UTF-8 still names its file
+        named = iter(gitcall.git_bytes(lp.wt, "diff", "-M", "-z", "--name-status", since,
+                                       head).split("\0"))
         for status, path in zip(named, named):
             # a rename or a copy names its source first
             path, was = (next(named), path) if status[0] in "RC" else (path, None)
