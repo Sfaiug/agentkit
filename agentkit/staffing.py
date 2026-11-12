@@ -602,7 +602,8 @@ def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None)
         if not isinstance(prov, dict):
             continue
         until = prov.get("exhausted_until")
-        if (isinstance(until, (int, float)) and not isinstance(until, bool) and until > now):
+        if (isinstance(until, (int, float)) and not isinstance(until, bool) and until > now
+                and not usage._fresh_window(prov, prov, now)):
             continue  # a refusal parked this provider until its own window; honour the mark
         try:
             budget, reason = usage.model_budget(cfg, name, providers, now)
@@ -642,7 +643,8 @@ def reviewable_models(cfg, providers, workers, now, executor=None):
         if not isinstance(prov, dict):
             continue
         until = prov.get("exhausted_until")
-        if (isinstance(until, (int, float)) and not isinstance(until, bool) and until > now):
+        if (isinstance(until, (int, float)) and not isinstance(until, bool) and until > now
+                and not usage._fresh_window(prov, prov, now)):
             continue  # a refusal parked this provider until its own window; honour the mark
         try:
             budget, reason = usage.model_budget(cfg, name, providers, now)
