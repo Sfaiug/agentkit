@@ -785,8 +785,9 @@ def signs_in_again(harness, account):
 
 def listed_providers(harness):
     """Every provider that harness can log in to, as its adapter's `providers` verb lists them:
-    (id, name, mode), the logged-in ones first with their mode, `subscription`, `free` or
-    `payg`, and the rest with none.  The one with the harness's own id is the harness's own, named as `+
+    (id, name, mode, takes), the logged-in ones first with their mode, `subscription`, `free` or
+    `payg`, and the rest with none, each with what a login to it takes, `sign-in` or `key`,
+    where the harness says, else "".  The one with the harness's own id is the harness's own, named as `+
     add` offers the harness (provider_hosts): OpenCode's is OpenCode, whatever OpenCode calls
     it.  Error, in the adapter's own last words, when it lists none."""
     try:
@@ -794,9 +795,10 @@ def listed_providers(harness):
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Error(f"{harness} providers: {exc}") from exc
     own = provider_hosts().get(harness)
-    rows = [(fields[0], own if own and fields[0] == harness else fields[1], fields[2])
+    rows = [(fields[0], own if own and fields[0] == harness else fields[1], fields[2],
+             fields[3] if len(fields) == 4 else "")
             for fields in (line.split("\t") for line in proc.stdout.splitlines())
-            if len(fields) == 3 and fields[0]]
+            if len(fields) in (3, 4) and fields[0]]
     if proc.returncode or not rows:
         raise Error((proc.stderr.strip().splitlines() or [f"{harness} lists no provider"])[-1])
     return rows

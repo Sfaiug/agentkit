@@ -4301,13 +4301,20 @@ def _marked(names):    # the names a model or effort runs under already, after a
     return f"{terminal.glyph('done')} {', '.join(names)}" if names else ""
 
 
+def _logs_in(takes):
+    """What a provider with no login reads on a list: `sign in` where its harness says it
+    `takes` an account's own, `API key` where a key, else `log in`."""
+    return {"sign-in": "sign in", "key": "API key"}.get(takes, "log in")
+
+
 def _through_choices(cfg, harness, listed, screen):
     """`add a subscription`'s first list for `harness`, as OpenCode's own `/models` lists them:
     every model its catalog lists (_offered) of a provider in `listed` with a mode, which it
     runs now, beside that provider's name; then each provider it lists with none, to log in
-    to.  Each is ((harness, provider), the model, or None for a login) and the columns it
-    shows, so typing a model's name after `/` finds it before a provider that shares it."""
-    ready = {provider: name for provider, name, mode in listed if mode}
+    to, by what it takes (_logs_in).  Each is ((harness, provider), the model, or None for a
+    login) and the columns it shows, so typing a model's name after `/` finds it before a
+    provider that shares it."""
+    ready = {provider: name for provider, name, mode, _ in listed if mode}
     choices = []
     for model in _offered(harness, *screen, cfg=cfg):
         provider = model["id"].partition("/")[0]
@@ -4316,8 +4323,8 @@ def _through_choices(cfg, harness, listed, screen):
                             [model["label"], ready[provider],
                              _marked(_runs(cfg, harness, model["id"]))]))
     return choices + [(((harness, provider), None),
-                       [name, "" if name == provider else provider, "log in"])
-                      for provider, name, mode in listed if not mode]
+                       [name, "" if name == provider else provider, _logs_in(takes)])
+                      for provider, name, mode, takes in listed if not mode]
 
 
 def _short_name(cfg, label):
@@ -5237,7 +5244,8 @@ def models_page(cfg, keyboard):
                       (model["label"], None)],
                      lambda model=model, row=row: tick(harness, model, row),
                      bool(on(harness, model["id"]))) if model else
-                    ([(row[1], None), ("log in", "dim")], lambda row=row: log_in(row), "log in")
+                    ([(row[1], None), (_logs_in(row[3]), "dim")], lambda row=row: log_in(row),
+                     "log in")
                     for model, row in got[0]]
         return choices, True
 
