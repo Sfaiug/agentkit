@@ -951,7 +951,9 @@ class WorkerBox(unittest.TestCase):
 
     def test_turns_can_run_inside_a_turn(self):
         with patch.dict(os.environ, {"BOX_NEST": "1", "BOX_REPO": str(REPO)}):
-            code, text, _, killed, left = self.turn()
+            # The outer turn says nothing while the whole nested one runs, its box built and torn
+            # down: on a loaded host far longer than an ordinary turn's silence (12 Nov 2026).
+            code, text, _, killed, left = self.turn(limit=120)
         nested = json.loads(text)["nested"]
         self.assertEqual((code, killed, left), (0, False, True))
         self.assertEqual((nested["code"], nested["killed"], nested["left"]), (0, False, True))
