@@ -300,8 +300,12 @@ if [ "$MACHINE" = 1 ]; then
   if ! linux_machine_run test -e agentkit/.git; then
     copy=$(mktemp -d)
     git clone -q --depth 1 -- "file://$REPO" "$copy/agentkit"
-    origin=$(git -C "$REPO" remote get-url origin 2>/dev/null || true)
-    [ -z "$origin" ] || git -C "$copy/agentkit" remote set-url origin "$origin"
+    # The clone's own origin is this Mac's folder, which the machine does not mount.
+    if origin=$(git -C "$REPO" remote get-url origin 2>/dev/null); then
+      git -C "$copy/agentkit" remote set-url origin "$origin"
+    else
+      git -C "$copy/agentkit" remote remove origin
+    fi
     tar -C "$copy/agentkit" -cf - . | linux_machine_run sh -c 'mkdir -p agentkit && tar -xf - -C agentkit'
     rm -rf -- "$copy"
     echo "linux: ak $(git -C "$REPO" rev-parse --short HEAD) copied into this Mac's Linux machine"
