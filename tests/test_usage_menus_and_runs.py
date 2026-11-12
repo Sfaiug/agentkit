@@ -94,8 +94,8 @@ class UsageLeft(Sandbox):
                 self.assertTrue(all(terminal.cells(line) <= width for line in text.splitlines()))
                 self.assertNotIn("\033", text)
                 block, sessions = text.split("\n\n\n", 1)
-                self.assertRegex(block, r"Claude\s+[▰▱]+\s+21% left")
-                self.assertRegex(block, r"ChatGPT\s+[▰▱]+\s+69% left")
+                self.assertRegex(block, r"Claude\s+[━╸─]+\s+21% left")
+                self.assertRegex(block, r"ChatGPT\s+[━╸─]+\s+69% left")
                 self.assertRegex(block, r"Muse\s+empty until Thu 22:00")
                 self.assertNotIn("+2 resets", block)
                 # Seats only: an orphan run is no row and makes no project, and
@@ -142,7 +142,7 @@ class UsageLeft(Sandbox):
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             lines = menu.usage_lines(self.cfg, 100)
             # grey at rest, eight colours or more: the empty cells dim and no company's colour
-            self.assertIn("▰▰\033[2m▱▱▱▱▱▱▱▱\033[0m", lines[0])
+            self.assertIn("━━\033[2m────────\033[0m", lines[0])
             self.assertNotIn("\033[31m", "\n".join(lines))
             plain = [terminal.plain(line) for line in lines]
             for env in ({"TERM": "dumb"}, {"TERM": "xterm-256color", "NO_COLOR": ""}, {}):
@@ -166,7 +166,7 @@ class UsageLeft(Sandbox):
                 text = self.draw([], width)
                 self.assertIn("no sessions; n starts one", text)
                 self.assertEqual(text.count("—"), 6)
-                self.assertNotRegex(text, "[▰▱]")
+                self.assertNotIn("% left", text)
         with patch.object(type(path), "read_text", side_effect=PermissionError):
             self.assertEqual("\n".join(menu.usage_lines(self.cfg, 40)).count("—"), 6)
 
@@ -223,7 +223,7 @@ class UsageLeft(Sandbox):
             before = path.read_bytes()
             for width in (40, 100):
                 lines = menu.usage_lines(self.cfg, width)
-                self.assertRegex(lines[0], r"Claude\s+[▰▱]+\s+21% left")
+                self.assertRegex(lines[0], r"Claude\s+[━╸─]+\s+21% left")
                 self.assertTrue(all(terminal.cells(line) <= width for line in lines))
             self.assertEqual(path.read_bytes(), before)
 

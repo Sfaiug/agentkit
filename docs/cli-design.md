@@ -48,8 +48,8 @@ Words are plain and explain themselves.
 - **Ages:** ages read `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
 - **Tasks, runs and estimates:** no screen names a task or a run, and none says when work
   will finish.
-- **Progress:** a seat's progress is its line and its count (`terminal.plan_bar`):
-  `━━━━╸──── 3 of 8`.
+- **Bars:** every bar is a seat's progress line, `━━━━╸──── 3 of 8`
+  (`terminal.plan_bar`, `terminal.share_line`).
 
 Nothing explains itself on hover. A highlighted row opens its models and squares, never what
 its seat said (owner, 9 Nov 2026).

@@ -269,8 +269,8 @@ class Matrix(unittest.TestCase):
                         "OpenCode"):           # each model under its harness
             self.assertIn(f"\n{heading}\n", body)
         self.assertEqual(row(lines, "fable")[1].split(), ["›", "Fable", "5.1", "○", "□", "□"])
-        self.assertEqual(row(lines, "opus")[1].split(), ["Opus", "5.5", *("●", "▰▰▰▰▱", "xhigh"),
-                                                         *("■", "▰▰▰▰▱", "xhigh") * 2])
+        self.assertEqual(row(lines, "opus")[1].split(), ["Opus", "5.5", *("●", "━━━━─", "xhigh"),
+                                                         *("■", "━━━━─", "xhigh") * 2])
         self.assertEqual(row(lines, "haiku")[0], row(lines, "opus")[0] + 1)   # under Claude
         tail = [line.strip() for line in lines]
         self.assertIn("Models", tail)
@@ -392,7 +392,7 @@ class Matrix(unittest.TestCase):
         screen = Screen(self)
         lines = screen.frame()
         number, line = row(lines, "opus")                 # low, medium, high: its third
-        lines = screen.click(line.index("▰") + 3, number,
+        lines = screen.click(line.index("━") + 3, number,
                              lambda lines: effort(lines, "opus") == "high")
         self.assertIn("Opus 5.5", highlighted(lines))
         self.assertEqual(screen.effort("opus"), "high")
