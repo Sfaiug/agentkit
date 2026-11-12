@@ -248,7 +248,7 @@ func (seat Seat) revivalFailed(died float64, cut owed, why string, log func(stri
 	event, when, ask := cut.about()
 	text := fmt.Sprintf("Its orchestrator session %s is gone %s. agentkit tried to reopen the seat and could not: %s. Press its number in the menu, then say: continue.", seat.Name, when, why)
 	source := "revive:" + seat.Name + ":" + event + ":" + strconv.FormatInt(int64(died), 10)
-	carried, err := notify.NeedsAsked(seat.Name, text, source, true, AskedWord, errOut)
+	carried, err := notify.NeedsAsked(seat.Name, text, source, true, revivalWord, errOut)
 	if err == nil && carried {
 		log("could not reopen " + seat.Name + "; asked the user to " + ask)
 	}
