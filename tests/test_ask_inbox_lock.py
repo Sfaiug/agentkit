@@ -166,8 +166,8 @@ class AskInboxLock(unittest.TestCase):
         self.assertIn(f"asked the inbox seat: {QUESTION}", self.logs)
 
     def test_a_question_whose_enter_failed_is_sent_by_the_next_try(self):
-        def unruled(line):
-            return IDLE + (" " + line if line else "")
+        def one_row(line):
+            return typed_into(fixture("prompt"), line)
 
         def wrapped(line):
             # a long question wraps under a real composer, past the bottom rows of the pane
@@ -196,7 +196,7 @@ class AskInboxLock(unittest.TestCase):
             return self.tmux(*args, socket=socket, client=client)
 
         for kind, harness, draw, question in (
-                ("unruled", "claude", unruled, QUESTION), ("wrapped", "claude", wrapped, QUESTION),
+                ("one row", "claude", one_row, QUESTION), ("wrapped", "claude", wrapped, QUESTION),
                 ("quoted", "claude", wrapped, QUOTED), ("antigravity", "antigravity", agy, QUESTION),
                 ("antigravity quoted", "antigravity", agy, QUOTED),
                 ("opencode", "opencode", opencode, QUESTION)):

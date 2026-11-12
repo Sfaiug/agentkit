@@ -3883,8 +3883,9 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     Each Enter goes only while the composer holds the line alone (`composer_holds`, read under
-    the guard right after the gap), and the first waits up to SENT_WAIT for that: the owner
-    can type in the seat, and what they type is never sent.  A line still joined to it after that wait stays, for
+    the guard right after the gap, and whole where the line is `pending`: no key of this call
+    is proof it is ak's), and the first waits up to SENT_WAIT for that: the owner can type in
+    the seat, and what they type is never sent.  A line still joined to it after that wait stays, for
     the owner or a later pass (`finish_own_lines`).  None means the line was deferred before
     its text went in: keys its terminal has not read yet, a composer `composer_draft` does not
     read empty, or a seat whose harness has no composer to read.
@@ -3908,7 +3909,7 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
         return None
 
     def alone(held):
-        return composer_holds(held, seat, text, harness=harness) == "line"
+        return composer_holds(held, seat, text, exact=pending, harness=harness) == "line"
 
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
