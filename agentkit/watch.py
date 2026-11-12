@@ -2851,15 +2851,11 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     else:
         notify.answer_written(name)
     cfg = config.load()
-    harness, provider = seat_model(cfg, name)
+    harness = seat_model(cfg, name)[0]
     # A turn its harness says failed settles its account before its word is told, as the tick
     # does: a spent subscription moves now, not at the next tick, and never reads `working`.
-    # It is looked at first, as the tick looks: an older reading may still say it is asking.
     if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
-        with announcing(name):
-            pane = pane_text(session)
-            look_at(session, cfg=cfg, pane=pane)
-        seat_account(cfg, session, harness, provider, pane, False, lambda _: None)
+        settle_account(cfg, session, lambda _: None)
     answer = announce_state(session, cfg=cfg, look=True, number=number)
     if stop_enforced(harness):
         from . import menu as menu_mod
@@ -5463,6 +5459,26 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                                     "since": waiting["since"] if waiting else now,
                                     "continue": continuing})
         return True
+
+
+def settle_account(cfg, session, log):
+    """`seat_account` on a fresh look at that seat: an older look may still say it is asking."""
+    harness, provider = seat_model(cfg, session["name"])
+    with announcing(session["name"]):
+        pane = pane_text(session)
+        look_at(session, cfg=cfg, pane=pane)
+    seat_account(cfg, session, harness, provider, pane, False, log)
+
+
+def usage_waits(cfg, state, log):
+    """Settle each seat waiting for usage again, on the reading the usage refresh has just made:
+    seat health settled it on the one before, so a seat this one frees goes on in this tick, not
+    the next.  One out of login (an `auth` stall) is left alone, as `health` leaves it."""
+    for session in orch.sessions():
+        name = session["name"]
+        if (seat_read(name).get("usage_wait")
+                and state["stalls"].get(name, {}).get("kind") != "auth"):
+            settle_account(cfg, session, log)
 
 
 def health(cfg, state, dry_run, log):
@@ -8587,6 +8603,9 @@ def local_passes(state, dry_run, log):
         ("seat headroom", lambda: run.give_way(state, log), False),
         ("state save", lambda: save_state(state), False),
         ("usage refresh", read_usage, True),
+        # ... and each seat waiting for usage settled again on what it read.  The refresh stays
+        # after seat health: an adapter may take 30 s to answer, and no seat's look waits on it.
+        ("usage waits", lambda: usage_waits(config.load(), state, log), False),
         # when each subscription's login ends and whose it is, each asked hourly at most; one
         # ending within 3 days pages the owner once a day, and so does a worker token
         ("login reminder", lambda: logins.remind(config.load()), False),
