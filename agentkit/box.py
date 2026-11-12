@@ -682,6 +682,31 @@ def _needed():
     return end
 
 
+def used(out_dir):
+    """What the box's command used (`reaped`), {} where PID 1 reported none."""
+    return _report(out_dir).get("used", {})
+
+
+def reaped(pid=-1, within=None):
+    """Reap `pid`, by default any child, once it ends, or None where it runs on `within` seconds:
+    its pid and exit status, and what it and every descendant it waited for used, from
+    `os.wait4`: `cpu_seconds`, user plus system, and `peak_mb`, the largest resident memory any
+    one of them reached (Linux counts it in KiB)."""
+    if within is not None:
+        fd = os.pidfd_open(pid)
+        try:
+            # poll, as select refuses a descriptor past its 1024 a busy watcher reaches
+            ended = select.poll()
+            ended.register(fd, select.POLLIN)
+            if not ended.poll(within * 1000):
+                return None
+        finally:
+            os.close(fd)
+    pid, status, usage = os.wait4(pid, 0)
+    return pid, status, {"cpu_seconds": usage.ru_utime + usage.ru_stime,
+                         "peak_mb": usage.ru_maxrss / 1024}
+
+
 def _supervise(report, argv, drain=False):
     Path(report).touch()    # the box is up: silence counts from here (`worker.limited`)
     if drain:
@@ -744,7 +769,7 @@ def _supervise(report, argv, drain=False):
     # PID 1 also inherits orphans. Reap them while waiting for the adapter, so a
     # long turn cannot accumulate zombies from double-forked commands.
     while True:
-        pid, status = os.waitpid(-1, 0)
+        pid, status, usage = reaped()
         if pid == proc.pid:
             code = proc.returncode = os.waitstatus_to_exitcode(status)
             break
@@ -780,7 +805,8 @@ def _supervise(report, argv, drain=False):
             pass
     spent = resource.getrusage(resource.RUSAGE_CHILDREN)
     Path(report).write_text(json.dumps({"returncode": code, "processes": left,
-                                        "cpu_seconds": needed(spent.ru_utime + spent.ru_stime)}))
+                                        "cpu_seconds": needed(spent.ru_utime + spent.ru_stime),
+                                        "used": usage}))
     return 128 - code if code < 0 else code
 
 

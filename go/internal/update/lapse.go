@@ -12,7 +12,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/lend"
-	"agentkit/internal/worker"
+	"agentkit/internal/logins"
 )
 
 // A check lends each harness's login to a throwaway HOME as a copy nothing renews, so a login
@@ -67,7 +67,7 @@ func firstLapse() (int64, string, bool) {
 		if err != nil {
 			return 0, "", false
 		}
-		worker.Login(adapter, append(slices.Clip(env), "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(name), " ")), "seat")
+		logins.Auth(adapter, append(slices.Clip(env), "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(name), " ")), "seat")
 	}
 	home, err := os.MkdirTemp(filepath.Join(config.Home(), "tmp"), "lend-")
 	if err != nil {

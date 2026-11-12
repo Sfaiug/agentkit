@@ -112,7 +112,9 @@ PHASE_MIGRATIONS = (("wait_kind", "TEXT"),)
 # it), `tree` the commit checked (the base's for a base proof, the target's tip for `tip`, the
 # merge for `health`; NULL for a scratch run's one workspace), `place` the host or helper, `exit`
 # NULL where it never returned.  Its wait and wall are differences of its moments, and `rerun` is
-# 1 where the command, or a list holding it, already ran on this tree in this run.
+# 1 where the command, or a list holding it, already ran on this tree in this run.  Since
+# `CHECK_MIGRATIONS`, a command reaped here keeps what it used (`box.reaped`): `cpu_seconds` and
+# `peak_mb`, NULL for one run elsewhere, run in ak's own process, or never reaped.
 CHECKS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS checks (
     run_id TEXT,
@@ -128,6 +130,7 @@ CREATE TABLE IF NOT EXISTS checks (
     rerun INTEGER
 )
 """
+CHECK_MIGRATIONS = (("cpu_seconds", "REAL"), ("peak_mb", "REAL"))
 
 # One row per test a suite named as confirmed red or flaky, once its retries end.
 TEST_REDS_SCHEMA = """
@@ -310,6 +313,7 @@ def _connect(*, readonly=False):
     connection.execute(METER_READINGS_SCHEMA)
     connection.execute(TURN_USAGE_SCHEMA)
     for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
+                              ("checks", CHECK_MIGRATIONS),
                               ("reviews", REVIEW_MIGRATIONS), ("findings", FINDING_MIGRATIONS),
                               ("owner", OWNER_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS),
@@ -593,11 +597,12 @@ def gate_holds():
 @contextlib.contextmanager
 def check(checked, command, requested_at, place=None):
     """The row of one check (`CHECKS_SCHEMA`), written as it starts, so a check that never
-    returns -- killed, interrupted, its process gone -- keeps one: the caller appends the exit
-    it returned to the list this yields, and its end is written however the block ends.
+    returns -- killed, interrupted, its process gone -- keeps one: the caller sets in the dict
+    this yields the `exit` it returned and, for a command reaped here, what it used
+    (`box.reaped`), and its end is written however the block ends.
     `checked` is its `(run directory, round, kind, tree)`, None for a check that leaves none,
     and `place` this host unless named.  A run with no row keeps no checks."""
-    ended, row = [], None
+    ended, row = {}, None
     if checked is not None:
         run_dir, *rest = checked
         values = (Path(run_dir).name, *rest, command, place or socket.gethostname(),
@@ -608,8 +613,8 @@ def check(checked, command, requested_at, place=None):
     finally:
         if row:
             _write(lambda connection: connection.execute(
-                "UPDATE checks SET exit=?, finished_at=? WHERE rowid=?",
-                (ended[0] if ended else None, time.time(), row)))
+                "UPDATE checks SET exit=?, cpu_seconds=?, peak_mb=?, finished_at=? WHERE rowid=?",
+                (*map(ended.get, ("exit", "cpu_seconds", "peak_mb")), time.time(), row)))
 
 
 def _started(connection, values):
