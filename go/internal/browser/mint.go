@@ -44,9 +44,6 @@ func mint(out io.Writer, address string) (int, error) {
 		}
 		restart = states[slices.Index(units, x11vncUnit)] != "absent"
 	}
-	if config.EnsureDirs() != nil {
-		return 0, ErrPython // undone, for Python to fail on as it does
-	}
 	password := ""
 	for range 16 {
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(alphabet))))
@@ -58,6 +55,9 @@ func mint(out io.Writer, address string) (int, error) {
 	sealed, err := vncauth(password)
 	if err != nil {
 		return 0, ErrPython // Python's libvncserver encrypts where Go's DES is refused
+	}
+	if config.EnsureDirs() != nil {
+		return 0, ErrPython // undone, for Python to fail on as it does
 	}
 	if _, err := os.Stat(filepath.Join(config.Home(), "secrets", rfbauth)); err == nil &&
 		!show(out, rfbauth+" is here but the plaintext is not, and it cannot be read back out; minting a new password") {
