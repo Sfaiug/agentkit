@@ -186,9 +186,12 @@ class SlotWaiter(unittest.TestCase):
                             "--no-merge")
 
         def queued():
+            # waiting once its launch has settled the repository it runs in, saved with `scratch`
+            # beside it: the receipt says `slot_waiting` from its first write, and a launch killed
+            # before it settles is cut short, which Go's resume leaves to Python
             found = [run for run in taskfile.runs(home) if run != holder]
-            return found and (found[0] / "run.json").is_file() and record(found[0]).get(
-                "slot_waiting")
+            state = found and (found[0] / "run.json").is_file() and record(found[0])
+            return state and state.get("slot_waiting") and "scratch" in state
 
         until("the second run waits for the slot", queued, bound=120, running=waiter)
         waiting, = (run for run in taskfile.runs(home) if run != holder)

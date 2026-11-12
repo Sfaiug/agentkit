@@ -226,8 +226,8 @@ interactive)
   [ $# -ge 2 ] || { echo "opencode.sh interactive needs <model> <effort> [session-id [new]]" >&2; exit 2; }
   # `--session` reopens a conversation that exists; nothing names one that does not, so an id
   # of the launcher's making is refused here rather than swallowed.  The id a seat comes back
-  # on is the one OpenCode made for it, which hooks/opencode-seat wrote into that launch's
-  # receipt -- agentkit/harness/opencode.py -- and never a directory's latest by guess.
+  # on is the one OpenCode made for it, which ak wrote into that launch's receipt as the seat
+  # followed a prompt -- agentkit/harness/opencode.py -- and never a directory's latest by guess.
   [ "${4:-}" = new ] && {
     echo "opencode.sh interactive: the TUI cannot be given a session id" >&2; exit 3; }
   binary=$(command -v opencode) || { echo "opencode.sh: opencode is not installed" >&2; exit 2; }

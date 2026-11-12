@@ -622,7 +622,7 @@ def _idle(listed):
                                            for word in ("-o", '%s="%s"' % option)),
                           "--", one.name, line] for one in reached])
     return {one.id: int(answer) if answer.strip().removeprefix("-").isdigit() else 0
-            for one, answer in zip(reached, said) if answer is not None}
+            for one, (answer, _) in zip(reached, said) if answer is not None}
 
 
 def _reach(machine):

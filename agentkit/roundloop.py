@@ -1493,15 +1493,17 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     prompts.record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
     # kept whatever the verdict, every round's, with the commit each was proven on for its plan
-    # line; none at a site an earlier round's names: that is the defect a later round's reviewer
-    # re-found on its head in its own words and check, and the first one is kept
-    known = {handback.followup_place(item) for item in lp.state.get("followups") or []}
-    fresh = [item for item in dict.fromkeys(submitted.followups)
-             if handback.followup_place(item) not in known]
-    lp.state["followups"] = (lp.state.get("followups") or []) + fresh
+    # line; each defect once, as the last review to hand it in put it: its text, command and
+    # commit take the earlier one's place, proven on the head nearest to what merges
+    known = lp.state.get("followup_defects") or {}
+    kept = {known.get(item, item): item for item in lp.state.get("followups") or []}
+    kept.update({defect: item for item, defect in submitted.followup_defects.items()})
+    lp.state["followups"] = list(kept.values())
     for key, found in (("followup_checks", submitted.followup_checks),
-                       ("followup_commits", submitted.followup_commits)):
-        lp.state[key] = {**(lp.state.get(key) or {}), **{item: found[item] for item in fresh if item in found}}
+                       ("followup_commits", submitted.followup_commits),
+                       ("followup_defects", submitted.followup_defects)):
+        held = {**(lp.state.get(key) or {}), **found}
+        lp.state[key] = {item: held[item] for item in lp.state["followups"] if item in held}
     if verdict == "PASS":
         prompts.record_flakes(lp.state, dw_log)
         # A landing re-review with a pending suite keeps the task's probe base.
