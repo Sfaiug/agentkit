@@ -34,6 +34,8 @@ OFFLINE = {name: "http://127.0.0.1:9"
 CARD = "claude-switch-model-card-pane.txt"
 # A harness that took `/model <id>` and draws no composer, nor anything it asks.
 TAKING = "\n" * 20 + "● ok\n\n✻ Switching model\n" + "\n" * 7
+# How long a seat may take to show what ak did: as long as a tick is given (tests/fixtures/akbin.py).
+BOUND = 300
 
 
 def rows(screen):
@@ -74,26 +76,26 @@ class AMoveIsInWithoutATick(unittest.TestCase):
 
     def moved(self, seat):
         """What the seat took once both its lines are in and it is owed nothing."""
-        seat.wait_lines(2)
+        seat.wait_lines(2, bound=BOUND)
         self.until(lambda: not self.owed(seat.name), f"{seat.name} still owes {{}}",
                    lambda: self.owed(seat.name))
         return seat.typed()
 
     def ak_on(self, name):
-        """ak's processes on that seat: marked as an ak's (AK_OWNER), of this Home, naming it."""
+        """ak's processes on that seat: of this Home, naming it, and no tmux server."""
         home, found = f"HOME={self.home.path}".encode(), []
         for entry in Path("/proc").glob("[0-9]*"):
             try:
                 env = (entry / "environ").read_bytes().split(b"\0")
                 words = (entry / "cmdline").read_bytes().split(b"\0")
+                server = (entry / "comm").read_bytes() == b"tmux: server\n"
             except OSError:
                 continue
-            if (home in env and any(var.startswith(b"AK_OWNER=") for var in env)
-                    and name.encode() in words):
+            if home in env and name.encode() in words and not server:
                 found.append(int(entry.name))
         return found
 
-    def until(self, holds, said, shown, bound=90):
+    def until(self, holds, said, shown, bound=BOUND):
         deadline = time.monotonic() + bound
         while not holds():
             self.assertLess(time.monotonic(), deadline, said.format(shown()))
