@@ -949,8 +949,12 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
     launch, so a write landing after the hold is never taken for this failure and undone.
     """
     log_path = run_dir / "log.txt"
-    env = dict(os.environ, **{config.RUN_DIR_ENV: str(run_dir)})
-    child = [sys.executable, str(config.REPO / "bin" / "ak"), "run"] + [a for a in argv if a != "--bg"]
+    # on the install, whoever starts it: a run's own process runs the version it was admitted
+    # on, and a launch from there would wait, pick up and be admitted by that version's rules;
+    # `resume` and `merge` go back to the run's own version (`versions.dispatch`)
+    env = dict(versions.unpinned(os.environ), **{config.RUN_DIR_ENV: str(run_dir)})
+    child = ([sys.executable, str(versions.live() / "bin" / "ak"), "run"]
+             + [a for a in argv if a != "--bg"])
     with gate.slot_lock(), run_record.recovery_lock(run_dir):
         previous = run_record.read_state(run_dir) or {}
         if seat_launch(previous):
