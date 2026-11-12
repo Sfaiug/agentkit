@@ -4,11 +4,9 @@ import (
 	"strings"
 	"sync"
 
-	"agentkit/internal/config"
 	"agentkit/internal/matrix"
 	"agentkit/internal/menu"
 	"agentkit/internal/quality"
-	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 )
 
@@ -16,7 +14,7 @@ var readingModels sync.Mutex // closing and reopening the page shares the boards
 
 // title is the name `c` gives this page; a row's why, which it opens, carries it too.  False
 // where Python ak takes the page over, having written nothing.
-func menuModels(session, title string, c *matrix.Configuration, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+func menuModels(title string, c *matrix.Configuration, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	type reading struct {
 		found *matrix.Matrix
 		err   error
@@ -65,7 +63,7 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 		default:
 		}
 		s := keyboard.Screen()
-		used := c.Uses(answer) // the marks, as `r` leaves them
+		used := c.Uses(answer)
 		view.Answer, view.Uses, view.Models = answer, used, c.Models
 		view.Compared, view.Total, view.Fetched = compared, total, found.Fetched
 		frame := menu.ModelsFrame(s, view)
@@ -83,6 +81,8 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return true
+		case key.Name == "left" || key.Name == "right":
+			return false // a role's next cheaper or better choice: Python's take (menu.take_choice)
 		case key.Name == "again":
 			painter.Forget()
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
@@ -110,17 +110,6 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 				return false
 			}
 			view.Note = said
-		case key.Name == "char" && key.Char == "r":
-			changed, err := seat.SaveAdvice(session, c.Selected, c.Takes(answer))
-			if err != nil {
-				view.Note = config.PyError(err)
-			} else {
-				c.Selected = changed
-				if session == "" {
-					c.Models, _ = config.Models()
-				}
-				view.Note = ""
-			}
 		}
 		// the why of the row the role uses, else of its first choice
 		if role := quality.Roles[view.At]; key.Name == "enter" {

@@ -14,7 +14,7 @@ import (
 // Acme Max at high is best, Bolt's one row names no effort, Dull runs only at its release's
 // default and Crux is on no row: each one harness `h` runs as its id.
 func TestEachRoleSaysTheRowItUses(t *testing.T) {
-	t.Setenv("HOME", t.TempDir()) // harness `h` has no catalog: a model is named by its id
+	t.Setenv("HOME", t.TempDir()) // harness `h` has no catalog: a model is named off its id
 	var rows []quality.Row
 	for _, one := range []struct {
 		release, effort string
@@ -59,7 +59,7 @@ func TestEachRoleSaysTheRowItUses(t *testing.T) {
 	// New seats: Crux orchestrates, Bolt, the pick of the two, builds before Acme at high, and Acme
 	// reviews at its effort, low.  Costs are the boards', measured by no run.
 	newSeats := record("crux", []any{"acme", "bolt"}, []any{"acme"}, nil)
-	want := []string{"▸ orchestrator crux-9 high not on the boards", "quality a task",
+	want := []string{"▸ orchestrator Crux 9 high not on the boards", "quality a task",
 		"executor bolt 90.0 ≈$80.00", "reviewer acme low 76.0 ≈$60.00"}
 	if got := said("100", newSeats, 0); !reflect.DeepEqual(got, want) {
 		t.Errorf("new seats:\n%q\nwant\n%q", got, want)
@@ -83,7 +83,7 @@ func TestEachRoleSaysTheRowItUses(t *testing.T) {
 		}
 	}
 	// too narrow beside its word, each row goes under it in one column, only its name cut
-	want = []string{"▸ orchestrator", "c… high not on the boards", "quality a task", "executor",
+	want = []string{"▸ orchestrator", "C… high not on the boards", "quality a task", "executor",
 		"bolt 90.0 ≈$80.00", "reviewer", "ac… low 76.0 ≈$60.00"}
 	if got := said("30", newSeats, 0); !reflect.DeepEqual(got, want) {
 		t.Errorf("on 30 cells:\n%q\nwant\n%q", got, want)

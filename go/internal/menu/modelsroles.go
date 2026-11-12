@@ -36,9 +36,9 @@ type ModelsView struct {
 // ModelsFrame is the models screen as Python's models_screen draws it: the role lines
 // (roleLines) over how many models are compared, paged so the role At is shown.
 func ModelsFrame(s terminal.Screen, view ModelsView) MatrixFrame {
-	keys := "↑↓ role   ⏎ why   p models   r take   esc back"
+	keys := "↑↓ role   ⏎ why   ← cheaper   better →   p models   esc back"
 	if s.ASCII() {
-		keys = "up/down role   enter why   p models   r take   esc back"
+		keys = "up/down role   enter why   < cheaper   better >   p models   esc back"
 	}
 	at := view.At
 	if view.Away {
