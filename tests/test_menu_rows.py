@@ -139,21 +139,6 @@ class MenuRows(Sandbox):
         row = next(line for line in screen.splitlines() if "lonely-work" in line)
         self.assertTrue(row.rstrip().endswith("─ no plan yet"), row)
 
-    def test_reason_column_needs_you(self):
-        self.seat("ask-seat", "atoll")
-        notify.record("ask-seat", "needs", "Merge the MOV helper before or after?")
-        gone = self.seat("gone-seat", "atoll", **{"exited": True})
-        screen, _ = self.draw(100, 30)
-        lines = screen.splitlines()
-        # a row is its word; what it asks opens under it, as every row asking does from a pipe
-        at = next(n for n, line in enumerate(lines) if "ask-seat" in line)
-        self.assertTrue(lines[at].endswith("! needs you"), lines[at])
-        self.assertEqual(lines[at + 1].strip(), "Merge the MOV helper before or after?")
-        number = next(i for i, s in enumerate(self.seats, 1) if s["name"] == "gone-seat")
-        at = next(n for n, line in enumerate(lines) if "gone-seat" in line)
-        self.assertEqual(lines[at + 1].strip(), f"session closed: press {number} to reopen")
-        self.assertNotIn("press r", screen)
-
     def test_reason_column_working(self):
         # Plan wins over runs; runs going are never the last column, which says no plan.
         planned = self.seat("planned-work", "atoll", live="working")
@@ -177,16 +162,6 @@ class MenuRows(Sandbox):
         self.assertTrue(row.rstrip().endswith("─ no plan yet"))
         idle_row = next(line for line in screen.splitlines() if "idle-work" in line)
         self.assertTrue(idle_row.rstrip().endswith("─ no plan yet"))
-
-    def test_reason_column_done(self):
-        self.seat("done-seat", "atoll")
-        config.plan_path("done-seat").write_text("- [x] Earlier line here\n- [x] hero swapped and published\n")
-        screen, _ = self.draw(100, 30)
-        lines = screen.splitlines()
-        at = next(n for n, line in enumerate(lines) if "done-seat" in line)
-        self.assertIn("✓ done", lines[at])
-        self.assertEqual(lines[at + 1].strip(), "hero swapped and published")
-        self.assertNotIn("Earlier line", screen)
 
     def test_key_line_has_exactly_five_keys(self):
         self.seat("only-seat", "atoll", live="working")

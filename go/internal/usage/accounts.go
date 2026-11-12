@@ -38,7 +38,14 @@ func SeatAccounts(name, home string, collect bool) ([]Account, error) {
 // Accounts is each subscription of that model's provider ranked for this model alone, home first
 // while it has room for it, as orch.account_order ranks them; ErrPython where the reading lacks
 // one, or holds one past its reset.
-func (r *Readings) Accounts(name, home string) ([]Account, error) {
+func (r *Readings) Accounts(name, home string) ([]Account, error) { return r.ranked(name, home, true) }
+
+// Held is Accounts of the subscriptions the reading holds, as orch.account_order ranks only those:
+// one it lacks is left out.
+func (r *Readings) Held(name, home string) ([]Account, error) { return r.ranked(name, home, false) }
+
+// ranked is Accounts, or Held where not `whole`.
+func (r *Readings) ranked(name, home string, whole bool) ([]Account, error) {
 	models, now := r.models, r.now
 	model := models[name]
 	listed, err := config.Accounts(model.Provider)
@@ -46,11 +53,14 @@ func (r *Readings) Accounts(name, home string) ([]Account, error) {
 		return nil, ErrPython
 	}
 	accounts := object(object(r.providers.Get(model.Provider)).Get("accounts"))
-	if len(accounts.Keys()) != len(listed) {
+	if whole && len(accounts.Keys()) != len(listed) {
 		return nil, ErrPython
 	}
 	var found []Account
 	for _, account := range listed {
+		if !whole && !accounts.Has(account) {
+			continue
+		}
 		record := accounts.Dict(account)
 		if record == nil {
 			return nil, ErrPython

@@ -83,7 +83,9 @@
   "codex-resumed-warning-pane.txt",
   "codex-seat-server-hooks-pane.txt",
   "codex-seat-server-turn-pane.txt",
+  "codex-spaced-model-pane.txt",
   "codex-stall-pane.txt",
+  "codex-startup-warning-pane.txt",
   "codex-sub-agent-done-pane.txt",
   "codex-suggestion-pane.txt",
   "codex-tall-line-and-owner-words-pane.txt",
@@ -94,6 +96,8 @@
   "codex-title-working-accepted-pane.txt",
   "codex-title-working-composed-pane.txt",
   "codex-title-working-pane.txt",
+  "codex-ultra-draft-pane.txt",
+  "codex-ultra-pane.txt",
   "codex-working-pane.txt",
   "grok-40-rows-tall-line-and-owner-words-pane.txt",
   "grok-40-rows-tall-line-pane.txt",
@@ -3040,7 +3044,7 @@
   {
    "harness": "codex",
    "key": "composer",
-   "pattern": "(?:[▌›]\\s+Ask Codex\\b.*|⏎ send\\b.*|tab to queue message\\b.*|[\\w.-]+ (?:default|low|medium|high|xhigh|max|ultra) · .+)$",
+   "pattern": "(?:[▌›»]\\s+Ask Codex\\b.*|⏎ send\\b.*|tab to queue message\\b.*|[\\w.-]+(?: [\\w.-]+)? (?:default|low|medium|high|xhigh|max|ultra) · .+)$",
    "flags": "",
    "matches": [
     {
@@ -3174,7 +3178,7 @@
   {
    "harness": "codex",
    "key": "footer",
-   "pattern": "(?:(?:(?:← for agents · )?\\? for shortcuts)|(?:(?:\\? for shortcuts\\s+)?⚠ \\d+ warnings? · f2 to view))$",
+   "pattern": "(?:(?:(?:← for agents · )?\\? for shortcuts(?:\\s+⚠ \\d+ warnings? · f2 to view)?)|(?:⚠ \\d+ warnings? · f2 to view))$",
    "flags": "i",
    "matches": [
     {
@@ -7465,6 +7469,33 @@
     {
      "fixture": "codex-title-working-pane.txt",
      "row": 14,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-ultra-draft-pane.txt",
+     "row": 0,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-ultra-draft-pane.txt",
+     "row": 2,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-ultra-draft-pane.txt",
+     "row": 6,
      "span": [
       0,
       3
@@ -15951,11 +15982,47 @@
      "groups": {}
     },
     {
+     "fixture": "codex-spaced-model-pane.txt",
+     "row": 29,
+     "span": [
+      35,
+      63
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-spaced-model-pane.txt",
+     "row": 30,
+     "span": [
+      106,
+      130
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "codex-stall-pane.txt",
      "row": 19,
      "span": [
       14,
       25
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-startup-warning-pane.txt",
+     "row": 29,
+     "span": [
+      29,
+      57
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-startup-warning-pane.txt",
+     "row": 30,
+     "span": [
+      106,
+      130
      ],
      "groups": {}
     },
@@ -16037,6 +16104,42 @@
      "span": [
       40,
       75
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-ultra-draft-pane.txt",
+     "row": 42,
+     "span": [
+      34,
+      62
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-ultra-draft-pane.txt",
+     "row": 43,
+     "span": [
+      90,
+      114
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-ultra-pane.txt",
+     "row": 30,
+     "span": [
+      32,
+      60
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "codex-ultra-pane.txt",
+     "row": 31,
+     "span": [
+      21,
+      53
      ],
      "groups": {}
     },

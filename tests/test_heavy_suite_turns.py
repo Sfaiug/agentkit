@@ -5,8 +5,12 @@ through AK_HOST_READINGS, never read off the real machine.  Nothing here touches
 the real ~/.agentkit or any real process.
 """
 
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
+import errno
 import fcntl
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -15,6 +19,7 @@ import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -137,11 +142,80 @@ class HeavySuiteTurns(unittest.TestCase):
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(SMALL)}):
             expected = gate.derived_heavy_limit(SMALL, running=0)
             with gate.gate_turn(directory, directory / "gate.log", None, command, self.root):
-                self.assertEqual(gate._heavy_running(), expected)
+                self.assertEqual(len(gate._heavy_held()), expected)
                 self.assertEqual(len(gate._GATE_HELD.hold.slots), expected)
                 gate._GATE_HELD.hold.alone()
-                self.assertEqual(gate._heavy_running(), 1)
-            self.assertEqual(gate._heavy_running(), 0)
+                self.assertEqual(len(gate._heavy_held()), 1)
+            self.assertEqual(len(gate._heavy_held()), 0)
+
+    def test_red_pieces_going_again_whole_hold_a_turn_each_then_one(self):
+        # three fit, so six pieces; two fail their first go, naming no test, and go again whole
+        directory = self.record("reds", ACME)
+        command = ': "$AK_SHARD"'
+        goes, held, both = Counter(), [], threading.Barrier(2, timeout=30)
+
+        def boxed(cmd, limit, *, env, **_kw):
+            shard = env["AK_SHARD"]
+            goes[shard] += 1
+            if goes[shard] == 2:    # each reads the turns held while both run
+                both.wait()
+                held.append(len(gate._heavy_held()))
+                both.wait()
+            return int(shard in ("1/6", "2/6") and goes[shard] == 1), "", False
+
+        readings = {**SMALL, "slice_memory_high_mb": 1300}
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}), \
+                patch.object(worker, "boxed", side_effect=boxed), \
+                gate.gate_turn(directory, directory / "gate.log", None, command, self.root):
+            code = gate.run_suite(command, 30, cwd=self.root, activity=directory / "live.log",
+                                  output=BytesIO(), run_dir=directory)[0]
+            self.assertEqual((code, held, len(gate._heavy_held())), (0, [2, 2], 1))
+
+    def test_a_second_go_that_raises_ends_the_suite_at_once(self):
+        # as above, but 2/6's second go raises, as starting a process can with none left, once
+        # side by side with 1/6's: the suite ends with it, never leaving 1/6's place, the one it
+        # waits on first, to wait for 2/6 until the limit; its clock moves once the go raised
+        directory = self.record("raises", ACME)
+        command = ': "$AK_SHARD"'
+        goes, both, started, raised = Counter(), threading.Barrier(2, timeout=5), \
+            threading.Event(), threading.Event()
+        looks = []
+
+        class Pool(ThreadPoolExecutor):
+            def submit(self, *args, **kw):
+                future = super().submit(*args, **kw)
+                if self._max_workers == 2:    # the second goes' first place has taken 1/6
+                    started.wait(5)
+                return future
+
+        def boxed(cmd, limit, *, env, **_kw):
+            shard = env["AK_SHARD"]
+            goes[shard] += 1
+            if goes[shard] == 1:
+                return int(shard in ("1/6", "2/6")), "", False
+            started.set()
+            both.wait()
+            if shard == "1/6":
+                return 0, "", False
+            raised.set()
+            raise OSError(errno.EAGAIN, "no process left")
+
+        def monotonic():
+            if raised.is_set():
+                looks.append(1)
+            return len(looks)
+
+        readings = {**SMALL, "slice_memory_high_mb": 1300}
+        clock = SimpleNamespace(monotonic=monotonic, time=time.time, sleep=time.sleep)
+        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(readings)}), \
+                patch.object(worker, "boxed", side_effect=boxed), \
+                gate.gate_turn(directory, directory / "gate.log", None, command, self.root), \
+                patch.object(gate, "ThreadPoolExecutor", Pool), \
+                patch.object(gate, "GATE_POLL", 0.001), patch.object(gate, "time", clock), \
+                self.assertRaises(OSError):
+            gate.run_suite(command, 100, cwd=self.root, activity=directory / "live.log",
+                           output=BytesIO(), run_dir=directory)
+        self.assertLess(len(looks), 100)
 
     def test_headroom_admits_a_fifth_suite_with_four_running(self):
         for resource, readings in (
@@ -240,7 +314,7 @@ class HeavySuiteTurns(unittest.TestCase):
                     directory = self.record(f"{name}-{running}", WIDGET)
                     log_path = directory / "donewhen.log"
                     def sample(**_kw):
-                        self.assertEqual(gate._heavy_running(), running)
+                        self.assertEqual(len(gate._heavy_held()), running)
                         self.assertEqual(gate.derived_heavy_limit(SATURATED), 1)
                         return SATURATED
                     with patch.object(host, "host_readings", side_effect=sample) as readings, \

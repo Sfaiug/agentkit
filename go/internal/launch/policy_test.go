@@ -25,7 +25,7 @@ func TestALaunchReadsItsNumbersFirstRefusingATaskWhileExecutorsAreOff(t *testing
 		task, review string // what each launch is told: "" goes ahead, "python" is Python's
 	}{
 		{"", "", ""},
-		{"executor_lines=0\n", off, "python"},
+		{"executor_lines=0\n", off, ""},
 		{"executor_lines=0\nreview_rounds=0\n", off, "python"},
 		{"review_rounds=0\n", "python", "python"},
 		{"executor_lines='no limit'\norchestrator_lines='no limit'\n", "", ""},

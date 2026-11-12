@@ -85,7 +85,8 @@ akpane.main(*pane)
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-class GrokNewSessionFollowed(unittest.TestCase):
+class GrokSeat(unittest.TestCase):
+    """The seat after the owner asked in A, opened B with /new and said "thanks" there."""
     def setUp(self):
         self.home = home = Home()
         self.addCleanup(home.close)
@@ -143,6 +144,22 @@ class GrokNewSessionFollowed(unittest.TestCase):
             time.sleep(0.05)
         return json.loads(self.heard.read_text().splitlines()[before])
 
+    def ak_types_into_a(self):
+        """The screen shows A, as /dashboard switches it, and ak's tick types a line it owes the
+        seat, which lands there."""
+        self.showing.write_text(A)
+        state = self.home.path / ".agentkit/state/seat-acme.json"
+        state.write_text(json.dumps({**json.loads(state.read_text() if state.exists() else "{}"),
+                                     "owed_lines": [{"line": LINE, "id": "4f2a9c1e7b3d5a80"}]}))
+        # a collection on record from just now: one due would outlive the tick's box
+        self.home.write(".agentkit/state/gc.json", {"started_at": time.time()})
+        before = self.heard.read_text().count("\n")
+        done = self.home.tick()
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual(self.answered(before), [LINE, A])
+
+
+class GrokNewSessionFollowed(GrokSeat):
     def assert_found_reading_each_once(self):
         why = self.home.ak("orch", "why", "acme")
         self.assertEqual(why.code, 0, why.out + why.err)
@@ -173,16 +190,7 @@ class GrokNewSessionFollowed(unittest.TestCase):
 
     @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
     def test_a_line_ak_types_into_the_session_shown_moves_the_seat_there(self):
-        self.showing.write_text(A)
-        state = self.home.path / ".agentkit/state/seat-acme.json"
-        state.write_text(json.dumps({**json.loads(state.read_text() if state.exists() else "{}"),
-                                     "owed_lines": [{"line": LINE, "id": "4f2a9c1e7b3d5a80"}]}))
-        # a collection on record from just now: one due would outlive the tick's box
-        self.home.write(".agentkit/state/gc.json", {"started_at": time.time()})
-        before = self.heard.read_text().count("\n")
-        done = self.home.tick()
-        self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertEqual(self.answered(before), [LINE, A])
+        self.ak_types_into_a()
         self.assertEqual(self.record()["conversation"], A)
 
     def test_a_prompt_in_another_seat_s_session_leaves_the_seat_where_it_was(self):

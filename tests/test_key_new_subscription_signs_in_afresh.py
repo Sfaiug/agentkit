@@ -185,7 +185,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         for row in ("Claude II", "ChatGPT"):
             self.to(row)
             self.term.keys("Right", "Right", "Enter")      # `− remove`, last on its line
-            self.term.wait(lambda screen: "  ✗ Remove" in lines(screen))
+            self.term.wait(lambda screen: "  × Remove" in lines(screen))
             self.term.keys("Down", "Enter")
             self.term.wait(lambda screen: title(screen) == PAGE and row_at(screen, row) is None)
         saved = akconfig.read(self.home)["providers"]

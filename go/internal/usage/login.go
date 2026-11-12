@@ -5,7 +5,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
-	"agentkit/internal/worker"
+	"agentkit/internal/logins"
 )
 
 const lowFloor = 5.0 // points of room under which a meter runs low whatever its drain, Python's LOW_FLOOR
@@ -20,7 +20,7 @@ func auth(adapter, provider, account string) (answered, yes bool) {
 			told = append(told, pair)
 		}
 	}
-	answered, yes, _ = worker.Login(adapter, append(told, config.AccountEnv(account), "AGENTKIT_PROVIDER="+provider))
+	answered, yes, _ = logins.Auth(adapter, append(told, config.AccountEnv(account), "AGENTKIT_PROVIDER="+provider))
 	return answered, yes
 }
 
