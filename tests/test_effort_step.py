@@ -77,11 +77,11 @@ class EffortStep(unittest.TestCase):
         screen.frame()
         screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))   # opus's effort
         # the manifest's table while the listing sleeps: xhigh, max, then round to low
-        drawn(screen, SPACE, "▰▰▰▰▰   max")
+        drawn(screen, SPACE, "━━━━━   max")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
-        drawn(screen, SPACE, "▰▱▱▱▱   low")
+        drawn(screen, SPACE, "━────   low")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
-        drawn(screen, SPACE, "▰▰▱▱▱   medium")
+        drawn(screen, SPACE, "━━───   medium")
         self.assertTrue((adapters / "asked").exists(), "the listing was asked for")
         self.assertFalse((adapters / "answered").exists(), "the listing is still asleep")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "medium")
@@ -91,8 +91,8 @@ class EffortStep(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, "the listing never answered")
             time.sleep(0.05)
         time.sleep(0.2)
-        drawn(screen, SPACE, "▰▱      low")
-        drawn(screen, SPACE, "▰▰      high")
+        drawn(screen, SPACE, "━─      low")
+        drawn(screen, SPACE, "━━      high")
         self.assertEqual(screen.saved()["models"]["opus"]["effort"], "high")
         screen.leave()
 

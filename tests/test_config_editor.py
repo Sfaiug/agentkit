@@ -210,7 +210,7 @@ class Editor(unittest.TestCase):
         _, screen = self.drive(session="fix-api")
         self.assertTrue(screen.startswith("agentkit · config "), screen)
         for bit in ("For  fix-api", "orch", "Claude", "●", "■", "□",
-                    "▰▰▰▰▱", "Models", "Discord", "Version 2816 · 2026-09-29",
+                    "━━━━─", "Models", "Discord", "Version 2816 · 2026-09-29",
                     "esc back"):
             self.assertIn(bit, screen)
         opus = config.model_name(config.load(), "opus")      # by its full name, orchestrating

@@ -81,7 +81,7 @@ class OpencodeSwitchesInPlace(unittest.TestCase):
     def test_none_which_only_a_launch_defines_asks_and_restarts_it(self):
         seat, term, path = self.move("none")
         term.wait(lambda screen: f"  Restart {SEAT} on GLM-5.3-Flash Free?" in rows(screen)
-                  and "  ✗ Move" in rows(screen))
+                  and "  × Move" in rows(screen))
         term.keys("Down", "Enter")
         term.wait(lambda _: self.pane_pid(seat) != self.pid)
         self.assertEqual(json.loads(path.read_text())["orchestrator"], "glm")

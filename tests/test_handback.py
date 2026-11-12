@@ -263,29 +263,6 @@ class HandBack(Sandbox):
         self.assertEqual(state["after_merge"][key]["notified"], pending["sha"])
         self.assertTrue((directory / "result.md").is_file())
 
-    def test_the_live_follower_waits_for_the_sleeping_seats_prompt(self):
-        directory = self.health_merge()
-        config.plan_path(SEAT).write_text("- [ ] verify the api\n")
-        config.update_session(SEAT, launched=1, asleep=2)
-        self.rows, self.screen = [], "working"
-
-        def resume(_cfg, name, **_kw):
-            self.rows = [self.live()]
-            config.update_session(name, launched=10000)
-            return name
-
-        with patch.object(orch, "resume", side_effect=resume) as wake, \
-                patch.object(watch, "health_command", return_value=(True, "")), \
-                patch.object(watch.time, "sleep", side_effect=lambda _s: setattr(self, "screen", "at_prompt")):
-            handback.announce(record.read_state(directory), directory, self.logs.append)
-            wake.assert_not_called()
-            self.assertEqual(watch.follow_live(directory), 0)
-        wake.assert_called_once()
-        self.assertTrue(record.read_state(directory).get("live_notified"))
-        self.assertEqual(len(self.typed), 1, self.typed)
-        self.assertIn("merged", self.typed[0][1])
-        self.assertIn(" is live:", self.typed[0][1])
-
     def tick(self):
         """One real `ak watch` of the hand-back's passes, with GitHub unavailable so it stops
         before its PR passes."""

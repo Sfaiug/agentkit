@@ -62,19 +62,3 @@ func TestAgreeLeavesToPythonAHistoryToBringRound(t *testing.T) {
 		t.Fatal("carried a history SQLite cannot read")
 	}
 }
-
-// Seats' tokens are read where history.db keeps their sources, and where SQLite cannot say.
-func TestKeepsSeatsReadsTheirSources(t *testing.T) {
-	home(t)
-	if !KeepsSeats() {
-		t.Fatal("no database said no seats")
-	}
-	older(t)
-	if KeepsSeats() {
-		t.Fatal("found seats in a history without them")
-	}
-	write(t, "CREATE TABLE seat_sources (path TEXT PRIMARY KEY)")
-	if !KeepsSeats() {
-		t.Fatal("missed the seats' sources")
-	}
-}

@@ -256,8 +256,10 @@ class Scoreboard(unittest.TestCase):
             db.executemany("INSERT INTO findings (run_id, round, path, kind, proof, at) "
                            "VALUES ('fix-api', ?, ?, ?, ?, ?)", rows)
         self.assertEqual(scoreboard.compute(NOW)["findings"], [
-            {"blocking": 6, "disputed": 0, "conceded": 0, "raised_again": 2, "let_go": 0, "let_go_broke": 0},
-            {"blocking": 1, "disputed": 0, "conceded": 0, "raised_again": 0, "let_go": 0, "let_go_broke": 0}])
+            {"blocking": 6, "disputed": 0, "conceded": 0, "raised_again": 2, "let_go": 0, "let_go_broke": 0,
+             "later": 0, "inside_fix": 0},
+            {"blocking": 1, "disputed": 0, "conceded": 0, "raised_again": 0, "let_go": 0, "let_go_broke": 0,
+             "later": 0, "inside_fix": 0}])
 
     def test_render_keeps_the_existing_text(self):
         board = {
@@ -282,7 +284,7 @@ class Scoreboard(unittest.TestCase):
             "pairs": [{"self": .5, "self_landing": .25, "same_provider": .3,
                        "same_provider_landing": .4, "other_landing": .1}, None],
             "findings": [{"blocking": 4, "disputed": 3, "conceded": 2, "raised_again": 1,
-                          "let_go": 3, "let_go_broke": 2}, None],
+                          "let_go": 3, "let_go_broke": 2, "later": 2, "inside_fix": 1}, None],
         }
         expected = [
             "Scoreboard (reported tokens; size now and 7 days ago)",
@@ -323,7 +325,9 @@ class Scoreboard(unittest.TestCase):
             "              at landing",
             "findings      4 blocking; 3 disputed; 2 of 3 conceded; 1  not recorded",
             "              of 4 raised again; 3 let go; 2 of 3 on a",
-            "              change that broke main or live after merge",
+            "              change that broke main or live after",
+            "              merge; 1 of 2 handed in after round 1",
+            "              inside the fix",
             "ak size       17 code lines, 5 README words, 9 AGENTS.md  size unavailable",
             "              words",
         ]

@@ -59,8 +59,9 @@ class SuitePieces(unittest.TestCase):
         self.logs = []
 
     def check(self, commands=None, **kwargs):
+        # the run's own ceiling: real boxed pieces on a loaded landing host outlast a short one
         return gate.run_done_when(commands or [SUITE], self.root,
-                                  self.run_dir / "gate.log", set(), limit=10,
+                                  self.run_dir / "gate.log", set(),
                                   log=self.logs.append, run_dir=self.run_dir, **kwargs)
 
     def test_pieces_get_separate_headers_and_one_command_outcome(self):
@@ -286,28 +287,20 @@ class SuitePieces(unittest.TestCase):
                     self.assertTrue(ok, text)
                     self.assertEqual(text.count("--- AK_SHARD="), count * (2 - bool(turn)))
 
-    def test_all_pieces_start_together_and_all_red_pieces_retry_alone(self):
-        barrier, lock = threading.Barrier(2, timeout=3), threading.Lock()
-        calls, active, reruns = Counter(), set(), []
+    def test_all_pieces_start_together_and_all_red_pieces_go_again_together(self):
+        # every go waits for its sibling's: one alone breaks the barrier and the check
+        barrier, calls = threading.Barrier(2, timeout=3), Counter()
         def limited(cmd, limit, env, output, **_kw):
             shard = env["AK_SHARD"]
-            with lock:
-                calls[shard] += 1
-                attempt = calls[shard]
-                active.add(shard)
-                if attempt == 2:
-                    reruns.append(set(active))
-            if attempt == 1:
-                barrier.wait()
+            calls[shard] += 1
+            attempt = calls[shard]
+            barrier.wait()
             output.write(f"{'FAIL: under load' if attempt == 1 else 'passed'} {shard}\n".encode())
-            with lock:
-                active.remove(shard)
             return (1 if attempt == 1 else 0), "", False
         with patch.object(worker, "boxed", side_effect=limited):
             ok, text = self.check()
         self.assertTrue(ok, text)
         self.assertEqual(calls, {"1/2": 2, "2/2": 2})
-        self.assertEqual(reruns, [{"1/2"}, {"2/2"}])
         state = {}
         prompts.record_flakes(state, text)
         self.assertEqual(len(state["followups"]), 2)

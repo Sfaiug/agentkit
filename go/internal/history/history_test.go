@@ -129,8 +129,8 @@ func TestNoDatabaseIsMade(t *testing.T) {
 }
 
 // What Go leaves to Python ak, it leaves having written nothing: a file SQLite cannot open,
-// a crashed writer's journal, which SQLite would roll back into it, seats' tokens, which Python
-// alone reads on, and the tokens Python recounts once.
+// a crashed writer's journal, which SQLite would roll back into it, and the tokens Python
+// recounts once.
 func TestOpenLeavesToPythonWhatItCannotKeep(t *testing.T) {
 	for name, setup := range map[string]func(t *testing.T){
 		"not a database": func(t *testing.T) {
@@ -162,10 +162,6 @@ func TestOpenLeavesToPythonWhatItCannotKeep(t *testing.T) {
 				}
 			}
 		},
-		"seats' tokens": func(t *testing.T) {
-			older(t, "CREATE TABLE seat_sources (path TEXT PRIMARY KEY, harness TEXT, repo TEXT, cursor TEXT)",
-				"PRAGMA user_version=2")
-		},
 		"tokens to recount": func(t *testing.T) {
 			older(t)
 			events := filepath.Join(filepath.Dir(Path()), "runs", "20261001-1200-fix-api", "round-1", "executor", "events.jsonl")
@@ -196,11 +192,18 @@ func read(path string) []byte {
 	return data
 }
 
-// Seats' tokens Python's writers keep while Go waits for their lock leave the database Python's:
-// Go decides on what it reads once the lock is its own.
+// A run's row Python's writers add while Go waits for their lock, its turns' tokens owed Python's
+// recount, leaves the database Python's: Go decides on what it reads once the lock is its own.
 func TestWhatPythonWritesWhileGoWaitsDecides(t *testing.T) {
 	home(t)
-	older(t, "PRAGMA user_version=2")
+	older(t)
+	events := filepath.Join(filepath.Dir(Path()), "runs", "20261001-1300-add-beta", "round-1", "executor", "events.jsonl")
+	if err := os.MkdirAll(filepath.Dir(events), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(events, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	held, err := lock.Wait(context.Background(), strings.TrimSuffix(Path(), ".db")+".lock")
 	if err != nil {
 		t.Fatal(err)
@@ -213,10 +216,10 @@ func TestWhatPythonWritesWhileGoWaitsDecides(t *testing.T) {
 	}()
 	// time for Open to reach the lock; it waits there however long this takes
 	time.Sleep(200 * time.Millisecond)
-	write(t, "CREATE TABLE seat_sources (path TEXT PRIMARY KEY, harness TEXT, repo TEXT, cursor TEXT)")
+	write(t, "INSERT INTO runs (run_id, repo, final_state) VALUES ('20261001-1300-add-beta', 'acme', 'pass')")
 	held.Close()
 	if err := <-opened; err == nil {
-		t.Fatal("Go opened a database keeping seats' tokens")
+		t.Fatal("Go opened a database whose tokens wait for Python's recount")
 	}
 }
 

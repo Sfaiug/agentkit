@@ -63,8 +63,9 @@ class ProofMustRun(unittest.TestCase):
                 # the same loop reviewed again: the earlier programs' findings are ak's replays
                 rows = [row for row in self.lp.state["review_records"] if not row.get("replayed")]
                 self.assertEqual([row["kind"] for row in rows], ["finding", "follow-up", "follow-up", "done"])
-                # the follow-ups are kept whatever the verdict, this round's after the earlier ones
-                self.assertEqual(self.lp.state["followups"][-2:],
+                # the follow-ups are kept whatever the verdict; a later program's are those same
+                # defects, kept as it proved them
+                self.assertEqual(self.lp.state["followups"],
                                  [hand_in.item_text(row) for row in rows if row["kind"] == "follow-up"])
                 self.assertEqual(self.lp.state["notes"], [])
                 self.assertEqual(rows[0]["evidence"]["returncode"], code)

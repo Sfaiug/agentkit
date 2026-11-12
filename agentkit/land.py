@@ -947,7 +947,7 @@ def _probe(directory, state, scratch, tree, command, tests, cost):
                 activity=log_path, output=output, env=gate.suite_env(),
                 silence=gate.quiet_window(command, scratch, None, silence) or silence,
                 stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-            ended.append(None if killed else code)
+            ended["exit"] = None if killed else code
         if killed or code < 0 or code in (*helper.GONE, helper.FULL):
             return None
         ran, failed, absent = (helper.failed(away, "1/1", named)
@@ -1100,10 +1100,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                 return {"land": tree} if tree == tested else {"land": tree, "tested": tested}
 
             def commands(index):
-                # A covered member still owes its own once-commands, on the tested tree.
-                groups = dict.fromkeys(stack[4] for stack in stacks[:index + 1])
-                return tuple(cmd for group in groups for cmd in group if cmd != suite) + (
-                    (suite,) if suite else ())
+                # A covered member still owes its own once-commands, on the tested tree.  What
+                # two of them owe runs there once: a `tests:` line a change ahead rewrote is
+                # every later stack's own too.
+                owed = dict.fromkeys(cmd for stack in stacks[:index + 1] for cmd in stack[4])
+                return tuple(cmd for cmd in owed if cmd != suite) + ((suite,) if suite else ())
 
             positions = {stack[3]: index for index, stack in enumerate(stacks)}
             # Coverage can be reused only when this line can still deliver its tested tip.

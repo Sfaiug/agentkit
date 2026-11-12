@@ -578,7 +578,7 @@ func tail(screen terminal.Screen, record *run.Object) []string {
 	if record.Truthy("first") {
 		lines = append(lines, "  first")
 	}
-	for _, note := range []string{run.Alive(record), run.StopNote(record)} {
+	for _, note := range []string{run.Alive(record), run.StopNote(record, screen.Glyph("FAIL"))} {
 		if note != "" {
 			lines = append(lines, "  "+screen.Styled(note, "dim"))
 		}
@@ -657,7 +657,7 @@ func details(screen terminal.Screen, entry listed, index run.Index, now time.Tim
 		lines = append(lines, "  "+run.RecoveryReason(record)+"; ak run resume "+entry.name()+" offers recovery")
 	}
 	for _, note := range []string{run.BlockedNote(record, screen.Glyph(run.Word(record, index, now))),
-		entry.parked(now), run.HandbackWaiting(record), run.Alive(record), run.StopNote(record)} {
+		entry.parked(now), run.HandbackWaiting(record), run.Alive(record), run.StopNote(record, screen.Glyph("FAIL"))} {
 		if note != "" {
 			lines = append(lines, dim(note))
 		}
