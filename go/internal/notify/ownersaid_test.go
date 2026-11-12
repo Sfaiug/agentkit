@@ -83,3 +83,40 @@ func TestOwnerSaidIsTheOwnersWordsInTheSeatsConversation(t *testing.T) {
 		t.Errorf("a harness Go does not read: %v", err)
 	}
 }
+
+// A receipt naming the conversation the seat left takes ak's line where it landed, in the one the
+// seat is on now, for the owner's words and the done check alike; the owner's identical later
+// line stays theirs.
+func TestAkLineInAnotherConversationOfTheSeatIsNotTheOwners(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
+	write := func(path, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil || os.WriteFile(path, []byte(text), 0o600) != nil {
+			t.Fatal(path)
+		}
+	}
+	line := func(at, text string) string {
+		return `{"type": "user", "timestamp": "2026-11-05T10:00:0` + at + `Z", "message": {"role": "user", "content": "` + text + `"}}` + "\n"
+	}
+	state, chats := filepath.Join(home, ".agentkit", "state"), filepath.Join(home, ".claude", "projects", "-code-acme")
+	write(filepath.Join(home, ".agentkit", "config.toml"),
+		"[models.mid]\nharness = 'claude'\nmodel = 'acme-mid'\neffort = 'high'\nprovider = 'test'\n[providers.test]\nmode = 'subscription'\n")
+	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "mid", "cwd": "/code/acme", "conversation": "conv-now",
+		"left": [{"harness": "claude", "conversation": "conv-before"}]}`)
+	write(filepath.Join(chats, "conv-before.jsonl"), line("1", "Build the acme report."))
+	write(filepath.Join(chats, "conv-now.jsonl"), line("3", "Continue the acme report.")+line("4", "Continue the acme report."))
+	const start = 1793872800
+	// ak's line, typed at 02 after the one message the conversation it names held then
+	write(filepath.Join(state, "input-acme.jsonl"), `{"harness": "claude", "conversation": "conv-before", "after": 1, `+
+		`"at": 1793872802.0, "text": "Continue the acme report.", "source": "ak"}`+"\n")
+	if conversation, said, err := OwnerMessages("acme"); conversation != "conv-now" || len(said) != 1 || said[0].At != start+4 || err != nil {
+		t.Fatalf("%q, %v, %v", conversation, said, err)
+	}
+	had, err := Conversations("acme", true)
+	if err != nil || len(had) != 2 || len(had[0].Messages) != 1 || len(had[1].Messages) != 1 || had[1].Messages[0].At != start+4 {
+		t.Fatalf("%#v, %v", had, err)
+	}
+}
