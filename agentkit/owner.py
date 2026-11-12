@@ -7,8 +7,9 @@ outside a run -- the menu, the tick, an `ak` a seat or a hook runs -- leaves run
 apart by it.  What ak starts to outlive the command -- a unit, a tmux server, a seat's pane, the
 warm server, a detached start, a sign-in whose browser is the owner's -- is started `unmarked`:
 it is no command's leftover.  A helper ak starts so, its own process -- a harness update, the
-background cleanup, a seat's look, the menu's seat stop and reader --, marks itself as it
-starts, under its own name.  What one leaves in its session, the tick ends once it is gone.
+background cleanup, a seat's look, the menu's seat stop and reader, a switch's draft return --,
+marks itself as it starts, under its own name.  What one leaves in its session, the tick ends
+once it is gone.
 
 What a seat starts by hand in a side session carries the seat's tag (`TMUX_OWNER`) instead, as
 does all it starts, however far from the pane; an `ak` drops the tag as it marks itself, and an

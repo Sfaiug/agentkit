@@ -4668,7 +4668,7 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     chosen = {"orchestrator": model, "account": account, **homed,
               **({"left": notify.left(record, old_harness, owned)} if owned and not kept else {})}
     # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
-    # of the seat's lock, so no tick hands the text back to the harness going or before that line
+    # of the seat's lock, so nothing hands the text back to the harness going or before that line
     with notify.session_lock(name):
         if pane and not watch.carry_draft(session, old_harness, pane, new_harness, cfg):
             unhanded(handed, before)

@@ -4499,22 +4499,61 @@ def drafts_back(cfg):
     back, every read and key of the step on that pane, whichever the owner selects: the editor
     hands it back only into an empty composer, however the pass that put ak's line in its place
     ended.  A line still in the composer is the mark's pass to send first, and a line the seat
-    is owed (a `midturn` mark) goes before any text back; text a switch carried (`carry_draft`)
-    goes back at once after it."""
-    seats = [session for session in orch.sessions() if not session.get("legacy")
-             and not any(session.get(key) for key in orch.CLOSED)]
-    for session in seats:
-        if not _editor_kept(session):   # most ticks keep nothing: no seat's send lock waited on
-            continue
-        with notify.session_lock(session["name"]):
-            if seat_read(session["name"]).get("midturn"):
-                continue    # its line goes first: text back in the composer would go with it
-            for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
-                bound = dict(session, pane=pane)
-                where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
-                read = where and _editor_read(bound, where, cfg)
-                if read and composer_draft(read[0], read[1]) == "":
-                    _edit(bound, where, "back")
+    is owed (a `midturn` mark) goes before any text back.  Text a switch carried goes back
+    sooner, by these same rules (`carried_back`); this pass gives back what that could not."""
+    for session in orch.sessions():
+        _draft_back(session, cfg)
+
+
+def _draft_back(session, cfg):
+    """`drafts_back`'s pass on that seat, where it is open: whether it still keeps text set aside
+    after it, as far as tmux can say."""
+    if (not session or session.get("legacy") or any(session.get(key) for key in orch.CLOSED)
+            or not _editor_kept(session)):  # most keep nothing: no seat's send lock waited on
+        return False
+    with notify.session_lock(session["name"]):
+        if seat_read(session["name"]).get("midturn"):
+            return True     # its line goes first: text back in the composer would go with it
+        aside = False
+        for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
+            bound = dict(session, pane=pane)
+            where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
+            read = where and _editor_read(bound, where, cfg)
+            aside |= state == aside_editor.ASIDE and not (
+                read and composer_draft(read[0], read[1]) == ""
+                and _edit(bound, where, "back") == "sent")
+        return aside
+
+
+CARRY_WAIT = 60     # how long text a switch carried waits for the harness launched to show its
+                    # composer empty, before the tick's pass is what gives it back
+
+
+def carried_back(name):
+    """Text a switch carried (`carry_draft`) given back by `drafts_back`'s rules as soon as the
+    harness launched in that seat shows its composer empty: tried each SENT_POLL for CARRY_WAIT,
+    under the seat's lock, which the switch holds over its respawn and the line it marks."""
+    for _ in range(int(CARRY_WAIT / SENT_POLL)):
+        if not _draft_back(orch.find(name), None):
+            return
+        time.sleep(SENT_POLL)
+
+
+def start_carried_back(name):
+    """`carried_back` for that seat in a process of its own session, started unmarked, which
+    marks itself: the switch returns at once, and the menu or popup it came from ends none of
+    it by ending.  The process, or None where none could start, which leaves the text to the
+    tick's pass."""
+    try:
+        return subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+             "from agentkit import owner, watch; owner.mark('draft return'); "
+             "watch.carried_back(sys.argv[2])",
+             str(Path(__file__).resolve().parents[1]), name],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, env=owner.unmarked())
+    except OSError:
+        return None
 
 
 def _past_text(session, cfg=None):
@@ -4581,14 +4620,15 @@ def carry_draft(session, harness, pane, to, cfg=None):
     harness, on any turn: its composer read empty, through `harness`, else the one its pane
     runs (`orch.pane_harness`), as a seat whose model left the config does; or lifted whole by
     ak's editor (its `line` step with no line) into its pane's kept buffer, which the respawn
-    keeps with the pane and `drafts_back` hands the harness launched there next, or left there,
-    set aside already for a line of ak's.  Not where the editor gives no answer, or finds text
-    typed since that set aside, which no step merges.  Only through ak's editor, which reads a
-    composer whole, and only to a harness (`to`) that opens it too: a screen draws a draft late,
-    wrapped and cropped, and elsewhere the text would go with the old harness.  Not where the
-    editor may not be asked a step now either (`_editor_read`): a question or picker drawn
-    since, or input unread, would take its keys.
-    Under the seat's lock its caller holds over the respawn too, so no tick hands the text back
+    keeps with the pane, or left there, set aside already for a line of ak's -- and either way
+    handed to the harness launched there next as soon as it shows its composer empty
+    (`start_carried_back`).  Not where the editor gives no answer, or finds text typed since
+    that set aside, which no step merges.  Only through ak's editor, which reads a composer
+    whole, and only to a harness (`to`) that opens it too: a screen draws a draft late, wrapped
+    and cropped, and elsewhere the text would go with the old harness.  Not where the editor may
+    not be asked a step now either (`_editor_read`): a question or picker drawn since, or input
+    unread, would take its keys.
+    Under the seat's lock its caller holds over the respawn too, so nothing hands the text back
     to the harness going; the pane is read again under it, as the caller's capture predates a
     paste or picker taken since."""
     pane = pane_text(session)
@@ -4600,8 +4640,11 @@ def carry_draft(session, harness, pane, to, cfg=None):
             pane.strip() and _picker_up(harness, live_state(session, harness, pane=pane, cfg=cfg))):
         return True
     where = screen(to).get("editor") and seat_editor(session, cfg)
-    return bool(where and _editor_read(session, where, cfg)
-                and _edit(session, where, "line") in ("line", "unsent"))
+    if not (where and _editor_read(session, where, cfg)
+            and _edit(session, where, "line") in ("line", "unsent")):
+        return False
+    start_carried_back(session["name"])
+    return True
 
 
 def _mark(session, text):
