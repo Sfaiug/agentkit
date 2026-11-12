@@ -5003,9 +5003,9 @@ def opened_line(told, kind, texts, on, room):
 
 def page_body(rows, at=None, moves=None):
     """The lines of a page `c` opens and the row each is, {line: (row, cells)}: of `rows`,
-    (row, label, value) each, its label and then its
-    value, lined up past the widest label as `c`'s own rows are, or with no label a choice of a
-    list opened under the row above it, indented as `add a subscription`'s are.  A value is
+    (row, label, value) each, its label and then its value, lined up past the widest label
+    beside a value as `c`'s own rows are, or with no label a choice of a list opened under the
+    row above it, indented as `add a subscription`'s are.  A value is
     text, or parts, (text, kind) each -- or (text, kind, cell), its columns one of the line's
     cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
@@ -5013,10 +5013,11 @@ def page_body(rows, at=None, moves=None):
     the row lit, and `moves` is handed each mark leading a value (`■`, `□`, `●`, `○`) as
     config_body hands its own."""
     room = terminal.layout_width()
-    wide = max((terminal.cells(label) for _, label, _ in rows if label is not None), default=0)
+    wide = max((terminal.cells(label) for _, label, value in rows if label is not None and value),
+               default=0)
     lines, places = [], {}
     for row, label, value in rows:
-        # a label is never wider than `wide`, so padding it keeps its colour
+        # a label beside a value is never wider than `wide`, so padding it keeps its colour
         lead = "    " if label is None else f"  {label}{' ' * (wide - terminal.cells(label))}  "
         left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
@@ -5513,7 +5514,9 @@ def work_words(name, cfg):
 
 
 def config_machines(cfg):
-    """Recorded machines; Enter opens their work marks, and the cloud's monthly cap."""
+    """Recorded machines; Enter opens their work marks, and the cloud's monthly cap.  Last,
+    `+ add a machine` takes an ssh address and writes it to config.toml once it answers
+    (machines.add), else says why not."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def save(key, value):
@@ -5529,6 +5532,22 @@ def config_machines(cfg):
         if not re.fullmatch(r"[0-9]+", value.strip()):
             return "the monthly cap must be a whole number of euros, 0 or more"
         return save("max_month", int(value))
+
+    def add_field(draw):
+        name = terminal.field("    ", "its ssh address: a Host of ~/.ssh/config, a host name or "
+                              "user@host", around=lambda line: draw([line]))
+        name = "" if name is None or terminal.is_esc(name) else name.strip()
+        if not name:
+            return ""
+        try:
+            why = waited(lambda: machines.add(name), "config · machines", doing=f"asking {name}")
+        except Back:
+            return ""
+        if why:
+            return why
+        before = copy.deepcopy(cfg)
+        cfg.setdefault("machines", {})[name] = {}
+        return _saved(cfg, cfg, before)
 
     def work_page(name):
         if name and google_cloud.ssh_config(name):
@@ -5569,7 +5588,8 @@ def config_machines(cfg):
                 for machine in machines.known()]
         return [*rows, ("Google Cloud", [(on, "accent") if active else (off, "dim"),
                                          (f"{google_cloud.summary()} · {work_words(None, cfg)}", None)],
-                        ("mark", lambda: save("active", not active), work_page(None)))], ""
+                        ("mark", lambda: save("active", not active), work_page(None))),
+                ("+ add a machine", "", add_field)], ""
     config_page("machines", page)
 
 
