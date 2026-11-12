@@ -896,8 +896,8 @@ def _landing_checks(directory, state, scratch, tip):
     own = gitcall.declared(scratch, "tests")
     suite = gitcall.declared_suite(scratch, ref=tip)
     if own and suite and own != suite:
-        # It runs as many pieces at once as the host fits at the suite's cost, so at the
-        # initial estimate it took places its suite needed for twice as many (11 Nov 2026).
+        # A line starts as many pieces at once as the host fits at its cost: unmeasured, a
+        # rewritten line took twice the places its suite's cost fits (11 Nov 2026).
         gate.inherit_suite_cost(own, suite, scratch)
     if own and own not in (suite, *once):
         once.append(own)
