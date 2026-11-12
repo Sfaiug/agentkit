@@ -299,7 +299,8 @@ class RuleProgress(unittest.TestCase):
                 patch.object(update.versions, "switch", lambda *_: ran.append("switch") or ""), \
                 patch.object(update.subprocess, "run", run), redirect_stdout(io.StringIO()):
             update.update_agentkit(progress)
-        self.assertEqual(ran, ["fetch", "rev-parse", "cat-file", "switch", "install.sh"])
+        self.assertEqual(ran, ["fetch", "rev-parse", "for-each-ref", "cat-file", "switch",
+                               "install.sh"])
         lines = out.getvalue().splitlines()
         frames = [(lines[n - 1], line) for n, line in enumerate(lines) if set(line) <= set("━─")
                   and line]

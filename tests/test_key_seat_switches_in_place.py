@@ -76,7 +76,7 @@ class SeatSwitchesInPlace(unittest.TestCase):
         pid = self.pid()
         self.term.keys("Down", "Down", "Space")     # GPT-6-Astra's orchestrator mark
         self.term.wait(lambda screen: f"  Restart {SEAT} on GPT-6-Astra?" in rows(screen)
-                       and "  ✗ Move" in rows(screen))
+                       and "  × Move" in rows(screen))
         self.term.keys("Down", "Enter")
         self.term.wait(lambda _: self.pid() != pid)
         self.assertEqual(self.orchestrator(), "astra")

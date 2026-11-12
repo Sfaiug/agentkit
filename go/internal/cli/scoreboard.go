@@ -713,7 +713,8 @@ func pairs(ended []history.Row) string {
 
 // weighed is the week's weighed findings: the blocking ones, those disputed, conceded or raised
 // again, and those let go on the week's merged changes, a finding following its change's merge
-// week, and how many of those sat on a change that later broke.
+// week, and how many of those sat on a change that later broke; and of what reviewers handed in
+// as findings after round 1, ak's replays aside, how many sat inside the fix.
 func (b *board) weighed(ended []history.Row, end float64) string {
 	merged, broken := map[[2]string]bool{}, map[[2]string]bool{}
 	for _, row := range ended {
@@ -723,7 +724,7 @@ func (b *board) weighed(ended []history.Row, end float64) string {
 			broken[key] = broken[key] || row.Truthy("broke_after_merge")
 		}
 	}
-	weighed, blocking, disputed, conceded, raised, letGo, letGoBroke := 0, 0, 0, 0, 0, 0, 0
+	weighed, blocking, disputed, conceded, raised, letGo, letGoBroke, later, inside := 0, 0, 0, 0, 0, 0, 0, 0, 0
 	for _, row := range b.findings {
 		dropped := slices.Contains([]string{"dropped", "conceded"}, row.Text("outcome"))
 		if b.in(number(row, "at"), end) {
@@ -733,6 +734,10 @@ func (b *board) weighed(ended []history.Row, end float64) string {
 			if row.Text("kind") == "finding" {
 				blocking++
 				raised += int(number(row, "raised_again"))
+			}
+			if row.Text("handed") == "finding" && row["replayed"] == nil && row["inside_fix"] != nil {
+				later++
+				inside += int(number(row, "inside_fix"))
 			}
 		}
 		if key := [2]string{row.Text("repo"), row.Change()}; (row.Text("kind") == "follow-up" || dropped) && merged[key] {
@@ -744,8 +749,8 @@ func (b *board) weighed(ended []history.Row, end float64) string {
 		return "not recorded"
 	}
 	return fmt.Sprintf("%d blocking; %d disputed; %d of %d conceded; %d of %d raised again; %d let go; "+
-		"%d of %d on a change that broke main or live after merge",
-		blocking, disputed, conceded, disputed, raised, blocking, letGo, letGoBroke, letGo)
+		"%d of %d on a change that broke main or live after merge; %d of %d handed in after round 1 inside the fix",
+		blocking, disputed, conceded, disputed, raised, blocking, letGo, letGoBroke, letGo, inside, later)
 }
 
 // size is ak's committed size at that ref: its code lines and its README's and AGENTS.md's words,

@@ -59,7 +59,7 @@ class InstallSwitchesInOneStep(unittest.TestCase):
             update.go_live(said.append)
         if final:
             with patch.object(config, "BEGAN", os.stat(self.clone)):
-                versions.final()
+                versions.final(time.time())
         return said
 
     def live(self, commit):
@@ -187,7 +187,7 @@ class InstallSwitchesInOneStep(unittest.TestCase):
 
         def exchange(one, other):
             # the tick before the move completes between its link and its exchange
-            ending.append(threading.Thread(target=versions.final))
+            ending.append(threading.Thread(target=versions.final, args=(time.time(),)))
             ending[0].start()
             ending[0].join(1)
             real(one, other)

@@ -199,6 +199,7 @@ var migrations = []struct{ table, columns string }{
 		"no_review INTEGER"},
 	{"phases", "wait_kind TEXT"},
 	{"reviews", "round INTEGER, verdict TEXT, effort TEXT"},
+	{"findings", "inside_fix INTEGER"},
 	{"owner", "conversation TEXT"},
 	{"dones", "work TEXT"},
 	{"meter_readings", "plan TEXT"},

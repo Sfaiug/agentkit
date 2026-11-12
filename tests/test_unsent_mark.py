@@ -1,8 +1,8 @@
 """Unsent text is a mark on the row, its words under the pointer.
 
 The owner's choice of 20 Oct 2026: a seat holding text it never sent keeps its row as it would
-be without it -- a working seat's progress line and `N of M` -- and the row ends in `✎ unsent`
-in the needs-you colour; the row the pointer is on opens the text under itself, `✎` first,
+be without it -- a working seat's progress line and `N of M` -- and the row ends in `¶ unsent`
+in the needs-you colour; the row the pointer is on opens the text under itself, `¶` first,
 before what it opens today, and past half the screen cuts it with `…` as it does any block, so
 the usage and the keys stay on screen (the owner's rule of 14 Oct).  The reason never carries
 the text.  Offline: the menu's own drawing functions on a seat info built here.
@@ -50,32 +50,32 @@ class UnsentMark(Sandbox):
         lines = block(seat("working", bar=(3, 7)))
         self.assertEqual(len(lines), 1, lines)
         row = bare(lines[0])
-        self.assertRegex(row, r"● working +[━╸]+─* 3 of 7  ✎ unsent$")
-        self.assertTrue(lines[0].endswith(f"{AMBER}✎ unsent\033[0m"), repr(lines[0]))
+        self.assertRegex(row, r"● working +[━╸]+─* 3 of 7  ¶ unsent$")
+        self.assertTrue(lines[0].endswith(f"{AMBER}¶ unsent\033[0m"), repr(lines[0]))
 
     def test_the_pointed_row_opens_the_whole_text_first(self):
         info = seat("working", bar=(3, 7))
         for width in (100, 60, 40):
             with self.subTest(width=width):
                 lines = [bare(line).strip() for line in block(info, width, pointed=True)]
-                head = next(n for n, line in enumerate(lines) if "✎ unsent" in line)
+                head = next(n for n, line in enumerate(lines) if "¶ unsent" in line)
                 under = lines[head + 1:]
-                self.assertTrue(under[0].startswith("✎ Fix the login"), under)
-                said = " ".join(under).partition("✎ ")[2]
+                self.assertTrue(under[0].startswith("¶ Fix the login"), under)
+                said = " ".join(under).partition("¶ ")[2]
                 self.assertIn(TEXT, said)            # whole, wrapped at words, never cut
                 self.assertEqual(under[-1], "opus ⚒   astra ◎")     # what it opened before
         opened = block(info, pointed=True)[1]
-        self.assertIn(f"{AMBER}✎ Fix", opened)
+        self.assertIn(f"{AMBER}¶ Fix", opened)
 
     def test_an_idle_seat_shows_the_mark_and_never_the_old_sentence(self):
         info = seat("idle")
         for pointed in (False, True):
             with self.subTest(pointed=pointed):
                 lines = [bare(line) for line in block(info, pointed=pointed)]
-                self.assertTrue(lines[0].endswith("○ idle  ✎ unsent"), lines)
+                self.assertTrue(lines[0].endswith("○ idle  ¶ unsent"), lines)
                 self.assertNotIn(" · unsent:", "\n".join(lines))
         self.assertEqual(menu.last_column("idle", 0, 0, unsent=TEXT),
-                         f"{AMBER}✎ unsent\033[0m")
+                         f"{AMBER}¶ unsent\033[0m")
 
     def test_text_past_half_the_screen_is_cut(self):
         long = seat("working", bar=(3, 7))
@@ -99,10 +99,10 @@ class UnsentMark(Sandbox):
             at = next(n for n, line in enumerate(lines) if line.strip().startswith(first))
             return lines[at:next(n for n, line in enumerate(lines) if line.endswith("…")) + 1]
 
-        self.assertEqual(len(opened(drawn([long], "fix-api"), "✎ word")), 40 // 2)
+        self.assertEqual(len(opened(drawn([long], "fix-api"), "¶ word")), 40 // 2)
         # another seat's text lifts no seat's limit
-        self.assertEqual(opened(drawn([long, other], "acme-web"), "✎ other"),
-                         opened(drawn([other], "acme-web"), "✎ other"))
+        self.assertEqual(opened(drawn([long, other], "acme-web"), "¶ other"),
+                         opened(drawn([other], "acme-web"), "¶ other"))
 
     def test_without_utf8_the_mark_is_an_asterisk(self):
         with patch.dict(os.environ, {"LANG": "C", "LC_ALL": ""}):
