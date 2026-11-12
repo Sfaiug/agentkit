@@ -60,11 +60,7 @@ class Install:
         _offline(home)
         self._git(home.root, "init", "-q", "--bare", "-b", "main", str(self.bare))
         self._git(home.root, "clone", "-q", str(self.bare), str(self.seed))
-        for name in _tracked():
-            source, copy = PROGRAM / name, self.seed / name
-            if source.is_symlink() or source.is_file():
-                copy.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, copy, follow_symlinks=False)
+        copy_tracked(self.seed)
         (self.seed / "bin").mkdir(exist_ok=True)
         shutil.copy2(AK, self.seed / "bin" / "ak")
         (self.seed / "install.sh").write_text(INSTALL)
@@ -120,6 +116,15 @@ class Install:
         done = self.home.run("git", "-C", str(where), *args)
         assert done.code == 0, f"git {' '.join(args)}: {done.err}"
         return done.out.strip()
+
+
+def copy_tracked(to):
+    """Copy to `to` each file the program's checkout tracks, its tests aside."""
+    for name in _tracked():
+        source, copy = PROGRAM / name, to / name
+        if source.is_symlink() or source.is_file():
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, copy, follow_symlinks=False)
 
 
 def _tracked():
