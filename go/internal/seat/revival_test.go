@@ -406,9 +406,19 @@ func TestADeathAfterListingLeavesLiveRowsForTheRevivalRow(t *testing.T) {
 	if live, known := Lives(time.Now()); !known || len(live) != 0 {
 		t.Fatalf("a known death prevented the live rows: known=%v, lives=%v", known, live)
 	}
-	carried, err := Health("acme", func(Live) bool {
-		t.Fatal("a dead harness reached the live-screen health predicate")
-		return false
+	// asked of the dead seat before anything of it is kept, as watch.health still reads its login
+	before, _ := os.ReadFile(seatFile("acme"))
+	if carried, err := Health("acme", func(live Live) bool { return !live.Exited }, func(string) {}, false); carried || err != nil {
+		t.Fatal("a dead seat its look refused was carried:", carried, err)
+	}
+	if after, _ := os.ReadFile(seatFile("acme")); string(after) != string(before) {
+		t.Fatalf("a dead seat its look refused was kept: %s", after)
+	}
+	carried, err := Health("acme", func(live Live) bool {
+		if !live.Exited || live.Name != "acme" || live.Pane != "" {
+			t.Fatalf("a dead harness reached the live-screen health predicate: %+v", live)
+		}
+		return true
 	}, func(string) {}, false)
 	if !carried || err != nil {
 		t.Fatal(carried, err)

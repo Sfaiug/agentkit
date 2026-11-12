@@ -1,18 +1,19 @@
-"""`↻ log in again` is offered only while a subscription's own login is ending or has ended.
+"""`→ log in again` is offered only while a subscription's own login is ending or has ended.
 
 The owner (27 Oct 2026): "Why when I press on usage meters, do I get the option to log in again?
 I think this feature is redundant. The user should be alerted, like we do right now for claude
 code when he should login again, but not have the option to press on it and just freely login."
-A login far from its end offers no `log in again`: a click on its meter lists `↻ spend a reset`
+A login far from its end offers no `log in again`: a click on its meter lists `→ spend a reset`
 alone while it holds one, and with none opens no list, the pointer on it still saying its line
 under the grid; its row on `c` → Subscriptions offers `− remove` alone.  A login inside its
 warning window says when it ends on that line, and its meter's list and its row both offer
-`↻ log in again` first.  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py)
+`→ log in again` first.  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py)
 over usage and logins in a temporary HOME (TZ=UTC), harnesses faked
 (tests/fixtures/fakeadapter.py), NO_COLOR, so the lit act is bracketed.  This test fails against
 `/bin/false`.
 """
 
+import re
 import sys
 from pathlib import Path
 import time
@@ -27,6 +28,7 @@ DAY = 86400
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 UNLIT, LIT = "  ↑↓←→ move   esc back", "  ↑↓←→ move   ⏎ {}   esc back"
 PAGE = "agentkit · config · subscriptions"
+METER = re.compile(r"[━╸─]+  \d+% left")
 
 
 def lines(screen):
@@ -36,12 +38,12 @@ def lines(screen):
 def under_grid(screen):
     """The ak screen's line under the usage grid: what the meter under the pointer says."""
     shown = lines(screen)
-    return shown[max(number for number, line in enumerate(shown) if "▰" in line) + 1]
+    return shown[max(number for number, line in enumerate(shown) if METER.search(line)) + 1]
 
 
 def acts(screen):
     """A meter's list as drawn, the lit act marked `›`."""
-    return [line for line in lines(screen) if line[2:3] == "↻"]
+    return [line for line in lines(screen) if line[2:3] == "→"]
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -97,7 +99,7 @@ class LogInAgainOnlyWhenNeeded(unittest.TestCase):
                        and under_grid(screen).startswith("  Claude  "))
         self.click("ChatGPT")
         listed = self.term.wait(lambda screen: UNLIT in lines(screen) and acts(screen))
-        self.assertEqual(acts(listed), ["  ↻ spend a reset"])     # lit only by a move
+        self.assertEqual(acts(listed), ["  → spend a reset"])     # lit only by a move
         self.subscriptions("    owner@acme.test   − remove".__eq__, UNLIT)
 
     def test_a_login_inside_its_warning_window_offers_log_in_again_first(self):
@@ -111,9 +113,9 @@ class LogInAgainOnlyWhenNeeded(unittest.TestCase):
         self.click("ChatGPT")
         listed = self.term.wait(lambda screen: LIT.format("log in again") in lines(screen)
                                 and acts(screen))
-        self.assertEqual(acts(listed), ["› ↻ log in again", "  ↻ spend a reset"])
+        self.assertEqual(acts(listed), ["› → log in again", "  → spend a reset"])
         self.subscriptions(lambda line: line.startswith("    " + ends)
-                           and line.endswith(")   [↻ log in again]   − remove"),
+                           and line.endswith(")   [→ log in again]   − remove"),
                            LIT.format("log in again"))
 
 

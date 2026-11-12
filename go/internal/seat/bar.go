@@ -98,7 +98,7 @@ func barChip(screen terminal.Screen, word string) string {
 func barProgress(screen terminal.Screen, word, back string, unsent bool, done, total, room int) string {
 	mark, left := "", room
 	if unsent {
-		mark = "✎ unsent"
+		mark = "¶ unsent"
 		if screen.ASCII() {
 			mark = "* unsent"
 		}

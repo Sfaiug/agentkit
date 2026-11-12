@@ -20,8 +20,9 @@ config.BEGAN = BEGAN
 
 SUBS = ("usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update",
         "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move")
-# a check's own, lending its HOME this host's logins (agentkit/lend.py): no list or help shows it
-UNLISTED = ("lend",)
+# shown by no list or help: a check's own, lending its HOME this host's logins (agentkit/lend.py),
+# and the way back from a move (agentkit/back.py), listed once Go, printing the same list, has it
+UNLISTED = ("lend", "back")
 # `ak attach` is the menu under the name the phone key uses; a bare `ak` is the menu too, and
 # `ak doctor` is the tick's own check-up, which is where the tick lives, and so is `ak wait`,
 # beside the ladder that reads it

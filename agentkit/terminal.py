@@ -29,9 +29,9 @@ STATE_STYLES = {
     # nothing running, asked or owed: quiet, as the eye should pass over it
     "idle": ("○", "o", "grey", "37", "2"),
     # its subscriptions are spent: red, as nothing moves until usage comes back or the owner
-    # moves it, and the hollow circle says it comes back by itself
-    "out of usage": ("◌", "o", "red", "31", ""),
-    "FAIL": ("✗", "x", "red", "31", ""),
+    # moves it, and idle's open circle says it comes back by itself
+    "out of usage": ("○", "o", "red", "31", ""),
+    "FAIL": ("×", "x", "red", "31", ""),
     "dim": ("·", ".", "grey", "37", "2"),
     # No session word: a run parked on something that lifts by itself says what it waits for
     # instead of a word, and the open circle is what says nobody has to act on it.
@@ -391,7 +391,7 @@ STATES = {
     "needs you": ("!", "attention"),
     "done": ("✓", "good"),
     "idle": ("○", "dim"),
-    "out of usage": ("◌", "spent"),
+    "out of usage": ("○", "spent"),
 }
 
 
@@ -401,7 +401,7 @@ def state_glyph(word):
         return glyph(word)
     mark, _ = STATES[word]
     if not utf8():
-        return {"●": "*", "✓": "v", "!": "!", "○": "o", "◌": "o"}.get(mark, mark)
+        return {"●": "*", "✓": "v", "!": "!", "○": "o"}.get(mark, mark)
     return mark
 
 
@@ -567,32 +567,40 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
     return share_line(done / (total or 1), size, word, tmux) + f" {count}"
 
 
-def share_line(share, size, word="working", tmux=False):
-    """A smooth line `size` cells long, `share` of it (0 to 1) full: `━` in `word`'s colour, with
-    a half cell `╸` where the share ends inside one; the rest is a dim `─`.  Without colour the
-    shapes carry it, and without UTF-8 it is `===------`.  `tmux` draws it as a tmux format, a
-    seat's bar's, the same line in a dark terminal's colours whichever process writes the bar,
-    as the bar's colours are, so the menu's draws and the tick's never disagree."""
+def share_parts(share, size):
+    """A bar `size` cells long, `share` of it (0 to 1) full, uncoloured: its full part, heavy `━`
+    with a half cell `╸` where the share ends inside one, and its empty rest, thin `─`; without
+    UTF-8 `===` and `---`.  Every bar is this line, which a terminal draws itself, alike in any
+    one: a seat's progress (`share_line`), a subscription's meter (menu.usage_lines) and an
+    effort's level (`effort_cells`), the owner's pick of 10 Nov 2026."""
     full, half, empty = "━╸─" if utf8() else "=--"
     halves = round(2 * size * share) if utf8() else 2 * round(size * share)
-    ends = (halves + 1) // 2
-    cells = [full if n < halves // 2 else half for n in range(ends)]
-    rest = empty * (size - ends)
+    return full * (halves // 2) + half * (halves % 2), empty * (size - (halves + 1) // 2)
+
+
+def share_line(share, size, word="working", tmux=False):
+    """The bar (`share_parts`) its full part in `word`'s colour, the rest dim.  `tmux` draws it
+    as a tmux format, a seat's bar's, the same line in a dark terminal's colours whichever
+    process writes the bar, as the bar's colours are, so the menu's draws and the tick's never
+    disagree."""
+    cells, rest = share_parts(share, size)
     if tmux:
         return "".join(f"#[fg=#{colour(kind).rgb}]{text}"
-                       for kind, text in ((word, "".join(cells)), ("dim", rest)) if text) + "#[default]"
+                       for kind, text in ((word, cells), ("dim", rest)) if text) + "#[default]"
     if colour_depth() <= 8:   # nothing breathes there
-        return styled("".join(cells), word) + styled(rest, "dim")
+        return styled(cells, word) + styled(rest, "dim")
     # a cell at a time, so the tip is found to breathe (`menu.tips`)
     return "".join(styled(char, word) for char in cells) + styled(rest, "dim")
 
 
 def effort_cells(count, filled):
-    """An effort's level before its word, a cell for each of the `count` its model offers: the
-    first `filled` full and the rest open and dim (`▰▰▰▱▱` for high of five, the owner's pick of
-    18 Oct 2026); without UTF-8 `#` and `-`.  One effort is no level to show: no cell."""
-    full, empty = "▰▱" if utf8() else "#-"
-    return [full if n < filled else styled(empty, "dim") for n in range(count)] * (count > 1)
+    """An effort's level before its word: the bar (`share_parts`) a cell for each of the
+    `count` efforts its model offers, full up to its `filled`th and the rest dim, `━━━──` for
+    high of five.  One effort is no level to show: no cell."""
+    if count < 2:
+        return []
+    cells, rest = share_parts(filled / count, count)
+    return [*cells, *(styled(cell, "dim") for cell in rest)]
 
 
 def toggle(mark, width, kind=None):
@@ -1630,7 +1638,7 @@ def confirm(question, meaning, answer, around, wait=None):
     is asked on; False, kept, on Esc.
 
     The card is a blank line, the question, what the answer means dim, the two choices and a
-    blank line: `✓ Keep` first and highlighted, then `✗ <answer>` in the warn colour, read as
+    blank line: `✓ Keep` first and highlighted, then `× <answer>` in the warn colour, read as
     `choose` reads them, so Enter or a click answers.  `around(card, keys)` draws the screen it
     is asked on with the card's lines where they go, under the card's own key line, `keys`:
     Enter named for the highlighted answer (`⏎ keep`, `⏎ stop`), nothing of that screen's.  It

@@ -107,8 +107,8 @@ class Wash(Sandbox):
         self.screen((5, 3), clock)
         self.screen(clock=clock)                    # the pointer leaves
         frame, until = next(cell for (row, _), cell in clock.cells.items()
-                            if row == 3 and terminal.plain(cell[0](0)).startswith("▰"))
-        self.assertEqual(frame(until), terminal.styled("▰", "amber") * 5)
+                            if row == 3 and terminal.plain(cell[0](0)).startswith("━"))
+        self.assertEqual(frame(until), terminal.styled("━", "amber") * 5)
 
     def test_a_wide_label_is_washed_whole_from_its_first_cell(self):
         self.cfg["providers"]["anthropic"]["name"] = "界A"

@@ -168,13 +168,13 @@ class Bars(Sandbox):
             with self.subTest(depth=depth), \
                     patch.object(terminal, "colour_depth", return_value=depth):
                 rest = "\n".join(menu.usage_lines(self.cfg, 120))
-                # 50% left is five cells of ten, 15% two, and 3% still one, none in a colour
-                for cells in (5, 2, 1):
-                    self.assertIn("▰" * cells + terminal.styled("▱" * (10 - cells), "dim"), rest)
+                # 50% left is five cells of ten, 15% one and a half, 3% a half, none in a colour
+                for left in ("━━━━━", "━╸", "╸"):
+                    self.assertIn(left + terminal.styled("─" * (10 - len(left)), "dim"), rest)
                 lit = "\n".join(menu.usage_lines(self.cfg, 120, lit=1))
                 self.assertIn(terminal.styled("Claude", "#D97757"), lit)
-                self.assertIn(terminal.styled("▰" * 5, "#D97757") +
-                              terminal.styled("▱" * 5, "dim"), lit)
+                self.assertIn(terminal.styled("━" * 5, "#D97757") +
+                              terminal.styled("─" * 5, "dim"), lit)
                 self.assertNotIn(terminal.styled("Claude", "#D97757"), rest)
 
     def test_a_light_grey_of_the_callers_reads_as_its_mirror_on_a_light_background(self):
