@@ -898,8 +898,8 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
     They are host-wide now, so every live waiter counts whichever repository it
     checks.  Rank is a line's own check (`line`), then a run's own landing check (a fork's,
     which no line checks), then any round check; within each the longest wait, then the run id,
-    but in a rank whose every wait says whether its check holds a turn (`holds`), those holding
-    none go first and never hold each other back.
+    but between two waits that do not say whether their checks hold a turn (`holds`), those
+    holding none go first and never hold each other back.
     `--first` plays no part, or loop repairs starve every other suite under load.  A
     round check stays behind any line's check (`landing_waits`).  A landing wait -- a
     run's, or the line checker's that marks no record -- ranks by its own file
@@ -945,15 +945,18 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
     # neither, then for more turns for their pieces.  So in a rank, one holding none goes before
     # one asking for more, and two holding none never hold each other back: each takes a turn as
     # soon as one fits it.  The longest wait still decides each turn past a check's first; a
-    # share by turns held would need a count that its stale copies rank wrong.  A rank holding a
-    # wait that does not say -- a record's mark, a file from before 12 Nov 2026 -- goes by start
-    # alone, as its waiter reads it: two orders at once can each give a free turn to the next,
-    # round and round (a check asking for more to a younger one holding none, that one to an
-    # older wait on older code, and that one back to the first).
-    if any(wait[2] is None for wait in (me, *waits) if wait[:2] == me[:2]):
-        return any(wait[:2] + wait[3:] < me[:2] + me[3:] for wait in waits)
-    first = lambda wait: wait if wait[2] else wait[:3]
-    return any(first(wait) < first(me) for wait in waits)
+    # share by turns held would need a count that its stale copies rank wrong.  A wait that does
+    # not say -- a record's mark, a file from before 12 Nov 2026 -- ranks, and is ranked against,
+    # by its start alone, as its own waiter reads it.  So such waits cut a rank by start, and turns
+    # held order only waits between the same two cuts: across one, a check asking for more yielded
+    # to a younger one holding none, that one to the older wait on older code between them, and
+    # that one to the first, and nobody took the free turn.
+    def place(wait):
+        rank, holds, start = wait[:2], wait[2], wait[3:]
+        cuts = sum(other[:2] == rank and other[2] is None and other[3:] < start
+                   for other in (me, *waits))
+        return (*rank, cuts, 0) if holds is False else (*rank, cuts, 1 if holds else 2, *start)
+    return any(place(wait) < place(me) for wait in waits)
 
 
 class _Pieces:
