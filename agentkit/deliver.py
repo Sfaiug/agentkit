@@ -859,6 +859,8 @@ def land_from_line(lp, upstream, deliver):
                     lp.write()
                 return result
         finally:
+            # Merged, rejoined or failed, this delivery's turn is over: the next is woken.
+            landing.deliver_next(turn, lp.log)
             # Departures and changed-target rejoins were written under this flock.
             landing.start_line(turn, lp.log)
     if "fix" not in wait:

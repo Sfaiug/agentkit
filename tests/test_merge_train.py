@@ -90,7 +90,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         with patch.object(gate, "derived_heavy_limit", return_value=1):
             land.check_line(self.turn)
         self.assertEqual(len(self.checks), 1)
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [m.name for m in members])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [members[0].name])
         deepest, files = self.trees[0]
         self.assertTrue({f"member-{n}.txt" for n in range(1, 6)} <= files)
         for index, member in enumerate(members):
@@ -120,8 +120,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         # a red naming no test is narrowed by whole checks: green, the stack below the red lands
         # with every stack under it, and the rebuilt one lands the rest; the red waits for the
         # members ahead of it to leave the line
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [m.name for m in members[:3] + members[4:]])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [members[0].name])
         self.assertIn("fix", self.wait(members[3]))
         self.assertEqual(list(self.wait(members[3])["after"]), [m.name for m in members[:3]])
         good = members[:3] + members[4:]
@@ -172,6 +171,36 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertIn("land", self.wait(later))
         self.assertEqual(len(self.checks), 2)
         self.assert_cleaned()
+
+    def test_each_delivery_as_it_ends_wakes_the_next(self):
+        members = [self.member(f"member-{n}", joined=n, **{f"member-{n}.txt": f"{n}\n"})
+                   for n in range(1, 4)]
+        self.advance()
+        land.check_line(self.turn)
+        said = []
+        for n, ending in enumerate(("merged", "red"), 1):
+            directory = members[n - 1]
+            state = record.read_state(directory)
+            state.update(state="running")
+            lp = SimpleNamespace(state=state, wt=self.repo, run_dir=directory, base_sha=self.base,
+                                 target="main", log=said.append)
+            lp.write = lambda lp=lp: record.save_state(lp.run_dir, lp.state)
+            lp.write()
+            run.git(self.repo, "checkout", state["branch"])
+
+            def deliver(lp=lp, ending=ending):
+                if ending == "red":
+                    lp.state["waiting_on"] = {**lp.state["waiting_on"], "fix": {"line": "red", "log": "x"}}
+                    return False
+                run.git(self.repo, "push", "origin", "HEAD:main")
+                lp.state.update(state="pass", merged=True)
+                return True
+
+            self.assertEqual(delivery.land_from_line(lp, "origin/main", deliver), ending == "merged")
+            self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                             [m.name for m in members[:n + 1]])
+            self.assertEqual(said[-1], f"{members[n].name} delivers next in {self.turn.name}, "
+                                       f"{2 - n} waiting behind it")
 
     def test_a_head_parked_again_rechecks_its_failed_tree(self):
         member = self.member()
@@ -235,8 +264,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.advance()
         land.check_line(self.turn)
         self.assertIn("land", self.wait(first))
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name, last.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         self.assertTrue(any({"first.txt", "later.txt", "last.txt"} <= self.stacked_files(tree)
                             for tree in land._trees(self.turn)[1]))
         current = record.read_state(later)
@@ -277,8 +305,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         later = self.member("later", joined=3, **{"later.txt": "later\n"})
         self.advance()
         land.check_line(self.turn)
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         self.assertIn("land", self.wait(first))
         self.assertEqual(record.read_state(missing), original)
         self.assertTrue(any({"first.txt", "later.txt"} <= self.stacked_files(tree)
@@ -300,8 +327,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
 
         with patch.object(gitcall, "git_out", side_effect=fail_checkout):   # add_worktree runs inside gitcall
             land.check_line(self.turn)
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         self.assertTrue(any({"first.txt", "later.txt"} <= self.stacked_files(tree)
                             and "failed.txt" not in self.stacked_files(tree)
                             for tree in land._trees(self.turn)[1]))
@@ -316,8 +342,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         originals = {d: record.read_state(d) for d in (first, red, later)}
         self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
         land.check_line(self.turn)
-        self.assertEqual({call.args[0] for call in self.wake.call_args_list},
-                         {first.name, later.name})
+        self.assertEqual({call.args[0] for call in self.wake.call_args_list}, {first.name})
         self.assertIn("land", self.wait(first))
         fix = self.wait(red)["fix"]
         self.assertIn(suite, fix["line"])
@@ -348,8 +373,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         last = self.member("last", joined=5, **{"last.txt": "last\n"})
         self.advance()
         land.check_line(self.turn)
-        self.assertEqual({call.args[0] for call in self.wake.call_args_list},
-                         {first.name, middle.name, last.name})
+        self.assertEqual({call.args[0] for call in self.wake.call_args_list}, {first.name})
         self.assertEqual(list(self.wait(red)["after"]), [first.name])
         self.assertEqual(list(self.wait(other)["after"]), [first.name, middle.name])
         for directory in (red, other):
@@ -372,8 +396,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         run.git(self.repo, "config", "rebase.updateRefs", "true")
         original = record.read_state(clash)
         land.check_line(self.turn)
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name, last.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         self.assertEqual(record.read_state(clash), original)
         self.assertEqual(run.git(self.repo, "rev-parse", original["branch"]),
                          original["review"]["head_sha"])
@@ -413,7 +436,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         run.git(self.repo, "config", "rebase.updateRefs", "true")
         land.check_line(self.turn)
         self.assertCountEqual([call.args[0] for call in self.wake.call_args_list],
-                              [first.name, second.name, third.name])
+                              [first.name, third.name])
         self.assertIn("land", self.wait(first))
         self.assertIn("land", self.wait(second))
         fix = self.wait(third)["fix"]
@@ -438,7 +461,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.advance()
         land.check_line(self.turn)
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [head.name, later.name, last.name])
+                         [head.name, later.name])
         self.assertIn("fix", self.wait(head))
         self.assertIn("land", self.wait(later))
         self.assertIn("land", self.wait(last))
@@ -554,8 +577,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
             land.check_line(self.turn)
         self.assertEqual(len(self.checks), 2)
         self.assertEqual(len({cwd for _, cwd, _ in self.checks}), 2)
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         self.assert_members_deliver_in_order([first, later])
         self.assertEqual(len(self.checks), 2)
         self.assertEqual(land.line(self.turn), [])
@@ -568,8 +590,7 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         later = self.member("later", joined=4, **{"later.txt": "later\n"})
         self.advance()
         land.check_line(self.turn)
-        self.assertEqual({call.args[0] for call in self.wake.call_args_list},
-                         {first.name, clash.name, later.name})
+        self.assertEqual({call.args[0] for call in self.wake.call_args_list}, {first.name})
         self.assertNotIn("fix", self.wait(clash))
         self.assertNotIn("fix", self.wait(later))
         self.assertIn("land", self.wait(clash))

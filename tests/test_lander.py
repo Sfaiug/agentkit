@@ -171,8 +171,7 @@ class Lander(LanderFixture, unittest.TestCase):
         run.git(self.repo, "config", "rebase.updateRefs", "true")
         land.check_line(self.turn)
         self.assertEqual([cmds for cmds, _, _ in self.checks], [[ONCE, SUITE]])
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         tree = self.wait(first)["land"]
         self.assertEqual(self.wait(later)["land"], tree)
         for directory, original in originals.items():
