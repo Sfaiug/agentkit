@@ -89,7 +89,7 @@ func TestAFinishedPlanOwesItsCheckUntilOneReadWhatItsOwnerSaid(t *testing.T) {
 	write(filepath.Join(home, ".claude-previous", "projects", "-code-acme-before", "conv-1.jsonl"), said("01", "Add a retry button."))
 	owes(true, "said in a conversation it left")
 
-	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "astra", "cwd": "/code/acme", "conversation": "thread-1"}`)
+	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "gemini", "cwd": "/code/acme", "conversation": "conv-ag"}`)
 	if _, err := Finished("acme"); !errors.Is(err, ErrUnread) {
 		t.Errorf("a harness whose answers Go does not read: %v", err)
 	}

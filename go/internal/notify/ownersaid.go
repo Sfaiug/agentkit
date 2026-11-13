@@ -28,8 +28,9 @@ func OwnerSaid(name string) ([]float64, error) {
 
 // OwnerMessages is the conversation that seat's record owns and the owner's messages in it,
 // oldest first (notify.owner_messages), as Conversations reads them: none with no record or no
-// conversation to read; ErrUnread where its harness's are not Go's to read yet, and the error
-// where the seat's typing receipts cannot be read (strict).
+// conversation to read; ErrUnread where its harness's are not Go's to read yet, or one replies on a
+// question card, which only the questions it names take as answered (notify.answer_written), and
+// the error where the seat's typing receipts cannot be read (strict).
 func OwnerMessages(name string) (string, []transcript.Prompt, error) {
 	current, had, err := Listed(name, false)
 	if err != nil || len(had) == 0 {
@@ -40,6 +41,9 @@ func OwnerMessages(name string) (string, []transcript.Prompt, error) {
 	had = slices.DeleteFunc(had, func(was Conversation) bool { return was.Harness != now })
 	if err := Read(current, had, false); err != nil {
 		return "", nil, err
+	}
+	if slices.ContainsFunc(had[len(had)-1].Messages, func(message transcript.Prompt) bool { return harness.Replies(now, message.Text) }) {
+		return "", nil, ErrUnread
 	}
 	return had[len(had)-1].Name, had[len(had)-1].Messages, nil
 }
