@@ -47,24 +47,22 @@ with socket.socket(socket.AF_UNIX) as asked:
 
 
 class Machine(Home):
-    """A machine, `name`, with its root at `at`, among `machines`."""
+    """A machine, `name`, with its root at `at`."""
 
     def __init__(self, name, at):
         super().__init__(at=at)
-        self.name, self.machines = name, [self]
+        self.name = name
         self.sshd = self.tmux_dir / "sshd.sock"     # short, as a socket's path must be
         self.fake("ssh", f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -I -c "
                          f'{shlex.quote(SSH)} {shlex.quote(str(self.sshd))} "$@"\n')
 
     def on(self, env=None, cwd=None):
         """bwrap's words starting a command on this machine, with `env` over its environment, in
-        `cwd` on it or else its home; every machine's root, where the test's side keeps it,
-        is an empty folder there, past every bind that holds it, a checkout's TMPDIR's too."""
+        `cwd` on it or else its home.  Its root, bound over `at` past every bind that holds it,
+        a checkout's TMPDIR's too, covers every machine's, kept there on the test's side."""
         return ["bwrap", "--dev-bind", "/", "/", "--unshare-uts", "--hostname", self.name,
                 "--bind", self.root / "tmp", "/tmp",
                 *_binds(self.tmux_dir, REPO, Path(AK).resolve().parent),
-                *(word for machine in self.machines
-                  for word in ("--tmpfs", machine.root, "--remount-ro", machine.root)),
                 "--bind", self.root, self.at, "--chdir", cwd or self.env["HOME"], "--clearenv",
                 *(word for item in self._env(env).items() for word in ("--setenv", *item)), "--"]
 
@@ -84,7 +82,6 @@ class Machines(tuple):
         machines = super().__new__(cls, [Machine(name, at) for name in names])
         machines.sshds = []
         for machine in machines:
-            machine.machines = machines
             listener = socket.create_server(str(machine.sshd), family=socket.AF_UNIX)
             thread = threading.Thread(target=_sshd, args=(listener, machines), daemon=True)
             thread.start()
