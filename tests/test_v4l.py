@@ -111,7 +111,11 @@ class Babysitter(unittest.TestCase):
         self.typed.assert_not_called()
         self.tick(1)
         self.typed.assert_called_once()
-        self.tail += "\n›"  # even a prompt repaint gets a new quiet period
+        before = self.data["stalls"]["seat"]["changed_at"]
+        self.tail += "\n›"  # chrome drawn around the conversation does not restart the stand
+        self.tick(1)
+        self.assertEqual(self.data["stalls"]["seat"]["changed_at"], before)
+        self.tail = "Still trying\n" + self.tail
         self.tick(180)
         self.assertEqual(self.typed.call_count, 1)
         self.assertEqual(self.data["stalls"]["seat"]["changed_at"], self.now)
