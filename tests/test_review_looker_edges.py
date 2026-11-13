@@ -6,6 +6,7 @@ over while it read, or orphaned as it starts, refuses the event and leaves the c
 """
 
 import inspect
+import json
 import os
 from pathlib import Path
 import signal
@@ -94,6 +95,34 @@ class ReviewEdges(unittest.TestCase):
             else:
                 watch.hook_look(NAME)
         self.assertEqual(reads, [], "settling the account must use the looker's census too")
+
+    def test_an_empty_supplied_census_serves_the_usage_wait_decision_too(self):
+        owner, f = self.fixture("claude")
+        config.plan_path("acme-api").write_text("- [x] acme parser works\n")
+        watch.seat_write("acme-api", usage_wait={
+            "reason": "anthropic out of usage", "until": 20000,
+            "since": 10000, "continue": False})
+        # An empty filtered result can still stand for a large HOME's census.
+        for number in range(40):
+            directory = config.RUNS / f"20261113-{number:04d}-fix-api"
+            directory.mkdir()
+            (directory / "run.json").write_text(json.dumps({
+                "state": "pass", "launched_session": "other", "unattended": True}))
+        records = menu.run_records(cache=False, rest_may_lag=True)
+        self.assertEqual(records, [])
+        scandir, reads = os.scandir, []
+
+        def reading(path):
+            if Path(path) == config.RUNS:
+                reads.append(str(path))
+            return scandir(path)
+
+        with patch.object(os, "scandir", side_effect=reading):
+            if "records" in inspect.signature(watch.hook_look).parameters:
+                owner.look(f, records=records)
+            else:
+                owner.look(f)
+        self.assertEqual(reads, [], "a successful empty census must not trigger another full scan")
 
 
 class LookerLifecycle(unittest.TestCase):

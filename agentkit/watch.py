@@ -3168,9 +3168,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     """
     from . import status as status_mod    # status imports run, which imports this module
     from . import plan as plan_mod
+    census = records      # None while unread: what reads it then reads for itself, and fails
     if records is None:
         try:
-            records = menu_mod.run_records()
+            records = census = menu_mod.run_records()
         except (config.Error, OSError, ValueError):
             records = []
     if mine is None:
@@ -3221,9 +3222,8 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # One no limit cut off, its work done and live and nothing left to tell it, has nothing the
     # usage would continue, so it keeps its own word.  The owner, 2 Nov 2026: "Out of usage should
     # be when there is no more usage from the provider to continue."
-    # an empty census may be one that could not be read: that one reads for itself, and fails
     if (waiting and waiting.get("until") and not waiting.get("continue")
-            and work_live(name, records or None)
+            and work_live(name, census)
             and not news_owed(name, mine, bool(found.get("authority")))):
         waiting = None
     if harness and not gone and found.get("state") == "asking":
