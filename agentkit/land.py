@@ -654,10 +654,12 @@ def check_line(turn, log=lambda _: None):
                 prefix.append((directory, state))
                 continue
             if target is None:
-                repo = Path(state.get("worktree") or state["repo"])
+                # The project's checkout, not the member's: a member delivers as soon as it
+                # has its `land`, its checkout going with it, while this pass goes on.
+                repo = Path(state["repo"])
                 gitcall.no_auto_gc(repo)
                 # The repository's machine-side settings, as a run's own checks get them.
-                os.environ.update(config.repo_env(Path(state["repo"])))
+                os.environ.update(config.repo_env(repo))
                 upstream = _upstream(state)
                 run.fetch(repo, "origin", "--prune", check=True)
                 tip = run.git(repo, "rev-parse", f"{upstream}^{{commit}}")
