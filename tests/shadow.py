@@ -153,6 +153,7 @@ sys.exit(int(sys.argv[1]))' "$code" >"$peak"
 KEEP = """import ctypes, os, signal, subprocess, sys, time
 WAKE = {signal.SIGTERM, signal.SIGCHLD}
 signal.pthread_sigmask(signal.SIG_BLOCK, WAKE)
+signal.signal(signal.SIGCHLD, signal.SIG_DFL)   # inherited ignored, no child's end sends one
 libc = ctypes.CDLL(None)
 libc.prctl(36, 1, 0, 0, 0)                  # subreaper
 libc.prctl(1, signal.SIGTERM, 0, 0, 0)      # its parent's death, a SIGTERM
