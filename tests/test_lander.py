@@ -54,8 +54,11 @@ class LanderFixture:
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         config.ensure_dirs()
         self.stack.enter_context(patch.object(land, "start_line"))
+        # a pass's length is the host's load: one that wrote nothing shrinks no later pass here
+        # unless a test says it checked something (test_lander_every_pass_moves_the_line)
+        self.stack.enter_context(patch.object(land, "CHECKED", float("inf")))
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
-        self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
+        self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=os.getpid()))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         for module, name in ((worker, "turn"), (worker, "call"), (roundloop, "resolve_conflicts"),
                              (run, "do_merge"), (run, "stop_run_tree")):
@@ -168,8 +171,7 @@ class Lander(LanderFixture, unittest.TestCase):
         run.git(self.repo, "config", "rebase.updateRefs", "true")
         land.check_line(self.turn)
         self.assertEqual([cmds for cmds, _, _ in self.checks], [[ONCE, SUITE]])
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         tree = self.wait(first)["land"]
         self.assertEqual(self.wait(later)["land"], tree)
         for directory, original in originals.items():
@@ -386,7 +388,7 @@ class Lander(LanderFixture, unittest.TestCase):
     def test_a_crash_after_the_verdict_retries_the_wake_without_checking(self):
         directory = self.member()
         self.advance()
-        self.wake.side_effect = [RuntimeError("crash before wake"), 999]
+        self.wake.side_effect = [RuntimeError("crash before wake"), os.getpid()]
         with self.assertRaisesRegex(RuntimeError, "crash before wake"):
             land.check_line(self.turn)
         verdict = self.wait(directory)

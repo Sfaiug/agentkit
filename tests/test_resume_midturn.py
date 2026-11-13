@@ -168,6 +168,21 @@ class ResumeMidturn(unittest.TestCase):
             harness="claude", auth_out={}, gh_out={}, token_out={}, previous={})
         self.assertEqual(word["word"], "working")
 
+    def test_a_terminal_following_the_run_does_not_keep_the_tick_from_its_dead_loop(self):
+        directory = self.receipt("20261001-0300-fix-api")
+        # the follower, re-executed into the run's own version as `versions.dispatch` does
+        ak = self.root / "versions" / "abc123" / "bin" / "ak"
+        ak.parent.mkdir(parents=True)
+        ak.write_text("import sys\nsys.stdin.read()\n")
+        follower = subprocess.Popen([sys.executable, str(ak), "run", "resume", directory.name],
+                                    stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
+        self.addCleanup(follower.wait)
+        self.addCleanup(follower.stdin.close)
+        while directory.name not in Path(f"/proc/{follower.pid}/cmdline").read_text():
+            pass
+        watch.resume_dead_loops(dry_run=False, log=self.logs.append, now=self.now)
+        self.assertEqual(self.resumed, [directory.name])
+
     def test_launch_grace_and_an_ordered_resume_are_left_alone(self):
         grace = self.receipt("20260922-1301-grace", state="queued", launch_pending=True,
                              queued_at=self.now, process_identity=None)
