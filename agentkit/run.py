@@ -1595,6 +1595,7 @@ def cmd_merge(argv):
     previous = getattr(_RUN_CONTEXT, "state", {})
     _RUN_CONTEXT.state = state
     clear_delivery(state)
+    jobs.answer_job_line(state)
     # the merge step's time is checkpointed as a loop's is, so a retry killed here keeps it
     sampler = history.Sampler(run_dir.name, log=log)
     sampler.start()
@@ -1997,6 +1998,8 @@ def resume_run(argv):
         state.pop("stall_resume_at", None)
         state.pop("resume_after", None)
         run_record.save_state(run_dir, state)
+    # past the slot lock: a tick typing the job's line holds the job's lock until it is said
+    jobs.answer_job_line(state)
     log = logger(run_dir)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
     if not child:
