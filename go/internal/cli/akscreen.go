@@ -9,7 +9,6 @@ import (
 
 	"agentkit/internal/menu"
 	"agentkit/internal/motion"
-	"agentkit/internal/plan"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tick"
@@ -80,7 +79,7 @@ func readFrame(now time.Time, take func(seat.Home, time.Time) error) (reading, b
 		if each.Past() {
 			continue
 		}
-		done, total := plan.Progress(each.Name)
+		done, total := each.Progress()
 		builds, reviews := home.Crew(each)
 		model, alone := home.ModelName(each)
 		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: model, Alone: alone,
