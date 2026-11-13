@@ -497,7 +497,7 @@ def answered(session, at, typed=None, replies=None):
     `typed` dates a message of the owner's read from the seat's conversation (`answer_written`):
     it answers only what was asked before it (`asked_at`), judged here, where the seat cannot
     ask another meanwhile.  `replies` name what a native card's answer answered (`replied`):
-    only those questions, the rest standing.  True once a question was answered.
+    only those, and those one takes the place of (`again`).  True once one was answered.
     """
     from . import watch    # here, not at the top: watch imports this module
     with session_lock(session) as session:
@@ -505,8 +505,8 @@ def answered(session, at, typed=None, replies=None):
         # as its turn's end will record it (`_said`)
         renewed = {question_key(q["text"]): q.get("id")
                    for q in watch.questions_kept(watch.seat_read(session).get("unasked"))}
-        partial = (watch.answered_kept(session, replies, typed or at)
-                   if replies is not None else False)
+        took = watch.answered_kept(session, replies, typed or at) if replies is not None else []
+        partial = bool(took)
         ask_kept(session, ended=True)
         previous = dict(last(session) or {})      # its own: what is answered goes in below
         if replies is None and typed is not None and not typed > (asked_at(session) or math.inf):
@@ -514,7 +514,7 @@ def answered(session, at, typed=None, replies=None):
         if previous and previous.get("watcher") is True:
             return
         if replies is not None and previous:
-            matched = card_answered(previous, replies, typed or at, renewed)
+            matched = card_answered(previous, replies, typed or at, renewed, again(took))
             if not matched:
                 return partial
             remaining = [q for q in questions(previous) if q not in matched]
@@ -567,13 +567,22 @@ def replied(replies, question, card):
     return words(question).casefold() in {words(text).casefold() for text in said}
 
 
-def card_answered(notice, replies, at, renewed):
+def card_answered(notice, replies, at, renewed, before=-math.inf):
     """The questions that notice asks which a native card's `replies` answer, each said before
-    `at`: by its own card, or the newer card of its words kept back since (`renewed`)."""
+    `at`: by its own card, or the newer card of its words kept back since (`renewed`); and each
+    said `before`, whose place a kept question they answer took (`again`)."""
     ids = {**(notice.get("question_ids") or {}), **renewed}
     dates = notice.get("question_times") or notice.get("asked_at") or {}
     return [q for q in questions(notice) if replied(replies, q, ids.get(question_key(q)))
-            and dates.get(question_key(q), notice["time"]) < at]
+            and dates.get(question_key(q), notice["time"]) < at
+            or dates.get(question_key(q), notice["time"]) < before]
+
+
+def again(kept):
+    """The moment before which every question their seat said is one those kept questions take
+    the place of, whatever their words: the latest it was reopened told to ask again before one
+    was said (`watch.asking_again`), else -inf.  Nothing clears it: one said since is newer."""
+    return max((q["asked_again"] for q in kept if "asked_again" in q), default=-math.inf)
 
 
 def spoken_at(notice):
@@ -1521,7 +1530,7 @@ def shaped(kind, text, paths=(), session=None, dry_run=False, event_id=None, que
 
 
 def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times=None,
-          question_ids=None):
+          question_ids=None, replaces=-math.inf):
     """Record what that session said, under its notice lock, which the caller holds; the
     notice it replaced, or None.  A watcher's repeated event re-records nothing, nor does its
     alert while the seat's own question stands unanswered.  A question -- `text` one, or the
@@ -1529,7 +1538,8 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
     (asked again, it is dated anew), and the owner's one prompt after it answers them all
     (`answered`).  `at` dates it where it was said before now, never before those it is asked
     beside.  `said_at` is when the seat said what it kept back for its turn's end: the notice
-    keeps the latest moment any question it asks was said (`answer_typed`)."""
+    keeps the latest moment any question it asks was said (`answer_typed`).  Those standing
+    said before `replaces` leave it to the first of `text`, asked from their time (`again`)."""
     from . import watch
     previous = last(name, include_seen=True)
     if event_id and previous and previous.get("source") == event_id:
@@ -1551,12 +1561,20 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
         dated = dict(previous.get("asked_at") or {}) if standing else {}
         said_dates = dict(previous.get("question_times") or dated) if standing else {}
         ids = dict(previous.get("question_ids") or {}) if standing else {}
+        gone = {words for words in seen if said_dates.get(words, previous["time"]) < replaces}
+        first = min((dated.get(words, previous["time"]) for words in gone), default=None)
+        for words in gone:
+            dated.pop(words, None), said_dates.pop(words, None), ids.pop(words, None)
+        standing = [q for q in standing if question_key(q) not in gone]
+        asked, seen = list(standing), seen - gone
         for question in [text] if isinstance(text, str) else text:
             words = question_key(question)
             if words not in seen:
                 seen.add(words)
                 asked.append(question)
-            dated[words] = time.time() if at is None else at
+                fresh += first is None      # the first in their place is none new
+            dated[words] = (time.time() if at is None else at) if first is None else first
+            first = None
             original = (question_times or {}).get(words, dated[words])
             # A delayed Stop can bring an older copy of a question already repeated.
             if question_times is None or original > said_dates.get(words, -math.inf):
@@ -1565,8 +1583,9 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
         text = ALSO.join(asked)
         if len(asked) > 1:
             extra["questions"] = asked
-        if not extra["watcher"]:
-            fresh = len(asked) - len(standing)
+        if extra["watcher"]:
+            fresh = 0
+        else:
             extra["asked_at"] = dated
             extra["question_times"] = said_dates
             extra["question_ids"] = ids
@@ -1697,7 +1716,8 @@ def _intent(name, done_at):
 
 def ask_kept(name, ended=False):
     """The turn that seat asked in has ended: the questions it kept back become its notice,
-    as the command would have recorded them, dated at that end (`watch.turn_ended`).
+    as the command would have recorded them, dated at that end (`watch.turn_ended`), but those
+    one of them takes the place of (`again`).
 
     The caller holds `session_lock(name)`.  With `ended` it asks only those whose turn's end
     is already on record, which are the first kept: the caller has not looked at the seat
@@ -1712,11 +1732,12 @@ def ask_kept(name, ended=False):
         return False
     stamps = [question.get("ended") for question in kept]
     spoken = [question.get("at") for question in kept]
-    _said(name, "needs", [question["text"] for question in kept],
+    before = again(kept)
+    _said(name, "needs", [q["text"] for q in kept if not q.get("asked_again", -math.inf) < before],
           at=None if None in stamps else max(stamps),
           said_at=None if None in spoken else max(spoken),
           question_times={question_key(q["text"]): q["at"] for q in kept if "at" in q},
-          question_ids={question_key(q["text"]): q.get("id") for q in kept})
+          question_ids={question_key(q["text"]): q.get("id") for q in kept}, replaces=before)
     watch.kept_asked(name, kept)
     return True
 

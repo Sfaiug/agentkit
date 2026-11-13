@@ -2532,6 +2532,7 @@ def reopen(cfg, name, **kw):
     from . import watch   # here, not at the top: it imports this module
     ended = watch.seat_stopped_at(name) or watch.seat_closed_by_owner(name)
     at, line = time.time(), None if ended else watch.cut_off(cfg, name)[1]
+    watch.asking_again(name, line)
     back = resume(cfg, name, hand_over=False, line=line, **kw)
     if line and back == "resumed":
         watch.relaunched(name, watch.seat_model(cfg, name)[0], line, at)

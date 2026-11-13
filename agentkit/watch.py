@@ -635,6 +635,13 @@ def _cut_line(cfg, name):
     return None
 
 
+def asking_again(name, line):
+    """Stamp on its record, before its process starts, the moment that seat goes back told to ask
+    again (ASKED_LINE): its next question takes the place of all it said before (`notify.again`)."""
+    if line and line.startswith(ASKED_LINE):
+        seat_write(name, asked_again=time.time())
+
+
 def resume_after_boot(cfg, dry_run=False, log=print):
     """Claim each owned, absent seat that still owes work before restarting it, once per
     kernel boot.
@@ -685,6 +692,7 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             _write_state(state)       # a failed or interrupted launch is never repeated this boot
             try:
                 at = time.time()
+                asking_again(name, line)
                 back = orch.resume(cfg, name, log=lambda _: None, detached=True,
                                    hand_over=False, line=line)
                 log(f"resumed {name} after reboot")
@@ -2457,15 +2465,16 @@ def keeps_back(name):
 
 def questions_kept(unasked):
     """The questions a seat's record keeps back for their turn's end, in the order kept, each
-    with when the seat said it (`at`) and that end (`ended`) once each is on record.  One the
-    older install kept is one."""
+    with when the seat said it (`at`), that end (`ended`) once each is on record, and its last
+    reopening to ask again before (`asked_again`).  One the older install kept is one."""
     if not isinstance(unasked, dict):
         return []
     listed = unasked.get("questions")
     if not isinstance(listed, list):
         listed = [unasked]
     return [{"text": q["text"], "id": q.get("id"),
-             **{key: q[key] for key in ("at", "ended") if _stamp(q.get(key)) is not None}}
+             **{key: q[key] for key in ("at", "ended", "asked_again")
+                if _stamp(q.get(key)) is not None}}
             for q in listed if isinstance(q, dict) and isinstance(q.get("text"), str)]
 
 
@@ -2482,7 +2491,8 @@ def keep(name, text, question_id=None):
         with seat_lock(name):
             data = seat_read(name)
             kept = [*questions_kept(data.get("unasked")),
-                    {"text": text, "at": time.time(), "id": question_id}]
+                    {"text": text, "at": time.time(), "id": question_id,
+                     "asked_again": data.get("asked_again")}]
             _seat_put(name, data, {"unasked": _kept(kept), "wait": None})
     except (OSError, config.Error) as exc:
         print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
@@ -2522,10 +2532,11 @@ def kept_asked(name, kept):
 
 def answered_kept(name, replies, at):
     """A native card reply answers only its questions, including before the turn ends: its own
-    card's copy, and every copy of a question whose latest card it is.  Each question it answers
+    card's copy, every copy of a question whose latest card it is, and those they take the place
+    of (`notify.again`), each in the wait of the first that took it.  Each question it answers
     is the owner's time, asked when first kept and answered at `at`, unless the reply naming it
     also answers a question the seat's notice asks (`notify.card_answered`), whose answer
-    records it.  The caller holds the notice lock."""
+    records it.  What it answered; the caller holds the notice lock."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
@@ -2536,21 +2547,27 @@ def answered_kept(name, replies, at):
                 notify.replied([reply], q["text"], card)
                 for card in (q.get("id"), latest[notify.question_key(q["text"])]))
         answered = [q for q in kept if any(answers(reply, q) for reply in replies)]
+        before = notify.again(answered)
+        first = next((q for q in answered if q.get("asked_again") == before), None)
+
+        def lead(q):        # the question whose wait that one is: one kept before, the first's
+            return first if q.get("asked_again", -math.inf) < before else q
+        answered = [q for q in kept if q in answered or lead(q) is first]
         if not answered:
-            return False
+            return []
         _seat_put(name, data, {"unasked": _kept([q for q in kept if q not in answered])})
     notice = notify.last(name)
-    noticed = [reply for reply in replies
-               if notice and notify.card_answered(notice, [reply], at, latest)]
+    noticed = [reply for reply in replies if notice and notify.card_answered(
+        notice, [reply], at, latest, before if first and answers(reply, first) else -math.inf)]
     asked = {}
     for q in answered:
-        key = notify.question_key(q["text"])
-        if not any(answers(reply, q) for reply in noticed):
-            asked[key] = min(q["at"], asked.get(key, math.inf))
+        key = notify.question_key(lead(q)["text"])
+        if not any(answers(reply, lead(q)) for reply in noticed):
+            asked[key] = min(q.get("at", at), asked.get(key, math.inf))
     for moment in asked.values():
         history.owner_time("asked", moment, session=name)
     notify.waited(name, {"asked_at": asked}, at)
-    return True
+    return answered
 
 
 def ask_kept_back(name, harness, found, held=False):
@@ -7312,6 +7329,7 @@ def revive_seats(cfg, log):
         if len(deaths) == 2:
             why = "it died again both times it was reopened within the hour"
         elif line:
+            asking_again(name, line)
             why = revive(name, line, log, cfg, prepare=lambda line: line)
         else:
             why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
