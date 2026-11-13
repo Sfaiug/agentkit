@@ -254,17 +254,28 @@ func TestCleanSavesTheWorkTakesTheCheckoutAndARepeatIsNothing(t *testing.T) {
 }
 
 func TestCleanLeavesACheckoutItCannotSave(t *testing.T) {
-	l, r := repoRig(t)
-	shell(t, r.wt, "echo x >> widget.txt; git add -A; git -c user.name=a -c user.email=a@b commit -qm one; git checkout -q --detach; echo y > off.txt")
-	err := Clean(filepath.Base(l.dir), &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "left worktree "+r.wt+": could not save its work on ak/acme") {
-		t.Fatalf("err %v", err)
-	}
-	if _, statErr := os.Stat(r.wt); statErr != nil {
-		t.Fatal("the checkout went with its work")
-	}
-	if record, _ := run.Read(l.dir); !record.Truthy("checkout_kept") {
-		t.Fatalf("record %s", run.Line(record))
+	for name, script := range map[string]string{
+		"detached": "echo x >> widget.txt; git add -A; git commit -qm one; git checkout -q --detach; echo y > off.txt",
+		// the first pick resolved and committed by hand leaves the second queued, with no CHERRY_PICK_HEAD
+		"queued pick": "git checkout -q -b side && echo theirs > widget.txt && git commit -qam theirs && " +
+			"echo two > two.txt && git add two.txt && git commit -qm two && git checkout -q ak/acme && " +
+			"echo ours > widget.txt && git commit -qam ours && ! git cherry-pick side~1 side 2>/dev/null && " +
+			"git add widget.txt && git commit -q --no-edit && test -f \"$(git rev-parse --git-path sequencer/todo)\"",
+	} {
+		t.Run(name, func(t *testing.T) {
+			l, r := repoRig(t)
+			shell(t, r.wt, script)
+			err := Clean(filepath.Base(l.dir), &bytes.Buffer{})
+			if err == nil || !strings.Contains(err.Error(), "left worktree "+r.wt+": could not save its work on ak/acme") {
+				t.Fatalf("err %v", err)
+			}
+			if _, statErr := os.Stat(r.wt); statErr != nil {
+				t.Fatal("the checkout went with its work")
+			}
+			if record, _ := run.Read(l.dir); !record.Truthy("checkout_kept") {
+				t.Fatalf("record %s", run.Line(record))
+			}
+		})
 	}
 }
 
