@@ -26,8 +26,8 @@ from fixtures.hookdrive import Hooks
 PROMPT = "claude-prompt-pane.txt"
 
 
-# `done`: its whole job is finished and live, "until the owner has been in the seat since".
-# [14, 20 Oct 2026]
+# `done`: its whole job is finished and live, until the owner gives it new work.
+# [14, 20 Oct, 13 Nov 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class PlanWords(unittest.TestCase):
     def setUp(self):

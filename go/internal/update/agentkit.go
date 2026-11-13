@@ -59,6 +59,17 @@ func moveAgentkit(env []string, checkout string, out io.Writer, target string, f
 		return 0
 	}
 	upgrade.Close()
+	// here until install.sh passes: the swap moves HEAD, so origin/main is no longer ahead of
+	// it, and only this says the install is owed
+	pending := filepath.Join(config.Home(), "state", "agentkit-install-pending")
+	if (fetch || target != "") && keptVersion() != "" {
+		// no move starts before the last is final (Final); an owed install still runs
+		fmt.Fprintln(out, "update: agentkit: moves once a tick of the version live now completes")
+		if !exists(pending) {
+			return 0
+		}
+		target, fetch = "", false
+	}
 	if fetch {
 		if code := step(env, out, "git", "-C", checkout, "fetch", "--quiet", "origin", "main"); code != 0 {
 			return code
@@ -69,9 +80,6 @@ func moveAgentkit(env []string, checkout string, out io.Writer, target string, f
 			return 0
 		}
 	}
-	// here until install.sh passes: the swap moves HEAD, so origin/main is no longer ahead of
-	// it, and only this says the install is owed
-	pending := filepath.Join(config.Home(), "state", "agentkit-install-pending")
 	owed := exists(pending)
 	if err := os.WriteFile(pending, nil, 0o666); err != nil {
 		fmt.Fprintf(out, "update: %s\n", config.PyError(err))

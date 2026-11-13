@@ -15,7 +15,6 @@ import (
 // it kept back; before the look its sight is none, which no rung's refusal hangs on.
 type climbing struct {
 	state, name, own string
-	server           string // the tmux server its session is on
 	mine             []ran
 	file, notice     *run.Object
 	tick             *run.Object // watch.json, read once for the whole climb (tickFound)
@@ -76,7 +75,7 @@ func climbingOf(state string, seat Seat, found sight, now float64) climbing {
 	if file == nil {
 		file = run.NewObject()
 	}
-	return climbing{state: state, name: seat.Name, own: seat.own, server: seat.server(), mine: seat.mine, file: file,
+	return climbing{state: state, name: seat.Name, own: seat.own, mine: seat.mine, file: file,
 		notice: notify.Last(seat.Name), tick: tickFound(state), found: found, now: now}
 }
 
@@ -298,8 +297,8 @@ func stillOwed(facts climbing) (*answer, error) {
 }
 
 // planFinished: a plan whose every line is proven is done, which ak reads and nobody declares; it
-// says what it did last, until the owner has visited it since.  A run of its own still waiting on
-// the owner, runUndecided reads.
+// says what it did last, until the owner gives it new work: a visit ends nothing
+// (watch._session_state).  A run of its own still waiting on the owner, runUndecided reads.
 func planFinished(facts climbing) (*answer, error) {
 	finished, err := plan.Finished(facts.name)
 	if err != nil {
@@ -307,9 +306,6 @@ func planFinished(facts climbing) (*answer, error) {
 	}
 	if !finished {
 		return nil, nil
-	}
-	if facts.visited() {
-		return &answer{word: "idle", since: facts.found.began}, nil
 	}
 	return &answer{word: "done", reason: config.Fold(plan.LastDone(facts.name)), since: facts.found.began}, nil
 }

@@ -21,12 +21,13 @@ type Conversation struct {
 // one it left, as its record keeps them (`left`), then its current one, the owner's messages in
 // each without the lines ak typed (withoutAk); none with no record.  ErrUnread where Go does not
 // read one, and strictly, with none of them read, where Go does not read the owner's words in one
-// as strictly as Python's done check does (harness.Reads); the error where the seat's typing
-// receipts cannot be read, and strictly where a conversation is there and cannot be read.
+// as strictly as Python's done check does (harness.Reads); read strictly as Python's done check
+// reads, the error where the seat's typing receipts, a conversation or the evidence proving it is
+// there and cannot be read.
 func Conversations(name string, strictly bool) ([]Conversation, error) {
 	current, had, err := Listed(name, strictly)
 	if err == nil {
-		err = Read(current, had, strictly)
+		err = Read(current, had, true)
 	}
 	if err != nil {
 		return nil, err
@@ -92,5 +93,5 @@ func Read(current string, had []Conversation, strictly bool) error {
 		had[i].Name, _ = owned.(string)
 		had[i].Messages, whole[i] = typed, err == nil
 	}
-	return withoutAk(current, had, whole)
+	return withoutAk(current, had, whole, strictly)
 }
