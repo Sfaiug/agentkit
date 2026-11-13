@@ -41,6 +41,14 @@ func Answered(name string, record map[string]any) ([]Turn, []Card, error) {
 	return nil, nil, nil
 }
 
+// Replies is whether that message of the owner's, in a conversation of that harness, is their
+// reply on a question card, which counts only as the answers it gave (Answered): its words repeat
+// the seat's question (Python's `user_messages` `replies`).
+func Replies(name, text string) bool {
+	hook := plugins[name].replies
+	return hook != nil && hook(text)
+}
+
 // Entries calls each with every JSON object the file at path holds a line, first line first, as
 // Python's harness.entries reads a growing record: an unfinished last line can wait, and no
 // path or no file holds none.  What cannot be read is an error.
