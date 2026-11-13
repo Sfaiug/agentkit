@@ -101,15 +101,14 @@ func told(riders []rider) string {
 	var lines []ridingLine
 	for _, each := range riders {
 		if each.ending {
-			// a line that cannot be told leaves the run waiting, its change going live with it
+			// an ending not told, its line not fitting or its record busy, leaves the run waiting, its
+			// change going live with it: that is never told before the merge it follows
 			line := handbackLine(each.said, each.dir, true, each.live)
-			if line == "" {
+			if line == "" || !markBy(run.DeliverNow, each.dir, each.said, toldMarks(saidLive(each.live, "live_notified", now()))...) {
 				continue
 			}
-			if markBy(run.DeliverNow, each.dir, each.said, toldMarks(saidLive(each.live, "live_notified", now()))...) {
-				at, _ := each.said.Num("finished_at")
-				lines = append(lines, ridingLine{at, line})
-			}
+			at, _ := each.said.Num("finished_at")
+			lines = append(lines, ridingLine{at, line})
 		}
 		if each.alone {
 			line := seatNotice(each.said, each.dir, liveSentence(each.said, each.dir), "run "+filepath.Base(each.dir)+" is live.",
