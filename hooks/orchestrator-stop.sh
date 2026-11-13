@@ -193,8 +193,8 @@ def questioned(payload):
 
     Input in the owner's words, as their harness tells them from its bookkeeping
     (`harness.prompt`), ends the scan: what was asked before it is answered or set aside.
-    Codex's async card is not read here: ak records it before Codex draws it
-    (`harness.codex.ask`), and that record says whether it stands, taken back too.
+    An async card is not read here: ak records it before its harness draws it (the plugin's
+    `ask`), and that record says whether it stands, taken back too.
     """
     answered = set()
     for entry in transcript(payload):
