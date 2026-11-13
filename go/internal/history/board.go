@@ -73,6 +73,14 @@ func (db *DB) Dones(since, until float64) ([]Row, bool) {
 		"FROM dones WHERE at >= ? AND at <= ?", since, until)
 }
 
+// Rewrites are the real runs that took a plan line live in the inclusive range, each with whether
+// `ak plan check` replaced that line's check within 14 days of its going live (`rewritten`).
+func (db *DB) Rewrites(since, until float64) ([]Row, bool) {
+	return db.read("SELECT session, plan_line, live_at, check_rewritten_at IS NOT NULL AS rewritten "+
+		"FROM runs WHERE session IS NOT NULL AND plan_line IS NOT NULL "+
+		"AND live_at >= ? AND live_at <= ? AND "+realWork, since, until)
+}
+
 // SeatUsage is what the seats spent in the inclusive range, by project, as Python's
 // seat_tokens.read returns it once the seats' files are read (SeatTokens): none where no seat
 // ever had a table made.

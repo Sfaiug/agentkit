@@ -10,6 +10,11 @@ the same task replaced is settled, marked `replaced`, and never resumed.  Withou
 quota hit is a dead run the owner relaunches by hand.  Black-box: the program `AK_BIN` names
 runs from outside through tests/fixtures/akbin.py, with harnesses from fakeadapter.py whose
 meters the test sets, on the bare origin of gitrig.py and the GitHub of fakegh.py.
+
+Owner, 12 Nov 2026: the tick stays what resumes it.  A run that slept until its window's reset
+time and resumed itself (part of write-up row 44) is not built: in the fortnight before, 323 of
+3,264 runs waited on a window, each resumed minutes after it refilled, at most 27 of some 16,500
+hours of waiting.
 """
 
 import json

@@ -88,6 +88,7 @@ class Switch(Sandbox):
         self.stack.enter_context(patch.dict(
             os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
         self.calls, self.fail, self.composer = [], set(), ""
+        self.pid = None     # the pane's process, named
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.seat = {"name": "fix-api", "path": str(self.root), "created": 100,
                      "attached": False, "exited": False, "legacy": False}
@@ -120,6 +121,8 @@ class Switch(Sandbox):
         self.calls.append(pane.resolved(args))
         if args[0] in self.fail:
             return 1, "boom"
+        if self.pid and args[-1] == "#{pane_id}\t#{pane_pid}":
+            return 0, f"%7\t{self.pid}"
         if args[0] == "send-keys":     # a typed line stands in the composer until its Enter
             self.composer = args[-1] if "-l" in args else ""
         return 0, (PROMPT.replace("❯\xa0\n", f"❯\xa0{self.composer}\n")
@@ -180,7 +183,10 @@ class Switch(Sandbox):
         config.remove_model(self.cfg, "opus")     # fix-api is still open on it
         selected = self.selected()                # its record reads, on the models left
         self.assertEqual(selected["orchestrator"], "opus")
-        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}), "")
+        self.pid = 4207     # its pane runs claude, through which its empty field is read
+        with patch.object(orch, "processes", return_value={self.pid: (1, ["claude"])}):
+            self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
+                             "")
         self.assertEqual(config.load_session(self.cfg, "fix-api")["orchestrator"], "astra")
         respawns = [args for args in self.calls if args[0] == "respawn-pane"]
         self.assertEqual(len(respawns), 1)

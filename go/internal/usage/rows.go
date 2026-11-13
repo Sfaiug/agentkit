@@ -20,10 +20,10 @@ var signs = map[string]string{"USD": "$", "EUR": "€", "GBP": "£"}
 
 // Rows is a row per subscription as `ak usage` prints it, each account of a provider listing
 // several its own, Python's usage.rows: its label and models, what its tightest week has left,
-// the tokens that week holds, its price a month, when the shared week resets, how far the
-// tightest week has run, what its session has left, the resets it holds, its headroom, budget and
-// outlook, `-` for what it reports none of.
-func (r *Readings) Rows(screen terminal.Screen) [][]string {
+// what the shared week of its plan, as plans holds it, holds at list prices, its price a month,
+// when the shared week resets, how far the tightest week has run, what its session has left, the
+// resets it holds, its headroom, budget and outlook, `-` for what it reports none of.
+func (r *Readings) Rows(screen terminal.Screen, plans map[Week]Plan) [][]string {
 	var rows [][]string
 	for _, each := range r.logins() {
 		name, prov := each.provider, each.prov
@@ -35,11 +35,10 @@ func (r *Readings) Rows(screen terminal.Screen) [][]string {
 			}
 		}
 		shared := r.sharedWeek(name, prov)
-		held, _ := holds(name, each.account, shared)
 		resets, counted := reading(prov, "resets")
 		room, known := headroom(week)
 		rows = append(rows, []string{each.label, cmp.Or(strings.Join(src.Models, ", "), "-"), percent(left(week)),
-			heldText(screen, held, shared), buysText(screen, src.Price, held, shared),
+			heldText(screen, plans[r.week(each)], shared), digits(src.Price),
 			cmp.Or(resetWhen(shared, r.now), "-"), percent(reading(week, "elapsed")),
 			percent(left(sess)), fixed(resets, counted, 0), fixed(room, known, 1),
 			budgetLabel(providerBudget(prov, r.now)), outlook(prov)})

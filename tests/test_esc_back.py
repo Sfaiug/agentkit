@@ -340,11 +340,10 @@ class EscBack(unittest.TestCase):
         menu_.back("config_matrix", config_)
         menu_.leave()
 
-    def test_a_notice_waits_for_esc_with_the_terminal_given_back(self):
+    def test_a_notice_waits_for_esc_in_its_frame(self):
         menu_ = Menu(self, notice="update: agentkit moved on")
-        menu_.until(lambda text: "update: agentkit moved on" in text and "esc back " in text,
-                    "the notice")
-        menu_.back("pause", None)
+        menu_.back("pause", lambda lines: title("note")(lines)
+                   and "  update: agentkit moved on" in lines)
         menu_.leave()
 
     def test_a_screen_waiting_on_a_fetch_lets_q_go_and_goes_back_on_esc(self):

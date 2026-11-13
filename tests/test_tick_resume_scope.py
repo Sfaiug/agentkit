@@ -103,7 +103,7 @@ class TickResumeScope(unittest.TestCase):
             with patch.object(run.time, "sleep"), \
                     patch.object(jobs, "job_await", side_effect=lambda directory, **_kw:
                                  record.read_state(directory)), \
-                    patch.object(jobs, "job_wait_login", return_value=True):
+                    patch.object(jobs, "job_wait_parked", return_value=True):
                 jobs.job_ladder(self.cfg, None, {}, {"name": "fix-api"}, mine,
                                record.read_state(mine), 0, self.logs.append, None)
             self.assertEqual([call.args[0] for call in spawn.call_args_list], [lone, mine])
