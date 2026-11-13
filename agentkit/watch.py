@@ -2879,16 +2879,16 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
         notify.answer_written(name)
     cfg = config.load()
     harness = seat_model(cfg, name)[0]
-    # A turn its harness says failed settles its account before its word is told, as the tick
-    # does: a spent subscription moves now, not at the next tick, and never reads `working`.
-    if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
-        settle_account(cfg, session, lambda _: None)
+    from . import menu as menu_mod
     if records is None:
-        from . import menu as menu_mod
         try:
             records = menu_mod.run_records()
         except (config.Error, OSError, ValueError):
-            records = []
+            pass    # unread, never no runs: each decision below reads, and fails, as alone
+    # A turn its harness says failed settles its account before its word is told, as the tick
+    # does: a spent subscription moves now, not at the next tick, and never reads `working`.
+    if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
+        settle_account(cfg, session, lambda _: None, records)
     answer = announce_state(session, cfg=cfg, look=True, number=number, records=records)
     # The tick's pass for this one seat: what it is owed goes in at the event that ends its
     # turn or answers its question, not at a tick minutes later, and a move before the
@@ -2899,7 +2899,8 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
         # A completion is already an event, not a suspected stall. The wrapper supplies
         # this look even where the harness has no native Stop callback.
         if stop_nudge(session, harness, pane_text(session), notify.last(name),
-                      records, False, lambda _: None):
+                      menu_mod.run_records() if records is None else records, False,
+                      lambda _: None):
             answer = announce_state(session, cfg=cfg, look=True, number=number, records=records)
     return answer
 
@@ -3081,18 +3082,19 @@ def runs_owe(mine, index, at):
                        for _, state in mine))
 
 
-def work_live(name):
+def work_live(name, records=None):
     """The line saying that seat's work is done and live, else None: its plan is finished
     (`plan.finished`), and no run of its own owes work (`runs_owe`) or is merged and not yet
     live (`awaiting_live`).  Nothing a wait names can bring it more: its wait is over
     (`wait_over`), a new one is refused (`wait_main`), and a gone seat is not reopened to hear
-    so (17 Oct).  Run records are read only once the plan is finished."""
+    so (17 Oct).  Run records, the caller's where it read them, are read only once the plan is
+    finished."""
     from . import menu as menu_mod    # the menu imports this module
     from . import plan as plan_mod
     if not plan_mod.finished(name):
         return None
     try:
-        records = menu_mod.run_records()
+        records = menu_mod.run_records() if records is None else records
     except (config.Error, OSError, ValueError):
         return None
     mine, at = own_runs(name, records), time.time()
@@ -3219,7 +3221,9 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # One no limit cut off, its work done and live and nothing left to tell it, has nothing the
     # usage would continue, so it keeps its own word.  The owner, 2 Nov 2026: "Out of usage should
     # be when there is no more usage from the provider to continue."
-    if (waiting and waiting.get("until") and not waiting.get("continue") and work_live(name)
+    # an empty census may be one that could not be read: that one reads for itself, and fails
+    if (waiting and waiting.get("until") and not waiting.get("continue")
+            and work_live(name, records or None)
             and not news_owed(name, mine, bool(found.get("authority")))):
         waiting = None
     if harness and not gone and found.get("state") == "asking":
@@ -5374,8 +5378,9 @@ def between_turns(name, harness, record, opened_at, pane=None):
             and not _turn_in_flight(harness, fresh)[0] and not pane_unread(seat))
 
 
-def seat_account(cfg, session, harness, provider, pane, dry_run, log):
-    """Keep a seat on its model's usable subscriptions, preserving its live conversation.
+def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=None):
+    """Keep a seat on its model's usable subscriptions, preserving its live conversation, on the
+    run `records` its caller read, else its own read.
 
     A seat's home is the account it opened on (the usual login for a record that names
     none), and an idle one comes home once it has room again. Without a proven conversation
@@ -5444,7 +5449,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if ended:
             refusal, outcome, line = True, SPENT, f"wrap_up {ended}"
     now = time.time()
-    if done_unprompted(name, cfg=cfg, harness=harness, found=live):
+    if done_unprompted(name, records, cfg=cfg, harness=harness, found=live):
         if waiting and not dry_run:
             seat_write(name, usage_wait=None)
         if waiting or refusal or spent(current):
@@ -5627,13 +5632,13 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         return True
 
 
-def settle_account(cfg, session, log):
+def settle_account(cfg, session, log, records=None):
     """`seat_account` on a fresh look at that seat: an older look may still say it is asking."""
     harness, provider = seat_model(cfg, session["name"])
     with announcing(session["name"]):
         pane = pane_text(session)
         look_at(session, cfg=cfg, pane=pane)
-    seat_account(cfg, session, harness, provider, pane, False, log)
+    seat_account(cfg, session, harness, provider, pane, False, log, records)
 
 
 def usage_waits(cfg, state, log):

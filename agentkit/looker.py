@@ -63,6 +63,8 @@ def serve():
     from . import config, menu, update, warm
     server = os.getppid()
     records = menu.run_records(cache=False, rest_may_lag=True)   # no SQLite crosses a fork
+    if os.getppid() != server or update.outdated():
+        os._exit(0)            # its server went, or was installed over, as it read: no socket
     state, name = warm.place(str(config.REPO))
     os.chdir(state)            # the socket by its name, as `ask` reaches it
     sock = name + ".look"
@@ -99,13 +101,15 @@ def serve():
 def _take(conn, records):
     """In a fork of the looker: the look `conn`'s client asks for, once it says go."""
     import signal
-    from . import warm
+    from . import update, warm
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)   # what the look runs is waited on
     try:
         conn.settimeout(warm.WAIT)
         asked = conn.makefile("rb")
         seat, answered, event, said, tmux, pane = map(
             os.fsdecode, asked.read(int.from_bytes(asked.read(4), "big")).split(b"\0"))
+        if update.outdated():
+            raise OSError("outdated")       # installed over while the looker read: not its look
         conn.sendall(b"R")
         if asked.read(1) != b"G":
             raise OSError("not taken")
