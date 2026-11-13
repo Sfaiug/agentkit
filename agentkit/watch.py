@@ -5072,7 +5072,8 @@ def tell_moves(name, log, cfg=None):
     last = stood = None
     while True:
         tell_owed(name, log, cfg)
-        lines = seat_read(name).get("owed_lines") or []
+        with notify.session_lock(name) as name:     # its name now: a rename takes its lines along
+            lines = seat_read(name).get("owed_lines") or []
         if lines != last:
             last, stood = lines, time.monotonic()
         if (not any(owed.get("switch") for owed in lines)
