@@ -108,7 +108,7 @@ class ClaudeStatusLine(Sandbox):
             self.assertEqual(gc.gc(lambda _: None), [str(self.report)])
         self.assertFalse(self.report.exists())
 
-    def render(self, limits, shell='. "$0"', **env):
+    def render(self, limits, shell='. "$0" rate_limits', **env):
         """The hook run in `shell` on a render carrying `limits`, waited out with all it started."""
         end, held = os.pipe()
         self.addCleanup(os.close, end)
@@ -143,7 +143,7 @@ class ClaudeStatusLine(Sandbox):
         note = config.STATE / "limits-conv-acme.json"
         held = note.read_text(), usage._cached_provider("anthropic")
         self.render({"seven_day": {"used_percentage": 40, "resets_at": 900000}},
-                    'unset EPOCHREALTIME; . "$0"')
+                    'unset EPOCHREALTIME; . "$0" rate_limits')
         self.assertEqual((note.read_text(), usage._cached_provider("anthropic")), held)
         self.assertEqual([meter["used"] for meter in held[1]["meters"]], [30])
 

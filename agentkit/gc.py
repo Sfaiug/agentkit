@@ -124,7 +124,7 @@ def model_report_stale(path):
 
 def stale_model_reports():
     for path in retention.children(config.STATE):
-        # a status render's model (hooks/claude-status.sh) and limits (watch.hook_meters)
+        # what a status render reports of its conversation: its model and its limits
         if (path.match("model-*.json") or path.match("limits-*.json")) and model_report_stale(path):
             yield {"action": "remove", "kind": "model-report", "path": str(path),
                    "why": "no seat names this conversation"}

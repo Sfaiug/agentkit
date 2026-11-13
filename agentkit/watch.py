@@ -2906,7 +2906,7 @@ def hook_meters(launched, conversation, account, rendered, *windows):
     """What a seat's status render carried of its login's limits, where it differs from its
     conversation's note: a change becomes that login's reading at the render's moment.
 
-    hooks/claude-status.sh hands in the seat's login ("" for the usual one), the moment the render
+    The seat's status hook hands in its login ("" for the usual one), the moment the render
     began and each window as `<window> <words>`, its jq's words for the numbers.  An idle seat
     renders its last answer again and again, so the note, state/limits-<conversation>.json, holds
     each window as `[login, words, moment]`; a window it did not hold is only kept, as its numbers
