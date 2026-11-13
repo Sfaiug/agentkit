@@ -467,8 +467,9 @@ def add_suite_trailer(lp, message, trailer):
 def merge_body(lp, head, url=None):
     checked = lp.state.get("final_check") or {}
     suite = gitcall.declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
+    # A tree landed over the target's own red tests (`land.red_part`) passed no whole suite.
     if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
-            and checked.get("sha") == head and checked.get("tree_sha")
+            and not checked.get("over") and checked.get("sha") == head and checked.get("tree_sha")
             and checked.get("tested", checked["tree_sha"]) == checked["tree_sha"]
             and checked["tree_sha"] == gitcall.git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
         body = f"Suite-Passed-Tree: {checked['tree_sha']}"
@@ -854,7 +855,8 @@ def land_from_line(lp, upstream, deliver):
                                            "tested": wait.get("tested") or (
                                                landing.passed(turn, wait["land"]) or {}).get(
                                                    "tested", identity["tree_sha"]),
-                                           "suite": gitcall.declared_suite(lp.wt, lp.target, ref=tip)}
+                                           "suite": gitcall.declared_suite(lp.wt, lp.target, ref=tip),
+                                           **({"over": wait["over"]} if "over" in wait else {})}
                 lp.write()
                 result = deliver()
                 if "fix" in lp.state.get("waiting_on", {}):
@@ -1190,7 +1192,8 @@ def fail_pr_landing(lp, failure, landing=True):
     review, in the line or under its delivery, or that closed (`landing` off) is reviewed as a
     round, as any new head is, while rounds are left.
     """
-    text = prompts.saved_findings(lp.run_dir, lp.state) + "\n\n## Landing failed\n" + Path(failure["log"]).read_text()
+    text = (prompts.saved_findings(lp.run_dir, lp.state) + "\n\n## Landing failed\n"
+            + Path(failure["log"]).read_text() + prompts.excused(failure))
     path = lp.run_dir / "landing-findings.md"
     path.write_text(text)
     lp.findings = text

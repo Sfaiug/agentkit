@@ -1865,7 +1865,7 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwa
 def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, flaky=None, named=None, checked=None, asked=None,
-              raw=None, absent=None, used=None, **kwargs):
+              raw=None, absent=None, used=None, known=(), **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1901,6 +1901,8 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
     With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, its first
     go asked for at `asked`, a later one as the go before it ended: a turn it waits for is wait.
     `used`, a dict, gets what a command run as one piece used (`worker.boxed`).
+    A helper red that repeats naming only tests in `known`, failures known before it (the
+    target's own red, `land.red_part`), settles nothing: the next one is confirmed too.
     """
     def observed(share, code, killed):
         if raw is not None and (code != SUITE_BUSY or killed):
@@ -2295,7 +2297,7 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                         if code != SUITE_BUSY or killed or cancel.is_set():
                             break
                         wait_busy()
-                    if (code > 0 and code != SUITE_BUSY and not killed and tests
+                    if (code > 0 and code != SUITE_BUSY and not killed and set(tests) - set(known)
                             and shard not in starved):
                         settled = True
                 if hold is not None or not (
@@ -2487,7 +2489,7 @@ def _running_commands(pid):
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
                   confirmed=None, flaky=None, checked=None, exits=None, timings=None,
-                  absent=None):
+                  absent=None, known=()):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2537,7 +2539,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
     until then, takes `text`, its capped form. `timings`, a dict, gets each passing command's
     ({file: seconds}, piece count) from this pass alone, before that cap.  `absent` is
-    `run_suite`'s, for one command.
+    `run_suite`'s, for one command, and `known` its for every one.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2596,7 +2598,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         only=only, confirmed=reds, flaky=flakes, named=named,
                         # Whole commands retry here; their named outcomes must wait for that.
                         checked=checked if split(cmd) else None, asked=asked, raw=raw,
-                        absent=absent, used=ended)
+                        absent=absent, used=ended, known=known)
                     ended["exit"] = None if killed else code
                     end = progress.tell()
                 if log is not None and run_dir is not None:

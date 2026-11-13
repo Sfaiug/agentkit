@@ -749,6 +749,12 @@ def failing_blocks(text, where, cap=None):
     return f"{turns.kept(io.BytesIO(text.encode()), where, 'failed-check')}\n{shown}"
 
 
+def excused(failure):
+    """What a landing fixer is told of the target's own red its check ran over (`land.red_part`)."""
+    return "".join(f"\n\nThe target itself fails {', '.join(tests)}: not this run's to mend."
+                   for tests in [failure.get("excused")] if tests)
+
+
 def red_target_text(cmd, upstream, tip, output, where, piece=None):
     """What a red target's repair is told: the command (its red `piece`, `AK_SHARD=k/N`, named
     where the suite ran in pieces), where it fails, and what it printed there, read as a fixer
