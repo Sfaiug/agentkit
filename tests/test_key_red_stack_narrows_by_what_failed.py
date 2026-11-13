@@ -2,9 +2,8 @@
 failed again alone, whichever command failed, and starts just ahead of the first stack running
 that command; a red piece that named none is narrowed by whole checks.  A member whose rewritten
 `tests:` line fails one test on every tree holding it goes to its fixer and the others land, the
-suite run whole only on the deepest stack, the one just below it and the one rebuilt without
-it; one whose rewritten line fails every piece, naming no test, goes to its fixer too and the
-others land.  A red only the target's suite shows narrows as before.  Blame still needs the
+suite run whole no more than three times, never for a narrowing step; one whose rewritten line
+fails every piece, naming no test, goes to its fixer too and the others land.  A red only the target's suite shows narrows as before.  Blame still needs the
 stack just ahead green on what failed: a member breaking a test both lines run is the one
 blamed, not the member whose line runs it.
 Black-box: the program `AK_BIN` names checks the line from outside through
