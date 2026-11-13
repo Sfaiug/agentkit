@@ -420,6 +420,19 @@ def rename_policy(data):
     return data
 
 
+@contextmanager
+def _config_lock():
+    """One writer at a time of the config file that reads it again first.  It locks the
+    directory, which survives replacing the file and which no collector removes, as it would a
+    lock file of its own."""
+    directory = os.open(HOME, os.O_RDONLY)
+    try:
+        fcntl.flock(directory, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(directory)
+
+
 def migrate_policy():
     """The first command replaces old keys in ak's own file; project files stay theirs."""
     path = HOME / CONFIG_NAME
@@ -429,11 +442,8 @@ def migrate_policy():
         return      # commands reading the config report it; help still opens
     if not data or not POLICY_RENAMES.keys() & data.keys():
         return
-    # Lock the directory, which survives replacing the file, then read again: another first
-    # command may already have migrated it. No lock file or general config save is needed.
-    directory = os.open(HOME, os.O_RDONLY)
-    try:
-        fcntl.flock(directory, fcntl.LOCK_EX)
+    # read again under the lock: another first command may already have migrated it
+    with _config_lock():
         data = _read_toml(path) or {}
         if not POLICY_RENAMES.keys() & data.keys():
             return
@@ -459,8 +469,6 @@ def migrate_policy():
         tmp.write_text("".join(chunks) + statement, encoding="utf-8")
         os.chmod(tmp, 0o600)
         tmp.replace(path)
-    finally:
-        os.close(directory)
 
 
 def policy(checkout=None):
@@ -715,6 +723,52 @@ def remove_model(cfg, name):
     if "defaults" in cfg:
         cfg["defaults"] = passed_over(cfg["defaults"], cfg)
     return cfg
+
+
+def short_name(cfg, label):
+    """`sonnet` for `Sonnet 5`, `gemini-pro` for `Gemini 3 Pro`: a label's words without their
+    versions, then `-2`, `-3` and on until it names no model the config has."""
+    words = [word for word in re.findall(r"[a-z0-9]+", label.lower().replace("'", ""))
+             if not any(char.isdigit() for char in word)]
+    base = "-".join(dict.fromkeys(words)) or "model"
+    name, number = base, 1
+    while name in cfg["models"]:
+        number += 1
+        name = f"{base}-{number}"
+    return name
+
+
+def running(cfg, harness, model_id):
+    """The names `cfg` runs that harness's `model_id` under: each entry it offers that can run
+    (model)."""
+    def runs(name):
+        try:
+            entry = model(cfg, name)
+        except Error:
+            return False
+        return (entry["harness"], entry["model"]) == (harness, model_id)
+    return [name for name in offered(cfg) if runs(name)]
+
+
+def add_model(cfg, entry, label):
+    """`entry` in the config file as it is now, named from its model's `label` (short_name),
+    and in `cfg`, its provider's table with it, for its holder to go on with: read, added and
+    saved under one lock, so two added at once are both kept.  Where the file runs that model
+    on that harness by then (running), that entry, nothing added.  Its name; Error or OSError
+    where the file will not read or save, or could not run it (model), its provider gone from
+    it since `cfg` was read."""
+    with _config_lock():
+        now = load()
+        name = next(iter(running(now, entry["harness"], entry["model"])), None)
+        if name is None:
+            name = short_name(now, label)
+            now["models"][name] = entry
+            model(now, name)
+            save(now)
+    cfg["models"][name] = now["models"][name]
+    provider = cfg["models"][name]["provider"]
+    cfg["providers"].setdefault(provider, now["providers"][provider])
+    return name
 
 
 def passed_over(defaults, cfg):
