@@ -179,11 +179,11 @@ class ResumeMidturn(unittest.TestCase):
         self.assertEqual(self.cards, [])
 
     def died_again(self, directory, pid):
-        """The resume ran and then died: the child had adopted the record, so the order
-        stamp is gone and the pid on it is the one that has just exited."""
+        """The resume ran and then died: the child had adopted the record, so it reads
+        running, the order stamp is gone and the pid on it is the one that has just exited."""
         state = record.read_state(directory)
         state.pop("stall_resume_at", None)
-        state["pid"] = pid
+        state.update(state="running", pid=pid)
         record.save_state(directory, state)
 
     def test_backoff_waits_and_a_third_death_parks_with_one_notice(self):
