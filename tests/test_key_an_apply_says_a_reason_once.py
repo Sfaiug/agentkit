@@ -9,8 +9,9 @@ move to Fable 5.1 the fake Claude Code's `auth` refuses in the same words, and w
 Opus 5.5 whose Claude Code would take Fable in place but for Fable's spent meter.  Fails against
 `/bin/false`, and against an ak that says the six's reason six times.
 
-A terminal made a line shorter after keeps every row: the six's reason, two lines long, gives
-way to how many more reasons there are.
+Each draw fits what was said to the terminal as it is: the names leading a reason to its width,
+and the reasons to the lines its rows leave, the last saying how many more there are, before
+which even ak's version gives way.
 """
 
 import json
@@ -43,17 +44,21 @@ def key_line(screen):
     return next((line for line in reversed(lines(screen)) if line), "")
 
 
+def blocks(screen):
+    """The screen's runs of lines between blank ones: the note is the last over the keys'."""
+    return "\n".join(lines(screen)).strip("\n").split("\n\n")
+
+
 def matrix(screen):
     """The matrix's rows, from whom its marks are for to the note under them; the meters over
     them read the logins meanwhile."""
-    shown = lines(screen)
-    return shown[shown.index("  For  new seats"):shown.index("  Version ?")]
+    shown = blocks(screen)
+    return shown[next(n for n, block in enumerate(shown) if block.startswith("  For")):-2]
 
 
 def said(screen):
-    """The note under the matrix, ak's version first, each line as wrapped."""
-    shown = lines(screen)
-    return shown[shown.index("  Version ?"):shown.index(key_line(screen)) - 1]
+    """The note under the matrix, each line as wrapped."""
+    return blocks(screen)[-2].split("\n")
 
 
 def told(*wrapped):
@@ -89,11 +94,19 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
         return self.term.wait(lambda screen: key_line(screen) == KEYS
                               and "fable: token expired;" in screen), before
 
-    def test_six_seats_refused_alike_are_told_once_under_every_row(self):
+    def test_six_seats_refused_alike_are_told_once_led_by_the_names_that_fit(self):
         after, before = self.applied()
         _, *six = said(after)
         self.assertEqual((len(six), told(*six)), (2, f"{SIX_LED}: fable: {NO_LOGIN}"), after)
         self.assertEqual(matrix(after), matrix(before))
+        self.term.resize(40, 45)
+        narrow = self.term.wait(lambda screen: "─" * 41 not in screen
+                                and "acme-3 and 3 more:" in screen)
+        self.assertEqual(told(*said(narrow)[1:]),
+                         f"acme-1, acme-2, acme-3 and 3 more: fable: {NO_LOGIN}", narrow)
+        self.term.resize(100, 30)
+        wide = self.term.wait(lambda screen: key_line(screen) == KEYS and SIX_LED in screen)
+        self.assertEqual(said(wide), said(after))
 
     def spent(self):
         """A seat on Opus 5.5, listed first, whose move in place Fable's spent meter refuses."""
@@ -108,7 +121,8 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
     def test_a_seat_refused_in_other_words_is_told_on_a_line_of_its_own(self):
         self.spent()
         after, before = self.applied()
-        _, other, *six = said(after)
+        version, other, *six = said(after)
+        self.assertEqual(version, "  Version ?")
         self.assertTrue(other.startswith(f"  {SPENT}: fable is spent · resets "), after)
         self.assertEqual((len(six), told(*six)), (2, f"{SIX_LED}: fable: {NO_LOGIN}"), after)
         self.assertEqual(matrix(after), matrix(before))
@@ -117,12 +131,16 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
         self.spent()
         after, before = self.applied()
         self.term.resize(100, 27)       # a line too short for both reasons under the rows
-        shorter = self.term.wait(lambda screen: "  and 1 more" in lines(screen))
-        _, other, more = said(shorter)
+        shorter = self.term.wait(lambda screen: "  1 more reason" in lines(screen))
+        version, other, more = said(shorter)
+        self.assertEqual(version, "  Version ?")
         self.assertTrue(other.startswith(f"  {SPENT}: fable is spent · resets "), shorter)
-        self.assertEqual(more, "  and 1 more")
         self.assertEqual(matrix(shorter), matrix(before))
-        self.assertEqual(key_line(shorter), KEYS)
+        self.term.resize(100, 25)       # the rows leave one line: the count takes the version's
+        shortest = self.term.wait(lambda screen: "  2 more reasons" in lines(screen))
+        self.assertEqual(said(shortest), ["  2 more reasons"])
+        self.assertEqual(matrix(shortest), matrix(before))
+        self.assertEqual(key_line(shortest), KEYS)
 
 
 if __name__ == "__main__":
