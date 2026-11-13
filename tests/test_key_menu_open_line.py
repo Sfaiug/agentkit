@@ -143,8 +143,9 @@ class OpenLine(unittest.TestCase):
 
     def test_a_working_seat_opens_who_builds_who_reviews_and_its_tasks_squares(self):
         row, line = self.screens["fix-api"]
-        # the row counts the tasks whose squares open under it
-        self.assertRegex(row, r"● working +─+ no plan yet · 4 tasks$")
+        # what follows the count is test_key_a_row_counts_its_tasks_going's, which Go has yet
+        # to port; this key, which Go passes, pins only the line under the row
+        self.assertRegex(row, r"● working +─+ no plan yet\b")
         # build moving, build waiting its turn, review moving, then waiting in the landing line
         self.assertEqual(line, f"{UNDER}Opus 5.5 xhigh orchestrates, reviews   Spark 1.3 "
                                "Contributor xhigh builds   ■□□  ■□□  ■■□  ■■■")
