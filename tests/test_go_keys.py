@@ -23,7 +23,8 @@ is judged switched, named or not, as the switch's own gate judges them and a mil
 lean gone.  The claims judged one way share one copy and one build.
 Each failing claim is named by its key file's name in the file FAILED_PARTS names: a piece
 takes minutes, so every_file.py's re-run, and a narrowing step on that claim, run it alone.
-Each passing one's seconds are in the file PART_TIMES names: they cut the next suite's pieces.
+Each passing one's seconds are in the file PART_TIMES names as it passes: every_file.py prints
+its line then, so a piece is silent only while one claim runs, and they cut the next suite's pieces.
 """
 
 from contextlib import contextmanager
@@ -159,13 +160,13 @@ class Claims(unittest.TestCase):
                     print(f"--- {claim}", flush=True)
                     began = time.monotonic()
                     done, passed = run(tree, program, name, *parts)
-                    took[name] = time.monotonic() - began
-                    if not passed:
+                    if passed:
+                        took[name] = time.monotonic() - began
+                        name_timed(took)
+                    else:
                         failed.append(claim)
                         print(f"{'' if lean else switched}{done.stdout}{done.stderr}", flush=True)
-        failing = [claim.split()[0] for claim in failed]
-        name_failed(failing, "FAILED_PARTS")
-        name_timed({name: seconds for name, seconds in took.items() if name not in failing})
+        name_failed([claim.split()[0] for claim in failed], "FAILED_PARTS")
         self.assertFalse(unlisted, "go/keys.txt does not list these")
         self.assertFalse(failed, "these claims of go/keys.txt fail or skip")
 
