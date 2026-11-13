@@ -29,9 +29,9 @@ until [ -f "$storage/go" ]; do sleep 0.1; done
 """
 # every check, until the test lets it go
 EVERY = {"t/hold.sh": HOLD.format(only="")}
-# member 1 turns the suite red; the stack rebuilt without it, holding member 3, is held
+# member 1 turns the suite red; the stacks rebuilt without it are held
 FIRST_RED = {"t/bad.sh": "test ! -f bad-1.txt\n",
-             "t/hold.sh": HOLD.format(only="[ -f member-3.txt ] && [ ! -f bad-1.txt ] || exit 0\n")}
+             "t/hold.sh": HOLD.format(only="[ -f member-2.txt ] && [ ! -f bad-1.txt ] || exit 0\n")}
 
 
 class EveryPassMovesTheLine(unittest.TestCase):
