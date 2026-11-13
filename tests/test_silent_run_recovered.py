@@ -64,6 +64,15 @@ def have(cmd):
     return shutil.which(cmd) is not None
 
 
+def until(probe, what):
+    """Wait for probe() to hold: a process reaches the shape a test reads only after it starts."""
+    for _ in range(600):
+        if probe():
+            return
+        time.sleep(0.05)
+    raise AssertionError(what)
+
+
 class V5X(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-v5x-", dir=REPO)
@@ -127,21 +136,22 @@ class V5X(unittest.TestCase):
         self.procs = []
 
     # -- helpers ---------------------------------------------------------
-    def spawn_loop(self, child_argv):
-        """A fake `ak run` loop: a python parent that spawns one child, then sleeps."""
+    def spawn_loop(self, child_argv, executable=None):
+        """A fake `ak run` loop: a python parent that spawns one child, then sleeps.
+
+        Returns once /proc shows the child under its own argv, as the tick reads it:
+        a forked child shows the parent's argv until its exec, and none during it.
+        """
         parent = subprocess.Popen(
             [sys.executable, "-c",
              "import subprocess,sys,time; "
-             "subprocess.Popen(sys.argv[1:]); time.sleep(1000)",
+             f"subprocess.Popen(sys.argv[1:], executable={executable!r}); time.sleep(1000)",
              *child_argv],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             stdin=subprocess.DEVNULL, start_new_session=True)
         self.procs.append(parent)
-        # Let the child appear under the parent before the tick reads /proc.
-        for _ in range(100):
-            if watch.loop_children(parent.pid):
-                break
-            time.sleep(0.05)
+        until(lambda: [argv for _, argv in watch.loop_children(parent.pid)] == [child_argv],
+              f"the fake loop's child never showed {child_argv}")
         return parent
 
     def spawn_worker(self, reviewer=False):
@@ -156,19 +166,7 @@ class V5X(unittest.TestCase):
         ad.mkdir(exist_ok=True)
         out = "out/round-2/reviewer" if reviewer else "out/executor"
         step = [str(ad / "fake.sh"), "-c", "import time; time.sleep(1000)", out]
-        parent = subprocess.Popen(
-            [sys.executable, "-c",
-             "import subprocess,sys,time; "
-             "subprocess.Popen(sys.argv[1:], executable=sys.executable); time.sleep(1000)",
-             *step],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            stdin=subprocess.DEVNULL, start_new_session=True)
-        self.procs.append(parent)
-        for _ in range(100):
-            if watch.loop_children(parent.pid):
-                break
-            time.sleep(0.05)
-        return parent
+        return self.spawn_loop(step, executable=sys.executable)
 
     def gate_child(self):
         lock = str(self.root / f"v5x-{time.time_ns()}.lock")
