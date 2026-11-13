@@ -2,27 +2,28 @@
 # The report belongs to the status render's conversation,
 # never its launch name; a detached look reads whatever report stands when it gets there.
 set -u
-# The moment this render began, by which its limits are judged: bash 5's, else (macOS's bash 3.2)
-# date's second, rounded down, so a render never reads as newer than it is.
-rendered=${EPOCHREALTIME:-$(date +%s)}
+# The moment this render began, by which its limits are judged: bash 5's clock, taken first.
+# An older bash (macOS's 3.2) has none, so the jq below takes it, a moment later, at no process.
+rendered=${EPOCHREALTIME:-}
 payload=$(cat; printf .)
 payload=${payload%.}
 # A status command that ignores stdin must not end reporting by closing its pipe.
 trap '' PIPE
 printf '%s' "$payload" 2>/dev/null
 [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || exit 0
-# Every render runs this one jq: its conversation, its model, and each window of its login's
-# limits the API has reported (2.1.322's `rate_limits`) as `<window> <used%> <resets_at>`.
-IFS=$'\n' read -r -d '' -a said < <(jq -r 'select(.session_id | strings | test("^[A-Za-z0-9_-]+$"))
-    | select(.model.id | strings | length > 0)
+# Every render runs this one jq: its conversation, its model, its moment, and each window of its
+# login's limits the API has reported (2.1.322's `rate_limits`) as `<window> <used%> <resets_at>`.
+IFS=$'\n' read -r -d '' -a said < <(jq -r --arg rendered "${rendered/[!0-9]/.}" '
+    select(.session_id | strings | test("^[A-Za-z0-9_-]+$")) | select(.model.id | strings | length > 0)
     | .session_id, ({model: .model.id, effort: (.model.effort // .effort.level // null)} | tojson),
+      ($rendered | select(length > 0) // now),
       (.rate_limits | objects | {five_hour, seven_day} | to_entries[]
        | select(.value | objects | [.used_percentage, .resets_at] | all(type == "number"))
        | "\(.key) \(.value.used_percentage) \(.value.resets_at)")' <<<"$payload" 2>/dev/null)
 # Its lines as "$@": macOS's bash 3.2 takes an empty array or slice for unset under `set -u`.
-[[ -n ${said[1]:-} ]] && set -- "${said[@]}" || exit 0
-conversation=$1 report=$2
-shift 2
+[[ -n ${said[2]:-} ]] && set -- "${said[@]}" || exit 0
+conversation=$1 report=$2 rendered=$3
+shift 3
 dir="$HOME/.agentkit/state"
 # start CODE ARG...: agentkit's CODE, its words in sys.argv[2:], in a session of its own
 start() {
@@ -44,7 +45,7 @@ IFS= read -r -d '' note 2>/dev/null <"$dir/limits-$conversation.json"
 for window; do
   [[ $note == *"\"${window%% *}\": [\"${AGENTKIT_ACCOUNT:-}\", \"${window#* }\","* ]] || {
     start 'watch.hook_meters(*sys.argv[2:])' "$AGENTKIT_SESSION" "$conversation" \
-      "${AGENTKIT_ACCOUNT:-}" "${rendered/[!0-9]/.}" "$@"
+      "${AGENTKIT_ACCOUNT:-}" "$rendered" "$@"
     break
   }
 done

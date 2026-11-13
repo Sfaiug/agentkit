@@ -6,6 +6,7 @@ import json
 import os
 import shlex
 import subprocess
+import time
 import unittest
 from unittest.mock import patch
 
@@ -136,16 +137,12 @@ class ClaudeStatusLine(Sandbox):
                          {"session": 50, "weekly_all": 40})
 
 
-    def test_a_bash_without_a_clock_hands_in_the_second_its_render_began(self):
-        shim = self.root / "bin/python3"     # the hand-in, saying when it was handed what
-        shim.parent.mkdir()
-        shim.write_text('#!/bin/sh\necho "$7 $(date +%s)" >"$HOME/handed"\n')
-        shim.chmod(0o755)
+    def test_a_bash_without_a_clock_judges_a_render_by_its_jqs(self):
+        before = time.time_ns() / 1e9       # the sandbox's time.time stands still
         self.render({"seven_day": {"used_percentage": 40, "resets_at": 900000}},
-                    'unset EPOCHREALTIME; . "$0"', PATH=f"{shim.parent}:{os.environ['PATH']}")
-        rendered, handed = map(int, (self.root / "handed").read_text().split())
-        self.assertLessEqual(rendered, handed)
-
+                    'unset EPOCHREALTIME; . "$0"')
+        note = json.loads((config.STATE / "limits-conv-acme.json").read_text())
+        self.assertTrue(before < note["seven_day"][2] < time.time_ns() / 1e9, note)
 
 if __name__ == "__main__":
     unittest.main()
