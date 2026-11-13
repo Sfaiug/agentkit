@@ -2,10 +2,11 @@
 
 The tip fails tests/test_widget.py alone, by name: stacks red in nothing else land over it, on
 helper pieces too, unproven and with no trailer; one red in another test gets a fix naming that
-alone, its fixer told of the target's, and one naming none is the member's where the tip fails
-nothing else.  The repair lands once its stack passes the test, or is the culprit, a stack of
-one tree with it answered apart.  A target red naming no test holds the line.  Offline: the
-lander fixture, a shell suite, fake launches, wakes and helper, merges by a push.
+alone, its fixer told of the target's, and one the tip cannot name is the member's where the
+tip, run whole, fails nothing else.  The repair lands once its stack passes the test, or is the
+culprit, a stack of one tree with it answered apart.  A target red naming no test holds the
+line.  Offline: the lander fixture, a shell suite, fake launches, wakes and helper, merges by a
+push.
 """
 
 from pathlib import Path
@@ -19,7 +20,7 @@ import test_lander as fixture
 import test_lander_red_main as red_main
 from agentkit import deliver, gate, helper, land, record, roundloop, run
 
-WIDGET, ACME = "tests/test_widget.py", "tests/test_acme.py"
+WIDGET, ACME, BETA = "tests/test_widget.py", "tests/test_acme.py", "tests/test_beta.py"
 # The suite fails naming nothing where crash.txt is; otherwise piece k/n runs every nth test from
 # the kth, test_acme.py in 1/2 and test_widget.py in 2/2, or those AK_ONLY lists, naming each.
 SUITE = ('test ! -f crash.txt || exit 1; code=0; for t in $(cat "$AK_ONLY" 2>/dev/null || ls '
@@ -136,15 +137,25 @@ class ATargetsOwnRedDoesNotHoldItsLine(unittest.TestCase):
         self.assertEqual(self.wait(repair)["fix"]["tests"], [WIDGET])
         self.assertNotIn("excused", self.wait(repair)["fix"])
 
-    def test_a_member_red_naming_nothing_beside_the_targets_named_red_is_its_own(self):
+    def first_in_line(self, **files):
+        """The fix of a member first in line adding `files` beside the target's named red: the
+        tip, run whole, fails nothing but that red, and the members behind it land over it."""
         first, second, _ = self.line(**{"broken.txt": "target breakage\n"})
         land.check_line(self.turn)
-        crashing = self.member("crashing", 0.5, **{"crash.txt": "crash\n"})    # first in line
+        red = self.member("red", 0.5, **files)
         land.check_line(self.turn)
         self.assertEqual(self.red()["tests"], [WIDGET])
-        self.assertEqual(self.wait(crashing)["fix"]["excused"], [WIDGET])
         self.assertEqual([self.wait(member)["over"] for member in (first, second)],
                          [[WIDGET]] * 2)
+        return self.wait(red)["fix"]
+
+    def test_a_member_red_naming_no_test_beside_the_targets_named_red_is_its_own(self):
+        fix = self.first_in_line(**{"crash.txt": "crash\n"})
+        self.assertEqual((fix.get("tests"), fix["excused"]), (None, [WIDGET]))
+
+    def test_a_member_red_in_a_test_the_tip_lacks_beside_the_targets_named_red_is_its_own(self):
+        fix = self.first_in_line(**{BETA: "raise SystemExit(1)\n"})
+        self.assertEqual((fix["tests"], fix["excused"]), ([BETA], [WIDGET]))
 
     def test_each_helper_piece_red_in_the_targets_red_alone_is_confirmed(self):
         first, *_ = self.line(**{"broken.txt": "target\n", "acme.txt": "target\n"})

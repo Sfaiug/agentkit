@@ -406,8 +406,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
     target's one repair (`_repair`); a repeat of named tests keeps them in the entry, with those
     it kept before, and walks for the commit that first turned the target red (`_blame_tip`).
-    Where the stack excused `over`, the target's named red, the piece passing on the tip or red
-    there in nothing else is the member's red, and the entry stays as it is."""
+    Where the stack excused `over`, the target's named red, the suite whole decides instead: red
+    there in nothing else, the red is the member's own, and the entry stays as it is."""
     path = directory / "target-probe.log"
     again = None
     if tests:
@@ -420,10 +420,11 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
             return True
         _put_back(scratch, tip)
     if not again:       # a repeat needs no piece to say the tip is red
+        # a pinned piece confirms none of the tests it failed: only those say a red is `over`'s
+        piece = "" if over else piece
         ok, probe, red = _check(directory, state, scratch, [suite], path, log,
                                 shard=piece or None, kind="tip", over=over)
-        if over and (ok or "over" in red):
-            # passing, it mends nothing: the red's tests may be in another piece
+        if "over" in red:
             green.add(piece)
             return True
     if ok:
