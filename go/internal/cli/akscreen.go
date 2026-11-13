@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"agentkit/internal/features"
 	"agentkit/internal/menu"
 	"agentkit/internal/motion"
 	"agentkit/internal/plan"
@@ -42,13 +41,14 @@ func show(latest *atomic.Pointer[reading], found *reading) {
 	}
 }
 
-// readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it,
-// and with announce each seat's word written down as `ak orch list` writes it (menu.v5o_seat_info's
-// look) once all of the frame is Go's to draw; false where Go does not read that home, or where
-// opening it would do more than draw.
-func readFrame(now time.Time, announce bool) (reading, bool) {
+// readFrame is the records as they stand and the grid as usage.json holds it, a live seat its look
+// writing nothing, or with take what take gives it once all of the frame is Go's to draw:
+// Home.Announce looks and writes each seat's word down as `ak orch list` writes it
+// (menu.v5o_seat_info's look), Home.Recorded gives the words as recorded.  False where Go does
+// not read that home, where take refuses it, or where opening it would do more than draw.
+func readFrame(now time.Time, take func(seat.Home, time.Time) error) (reading, bool) {
 	read := seat.Menu
-	if announce { // its live seats are looked at once, under their announce locks, as Announce writes them down
+	if take != nil { // its live seats' words are take's
 		read = seat.MenuRead
 	}
 	home, known := read(now)
@@ -73,7 +73,7 @@ func readFrame(now time.Time, announce bool) (reading, bool) {
 	if found.standing, err = menu.Standing(now); err != nil {
 		return reading{}, false
 	}
-	if announce && home.Announce(now) != nil {
+	if take != nil && take(home, now) != nil {
 		return reading{}, false
 	}
 	for i, each := range home.Seats {
@@ -121,7 +121,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	first, handed := handedRead()
 	known := handed
 	if !handed {
-		keyboard.While(func() { first, known = readFrame(time.Now(), false) })
+		keyboard.While(func() { first, known = readFrame(time.Now(), nil) })
 	}
 	if !known || first.handoff {
 		keyboard.Give()
@@ -134,29 +134,21 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	// a restart leaves its sweep to the tick; an act waiting for one answers a kill as a key's wait does
 	swept, heard := sweepBehind(handed || dry || overlay, &latest, keyboard.Wake)
 	settle := func() { keyboard.While(func() { <-swept }) }
-	reread := func() {
+	read := func(take func(seat.Home, time.Time) error) bool {
 		<-swept
-		if found, known := readFrame(time.Now(), true); known {
+		found, known := readFrame(time.Now(), take)
+		if known {
 			show(&latest, &found)
 		}
 		keyboard.Wake()
+		return known
 	}
-	go func() {
+	var looked looks
+	reread := func() { read(looked.look) }
+	go looked.watch(read)
+	go func() { // behind the frame, which draws from the cache and waits on no adapter: what it writes is news
 		for {
-			time.Sleep(rereadEvery)
-			reread()
-		}
-	}()
-	go func() { // a project's switches landed: its heading counts them, and their screen draws them
-		for range features.Landed() {
-			reread()
-		}
-	}()
-	go func() { // behind the frame, which draws from the cache and waits on no adapter
-		for {
-			if usage.Refresh() == nil {
-				reread()
-			}
+			usage.Refresh()
 			time.Sleep(usage.RefreshEvery)
 		}
 	}()
@@ -233,7 +225,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 					// writing every seat's word down follows behind it: that waits on each seat's
 					// announce lock, which another `ak` holds as long as its own look takes
 					keyboard.While(func() {
-						if found, known := readFrame(time.Now(), false); known {
+						if found, known := readFrame(time.Now(), nil); known {
 							show(&latest, &found)
 						}
 					})
