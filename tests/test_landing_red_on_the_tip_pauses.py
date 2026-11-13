@@ -217,7 +217,8 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.probes(), [("2/2", ["test_later.sh", "test_new.sh"]),
                                          ("2/2", ["test_new.sh"]), ("2/2", None),
                                          ("2/2", ["test_later.sh", "test_new.sh"])])
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [first.name, later.name])
         self.assertIsNone(self.red())
 
     def test_the_failed_tests_red_on_the_tip_too_start_the_targets_repair_at_once(self):
