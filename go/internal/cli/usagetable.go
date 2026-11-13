@@ -20,8 +20,8 @@ var (
 // headings where the full ones do not fit and as a phone's label and value pairs where the
 // table still does not, its notes, the pick order and the review pair, each line wrapped to the
 // terminal.
-func usageText(screen terminal.Screen, readings *usage.Readings, rules *pick.Rules, order []string) string {
-	width, rows := screen.Width(), readings.Rows(screen)
+func usageText(screen terminal.Screen, readings *usage.Readings, plans map[usage.Week]usage.Plan, rules *pick.Rules, order []string) string {
+	width, rows := screen.Width(), readings.Rows(screen, plans)
 	table := append([][]string{usageHeadings}, rows...)
 	widths := usageWidths(table)
 	if width >= 60 && !usageFits(widths, width) {

@@ -34,10 +34,11 @@ func Bare() bool {
 }
 
 // KeepReadings is Python's history.keep_readings: meter_readings rows added, each its values in
-// the columns' order (provider, account, meter, used, resets_at, window_secs, at, source, plan),
-// one kept already adding nothing, and the rows past five weeks dropped once one went in.  They
-// touch no tokens, so they go in where Python's repair of them is owed as well, which Python then
-// makes as it would have before them.  What goes wrong is said in history.log, as Python's.
+// the columns' order (provider, account, meter, used, resets_at, window_secs, at, source, plan,
+// scope), one kept already adding nothing, and the rows past five weeks dropped once one went
+// in.  They touch no tokens, so they go in where Python's repair of them is owed as well, which
+// Python then makes as it would have before them.  What goes wrong is said in history.log, as
+// Python's.
 func KeepReadings(rows [][]any) {
 	if len(rows) == 0 {
 		return
@@ -46,7 +47,7 @@ func KeepReadings(rows [][]any) {
 		added := false
 		for _, row := range rows {
 			err := db.exec("INSERT OR IGNORE INTO meter_readings (provider, account, meter, used, resets_at, "+
-				"window_secs, at, source, plan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", row...)
+				"window_secs, at, source, plan, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", row...)
 			if err != nil {
 				return err
 			}

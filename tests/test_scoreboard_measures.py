@@ -48,6 +48,8 @@ PINNED = (
     # later: the owner's yes, 16 Oct 2026, in place of `escaped`
     # Landing flakes apart from review misses: write-up task 21, 3 Nov 2026.
     ("broke", "broke", ("merged", "after_merge", "landing", "flakes", "unknown")),
+    # rewritten: write-up task 18, the owner's yes to its later waves, 3 Nov 2026.
+    ("rewritten", "rewritten", ("live", "rewritten")),
     # pairs: the orchestrator's decision of 3 Nov 2026, changed on review under the Owner rule of 27 Oct 2026.
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
     # findings: write-up task 18 (30 Oct 2026), changed on review under the Owner rule of 27 Oct 2026.
@@ -113,6 +115,8 @@ class Measures(unittest.TestCase):
                              return_value=[(NOW - 90, "asked", None), (NOW - 80, "paged", None),
                                            (NOW - 60, "answered", 30)]), \
                 patch.object(scoreboard.history, "dones", return_value=[(NOW - 60, NOW - 7200, None, 30)]), \
+                patch.object(scoreboard.history, "rewrites",
+                             return_value=[("fix-api", "the parser works · written 2026-11-01 09:00", NOW - 60, 1)]), \
                 patch.object(scoreboard, "_git", lambda *args, **kw: b"x\n"):
             board = scoreboard.compute(NOW)
         self.assertEqual({key: list(cells[0]) for key, cells in board.items()},

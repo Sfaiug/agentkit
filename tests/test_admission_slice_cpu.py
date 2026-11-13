@@ -1,13 +1,16 @@
-"""Admission gates no CPU unless the owner pinned max_load.
+"""Admission reads neither host load nor CPU pressure unless the owner pinned max_load.
 
 A run starts whatever the host load or the runs slice's CPU pressure is; a pinned
-max_load restores the old host-load check. Offline: a throwaway HOME, mocked slot
-counts, and injected host readings. The real machine's load, pressure and cgroups
-are never read.
+max_load restores the old host-load check. What the runs building ran on a CPU and stood
+still waiting for one is read from the runs slice's scopes, a line's lander left out, and is
+unread where any scope is.
+Offline: a throwaway HOME, mocked slot counts, and injected host readings or a made-up
+cgroup tree. The real machine's load, pressure and cgroups are never read.
 """
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -117,6 +120,47 @@ class AdmissionSliceCpu(unittest.TestCase):
             "nr_throttled": 290683, "throttled_usec": 1831801260})
         (slice_dir / "cpu.stat").unlink()
         self.assertIsNone(host._slice_cpu_stat(slice_dir))
+
+    def test_only_the_runs_building_give_their_cpu_run_and_waited_for(self):
+        root = self.root / "cgroup"
+        parent = root / "agentkit.slice"
+        runs = parent / "agentkit-runs.slice"
+        run, other = runs / "agentkit-run-fix-api.scope", runs / "agentkit-run-add-retry.scope"
+        lander = runs / "agentkit-lander-acme-1.scope"
+
+        def sample(counters, gone):
+            for scope, (used, waited) in counters.items():
+                (scope / "cpu.stat").write_text(f"usage_usec {used}\nuser_usec {used}\n")
+                (scope / "cpu.pressure").write_text(
+                    f"some avg10=0.00 avg60=0.00 avg300=0.00 total={waited}\n"
+                    f"full avg10=0.00 avg60=0.00 avg300=0.00 total={waited}\n")
+            if gone is not None:
+                gone.unlink()
+
+        def sums(gone=None, second=False):
+            """A second apart, each run ran a core and they stood waiting 5 and 1, the lander
+            ran 8; `gone` is a file unread at the first sample, or with `second` at the second."""
+            shutil.rmtree(root, ignore_errors=True)
+            for scope, weight in ((run, 40), (other, 40), (lander, host.CPU_WEIGHT_MAX)):
+                scope.mkdir(parents=True)
+                (scope / "cpu.weight").write_text(f"{weight}\n")
+            sample({run: (0, 0), other: (0, 0), lander: (0, 0)}, None if second else gone)
+            later = {run: (1000000, 5000000), other: (1000000, 1000000), lander: (8000000, 0)}
+            with patch.dict(os.environ, {"AK_HOST_READINGS": ""}), \
+                    patch.object(host, "PROC", self.root / "no-proc"), \
+                    patch.object(host.time, "sleep",
+                                 side_effect=lambda _: sample(later, gone if second else None)), \
+                    patch.object(host.time, "monotonic", side_effect=[100.0, 101.0]):
+                readings = host.host_readings(cgroup_file=self.root / "no-cgroup",
+                                              cgroup_root=root, slice_dir=parent, cpu_dir=runs)
+            return readings["building_cpu_used"], readings["building_cpu_waited"]
+
+        self.assertEqual(sums(), (2, 6))
+        # a scope it cannot tell from a lander, or cannot read in the window, leaves no sum
+        for gone, second in ((lander / "cpu.weight", False), (run / "cpu.stat", False),
+                             (run / "cpu.pressure", True)):
+            with self.subTest(gone.name, second=second):
+                self.assertEqual(sums(gone, second), (None, None))
 
     def test_host_line_names_only_the_gates(self):
         with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(READINGS)}):

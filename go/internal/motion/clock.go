@@ -2,6 +2,9 @@ package motion
 
 import (
 	"math"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"agentkit/internal/terminal"
@@ -27,6 +30,20 @@ type shown struct {
 }
 
 const forever = time.Duration(math.MaxInt64)
+
+// Now is the time a screen's motion is drawn at (motion.moment). An answer key names its clock in
+// AK_MOTION_CLOCK, a file of seconds read anew each time, so it reaches the program the key runs and
+// moves only as the key moves it; unset or unread, the real clock. Frames still come on real time.
+func Now() time.Time {
+	if clock := os.Getenv("AK_MOTION_CLOCK"); clock != "" {
+		if data, err := os.ReadFile(clock); err == nil {
+			if seconds, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil {
+				return time.UnixMicro(int64(seconds * 1e6))
+			}
+		}
+	}
+	return time.Now()
+}
 
 // Draw begins a draw at now, the first one the screen opening.
 func (c *Clock) Draw(now time.Time) {

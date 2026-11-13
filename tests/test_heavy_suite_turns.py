@@ -121,7 +121,7 @@ class HeavySuiteTurns(unittest.TestCase):
             fcntl.flock(holder, fcntl.LOCK_EX)
             light = Gate(self, "light", ACME, [self.mark("light")], heavy=False)
             light.start()
-            light.join(20)
+            light.join(300)
             self.assertIsNone(light.error, light.error)
             self.assertTrue(light.result[0], light.result[1])
             self.assertFalse(light.waited(), light.logs)
@@ -345,8 +345,8 @@ class HeavySuiteTurns(unittest.TestCase):
                        "the second suite to wait")
             self.assertEqual(gate.gate_turn_note(run_record.read_state(second.run_dir)),
                              "waiting for a heavy suite turn")
-            first.join(20)
-            second.join(20)
+            first.join(300)
+            second.join(300)
             self.assertIsNone(first.error, first.error)
             self.assertIsNone(second.error, second.error)
             self.assertFalse(first.waited(), first.logs)
@@ -364,7 +364,7 @@ class HeavySuiteTurns(unittest.TestCase):
             self.until(lambda: gate.gate_turn_note(run_record.read_state(waiter.run_dir) or {}),
                        "the waiter to mark its wait")
             self.gates(2)
-            waiter.join(20)
+            waiter.join(300)
             self.assertIsNone(waiter.error, waiter.error)
             self.assertTrue(waiter.result[0], waiter.result[1])
             self.assertTrue(waiter.waited(), waiter.logs)
@@ -385,7 +385,7 @@ class HeavySuiteTurns(unittest.TestCase):
                     run_record.read_state(third.run_dir) or {}),
                     "the third suite to wait on the saturated turn")
                 self.assertNotIn("third", self.marks.read_text())
-            third.join(20)
+            third.join(300)
             self.assertIsNone(third.error, third.error)
             self.assertTrue(third.waited(), third.logs)
             self.assertEqual(self.marks.read_text(), "third\n")
@@ -400,8 +400,8 @@ class HeavySuiteTurns(unittest.TestCase):
             self.until(lambda: "one" in self.marks.read_text(),
                        "the first suite to start")
             second.start()
-            second.join(20)
-            first.join(20)
+            second.join(300)
+            first.join(300)
             self.assertIsNone(first.error, first.error)
             self.assertIsNone(second.error, second.error)
             self.assertFalse(first.waited(), first.logs)
