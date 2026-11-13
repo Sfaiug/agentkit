@@ -121,7 +121,7 @@ class StopQuestionAsked(unittest.TestCase):
         self.assertIsNone(self.stop("Waiting for your answer.", entries=[self.question(), result]))
 
     def test_answered_questions_do_not_exempt_later_stops(self):
-        for tool in ("AskUserQuestion", "request_user_input"):
+        for tool in ("AskUserQuestion", "request_user_input", "functions.request_user_input_async"):
             for ending in ("recommendation", "parked", "prose"):
                 with self.subTest(tool=tool, ending=ending):
                     self.setUp()
@@ -129,6 +129,11 @@ class StopQuestionAsked(unittest.TestCase):
                         entries = [self.question(), {"type": "user", "message": {
                             "role": "user", "content": [{"type": "tool_result",
                                 "tool_use_id": "question", "content": "schema-a"}]}}]
+                    elif tool.endswith("_async"):
+                        # the call's output only says the question went out; the owner's
+                        # answer comes back later as the user's own input
+                        entries = [self.codex_question(tool), self.codex_output(
+                            ACCEPTED), *self.codex_said("schema-a")]
                     else:
                         entries = [self.codex_question(tool), self.codex_output("schema-a")]
                     if ending == "parked":
@@ -185,6 +190,18 @@ class StopQuestionAsked(unittest.TestCase):
         self.assertIsNone(self.stop(entries=entries))
         self.notice(self.turn + 1, seen=True)
         self.assertEqual(self.stop(entries=entries)["decision"], "block")
+
+    def test_a_refused_async_question_asked_nothing(self):
+        """Codex records a question it sent as accepted; any other output is a call refused."""
+        for output in ("Error parsing function call: missing field `questions`",
+                       '{"accepted":false}', ""):
+            with self.subTest(output=output):
+                self.setUp()
+                entries = [{"type": "event_msg", "payload": {"type": "task_started"}},
+                           self.codex_question("functions.request_user_input_async"),
+                           self.codex_output(output)]
+                self.assertEqual(self.stop("Waiting for your answer.", entries=entries)["decision"],
+                                 "block")
 
     def asked(self):
         """Codex's blocking question card, open: the call has no output yet."""
