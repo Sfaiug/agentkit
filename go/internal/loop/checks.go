@@ -247,7 +247,8 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 
 // boxed runs one command in cwd in a box, its output into progress and activity being where that
 // lands, until it ends, says nothing for the run's silence or spends limit; with a shard, as that
-// piece of its suite, handed times (AK_TIMES).  A proof keeps its bytecode apart: same-size
+// piece of its suite, handed times in the file AK_TIMES names, as a piece on a helper is: a
+// variable holds no more than 131,072 bytes.  A proof keeps its bytecode apart: same-size
 // revisions can share a timestamp, making ignored bytecode look valid.  One holding a heavy-suite
 // turn is told so, as Python's suite_env tells it.
 func (l *loop) boxed(cwd, cmd, shard, times string, limit time.Duration, progress *os.File, activity string, proof, held bool, only ...[]string) (ran, error) {
@@ -263,7 +264,10 @@ func (l *loop) boxed(cwd, cmd, shard, times string, limit time.Duration, progres
 	// where a check names the tests that failed, as any command that takes part is told
 	env["AK_FAILED"] = filepath.Join(out, "AK_FAILED")
 	if shard != "" {
-		env["AK_SHARD"], env["AK_TIMES"] = shard, times
+		env["AK_SHARD"], env["AK_TIMES"] = shard, filepath.Join(out, "AK_TIMES")
+		if err := os.WriteFile(env["AK_TIMES"], []byte(times), 0o666); err != nil {
+			return ran{}, err
+		}
 	}
 	if err := nameTests(env, out, only); err != nil {
 		return ran{}, err
