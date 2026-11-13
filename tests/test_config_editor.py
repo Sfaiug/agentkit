@@ -126,11 +126,12 @@ class Editor(unittest.TestCase):
                     self.assertEqual(effort, want)
 
     def test_add_model_writes_complete_entry(self):
-        # Models, then codex, and its one model, at astra's effort as near as it goes: nothing typed
+        # Models, then codex, and its one model, over astra, which it does not list, at astra's
+        # effort as near as it goes: nothing typed
         levels = [{"id": "gpt-x", "label": "GPT-X", "efforts": ["low", "high"]}]
         with patch.object(config, "catalog", return_value=levels), \
                 patch.object(menu, "read") as read:
-            self.drive(*["down"] * 7, "enter", "down", "enter", "space", "esc", "esc")
+            self.drive(*["down"] * 7, "enter", "down", "enter", "up", "space", "esc", "esc")
         self.assertEqual(read.call_count, 0)
         models = tomllib.loads(self.path.read_text())["models"]
         self.assertEqual(models["gpt-x"], {"harness": "codex", "model": "gpt-x",
