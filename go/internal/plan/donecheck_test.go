@@ -6,13 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
-	"agentkit/internal/host"
 	"agentkit/internal/notify"
-	"agentkit/internal/run"
 )
 
 // A plan with every line done owes its done check while what its owner said stands unchecked
@@ -94,22 +91,12 @@ func TestAFinishedPlanOwesItsCheckUntilOneReadWhatItsOwnerSaid(t *testing.T) {
 	if _, err := Finished("acme"); !errors.Is(err, ErrUnread) {
 		t.Errorf("a harness whose answers Go does not read: %v", err)
 	}
-	// a harness whose receipt Go reads less strictly than Python is Python's before any read of
-	// it follows its launch to the session Muse's registry has since moved it to, and keeps that
+	// a harness whose receipt Go reads less strictly than Python is Python's
 	token := strings.Repeat("a", 32)
-	receipt := filepath.Join(state, "muse-launch-"+token)
 	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "spark", "cwd": "/code/acme", "muse_launch": "`+token+`"}`)
-	write(filepath.Join(receipt, "session"), "before-new")
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "share"))
-	if birth, born := host.ReadIdentity(os.Getpid()); born {
-		write(filepath.Join(receipt, "lineage"), run.Line(run.Fields("processes", []any{[]any{run.Number(strconv.Itoa(os.Getpid())),
-			run.Fields("boot", birth.Boot, "ticks", int(birth.Ticks), "started_at", birth.StartedAt)}}, "earlier", []any{})))
-		write(filepath.Join(home, "share", "muse", "runtime", "muse", "sessions", "after-new.json"),
-			run.Line(run.Fields("session_id", "after-new", "process_generation_hint", "pid="+strconv.Itoa(os.Getpid()))))
-	}
-	_, err := Finished("acme")
-	if session, _ := os.ReadFile(filepath.Join(receipt, "session")); !errors.Is(err, ErrUnread) || string(session) != "before-new" {
-		t.Errorf("a harness Go reads less strictly than Python: %v, its receipt now %q", err, session)
+	write(filepath.Join(state, "muse-launch-"+token, "session"), "before-new")
+	if _, err := Finished("acme"); !errors.Is(err, ErrUnread) {
+		t.Errorf("a harness Go reads less strictly than Python: %v", err)
 	}
 }
 

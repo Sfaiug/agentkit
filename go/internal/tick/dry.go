@@ -9,7 +9,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
-	"agentkit/internal/harness"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -24,7 +23,6 @@ func Dry(out io.Writer) (left string) {
 	if runtime.GOOS == "windows" {
 		return beforePasses
 	}
-	defer harness.KeepNothing()()
 	defer seat.DryTick()()
 	health, _, ok := Health()
 	// the state folder comes first: the rows' seat records are listed from it

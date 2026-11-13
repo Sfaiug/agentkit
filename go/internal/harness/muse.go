@@ -18,11 +18,11 @@ func init() {
 		card: museCard, said: museSaid, typed: byName(museTyping), answered: museAnswered, answer: museAnswer, resumable: museResumable, tokens: museTokens,
 		tokenSources: museTokenSources, tokenUsage: museTokenUsage,
 		// its launch receipt reads as no session where Python's strict read raises: a session
-		// that is not UTF-8, or an `earlier` Python's set() refuses
+		// that is not UTF-8
 		loose: true,
 		hookEvent: func(event *run.Object, _ io.Writer, _ func(string) (string, error), _ func(string)) (*run.Object, int) {
 			return museHookEvent(event), 0
-		}}
+		}, follows: museFollows}
 }
 
 // museIdentity is Muse's release label plus the build its launcher installed, which the launcher

@@ -430,10 +430,22 @@ def conversation(record, cwd=None):
 def owned(record):
     """The session that record's launch reported into its receipt, or None: no receipt, or none
     reported yet."""
-    from . import unread
+    return _named(path_for(record), "session")
+
+
+def reported(record):
+    """The session that launch reported, which the line it opened on went into, or None where it
+    reported none yet.  A receipt Muse's registry moved on, before a seat followed its Stops
+    instead, keeps that one as `reported` and the one it moved to as its session."""
     path = path_for(record)
+    return _named(path, "reported") or _named(path, "session")
+
+
+def _named(receipt, name):
+    """The session that receipt's file `name` names, or None: no receipt, no file, no session."""
+    from . import unread
     try:
-        sid = (path / "session").read_text(encoding="utf-8") if path else ""
+        sid = (receipt / name).read_text(encoding="utf-8") if receipt else ""
     except OSError as exc:
         unread(exc)
         return None
