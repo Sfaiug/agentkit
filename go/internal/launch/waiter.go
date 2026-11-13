@@ -34,14 +34,12 @@ const slotWait = "AK_SLOT_WAIT"
 // by default pads it with, 6.9 MB held where 3.8 do: too near a third of the first in line's 23.
 const lean = "disablethp=1"
 
-// becomeWaiter replaces the run's driver with its waiter.  It returns only where it cannot or may
-// not (movable), or the system has no exec.
+// becomeWaiter replaces the run's driver with its waiter on the installed ak.  It returns only where
+// the process may not move (movable), or the system has no exec.
 func becomeWaiter(dir string, record *run.Object) {
-	self, err := os.Executable()
-	if err != nil || !movable(dir, record) {
-		return
+	if movable(dir, record) {
+		syscall.Exec(program, append([]string{waiterName}, os.Args[1:]...), append(debugged(lean), slotWait+"="+os.Getenv("GODEBUG")))
 	}
-	syscall.Exec(self, append([]string{waiterName}, os.Args[1:]...), append(debugged(lean), slotWait+"="+os.Getenv("GODEBUG")))
 }
 
 // debugged is this process's environment with GODEBUG that, or none for "".
@@ -69,17 +67,14 @@ func Waiter() (int, bool) {
 	}
 	id := filepath.Base(os.Args[3])
 	poll, _ := slotPoll()
-	_, on := installed()
+	on := installed()
 	for behindFirst(id, poll) {
 		time.Sleep(untilTurn(id, poll))
-		if _, now := moved(on); now != "" {
+		if moved(on) != "" {
 			break
 		}
 	}
-	self, err := os.Executable()
-	if err == nil {
-		err = syscall.Exec(self, append([]string{self}, os.Args[1:]...), debugged(os.Getenv(slotWait)))
-	}
+	err := syscall.Exec(program, append([]string{program}, os.Args[1:]...), debugged(os.Getenv(slotWait)))
 	fmt.Fprintln(os.Stderr, "ak: the slot waiter cannot start its driver again:", err)
 	return 1, true
 }

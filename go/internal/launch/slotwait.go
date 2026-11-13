@@ -28,15 +28,13 @@ func waitSlot(ctx context.Context, dir string) error {
 	// back from its waiter, it skipped polls, and said what held it before it went
 	kind, skipped := "", cameBack()
 	announced := skipped
+	on := installed() // the version it begins to wait on, read before any poll can hold it up
 	if skipped && behindFirst(id, poll) {
 		// back only as the install moved: to a waiter on it, or every waiter one move brings back
 		// polls under the lock
-		if record, _ := run.Read(dir); record != nil {
-			becomeWaiter(dir, record)
-		}
+		becomeWaiter(dir, nil)
 	}
 	var record *run.Object // the receipt as its last poll left it
-	on := ""               // the installed version as a poll first left it waiting
 	for polled := false; ; polled = true {
 		if polled {
 			select {
@@ -88,9 +86,6 @@ func waitSlot(ctx context.Context, dir string) error {
 			return waited(dir, record, cmp.Or(kind, "count"))
 		}
 		kind = cmp.Or(record.Str("slot_wait_kind"), kind)
-		if !polled {
-			_, on = installed()
-		}
 		if !announced {
 			// right after a poll that held it the record's reason is what Python's slot_note says
 			fmt.Println(record.Str("slot_wait_reason"))
