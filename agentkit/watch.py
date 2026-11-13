@@ -1744,7 +1744,7 @@ def seat_fact(name, harness):
             else fact)
 
 
-def follow_model(cfg, name, ask=False):
+def follow_model(cfg, name, asked=None):
     """Make the model that seat's harness last recorded its orchestrator:
     `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
     nothing restarted (the owner's word of 20 Oct 2026).  Only a record made since the harness
@@ -1756,8 +1756,8 @@ def follow_model(cfg, name, ask=False):
     `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
     builds and reviews where they stood.  A model no entry the config can run runs on that
     harness is added to the config and becomes the seat's (_taken_in, asking its harness's
-    listing only where `ask`, as the watch's pass does: a look waits on none): "Add it to AK's
-    models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat on its
+    listing only for the watch's pass, whose listings `asked` holds: a look waits on none): "Add
+    it to AK's models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat on its
     harness's own model, a record that cannot be read, or an effort it records none of or its
     model does not take leaves the record as it is."""
     try:
@@ -1780,7 +1780,7 @@ def follow_model(cfg, name, ask=False):
         return
     kept = record["orchestrator"]
     runs = (sorted(config.running(cfg, entry["harness"], ran[0]), key=lambda each: each != kept)
-            or _taken_in(cfg, entry, ran, ask))
+            or _taken_in(cfg, entry, ran, asked))
     if not runs:
         return
     models = config.at_efforts(cfg, record)["models"]
@@ -1793,16 +1793,16 @@ def follow_model(cfg, name, ask=False):
             cfg["models"], data, chosen, ran[1]))
 
 
-def _taken_in(cfg, left, ran, ask):
+def _taken_in(cfg, left, ran, asked):
     """[name] of the entry made for the model a seat's harness recorded (`ran`, as follow_model
     reads it) where no entry of `cfg` runs it there, as `add a subscription` makes one: on the
     harness and provider of `left`, the entry the seat leaves, with its mode where it has one,
     at the effort recorded where the model takes it, else the last it takes, named from its
     label, and added to the file and to `cfg` (config.add_model).  [] for a harness that runs
     any provider it logs in to, since nothing read says which runs the model; a model neither
-    its listing as held nor its `[catalog]` table names, nor, where `ask`, its listing asked
-    afresh (config.catalog), as an id recorded for an error or a fallback; or an add that
-    fails."""
+    its listing as held nor its `[catalog]` table names, nor, for a pass, its listing as the
+    pass asked it (config.catalog), once at most into `asked` ({harness: listing}) however long
+    the pass runs, as an id recorded for an error or a fallback; or an add that fails."""
     harness = left["harness"]
     if harness in config.provider_hosts():
         return []
@@ -1812,8 +1812,10 @@ def _taken_in(cfg, left, ran, ask):
     # the table too, which a held listing answers without: an id only it names (Muse's
     # `-contributor` ones) is added however much is held, and asks nothing
     models = config.catalog_held(harness, cfg) + config.catalog_table(harness)
-    if ask and named(models) is None:
-        models = config.catalog(harness, cfg)
+    if asked is not None and named(models) is None:
+        if harness not in asked:
+            asked[harness] = config.catalog(harness, cfg)
+        models = asked[harness]
     listed = named(models)
     if listed is None:
         return []
@@ -5644,6 +5646,7 @@ def health(cfg, state, dry_run, log):
         else:
             forget(gone, resolve=False, acknowledge=False)
             sync_seen(state, load_state())
+    asked = {}      # each harness's listing, which this pass asks once at most (follow_model)
     for session in seats:
         name = session["name"]
         harness, provider = seat_model(cfg, name)
@@ -5683,7 +5686,7 @@ def health(cfg, state, dry_run, log):
                 live = ({} if blank or dry_run or session.get("exited")
                         else live_state(session, harness, pane=pane, cfg=cfg))
                 if live:
-                    follow_model(cfg, name, ask=True)
+                    follow_model(cfg, name, asked)
                     harness, provider = seat_model(cfg, name)   # a harness can span providers
                 ask_kept_back(name, harness, live)
             at_prompt = (live or seat_read(name)).get("state") == "at_prompt"

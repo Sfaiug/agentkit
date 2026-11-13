@@ -39,8 +39,8 @@ class SeatFollows(Sandbox):
         self.path = claude.transcript_path(config.session_records()[NAME], THREAD)
         self.path.parent.mkdir(parents=True)
 
-    def looked(self, *said, ask=False):
-        """The seat's orchestrator once a look, or the watch's pass where `ask`, has read its
+    def looked(self, *said, asked=None):
+        """The seat's orchestrator once a look, or a pass with the listings it `asked`, read its
         transcript ending on what was `said`, each (the entry's or a bare model id, seconds after
         the launch, its effort, and more of the entry); a model id is what Claude Code records."""
         ids = {name: entry["model"] for name, entry in self.cfg["models"].items()}
@@ -49,7 +49,7 @@ class SeatFollows(Sandbox):
                 fh.write(json.dumps({"type": "assistant", "timestamp": stamp(late),
                                      "effort": effort, **(more[0] if more else {}),
                                      "message": {"model": ids.get(model, model)}}) + "\n")
-        watch.follow_model(self.cfg, NAME, ask=ask)
+        watch.follow_model(self.cfg, NAME, asked)
         return config.session_records()[NAME]["orchestrator"]
 
     def test_an_answer_since_the_launch_on_another_model_moves_the_seat(self):
@@ -104,7 +104,20 @@ class SeatFollows(Sandbox):
         held = [{"id": "claude-opus-5-5", "label": "Opus 5.5", "efforts": ["high"]}]  # no Sonnet
         with patch.object(config, "catalog_held", return_value=held), \
                 patch.object(config, "catalog", side_effect=AssertionError("asked")):
-            self.assertEqual(self.looked(("claude-sonnet-5-5", 30, "high"), ask=True), "sonnet")
+            self.assertEqual(self.looked(("claude-sonnet-5-5", 30, "high"), asked={}), "sonnet")
+
+    def test_a_pass_asks_a_listing_once_however_many_models_it_lacks_and_a_look_none(self):
+        nova = [{"id": "claude-nova-9", "label": "Nova 9", "efforts": ["low", "high"]}]
+        with patch.object(config, "catalog", side_effect=AssertionError("asked")):
+            self.assertEqual(self.looked(("claude-nova-9", 30, "high")), "opus")
+        asked = {}
+        with patch.object(config, "catalog", return_value=nova) as catalog:
+            self.assertEqual(self.looked(("claude-vega-3", 60, "high"), asked=asked), "opus")
+            self.assertEqual(self.looked(("claude-nova-9", 90, "low"), asked=asked), "nova")
+        catalog.assert_called_once_with("claude", self.cfg)
+        self.assertEqual(config.load()["models"]["nova"], {
+            "harness": "claude", "model": "claude-nova-9", "effort": "low",
+            "provider": "anthropic"})
 
     def test_a_model_another_look_added_moves_the_seat_there_and_adds_none(self):
         disk = config.load()
