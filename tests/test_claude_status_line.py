@@ -121,13 +121,11 @@ class ClaudeStatusLine(Sandbox):
     def test_renders_are_judged_in_the_order_they_were_rendered(self):
         config.save_session(self.cfg, "acme", "opus", ["opus"], {"conversation": "conv-acme"})
         hand_in = partial(watch.hook_meters, "acme", "conv-acme", "")
-        usage.record_turn_meters(self.cfg, "anthropic", [{"name": "session", "used": 10},
-                                                         {"name": "weekly_all", "used": 10}], now=500)
+        # a worker's turn, at 10000; then renders begun before it, a later one's hand-in first
+        usage.record_turn_meters(self.cfg, "anthropic", [{"name": "weekly_all", "used": 50}])
         hand_in("1000", "five_hour 20 30000", "seven_day 20 900000")
-        # a later render's hand-in arrives before an earlier one's; then a worker's turn, at 10000
         hand_in("3000", "seven_day 40 900000")
         hand_in("2000", "five_hour 30 30000", "seven_day 20 900000")
-        usage.record_turn_meters(self.cfg, "anthropic", [{"name": "weekly_all", "used": 50}])
         note = (config.STATE / "limits-conv-acme.json").read_text()
         # the same numbers, however the JSON spells them
         limits = {"five_hour": {"used_percentage": 30.0, "resets_at": 30000},

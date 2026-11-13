@@ -1158,13 +1158,13 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     stood = _number(cached.get("fetched_at"))
     if stood is None:
         stood = _number(cached.get("probed_at"))
-    # Each meter is as old as the turn that wrote it, else as the reading: a turn newer on one
-    # window leaves another open to an older turn's reading of it.
+    # Each meter is as old as the turn that wrote it, else as the reading, and one it lacks has
+    # none: a turn newer on one window leaves another open to an older turn's reading of it.
     old = [{**m, "measured_at": _number(m.get("measured_at")) or stood}
            for m in (cached.get("meters") if isinstance(cached.get("meters"), list) else [])
            if isinstance(m, dict) and isinstance(m.get("name"), str)]
     held = {m["name"]: m["measured_at"] for m in old}
-    fresh = [m for m in fresh if (at := held.get(m["name"], stood)) is None or measured > at]
+    fresh = [m for m in fresh if (at := held.get(m["name"])) is None or measured > at]
     if not fresh:
         return False
     _keep(provider, account, fresh, measured, "turn")
