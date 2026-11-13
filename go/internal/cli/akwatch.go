@@ -24,13 +24,15 @@ type looks struct {
 	met     map[string]bool // the seats a look of this screen's has listed, that every read since has listed
 	passing bool            // a look is going
 	again   bool            // and another was asked for meanwhile
+	landed  time.Time       // when a read last landed, or the clock last asked for a look
 }
 
 // watch reads again within stir of news, the words as recorded (menu.Live._watch): a seat file,
 // the runs' moved mark, usage.json or config.toml changed, or a project's switches landed.  With
 // no read landing for rereadEvery, every seat is looked at again.
 func (l *looks) watch() {
-	seen, last := marks(), time.Now()
+	seen := marks()
+	l.landing(nil) // the clock starts with the screen
 	for {
 		news := false
 		select {
@@ -41,15 +43,31 @@ func (l *looks) watch() {
 		now := marks() // noted before the read: what is written while it reads is news to the next
 		news = news || !slices.EqualFunc(now, seen, parsed.Same)
 		seen = now
-		switch {
-		case news && l.read(l.news):
-		case time.Since(last) >= rereadEvery:
+		if !(news && l.read(l.news)) && l.quiet() {
 			l.look()
-		default:
-			continue
 		}
-		last = time.Now()
 	}
+}
+
+// quiet is whether no read has landed for rereadEvery, the clock started again where none has.
+func (l *looks) quiet() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if time.Since(l.landed) < rereadEvery {
+		return false
+	}
+	l.landed = time.Now()
+	return true
+}
+
+// landing is a take's answer, the clock started again where it lets its read land.
+func (l *looks) landing(err error) error {
+	if err == nil {
+		l.mu.Lock()
+		l.landed = time.Now()
+		l.mu.Unlock()
+	}
+	return err
 }
 
 // news takes a read on news: the words as recorded, captured and written by nobody, so no
@@ -67,7 +85,7 @@ func (l *looks) news(home seat.Home, now time.Time) error {
 	if unmet {
 		l.look()
 	}
-	return home.Recorded(now)
+	return l.landing(home.Recorded(now))
 }
 
 // look has every seat looked at in a pass of its own, one at a time: one asked for while another
@@ -98,7 +116,7 @@ func (l *looks) meet(home seat.Home, now time.Time) error {
 	l.mu.Lock()
 	l.met = listed
 	l.mu.Unlock()
-	return home.Announce(now)
+	return l.landing(home.Announce(now))
 }
 
 func names(home seat.Home) map[string]bool {
