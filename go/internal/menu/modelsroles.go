@@ -119,8 +119,9 @@ func rolesSaid(s terminal.Screen, view ModelsView) []roleSaid {
 // roleLines is Python's models_body: per role `▸` where it is at (-1 for none), its word, the row it
 // uses and what follows, under `quality` and its unit wherever the unit changes.  A row too wide
 // beside the words goes on the lines under its word (columned), what follows it staying on the
-// word's line: a model is named in full (docs/cli-design.md).  Each line's row is its role's place
-// in quality.Roles, -1 on a heading.
+// word's line, else on a line of its own under the row: a model is named in full and its numbers
+// shown whole (docs/cli-design.md).  Each line's row is its role's place in quality.Roles, -1 on a
+// heading.
 func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 	said := rolesSaid(s, view)
 	room := s.LayoutWidth()
@@ -156,9 +157,12 @@ func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 		full, tail = max(full, terminal.Cells(models[i])), max(tail, terminal.Cells(follows(one)))
 	}
 	wide := 2+2+word+2+full+tail <= room
-	column := 2 + 2 + word // where what follows a row begins
+	beside := 2+2+word+tail <= room // what follows a row fits on its word's line
+	column := 2 + 2 + word          // where what follows a row begins
 	if wide {
 		column += 2 + full
+	} else if !beside {
+		column = 2 // under the row, at its indent
 	}
 	var lines []matrixRow
 	unit := ""
@@ -180,7 +184,11 @@ func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 				own = append(own, "    "+part)
 			}
 		}
-		own[0] += strings.Repeat(" ", max(0, column-terminal.Cells(own[0]))) + follows(one)
+		if beside {
+			own[0] += strings.Repeat(" ", max(0, column-terminal.Cells(own[0]))) + follows(one)
+		} else if after := follows(one); after != "" {
+			own = append(own, strings.Repeat(" ", column)+after)
+		}
 		for _, line := range own {
 			lines = append(lines, matrixRow{line: strings.TrimRight(line, " "), row: i})
 		}

@@ -83,12 +83,15 @@ func TestEachRoleSaysTheRowItUses(t *testing.T) {
 		}
 	}
 	// too narrow beside its word, each row goes under it, named in full with its effort, wrapped at
-	// its words where it is wider still, what follows it staying on the word's line
+	// its words where it is wider still, what follows it on the word's line where it fits there
+	// (40 cells), else on a line of its own under the row (24), each number whole
 	for columns, want := range map[string][]string{
-		"24": {"▸ orchestrator not on the boards", "Crux 9 high", "quality a task",
+		"40": {"▸ orchestrator not on the boards", "Crux 9 high", "quality a task",
 			"executor 90.0 ≈$80.00", "bolt", "reviewer 76.0 ≈$60.00", "acme low"},
-		"14": {"▸ orchestrator not on the boards", "Crux 9", "high", "quality a task",
-			"executor 90.0 ≈$80.00", "bolt", "reviewer 76.0 ≈$60.00", "acme low"},
+		"24": {"▸ orchestrator", "Crux 9 high", "not on the boards", "quality a task",
+			"executor", "bolt", "90.0 ≈$80.00", "reviewer", "acme low", "76.0 ≈$60.00"},
+		"14": {"▸ orchestrator", "Crux 9", "high", "not on the boards", "quality a task",
+			"executor", "bolt", "90.0 ≈$80.00", "reviewer", "acme low", "76.0 ≈$60.00"},
 	} {
 		if got := said(columns, newSeats, 0); !reflect.DeepEqual(got, want) {
 			t.Errorf("on %s cells:\n%q\nwant\n%q", columns, got, want)
