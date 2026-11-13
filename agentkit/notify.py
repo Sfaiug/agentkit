@@ -575,7 +575,7 @@ def card_answered(notice, replies, at, renewed, before=-math.inf):
     dates = notice.get("question_times") or notice.get("asked_at") or {}
     return [q for q in questions(notice) if replied(replies, q, ids.get(question_key(q)))
             and dates.get(question_key(q), notice["time"]) < at
-            or dates.get(question_key(q), notice["time"]) < before]
+            or dates.get(question_key(q), notice.get("time", math.inf)) < before]
 
 
 def again(kept):
@@ -1561,8 +1561,9 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
         dated = dict(previous.get("asked_at") or {}) if standing else {}
         said_dates = dict(previous.get("question_times") or dated) if standing else {}
         ids = dict(previous.get("question_ids") or {}) if standing else {}
-        gone = {words for words in seen if said_dates.get(words, previous["time"]) < replaces}
-        first = min((dated.get(words, previous["time"]) for words in gone), default=since)
+        undated = (previous or {}).get("time", math.inf)     # an old notice is said before none
+        gone = {words for words in seen if said_dates.get(words, undated) < replaces}
+        first = min((dated.get(words, undated) for words in gone), default=since)
         for words in gone:
             dated.pop(words, None), said_dates.pop(words, None), ids.pop(words, None)
         standing = [q for q in standing if question_key(q) not in gone]
