@@ -17,7 +17,7 @@ import (
 func TestADeclinedResumeLeavesPythonAnUnthrottledWait(t *testing.T) {
 	dir, record, tick := waiter(t)
 	ak := filepath.Dir(filepath.Dir(dir))
-	put(t, filepath.Join(ak, "config.toml"), "[defaults]\nworkers=['opus','astra']\n[models.opus]\nharness='claude'\nmodel='opus'\neffort='high'\nprovider='anthropic'\n[models.astra]\nharness='codex'\nmodel='astra'\neffort='high'\nprovider='openai'\n[providers.anthropic]\nmode='subscription'\n[providers.openai]\nmode='subscription'\naccounts=['shoal','reef']\n")
+	put(t, filepath.Join(ak, "config.toml"), "[defaults]\nworkers=['opus','astra']\n[models.opus]\nharness='claude'\nmodel='opus'\neffort='high'\nprovider='anthropic'\n[models.astra]\nharness='codex'\nmodel='astra'\neffort='high'\nprovider='openai'\n[providers.anthropic]\nmode='subscription'\n[providers.openai]\nmode='subscription'\n")
 	t.Setenv("AK_MAX_RUNS", "0")
 	t.Setenv("AK_RUN_DEPTH", "0")
 	t.Setenv("AGENTKIT_RUN_DIR", "")
@@ -42,7 +42,8 @@ func TestADeclinedResumeLeavesPythonAnUnthrottledWait(t *testing.T) {
 	review := run.Fields("executor", "opus", "reviewer", "astra", "executor_provider", "anthropic", "reviewer_provider", "openai",
 		"verdict", "PASS", "done_when", true, "returncode", 0, "head_sha", oid, "tree_sha", oid)
 	run.SetAll(record, "state", "waiting", "base_sha", oid, "review", review, "round_summaries", []any{review.Copy()},
-		"verdict", "FAIL", "executor", "opus", "reviewer", "astra", "waiting_on", run.Fields("ref", "origin/main", "sha", "baseline"))
+		"verdict", "FAIL", "executor", "opus", "reviewer", "astra", "waiting_on", run.Fields("ref", "origin/main", "sha", "baseline"),
+		"policy", run.Fields("review_rounds", 0))
 	put(t, filepath.Join(dir, "run.json"), run.Line(record))
 	put(t, filepath.Join(dir, "task.md"), "# Add retry\n\n## Done when\n```bash\ntrue\n```\n")
 	if !loop.Pickup(dir, record) {
@@ -54,7 +55,7 @@ func TestADeclinedResumeLeavesPythonAnUnthrottledWait(t *testing.T) {
 		now := start.Add(time.Duration(attempt) * 601 * time.Second)
 		tick.clock = func() time.Time { return now }
 		if err := tick.waiting(); !errors.Is(err, errLeft) {
-			t.Fatalf("did not hand the resume on several logins to Python: %v", err)
+			t.Fatalf("did not hand the review-off run's resume to Python: %v", err)
 		}
 		if read(t, filepath.Join(dir, "run.json")) != before {
 			t.Fatal("declined resume rewrote or throttled Python's wait")
