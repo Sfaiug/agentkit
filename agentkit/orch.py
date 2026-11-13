@@ -2075,18 +2075,36 @@ def tmux_conf():
     everything else a seat wants is a session option, set on the session itself.
 
     `-f` is only read when the tmux command is the one that starts the server, so `start` also
-    loads this file into a server that was already up.  On agentkit's own server that is the
-    whole of it; a key table and the two global options below belong to the server, so on the
-    default server -- where the legacy seats are -- they reach the user's own sessions too.
+    loads this file into a server that was already up, and the tick loads all of it but its
+    `terminal-features` again (`set_hook_options`).  On agentkit's own server that is the
+    whole of it; a key table and the global options belong to the server, so on the default
+    server -- where the legacy seats are -- they reach the user's own sessions too.
+
+    `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
+    wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
+    one attached before this file was loaded gets the rows apart until it attaches again.
+    """
+    config.ensure_dirs()
+    path = config.STATE / "tmux.conf"
+    text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
+            'set -as terminal-features ",*:RGB:hyperlinks:sync"\n' + server_conf())
+    try:
+        if not path.exists() or path.read_text() != text:
+            path.write_text(text)
+    except OSError as exc:
+        raise config.Error(f"cannot write the tmux config {path}: {exc}")
+    return path
+
+
+def server_conf():
+    """The lines of `tmux_conf` that leave a server as they found it however often it loads
+    them: every one but `terminal-features`, which `-a` adds to each time.
 
     `mouse on` is what makes a touch scroll on the phone scroll the session's output instead of
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
     exits in the moment it opens has to survive that too, and the file is read before it runs;
     so is what then brings it back (`hook_options`).
-    `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
-    wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
-    one attached before this file was loaded gets the rows apart until it attaches again.
 
     The popup is sized for the client that opens it, read when the key is pressed: on a
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
@@ -2108,8 +2126,6 @@ def tmux_conf():
     down -- its menu ending, a crash, a kill, `display-popup -C`, its client going -- and the
     job then puts the pane's style back, when no other client's popup is still up over it.
     """
-    config.ensure_dirs()
-    path = config.STATE / "tmux.conf"
     small, large = f"display-popup -E {POPUP_FULL}", f"display-popup -E {POPUP_SIZE}"
     if tmux_version() >= FLOATS:
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
@@ -2123,22 +2139,14 @@ def tmux_conf():
                           f"{large} {border} {handed} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
         small, large = (f"{popup} {tmux_word(popup_command())}" for popup in (small, large))
-    text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
-            "set -g mouse on\n"
+    return ("set -g mouse on\n"
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
             + "".join(f"set -gq {option} {tmux_word(value)}\n"
                       for option, value in hook_options().items()) +
             "set -g allow-passthrough on\n"
-            'set -as terminal-features ",*:RGB:hyperlinks:sync"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
             f"{tmux_word(small)} {tmux_word(large)}\n")
-    try:
-        if not path.exists() or path.read_text() != text:
-            path.write_text(text)
-    except OSError as exc:
-        raise config.Error(f"cannot write the tmux config {path}: {exc}")
-    return path
 
 
 def hook_options():
@@ -2167,10 +2175,11 @@ def hook_options():
 
 
 def set_hook_options():
-    """`hook_options` on ak's own server, which one started before them lacks: those alone,
-    since loading the whole conf again adds its `terminal-features` once more each time.  The
-    default server never gets them (`on_own_server`); a server that is not up gets nothing."""
-    tmux_lists([["set-option", "-gq", option, value] for option, value in hook_options().items()])
+    """`server_conf` on ak's own server, which one started before it last changed lacks: the
+    hooks a seat comes back by, and the `Ctrl-b m` its popup takes the client's name from.  The
+    default server never gets it (`on_own_server`); a server that is not up gets nothing.
+    `source-file` runs each line on its own, so one a tmux refuses leaves the rest set."""
+    tmux_out("source-file", "-", input=server_conf())
 
 
 # Beside a launch's harness in its scope, from just before the harness starts: the harness is
