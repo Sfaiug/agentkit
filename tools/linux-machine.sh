@@ -144,10 +144,10 @@ linux_xml() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
 # time that is no number restarts nothing.  One stopped by force is then left as it is,
 # whatever the start after the stop did, until it answers, is found Stopped, linux_machine_start
 # starts it or the Mac starts: a second stop mends nothing the first did not, such as this
-# check's own way to the machine (the ssh alias), and ends every session in it.  None of these
-# may depend on what the clock reads, which is set back at times: the stop goes on record in the
-# answer's place, where the next answer, start or Stopped writes over it, with the id of the
-# Mac's boot, whose time moves with the clock; a boot id that is empty leaves none as it is.
+# check's own way to the machine, and ends every session in it.  None of these may depend on
+# what the clock reads, which is set back at times: the stop goes on record in the answer's
+# place, where the next answer, start or Stopped writes over it, with the id of the Mac's boot,
+# whose time moves with the clock; a boot id that is empty leaves none as it is.
 linux_machine_check() {
   local status answered last forced session boot
   status=$(linux_machine_status) answered=$(linux_dir)/answered
@@ -185,11 +185,13 @@ linux_machine_start() {   # linux_machine_start [<flag of limactl start>...]
   fi
 }
 
-# Whether `ssh lima-ak true` succeeds within 30 s.  macOS has no timeout(1): a timer ends ssh at
-# 30 s, and ends with its sleep once ssh is done.
+# Whether the machine runs `true` within 30 s, asked through Lima's own ssh file, which Lima
+# writes at each start: nothing in the account's ssh setup, such as a lost Include, keeps the
+# check from a machine that answers.  macOS has no timeout(1): a timer ends ssh at 30 s, and ends
+# with its sleep once ssh is done.
 linux_machine_answers() {
   local ssh timer code
-  ssh "$LINUX_MACHINE" true </dev/null >/dev/null 2>&1 & ssh=$!
+  ssh -F "$(linux_dir)/ssh.config" "$LINUX_MACHINE" true </dev/null >/dev/null 2>&1 & ssh=$!
   { trap 'kill $!; exit' TERM; sleep 30 & wait $!; kill "$ssh"; } >/dev/null 2>&1 & timer=$!
   wait "$ssh"; code=$?
   kill "$timer" 2>/dev/null
