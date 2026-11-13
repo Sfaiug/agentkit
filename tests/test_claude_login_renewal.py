@@ -25,10 +25,12 @@ from agentkit import config, worker
 # A fake claude: one line per turn -- the login's directory, the token beside it, the prompt's first,
 # and its arguments -- then, unless told to fail, a renewed pair written where Claude Code
 # writes it. `FAKE_SLEEP` holds the turn open, the way a real one takes seconds.  `auth logout`
-# removes the login of the directory it runs in.
+# removes the login of the directory it runs in, and `--version` says a version, which `usage`
+# names itself by: neither is a turn.
 FAKE_CLAUDE = r"""#!/usr/bin/env bash
 dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 [ "$*" != "auth logout" ] || exec rm "$dir/.credentials.json"
+[ "$*" != --version ] || exec echo "2.1.322 (Claude Code)"
 printf '%s|%s|%s|%s\n' "$dir" "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "$(head -n 1)" "$(printf '[%s]' "$@")" \
   >>"$FAKE/turns"
 sleep "${FAKE_SLEEP:-0}"
