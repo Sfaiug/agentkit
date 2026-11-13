@@ -634,15 +634,28 @@ def submodule_set_up(wt, private):
         for entry in staged.split(b"\0") if entry.startswith(b"160000 "))
 
 
+def scratches(directory):
+    """Each folder `record.scratch` made in a run's folder, and whether its maker lives.  Its
+    mark alone decides: a box's processes see the folder under another path, so no look at
+    who holds it proves anything."""
+    for folder in retention.children(directory):
+        maker = retention.read_json(folder / record.SCRATCH)
+        if maker is not None:
+            yield folder, retention.writer_active(maker)
+
+
+def scratch_lives(directory):
+    """Whether a run's folder holds a scratch whose maker lives: the folder stays whole."""
+    return any(living for _, living in scratches(directory))
+
+
 def left_scratch():
     """Each folder `record.scratch` made in a run's folder whose maker is gone, the run in any
     state: a killed one removes none of its own, and a run's folder stays 30 days (645 in 226
-    runs, 27 GiB, 12 Nov 2026).  Its mark alone decides: a box's processes see the folder
-    under another path, so no look at who holds it proves anything."""
+    runs, 27 GiB, 12 Nov 2026)."""
     for directory in retention.children(config.RUNS):
-        for folder in retention.children(directory):
-            maker = retention.read_json(folder / record.SCRATCH)
-            if maker is not None and not retention.writer_active(maker):
+        for folder, living in scratches(directory):
+            if not living:
                 yield {"action": "remove", "kind": "run-scratch", "path": str(folder)}
 
 
@@ -807,7 +820,7 @@ def gc_candidates(now=None):
                 and not state.get("notification_pending") and not state.get("pending_inbox")
                 and not state.get("handback_pending")
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
-                and not record.writing(directory)
+                and not record.writing(directory) and not scratch_lives(directory)
                 and retention.safe(directory)):
             yield {"action": "remove", "kind": "throwaway-run", "path": str(directory),
                    "run": str(directory), "throwaway": True,
@@ -822,7 +835,8 @@ def gc_candidates(now=None):
                 and (interrupted or worktrees.provably_final(state)
                      and run_aged_out(directory, state, now))
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
-                and not record.writing(directory) and retention.safe(directory)):
+                and not record.writing(directory) and not scratch_lives(directory)
+                and retention.safe(directory)):
             try:
                 owner = transitions.launched_session(state)
             except config.Error:
@@ -1319,7 +1333,8 @@ def gc(report, automatic=False):
                             same = (item.get("final") and worktrees.provably_final(state or {})) or (
                                 retention.fingerprint(directory / "run.json") == item["state_identity"])
                             if (not same or retention.writer_active(state or {})
-                                    or retention.busy(directory, paths)):
+                                    or retention.busy(directory, paths)
+                                    or scratch_lives(directory)):
                                 continue
                             if item.get("whole"):
                                 try:
