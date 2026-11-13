@@ -50,14 +50,15 @@ func (j *jobRun) behind(tasks []any, i int) (bool, error) {
 	return true, nil
 }
 
-// tip fetches every branch origin has into the checkout the ordered job's task at path works in,
-// before the task is judged: the task is cut where the one before it merged, which only origin's
-// tip holds, so its policy and refusals are read there and the tracking ref its run falls back to
-// is that tip (job_start_task).  Nothing to fetch for a job in no order, a scratch task, or one
+// tip fetches every branch origin has into the checkout the ordered job's task at path, text being
+// what it says, works in, as the task starts and before it is judged on that same text: the task
+// is cut where the one before it merged, which only origin's tip holds, so its policy and refusals
+// are read there and the tracking ref its run falls back to is that tip (job_start_task).  Nothing
+// to fetch at the job's launch, before its receipt, for a job in no order, a scratch task, or one
 // whose file, checkout or own branch its judging then refuses.
-func (j *jobRun) tip(path string) error {
-	meta, _, unread := task.Read(path)
-	if !j.flags["--in-order"] || unread != nil || ownBranch(meta) {
+func (j *jobRun) tip(path, text string) error {
+	meta, _, unread := task.Parse(path, text)
+	if j.receipt == nil || !j.flags["--in-order"] || unread != nil || ownBranch(meta) {
 		return nil
 	}
 	repo, refused, err := checkout(meta, path, path)

@@ -118,9 +118,12 @@ var (
 func (j *jobRun) id() string { return filepath.Base(j.dir) }
 
 // task is the launch of the job's task file at path as preflight settles it, read as it reads now,
-// as judge says.
+// as judge says, an ordered job's started task on origin's tip fetched for what it read (tip).
 func (j *jobRun) task(path string) (*launching, int, string, error) {
 	l, text, err := typed(path)
+	if err == nil {
+		err = j.tip(path, text)
+	}
 	if err != nil {
 		return nil, 0, "", err
 	}
@@ -246,12 +249,8 @@ func (j *jobRun) carry() (int, error) {
 // other reason, a fetch that failed among them, or, saying why, left queued where Go does not
 // start it.  The job's own receipt that cannot be written ends this launcher.
 func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
-	name, path := task.Str("name"), task.Str("task_file")
-	var l *launching
-	why, err := "", j.tip(path)
-	if err == nil {
-		l, _, why, err = j.task(path)
-	}
+	name := task.Str("name")
+	l, _, why, err := j.task(task.Str("task_file"))
 	refused := ""
 	switch {
 	case l != nil:
