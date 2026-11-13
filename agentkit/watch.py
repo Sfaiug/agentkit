@@ -2883,6 +2883,11 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
         settle_account(cfg, session, lambda _: None)
     answer = announce_state(session, cfg=cfg, look=True, number=number)
+    # The tick's pass for this one seat: what it is owed goes in at the event that ends its
+    # turn or answers its question, not at a tick minutes later, and a move before the
+    # `continue` below, which would begin its next turn on the model it is leaving.
+    if seat_read(name).get("owed_lines"):
+        tell_moves(name, note)
     if stop_enforced(harness):
         from . import menu as menu_mod
         # A completion is already an event, not a suspected stall. The wrapper supplies
@@ -2890,10 +2895,6 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
         if stop_nudge(session, harness, pane_text(session), notify.last(name),
                       menu_mod.run_records(), False, lambda _: None):
             answer = announce_state(session, cfg=cfg, look=True, number=number)
-    # The tick's pass for this one seat: what it is owed goes in at the event that ends its
-    # turn or answers its question, not at a tick minutes later.
-    if seat_read(name).get("owed_lines"):
-        tell_moves(name, note)
     return answer
 
 
