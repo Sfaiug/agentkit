@@ -97,9 +97,11 @@ class NamedFromItsId(unittest.TestCase):
         term.keys("Enter")
         term.wait("› Claude Code  Opus 5.5")
         term.keys("j", "Enter")
-        term.wait(lambda screen: ["›   □ 7.2 Vega", "    □ Codex's own model"]
-                  == [line for line in lines(screen) if "□" in line])
-        term.keys("Space")
+        # after them Astra, which it does not list, the highlight on the one marked
+        term.wait(lambda screen: ["    □ 7.2 Vega", "    □ Codex's own model",
+                                  "›   ■ GPT-6-Astra"]
+                  == [line for line in lines(screen) if "□" in line or "■" in line])
+        term.keys("Up", "Up", "Space")
         term.wait(lambda screen: "  Codex        GPT-6-Astra, 7.2 Vega" in lines(screen)
                   and "›   ■ 7.2 Vega" in lines(screen))
         name, entry = next(item for item in akconfig.read(self.home)["models"].items()

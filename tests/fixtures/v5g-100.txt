@@ -12,7 +12,7 @@ atoll
      Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews
 
 agentkit
-  3  herdr        Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
+  3  herdr        Fable 5.1 xhigh  ● working    ─────────────────────────────── no plan yet · 1 task
      Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews   ■□□
 
 not assigned yet

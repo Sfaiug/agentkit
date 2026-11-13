@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/plan"
 )
 
 // Menu is MenuRead with each seat whose panes run on looked at once, writing nothing: the ak
@@ -51,14 +50,6 @@ func MenuRead(now time.Time) (Home, bool) {
 	}
 	home.drawn = true
 	return home, true
-}
-
-// Said is what the row opens: a done seat's last done line, else its question or way back in.
-func (seat Seat) Said() string {
-	if seat.Word == "done" {
-		return config.Fold(plan.LastDone(seat.Name))
-	}
-	return seat.reason
 }
 
 // Crew is the same full model names the seat's bar reads from its saved role selection.

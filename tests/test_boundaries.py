@@ -102,7 +102,9 @@ RULES = [
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and
     # provider by one config.default.toml entry: every other copy of a name is harness
     # knowledge that adding, renaming or dropping a harness has to find and change.
-    # Go embeds generated copies; TestEmbeddedDefault and TestEmbeddedAdapters refuse any
+    # A seat plugin's folder is named for its harness and goes with it, so nothing in it is a
+    # copy to find.  Go embeds generated copies, and ships one of the seat plugin;
+    # TestEmbeddedDefault, TestEmbeddedAdapters and TestShippedSeatPlugin refuse any
     # difference from the sources.  Go's plugins are go/internal/harness/.
     {"name": "harness and provider names",
      "flags": ("-i", "-w"),
@@ -110,8 +112,8 @@ RULES = [
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml",
               "go/internal/config/default.toml", "go/internal/config/adapters/",
-              "go/internal/harness/"),
-     "max": 186},
+              "go/internal/harness/", "hooks/opencode-seat/", "go/hooks/opencode-seat/"),
+     "max": 177},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     # Every provider word counts, in code or comment, but none of ak's own names: the
@@ -298,13 +300,17 @@ def outside(rule):
     return found
 
 
-def where_change_left_main(test, path):
-    """`path`'s text where this change left origin/main; an unreadable one skips `test`."""
+def left_main():
+    """The commit where this change left origin/main."""
     # against where this change started: a commit main has since moved past (as the host's
     # live check tests) is not held to what main changed after it
-    base = subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
+    return subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
                           capture_output=True, text=True).stdout.strip() or "origin/main"
-    proc = subprocess.run(["git", "-C", str(REPO), "show", f"{base}:{path}"],
+
+
+def where_change_left_main(test, path):
+    """`path`'s text where this change left origin/main; an unreadable one skips `test`."""
+    proc = subprocess.run(["git", "-C", str(REPO), "show", f"{left_main()}:{path}"],
                           capture_output=True, text=True)
     if proc.returncode:
         print(f"origin/main:{path} is not readable; skipping the comparison")

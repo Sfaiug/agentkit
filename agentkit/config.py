@@ -1,6 +1,6 @@
 """config.toml loading, model resolution, and every agentkit path."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 import copy
 import datetime
 import fcntl
@@ -13,7 +13,6 @@ import shutil
 import signal
 import subprocess
 import sys
-import threading
 import time
 import tomllib
 from pathlib import Path
@@ -98,8 +97,9 @@ OWN = ("agentkit.git", "bin", CONFIG_NAME, "env", "history.db", "history.db-jour
        "state", "tasks", "tmp", "versions", "work", "wt")
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
                                # harness whose adapter manifest names none of its own
-CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
-CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before the answer it has
+CATALOG_TTL = 60               # seconds a login's listing is reused before it is asked again
+CATALOG_WAIT = 15              # seconds catalog() waits on a listing before the one it holds
+CATALOG_NOW = 0.05             # seconds catalog_now waits on one before the one it holds
 # What a change may spend, each a top-level key of config.toml (`policy`): ak's default, the
 # floor and what the number means.
 # Owner, 21 Oct 2026: larger first reviews merged less often and broke landing more often,
@@ -890,7 +890,7 @@ def _fall_back(defaults, left, written=True):
                                 if model in left] or [left[0]]
 
 
-_CATALOGS = {}    # (harness, account): (when that login was asked, what it listed)
+_ASKED = {}       # (harness, account): when that login was last asked here, and the process asking
 
 
 def catalog_table(harness):
@@ -912,8 +912,8 @@ def catalog_table(harness):
 def forget_catalog(harness):
     """Ask that harness's logins for their models afresh next time: a login has just changed
     them."""
-    for key in [key for key in _CATALOGS if key[0] == harness]:
-        _CATALOGS.pop(key, None)
+    for key in [key for key in _ASKED if key[0] == harness]:
+        _ASKED.pop(key, None)
 
 
 def _logins(cfg, harness):
@@ -931,9 +931,9 @@ def _logins(cfg, harness):
 
 
 def _listed(harness, account, providers):
-    """What one login of that harness lists (catalog), [] for nothing usable."""
+    """What one login of that harness lists (catalog) within CATALOG_TTL, [] for nothing usable."""
     try:
-        proc = run_adapter([str(adapter(harness)), "models"], timeout=15,
+        proc = run_adapter([str(adapter(harness)), "models"], timeout=CATALOG_TTL,
                            env={**child_env(), **account_env(account), **provider_env(providers)})
         out = proc.stdout if proc.returncode == 0 else ""
     except (Error, OSError, subprocess.TimeoutExpired):
@@ -943,74 +943,109 @@ def _listed(harness, account, providers):
             if len(fields) == 3 and fields[0]]
 
 
+def _kept(harness):
+    """Where each login's last listing of that harness is kept, `<account>.json`, for all."""
+    return _self.STATE / "listings" / harness
+
+
+def _ask(harness, account, providers):
+    """One login of that harness asked for its models by a process of its own (_keep), which
+    outlives a screen that stops waiting on it, and marks itself so that what the harness
+    leaves once it ends is swept (owner.leftovers); None where none starts."""
+    from . import owner     # here: only an ask needs it, and a harness's probe imports config
+    try:
+        return subprocess.Popen(
+            [sys.executable, "-c", "import sys; from agentkit import config, owner; "
+             "owner.mark('model listing'); config._keep(*sys.argv[1:])",
+             str(_kept(harness)), harness, account, *providers],
+            cwd=REPO, env=owner.unmarked(child_env()), stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return None
+
+
+def _keep(kept, harness, account, *providers):
+    """`_ask`'s process: what that login lists kept in `kept`, unless one asked later is kept
+    there.  Each ask takes the next number there as it starts, which orders them whatever the
+    clock does.  A listing that fails, runs out of time or lists nothing replaces nothing."""
+    path = Path(kept) / f"{account}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _record_lock(path):           # each writer's temporary file is the same one
+        held = _held(path)
+        asked = held.get("asks", 0) + 1
+        _write_json(path, {**held, "asks": asked}, prepare=False)
+    listed = _listed(harness, account, list(providers))
+    if listed:
+        with _record_lock(path):
+            held = _held(path)
+            if held.get("asked", 0) < asked:
+                _write_json(path, {**held, "asked": asked, "models": listed}, prepare=False)
+
+
 def catalog(harness, cfg=None):
     """The models that harness can run: dicts of `id`, `label` and `efforts`, strongest last.
 
     Each model once, as the first login (_logins: of `cfg`'s subscriptions there) to list it
     says it.  `adapters/<h>.sh models` answers, told the login (account_env, provider_env), one
-    `id<TAB>label<TAB>efforts` line per model: live where the harness lists its own, else --
-    and when that listing fails or outlasts ten seconds -- from the `[catalog]` table of its
-    manifest.  `none` is the one effort of a model that runs at no effort; an empty efforts
-    field, a model whose efforts its harness does not say.  Where no login's adapter says
-    anything usable, failing or still going after fifteen seconds, that table too.  The logins
-    are asked at once, and each answer cached a minute, because a live listing asks the
-    harness's server.
+    `id<TAB>label<TAB>efforts` line per model: live where the harness lists its own, else from
+    the `[catalog]` table of its manifest, and failing where the harness's own listing fails.
+    `none` is the one effort of a model that runs at no effort; an empty efforts field, a model
+    whose efforts its harness does not say.  What a login answers stands until a newer answer
+    is read (_ask), and a login never answered stands on that table (catalog_held).  The logins
+    are asked at once, each once a minute at most, because a live listing asks the harness's
+    server, and waited on CATALOG_WAIT seconds.
     """
-    now, logins = time.monotonic(), _logins(cfg, harness)
-    asked = [account for account in logins if now - _CATALOGS.get(
-        (harness, account), (-CATALOG_TTL, []))[0] >= CATALOG_TTL]
-
-    def ask(account):
-        _CATALOGS[harness, account] = (now, _listed(harness, account, logins[account]))
-    # threads of its own, never concurrent.futures: importing that registers an exit hook, and
-    # config is imported at exit too (a fake adapter writing its hand-in), where that raises
-    asking = [threading.Thread(target=ask, args=(account,), daemon=True) for account in asked]
-    for thread in asking:
-        thread.start()
-    for thread in asking:
-        thread.join()
-    return catalog_held(harness, cfg)
-
-
-_ASKING = {}      # catalog_now's: the thread asking catalog(), by harness
+    return _asking(harness, cfg, CATALOG_WAIT)
 
 
 def catalog_now(harness, cfg=None):
     """catalog(harness, cfg) for a key that is drawn at once: catalog_held once it answers
     within CATALOG_NOW seconds, as a cached one does, or before it has.
 
-    A listing asks the harness itself and can take fifteen seconds, so it goes on in the
+    A listing asks the harness itself and can take half a minute, so it goes on in the
     background and the next key reads it.  Only a step on the `c` screen reads this way;
     `ak doctor`, a model id's step and `Models` wait for catalog() as before.
     """
-    asking = _ASKING.get(harness)
-    if asking is None or not asking.is_alive():
-        asking = _ASKING[harness] = threading.Thread(target=_ask_catalog, args=(harness, cfg),
-                                                     daemon=True)
-        asking.start()
-    asking.join(CATALOG_NOW)
+    return _asking(harness, cfg, CATALOG_NOW)
+
+
+def _asking(harness, cfg, wait):
+    """catalog_held once each of that harness's logins has answered, or `wait` seconds on, each
+    one not asked here for CATALOG_TTL seconds asked first.  An answer after that is kept all
+    the same (_ask), and the next look reads it."""
+    now, asking = time.monotonic(), []
+    for account, providers in _logins(cfg, harness).items():
+        when, proc = _ASKED.get((harness, account), (-CATALOG_TTL, None))
+        if now - when >= CATALOG_TTL:
+            _ASKED[harness, account] = (now, proc := _ask(harness, account, providers))
+        asking.append(proc)
+    for proc in filter(None, asking):
+        with suppress(subprocess.TimeoutExpired):       # kept all the same when it answers
+            proc.wait(max(0, now + wait - time.monotonic()))
     return catalog_held(harness, cfg)
 
 
-def _ask_catalog(harness, cfg):
+def _held(path):
+    """What `path` keeps (_keep): the `models` one login listed, the number of the ask that
+    listed them (`asked`) and of the last ask (`asks`); {} for none."""
     try:
-        catalog(harness, cfg)
+        held = _read_json(path, shared=True)
     except Error:
-        pass            # catalog_now falls back to the table, which says the same error
+        return {}                      # one unreadable is replaced by the next listing
+    return held if isinstance(held, dict) else {}
 
 
 def catalog_held(harness, cfg=None):
-    """catalog(harness, cfg) as its logins last listed it, however old, else its manifest's
-    table: for a draw, which asks no harness and waits on none.  Each model is labelled as
-    every screen names it (model_label)."""
-    held = {account: listed for (on, account), (_, listed) in list(_CATALOGS.items())
-            if on == harness}         # a list: a thread may be adding one
-    models = {}
-    for account in _logins(cfg, harness) if held else ():    # a draw reads no config for none
-        for model in held.get(account, ()):
+    """catalog(harness, cfg) as its logins last listed it, however long ago and in whichever
+    process, its manifest's table standing in for each never listed: for a draw, which asks no
+    harness and waits on none.  Each model is labelled as every screen names it (model_label)."""
+    table, models = catalog_table(harness), {}
+    # a draw reads no config for a harness never listed
+    for account in _logins(cfg, harness) if _kept(harness).is_dir() else [DEFAULT_ACCOUNT]:
+        for model in _held(_kept(harness) / f"{account}.json").get("models") or table:
             models.setdefault(model["id"], model)
     return [{**model, "label": model_label(harness, model["id"], model["label"])}
-            for model in list(models.values()) or catalog_table(harness)]
+            for model in models.values()]
 
 
 def efforts(harness, model=None, listing=None):
@@ -1990,8 +2025,8 @@ def adapter(harness, code=None):
 
     It has three duties: hand the worker the prompt as written, let it close its turn with
     `ak hand-in done`, and return `final.md` and a `session_id` a second turn resumes; ak ends
-    whatever a turn leaves running.  `python3 tests/check_harness_contract.py [harness]` proves
-    them on each harness installed with a login, at the model and effort its `[check]` names.
+    whatever a turn leaves running.  `ak contract [harness]` proves them on each harness installed
+    with a login, at the model and effort its `[check]` names.
     The verbs:
 
     run <model> <effort> <workspace> <prompt> <out> [<session>]
@@ -2013,8 +2048,8 @@ def adapter(harness, code=None):
         where it can tell, or 1 with why not.
     models
         an `id<TAB>label<TAB>efforts` line per model, efforts strongest last, `none` for one
-        that runs at no effort, empty where the harness does not say; `[catalog]` stands in for
-        a harness that lists none, fails, or takes ten seconds.
+        that runs at no effort, empty where the harness does not say; `[catalog]` answers for
+        a harness that lists none of its own, and one whose listing fails exits 1.
     hooks / install / login [again] / logout
         install its lifecycle hooks idempotently; install it and log in on a fresh box, `again`
         signing in afresh over a login that still stands; sign that login out on this machine,

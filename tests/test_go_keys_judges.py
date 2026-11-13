@@ -11,6 +11,7 @@ import tempfile
 import unittest
 
 from suite_shares import claims
+from test_go_keys import SWITCHED
 
 TESTS = Path(__file__).resolve().parent
 KEY = """import os, subprocess, sys, unittest
@@ -48,7 +49,10 @@ class Judges(unittest.TestCase):
         self.root = Path(self.enterContext(
             tempfile.TemporaryDirectory(prefix="ak-keys-judges-"))).resolve()
         (self.root / "tests").mkdir()
-        (self.root / "go").mkdir()
+        # what the copy switched as each claim's is takes from go/
+        for part in SWITCHED:
+            shutil.copytree(TESTS.parent / "go" / part, self.root / "go" / part, symlinks=True)
+        shutil.copy(TESTS.parent / "go/install.sh", self.root / "go")
         (self.root / "agentkit").mkdir()
         (self.root / "agentkit/__init__.py").touch()
         shutil.copy(TESTS / "test_go_keys.py", self.root / "tests")
@@ -128,9 +132,10 @@ class Judges(unittest.TestCase):
 
     def test_a_relative_ak_bin_is_read_from_the_checkout(self):
         (self.root / "bin").mkdir()
-        (self.root / "bin/acme").write_text("built\n")
+        (self.root / "bin/acme").write_text("acme\n")
+        # the switched copy's bin/ak, copied from it
         (self.root / "tests/test_key_outside.py").write_text(KEY.format(
-            f'self.assertEqual(os.environ["AK_BIN"], {str(self.root / "bin/acme")!r})'))
+            'self.assertEqual(Path(os.environ["AK_BIN"]).read_text(), "acme\\n")'))
         done = self.judged(keys=["test_key_outside Acme"], AK_BIN="bin/acme")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
 

@@ -95,6 +95,11 @@ pro = 20
 "max 5x" = 100
 "max 20x" = 200
 
+# What a screen calls a plan above where that is not `login-end`'s word, which stays the one kept
+# and priced: "Rename 20x max to ULTRA." (the owner, 10 Nov 2026)
+[plan_names]
+"max 20x" = "ULTRA"
+
 # "hooks" means adapters/claude.sh hooks installs something that reports this state; "screen"
 # means only the rules below can say it.  A hook fact still gives way to a rule that positively
 # names a different state: Claude reports a dialog going up, and a question or plan answered,

@@ -30,7 +30,7 @@ func pastRow(each seat.Seat, now time.Time) (menu.PastSeat, bool) {
 		said = strings.TrimSpace(sentence)
 	}
 	return menu.PastSeat{Seat: menu.Seat{Name: each.Name, Checkout: each.Checkout(), Model: each.Orchestrator,
-		Done: done, Total: total, Said: said}, Closed: closed, Restart: restart}, known
+		Done: done, Total: total}, Said: said, Closed: closed, Restart: restart}, known
 }
 
 func sortPast(past []menu.PastSeat) {

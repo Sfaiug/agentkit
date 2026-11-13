@@ -1,8 +1,9 @@
 """Every pass of a landing line moves it.  A member that changes under a pass costs only the
-verdicts stacked on it: those ahead of it are written and the pass goes on, while a changed
-first member or green delivery ahead still ends the pass with nothing written.  A pass that
-checked and moved nobody, or died, is followed by one of half the members, down to one alone,
-and a pass that writes a verdict takes the whole line again, even one that died after it.
+verdicts stacked on it: the pass goes on with the stacks rebuilt without it and those behind it,
+and writes the verdicts of those ahead, while a changed first member or green delivery ahead
+still ends the pass with nothing written.  A pass that checked and moved nobody, or died, is
+followed by one of half the members, down to one alone, and a pass that writes a verdict takes
+the whole line again, even one that died after it.
 Black-box: test_key_every_pass_moves_the_line.
 
 Offline: local Git and real suites, with isolated state and fake wakes, as in test_lander.
@@ -70,7 +71,9 @@ class EveryPassMovesTheLine(fixture.LanderFixture, unittest.TestCase):
     def test_a_change_behind_leaves_the_verdicts_ahead_written_and_the_pass_going(self):
         first, middle, broken, last = self.line()
         self.checked(last)
-        self.assertEqual(len(self.checks), 3)
+        # the deepest; then, rebuilt without last, broken's own, red, and first's and middle's
+        self.assertEqual([kw["checked"][0] for _, _, kw in self.checks],
+                         [last, broken, first, middle])
         for directory in (first, middle):
             self.assertIn("land", self.wait(directory))
         self.assertIn("fix", self.wait(broken))
@@ -117,14 +120,17 @@ class EveryPassMovesTheLine(fixture.LanderFixture, unittest.TestCase):
         self.unanswered(*behind)
         self.wake.assert_not_called()
 
-    def test_nothing_ahead_is_written_from_a_check_of_a_tree_holding_the_changed_member(self):
+    def test_the_members_ahead_land_on_a_check_of_the_stacks_rebuilt_without_the_change(self):
         # the deepest stack's green covers every member, and that stack holds the change: a
-        # member ahead lands only with the members its check tested
+        # member ahead lands only with the members its check tested, the top rebuilt without it
         members = self.green_line()
         self.checked(members[2])
-        self.assertEqual(len(self.checks), 1)
-        self.unanswered(*members)
-        self.wake.assert_not_called()
+        self.assertEqual([kw["checked"][0] for _, _, kw in self.checks],
+                         [members[3], members[1]])
+        self.assertEqual(self.wait(members[0])["tested"], self.wait(members[1])["land"])
+        self.assertNotIn("tested", self.wait(members[1]))
+        self.unanswered(*members[2:])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [members[0].name])
 
     def test_a_fruitless_pass_halves_the_next_down_to_one_and_a_verdict_restores_the_line(self):
         members = self.green_line()

@@ -7,6 +7,7 @@ import (
 	"agentkit/internal/adapters"
 	"agentkit/internal/config"
 	"agentkit/internal/handover"
+	harnesses "agentkit/internal/harness"
 	"agentkit/internal/hooks"
 	"agentkit/internal/seat"
 )
@@ -22,6 +23,9 @@ func adapter(args []string, out, errOut io.Writer) int {
 	}
 	root, harness, verb, rest := args[0], args[1], args[2], args[3:]
 	handover.Runs("adapter " + harness + " " + verb)
+	if own := harnesses.Verb(harness, verb); own != nil {
+		return own(rest, out, errOut)
+	}
 	switch verb {
 	case "interactive":
 		return adapters.Interactive(root, harness, rest, out, errOut)

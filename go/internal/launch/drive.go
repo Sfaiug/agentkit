@@ -21,19 +21,29 @@ import (
 	"agentkit/internal/usage"
 )
 
-// drivable is nil where Go can drive this task's run to its end, else ErrPython, decided
-// before anything is written: a reviewer named outright, an executor no worker of its groups, a
-// pick Go cannot read as Python does, a meter it cannot read or a home with no adapter directory
-// unless nobody could run there anyway, or a host with no box.
-func drivable(values map[string]string, bound config.Binding) error {
-	executors, reviewers := names(bound.Workers), names(bound.Reviewers)
-	rules, ok := pick.Within(executors, reviewers)
+// drivable is nil where Go can drive this task's run, held to these numbers, to its end, else
+// ErrPython, decided before anything is written: a reviewer named outright, an executor no worker
+// of its groups, a pick Go cannot read as Python does, a meter it cannot read or a home with no
+// adapter directory unless nobody could run there anyway, or a host with no box.
+func drivable(values map[string]string, bound config.Binding, numbers config.Numbers) error {
+	executors := names(bound.Workers)
+	rules, ok := staffing(bound, numbers)
 	named := values["--exec"]
 	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !ok || !box.Supported ||
 		usage.Check() != nil && loop.Unstaffed(rules) == "" {
 		return ErrPython
 	}
 	return nil
+}
+
+// staffing is the rules a run held to these numbers picks by from the bound lists: its executor
+// alone with review off (pick.Rules.Alone).
+func staffing(bound config.Binding, numbers config.Numbers) (*pick.Rules, bool) {
+	rules, ok := pick.Within(names(bound.Workers), names(bound.Reviewers))
+	if ok && numbers.Rounds == 0 {
+		rules = rules.Alone()
+	}
+	return rules, ok
 }
 
 // names is a bound list as the picks read it, nil for none.
