@@ -10,7 +10,6 @@ import signal
 import socket
 import socketserver
 import sqlite3
-import struct
 import subprocess
 import sys
 import threading
@@ -36,7 +35,10 @@ def publish(name, data):
 def frame(message, mask=b''):
     # A client masks each frame it sends and a server never does (RFC 6455, 5.1).
     data = json.dumps(message).encode()
-    size = bytes([len(data)]) if len(data) < 126 else bytes([126]) + struct.pack('!H', len(data))
+    # A length past 125 follows 126 in 2 bytes, past 65535 follows 127 in 8 (RFC 6455, 5.2).
+    n = len(data)
+    size = (bytes([n]) if n < 126 else bytes([126]) + n.to_bytes(2) if n < 1 << 16
+            else bytes([127]) + n.to_bytes(8))
     if mask:
         size = bytes([128 | size[0]]) + size[1:]
         data = bytes(v ^ mask[i % 4] for i, v in enumerate(data))
@@ -47,9 +49,8 @@ def receive(stream):
     # None once the other end has closed
     if not (first := stream.read(2)):
         return None
-    size = first[1] & 127
-    if size == 126:
-        size = struct.unpack('!H', stream.read(2))[0]
+    if (size := first[1] & 127) > 125:
+        size = int.from_bytes(stream.read(2 if size == 126 else 8))
     mask = stream.read(4) if first[1] & 128 else bytes(4)
     return json.loads(bytes(v ^ mask[i % 4] for i, v in enumerate(stream.read(size))))
 
