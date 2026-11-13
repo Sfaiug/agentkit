@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from . import config, guard, record as run_record, sentences, task as taskfile, worker
+from . import config, guard, host, record as run_record, sentences, task as taskfile, worker
 
 
 # what a test run, a build or an editor drops next to the work, and no reviewer should ever see
@@ -174,11 +174,7 @@ def local_cap():
     """Seconds a git that asks no remote gets before it counts as hung: TOOL_CAP times the host's
     load per core where that is over one, as a git waiting its turn for a core is not hung, and
     LOCAL_CEILING at most.  (12 Nov 2026: at 16 times its cores' load, seven runs stopped so.)"""
-    try:
-        busy = os.getloadavg()[0] / (os.cpu_count() or 1)
-    except OSError:     # a platform that keeps no load average
-        busy = 1
-    return min(LOCAL_CEILING, round(TOOL_CAP * max(1, busy)))
+    return min(LOCAL_CEILING, round(TOOL_CAP * max(1, host.load_per_core())))
 
 
 def tool_run(cmd, cwd=None, timeout=None, env=None):
@@ -1218,10 +1214,10 @@ def rules_bytes(repo, rev, env=None):
         return None
     try:
         read = subprocess.run(["git", "-C", str(repo), "cat-file", "--filters", f"{rev}:AGENTS.md"],
-                              capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
+                              capture_output=True, stdin=subprocess.DEVNULL, timeout=local_cap(),
                               env={**tool_env(), **(env or {})})
     except subprocess.TimeoutExpired as exc:
-        raise Stopped(f"git cat-file --filters {rev}:AGENTS.md was killed after {TOOL_CAP:g}s "
+        raise Stopped(f"git cat-file --filters {rev}:AGENTS.md was killed after {exc.timeout:g}s "
                       f"in {repo}") from exc
     if read.returncode != 0:
         raise config.Error(read.stderr.decode("utf-8", "replace").strip())
@@ -1324,9 +1320,9 @@ def git_bytes(repo, *args):
     a byte that is not UTF-8 stays itself, and handed back to git names the same file."""
     try:
         proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True,
-                              stdin=subprocess.DEVNULL, timeout=TOOL_CAP, env=tool_env())
-    except subprocess.TimeoutExpired:
-        raise Stopped(f"git {' '.join(args[:2])} ran past {TOOL_CAP:g}s in {repo}")
+                              stdin=subprocess.DEVNULL, timeout=local_cap(), env=tool_env())
+    except subprocess.TimeoutExpired as exc:
+        raise Stopped(f"git {' '.join(args[:2])} ran past {exc.timeout:g}s in {repo}")
     if proc.returncode:
         raise config.Error(f"git {' '.join(args[:2])} failed in {repo}: "
                            f"{proc.stderr.decode(errors='replace').strip()}")
