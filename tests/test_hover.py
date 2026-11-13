@@ -465,10 +465,10 @@ class Screens(Sandbox):
         # it would draw the screen once more between the screens counted below
         self.stack.enter_context(patch.object(
             menu.Fetch, "start", lambda fetch: (threading.Thread.start(fetch), fetch.join())))
-        # the pointer on the header puts `▸` out, and a key brings it back where it was
+        # the pointer on the header puts `›` out, and a key brings it back where it was
         screens = run(lambda: menu.models_screen(self.cfg, None, {}, {}), move(1, 1), b"\x1b[A",
                       ESC)[1]
-        highlighted = lambda grid: [line for line in texts(grid) if "▸" in line]
+        highlighted = lambda grid: [line for line in texts(grid) if "›" in line]
         self.assertEqual(len(highlighted(screens[0])), 1)
         self.assertEqual(highlighted(screens[1]), [])
         self.assertEqual(highlighted(screens[2]), highlighted(screens[0]))

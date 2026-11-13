@@ -57,7 +57,7 @@ def marks(screen):
 
 def uses(screen, field):
     """What the models screen's line for `field`'s role names: its model and effort."""
-    found = re.search(rf"^  [▸ ] {ROLE[field]}\s+(Acme \w+ 1 \w+)", screen, re.MULTILINE)
+    found = re.search(rf"^[› ] {ROLE[field]}\s+(Acme \w+ 1 \w+)", screen, re.MULTILINE)
     return found and found[1]
 
 
@@ -112,7 +112,7 @@ class RoleEditOnTheRecord(unittest.TestCase):
         then, and `key` taking `field`'s role on to Step; the record once it holds Step there."""
         term = self.opened(opened, models=True)
         term.keys(*TO_ROLE[field])
-        term.wait(lambda screen: re.search(rf"▸ {ROLE[field]}", screen))
+        term.wait(lambda screen: re.search(rf"› {ROLE[field]}", screen))
         self.since(saved)
         term.keys(key)
         self.until(lambda: self.record()[field] == ["step"], "the take took nothing")

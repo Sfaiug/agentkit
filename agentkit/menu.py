@@ -3272,12 +3272,12 @@ def packed(parts, gap, room):
 
 
 def models_body(said, at=None):
-    """The models screen's lines and {line: (("row", role), [])}: per role (models_said) `▸` at
-    `at`, its word, its row and what follows, under `quality` and its unit where that changes.
-    A row too wide beside the words goes on the lines under its word, wrapped at its words, what
-    follows it staying on the word's line: a model is named in full (docs/cli-design.md)."""
+    """The models screen's lines and {line: (("row", role), [])}: per role (models_said) its
+    word, its row and what follows, under `quality` and its unit where that changes, `at`'s
+    highlighted (terminal.highlight).  A row too wide beside the words goes on the lines under
+    its word, wrapped at its words, what follows it staying on the word's line: a model is named
+    in full (docs/cli-design.md)."""
     room = terminal.layout_width()
-    mark = terminal.styled("▸" if terminal.utf8() else ">", "accent")
     word = max(terminal.cells(matrix.CONFIG_ROLES[role]) for role, *_ in said)
     numbers = [after for _, _, after, _ in said if isinstance(after, tuple)]
     widths = [max(map(terminal.cells, column)) for column in zip(
@@ -3291,21 +3291,22 @@ def models_body(said, at=None):
               for _, row, *_ in said]
     full = max(map(terminal.cells, models))
     tail = max(terminal.cells(follows(after)) for _, _, after, _ in said)
-    wide = 2 + 2 + word + 2 + full + tail <= room
-    column = 2 + 2 + word + (2 + full if wide else 0)      # where what follows a row begins
+    wide = 2 + word + 2 + full + tail <= room
+    column = 2 + word + (2 + full if wide else 0)      # where what follows a row begins
     lines, places, unit = [], {}, None
     for (role, row, after, its), model in zip(said, models):
         if isinstance(after, tuple) and its != unit:     # a role with no numbers heads nothing
             unit = its
             lines.append(" " * (column + 2) + terminal.styled(
                 f"{'quality':>{widths[0]}}  {its:>{widths[1]}}", "dim"))
-        lead = f"  {mark if role == at else ' '} {terminal.pad(matrix.CONFIG_ROLES[role], word)}"
+        lead = "  " + terminal.pad(matrix.CONFIG_ROLES[role], word)
         own = [lead + "  " + model] if wide else [
             lead, *("    " + part for part in columned(model, room - 4))]
         own[0] += " " * (column - terminal.cells(own[0])) + follows(after)
-        for line in own:
+        for number, line in enumerate(own):
             places[len(lines)] = (("row", role), [])
-            lines.append(line.rstrip())
+            lines.append(terminal.highlight(line.rstrip(), number == 0) if role == at
+                         else line.rstrip())
     return lines, places
 
 
@@ -3484,12 +3485,12 @@ def models_why(found, role, row):
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, `config · recommended · <seat>` or `· new seats`: what each role
-    of `selected` uses (models_body), the bars of the role `▸` is on (models_bars) as tall as the
-    page leaves room for, over models_read until Esc, the boards read as it opens
+    of `selected` uses (models_body), the bars of the highlighted role (models_bars) as tall as
+    the page leaves room for, over models_read until Esc, the boards read as it opens
     (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
-    bottom (matrix_key).  ↑/↓ move `▸`, and ← and → take the next cheaper or better choice
-    for its role at once (next_choice, take_choice), the owner's design of 5 Nov 2026, the last
-    row a role was shown using that is no choice staying one of its bars and steps; ⏎ or a
+    bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or better
+    choice for its role at once (next_choice, take_choice), the owner's design of 5 Nov 2026, the
+    last row a role was shown using that is no choice staying one of its bars and steps; ⏎ or a
     click opens the why (models_why) of the row the role uses, else of its first choice.  `p`
     lists companies (company_list)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
@@ -3594,11 +3595,11 @@ def models_listed(cfg, yours, off):
 
 def companies_body(makers, yours, off, at=None, column=0):
     """The company list's lines and {line: (row, cells)}: each of `yours` with a listed model a
-    line, its name, then each of those models (`makers`), `●` on, or `○` and dim where `off`
-    holds it; where the width runs out they go on under the column where they began.  The keys'
-    cell, `column` of the row `at` (its name 0), is reversed (terminal.toggle).  Last,
-    `+ add a company`."""
-    room, (on, out) = terminal.layout_width(), "●○" if terminal.utf8() else "*."
+    line, its name, then each of those models (`makers`), `■` on in the accent, or `□` and dim
+    where `off` holds it; where the width runs out they go on under the column where they
+    began.  The keys' cell, `column` of the row `at` (its name 0), is reversed
+    (terminal.toggle).  Last, `+ add a company`."""
+    room, (on, out) = terminal.layout_width(), "■□" if terminal.utf8() else "#-"
     shown = [maker for maker in yours if maker in makers]
     label = max((terminal.cells(maker) for maker in shown), default=0)
     start = label + 4         # the models' first column: after a space, the name's cell and one
@@ -3607,7 +3608,7 @@ def companies_body(makers, yours, off, at=None, column=0):
         row, parts = ("company", maker), [[" ", []]]
         texts = [(maker, None), *((f"{out if slug in off else on} "
                                    f"{terminal.cut(name, room - start - 2)}",
-                                   "dim" if slug in off else None)
+                                   "dim" if slug in off else "accent")
                                   for slug, name in makers[maker].items())]
         for number, (text, kind) in enumerate(texts):
             first, width = terminal.cells(parts[-1][0]) + 1, terminal.cells(text) + 2
@@ -3633,7 +3634,7 @@ def company_list(cfg, title):
     """`p` on the models screen, `<title> · models`: your companies (companies_body) over how
     many models are on (matrix.compared), from how many companies, and how many more have
     benchmark scores, until Esc.  ↑/↓ move between companies, ←/→ between a company's name and
-    its models; Space or a click turns the model pointed at on or off, and on a name all its
+    its models; Space or a click marks the model pointed at on or off, and on a name all its
     models on, or off where all are on, each change saved at once (models_listed).  `a`, or
     Space or ⏎ on `+ add a company`, adds one all on (company_add).  Esc drops each company
     left with none on from `companies`, and all its releases from `models_off`.  What to say,
@@ -3655,11 +3656,10 @@ def company_list(cfg, title):
                                       column)
         act, here, clicked, top = matrix_key(
             title, body, places, rows, here, top, note, terminal.keys(
-                "a add a company", "esc done", space="on or off", enter=None,
-                move=("company", "model")),
+                "a add a company", "esc back", space="mark", enter=None),
             marks=1 + max(map(len, makers.values()), default=0), keyed=column,
             over=[*("  " + part for part in terminal.wrap(
-                "ak uses only the models that are on. Space turns one on or off, or, on a "
+                "ak uses only the models that are on. Space marks one on or off, or, on a "
                 "company's name, all of them. A company with none on leaves the list.",
                 room - 2)), ""],
             under=["", *("  " + terminal.styled(part, "dim")
@@ -3822,7 +3822,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 text = texts[number] if number < 3 else efforts[name, number]
                 kind = ("reverse" if at == ("model", name) and number == column else
                         "dim" if note or text in (marks[1], marks[3]) or builds and number % 3 == 1
-                        else None)
+                        else "accent" if number < 3 else None)
                 if number >= 3:   # the keys' effort is its word reversed, its cells before it
                     lead = leads[name, number]
                     lead = terminal.styled(terminal.plain(lead, True), kind) if (
@@ -4052,7 +4052,7 @@ def matrix_page(body, places, here, top, under, keys, over=(), lead=None, keyed=
     room = max(1, page_room(under, keys, over, lead))
     # A page too short for every row follows `here` rather than keep its top, which a review of
     # 7 Nov 2026 asked for: on 40×12 no layout of the models screen shows every role's line, so
-    # a page kept at its top would hide the role `▸` moves to.
+    # a page kept at its top would hide the role the highlight moves to.
     drawn = [number for number, (row, cells) in places.items()
              if row == here or any(here in cell[3:] for cell in cells)] or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row

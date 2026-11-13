@@ -38,6 +38,8 @@ Example: `  1  atoll-fix  fable  ● working  ━━━━━╸─────�
 Words are plain and explain themselves.
 
 - **Glyphs:** every glyph is followed by its word (`● working`).
+- **Marks:** `●` or `○` for one of several and for a switch that says its word, `■` or `□`
+  where any may be on; one that is on is in the accent, one that is off dim (`terminal.toggle`).
 - **Models:** a model is named in full, its version included: `Opus 5.5`, `gpt-6.1-sol`
   (`config.model_name`).
 - **Subscriptions:** a subscription is named by its provider, with a roman numeral when there
@@ -69,9 +71,10 @@ carries the colour (`terminal.state_text`, `terminal.state_colour`).
 
 Every screen reads the same keys, one key at a time, with no Enter.
 
-- **Arrows, Space and Enter:** the arrows move the highlight, Space marks what it is on,
-  and Enter goes forward (`terminal.keys`).
-- **Esc:** Esc goes back, and on the main screen it leaves.
+- **Arrows, Space and Enter:** the arrows move the highlight, its row bold behind a `›` in the
+  accent (`terminal.highlight`), Space marks what it is on, and Enter goes forward
+  (`terminal.keys`). Arrows that only move the highlight read `↑↓←→ move`, and Space `mark`.
+- **Esc:** Esc goes back, and reads `back`; on the main screen it leaves.
 - **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
 - **Digits:** a digit opens that seat.
 - **Pointer:** a click does what the key would do. The pointer lights what a click there

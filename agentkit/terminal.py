@@ -607,7 +607,7 @@ def toggle(mark, width, kind=None):
     """A mark -- `●`, `■`, their open `○`, `□` -- in its column `width` cells wide, the one way a
     screen draws one and its frames move it (motion.toggled): ` ■ ` from the column's middle in
     `kind`, dim where it is off, reversed where the keys are, bracketed `[■]` where there is no
-    colour to reverse; a cell's words, `● Acme 5` on the company list, are drawn as one."""
+    colour to reverse; a cell's words, `■ Acme 5` on the company list, are drawn as one."""
     size = cells(mark) + 2
     shown, lead = f" {mark} ", (width - size) // 2
     if kind == "reverse" and not colour_depth():
