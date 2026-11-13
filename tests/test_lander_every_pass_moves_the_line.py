@@ -76,8 +76,8 @@ class EveryPassMovesTheLine(fixture.LanderFixture, unittest.TestCase):
         self.assertIn("fix", self.wait(broken))
         self.assertEqual(list(self.wait(broken)["after"]), [first.name, middle.name])
         self.unanswered(last)
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, middle.name])
+        # the line's head alone: middle is woken as first's delivery ends (`deliver_next`)
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         self.assertTrue(any(line.startswith("last changed during this pass")
                             for line in self.said), self.said)
 

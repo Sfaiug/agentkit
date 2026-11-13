@@ -223,11 +223,12 @@ def _waking(turn, log):
     on no run in it (`red_behind`) is woken, once a pass.  Asked as the pass starts and ends,
     for each verdict it gives, and every WAKE seconds while it runs: the runs ahead leave on
     their own time, and one check holds a pass for hours (a run blamed behind runs that all
-    merged at 20:26 waited past 22:40 for the next pass, 5 Nov 2026)."""
+    merged at 20:26 waited past 22:40 for the next pass, 5 Nov 2026).  Each wake ends with
+    the line's next delivery (`deliver_next`)."""
     from . import watch
     # a resume takes its record a moment after its start, and one refused leaves it parked:
     # that one the next pass wakes again
-    woken, done = set(), threading.Event()
+    woken, launched, done = set(), {}, threading.Event()
 
     def wake():
         members = line(turn)
@@ -241,6 +242,7 @@ def _waking(turn, log):
                             and not record.process_active(state)):
                         woken.add(directory.name)
                         watch.launch_resume(directory.name, log)
+        deliver_next(turn, log, launched, members)
 
     def watching():
         while not done.wait(WAKE):
@@ -255,6 +257,47 @@ def _waking(turn, log):
         done.set()
         watcher.join()
     wake()
+
+
+def deliver_next(turn, log=lambda _: None, launched=None, members=None):
+    """Wake the line's head, its first green delivery, once it is parked with no process and
+    no resume of it is coming up; no other delivery is woken for its place.
+
+    Only the head takes the merge lock (`deliver.members_ahead`): each delivery woken behind
+    it only polls for its turn.  On 13 Nov 2026 a green stack of 41 woke 41 runs, the load
+    went from 125 to 215 on 18 cores and one merged every ~100 s (7 in 12 min), against 15 to
+    25 s uncontended.  Asked by each wake of a pass (`_waking`), the one after each verdict
+    too, and by each delivery as it ends (`deliver.land_from_line`), handing on the turn.
+    A resume coming up writes the run's log (`watch.resumes`) until it takes the record or
+    ends; a terminal's only follows the run it started, as long as the run waits in line.
+    `launched` holds the (pid, identity) of each head a pass woke while that process lives:
+    one refused or dead is woken again at the pass's next wake."""
+    from . import host, watch
+    try:
+        members = line(turn) if members is None else members
+        green = [(directory, state) for directory, state in members
+                 if green_delivery(state["waiting_on"])]
+        if not green:
+            return False
+        head, state = green[0]
+        # under the run's own lock, as `_waking`'s: two threads of a pass wake it once
+        with record.recovery_lock(head):
+            pid, identity = (launched or {}).get(head.name, (None, None))
+            if ((identity is not None and host.process_identity(pid) == identity)
+                    or state.get("state") != "waiting"
+                    or record.read_state(head) != state or record.process_active(state)
+                    or any(writes for _, writes in watch.resumes(head).values())):
+                return False
+            pid = watch.launch_resume(head.name, log)
+            if not pid:
+                return False
+            if launched is not None:
+                launched[head.name] = (pid, host.process_identity(pid))
+        log(f"{head.name} delivers next in {turn.name}, {len(green) - 1} waiting behind it")
+        return True
+    except (OSError, config.Error) as exc:
+        log(f"WARN could not wake the next delivery in {turn.name}: {exc}")
+        return False
 
 
 def start_line(turn, log=lambda _: None):
@@ -574,7 +617,7 @@ def check_line(turn, log=lambda _: None):
     can resume or stop during its check: only an unchanged, processless parked record gets
     the verdict.  The recovery lock covers that write and the wake, never the suite.
     """
-    from . import handback, roundloop, run, watch
+    from . import handback, roundloop, run
     turn = Path(turn)
     _code()     # read as the pass starts: an update installed during a check is not this pass's
     with _pass(turn) as held, ExitStack() as waking:
@@ -741,10 +784,7 @@ def check_line(turn, log=lambda _: None):
                         # kept at once: a pass killed after this moved the line all the same
                         held.moved = True
                         _keep_passes(turn, {**held.start, "moved": True})
-                    for member, answer in fresh.items():
-                        if "fix" not in answer:
-                            watch.launch_resume(member.name, log)
-                    wake()
+                    wake()      # fixes, and the line's next delivery (`deliver_next`)
                 return True
 
             verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log, prefix=prefix,
