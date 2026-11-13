@@ -540,6 +540,18 @@ def _file(test):
     return test.split("::")[0].split("#")[0]
 
 
+def _first_holding(stacks, red, tests):
+    """The first of `stacks` whose tree holds a file (`_file`) of `tests`, where the stack at
+    `red` holds each one's, else 0: a test named by no file there may fail anywhere."""
+    from . import run
+    files = {_file(test) for test in tests}
+
+    def held(index):
+        return set(run.git(stacks[red][2], "--literal-pathspecs", "ls-tree", "-z", "--name-only",
+                           stacks[index][3], "--", *files).split("\0")) & files
+    return next(index for index in range(red + 1) if held(index)) if held(red) == files else 0
+
+
 def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed, passed):
     """Keep in the record of the line `turn` the tests that failed, then passed, on `tree`, as
     this member's check there found them: `flaky`, those `gate.run_done_when` names, and those
@@ -1397,6 +1409,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                                     narrowing = command, tests
                                     owner = next((index for index, stack in enumerate(stacks)
                                                   if command in stack[4]), 0)
+                                    # No stack below the first holding their file can fail
+                                    # them: run there, a suite that names no test as not there
+                                    # proved nothing, and that stack went whole (13 Nov 2026).
+                                    low = max(low, _first_holding(stacks, red_index, tests) - 1)
                                     # a probe's red bounds it sooner, though it blames nobody,
                                     # until a pass here outweighs it
                                     high = min([red_index] + [
