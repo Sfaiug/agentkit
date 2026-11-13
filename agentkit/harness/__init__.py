@@ -8,8 +8,8 @@ hooks it has something to say about -- `claude.py` the transcript it writes and 
 model its results report, `codex.py` the launch receipt its thread is proven by,
 `grokbuild.py` the session directory it opens, `muse.py` its launcher build, the snapshot an
 upgrade is put back from, its own usage probe, the receipt its SessionStart hook writes its
-session into and its registry moves on `/new`,
-the session store its tokens and messages are in and the sessions gc ends,
+session into, the session each turn's end names, the session store its tokens and messages are
+in and the sessions gc ends,
 `opencode.py` the receipt it keeps its seat's session in, the endpoint that says
 how a model is paid and the sessions gc ends,
 `antigravity.py` the database each of its conversations is, and which one a seat's agy holds
@@ -334,7 +334,7 @@ def claims():
         yield
 
 
-def claim(launched, harness, conversation, path, filed, pid, is_client, **fields):
+def claim(launched, harness, conversation, path, filed, pid, is_client, keep=False, **fields):
     """The seat launched as `launched`, on `harness`, goes on in that conversation, `fields`
     beside it, where a hook whose parent is `pid` reported it at `path`: only from the
     seat's own interactive process (`orch.owns_hook`, by `is_client`), with that conversation's
@@ -345,9 +345,11 @@ def claim(launched, harness, conversation, path, filed, pid, is_client, **fields
     launch's receipt, the database its agy holds open) may not have written it there yet.  Left,
     that one stays the seat's for its done check (`notify.conversations_of`); one it goes back to
     is its current one again, read once.  A seat in none yet, or only in another seat's, takes
-    this one as its first; one in a conversation its harness cannot resume stays there.  No
-    seat's lock, which a delivery holds while it types the very prompt a hook may report: the
-    seat's name holds under `claims` instead."""
+    this one as its first; one in a conversation its harness cannot resume stays there.  To
+    `keep` one is to add it to those it left, unless it is among them already, and move nothing:
+    a report that may come late or twice then undoes no move.  No seat's lock, which a delivery
+    holds while it types the very prompt a hook may report: the seat's name holds under `claims`
+    instead."""
     from .. import notify, orch
     if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(conversation, str)
             or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation) or conversation.startswith("-")
@@ -377,10 +379,14 @@ def claim(launched, harness, conversation, path, filed, pid, is_client, **fields
         with plugin.learning():
             if conversation in named_elsewhere(config.session_records(), name):
                 return
-            left = [was for was in notify.left(record, harness, current)
-                    if was["conversation"] not in (conversation, None)]   # none to leave yet
-            while (config.update_session(name, conversation=conversation, left=left, **fields)
-                   is None and config.resolve_session(name) != name):
+            if keep and conversation in (was.get("conversation") for was in record.get("left", [])):
+                return
+            fields = ({"left": notify.left(record, harness, conversation)} if keep else
+                      {"conversation": conversation, **fields, "left": [
+                          was for was in notify.left(record, harness, current)
+                          if was["conversation"] not in (conversation, None)]})  # none to leave yet
+            while (config.update_session(name, **fields) is None
+                   and config.resolve_session(name) != name):
                 name = config.resolve_session(name)     # moved meanwhile: written where it went
 
 
@@ -860,14 +866,12 @@ class Harness:
 
     def went_into(self, sent):
         """The conversation a receipt's line went into: the one it names, else the one its
-        launch's own evidence reported (`receipt`), however far its harness has moved that
-        launch on since, as Muse's `/new` does (its module's `reported`); None while that names
-        none."""
+        launch's own evidence reported (`receipt`), None while that names none: evidence that
+        never moves on, as a seat following its harness elsewhere writes that in its record
+        (`claim`)."""
         launch = sent.get("launch")
-        if sent.get("conversation") or not isinstance(launch, dict):
-            return sent.get("conversation")
-        reported = self._hook("reported")
-        return reported(launch) if reported else self.conversation(launch)
+        return sent.get("conversation") or (self.conversation(launch) if isinstance(launch, dict)
+                                            else None)
 
     def answers(self, record, cwd, conversation):
         """Each question the owner answered on its own question card, oldest first, as {at,
