@@ -58,7 +58,7 @@ class LanderFixture:
         # unless a test says it checked something (test_lander_every_pass_moves_the_line)
         self.stack.enter_context(patch.object(land, "CHECKED", float("inf")))
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
-        self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
+        self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=os.getpid()))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         for module, name in ((worker, "turn"), (worker, "call"), (roundloop, "resolve_conflicts"),
                              (run, "do_merge"), (run, "stop_run_tree")):
@@ -388,7 +388,7 @@ class Lander(LanderFixture, unittest.TestCase):
     def test_a_crash_after_the_verdict_retries_the_wake_without_checking(self):
         directory = self.member()
         self.advance()
-        self.wake.side_effect = [RuntimeError("crash before wake"), 999]
+        self.wake.side_effect = [RuntimeError("crash before wake"), os.getpid()]
         with self.assertRaisesRegex(RuntimeError, "crash before wake"):
             land.check_line(self.turn)
         verdict = self.wait(directory)

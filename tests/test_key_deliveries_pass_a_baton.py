@@ -1,13 +1,18 @@
 """A green line wakes only its head, the first green delivery, and each end of a delivery the
-next; a head whose resume is coming up is not woken again till it ends, and fixes wake as before.
+next; a head whose resume is coming up is not woken again while it comes up, nor held by a
+terminal following it, one whose resume ended parked is woken again at the pass's next wake, and
+fixes wake as before.
 
 On 13 Nov 2026 a green stack of 41 woke 41 runs: the load went from 125 to 215 on 18 cores and one
 merged every ~100 s, against 15 to 25 s uncontended, as only the first can take the merge lock.
 Black-box through AK_BIN and Line's fake suites (tests/fixtures/akline.py).  A wake is read from
 what the woken run leaves once every resume of the Home has ended: the line its `ak run resume`,
-refused at once, writes to the run's log.txt.  The end of a delivery is the delivering run's own
-act, which the test plays while a pass holds on a member whose tree has `hold.txt`.  A resume
-coming up is a process of this test's whose arguments end as one's do, `run resume <id>`.
+refused at once, writes to the run's log.txt.  A refused head is woken again at the pass's next
+wake, so a test reads who was woken, never how often.  The end of a delivery is the delivering
+run's own act, which the test plays while a pass holds on a member whose tree has `hold.txt`.  A
+resume of the test's own reads as one does, `python3 <checkout>/bin/ak run resume <id>`, till the
+test closes its input: one coming up writes the run's log, as one started in the background does;
+a terminal's, which only follows its run, writes elsewhere.
 """
 
 from collections import Counter
@@ -50,11 +55,15 @@ class DeliveriesPassABaton(unittest.TestCase):
         fresh.write_text(json.dumps({**json.loads(path.read_text()), **changes}))
         fresh.replace(path)
 
-    def coming_up(self, n):
-        """A resume of member `n` coming up, till the test closes its input."""
-        proc = subprocess.Popen(["sh", "-c", "read _", "sh", "run", "resume", f"fix-{n}"],
-                                stdin=subprocess.PIPE, start_new_session=True,
-                                env={"HOME": self.line.home.env["HOME"], "PATH": os.defpath})
+    def resume(self, n, coming_up):
+        """A resume of member `n` of the test's own: `coming_up`, it writes the run's log."""
+        ak = self.line.home.root / "checkout" / "bin" / "ak"
+        ak.parent.mkdir(parents=True, exist_ok=True)
+        ak.write_text("import sys\nsys.stdin.read()\n")
+        with open(self.line.members[n - 1] / "log.txt" if coming_up else os.devnull, "a") as out:
+            proc = subprocess.Popen(["python3", str(ak), "run", "resume", f"fix-{n}"],
+                                    stdin=subprocess.PIPE, stdout=out, start_new_session=True,
+                                    env={"HOME": self.line.home.env["HOME"], "PATH": os.defpath})
         self.fakes.add(proc.pid)
         self.addCleanup(proc.wait)
         self.addCleanup(proc.stdin.close)
@@ -75,17 +84,17 @@ class DeliveriesPassABaton(unittest.TestCase):
         return Counter({member.name: len((member / "log.txt").read_text().splitlines())
                         for member in self.line.members if (member / "log.txt").exists()})
 
-    def woken(self, at_least=0, lander=None):
-        """The members woken since the last ask, by name, once `at_least` are and every resume
-        they started has ended."""
+    def woken(self, *names, lander=None):
+        """The members woken since the last ask, by name, once each of `names` is and every
+        resume they started has ended."""
         deadline = time.monotonic() + SETTLE
-        while sum((self.logged() - self.seen).values()) < at_least or self.resuming():
+        while not set(names) <= set(self.logged() - self.seen) or self.resuming():
             if lander is not None:
                 self.assertIsNone(lander.poll(), self.said.read_text())
             self.assertLess(time.monotonic(), deadline, "no wake came, or a woken run still runs")
             time.sleep(0.2)
         now = self.logged()
-        woken, self.seen = sorted((now - self.seen).elements()), now
+        woken, self.seen = set(now - self.seen), now
         return woken
 
     def land(self):
@@ -113,42 +122,52 @@ class DeliveriesPassABaton(unittest.TestCase):
     def test_a_green_stack_wakes_its_head_and_each_end_of_a_delivery_the_next(self):
         for _ in range(4):
             self.member()
-        self.assertEqual(self.land(), ["fix-1"])
+        self.assertEqual(self.land(), {"fix-1"})
         for n in range(1, 5):
             self.assertIn("land", self.line.verdict(n))
         self.member(**{"hold.txt": "x\n"})
         lander = self.hold()
-        self.assertEqual(self.woken(), ["fix-1"], "a pass on saved verdicts woke more than the head")
+        self.assertEqual(self.woken("fix-1", lander=lander), {"fix-1"},
+                         "a pass on saved verdicts woke more than the head")
+        # each delivery's own wakes may still come in after it ended
         self.write(1, state="pass", merged=True)
-        self.assertEqual(self.woken(1, lander), ["fix-2"], "a merge did not hand on the turn")
+        self.assertEqual(self.woken("fix-2", lander=lander) - {"fix-1"}, {"fix-2"},
+                         "a merge did not hand on the turn")
         self.write(2, waiting_on={key: self.line.verdict(2)[key] for key in ("line", "joined")})
-        self.assertEqual(self.woken(1, lander), ["fix-3"], "a rejoin did not hand on the turn")
+        self.assertEqual(self.woken("fix-3", lander=lander) - {"fix-2"}, {"fix-3"},
+                         "a rejoin did not hand on the turn")
         self.write(3, waiting_on={**self.line.verdict(3), "fix": RED})
-        self.assertEqual(self.woken(2, lander), ["fix-3", "fix-4"],
-                         "a red delivery was not woken to fix, or did not hand on the turn")
+        self.assertEqual(self.woken("fix-4", lander=lander) - {"fix-3"}, {"fix-4"},
+                         "a red delivery did not hand on the turn")
         self.release(lander)
-        self.assertEqual(self.woken(), [])
 
-    def test_a_head_coming_up_is_woken_only_once_its_resume_has_ended(self):
+    def test_a_head_is_woken_again_once_its_resume_ended_and_never_while_it_comes_up(self):
         for _ in range(3):
             self.member()
-        resume = self.coming_up(1)
-        self.assertEqual(self.land(), [], "a head was woken while its resume came up")
+        resume = self.resume(1, coming_up=True)
+        self.assertEqual(self.land(), set(), "a head was woken while its resume came up")
         self.member(**{"hold.txt": "x\n"})
         lander = self.hold()
-        self.assertEqual(self.woken(), [])
+        self.assertEqual(self.woken(lander=lander), set())
         resume.stdin.close()
         resume.wait()
-        self.assertEqual(self.woken(1, lander), ["fix-1"], "the pass did not wake a head left parked")
+        self.assertEqual(self.woken("fix-1", lander=lander), {"fix-1"},
+                         "the pass did not wake a head its resume left parked")
+        self.assertEqual(self.woken("fix-1", lander=lander), {"fix-1"},
+                         "the pass did not wake again a head whose resume refused")
         self.release(lander)
-        self.assertEqual(self.woken(), [], "a pass woke its head twice")
-        self.assertEqual(self.land(), ["fix-1"], "a head whose resume refused was not woken again")
+
+    def test_a_terminal_following_the_head_does_not_hold_the_line(self):
+        for _ in range(3):
+            self.member()
+        self.resume(1, coming_up=False)
+        self.assertEqual(self.land(), {"fix-1"}, "a terminal following the head held its turn")
 
     def test_fix_verdicts_wake_as_before(self):
         for _ in range(3):
             self.member()
         self.write(2, waiting_on={**self.line.verdict(2), "fix": RED, "after": {"departed": "tree"}})
-        self.assertEqual(self.land(), ["fix-1", "fix-2"])
+        self.assertEqual(self.land(), {"fix-1", "fix-2"})
         self.assertIn("land", self.line.verdict(3))
 
 

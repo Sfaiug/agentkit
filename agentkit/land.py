@@ -228,7 +228,7 @@ def _waking(turn, log):
     from . import watch
     # a resume takes its record a moment after its start, and one refused leaves it parked:
     # that one the next pass wakes again
-    woken, handed, done = set(), set(), threading.Event()
+    woken, launched, done = set(), {}, threading.Event()
 
     def wake():
         members = line(turn)
@@ -242,7 +242,7 @@ def _waking(turn, log):
                             and not record.process_active(state)):
                         woken.add(directory.name)
                         watch.launch_resume(directory.name, log)
-        deliver_next(turn, log, handed, members)
+        deliver_next(turn, log, launched, members)
 
     def watching():
         while not done.wait(WAKE):
@@ -259,20 +259,20 @@ def _waking(turn, log):
     wake()
 
 
-def deliver_next(turn, log=lambda _: None, handed=None, members=None):
+def deliver_next(turn, log=lambda _: None, launched=None, members=None):
     """Wake the line's head, its first green delivery, once it is parked with no process and
-    no `ak run resume` of it is coming up; no other delivery is woken for its place.
+    no resume of it is coming up; no other delivery is woken for its place.
 
     Only the head takes the merge lock (`deliver.members_ahead`): each delivery woken behind
     it only polls for its turn.  On 13 Nov 2026 a green stack of 41 woke 41 runs, the load
     went from 125 to 215 on 18 cores and one merged every ~100 s (7 in 12 min), against 15 to
     25 s uncontended.  Asked by each wake of a pass (`_waking`), the one after each verdict
     too, and by each delivery as it ends (`deliver.land_from_line`), handing on the turn.
-    A resume of the head is coming up from its start, under any ak checkout, until it takes
-    the record or ends: one of this HOME, as another home's runs may share its name.  `handed`
-    holds the heads a pass woke, once each: one whose resume refused is woken again by the
-    next pass or delivery's end."""
-    from . import owner, watch
+    A resume coming up writes the run's log (`watch.resumes`) until it takes the record or
+    ends; a terminal's only follows the run it started, as long as the run waits in line.
+    `launched` holds the (pid, identity) of each head a pass woke while that process lives:
+    one refused or dead is woken again at the pass's next wake."""
+    from . import host, watch
     try:
         members = line(turn) if members is None else members
         green = [(directory, state) for directory, state in members
@@ -282,16 +282,17 @@ def deliver_next(turn, log=lambda _: None, handed=None, members=None):
         head, state = green[0]
         # under the run's own lock, as `_waking`'s: two threads of a pass wake it once
         with record.recovery_lock(head):
-            if (head.name in (handed or ()) or state.get("state") != "waiting"
+            pid, identity = (launched or {}).get(head.name, (None, None))
+            if ((identity is not None and host.process_identity(pid) == identity)
+                    or state.get("state") != "waiting"
                     or record.read_state(head) != state or record.process_active(state)
-                    or any(args[-3:] == ["run", "resume", head.name] and status not in ("Z", "X")
-                           and owner._environ(pid).get("HOME") == os.environ.get("HOME")
-                           for pid, (_, status, args) in watch._proc_table().items())):
+                    or any(watch.resumes(head).values())):
                 return False
-            if not watch.launch_resume(head.name, log):
+            pid = watch.launch_resume(head.name, log)
+            if not pid:
                 return False
-            if handed is not None:
-                handed.add(head.name)
+            if launched is not None:
+                launched[head.name] = (pid, host.process_identity(pid))
         log(f"{head.name} delivers next in {turn.name}, {len(green) - 1} waiting behind it")
         return True
     except (OSError, config.Error) as exc:

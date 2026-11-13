@@ -172,36 +172,6 @@ class MergeTrain(LanderFixture, unittest.TestCase):
         self.assertEqual(len(self.checks), 2)
         self.assert_cleaned()
 
-    def test_each_delivery_as_it_ends_wakes_the_next(self):
-        members = [self.member(f"member-{n}", joined=n, **{f"member-{n}.txt": f"{n}\n"})
-                   for n in range(1, 4)]
-        self.advance()
-        land.check_line(self.turn)
-        said = []
-        for n, ending in enumerate(("merged", "red"), 1):
-            directory = members[n - 1]
-            state = record.read_state(directory)
-            state.update(state="running")
-            lp = SimpleNamespace(state=state, wt=self.repo, run_dir=directory, base_sha=self.base,
-                                 target="main", log=said.append)
-            lp.write = lambda lp=lp: record.save_state(lp.run_dir, lp.state)
-            lp.write()
-            run.git(self.repo, "checkout", state["branch"])
-
-            def deliver(lp=lp, ending=ending):
-                if ending == "red":
-                    lp.state["waiting_on"] = {**lp.state["waiting_on"], "fix": {"line": "red", "log": "x"}}
-                    return False
-                run.git(self.repo, "push", "origin", "HEAD:main")
-                lp.state.update(state="pass", merged=True)
-                return True
-
-            self.assertEqual(delivery.land_from_line(lp, "origin/main", deliver), ending == "merged")
-            self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                             [m.name for m in members[:n + 1]])
-            self.assertEqual(said[-1], f"{members[n].name} delivers next in {self.turn.name}, "
-                                       f"{2 - n} waiting behind it")
-
     def test_a_head_parked_again_rechecks_its_failed_tree(self):
         member = self.member()
         self.advance()
