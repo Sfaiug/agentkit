@@ -49,9 +49,12 @@ FINISHED, OWING = "- [x] Shipped it\n", "- [x] Shipped it\n- [ ] Ship the rest\n
 # A seat with nothing to continue keeps its own word while that usage is gone.
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class LimitInAnyWords(unittest.TestCase):
-    def words(self, seats, ticks=1):
+    def words(self, seats, ticks=1, acted=None, renamed=False):
         """Each seat's word after `ticks` ticks, on one subscription; `seats` gives each name what
-        its conversation ends on and its plan."""
+        its conversation ends on and its plan.  With `acted`, ak acted on a refusal in the words
+        each ends on that many seconds before its turn ends: before its prompt, or since.  With
+        `renamed`, `ak orch rename` gives each `<name>-now` before its hooks fire under the name
+        it was launched with."""
         home = Home()
         self.addCleanup(home.close)
         with socket.socket() as probe:     # a port nobody listens on: the tick reaches no board
@@ -68,16 +71,28 @@ class LimitInAnyWords(unittest.TestCase):
             folder = re.sub(r"[^A-Za-z0-9]", "-", str(seat.cwd))
             home.write(f".claude/projects/{folder}/conv-{name}.jsonl",
                        "".join(json.dumps(line) + "\n" for line in said))
-            hooks.fire("UserPromptSubmit", {"prompt": "go"}, seat=name, pane=seat)
-            hooks.fire("Stop", {"background_tasks": [], "transcript_path": "",
-                                "last_assistant_message": "Done."}, seat=name, pane=seat,
-                       finished=True)
+            now = f"{name}-now" if renamed else name
+            if renamed:
+                done = home.ak("orch", "rename", name, now)
+                self.assertEqual(done.code, 0, done.out + done.err)
+            hooks.fire("UserPromptSubmit", {"prompt": "go"}, seat=name, pane=seat, finished=True)
+            if acted is not None:
+                home.write(f".agentkit/state/seat-{now}.json", {"session": now, "usage_refusal": {
+                    "line": f'{end["message"]["content"][0]["text"]}\n{end["apiError"]}',
+                    "at": time.time() - acted, "handled": True}})
+            if end.get("isApiErrorMessage"):    # Claude Code ends a refused turn so
+                hooks.fire("StopFailure", {"error": "rate_limit"}, seat=name, pane=seat,
+                           finished=True)
+            else:
+                hooks.fire("Stop", {"background_tasks": [], "transcript_path": "",
+                                    "last_assistant_message": "Done."}, seat=name, pane=seat,
+                           finished=True)
         for _ in range(ticks):
             done = home.ak("watch", boxed=True, env={"AK_HOST_READINGS": json.dumps(FINE)})
             self.assertEqual(done.code, 0, done.out + done.err)
         words = {}
         for name in seats:
-            why = home.ak("orch", "why", name)
+            why = home.ak("orch", "why", f"{name}-now" if renamed else name)
             self.assertEqual(why.code, 0, why.err)
             words[name] = why.out.splitlines()[0].split(None, 1)[1]
         return words
@@ -87,6 +102,21 @@ class LimitInAnyWords(unittest.TestCase):
         for end in (TYPED, WORDED, CAPPED, CAP_WORDED):
             with self.subTest(end["message"]["content"][0]["text"]):
                 self.assertEqual(self.words({"refused": (end, FINISHED)}),
+                                 {"refused": "out of usage"})
+
+    def test_a_refusal_in_the_words_of_one_acted_on_before_its_prompt_is_a_new_one(self):
+        # 12 Nov 2026: a seat prompted an hour after its refusal was refused in the same words,
+        # taken for the one before, and stood for six hours.
+        self.assertEqual(self.words({"refused": (TYPED, FINISHED)}, acted=3600),
+                         {"refused": "out of usage"})
+        self.assertEqual(self.words({"refused": (TYPED, FINISHED)}, acted=0),
+                         {"refused": "working"})    # acted on since that turn: it goes on
+
+    def test_a_seat_renamed_since_its_launch_is_refused_anew_all_the_same(self):
+        # 12 Nov 2026: five of 34 seats held their prompt's stamp only under an earlier name.
+        for plan in (FINISHED, OWING):
+            with self.subTest(plan=plan):
+                self.assertEqual(self.words({"refused": (TYPED, plan)}, acted=3600, renamed=True),
                                  {"refused": "out of usage"})
 
     def test_a_conversation_ending_on_an_answer_was_refused_nothing(self):

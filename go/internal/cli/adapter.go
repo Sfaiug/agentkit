@@ -33,6 +33,10 @@ func adapter(args []string, out, errOut io.Writer) int {
 		return adapters.Auth(harness, rest, out, errOut)
 	case "lend":
 		return adapters.Lend(harness, rest, out, errOut)
+	case "login":
+		return adapters.Login(harness, rest, out, errOut)
+	case "forget":
+		return adapters.Forget(harness, errOut)
 	case "hook":
 		return adapterHook(harness, rest, out)
 	case "hooks":

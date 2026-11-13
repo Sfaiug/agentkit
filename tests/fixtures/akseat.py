@@ -136,9 +136,10 @@ class Seat:
         made, pid = said.out.split("\t")
         return {"line": line, "seat": int(made), "pid": int(pid)}
 
-    def wait_lines(self, count, bound=30):
+    def wait_lines(self, count, bound=300):
         """The lines entered once there are `count` of them: keys reach the pane a moment after
-        tmux takes them."""
+        tmux takes them, and a move's come from a process ak starts for them, slow to start on a
+        loaded host."""
         deadline = time.monotonic() + bound
         while len(self.lines()) < count:
             if time.monotonic() > deadline:

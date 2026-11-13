@@ -137,7 +137,8 @@ class NewRow(unittest.TestCase):
         screen = self.menu.wait(ROW_KEYS)
         # the row's line names the picks: astra only reviews
         self.assertEqual(under(screen, "› 2  fix-api▏  Fable 5.1 xhigh  new"),
-                         "     Fable 5.1 xhigh ⚒◎   GPT-6-Astra high ◎")
+                         "     Fable 5.1 xhigh orchestrates, builds, reviews   "
+                         "GPT-6-Astra high reviews")
         self.menu.keys("Enter")
         record = self.opened("fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
