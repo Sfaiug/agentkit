@@ -1918,7 +1918,11 @@ print("opus" if not spent("anthropic", "weekly_all") else "fable" if not spent("
 PY
 )
 CMD=$(tail -1 "$WORK/orch-fable.log")
-if grep -q -- '--model' <<<"$CMD" && grep -q -- '--effort' <<<"$CMD" && grep -q '^claude\|claude$\| claude ' <<<"$CMD" &&
+# Past a spent Claude and OpenAI the pick stands on meta's meter too: its probe down there is
+# no bystander's, and leaves no reading to say whether spark or grok is the pick.
+if [ "$WANT" = grok ] && METER_WHY=$(meter_unavailable "$U" meta); then
+  skip "6: provider meter unavailable ($METER_WHY)"
+elif grep -q -- '--model' <<<"$CMD" && grep -q -- '--effort' <<<"$CMD" && grep -q '^claude\|claude$\| claude ' <<<"$CMD" &&
    [ "$PICK" = "$WANT" ] && grep -q -- '--model claude-fable-5-1' "$WORK/orch-fable.log"; then
   ok "6 ak orch --dry-run: picked $PICK (Claude weekly_all $AUSED% used, session ${SUSED:-none}%), claude cmd with --model/--effort, --model fable forces fable"
 else
