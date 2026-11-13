@@ -40,9 +40,10 @@ STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is o
 
 def followup_place(text):
     """The review's site, independent of its wording or Markdown decoration: the whole path a
-    follow-up begins with (`hand_in.item_text`) or a backtick or star opens, spaces and all, so
-    `beta app/api.py:1` is not `alpha app/api.py:1`, and its line."""
-    site = re.search(r"(?:^|[`*])\s*(?:\./)?([^`*\n]+?):(\d+)\b", text)
+    follow-up begins with (`hand_in.item_text`), past the backticks or stars that open it, its
+    own spaces and stars and all, so `beta app/api.py:1` is not `alpha app/api.py:1` nor
+    `beta*/api.py:1` `alpha*/api.py:1`, and its line."""
+    site = re.match(r"[`*\s]*(?:\./)?(.+?):(\d+)\b", text)
     if site:
         return f"{site[1]}:{int(site[2])}"
     return text.splitlines()[0].strip()
@@ -115,7 +116,7 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
                 and (repair.get("revert") or repair_open(other, tip) if repair else
                      transitions.launched_session(other) == transitions.launched_session(state)
                      and ((other["followup"].get("check") or "").strip() == check.strip() if check
-                          else other["followup"]["place"] == followup_place(text)
+                          else followup_place(other["followup"]["text"]) == followup_place(text)
                           and other["followup"].get("run") != state.get("run_id"))
                      and (going(other) or held is not None and transitions.delivered(other)
                           and (other.get("finished_at") or 0) >= held))):
@@ -1423,6 +1424,8 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
                 run.launch_for_seat(directory, state, {
+                    # `place` is for an older ak still running a run it admitted, which reads
+                    # it; this one reads the site from the text (`open_followup`)
                     "followup": {"run": run_dir.name, "text": item, "place": followup_place(item),
                                  **({"check": checks[item]} if item in checks else {})},
                     # a repair's only check is the target's own, run at landing: its
