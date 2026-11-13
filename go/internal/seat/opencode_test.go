@@ -67,10 +67,10 @@ func TestOpenCodeReceiptIsReadAtTheListingBoundary(t *testing.T) {
 	}
 }
 
-func TestOpenCodePendingQuestionProofStaysWithPython(t *testing.T) {
+func TestOpenCodeQuestionIsProvedSeenByItsClosingMessage(t *testing.T) {
 	home := sandbox(t)
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), opencodeConfig)
-	// the session its launch reported, whose closing message Go does not read
+	// the session its launch reported, whose closing message Go reads in opencode.db
 	token := strings.Repeat("a", 32)
 	record(t, home, "acme", map[string]any{"orchestrator": "vela", "workers": []string{"vela"}, "opencode_launch": token})
 	write(t, filepath.Join(stateFile(home, "opencode-launch-"+token), "session"), "ses_A012z\n")
@@ -81,11 +81,11 @@ func TestOpenCodePendingQuestionProofStaysWithPython(t *testing.T) {
 	} {
 		path := stateFile(home, file)
 		write(t, path, data)
-		if _, known := Looking(time.Now()); known {
-			t.Fatalf("Go took a question whose delivery it cannot prove: %s", file)
+		if _, known := Looking(time.Now()); !known {
+			t.Fatalf("Go left a question it can prove seen to Python: %s", file)
 		}
 		if after, err := os.ReadFile(path); err != nil || string(after) != data {
-			t.Fatalf("handing over changed the question: %s, %v", after, err)
+			t.Fatalf("listing changed the question: %s, %v", after, err)
 		}
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
