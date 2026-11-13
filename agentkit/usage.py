@@ -1215,19 +1215,24 @@ def _worker_rank(account, reading, cfg=None, model=None):
     For a `model`, on what that model reads there alone, so another model's spent cap leaves the
     login room, and one running low on it after every one that is not.  Unknown is then only a
     reading ak cannot read, which may be logged out and is no safer than one running low; one
-    giving the model no budget still says what its 5h window has left.
+    giving the model no budget still says what its 5h window has left.  Among logins alike in
+    that, one where a meter not gating the model is spent goes first: its week is left to this
+    model alone, while a login whose cap has room keeps its week for the model that cap gates.
     """
     if model is None:
-        spent, credits, low = reading["exhausted"], reading["on_credits"], False
+        spent, credits, low, kept = reading["exhausted"], reading["on_credits"], False, True
         unknown, budget = reading["budget_reason"] is not None, reading["budget"]
     else:
         read = {config.model(cfg, model)["provider"]: reading}
         spent, credits = model_exhausted(cfg, model, read)[0], on_credits(cfg, model, read)
         unknown = bool(reading.get("error")) or _stale(reading, time.time())
         low, budget = unknown or model_low(cfg, model, read), model_budget(cfg, model, read)[0]
+        gating = {m["name"] for m in _gating_meters(cfg, model, read)[0]}
+        kept = not any(m["name"] not in gating and m.get("used", 0) >= 100
+                       for m in reading.get("meters") or [])
     usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
     group = 1 if usual else (0 if not spent else 2)
-    return (spent, credits, low, group, unknown, -budget)
+    return (spent, credits, low, group, kept, unknown, -budget)
 
 
 def account(cfg, provider, model=None):
