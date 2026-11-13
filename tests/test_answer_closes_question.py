@@ -43,14 +43,14 @@ esac
 # look asks (`orch.TMUX_CEILING`): a loaded host stretches each past any bound, and one that
 # never ends stops the suite for its silence.
 PYTHON = r"""#!/bin/bash
-if [[ $1 = -c && $2 = *watch.hook_look* ]]; then
-  "$TEST_PYTHON" -c 'import sys
+if [[ $1 = */agentkit/looker.py ]]; then
+  "$TEST_PYTHON" -c 'import runpy, sys
 from pathlib import Path
 look = sys.argv.pop(1)
-sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+sys.path.insert(0, str(Path(look).resolve().parents[1]))
 from agentkit import orch
 orch.TMUX_CEILING = None
-exec(look)' "${@:2}"
+runpy.run_path(look, run_name="__main__")' "$@"
   printf '%s\n' "$?" >"$LOOK_FINISHED"
 else
   exec "$TEST_PYTHON" "$@"

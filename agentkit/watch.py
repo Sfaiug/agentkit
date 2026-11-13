@@ -2834,7 +2834,7 @@ def announce_state(session, cfg=None, look=False, **facts):
     return answer
 
 
-def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
+def hook_look(launched, answered_at=None, said="", prompt=False, card=None, records=None):
     """Look at that one seat again and publish what it is: its own hook's word, at once.
 
     hooks/seat-state.sh starts this in the background on every event it hears -- a turn
@@ -2855,7 +2855,8 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     question tool, is the owner's only where the seat's conversation says so
     (`notify.answer_written`), which every other look also asks: the owner's message reaches it
     after their prompt hook ran.  An answer on the harness's own question `card` names the
-    questions it answers, and answers only those (`notify.answered`).
+    questions it answers, and answers only those (`notify.answered`).  All it decides from is
+    one read of the runs, `records`: the warm looker's, else its own.
 
     Each of its starts starts it unmarked, in a session of its own: it marks itself.
     """
@@ -2882,19 +2883,24 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     # does: a spent subscription moves now, not at the next tick, and never reads `working`.
     if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
         settle_account(cfg, session, lambda _: None)
-    answer = announce_state(session, cfg=cfg, look=True, number=number)
+    if records is None:
+        from . import menu as menu_mod
+        try:
+            records = menu_mod.run_records()
+        except (config.Error, OSError, ValueError):
+            records = []
+    answer = announce_state(session, cfg=cfg, look=True, number=number, records=records)
     # The tick's pass for this one seat: what it is owed goes in at the event that ends its
     # turn or answers its question, not at a tick minutes later, and a move before the
     # `continue` below, which would begin its next turn on the model it is leaving.
     if seat_read(name).get("owed_lines"):
         tell_moves(name, note)
     if stop_enforced(harness):
-        from . import menu as menu_mod
         # A completion is already an event, not a suspected stall. The wrapper supplies
         # this look even where the harness has no native Stop callback.
         if stop_nudge(session, harness, pane_text(session), notify.last(name),
-                      menu_mod.run_records(), False, lambda _: None):
-            answer = announce_state(session, cfg=cfg, look=True, number=number)
+                      records, False, lambda _: None):
+            answer = announce_state(session, cfg=cfg, look=True, number=number, records=records)
     return answer
 
 
