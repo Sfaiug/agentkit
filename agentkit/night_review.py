@@ -109,5 +109,5 @@ def _start(checkout, merged, seat, day, task):
     (directory / "log.txt").touch()
     # The existing follow-up launch lets the first executor end not-needed without a review.
     run.launch_for_seat(directory, {"launched_session": seat}, {
-        "followup": {"run": merged[-1]["run_id"], "text": f"Review {day}'s merged changes"},
-        "repo": str(checkout)}, task_file=task)
+        "followup": {"run": merged[-1]["run_id"], "text": f"Review {day}'s merged changes",
+                     "place": str(task)}, "repo": str(checkout)}, task_file=task)

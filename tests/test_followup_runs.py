@@ -204,6 +204,8 @@ class FollowupRuns(unittest.TestCase):
             self.assertIn(item, (child / "task.md").read_text())
             self.assertIn("base: origin/main", (child / "task.md").read_text())
             self.assertEqual(receipt["followup"]["run"], directory.name)
+            # what an older ak still running a run it admitted matches its site by
+            self.assertEqual(receipt["followup"]["place"], handback.followup_place(item))
             self.assertEqual(receipt["base_proof"], "regression.sh")   # its own probe proves it
             self.assertIn(child.name, (directory / "result.md").read_text())
         self.assertFalse((config.HOME / "followups").exists())

@@ -1424,7 +1424,9 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
                 run.launch_for_seat(directory, state, {
-                    "followup": {"run": run_dir.name, "text": item,
+                    # `place` is for an older ak still running a run it admitted, which reads
+                    # it; this one reads the site from the text (`open_followup`)
+                    "followup": {"run": run_dir.name, "text": item, "place": followup_place(item),
                                  **({"check": checks[item]} if item in checks else {})},
                     # a repair's only check is the target's own, run at landing: its
                     # before is the lander's run of it on the target tip, where it did
