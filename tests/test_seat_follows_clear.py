@@ -173,6 +173,7 @@ class SeatFollowsClear(Sandbox):
     def test_nested_claude_and_workers_cannot_move_the_seat(self):
         before = self.record()
         for words in (["claude"], ["claude", "-p"], ["claude", "--print"],
+                      ["claude", "--session-id", "before-clear"],     # the seat's own words
                       ["node", "/fake/node_modules/@anthropic-ai/claude-code/cli.js"]):
             with self.subTest(words=words):
                 self.table.update({104: (102, words), 105: (104, ["sh", "-c", "hook"])})
