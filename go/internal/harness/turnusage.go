@@ -33,7 +33,9 @@ func Tokens(name, out string) (float64, bool) {
 }
 
 // jsonLines is each line of a text file as Python reads one with errors="replace", decoded, nil
-// where it holds no JSON; none where the file cannot be read.
+// where it holds no JSON; none where the file cannot be read.  Its callers only read what a line
+// counts, so a lone surrogate, which Python reads and a Go string cannot hold, is U+FFFD rather
+// than the loss of the whole line.
 func jsonLines(path string, keep func(line string) bool) ([]any, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -45,7 +47,7 @@ func jsonLines(path string, keep func(line string) bool) ([]any, bool) {
 			found = append(found, nil)
 			continue
 		}
-		decoded, _ := run.Decode([]byte(strings.ToValidUTF8(line, "�")))
+		decoded, _ := run.DecodeShown([]byte(strings.ToValidUTF8(line, "�")))
 		found = append(found, decoded)
 	}
 	return found, true
