@@ -140,7 +140,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, google_cloud, look, machines, open_runs, parsed, record
+from . import done_check, google_cloud, logins, look, machines, open_runs, parsed, record
 from . import warm
 from .harness import load as harness_plugin
 
@@ -160,10 +160,6 @@ STATE_ORDER = ("needs you", "out of usage", "working", "done", "idle")
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
            "google": "#203B9B", "mimo": "#FB8046"}
-# Each company's own name, on its usage row (a model sits under its harness's, model_heading);
-# any other provider is its own `name` key (provider_name), else its key capitalised.
-NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
-         "google": "Gemini", "mimo": "MiMo"}
 TICK = terminal.TICK     # the longest the main screen waits for a key before drawing itself again
 WALK_EVERY = 60          # seconds one walk of a quiet run answers for: silence is told in hours, so
                          # a minute never shows, however many files a run's sandbox leaves behind
@@ -2649,15 +2645,6 @@ def _note_styled(part):
     return terminal.styled(part, "dim")
 
 
-def provider_name(cfg, name):
-    """This provider's name on every screen: its own `name` key -- the one its harness gives
-    it, written by `+ add` (`Z.AI Coding Plan`) -- else the company's, else its key
-    capitalised."""
-    entry = cfg["providers"].get(name)
-    own = entry.get("name") if isinstance(entry, dict) else None
-    return own.strip() if isinstance(own, str) and own.strip() else NAMES.get(name, name.title())
-
-
 def own_colour(cfg, name):
     """This provider's own colour: its `colour` key, else the shipped one, else the accent."""
     entry = cfg["providers"].get(name)
@@ -2701,11 +2688,9 @@ def usage_rows(cfg):
         top = providers.get(name)
         top = top if isinstance(top, dict) else {}
         found = top.get("accounts") if isinstance(top.get("accounts"), dict) else {}
-        shown = provider_name(cfg, name)
         for account in config.accounts(cfg, name) or [None]:
             rec = top if account is None else found.get(account)
-            rows.append((name, shown if account is None else
-                         config.account_label(cfg, name, account, shown),
+            rows.append((name, config.account_label(cfg, name, account),
                          rec if isinstance(rec, dict) else {}, account))
     return rows
 
@@ -2837,7 +2822,6 @@ def login_notes(rows, now=None):
     """What the line under the grid says of each of `rows`' (`usage_rows`') login while it ends
     within logins.WARN_WITHIN or has ended, `login owner@acme.test ends Mon 26 Oct 04:47 (in 2
     days)`, its meter amber meanwhile; None for the rest."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     now = time.time() if now is None else now
     found = logins.read()
     notes = []
@@ -4648,7 +4632,6 @@ def sign_in(cfg, keyboard, picked):
     (`logins.harness`), and the menu back as soon as that ends, one that failed once what it
     said has been read.  One that finished is asked its end at once (`logins.renewed`), so the
     menu comes back with its meter grey.  What to say under the screen, or ""."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     provider, account, label = picked
     if _adapter_verbs(keyboard, logins.harness(cfg, provider), ("login again",), label, account,
                       provider):
@@ -4709,17 +4692,17 @@ def config_add_provider(cfg, keyboard):
     gone = [name for name in shipped.get("providers") or {} if name not in cfg["providers"]]
     labels = _by_label([name for name in gone
                         if hosts.keys().isdisjoint(config.provider_harnesses(shipped, name))],
-                       lambda name: COMPANIES.get(name, NAMES.get(name, name.title())))
+                       lambda name: COMPANIES.get(name, config.NAMES.get(name, name.title())))
     through = {label: harness for harness, label in hosts.items() if label not in labels}
     more = {}
     for text, name in _by_label(list(cfg["providers"]),
-                                lambda name: provider_name(cfg, name)).items():
+                                lambda name: config.provider_name(cfg, name)).items():
         harnesses = config.provider_harnesses(cfg, name)
         if harnesses and config.one_login(harnesses[0]):
             continue                  # _add_subscription's login would be refused
         after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), fresh]
-        more[config.account_label({"providers": {name: {"accounts": after}}}, name, after[-1],
-                                  text)] = (name, after)
+        more[config.account_label({"providers": {name: {"name": text, "accounts": after}}},
+                                  name, after[-1])] = (name, after)
 
     def around(lit):  # the screen the list is drawn on, drawn again after a key or a resize
         terminal.frame("config · add a subscription",
@@ -4783,13 +4766,12 @@ def config_remove_provider(cfg, picked):
     on this machine (_signed_out).  The last provider is refused without asking.  What to say
     under the screen, or "".
     """
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     (name, account, label), title = picked, f"config · {picked[2]}"
     # a provider listing no subscription has its usual login alone
     last = len(config.accounts(cfg, name)) < 2
     if last and len(cfg["providers"]) < 2:
         return "the config needs one provider"
-    shown = provider_name(cfg, name) if last else label
+    shown = config.provider_name(cfg, name) if last else label
     question, means = REMOVE_PROVIDER_ASK if last else REMOVE_SUBSCRIPTION_ASK
 
     def asked(card, keys):
@@ -4860,7 +4842,6 @@ def subscription_acts(cfg, keyboard, number, remove=False):
     `spend a Fable reset` for each it can spend now, in its order -- and with `remove`, `remove`
     (config_remove_provider).  A login the tick finds logged out with no end recorded is told
     by its alert alone: that record is its harness's, which can carry several subscriptions."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     rows = usage_rows(cfg)[number - 1:number]
     name, label, prov, account = rows[0]
     # its label as usage_cells has it, which config_spend_reset reads its week back by
@@ -4911,7 +4892,6 @@ def config_subscriptions(cfg, keyboard):
     do (motion.washing), and its line comes up under it as the line under the menu's highlighted
     row does; back from what an act or an add drew, it is drawn as it is.  The act lit (`on`) is
     kept by what it is, so one going from under it lights nothing in its place."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     here, opened, on, top, said = ("sub", 1), None, None, 0, ""
     clock = motion.Clock(page=True)
     while True:
@@ -4930,8 +4910,9 @@ def config_subscriptions(cfg, keyboard):
         body, places, acts, moves = [], {}, {}, []
         for number, ((name, _, prov, account), line) in enumerate(zip(subs, drawn), 1):
             if number == 1 or subs[number - 2][0] != name:
-                body.append(terminal.styled(COMPANIES[name].split(" / ")[0] if name in COMPANIES
-                                            else provider_name(cfg, name), colour(cfg, name)))
+                company = (COMPANIES[name].split(" / ")[0] if name in COMPANIES
+                           else config.provider_name(cfg, name))
+                body.append(terminal.styled(company, colour(cfg, name)))
             held = in_hand(prov)
             beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
             line += terminal.styled(f" · {held}", "dim") if beside else ""

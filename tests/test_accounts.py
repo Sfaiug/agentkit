@@ -182,12 +182,12 @@ class Accounts(unittest.TestCase):
         self.assertFalse(usage.model_exhausted(self.cfg, "opus", providers)[0])
         # `ak usage`: each account's meters on a line of its own
         rows = {row[0]: row for row in usage.rows(self.cfg, providers)}
-        self.assertEqual(rows["anthropic I"][2], "0%")
-        self.assertEqual(rows["anthropic II"][2], "80%")
-        self.assertNotIn("anthropic", rows)
+        self.assertEqual(rows["Claude I"][2], "0%")
+        self.assertEqual(rows["Claude II"][2], "80%")
+        self.assertNotIn("Claude", rows)
         text = usage.render(self.cfg, providers, ["opus"])
-        self.assertIn("anthropic I ", text)
-        self.assertIn("anthropic II", text)
+        self.assertIn("Claude I ", text)
+        self.assertIn("Claude II", text)
 
         code, answer, session, _ = self.turn()
         self.assertEqual((code, session), (0, "s1"))
@@ -256,7 +256,7 @@ class Accounts(unittest.TestCase):
         self.assertTrue((config.STATE / "anthropic-probe.lock").exists())
         self.assertEqual(sorted(config.STATE.glob("anthropic.*")), [])
         self.assertEqual([row[0] for row in usage.rows(self.cfg, providers)],
-                         ["anthropic", "other"])
+                         ["Claude", "Other"])
 
         code, answer, _, _ = self.turn()
         self.assertEqual(code, 0)

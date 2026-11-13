@@ -206,7 +206,7 @@ class Defaults(unittest.TestCase):
         rows = "\n".join(menu.usage_lines(cfg, 80))
         self.assertIn("ChatGPT", rows)
         self.assertNotIn("Claude", rows)
-        self.assertNotIn("anthropic", [row[0] for row in usage.rows(cfg, usage.collect(cfg))])
+        self.assertNotIn("Claude", [row[0] for row in usage.rows(cfg, usage.collect(cfg))])
         env = {**os.environ, "HOME": str(self.root), "AGENTKIT_SESSION": "",
                "PYTHONDONTWRITEBYTECODE": "1"}
         result = subprocess.run([sys.executable, str(REPO / "bin/ak"), "usage", "--json"],
