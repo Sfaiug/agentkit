@@ -98,7 +98,8 @@ class Machines(tuple):
         self.close()
 
     def close(self):
-        for listener, thread in self.sshds:
+        sshds, self.sshds = self.sshds, []      # each ended once, however often `close` runs
+        for listener, thread in sshds:
             listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
             listener.close()
             thread.join()
