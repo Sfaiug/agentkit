@@ -54,6 +54,7 @@ from . import (aside_editor, box, browser, command_help, config, front, gc, gitc
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
+from .host import boot_id     # `watch.boot_id`, which tests stand in for to play a reboot
 from .lifecycle import LIVE, WATCH, facts as hook_facts, held_work, state as hook_state
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
@@ -583,13 +584,6 @@ def save_state(data):
             if key in current:
                 data[key] = current[key]
         _write_state(data)
-
-
-def boot_id():
-    try:
-        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-    except OSError:
-        return None
 
 
 def cut_off(cfg, name, moved=None):
@@ -6364,12 +6358,17 @@ def _launch_grace(state, now):
 
 def _backoff_until(deaths):
     for death in reversed(deaths):
-        if not isinstance(death, dict):
-            continue
+        if not isinstance(death, dict) or death.get("restart"):
+            continue    # a restart's resume holds no death back (`transitions.restart_ended`)
         at = death.get("resumed_at")
         if isinstance(at, (int, float)) and not isinstance(at, bool):
             return at + DEAD_BACKOFF
     return 0
+
+
+def _ended(deaths):
+    """What ended the loop whose ending is the last of `deaths`, in the words of its resume."""
+    return "the host restarted" if deaths[-1].get("restart") else "loop died"
 
 
 def _dead_where(state, run_dir):
@@ -6386,40 +6385,45 @@ def _dead_plan(state, run_dir, now):
     """What this tick does with a loop whose process is gone.
 
     `skip` is a resume already ordered. `wait` records a death and holds for the
-    backoff. `park` is the third death inside an hour. `resume` continues now.
+    backoff. `park` is the third death inside an hour. `resume` continues now, as it
+    does every loop a restart of the host ended (`transitions.restart_ended`).
     """
     pid = state.get("pid")
     deaths = [death for death in (state.get("deaths") or []) if isinstance(death, dict)]
-    last = deaths[-1] if deaths else None
     # A resume already ordered — by this pass or by the stall ladder — adopts the
     # record itself. Noticing the same dead pid again would launch a second loop.
     if _resume_ordered(state, now):
         return "skip", deaths, ""
-    ending = transitions.loop_death(state)    # `last`, where it is this loop's ending
+    ending = transitions.loop_death(state)    # the last entry, where it is this loop's ending
     reaped = bool(ending) and not ending.get("parked") and not ending.get("resumed_at")
+    noticed = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+    reason = (ending.get("reason") or "") if reaped else f"loop process {pid} gone, noticed {noticed}"
+    entry = {"at": now, "pid": pid, "reason": reason}
+    if transitions.restart_ended(state):
+        if reaped:
+            return "resume-open", deaths, reason
+        return "resume", [*deaths, {**entry, "restart": True}], reason
+    own = [death for death in deaths if not death.get("restart")]     # the run's own deaths
     # The hour runs to the death being judged, not to the tick judging it: a tick that gets
     # to a recorded death late must not age the first of three out of the window.
-    upto = last.get("at") if reaped else now
+    upto = ending.get("at") if reaped else now
     if not isinstance(upto, (int, float)) or isinstance(upto, bool):
         upto = now
-    recent = [death for death in deaths
+    recent = [death for death in own
               if isinstance(death.get("at"), (int, float)) and not isinstance(death.get("at"), bool)
               and upto - death["at"] < DEAD_WINDOW]
     if reaped:
         # A reap noticed this death first and recorded it, so it is already among the recent:
         # the third inside the hour parks whoever noticed it.
         if len(recent) >= 3:
-            return "park", [*deaths[:-1], {**last, "parked": True}], last.get("reason") or ""
+            return "park", [*deaths[:-1], {**ending, "parked": True}], reason
         if now < _backoff_until(deaths):
-            return "wait-quiet", deaths, last.get("reason") or ""
-        return "resume-open", deaths, last.get("reason") or ""
-    noticed = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
-    reason = f"loop process {pid} gone, noticed {noticed}"
-    entry = {"at": now, "pid": pid, "reason": reason}
+            return "wait-quiet", deaths, reason
+        return "resume-open", deaths, reason
     if len(recent) >= 2:
         return "park", [*deaths, {**entry, "parked": True}], reason
     deaths = [*deaths, entry]
-    previous = last.get("resumed_at") if last else None
+    previous = own[-1].get("resumed_at") if own else None
     if (isinstance(previous, (int, float)) and not isinstance(previous, bool)
             and now - previous < DEAD_BACKOFF):
         return "wait", deaths, reason
@@ -6580,7 +6584,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                 if action == "park":
                     log(f"would park {run_dir.name}: loop died ({reason})")
                 elif action in ("resume", "resume-open"):
-                    log(f"would resume {run_dir.name}: loop died ({reason}); "
+                    log(f"would resume {run_dir.name}: {_ended(deaths)} ({reason}); "
                         f"continuing {role} of round {rnd}")
                 elif action == "wait":
                     log(f"would wait to resume {run_dir.name}: loop died ({reason})")
@@ -6613,7 +6617,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                     deaths[-1]["resumed_at"] = now
                     _arm_resume(state, deaths, now, role)
                     launch = True
-                    line = (f"resumed {run_dir.name}: loop died ({reason}); "
+                    line = (f"resumed {run_dir.name}: {_ended(deaths)} ({reason}); "
                             f"continuing {role} of round {rnd}")
             if line:
                 _note_run(run_dir, line)
