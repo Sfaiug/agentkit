@@ -1386,9 +1386,14 @@ def pinned(session):
 
 def pane_text(session):
     """The whole pane: output above the tail must reset the quiet clock too."""
+    return pane_capture(session) or ""
+
+
+def pane_capture(session):
+    """The whole pane, "" where it shows nothing, or None where tmux gives no capture."""
     rc, out = orch.tmux_out("capture-pane", "-p", "-e", "-J", "-t", _pane(session),
                             socket=orch.seat_socket(session))
-    return out if rc == 0 else ""
+    return out if rc == 0 else None
 
 
 def strip_sgr(text):
