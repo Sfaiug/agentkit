@@ -1,7 +1,9 @@
 """Machines for a standby's keys (tests/fixtures/twohomes.py): two on the one the test runs on,
 alike, each with a host name, a home at the other's path, a /tmp and fakes of its own, and
-each reaching the other by ssh as the key and the tick reach it."""
+each reaching the other by ssh as the key and the tick reach it; a third where a key names one;
+and one a key holds made the other's client, silent or hanging."""
 
+import os
 import sys
 from pathlib import Path
 import unittest
@@ -80,6 +82,47 @@ class TwoHomes(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertIn(".agentkit/state/watch.json", mini.tree())
         self.assertEqual(vm.tree(), theirs)
+
+    def test_either_is_made_the_others_client(self):
+        mini, vm = self.machines
+        records = [machine.path / ".agentkit" / "state" / "server" for machine in self.machines]
+        for record in records:      # the other tests tick on no one's client
+            self.addCleanup(record.unlink, missing_ok=True)
+        vm.client_of(mini)
+        mini.client_of(vm)      # turned round
+        self.assertEqual([record.read_text() if record.exists() else None for record in records],
+                         ["acme-vm\n", None])
+
+    def test_a_silent_machine_is_off_till_it_answers(self):
+        mini, vm = self.machines
+        self.addCleanup(vm.answer)
+        pid = int(vm.run("sh", "-c", "sleep 600 >/dev/null 2>&1 & echo $!").out)
+        vm.silence()
+        self.assertEqual(mini.run("ssh", vm.name, "touch ran").code, 255)
+        self.assertFalse((vm.path / "ran").exists())
+        self.assertRaises(ProcessLookupError, os.kill, pid, 0)
+        vm.answer()
+        done = mini.run("ssh", vm.name, "hostname")
+        self.assertEqual((done.code, done.out), (0, "acme-vm\n"), done.err)
+
+    def test_a_hanging_machine_takes_ssh_and_runs_nothing_till_it_answers(self):
+        mini, vm = self.machines
+        self.addCleanup(vm.answer)
+        vm.hang()
+        with self.assertRaisesRegex(AssertionError, "still running after 2 s"):
+            mini.run("ssh", vm.name, "touch ran", timeout=2)     # which ends it
+        self.assertFalse((vm.path / "ran").exists())
+        vm.answer()
+        done = mini.run("ssh", vm.name, "hostname")
+        self.assertEqual((done.code, done.out), (0, "acme-vm\n"), done.err)
+
+    def test_a_third_machine_a_key_names_reaches_both_and_is_reached_by_both(self):
+        with Machines("acme-mini", "acme-vm", "acme-laptop") as (*pair, laptop):
+            for each in pair:
+                for machine, other in ((laptop, each), (each, laptop)):
+                    done = machine.run("ssh", other.name, "hostname")
+                    self.assertEqual((done.code, done.out), (0, f"{other.name}\n"), done.err)
+            self.assertEqual(laptop.run("ssh", "acme-nas", "hostname").code, 255)
 
 
 if __name__ == "__main__":
