@@ -5387,7 +5387,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             return True       # a move to another account waits for that turn's end
         if said(pane_text(current_seat)) != said(pane):
             return True       # nor typing
-        if refusal and not waiting and not spent(current):
+        parks = refusal and not waiting and not spent(current)
+        if parks:
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
             if until is not None and until <= now:
@@ -5408,6 +5409,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                     if type_into(session, keystroke(harness, cue), log):
                         seat_write(name, usage_refusal={**observed, "nudged_at": now})
                 return True
+        if owned and target is not None and not field_empty(harness, pane):
+            # The respawn would end the owner's text (5 and 12 Nov 2026): the first look at an
+            # empty field moves the seat, its refusal left unparked for that look to act on.
+            return True
+        if parks:
             until = usage.mark_exhausted(cfg, provider, until=until,
                                          account=current if accounts else None)
             readings[current] = {**readings.get(current, {}), "exhausted_until": until}
@@ -5419,13 +5425,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if target is not None:
             try:
                 if owned:
-                    # the owner's text lifted and the harness respawned in one hold, as a switch does;
-                    # a move nobody asked for waits while no editor of ak's lifts it, or none could
-                    with notify.session_lock(name):
-                        if not carry_draft(session, harness, pane, harness, cfg):
-                            return True     # a respawn would lose the text
-                        _resume_on(cfg, name, log, target, continuing, lambda at: field_empty(
-                            harness, pane_text(dict(session, pane=at))))
+                    # the last look, its keys frozen: text typed since keeps the seat too
+                    _resume_on(cfg, name, log, target, continuing, lambda at: field_empty(
+                        harness, pane_text(dict(session, pane=at))))
                 elif continuing and not type_into(session, keystroke(harness, cue), log,
                                                   asked=True):
                     return True
