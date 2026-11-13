@@ -99,6 +99,7 @@ class TwoHomes(unittest.TestCase):
         pid = int(vm.run("sh", "-c", "sleep 600 >/dev/null 2>&1 & echo $!").out)
         vm.silence()
         self.assertEqual(mini.run("ssh", vm.name, "touch ran").code, 255)
+        self.assertRaises(OSError, vm.run, "touch", "ran")
         self.assertFalse((vm.path / "ran").exists())
         self.assertRaises(ProcessLookupError, os.kill, pid, 0)
         vm.answer()
