@@ -1,13 +1,14 @@
 """tools/join.sh, piped into `bash -s -- KEY [tailscale]` as root, makes a Debian or Ubuntu machine
-ready for ak and prints the address the home reaches it by: the user ak holding KEY, docker, git
-and jq, ak in group docker, and sshd's settings, those it knows; with `tailscale`, Tailscale and
-its login on a machine on no tailnet.  Run again it changes nothing.  Elsewhere, or cut short, it
-changes nothing.  A machine ak rents runs it after its own mounts, holding the setup's commands
-of 13 Nov 2026 in their order.
+ready for ak and prints the address the home reaches it by: the user ak holding KEY on a line of
+its own where only ak and root write, docker, git, jq and sshd, ak in group docker, and sshd's
+settings, those it knows; with `tailscale`, Tailscale and its login on a machine on no tailnet.
+Run again it changes nothing.  Elsewhere, or cut short, it changes nothing.  A machine ak rents
+runs it after its own mounts, holding the setup's commands of 13 Nov 2026 in their order.
 
 Black-box: bubblewrap binds a directory of the test's over each of root's files the script reaches,
 and PATH holds only stand-ins for root's programs, each logging its words and the key and sshd
-files as they were then; apt-get makes the programs a package brings.
+files as they were then; apt-get makes the programs a package brings.  Root's umask lets its group
+write, as some systems' does.
 """
 
 import json
@@ -23,6 +24,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 from agentkit import google_cloud
 
+DEBIAN = 'PRETTY_NAME="Debian GNU/Linux 13 (trixie)"\nID=debian\n'
 JOIN = (REPO / "tools/join.sh").read_text()
 KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcme ak@acme-home"
 SSHD = "MaxStartups 500:30:1000\nPerSourcePenalties no\n"
@@ -83,10 +85,13 @@ elif name == "apt-get" and words[0] == "install":
             sys.exit("E: Unable to locate package docker-cli")
         with (root / "installed").open("a") as installed:
             print(package, file=installed)
-        made = {{"docker.io": "docker", "git": "git", "jq": "jq"}}.get(package)
-        if made and not (root / "bin" / made).exists():    # jq, real: it reads Tailscale's
-            (root / "bin" / made).symlink_to(shutil.which(made, path=HOST) if made == "jq"
-                                             else me.resolve())
+        made = {{"docker.io": ["docker", "dockerd"], "openssh-server": ["sshd"]}}
+        for program in made.get(package, [package]):    # jq real: it reads Tailscale's answer
+            if not (root / "bin" / program).exists():
+                (root / "bin" / program).symlink_to(shutil.which(program, path=HOST)
+                                                    if program == "jq" else me.resolve())
+        if package == "openssh-server":
+            os.makedirs("/etc/ssh/sshd_config.d", exist_ok=True)
         if package == "docker.io" and "docker:" not in Path("/etc/group").read_text():
             with open("/etc/group", "a") as group:
                 print("docker:x:999:", file=group)
@@ -94,8 +99,10 @@ elif name == "apt-cache":   # show docker-cli
     sys.exit(0 if world["docker_cli"] else 100)
 elif name == "sshd":        # -t [-o SETTING]
     sys.exit(sshd_test(words[2:]))
-elif name == "systemctl":   # reload ssh, which runs sshd -t first, as Debian's unit does
-    sys.exit(sshd_test([]) and 1)
+elif name == "systemctl" and words[0] == "is-active":     # -q ssh
+    sys.exit(0 if world["ssh_active"] else 3)
+elif name == "systemctl":   # reload ssh: Debian's unit runs sshd -t first; one not running fails
+    sys.exit(1 if not world["ssh_active"] or sshd_test([]) else 0)
 elif name == "curl":        # Tailscale's installer
     print(f"PATH={{HOST}} ln -s {{me.resolve()}} {{root}}/bin/tailscale")
 elif name == "tailscale":
@@ -109,28 +116,29 @@ elif name == "tailscale":
         print(json.dumps({{"Self": {{"DNSName": "{name}."}}}}))
 """
 BWRAP = shutil.which("bwrap")
-PROGRAMS = ("useradd", "usermod", "chown", "mount", "mkdir", "touch", "apt-cache", "sshd",
+PROGRAMS = ("useradd", "usermod", "chown", "mount", "mkdir", "touch", "apt-get", "apt-cache",
             "systemctl", "curl")
 
 
 @unittest.skipUnless(BWRAP, "no bubblewrap here to bind root's files")
 class OneLineMakesALinuxMachineReady(unittest.TestCase):
-    def machine(self, apt=True, docker_cli=True, refuses=()):
-        """A machine's root as files: none of ak's, ssh's settings directory empty."""
+    def machine(self, system=DEBIAN, docker_cli=True, refuses=(), sshd=True, ssh_active=True):
+        """A machine's root as files: none of ak's, sshd's settings directory empty."""
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root)
-        for path in ("bin", "home", "ssh/sshd_config.d", "lib", "run"):
+        for path in ("bin", "home", "ssh/sshd_config.d" if sshd else "ssh", "lib", "run"):
             (root / path).mkdir(parents=True)
+        (root / "os-release").write_text(system)
         (root / "passwd").write_text("root:x:0:0:root:/root:/bin/bash\n")
         (root / "group").write_text("root:x:0:\n")
-        (root / "world.json").write_text(json.dumps({"docker_cli": docker_cli,
-                                                     "refuses": list(refuses)}))
+        (root / "world.json").write_text(json.dumps({"docker_cli": docker_cli, "ssh_active":
+                                                     ssh_active, "refuses": list(refuses)}))
         standin = root / "standin"
         standin.write_text(STANDIN.format(python=sys.executable, link=LINK, name=TAILNET_NAME))
         standin.chmod(0o755)
-        for name in PROGRAMS + ("apt-get",) * apt:
+        for name in PROGRAMS + ("sshd",) * sshd:
             (root / "bin" / name).symlink_to(standin)
-        for name in ("id", "grep", "sh"):
+        for name in ("id", "grep", "sh", "tail", "chmod"):
             (root / "bin" / name).symlink_to(shutil.which(name))
         return root
 
@@ -138,15 +146,16 @@ class OneLineMakesALinuxMachineReady(unittest.TestCase):
         """`script` piped into bash as root on `root`'s machine, named box-1: its output, and the
         programs it ran."""
         (root / "log").write_text("")
-        binds = [("passwd", "/etc/passwd"), ("group", "/etc/group"), ("home", "/home"),
-                 ("ssh", "/etc/ssh"), ("lib", "/var/lib"), ("run", "/run")]
+        binds = [("os-release", Path("/etc/os-release").resolve()), ("passwd", "/etc/passwd"),
+                 ("group", "/etc/group"), ("home", "/home"), ("ssh", "/etc/ssh"),
+                 ("lib", "/var/lib"), ("run", "/run")]
         ran = subprocess.run(
             [BWRAP, "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--bind", root, root,
              *(arg for mine, path in binds for arg in ("--bind", root / mine, path)),
              "--unshare-net", "--unshare-uts", "--hostname", "box-1",
              "--", "/bin/bash", "-s", "--", *words],
-            input=script, env={"PATH": str(root / "bin")}, capture_output=True, text=True,
-            timeout=120)
+            input=script, env={"PATH": str(root / "bin")}, umask=0o002, capture_output=True,
+            text=True, timeout=120)
         return ran, [json.loads(line) for line in (root / "log").read_text().splitlines()]
 
     def state(self, root):
@@ -168,6 +177,9 @@ class OneLineMakesALinuxMachineReady(unittest.TestCase):
         self.assertIn(["useradd", "-m", "-s", "/bin/bash", "ak"], runs)
         self.assertIn("ak:x:1001:1001::/home/ak:/bin/bash\n", (root / "passwd").read_text())
         self.assertEqual((root / "home/ak/.ssh/authorized_keys").read_text(), KEY + "\n")
+        self.assertEqual([oct(path.stat().st_mode & 0o022) for path in (
+            root / "home/ak", root / "home/ak/.ssh", root / "home/ak/.ssh/authorized_keys")],
+            ["0o0"] * 3)     # what sshd's StrictModes asks of them
         chowned = next(one for one in log if one["run"] == ["chown", "-R", "ak:", "/home/ak"])
         self.assertEqual(chowned["keys"], KEY + "\n")
         installed = next(one for one in log if one["run"][:2] == ["apt-get", "install"])
@@ -193,6 +205,31 @@ class OneLineMakesALinuxMachineReady(unittest.TestCase):
         self.assertIn(["apt-get", "install", "-qy", "docker.io", "git", "jq"],
                       [one["run"] for one in log])
 
+    def test_a_machine_with_dockers_client_alone_gets_its_daemon(self):
+        root = self.machine()
+        for program in ("docker", "git", "jq"):
+            (root / "bin" / program).symlink_to(root / "standin")
+        ran, log = self.run_on(root, JOIN, KEY)
+        self.assertEqual(self.address(ran), "ak@box-1")
+        self.assertIn("docker.io", (root / "installed").read_text().split())
+
+    def test_a_machine_without_sshd_gets_it_and_its_settings_for_its_first_start(self):
+        root = self.machine(sshd=False, ssh_active=False)    # as Ubuntu's socket starts it
+        ran, log = self.run_on(root, JOIN, KEY)
+        self.assertEqual(self.address(ran), "ak@box-1")
+        self.assertIn("openssh-server", (root / "installed").read_text().split())
+        self.assertEqual((root / "ssh/sshd_config.d/ak.conf").read_text(), SSHD)
+
+    def test_a_key_file_whose_last_line_lacks_its_newline_keeps_it_and_gets_the_key(self):
+        root = self.machine()
+        other = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOther ak@acme-laptop"
+        (root / "passwd").write_text("ak:x:1001:1001::/home/ak:/bin/bash\n")
+        (root / "home/ak/.ssh").mkdir(parents=True)
+        (root / "home/ak/.ssh/authorized_keys").write_text(other)
+        self.address(self.run_on(root, JOIN, KEY)[0])
+        self.assertEqual((root / "home/ak/.ssh/authorized_keys").read_text(),
+                         f"{other}\n{KEY}\n")
+
     def test_with_tailscale_a_machine_on_no_tailnet_gets_it_and_its_login(self):
         root = self.machine()
         ran, log = self.run_on(root, JOIN, KEY, "tailscale")
@@ -214,7 +251,7 @@ class OneLineMakesALinuxMachineReady(unittest.TestCase):
                           or one == ["tailscale", "up"]], [])
 
     def test_another_system_changes_nothing_says_which_it_sets_up_and_exits_2(self):
-        root = self.machine(apt=False)
+        root = self.machine(system="ID=kali\nID_LIKE=debian\n")    # apt-get and all
         before = self.state(root)
         ran, log = self.run_on(root, JOIN, KEY, "tailscale")
         self.assertEqual(ran.returncode, 2, ran.stdout + ran.stderr)

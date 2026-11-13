@@ -9,18 +9,25 @@
 
 join() {
   set -e
-  if ! type -P apt-get >/dev/null; then
+  if ! grep -qsxE 'ID="?(debian|ubuntu)"?' /etc/os-release; then
     echo "This sets up Debian and Ubuntu machines only: nothing here changed." >&2
     return 2
   fi
   id ak >/dev/null 2>&1 || useradd -m -s /bin/bash ak
+  local keys=~ak/.ssh/authorized_keys
   mkdir -p ~ak/.ssh
-  grep -qxF -- "$1" ~ak/.ssh/authorized_keys 2>/dev/null || echo "$1" >>~ak/.ssh/authorized_keys
+  if ! grep -qxF -- "$1" "$keys" 2>/dev/null; then
+    [ -z "$(tail -c 1 "$keys" 2>/dev/null)" ] || echo >>"$keys"    # ends a last line unended
+    echo "$1" >>"$keys"
+  fi
+  chmod go-w ~ak ~ak/.ssh "$keys"    # sshd refuses a key that others could have written
   chown -R ak: ~ak
-  # Before Debian 13, docker.io holds docker's client, which has no package of its own.
-  if ! type -P docker git jq >/dev/null; then
+  # sshd where the system came without it; docker's client has been a package of its own since
+  # Debian 13, and Docker's daemon is what makes group docker.
+  if ! type -P dockerd docker git jq sshd >/dev/null; then
     apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy docker.io \
-      $(apt-cache show docker-cli >/dev/null 2>&1 && echo docker-cli) git jq
+      $(apt-cache show docker-cli >/dev/null 2>&1 && echo docker-cli) git jq \
+      $(type -P sshd >/dev/null || echo openssh-server)
   fi
   usermod -aG docker ak
   # sshd keeps a suite piece's connection, and its penalties off, as 40 connections that never
@@ -33,7 +40,8 @@ join() {
   done
   printf %s "$known" >/etc/ssh/sshd_config.d/ak.conf
   sshd -t
-  systemctl reload ssh
+  # Ubuntu's socket starts ssh at its first connection, which reads the settings then.
+  ! systemctl is-active -q ssh || systemctl reload ssh
   if [ "$2" = tailscale ] && ! tailscale status >/dev/null 2>&1; then
     type -P tailscale >/dev/null ||
       curl -fsSL https://tailscale.com/install.sh | DEBIAN_FRONTEND=noninteractive sh
