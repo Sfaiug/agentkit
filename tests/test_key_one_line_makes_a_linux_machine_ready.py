@@ -8,9 +8,11 @@ runs it after its own mounts, holding the setup's commands of 13 Nov 2026 in the
 Black-box: bubblewrap binds a directory of the test's over each of root's files the script reaches,
 and PATH holds only stand-ins for root's programs, each logging its words and the key and sshd
 files as they were then; apt-get makes the programs a package brings.  Root's umask lets its group
-write, as some systems' does.
+write, as some systems' does.  The rented machine's setup is what `AK_BIN`'s tick gave the fake
+Google of tests/fixtures/google.py for a suite no machine took.
 """
 
+from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
@@ -20,9 +22,9 @@ import sys
 import tempfile
 import unittest
 
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
-from agentkit import google_cloud
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures.akbin import REPO, Home, boxable
+from fixtures.google import SKUS, Google, kind
 
 DEBIAN = 'PRETTY_NAME="Debian GNU/Linux 13 (trixie)"\nID=debian\n'
 JOIN = (REPO / "tools/join.sh").read_text()
@@ -30,14 +32,15 @@ KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAcme ak@acme-home"
 SSHD = "MaxStartups 500:30:1000\nPerSourcePenalties no\n"
 LINK = "https://login.tailscale.com/a/1a2b3c4d"
 TAILNET_NAME = "box-1.tail1a2b3.ts.net"
+RENTED = datetime(2026, 11, 13, tzinfo=UTC).timestamp()     # on the fake Google's clock
 # A rented machine's setup on 13 Nov 2026, before tools/join.sh, as Google was given it.
-TODAY = f"""#!/bin/bash
+TODAY = """#!/bin/bash
 set -e
 useradd -m -s /bin/bash ak
 mkdir -p /var/lib/docker ~ak/.agentkit-helper ~ak/.ssh
 mount -t tmpfs -o size=70% tmpfs /var/lib/docker
 mount -t tmpfs -o size=70% tmpfs ~ak/.agentkit-helper
-echo '{KEY}' >~ak/.ssh/authorized_keys
+echo '{key}' >~ak/.ssh/authorized_keys
 chown -R ak: ~ak
 apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy docker.io docker-cli git jq
 usermod -aG docker ak
@@ -273,14 +276,24 @@ class OneLineMakesALinuxMachineReady(unittest.TestCase):
             ran, log = self.run_on(root, JOIN[:cut], KEY, "tailscale")
             self.assertEqual((log, self.state(root)), ([], before), JOIN[:cut][-60:])
 
+    @unittest.skipUnless(boxable() and shutil.which("ssh-keygen"), "no bwrap boxing a tick, "
+                         "or no ssh-keygen")
     def test_a_rented_machine_runs_todays_commands_in_todays_order(self):
-        offer = google_cloud.Offer("c4a-standard-8", "europe-west4", 8, 32768, 0.4,
-                                   image="debian-13-arm64", disk="hyperdisk-balanced")
-        made = google_cloud._machine("acme-1", "europe-west4-a", offer, 3600, KEY)
-        startup = next(item["value"] for item in made["metadata"]["items"]
+        home = Home()
+        self.addCleanup(home.close)
+        google = Google(home, [SKUS], [{"zones/europe-west4-a": {"machineTypes": [
+            kind("c4a-standard-8", 8, 32)]}}])
+        self.addCleanup(google.close)
+        google.key()
+        google.at(RENTED - 180)     # the prices kept
+        home.write(".agentkit/state/google-cloud-need", "456\n")     # a suite no machine took
+        google.at(RENTED)
+        startup = next(item["value"] for item in google.made[-1]["metadata"]["items"]
                        if item["key"] == "startup-script")
+        key = (home.path / ".agentkit/secrets/google-cloud-ssh.pub").read_text().strip()
         (today, then), (now, log) = [(root, self.run_on(root, script)) for root, script in
-                                     [(self.machine(), TODAY), (self.machine(), startup)]]
+                                     [(self.machine(), TODAY.format(key=key)),
+                                      (self.machine(), startup)]]
         for ran, _ in (then, log):
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
         rest = iter(log[1])
