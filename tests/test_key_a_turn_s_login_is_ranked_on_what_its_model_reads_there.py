@@ -25,12 +25,14 @@ OPUS, FABLE = "claude-opus-5-5", "claude-fable-5-2"
 
 class RankedOnItsModel(unittest.TestCase):
     def logins(self, **used):
-        """{model: the logins its worker turns ran on} for one run, each login's week and Fable
-        cap `used` as (week, cap)% used, two workers naming no `meter`."""
+        """{model: the logins its worker turns ran on} for one run Opus executes and Fable
+        reviews, each login's week and Fable cap `used` as (week, cap)% used, two workers naming
+        no `meter`.  The two are named outright: what a turn's login is, not whether the pick
+        lets the model run."""
         with Home() as home:
             rig = Rig(home)
-            akconfig.write(home, {name: {"harness": "acme", "provider": "acme", "model": model}
-                                  for name, model in (("opus", OPUS), ("fable", FABLE))},
+            akconfig.write(home, {model: {"harness": "acme", "provider": "acme"}
+                                  for model in (OPUS, FABLE)},
                            providers={"acme": {"accounts": list(used)}})
             assert not any("meter" in entry for entry in akconfig.read(home)["models"].values())
             home.fake("acme", "#!/bin/sh\nexit 0\n")
@@ -47,7 +49,8 @@ class RankedOnItsModel(unittest.TestCase):
             home.write(".agentkit/state/usage.json", {
                 "fetched_at": now, "reset_checked_at": now, "providers": {"acme": {
                     **accounts["default"], "accounts": accounts}}})
-            done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-merge", timeout=300)
+            done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-merge",
+                           "--exec", OPUS, "--review", FABLE, timeout=300)
             self.assertEqual(done.code, 0, done.out + done.err)
             ran = {}
             for call in fake.runs():
