@@ -118,12 +118,12 @@ class PlanBar(Sandbox):
         self.going("20261002-1500-fix-ci", "acme-ci", task_file="/t/gh2-fix-ci.md",
                    step="reviewer", step_at=NOW - 60)
         row = next(line for line in self.draw(100) if "acme-ci" in line)
-        self.assertRegex(row, r"● working  [━╸]+─+ 2 of 4$")
+        self.assertRegex(row, r"● working  [━╸]+─+ 2 of 4 · 1 task$")
         self.assertEqual(terminal.cells(row), 100)      # the whole room, to the content's edge
         # under 60 columns the bar goes on its own line, and still takes the room
         lines = self.draw(50)
         tail = lines[next(n for n, line in enumerate(lines) if "acme-ci" in line) + 1]
-        self.assertRegex(tail, r"^    [━╸]+─+ 2 of 4$")
+        self.assertRegex(tail, r"^    [━╸]+─+ 2 of 4 · 1 task$")
         self.assertEqual(terminal.cells(tail), 50)
         for line in self.draw(100) + lines:
             self.assertNotRegex(line, r"~\d+[mhd] left")

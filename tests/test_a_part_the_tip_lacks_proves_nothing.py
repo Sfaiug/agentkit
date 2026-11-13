@@ -20,6 +20,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import REPO, Sandbox
 from agentkit import gate, suite_times
+from test_go_keys import SWITCHED
 
 ACME, GONE = "agentkit/internal/acme", "agentkit/internal/gone"
 GO_TESTS, CLAIMS = "tests/test_go.py", "tests/test_go_keys.py"
@@ -64,7 +65,10 @@ class APartTheTipLacksProvesNothing(Sandbox):
         for name in ("test_go.py", "test_go_keys.py", "suite_shares.py"):
             shutil.copy(REPO / "tests" / name, self.tip / "tests")
         (self.tip / "tests/test_key_acme.py").write_text(KEY)
-        (self.tip / "go").mkdir()
+        # what the copy switched as each claim's is takes from go/
+        for part in SWITCHED:
+            shutil.copytree(REPO / "go" / part, self.tip / "go" / part, symlinks=True)
+        shutil.copy(REPO / "go/install.sh", self.tip / "go")
         (self.tip / "go/go.mod").write_text("module agentkit\n\ngo 1.23.0\n\ntoolchain go1.23.0\n")
         (self.tip / "go/keys.txt").write_text("test_key_acme Acme\n")
         (self.root / "bin").mkdir()

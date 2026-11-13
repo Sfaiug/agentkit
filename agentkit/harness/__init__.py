@@ -533,6 +533,12 @@ class Harness:
         price in US dollars a month."""
         return self._section("plans", {})
 
+    def plan_name(self, plan):
+        """What a screen calls `plan`, one its `login-end` names: its `[plan_names]` word for
+        it, else those words."""
+        named = self._section("plan_names", {}).get(plan)
+        return named if isinstance(named, str) else plan
+
     def lost(self, said):
         """Whether a failed turn's own output says the harness holds no such conversation: its
         `[stall]` `lost` words, as `failure` reads the others."""

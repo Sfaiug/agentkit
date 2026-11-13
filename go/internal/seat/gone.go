@@ -139,7 +139,7 @@ func settled(name string, now time.Time) (int, bool) {
 		if record.Str("state") != "pass" || !record.Truthy("merged") || AwaitingLive(record, now) {
 			return 0, false
 		}
-		if record.Truthy("handback_pending") {
+		if run.Waits(record) {
 			waiting++
 		}
 	}

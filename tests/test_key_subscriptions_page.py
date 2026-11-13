@@ -1,8 +1,9 @@
 """`Subscriptions` on `c`, as the owner chose on 26 Oct 2026: each subscription under its
 company, drawn as the main screen draws its meter; the row the highlight is on opens one line,
-its login's email and plan, or when it ends while that is soon, then its acts, lit on `→ log in
-again` where its login ending soon offers it, so Enter signs it in again, never removes; and
-what `+ add a subscription` adds comes back lit, its line saying whose it is.
+its login's email and plan as its harness names it (tests/test_key_plan_reads_ultra.py), or
+when it ends while that is soon, then its acts, lit on `→ log in again` where its login ending
+soon offers it, so Enter signs it in again, never removes; and what `+ add a subscription`
+adds comes back lit, its line saying whose it is.
 Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over usage and logins in a
 temporary HOME, harnesses faked (tests/fixtures/fakeadapter.py), NO_COLOR, so the lit act is
 bracketed.  This test fails against `/bin/false`.
@@ -86,7 +87,7 @@ class SubscriptionsPage(unittest.TestCase):
         self.assertEqual(body(self.page), [
             "Anthropic",
             "› Claude I   ━━━━━━━━╸─  84% left",
-            "    owner@acme.test · max 20x   − remove",
+            "    owner@acme.test · ULTRA   − remove",
             "  Claude II  ━━━───────  29% left",
             "OpenAI",
             "  ChatGPT    ━━━━━━━━━━  100% left · 1 reset in hand",

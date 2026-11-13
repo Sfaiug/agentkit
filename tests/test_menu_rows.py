@@ -123,7 +123,7 @@ class MenuRows(Sandbox):
         screen, _ = self.draw(100, 30)
         row = next(line for line in screen.splitlines() if "fix-api" in line)
         # two of five merged, and the run going a quarter into the next, in the row's room
-        self.assertRegex(row, r"● working  [━╸]+─+ 2 of 5$")
+        self.assertRegex(row, r"● working  [━╸]+─+ 2 of 5 · 1 task$")
         self.assertEqual(terminal.cells(row), 100)
         self.assertNotIn("running", row)
 
@@ -140,7 +140,7 @@ class MenuRows(Sandbox):
         self.assertTrue(row.rstrip().endswith("─ no plan yet"), row)
 
     def test_reason_column_working(self):
-        # Plan wins over runs; runs going are never the last column, which says no plan.
+        # Plan wins over runs in the count; runs going follow it as tasks, never `N running`.
         planned = self.seat("planned-work", "atoll", live="working")
         self.plan("planned-work", 1, 3)
         self.record("planned-going", owner=planned["name"], repo=planned["repo"],
@@ -156,10 +156,10 @@ class MenuRows(Sandbox):
         idle = self.seat("idle-work", "atoll", live="working")
         screen, _ = self.draw(100, 30)
         self.assertRegex(next(line for line in screen.splitlines() if "planned-work" in line),
-                         r"[━╸]+─+ 1 of 3$")
+                         r"[━╸]+─+ 1 of 3 · 1 task$")
         row = next(line for line in screen.splitlines() if "running-work" in line)
         self.assertNotIn("2 running", row)
-        self.assertTrue(row.rstrip().endswith("─ no plan yet"))
+        self.assertTrue(row.rstrip().endswith("─ no plan yet · 2 tasks"), row)
         idle_row = next(line for line in screen.splitlines() if "idle-work" in line)
         self.assertTrue(idle_row.rstrip().endswith("─ no plan yet"))
 

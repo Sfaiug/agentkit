@@ -549,20 +549,24 @@ def key_line(text, term_width=None, first=None):
 NO_PLAN = "no plan yet"     # a working seat's count where it has no plan (`plan_bar`)
 
 
-def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
+def plan_bar(done, total, room=8, least=8, word="working", tmux=False, tasks=0):
     """A seat's progress in `room` cells, its count included: a smooth line of how much of its
-    plan is done (`share_line`), then `done of total` -- never under `least` cells of line, which
-    a row too short for it then draws under itself.  It says nothing of the tasks in flight,
-    which the line under a highlighted row has.  With no `least`, a room too small for a cell of
-    line beside the count draws the count alone.  With no plan (`total` 0) it is the same line
-    with nothing done, `no plan yet` in the count's place."""
+    plan is done (`share_line`), then `done of total`, then ` · 2 tasks` while it has `tasks` in
+    flight, `, 2 tasks` without UTF-8 -- never under `least` cells of line, which a row too short
+    for it then draws under itself.  The count stays the plan's, as a task mostly builds a plan line, and the tasks
+    follow it (the owner's pick of 11 Nov 2026).  With no `least`, a room too small for a cell
+    of line beside the count draws the count alone, and one too small for its tasks too the
+    plan's count alone.  With no plan (`total` 0) it is the same line with nothing done, `no
+    plan yet` in the count's place."""
     total = max(0, int(total or 0))
     done = max(0, min(int(done or 0), total))
     count = f"{done} of {total}" if total else NO_PLAN
-    size = max(least, room - len(count) - 1)
+    joint = " · " if utf8() else ", "
+    going = f"{count}{joint}{tasks} task{'s' * (tasks != 1)}" if tasks else count
+    size = max(least, room - len(going) - 1)
     if size < 1:
-        return count
-    return share_line(done / (total or 1), size, word, tmux) + f" {count}"
+        return going if len(going) <= room else count
+    return share_line(done / (total or 1), size, word, tmux) + f" {going}"
 
 
 def share_parts(share, size):

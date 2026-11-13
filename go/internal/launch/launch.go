@@ -104,7 +104,7 @@ func (l launcher) launch(path, text string, values map[string]string, flags map[
 	}
 	reason := at.reason
 	if reason == "" && l.origin != nil {
-		reason = unstaffed(l.bound) // the tick's pick, made first
+		reason = unstaffed(l.bound, at.place.numbers) // the tick's pick, made first
 	}
 	if reason == "" {
 		code, err := drive(at.dir, at.meta, at.place, at.warning, flags, l.seat, unstopped, log, out, errOut)
@@ -541,7 +541,7 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if err := drivable(values, l.bound); err != nil {
+		if err := drivable(values, l.bound, at.numbers); err != nil {
 			return refuse("", "", err)
 		}
 	}
@@ -583,8 +583,8 @@ func asPython(err error) error {
 }
 
 // numbers is the numbers in force for a run in repo, the host's for none (run.LaunchPolicy), a
-// task's refused where executors are off (run.TaskPolicy); ErrPython for those Go does not carry
-// (run.Carried), read where Python's launch_policy is.
+// task's refused where executors are off (run.TaskPolicy), read where Python's launch_policy is;
+// ErrPython for a review with review off, which Go does not carry (run.Carries).
 func numbers(repo string, review bool) (config.Numbers, error) {
 	read := run.TaskPolicy
 	if review {
@@ -594,7 +594,7 @@ func numbers(repo string, review bool) (config.Numbers, error) {
 	switch {
 	case err != nil:
 		return found, err
-	case !run.Carried(found):
+	case review && found.Rounds == 0:
 		return found, ErrPython
 	}
 	return found, nil

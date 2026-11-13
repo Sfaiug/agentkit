@@ -12,8 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, turns, usage, worker
-import check_harness_contract as contract
+from agentkit import config, contract, harness, turns, usage, worker
 
 PATHS = (
     "/tmp/acme-429/run/log.txt",

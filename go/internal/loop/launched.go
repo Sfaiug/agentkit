@@ -18,6 +18,9 @@ func (l *loop) sayLaunched() {
 	if l.executor == "" {
 		models = l.reviewer + " review" // a review-only run names its reviewer alone
 	}
+	if l.reviewer == "" {
+		models = l.executor + ", no review"
+	}
 	if run.SelfReviewed(record, run.Models()) {
 		models += ", self-reviewed"
 	}

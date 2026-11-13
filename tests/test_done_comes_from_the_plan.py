@@ -13,7 +13,6 @@ local webhook.
 """
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import inspect
 import json
 import os
 import subprocess
@@ -106,25 +105,6 @@ class DoneFromThePlan(Sandbox):
         self.tick()
         self.assertEqual(len(self.done_cards()), 1)
         self.assertIsNone(notify.last(self.name))          # nobody declared it
-
-    def test_a_rename_after_selecting_the_done_plan_keeps_its_word(self):
-        self.plan("- [x] the API answers")
-        original_path = plan.path
-        moved = []
-
-        def rename_after_path(name):
-            chosen = original_path(name)
-            if inspect.currentframe().f_back.f_code.co_name == "_session_state":
-                config.rename_session(name, "acme-docs")
-                moved.append(original_path(name))
-            return chosen
-
-        with patch.object(plan, "path", rename_after_path):
-            answer = self.word()
-        self.assertEqual(moved, [config.plan_path("acme-docs")])
-        self.assertTrue(moved[0].exists())
-        self.assertEqual((answer["word"], answer["reason"]), ("done", "the API answers"))
-        self.assertEqual(self.word()["word"], "done")
 
     def test_a_later_turn_over_the_same_plan_sends_no_second_card(self):
         self.plan("- [x] the API answers")

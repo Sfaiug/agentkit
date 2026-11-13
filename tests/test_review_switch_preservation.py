@@ -1,9 +1,11 @@
 """A switch that restarts a seat's harness reads, keeps and respawns one pane: the one its launch
-recorded (`orch.harness_pane`), whichever window the owner has selected.
+recorded (`orch.harness_pane`), whichever window the owner has selected; a capture of it that
+failed is no field read empty.
 
 The switch read the selected window's pane, empty, as the seat's field, and respawned the
-recorded pane, losing the text the owner had left there unsent.  Offline: a temporary HOME, the
-seat's tmux faked with its recorded pane and another window's selected, the respawn's setup faked.
+recorded pane, losing the text the owner had left there unsent; a capture that failed, read as
+an empty pane, it took for no field at all.  Offline: a temporary HOME, the seat's tmux faked
+with its recorded pane and another window's selected, the respawn's setup faked.
 """
 
 import unittest
@@ -21,7 +23,7 @@ CAPTURE = watch.pane_text           # the real capture, of the pane it is asked 
 class Preservation(Seats):
     def setUp(self):
         super().setUp()
-        self.screens, self.respawned = {HARNESS: PROMPT, SELECTED: PROMPT}, []
+        self.screens, self.respawned, self.captures = {HARNESS: PROMPT, SELECTED: PROMPT}, [], True
         for target, name, fake in (
                 (watch, "pane_text", CAPTURE), (orch, "_switch_plan", lambda *_a, **_kw: ("", None)),
                 (orch, "command", lambda _cfg, model, *_a, **_kw: ["acme-tui", model]),
@@ -43,7 +45,7 @@ class Preservation(Seats):
         if args[0] == "display-message" and args[-1] == "#{session_name}":
             return 0, SEAT
         if args[0] == "capture-pane":
-            return 0, self.screens[pane]
+            return (0, self.screens[pane]) if self.captures else (1, "can't capture")
         if args[0] == "respawn-pane":
             self.respawned.append(pane)
             self.screens[pane] = PROMPT
@@ -62,6 +64,11 @@ class Preservation(Seats):
         self.screens[SELECTED] = TYPED
         self.assertEqual(self.switch(), "")
         self.assertEqual((self.respawned, self.screens[SELECTED]), ([HARNESS], TYPED))
+
+    def test_failed_capture_keeps_the_old_harness_and_text(self):
+        self.screens[HARNESS], self.captures = TYPED, False
+        self.assertEqual(self.switch(), STAYS)
+        self.assertEqual((self.respawned, self.screens[HARNESS]), ([], TYPED))
 
 
 if __name__ == "__main__":

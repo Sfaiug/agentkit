@@ -89,6 +89,8 @@ type plugin struct {
 	// and loose where it reads a record naming them less strictly than Python's done check does.
 	answered func(record map[string]any) ([]Turn, []Card, error)
 	loose    bool
+	// replies is whether a message typed says the owner's answers on a card (Replies).
+	replies func(text string) bool
 	// anew is whether Go opens only new seats of this harness, leaving reopening them to Python.
 	anew bool
 	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title
@@ -136,6 +138,8 @@ type plugin struct {
 	// switchable is Switchable's: nil where its running seat takes every model at every effort
 	// from its `[switch]` lines.
 	switchable func(model, effort string) bool
+	// moves is Moves': nil where Follows carries every event that moves its seat.
+	moves func(event *run.Object) bool
 }
 
 var plugins = map[string]plugin{}

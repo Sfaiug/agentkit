@@ -27,8 +27,7 @@
 #                                  a yes ends `; logged in as <email>` where the login says
 #                     hooks        -> says where this harness's hooks come from; writes nothing
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
-#                                  `codex debug models`, else the [catalog] table of
-#                                  adapters/codex.toml
+#                                  `codex debug models`; 1 where that fails
 # The model `default`, and an empty one, mean Codex picks its own model: `run` and
 # `interactive` then pass no -m at all -- see the note above the `interactive` printf.
 # $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then uses that
@@ -379,19 +378,14 @@ hooks)
 models)
   # `default`, then the listed models of `codex debug models`, refreshed for this login (never
   # --bundled, which skips that), each with the reasoning levels it supports, strongest last.
-  # A ChatGPT login runs any of them as an API key does.  A listing that fails, outlasts ten
-  # seconds or lists nothing leaves the [catalog] table, and so does a host with no `timeout`
-  # to bound it (stock macOS): nothing waits on a listing it cannot stop.
+  # A ChatGPT login runs any of them as an API key does.  A listing that fails or lists
+  # nothing fails: config.catalog decides what stands in, and how long it waits.
+  listed=$(codex debug models 2>/dev/null | jq -r '.models[] | select(.visibility == "list")
+      | [.slug, .display_name, ((.supported_reasoning_levels // []) | map(.effort) | join(" "))]
+      | @tsv') && [ -n "$listed" ] || exit 1
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-  if listed=$(command -v timeout >/dev/null && command -v codex >/dev/null \
-      && timeout -k 1 10 codex debug models 2>/dev/null | jq -r '.models[] | select(.visibility == "list")
-        | [.slug, .display_name, ((.supported_reasoning_levels // []) | map(.effort) | join(" "))]
-        | @tsv') && [ -n "$listed" ]; then
-    python3 "$REPO/tools/catalog.py" codex default
-    printf '%s\n' "$listed"
-  else
-    python3 "$REPO/tools/catalog.py" codex
-  fi ;;
+  python3 "$REPO/tools/catalog.py" codex default
+  printf '%s\n' "$listed" ;;
 *)
   echo "usage: codex.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | codex.sh usage | codex.sh reset-status | codex.sh reset | codex.sh interactive <model> <effort> [session-id [new]] | codex.sh install | codex.sh login [again] | codex.sh logout | codex.sh forget | codex.sh login-end | codex.sh lend <home> [own] | codex.sh auth [seat] | codex.sh hooks | codex.sh models" >&2
   exit 2 ;;

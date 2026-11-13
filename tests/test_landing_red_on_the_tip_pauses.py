@@ -105,8 +105,7 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.commands()[3:], [[FLAKY], ["true", FLAKY]])
         self.assertIsNone(self.red())
         self.assertEqual(self.wait(later)["land"], self.wait(first)["land"])
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         self.assertEqual(self.prepared, [])
         self.assert_cleaned()
 

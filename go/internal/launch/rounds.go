@@ -29,7 +29,7 @@ func RoundsRefusal(asked string, budget int, err error) string {
 // ResumeBudget is the rounds a resume of id holds to, as Python's resume reads them: a job's,
 // those in force for the checkout it was launched from (config.policy(job["cwd"])); a run's, those
 // its record kept, the host's with no record (run.Policy).  ErrPython for a receipt Python resumes
-// as no job, and for numbers Go does not carry (run.Carried).
+// as no job, and for a run Go does not carry (run.Carries).
 func ResumeBudget(id string) (int, error) {
 	var numbers config.Numbers
 	receipt, err := run.ReadJSON(job.ReceiptPath(id))
@@ -39,7 +39,9 @@ func ResumeBudget(id string) (int, error) {
 		if held == nil { // missing, unreadable or no object
 			held = run.Fields()
 		}
-		numbers, err = run.Policy(held)
+		if numbers, err = run.Policy(held); err == nil && !run.Carries(held) {
+			return 0, ErrPython
+		}
 	case err != nil || receipt == nil:
 		return 0, ErrPython
 	default:
@@ -47,9 +49,6 @@ func ResumeBudget(id string) (int, error) {
 			return 0, ErrPython
 		}
 		numbers, err = checkoutNumbers(receipt.Str("cwd"))
-	}
-	if err == nil && !run.Carried(numbers) {
-		return 0, ErrPython
 	}
 	return numbers.Rounds, err
 }

@@ -29,8 +29,7 @@
 #                                  effort kept as its session's report: what that launch's
 #                                  PreLLMCall hook runs
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
-#                                  `model/list` over `muse serve`, else the [catalog] table
-#                                  of adapters/muse.toml
+#                                  `model/list` over `muse serve`; 1 where that fails
 #                     $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
 #                     uses that subscription's own login, and no other
 # AGENTKIT_MUSE_PROVIDER=echo selects the offline stub (tests); --model/--reasoning-effort
@@ -391,18 +390,15 @@ models)
   # schema`), and its `model/list` names the models this login's provider catalog offers,
   # newest first, each with its reasoning-effort `variants`, weakest first, and its labels
   # the ids themselves (1.4.1).  Asked once, stdin closed, so the host answers and exits; no
-  # session is started or kept.  A listing that fails, outlasts ten seconds or names nothing
-  # -- a login-less host lists none -- leaves the [catalog] table, and so does a host with no
-  # `timeout` to bound it (stock macOS): nothing waits on a listing it cannot stop.
-  listed=$(command -v timeout >/dev/null && command -v muse >/dev/null && printf '%s\n' \
+  # session is started or kept.  A listing that fails or names nothing -- a login-less host
+  # lists none -- fails: config.catalog decides what stands in, and how long it waits.
+  listed=$(printf '%s\n' \
       '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"agentkit","version":"1"}}}' \
       '{"jsonrpc":"2.0","method":"initialized"}' '{"jsonrpc":"2.0","id":2,"method":"model/list"}' \
-    | timeout -k 1 10 muse serve --no-session-log 2>/dev/null | jq -r 'select(.id == 2) | .result.models[]
+    | muse serve --no-session-log 2>/dev/null | jq -r 'select(.id == 2) | .result.models[]
       | [.modelId, .displayLabel, (.variants | if type == "array" then join(" ") else "" end)]
-      | @tsv') || listed=""
-  [ -n "$listed" ] && { printf '%s\n' "$listed"; exit 0; }
-  REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-  python3 "$REPO/tools/catalog.py" muse ;;
+      | @tsv') && [ -n "$listed" ] || exit 1
+  printf '%s\n' "$listed" ;;
 *)
   echo "usage: muse.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | muse.sh usage | muse.sh interactive <model> <effort> [session-id [new]] | muse.sh install | muse.sh login [again] | muse.sh logout | muse.sh forget | muse.sh login-end | muse.sh lend <home> [own] | muse.sh auth [seat] | muse.sh hooks | muse.sh hook | muse.sh call | muse.sh models" >&2
   exit 2 ;;
