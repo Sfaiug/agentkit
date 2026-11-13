@@ -8,11 +8,17 @@ import (
 
 // claudeTurnCounts is the counts of the turn's last result, claude.py `turn_usage`: its `modelUsage`
 // counts its subagents too and totals every turn of its session; a result without one counts this
-// turn's own `usage`, under no model.
+// turn's own `usage`, under no model.  A turn whose last start is past its last result was killed
+// before Claude Code wrote one (claudeKilledCounts).
 func claudeTurnCounts(out string) (any, []Counts, bool) {
-	result, _ := lastEntry(filepath.Join(out, "events.jsonl"), func(entry *run.Object) bool { return entry.Get("type") == "result" })
+	result, _ := lastEntry(filepath.Join(out, "events.jsonl"), func(entry *run.Object) bool {
+		return entry.Get("type") == "result" || entry.Get("type") == "system" && entry.Get("subtype") == "init"
+	})
 	if result == nil {
 		return nil, nil, false
+	}
+	if result.Get("type") != "result" {
+		return claudeKilledCounts(out, result)
 	}
 	if models := result.Dict("modelUsage"); models != nil && len(models.Keys()) > 0 {
 		var counts []Counts
