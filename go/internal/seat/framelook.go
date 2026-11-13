@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 )
 
@@ -85,7 +86,8 @@ func seatRead(state, name string) (*run.Object, bool) {
 // home its frame read.  Every one of their announce locks is held from the first look to the last
 // word, taken in name order so no two frames wait on each other: a seat Go leaves to Python refuses
 // the frame before any seat is written, and no word lands from a capture older than one another
-// announcer published.
+// announcer published.  Under them the seats look their plans up through the rename pointers as
+// they stand then, followed once for all of them, never as the reading found them.
 func (home Home) announceLive(state string) error {
 	var names []string
 	for _, seat := range home.Seats {
@@ -95,6 +97,12 @@ func (home Home) announceLive(state string) error {
 	}
 	slices.Sort(names)
 	return announcingAll(state, names, func() error {
+		plans := plan.OneLook()
+		for at := range home.Seats {
+			if home.Seats[at].live {
+				home.Seats[at].plans = plans
+			}
+		}
 		now := time.Now()
 		seen, err := home.look(seconds(now))
 		if err != nil {
