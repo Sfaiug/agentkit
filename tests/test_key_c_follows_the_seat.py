@@ -37,6 +37,9 @@ class CFollowsTheSeat(unittest.TestCase):
             "launched": self.now - 600, "reviewers": ["astra"],
             "efforts": {"opus": {"effort": "xhigh"}, "astra": {"effort": "xhigh"}}})
         self.path = self.home.path / ".agentkit/state/session-acme-fix.json"
+        # the reading the fakes' `usage` gives, held: one landing while `c` is open changes no row
+        self.home.write(".agentkit/state/usage.json", {"fetched_at": self.now, "providers": {
+            name: {"meters": [], "error": "unknown: fake"} for name in ("anthropic", "openai")}})
         self.term = Terminal(self.home, "attach", "--overlay", size=(100, 40),
                              env={"NO_COLOR": "1", "AGENTKIT_SESSION": "acme-fix"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
@@ -90,8 +93,6 @@ class CFollowsTheSeat(unittest.TestCase):
                          "medium")
 
     def test_unchanged_rows_stay_still(self):
-        # `c` opens on no reading; the menu's probe landing then redraws the meters, rightly
-        self.term.wait(lambda screen: "no reading yet" not in screen)
         raw = self.home.root / "c-output"
         raw.touch()
         done = self.home.tmux("pipe-pane", "-t", self.term.pane, f"cat >{raw}", server=SERVER)
