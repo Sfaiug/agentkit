@@ -1227,8 +1227,9 @@ def _worker_rank(account, reading, cfg=None, model=None):
         spent, credits = model_exhausted(cfg, model, read)[0], on_credits(cfg, model, read)
         unknown = bool(reading.get("error")) or _stale(reading, time.time())
         low, budget = unknown or model_low(cfg, model, read), model_budget(cfg, model, read)[0]
-        gating = {m["name"] for m in _gating_meters(cfg, model, read)[0]}
-        kept = not any(m["name"] not in gating and m.get("used", 0) >= 100
+        # The meters themselves, not their names: two caps of different scopes may share one.
+        gating = _gating_meters(cfg, model, read)[0]
+        kept = not any(m not in gating and m.get("used", 0) >= 100
                        for m in reading.get("meters") or [])
     usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
     group = 1 if usual else (0 if not spent else 2)

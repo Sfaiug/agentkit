@@ -29,6 +29,10 @@ class FirstWhereACapIsSpent(unittest.TestCase):
         self.assertEqual(self.logins(default=(10, 10), second=(60, 100), third=(30, 20)),
                          {OPUS: {"second"}, FABLE: {"third"}})
 
+    def test_a_cap_of_its_own_by_the_same_name_hides_no_spent_one(self):
+        ran = self.logins(default=(10, 10, 20), second=(30, 20, 20), third=(60, 100, 20))
+        self.assertEqual(ran[OPUS], {"third"})
+
     def test_with_every_cap_left_the_most_week_goes_first(self):
         ran = self.logins(default=(10, 10), second=(30, 20), third=(60, 30))
         self.assertEqual(ran[OPUS], {"second"})
