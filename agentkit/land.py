@@ -118,27 +118,38 @@ def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red
 
 @contextmanager
 def _pass(turn):
-    """The line's singleton flock, True while this process holds it, and the time each held
-    pass takes: its start and process while it runs, then the last 20 that checked something."""
+    """The line's singleton flock, and the time each held pass takes: its start and process
+    while it runs, then the last 20 that checked something.  While this process holds it, the
+    pass's own: `fruitless`, how many passes before it in a row checked something and moved
+    nobody, a pass whose process died mid-check one of them, and `moved`, None until it checks
+    members, then whether it wrote one a verdict.  A pass that only waited counts for neither."""
     with turn.with_suffix(".lander.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             yield False
             return
-        took = passes(turn).get("took") or []
+        kept = passes(turn)
+        took = kept.get("took") or []
+        held = SimpleNamespace(moved=None, fruitless=kept.get("fruitless", 0) + bool(
+            kept.get("started") and not record.process_active(kept)))
+        counted = {"fruitless": held.fruitless} if held.fruitless else {}
         started = time.time()
-        _keep_passes(turn, {"took": took, "started": started, **record.process_owner()})
+        _keep_passes(turn, {"took": took, **counted, "started": started, **record.process_owner()})
         try:
-            yield True
+            yield held
         finally:
             spent = time.time() - started
-            _keep_passes(turn, {"took": (took + [spent])[-20:] if spent >= CHECKED else took})
+            fruitless = 0 if held.moved else held.fruitless + (
+                held.moved is False and spent >= CHECKED)
+            _keep_passes(turn, {"took": (took + [spent])[-20:] if spent >= CHECKED else took,
+                                **({"fruitless": fruitless} if fruitless else {})})
 
 
 def passes(turn):
     """The line's passes (`_pass`): `took`, the seconds of its last passes that checked
-    something, and while one runs its `started` and process."""
+    something, `fruitless` while the last of those moved nobody, and while one runs its
+    `started` and process."""
     try:
         data = json.loads(turn.with_suffix(".passes").read_text())
     except (OSError, ValueError):
@@ -643,21 +654,37 @@ def check_line(turn, log=lambda _: None):
                         if ((saved.get("review") or {}).get("verdict") == "PASS"
                                 and "land" not in saved["waiting_on"]):
                             candidates.append((later, saved))
+                # After passes that moved nobody, fewer: one alone always ends in a verdict or
+                # in the target's own red.
+                held.moved, take = False, max(1, len(candidates) >> held.fruitless)
+                if take < len(candidates):
+                    log(f"{held.fruitless} pass{'es' if held.fruitless > 1 else ''} in a row "
+                        f"checked this line and moved nobody: this one checks the first {take} of "
+                        f"the {len(candidates)} members waiting, as fewer change under a shorter pass")
+                    candidates = candidates[:take]
             else:
                 candidates = [(directory, state)]
-            sent, snapshots, valid = set(), dict(candidates), True
+            sent, snapshots, offered, cut = set(), dict(candidates), {}, len(candidates)
 
             def publish(answers):
-                nonlocal valid
-                if not valid:
+                """Write each verdict offered this pass that still stands, under the recovery
+                locks, and say whether the pass still stands.  Candidates stack in line order,
+                so a candidate's tree holds the prefix and those ahead of it, never one behind:
+                the first that changes under the pass, the cut, costs the verdicts from it on,
+                and nothing ahead of it.  A verdict a later stack's check covered (`tested`)
+                stands only while that stack is ahead of the cut too, as its member must land
+                with it.  A changed prefix member or first candidate leaves none: every tree
+                stands on it.  A pass that had checked 3.5 hours with 60 stacked was thrown away
+                for one member that changed, one of 32 such passes in the logs (13 Nov 2026)."""
+                nonlocal cut
+                if not cut:
                     return False
-                fresh = {member: answer for member, answer in answers.items() if member not in sent}
+                offered.update(answers)
                 # Delivery rewrites ownership and rebase receipts, but keeps the reviewed
                 # work and tested tree. Only an unwoken recipient must stay processless.
-                # No answers asks only whether the line is still the one this pass checks.
-                with ExitStack() as held:
-                    for member, saved in prefix + candidates:
-                        held.enter_context(record.recovery_lock(member))
+                with ExitStack() as locks:
+                    for place, (member, saved) in enumerate(prefix + candidates[:cut]):
+                        locks.enter_context(record.recovery_lock(member))
                         if member in sent and "fix" in saved["waiting_on"]:
                             continue  # this member is already omitted from rebuilt stacks
                         current = record.read_state(member)
@@ -677,16 +704,36 @@ def check_line(turn, log=lambda _: None):
                         else:
                             same = current == saved and not record.process_active(current)
                         if not same:
-                            valid = False
-                            return False
+                            cut = max(0, place - len(prefix))
+                            if cut:
+                                log(f"{member.name} changed during this pass, which goes on for the "
+                                    f"{cut} ahead of it: it and the {len(candidates) - cut - 1} "
+                                    "behind it wait for the next pass")
+                            break
+                    # the member a covered verdict's check ran on gives its own verdict just after
+                    tested = {answer["land"]: member for member, answer in offered.items()
+                              if "land" in answer and "tested" not in answer}
+                    places = {member: place for place, (member, _) in enumerate(candidates)}
+
+                    def stands(member, answer):
+                        under = tested.get(answer["tested"]) if "tested" in answer else member
+                        return max(places[member], places.get(under, cut)) < cut
+
+                    fresh = {member: answer for member, answer in offered.items() if member not in sent
+                             and (cut == len(candidates) or stands(member, answer))}
                     if not fresh:
-                        return True
+                        # No answers asks only whether a verdict of this pass could still be
+                        # written: not once each candidate ahead of the cut has had its own.
+                        return cut > 0 and (bool(answers) or cut == len(candidates) or any(
+                            member not in offered for member, _ in candidates[:cut]))
                     for member, answer in sorted(fresh.items(), key=lambda item: "land" in item[1]):
                         with record.record(member) as current:
                             current["waiting_on"] = {**current["waiting_on"], **answer}
                         # Later answers still compare against this pass's own writes.
                         snapshots[member]["waiting_on"] = dict(current["waiting_on"])
                     sent.update(fresh)
+                    if checked:
+                        held.moved = True
                     for member, answer in fresh.items():
                         if "fix" not in answer:
                             watch.launch_resume(member.name, log)
