@@ -15,7 +15,7 @@ import (
 
 // opencodeSwitchable is opencode.py's `switchable`: whether the running TUI can move to `model` at
 // `effort` by `/ak-model`, not where the variant a launch would run, the id's own `#variant`, else
-// the effort, is one a launch defines itself (OpencodeVariants), which OpenCode reads only as it
+// the effort, is one a launch defines itself (opencodeVariants), which OpenCode reads only as it
 // starts.  An answer that cannot be read restarts too: a launch defines whatever it needs.
 func opencodeSwitchable(model, effort string) bool {
 	said, err := opencodeDefined(model)
@@ -60,7 +60,7 @@ func opencodeSwitchable(model, effort string) bool {
 func opencodeDefined(model string) ([]byte, error) {
 	adapter, err := config.Adapter("opencode")
 	if errors.Is(err, config.ErrNoAdapterDir) {
-		return []byte(OpencodeVariants(model)), nil
+		return []byte(opencodeVariants(model)), nil
 	}
 	env, unread := config.ChildEnv()
 	if err = cmp.Or(err, unread); err != nil {
