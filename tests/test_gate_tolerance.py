@@ -475,6 +475,19 @@ class GateTolerance(unittest.TestCase):
         (self.root / "usage.json").write_text(result.stdout)
         return result.stdout
 
+    def test_orch_pick_skips_when_it_stands_on_a_meta_meter_that_is_down(self):
+        # Past a spent Claude and a spent ChatGPT the pick is judged on meta's meters: a probe
+        # meta answered 503 is no bystander there.
+        self.adapter("claude", meters("anthropic", 100))
+        self.adapter("codex", meters("openai", 100))
+        self.adapter("muse", refused("meta", "unknown: responses probe returned HTTP 503"))
+        self.usage_json()
+        result = self.shell(CHECK_6, U=str(self.root / "usage.json"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  6: provider meter unavailable (", result.stdout)
+        self.assertIn("HTTP 503", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
+
     def test_orch_pick_skips_when_the_meter_it_stands_on_is_down(self):
         (self.root / "usage.json").write_text(json.dumps({
             "pick_order": [], "providers": {

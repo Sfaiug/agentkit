@@ -1918,7 +1918,13 @@ print("opus" if not spent("anthropic", "weekly_all") else "fable" if not spent("
 PY
 )
 CMD=$(tail -1 "$WORK/orch-fable.log")
-if grep -q -- '--model' <<<"$CMD" && grep -q -- '--effort' <<<"$CMD" && grep -q '^claude\|claude$\| claude ' <<<"$CMD" &&
+# WANT reaches meta only past a spent Claude and a spent ChatGPT, and reads no meters there as
+# spent.  A meta probe the provider refused (5xx, 429, a timeout) leaves no meters either, and
+# the pick takes spark on meters not reported: meta's state, not the checkout's (13 Nov 2026,
+# one 503 held the install back).  Beside a Claude or ChatGPT with room it stays a bystander.
+if [ "$WANT" = grok ] && METER_WHY=$(meter_unavailable "$U" meta); then
+  skip "6: provider meter unavailable ($METER_WHY)"
+elif grep -q -- '--model' <<<"$CMD" && grep -q -- '--effort' <<<"$CMD" && grep -q '^claude\|claude$\| claude ' <<<"$CMD" &&
    [ "$PICK" = "$WANT" ] && grep -q -- '--model claude-fable-5-1' "$WORK/orch-fable.log"; then
   ok "6 ak orch --dry-run: picked $PICK (Claude weekly_all $AUSED% used, session ${SUSED:-none}%), claude cmd with --model/--effort, --model fable forces fable"
 else
