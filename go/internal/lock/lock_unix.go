@@ -46,6 +46,16 @@ func Edit(path string) (*os.File, error) {
 	return take(file, syscall.LOCK_EX)
 }
 
+// Read opens path's file, which it never makes, to read beside any other reader once no exclusive
+// holder has its flock, as Python's fcntl.LOCK_SH; the lock lasts until the file closes.
+func Read(path string) (*os.File, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return take(file, syscall.LOCK_SH)
+}
+
 // take takes the open file's flock as how says; the file is closed without it.
 func take(file *os.File, how int) (*os.File, error) {
 	var err error
