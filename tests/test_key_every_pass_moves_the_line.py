@@ -62,7 +62,7 @@ class EveryPassMovesTheLine(unittest.TestCase):
         lander.wait()
         self.go(line)
         deadline = time.monotonic() + 120
-        while _strays(line.home.path):
+        while _strays(line.home.root, line.home.tmux_dir):
             self.assertLess(time.monotonic(), deadline, "the killed pass's check is still running")
             time.sleep(0.1)
 

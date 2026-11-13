@@ -156,6 +156,24 @@ class EveryPassMovesTheLine(fixture.LanderFixture, unittest.TestCase):
         self.assertEqual(self.taken_by_each_pass(), [4, 4])
         self.assertNotIn("fruitless", land.passes(self.turn))
 
+    def test_a_pass_that_waited_on_a_delivery_ahead_counts_for_nothing(self):
+        head = self.member("head", joined=0, **{"head.txt": "h\n"})
+        self.advance()
+        land.check_line(self.turn)
+        with record.record(head) as current:
+            current.update(state="running", pid=5678)
+            # a cut-short batch still delivering: its tested tree is not its own
+            current["waiting_on"] = {**current["waiting_on"], "tested": "f" * 40}
+        for n in range(1, 5):
+            self.member(f"member-{n}", joined=n, **{f"member-{n}.txt": f"{n}\n"})
+        self.taken.reset_mock()
+        with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") == 5678), \
+                patch.object(land, "CHECKED", 0):   # each as long as a check, as on a busy host
+            land.check_line(self.turn, log=self.said.append)
+            land.check_line(self.turn, log=self.said.append)
+        self.assertEqual(self.taken_by_each_pass(), [4, 4])
+        self.assertNotIn("fruitless", land.passes(self.turn))
+
     def test_a_pass_that_died_counts_as_fruitless(self):
         members = self.green_line()
         land._keep_passes(self.turn, {"took": [], "started": 1.0, **GONE})

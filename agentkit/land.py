@@ -136,7 +136,8 @@ def _pass(turn):
             "fruitless", 0) + bool(kept.get("started") and not record.process_active(kept)))
         counted = {"fruitless": held.fruitless} if held.fruitless else {}
         started = time.time()
-        _keep_passes(turn, {"took": took, **counted, "started": started, **record.process_owner()})
+        held.start = {"took": took, **counted, "started": started, **record.process_owner()}
+        _keep_passes(turn, held.start)
         try:
             yield held
         finally:
@@ -657,7 +658,7 @@ def check_line(turn, log=lambda _: None):
                             candidates.append((later, saved))
                 # After passes that moved nobody, fewer: one alone always ends in a verdict or
                 # in the target's own red.
-                held.moved, take = False, max(1, len(candidates) >> held.fruitless)
+                take = max(1, len(candidates) >> held.fruitless)
                 if take < len(candidates):
                     log(f"{held.fruitless} pass{'es' if held.fruitless > 1 else ''} in a row "
                         f"checked this line and moved nobody: this one checks the first {take} of "
@@ -678,6 +679,9 @@ def check_line(turn, log=lambda _: None):
                 stands on it.  A pass that had checked 3.5 hours with 60 stacked was thrown away
                 for one member that changed, one of 32 such passes in the logs (13 Nov 2026)."""
                 nonlocal cut
+                if checked and held.moved is None:
+                    # asked before each check: a pass that never came to one only waited
+                    held.moved = False
                 if not cut:
                     return False
                 offered.update(answers)
@@ -736,7 +740,7 @@ def check_line(turn, log=lambda _: None):
                     if checked and not held.moved:
                         # kept at once: a pass killed after this moved the line all the same
                         held.moved = True
-                        _keep_passes(turn, {**passes(turn), "moved": True})
+                        _keep_passes(turn, {**held.start, "moved": True})
                     for member, answer in fresh.items():
                         if "fix" not in answer:
                             watch.launch_resume(member.name, log)
