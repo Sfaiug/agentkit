@@ -534,6 +534,10 @@ HEAD_BRANCH_MODIFIED = re.compile(r"Head branch was modified", re.I)
 # may not have gone through, so it is re-checked and retried like the race above
 GITHUB_5XX = re.compile(r"status code: 5\d\d|HTTP 5\d\d|Bad Gateway|Gateway Timeout|"
                         r"Service Unavailable|couldn't respond to your request in time", re.I)
+# GitHub answering that it is still making a merge of the PR, as one a 5xx answered may be:
+# re-checked and retried like the 5xx, so the merge it finishes counts and one it drops is
+# asked for again
+MERGE_IN_PROGRESS = re.compile(r"Merge already in progress", re.I)
 # GitHub refusing a push for a reason of its own (`! [remote rejected] HEAD -> b (failed)`),
 # which the same push went through a minute later: tried again -- see `git_push`.  The lease's
 # refusal is git's own `! [rejected] ... (stale info)` and ends the run at once
@@ -594,7 +598,8 @@ def do_merge(lp, url, upstream):
     PR is re-checked to still be mergeable, and the merge is tried again -- three times,
     with a growing wait -- and only then does the run park `waiting` with the reason,
     retried after the next merge to the target.  GitHub answering with a 5xx of its own
-    takes the same road, and a merge it went through with anyway counts as merged; so does
+    takes the same road, and a merge it went through with anyway counts as merged; so do
+    `Merge already in progress`, a merge GitHub is still making, and
     `Head branch was modified` straight after the delivery's own push, which the re-check
     ends only when git shows the PR head is another commit (`pr_head`).  After `Pull Request
     is not mergeable`, GitHub is asked again while it reports the PR's state UNKNOWN, up to
@@ -625,6 +630,8 @@ def do_merge(lp, url, upstream):
                 cause = "GitHub had not yet taken the pushed head"
             elif GITHUB_5XX.search(out or ""):
                 cause = "GitHub failed the merge call"
+            elif MERGE_IN_PROGRESS.search(out or ""):
+                cause = "GitHub was still making a merge of the PR"
             else:
                 break
             if raced >= GITHUB_RETRIES:
