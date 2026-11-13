@@ -95,6 +95,11 @@ class SeatFollows(Sandbox):
         self.assertIn("kept", config.load()["models"])
         self.assertEqual(self.cfg["models"]["sonnet"], sonnet)      # what the tick reads next
 
+    def test_a_model_claude_s_api_lists_beyond_claude_s_own_table_is_added_by_a_look_too(self):
+        # Haiku 5.5 is in Claude's picker and was in no row until 13 Nov 2026
+        self.assertEqual(self.looked(("claude-haiku-5-5", 30, "high")), "haiku")
+        self.assertEqual(config.load()["models"]["haiku"]["effort"], "high")
+
     def test_a_model_another_look_added_moves_the_seat_there_and_adds_none(self):
         disk = config.load()
         disk["providers"]["acme-login"] = {"mode": "subscription"}      # added with it
