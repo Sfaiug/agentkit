@@ -266,12 +266,12 @@ def deliver_next(turn, log=lambda _: None, handed=None, members=None):
     Only the head takes the merge lock (`deliver.members_ahead`): each delivery woken behind
     it only polls for its turn.  On 13 Nov 2026 a green stack of 41 woke 41 runs, the load
     went from 125 to 215 on 18 cores and one merged every ~100 s (7 in 12 min), against 15 to
-    25 s uncontended.  Asked by the pass's wakes (`_waking`), its verdicts' among them, and
-    by each delivery as it ends (`deliver.land_from_line`), which hands the turn on.  A resume
-    of the head is coming up from its start, under any ak checkout, until it takes the record
-    or ends: one of this HOME, as another home's runs may share its name.  `handed` holds the
-    heads a pass woke, once each: one whose resume refused is woken again by the next pass or
-    delivery's end."""
+    25 s uncontended.  Asked by each wake of a pass (`_waking`), the one after each verdict
+    too, and by each delivery as it ends (`deliver.land_from_line`), handing on the turn.
+    A resume of the head is coming up from its start, under any ak checkout, until it takes
+    the record or ends: one of this HOME, as another home's runs may share its name.  `handed`
+    holds the heads a pass woke, once each: one whose resume refused is woken again by the
+    next pass or delivery's end."""
     from . import owner, watch
     try:
         members = line(turn) if members is None else members
