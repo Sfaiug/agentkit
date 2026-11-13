@@ -55,7 +55,9 @@ func OwnerMessages(name string) (string, []transcript.Prompt, error) {
 // or after its `at` in another of its harness's, as a screen showing another than the record
 // names takes it: one read only in part may hold that line where it stopped.  One the owner
 // relayed stays theirs, as do identical later lines.  whole says which of had were read whole.
-func withoutAk(current string, had []Conversation, whole []bool) error {
+// Read strictly, the evidence of a launch a receipt names that is there and cannot be read is an
+// error, of a harness one of had is named in: Python reads that harness's receipts alone.
+func withoutAk(current string, had []Conversation, whole []bool, strictly bool) error {
 	type conversation struct{ harness, name string }
 	type line struct {
 		conversation
@@ -82,8 +84,7 @@ func withoutAk(current string, had []Conversation, whole []bool) error {
 			cmp.Compare(a.harness, b.harness), cmp.Compare(a.index, b.index))
 	})
 	taken, ours := map[line]bool{}, map[line]bool{}
-	take := func(sent *run.Object) (line, bool) {
-		named := conversation{sent.Str("harness"), harness.WentInto(sent.Str("harness"), sent)}
+	take := func(named conversation, sent *run.Object) (line, bool) {
 		held := read[named]
 		after, dated := sent.Num("after")
 		since, timed := sent.Num("at")
@@ -102,12 +103,25 @@ func withoutAk(current string, had []Conversation, whole []bool) error {
 		}
 		return other, found
 	}
+	kinds := map[string]bool{}
+	for of := range said {
+		kinds[of.harness] = true
+	}
+	var unread error
 	err := harness.Entries(filepath.Join(config.Home(), "state", config.SeatFileNames(current)["input"]), func(sent *run.Object) {
-		if took, found := take(sent); found {
+		kind := sent.Str("harness")
+		if !kinds[kind] {
+			return // it takes no line
+		}
+		into, err := harness.WentIntoFound(kind, sent)
+		if strictly && unread == nil {
+			unread = err
+		}
+		if took, found := take(conversation{kind, into}, sent); found {
 			taken[took], ours[took] = true, sent.Str("source") != "owner"
 		}
 	})
-	if err != nil {
+	if err = cmp.Or(err, unread); err != nil {
 		return err
 	}
 	for i, each := range had {

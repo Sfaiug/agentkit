@@ -114,8 +114,9 @@ func codexCard(entry *run.Object) (tool, call string, asked []*run.Object) {
 }
 
 // codexReplied is each answer an async card's reply, written at, gives: a reply names its card's
-// call and the question's index, and the answer is text, not blank, to a question whose options
-// are a list.  A reply naming no card asked answers nothing.
+// call and the question's index, and the answer is text, not blank, to a question whose title is
+// text and whose options are a list of text (harness.answers).  A reply naming no card asked
+// answers nothing.
 func codexReplied(text string, at float64, calls map[[2]string][]*run.Object) (cards []Card) {
 	cut := strings.LastIndex(text, codexReplyEnd)
 	if cut < 0 || strings.TrimFunc(text[cut+len(codexReplyEnd):], config.Space) != "" {
@@ -143,15 +144,17 @@ func codexReplied(text string, at float64, calls map[[2]string][]*run.Object) (c
 			strings.TrimFunc(answer, config.Space) == "" {
 			continue
 		}
+		title, titled := asked[index].Get("title").(string)
 		options, listed := asked[index].Get("options").([]any)
-		if !listed {
-			continue
-		}
 		choices := []Choice{}
 		for _, option := range options {
-			choices = append(choices, Choice{run.Text(option), ""})
+			label, isText := option.(string)
+			listed = listed && isText
+			choices = append(choices, Choice{label, ""})
 		}
-		cards = append(cards, Card{at, run.Text(asked[index].Get("title")), answer, choices})
+		if titled && listed {
+			cards = append(cards, Card{at, title, answer, choices})
+		}
 	}
 	return cards
 }
@@ -183,14 +186,16 @@ func codexPicked(entry *run.Object, calls map[[2]string][]*run.Object) (cards []
 
 // codexPick is the answer given at that time to that Plan-mode question, its choices each a label and a
 // description beside it: the pick, which comes first, keeps every word of a label that begins
-// like a note, and each note after it loses that beginning.
+// like a note, and each note after it loses that beginning.  None where the question, a label or
+// a description is not text, or the answer is blank (harness.answers).
 func codexPick(question, answers *run.Object, at float64) (Card, bool) {
 	id, named := question.Get("id").(string)
-	if !named || answers == nil || !answers.Has(id) || !question.Has("question") {
+	asked, isText := question.Get("question").(string)
+	if !named || !isText || answers == nil {
 		return Card{}, false
 	}
 	given, _ := answers.Get(id).(*run.Object)
-	if given == nil || !given.Has("answers") {
+	if given == nil {
 		return Card{}, false
 	}
 	words, listed := given.Get("answers").([]any)
@@ -201,20 +206,16 @@ func codexPick(question, answers *run.Object, at float64) (Card, bool) {
 	choices, labels := []Choice{}, map[string]bool{}
 	for _, each := range options {
 		option, _ := each.(*run.Object)
-		if option == nil || !option.Has("label") {
+		if option == nil {
 			return Card{}, false
 		}
-		switch label := option.Get("label").(type) {
-		case *run.Object, []any: // no label Python can hash
+		label, labelled := option.Get("label").(string)
+		description, described := option.Get("description").(string)
+		if !labelled || !described && option.Has("description") {
 			return Card{}, false
-		case string:
-			labels[label] = true
 		}
-		description := ""
-		if option.Truthy("description") {
-			description = run.Text(option.Get("description"))
-		}
-		choices = append(choices, Choice{run.Text(option.Get("label")), description})
+		labels[label] = true
+		choices = append(choices, Choice{label, description})
 	}
 	answer := make([]string, len(words))
 	for n, each := range words {
@@ -226,5 +227,9 @@ func codexPick(question, answers *run.Object, at float64) (Card, bool) {
 			answer[n] = strings.TrimPrefix(text, codexNote)
 		}
 	}
-	return Card{at, run.Text(question.Get("question")), strings.Join(answer, "\n"), choices}, true
+	joined := strings.Join(answer, "\n")
+	if strings.TrimFunc(joined, config.Space) == "" {
+		return Card{}, false
+	}
+	return Card{at, asked, joined, choices}, true
 }
