@@ -412,7 +412,7 @@ def _clear(root, tmux_dir, at):
         subprocess.run([*ask, "kill-server"], capture_output=True, timeout=30)
         _wait_gone(int(pid) if pid.isdigit() else None)
     # what the program detached from them: a stray still writing would put the Home back
-    for pid in _strays(Path(at, "home"), root):
+    for pid in _strays(root, tmux_dir):
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -426,17 +426,13 @@ def _clear(root, tmux_dir, at):
         pass
 
 
-def _strays(home, root=None):
-    """Processes still running in the Home at `root`, by default `home`'s folder: their
-    environment names `home` as HOME, and they see no folder but `root` where that is, as each
-    machine of tests/fixtures/twohomes.py sees its own at the one path.  Those caught in an exec
-    are read again till it ends, for `STUCK` seconds in all: an exec stuck longer, the Home's or
-    another's, would hold the cleanup up for good."""
-    mark, at = f"HOME={home}".encode(), Path(home).parent
-    try:
-        own = os.stat(root or at)
-    except FileNotFoundError:     # removed: any folder seen there is another's
-        own = None
+def _strays(root, tmux_dir):
+    """Processes still running in the Home at `root`: their environment names its home there as
+    HOME, or `tmux_dir`, its own, as TMUX_TMPDIR.  Every machine of tests/fixtures/twohomes.py
+    has its HOME at one path, no machine's root, so only the second marks a machine's.  Those
+    caught in an exec are read again till it ends, for `STUCK` seconds in all: an exec stuck
+    longer, the Home's or another's, would hold the cleanup up for good."""
+    marks = {f"HOME={Path(root, 'home')}".encode(), f"TMUX_TMPDIR={tmux_dir}".encode()}
     found, entries, deadline = [], Path("/proc").glob("[0-9]*"), time.monotonic() + STUCK
     while True:
         execing = []
@@ -447,21 +443,12 @@ def _strays(home, root=None):
                 continue
             if env is None:
                 execing.append(entry)
-            elif mark in env.split(b"\0") and not _elsewhere(entry, at, own):
+            elif marks.intersection(env.split(b"\0")):
                 found.append(int(entry.name))
         if not execing or time.monotonic() >= deadline:
             return found
         entries = execing
         time.sleep(0.001)
-
-
-def _elsewhere(entry, at, own):
-    """Whether the process at `entry` sees a folder at `at`, and not the one `own` stats."""
-    try:
-        seen = os.stat(f"{entry}/root{at}")
-    except OSError:      # nothing there, or not ours to look
-        return False
-    return own is None or not os.path.samestat(seen, own)
 
 
 def _environ(entry):
