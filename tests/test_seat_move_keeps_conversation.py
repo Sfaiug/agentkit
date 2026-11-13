@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, done_check, hand_in, notify, orch, statusbar, watch, worker
+from agentkit import config, done_check, hand_in, menu, notify, orch, statusbar, watch, worker
 from agentkit.harness import claude
 
 SEAT = "acme-fix"
@@ -189,6 +189,24 @@ class SeatMove(Sandbox):
         with patch.object(watch, "owe_line", side_effect=saved_then_refused):
             self.assertIn("disk full", self.move("opus", effort="max"))
         self.assertEqual(self.record()["efforts"]["opus"],
+                         {"effort": "xhigh", "exec_effort": "low", "review_effort": "xhigh"})
+
+    def test_a_move_that_fails_leaves_the_model_it_refused_on_its_entrys_efforts(self):
+        with patch.object(watch, "owe_line", side_effect=OSError("disk full")):
+            self.assertIn("disk full", self.move("fable"))
+        self.ended, self.refused = True, "tmux refused"       # a restart that fails
+        self.assertIn("tmux refused", self.move("fable"))
+        self.assertNotIn("fable", self.record()["efforts"])
+
+        update = config.update_session
+
+        def saved_meanwhile(name, **fields):    # a build effort saved as the move writes its own
+            if fields.get("orchestrator") == "fable":
+                menu.efforts_saved(self.cfg, name, None, [("fable", "exec_effort", "low")])
+            return update(name, **fields)
+        with patch.object(config, "update_session", side_effect=saved_meanwhile):
+            self.assertIn("tmux refused", self.move("fable", effort="max"))
+        self.assertEqual(self.record()["efforts"]["fable"],
                          {"effort": "xhigh", "exec_effort": "low", "review_effort": "xhigh"})
 
     def test_a_turn_its_usage_cut_off_goes_on_after_a_move_in_place(self):
