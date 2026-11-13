@@ -180,7 +180,7 @@ class Picks(unittest.TestCase):
                             "window_secs": WEEK}], "credits": 62469.67, "error": None}
         answer = subprocess.CompletedProcess([], 0, stdout=json.dumps(said), stderr="")
         with patch.object(config, "run_adapter", return_value=answer), \
-                patch.object(usage, "_resets", return_value=0.0):
+                patch.object(usage, "_resets", return_value={"resets": 0.0}):
             self.assertEqual(usage._probe(self.cfg, "openai", self.now)["credits"], 62469.67)
 
     def test_the_row_and_ak_usage_say_how_many_are_left(self):
