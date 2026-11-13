@@ -99,17 +99,24 @@ class ClaudeStatusLine(Sandbox):
         self.assertEqual(claude.running(record, self.cwd, "conv-acme"), ("claude-opus-5-5", "max", 2000))
         os.utime(self.report, (3000, 3000))
         self.assertEqual(claude.running(record, self.cwd, "conv-acme"), ("claude-sonnet-5-5", None, 3000))
-        limits = config.STATE / "limits-conv-acme.json"
-        limits.write_text("{}")
         config.save_session(self.cfg, "renamed", "opus", ["astra"], {"conversation": "conv-acme"})
         self.assertEqual(list(gc.stale_model_reports()), [])
         config.update_session("renamed", conversation="conv-new")
-        reports = sorted([str(limits), str(self.report)])
-        self.assertEqual(sorted(item["path"] for item in gc.stale_model_reports()), reports)
+        self.assertEqual([item["path"] for item in gc.stale_model_reports()], [str(self.report)])
         with patch.object(gc, "gc_candidates", side_effect=gc.stale_model_reports), \
                 patch.object(gc.jobs, "forget_owner_words"):
-            self.assertEqual(sorted(gc.gc(lambda _: None)), reports)
-        self.assertFalse(self.report.exists() or limits.exists())
+            self.assertEqual(gc.gc(lambda _: None), [str(self.report)])
+        self.assertFalse(self.report.exists())
+
+    def render(self, limits, shell='. "$0"', **env):
+        """The hook run in `shell` on a render carrying `limits`, waited out with all it started."""
+        end, held = os.pipe()
+        self.addCleanup(os.close, end)
+        subprocess.run(["bash", "-c", shell, REPO / "hooks/claude-status.sh"], env={**self.env, **env},
+                       input=json.dumps({**json.loads(self.payload), "rate_limits": limits}),
+                       text=True, capture_output=True, timeout=30, pass_fds=(held,))
+        os.close(held)
+        self.assertEqual(os.read(end, 1), b"")
 
     def test_renders_are_judged_in_the_order_they_were_rendered(self):
         config.save_session(self.cfg, "acme", "opus", ["opus"], {"conversation": "conv-acme"})
@@ -122,17 +129,22 @@ class ClaudeStatusLine(Sandbox):
         note = (config.STATE / "limits-conv-acme.json").read_text()
         limits = {"five_hour": {"used_percentage": 30, "resets_at": 30000},
                   "seven_day": {"used_percentage": 40, "resets_at": 900000}}
-        end, held = os.pipe()
-        self.addCleanup(os.close, end)
-        subprocess.run(["bash", str(REPO / "hooks/claude-status.sh")], env=self.env,
-                       input=json.dumps({**json.loads(self.payload), "rate_limits": limits}),
-                       text=True, capture_output=True, timeout=30, pass_fds=(held,))
-        os.close(held)
-        self.assertEqual(os.read(end, 1), b"")      # the render, and all it started, ended
+        self.render(limits)
         self.assertEqual((config.STATE / "limits-conv-acme.json").read_text(), note)
         self.assertEqual({meter["name"]: meter["used"]
                           for meter in usage._cached_provider("anthropic")["meters"]},
                          {"session": 50, "weekly_all": 40})
+
+
+    def test_a_bash_without_a_clock_hands_in_the_second_its_render_began(self):
+        shim = self.root / "bin/python3"     # the hand-in, saying when it was handed what
+        shim.parent.mkdir()
+        shim.write_text('#!/bin/sh\necho "$7 $(date +%s)" >"$HOME/handed"\n')
+        shim.chmod(0o755)
+        self.render({"seven_day": {"used_percentage": 40, "resets_at": 900000}},
+                    'unset EPOCHREALTIME; . "$0"', PATH=f"{shim.parent}:{os.environ['PATH']}")
+        rendered, handed = map(int, (self.root / "handed").read_text().split())
+        self.assertLessEqual(rendered, handed)
 
 
 if __name__ == "__main__":

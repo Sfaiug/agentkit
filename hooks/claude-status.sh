@@ -2,9 +2,9 @@
 # The report belongs to the status render's conversation,
 # never its launch name; a detached look reads whatever report stands when it gets there.
 set -u
-# The moment this render began, by which its limits are judged: bash 5's (an older bash's hand-in
-# takes its own).
-rendered=${EPOCHREALTIME:-}
+# The moment this render began, by which its limits are judged: bash 5's, else (macOS's bash 3.2)
+# date's second, rounded down, so a render never reads as newer than it is.
+rendered=${EPOCHREALTIME:-$(date +%s)}
 payload=$(cat; printf .)
 payload=${payload%.}
 # A status command that ignores stdin must not end reporting by closing its pipe.

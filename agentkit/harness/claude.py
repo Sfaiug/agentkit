@@ -897,12 +897,9 @@ def turn_meters(out):
 
 
 def status_meters(windows):
-    """The account's limits a status render carried, as endpoint meters, or [].
-
-    hooks/claude-status.sh hands each window of a render's `rate_limits` (2.1.322) as the words
-    its jq printed, `{"seven_day": "<used_percentage> <resets_at>"}`, carried only while the API
-    reports the window and its reset has not passed: the seat's own login, measured with no
-    request.
+    """The account's limits a status render carried, as endpoint meters, or []: each window of
+    its `rate_limits` (2.1.322) as hooks/claude-status.sh's jq printed it, `{"seven_day":
+    "<used_percentage> <resets_at>"}`, there only while the API reports it and it has not reset.
     """
     limits = {window: dict(zip(("used_percentage", "resets_at"), map(float, words.split())))
               for window, words in windows.items()}

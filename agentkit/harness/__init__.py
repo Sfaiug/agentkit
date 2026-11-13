@@ -1052,8 +1052,7 @@ class Harness:
         return []
 
     def status_meters(self, windows):
-        """The meters a seat's status render said of its own account, each window as the words
-        its status hook printed (`watch.hook_meters`), or []: by default a status line says none."""
+        """The meters a seat's status render said of its own account (`watch.hook_meters`)."""
         hook = self._hook("status_meters")
         return hook(windows) if hook else []
 

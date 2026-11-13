@@ -2868,23 +2868,20 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
 
 
 def hook_meters(launched, conversation, account, rendered, *windows):
-    """The limits a seat's status render carried, where they read otherwise than its
-    conversation's note holds them: what changed becomes its login's reading at the render's
-    moment, as a worker turn's does.
+    """What a seat's status render carried of its login's limits, where it differs from its
+    conversation's note: a change becomes that login's reading at the render's moment.
 
-    hooks/claude-status.sh starts this with the seat's login (`account`, "" for the usual one),
-    the render's moment and each window it carries as `<window> <words>`, its jq's words for the
-    numbers.  An idle seat renders its last answer again and again, so the note,
-    state/limits-<conversation>.json, holds each window as `[login, words, moment]`; a window it
-    did not hold is only kept, as those numbers may be as old as the seat's last answer.
-
-    Only this changes the note, holding an exclusive lock on it from its read to its write, so
-    each window is judged in the order renders began, whatever order their hand-ins arrive in.
-    Written in place, as a rename would take the lock's file away, in json.dumps's spacing, which
-    the hook matches as text, and before the reading: a hand-in that dies between the two loses
-    that reading, never shows numbers as newer than they are.
+    hooks/claude-status.sh hands in the seat's login ("" for the usual one), the moment the render
+    began and each window as `<window> <words>`, its jq's words for the numbers.  An idle seat
+    renders its last answer again and again, so the note, state/limits-<conversation>.json, holds
+    each window as `[login, words, moment]`; a window it did not hold is only kept, as its numbers
+    may be as old as the seat's last answer.  Only this changes the note, under an exclusive lock
+    on it from read to write, so windows are judged in the order renders began, whatever order
+    their hand-ins arrive in.  Written in place (a rename would take the lock's file away), in
+    json.dumps's spacing, which the hook matches, and before the reading: a hand-in that dies
+    between the two loses that reading, never shows numbers as newer than they are.
     """
-    rendered = float(rendered or time.time())
+    rendered = float(rendered)
     cfg = config.load()
     harness, provider = seat_model(cfg, config.resolve_session(launched))
     fd = os.open(config.STATE / f"limits-{conversation}.json", os.O_RDWR | os.O_CREAT, 0o600)

@@ -7,10 +7,9 @@ conversation's last render's are that login's reading of the window's meter, wit
 conversation's first numbers may be as old as its last answer and are only kept.
 
 Black-box against AK_BIN: a Home whose Claude provider lists a second login, read once through a
-fake `curl` that counts each ask; then two seats on that login (tests/fixtures/akseat.py), each
-one's status command as `ak orch --dry-run` prints it, run in a shell, in the environment the
-seat's line sets, the render's JSON on stdin, and waited out with everything it started.  This
-test fails against `/bin/false`.
+fake `curl` counting each ask; two seats on that login (tests/fixtures/akseat.py) run their status
+command as `ak orch --dry-run` prints it, in the environment it sets, the render's JSON on stdin,
+waited out with all it started.  This test fails against `/bin/false`.
 """
 
 import json
@@ -78,8 +77,7 @@ class ClaudeSeatReportsItsLoginsUsage(unittest.TestCase):
         return [meter["used"] for meter in reading["meters"] if meter["name"] == "weekly_all"]
 
     def status(self, name):
-        """`render(week, session=None)`: seat `name`'s status line run on those percentages,
-        waited out with all it started."""
+        """`render(week, session=None)`: seat `name`'s status line run on those percentages."""
         seat = Seat(self.home, name, alive=False, record={"account": LOGIN})
         done = self.home.ak("orch", seat.name, "--dry-run", cwd=self.home.path)
         self.assertEqual(done.code, 0, done.out + done.err)
