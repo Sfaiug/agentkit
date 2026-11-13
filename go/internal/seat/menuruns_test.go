@@ -74,3 +74,17 @@ func TestTheScreenReadsLiveSeatsWithRuns(t *testing.T) {
 		t.Fatalf("known %v: %+v", known, got.Seats)
 	}
 }
+
+func TestALineGoCannotOrderHandsTheScreenBack(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	runRecord(t, home, "fix-api", map[string]any{"state": "waiting", "waiting_on": map[string]any{"line": "acme/api", "joined": 1, "fix": "failure"}})
+	runRecord(t, home, "green-web", map[string]any{"state": "waiting", "waiting_on": map[string]any{"line": "acme/api", "joined": 2, "land": "abc1234"}})
+	if _, known := Menu(moment); !known {
+		t.Fatal("no seat was told to go first: Go orders the line")
+	}
+	write(t, stateFile(home, "live-checks/abc1234-1800000000/handed"), `{"seat":"acme"}`)
+	if got, known := Menu(moment); known {
+		t.Fatalf("a fix that may go first was ranked: %q", got.Seats[0].reason)
+	}
+}

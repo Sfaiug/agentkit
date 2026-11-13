@@ -14,7 +14,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tests"))
-from suite_shares import STATIC_CHECKS
+from suite_shares import SETUP, STATIC_CHECKS
 
 # Each stand-in notes its start; ACME_FAILS names those that always fail, ACME_FLAKY those
 # that fail only their first run.
@@ -28,7 +28,7 @@ sys.exit(name in os.environ["ACME_FAILS"].split()
          or name in os.environ["ACME_FLAKY"].split() and log.read_text().split().count(name) == 1)
 '''
 # Like smoke.sh, a piece runs only its share, and smoke.sh runs a test file of its own.
-SMOKE = '''if [ "${AK_SHARD:-1/1}" = 1/1 ]; then
+SMOKE = SETUP + '''if [ "${AK_SHARD:-1/1}" = 1/1 ]; then
   echo smoke.sh >>"$ACME_LOG"
 else
   echo "smoke.sh $AK_SHARD" >>"$ACME_LOG"

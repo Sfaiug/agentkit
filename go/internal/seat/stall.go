@@ -3,6 +3,7 @@ package seat
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
@@ -28,8 +29,9 @@ func PlainStalls(stalls *run.Object) bool {
 
 // KeepStall is the health row's look at the stall the seat's screen shows (watch.health): its
 // entry, the one held or a new one, observed on this capture as watch.observe ages the error line
-// and the screen apart, the line saying nothing is typed yet; false where its plan may be done
-// unprompted, which Go leaves to Python.  Once it has stood quiet for stallWait, pastWait decides.
+// and the conversation apart, the line saying nothing is typed yet; false where its plan may be
+// done unprompted, which Go leaves to Python.  Once it has stood quiet for stallWait, pastWait
+// decides.
 func KeepStall(live Live, held *run.Object, now float64) (*run.Object, string, bool) {
 	if mayRestDone(live.Name) {
 		return nil, "", false
@@ -40,11 +42,13 @@ func KeepStall(live Live, held *run.Object, now float64) (*run.Object, string, b
 	} else {
 		entry.Set("since", run.Float(now))
 	}
-	if !run.Equal(entry.Get("pane"), live.Pane) {
-		run.SetAll(entry, "pane", live.Pane, "changed_at", run.Float(now), "since", run.Float(now))
+	lines := eyeOf(live.Own).rules.Said(live.Pane)
+	said := strings.Join(lines, "\n")
+	if !run.Equal(entry.Get("pane"), said) {
+		run.SetAll(entry, "pane", said, "changed_at", run.Float(now), "since", run.Float(now))
 	}
 	marks, _ := config.Words(live.Own, "stall", "signatures")
-	lines, line := config.SplitLines(live.Pane), ""
+	line := ""
 	for at := len(lines) - 1; at >= 0 && line == ""; at-- {
 		if slices.ContainsFunc(marks, func(mark string) bool { return harness.Says(lines[at], mark) }) {
 			line = lines[at]

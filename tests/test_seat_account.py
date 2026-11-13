@@ -742,7 +742,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(config.session_records()[later["name"]]["account"], "second")
         self.assertEqual(config.session_records()[NAME]["account"], "default")
 
-    def test_opening_to_look_preserves_recovery_and_a_draft_goes_on_with_the_seat(self):
+    def test_opening_to_look_preserves_recovery_and_a_draft_holds_the_seat_until_sent(self):
         self.meters(100, 100)
         self.tick()
         watch.opened_now(NAME)
@@ -750,11 +750,11 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         watch.opened_now(NAME)
         self.meters(100, 0)
         self.pane = "❯ the owner is typing"
-        with patch.object(watch, "seat_editor", return_value={"id": "%1"}), \
-                patch.object(watch, "carry_draft",     # lifted out of the composer
-                             side_effect=lambda *_a: setattr(self, "pane", "❯") or True) as carried:
-            self.tick()
-        carried.assert_called_once()        # into the composer the resumed harness opens
+        self.tick()
+        self.assertEqual(self.commands, [])     # a respawn would end the text
+        self.assertIsNotNone(watch.seat_read(NAME)["usage_wait"])
+        self.pane = "❯"
+        self.tick()
         self.assertEqual(len(self.commands), 1)
         self.assertEqual(self.typed, [])
         self.assertEqual(config.session_records()[NAME]["account"], "second")
