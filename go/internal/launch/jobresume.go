@@ -140,6 +140,9 @@ func jobEnded(dir string, receipt *run.Object, say func(string)) (int, error) {
 		}
 		say("job " + name + ": Done")
 	}
+	if line := orderedLine(receipt); line != "" {
+		text = line
+	}
 	accepted, err := handBackJob(dir, receipt, name, text, say)
 	if err != nil {
 		return 0, err

@@ -20,8 +20,8 @@ import (
 	"agentkit/internal/task"
 )
 
-const runFlagsUsage = "ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] | ak run --review-pr <url> [--review MODEL] [--first] [--bg]"
-const runUsage = "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] | ak run --review-pr <url> | ak run status [<runid>] | ak run resume <runid> | ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc"
+const runFlagsUsage = "ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] [--in-order] | ak run --review-pr <url> [--review MODEL] [--first] [--bg]"
+const runUsage = "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] [--in-order] | ak run --review-pr <url> | ak run status [<runid>] | ak run resume <runid> | ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc"
 
 func init() {
 	commands["run"] = launchRun
@@ -109,7 +109,7 @@ func validateRun(args []string) string {
 	}
 	if url := parsed.values["--review-pr"]; url != "" {
 		_, parallel := parsed.values["--parallel"]
-		if len(parsed.words) > 0 || parsed.values["--rounds"] != "" || parsed.values["--exec"] != "" || parsed.flags["--no-worktree"] || parallel {
+		if len(parsed.words) > 0 || parsed.values["--rounds"] != "" || parsed.values["--exec"] != "" || parsed.flags["--no-worktree"] || parallel || parsed.flags["--in-order"] {
 			return "usage: ak run --review-pr <url> [--review MODEL] [--first] [--bg]: no task file, no executor, no rounds"
 		}
 		if !gh.PullURL.MatchString(url) {
@@ -148,11 +148,20 @@ func validateRun(args []string) string {
 	if _, _, err := config.RunMemoryMaxMB(); err != nil {
 		return err.Error()
 	}
-	if _, parallel := parsed.values["--parallel"]; parallel && len(parsed.words) == 1 {
-		return "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: --parallel needs more than one task file"
+	alone := ""
+	if _, parallel := parsed.values["--parallel"]; parallel {
+		alone = "--parallel"
+	} else if parsed.flags["--in-order"] {
+		alone = "--in-order"
+	}
+	if alone != "" && len(parsed.words) == 1 {
+		return "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: " + alone + " needs more than one task file"
 	}
 	if len(parsed.words) > 1 && parsed.flags["--no-worktree"] {
 		return "--no-worktree runs in the repo's current branch: one checkout cannot hold a job of concurrent tasks; drop the flag so each task gets its own worktree"
+	}
+	if parsed.flags["--in-order"] && parsed.flags["--no-merge"] {
+		return "--in-order starts each task once the one before it merged, and --no-merge merges none; drop one of them"
 	}
 	// Every task is read before any is judged whole, so a job names the first file it cannot
 	// read before a sentence about another; a job's sentence names its file.
@@ -183,7 +192,7 @@ func validateRun(args []string) string {
 		seen[name] = each.path
 	}
 	for _, each := range tasks {
-		refusal, err := launch.Refusal(each.path, each.meta, each.cmds)
+		refusal, err := launch.JobRefusal(each.path, each.meta, each.cmds, parsed.flags)
 		if err != nil {
 			return err.Error()
 		}
