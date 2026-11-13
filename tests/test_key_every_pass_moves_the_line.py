@@ -128,20 +128,22 @@ class EveryPassMovesTheLine(fixture.LanderFixture, unittest.TestCase):
     def test_a_fruitless_pass_halves_the_next_down_to_one_and_a_verdict_restores_the_line(self):
         members = self.green_line()
         with patch.object(land, "CHECKED", 0):      # each pass here checked something
-            for _ in range(4):
+            for _ in range(3):
                 self.checked(members[0])
-            self.assertEqual(land.passes(self.turn)["fruitless"], 4)
+            self.assertEqual(land.passes(self.turn)["fruitless"], 3)
             self.unanswered(*members)
-            self.checked()
+            self.checked()      # one alone, however many moved nobody: its tree passed already
             self.assertIn("land", self.wait(members[0]))
             self.assertNotIn("fruitless", land.passes(self.turn))
             self.checked()
-        self.assertEqual(self.taken_by_each_pass(), [4, 2, 1, 1, 1, 3])
+        self.assertEqual(self.taken_by_each_pass(), [4, 2, 1, 1, 3])
         for directory in members:
             self.assertIn("land", self.wait(directory))
         for line in ("1 pass in a row checked this line and moved nobody: this one checks the "
                      "first 2 of the 4 members waiting",
                      "2 passes in a row checked this line and moved nobody: this one checks the "
+                     "first 1 of the 4 members waiting",
+                     "3 passes in a row checked this line and moved nobody: this one checks the "
                      "first 1 of the 4 members waiting"):
             self.assertTrue(any(said.startswith(line) for said in self.said), self.said)
 
