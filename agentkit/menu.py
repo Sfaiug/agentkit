@@ -1035,31 +1035,35 @@ def squares(tasks, room=float("inf"), tmux=False, most=None):
 
 
 def seat_crew(cfg, selection):
-    """(who builds, who reviews) a seat's work, from its saved selection: its workers; its
-    reviewers, else its workers, each named at the effort it runs that role at
-    (`config.model_at`).  A seat whose orchestrator builds alone names no builder, and nothing
-    beside its orchestrator says so: no ⚒ is the seat itself building (the owner's word of 21
-    Oct 2026).  No selection: nobody.  The menu row and the seat's own bar both read this, as
-    they read `seat_tasks`."""
+    """(its orchestrator, who builds, who reviews) a seat's work, from its saved selection: the
+    orchestrator as its row names it; its workers; its reviewers, else its workers, each named at
+    the effort it runs that role at (`config.model_at`).  A seat whose orchestrator builds alone
+    names no builder, and nothing says so: no `builds` is the seat itself building (the owner's
+    word of 21 Oct 2026).  No selection: nobody.  The menu row and the seat's own bar both read
+    this, as they read `seat_tasks`."""
     if not selection:
-        return [], []
+        return None, [], []
     workers = list(selection.get("workers") or [])
-    return ([config.model_at(cfg, selection, model, "executor") for model in workers],
+    return (config.model_at(cfg, selection, selection["orchestrator"], "orchestrator"),
+            [config.model_at(cfg, selection, model, "executor") for model in workers],
             [config.model_at(cfg, selection, model, "reviewer")
              for model in selection.get("reviewers", workers)])
 
 
 def crew(info, tmux=False, room=None):
-    """`astra high ⚒   opus xhigh ⚒◎   spark ◎`: each model that builds or reviews a seat's work
-    named once at each effort it runs at (`seat_crew`), in the order it first comes, ⚒ after it
-    where it builds and ◎ where it reviews, all dim, as the row's orchestrator is (the owner's
-    pick of 18 Oct 2026); without UTF-8 `B` and `R`.  Cut to `room` cells where given; `tmux`
-    draws it as tmux text."""
-    builds, reviews = info.get("crew") or ((), ())
-    build, review = ("⚒", "◎") if terminal.utf8() else ("B", "R")
-    roles = {model: (build if model in builds else "") + (review if model in reviews else "")
-             for model in (*builds, *reviews)}
-    text = "   ".join(f"{terminal.plain(model)} {icons}" for model, icons in roles.items())
+    """`opus max orchestrates   astra high builds   opus xhigh builds, reviews`: the seat's
+    orchestrator, then each model that builds or reviews its work, named once at each effort it
+    runs at (`seat_crew`), in the order it first comes, what it does there after it, all dim, as
+    the row's orchestrator is; words every font draws, under any locale (the owner's pick of 10
+    Nov 2026).  Nothing where nobody is beside the orchestrator.  Cut to `room` cells where
+    given; `tmux` draws it as tmux text."""
+    orchestrator, builds, reviews = info.get("crew") or (None, (), ())
+    if not builds and not reviews:
+        return ""
+    roles = (("orchestrates", [orchestrator]), ("builds", builds), ("reviews", reviews))
+    text = "   ".join(f"{terminal.plain(model)} " + ", ".join(word for word, those in roles
+                                                           if model in those)
+                       for model in dict.fromkeys((orchestrator, *builds, *reviews)))
     return _paint(text if room is None else terminal.cut(text, room, spaced=True), "dim", tmux)
 
 
@@ -2297,8 +2301,7 @@ def born_lines(info, room):
     refusal = born_refusal(info["born"])
     if refusal:
         return [terminal.styled(line, "amber") for line in terminal.wrap(refusal, room)]
-    line = crew(info)
-    return [line if terminal.cells(line) <= room else terminal.cut(line, room)]
+    return [crew(info, room=room)]
 
 
 def born_key(born, key, drawn):
@@ -3117,7 +3120,7 @@ def take_choice(cfg, name, selected, providers, role, model, effort, around):
     [defaults] are saved in one write (defaults_saved), no open seat changing.  What to say
     under the rows, or ""."""
     if name is not None and role == "orchestrate":
-        return seat_effort(cfg, name, selected, model, effort, around)
+        return seat_effort(cfg, name, selected, model, effort, around, providers=providers)
     key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
     taken = {TAKEN[role]: model if role == "orchestrate" else [model]}
     if name is not None:
@@ -3909,7 +3912,7 @@ def _saved(cfg, table, before):
 
 
 def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, seat=None,
-                  hold=(), around=None):
+                  hold=(), around=None, providers=None):
     """`name`'s effort in `role` (config.role_effort: a worker's is the effort while its own
     key is unset) one step along that model's own efforts (config.efforts), never past either
     end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved, a
@@ -3938,7 +3941,7 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
         seat[1]["efforts"] = _stepped(cfg, seat[1], [(name, key, levels[at])], hold)
         return ""
     if seat and key == "effort":
-        return seat_effort(cfg, *seat, name, levels[at], around)
+        return seat_effort(cfg, *seat, name, levels[at], around, providers=providers)
     if seat:
         return efforts_saved(cfg, *seat, [(name, key, levels[at])])
     before = dict(entry)
@@ -3946,14 +3949,15 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     return _saved(cfg, entry, before)
 
 
-def seat_effort(cfg, name, selected, model, effort, around):
+def seat_effort(cfg, name, selected, model, effort, around, providers=None):
     """Seat `name` moved to `model` with its orchestrator at `effort`, or at the one it runs
     `model` at for None, a restart once `Restart` is picked on the card `around` draws
     (terminal.confirm), the owner's 24 Oct words about the orchestrator: "it should ask me to
     confirm. As this restarts the session."  The move alone writes the record
     (orch.switch_orchestrator), and `selected` then holds it as it is.  What to say under the
     rows, or ""."""
-    note = orch.switch_orchestrator(cfg, name, model, effort=effort, asked=lambda kept: (
+    note = orch.switch_orchestrator(cfg, name, model, providers=providers, effort=effort,
+                                    asked=lambda kept: (
         terminal.confirm((RESTART_ASK if effort else MOVE_ASK).format(
             name, config.model_name(cfg, model), effort), MOVE_MEANS[kept], "Restart", around)))
     try:
@@ -4307,10 +4311,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                          for first, last, at in cells if at == column), 0) - terminal.cells(
                 entry.get(key, entry.get("effort", "?")))
             note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, hold=hold,
-                                  around=around)
+                                  around=around, providers=providers)
                     if isinstance(act, int) and act < lead
                     else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=seat,
-                                       hold=hold, around=around))
+                                       hold=hold, around=around, providers=providers))
 
 
 def _runs(cfg, harness, model, effort=None):
@@ -5786,11 +5790,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
     scope, selected, note = for_selected(cfg, session or NEW_SEATS)
     fresh = not session       # a seat with no record shows new seats' marks, yet is no fresh window
     session = None if scope == NEW_SEATS else session
-    try:                      # what a seat's flip is refused on, and spent; Esc while it is read
-        providers = waited(lambda: usage.collect(cfg), "config",
-                           keyboard=keyboard, doing=LEFT) if session and selected else {}
-    except Back:
-        return cfg
+    providers = usage.held(cfg) if session and selected else {}     # what a flip is refused on
     # git asked once a visit, not each draw; nothing about a harness and nothing over the network
     version = update.agentkit_version()
     if dry_run or keyboard is None or not keyboard.take():
@@ -5874,7 +5874,7 @@ def apply_defaults(cfg, around):
         return ""
     runs = [lead, *defaults["workers"], *defaults.get("reviewers", defaults["workers"])]
     taken = {model: config.efforts_of(cfg["models"][model]) for model in runs}
-    providers = usage.collect(cfg) if moving else {}
+    providers = usage.held(cfg)       # what orders a move's logins, as `c` reads them
 
     def given(held):
         """`held`'s efforts at the entries', its orchestrator's own effort where it stands."""

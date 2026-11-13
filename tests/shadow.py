@@ -144,6 +144,52 @@ except ChildProcessError:
     print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
 sys.exit(int(sys.argv[1]))' "$code" >"$peak"
 """
+# A run's keeper, outside its box and so out of reach of the box's signals: bwrap's parent, and a
+# subreaper, so the parent of all the box runs once the shell waiting in it is gone, as what that
+# shell ran may end it.  Once bwrap ends, it ends all left.  A SIGTERM, the shadow's or at the
+# shadow's end, halts the box first: it kills all the box runs but that shell and wakes the shell,
+# which what it ran may have stopped, till it writes down the peak and ends, for 10 seconds at most.
+# It waits for a SIGTERM and never handles one, so no stop cuts its cleanup short.
+KEEP = """import ctypes, os, signal, subprocess, sys, time
+WAKE = {signal.SIGTERM, signal.SIGCHLD}
+signal.pthread_sigmask(signal.SIG_BLOCK, WAKE)
+signal.signal(signal.SIGCHLD, signal.SIG_DFL)   # inherited ignored, no child's end sends one
+libc = ctypes.CDLL(None)
+libc.prctl(36, 1, 0, 0, 0)                  # subreaper
+libc.prctl(1, signal.SIGTERM, 0, 0, 0)      # its parent's death, a SIGTERM
+def below():
+    parent = {}
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            with open(f"/proc/{pid}/stat") as stat:
+                parent[int(pid)] = int(stat.read().rsplit(")", 1)[1].split()[1])
+        except OSError:
+            pass    # ended meanwhile
+    under = {os.getpid()}
+    while more := {pid for pid, up in parent.items() if up in under} - under:
+        under |= more
+    return {pid: parent[pid] for pid in under - {os.getpid()}}
+def kill(pid, sig):
+    try:
+        os.kill(pid, sig)
+    except ProcessLookupError:
+        pass    # ended meanwhile
+bwrap = subprocess.Popen(sys.argv[1:],
+                         preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_UNBLOCK, WAKE))
+while bwrap.poll() is None and signal.sigwaitinfo(WAKE).si_signo == signal.SIGCHLD:
+    pass    # what ended was not bwrap
+end = time.monotonic() + 10
+while bwrap.poll() is None and time.monotonic() < end:
+    for pid, up in below().items():
+        if pid != bwrap.pid:
+            kill(pid, signal.SIGCONT if up == bwrap.pid else signal.SIGKILL)
+    time.sleep(0.1)
+while left := below():
+    for pid in left:
+        kill(pid, signal.SIGKILL)
+    os.wait()
+sys.exit(bwrap.returncode)
+"""
 
 
 def box(home, scratch):
@@ -201,28 +247,25 @@ def box(home, scratch):
 def run(label, program, argv, home, scratch):
     """One run of `program` in its box, with no input and for at most CAP seconds: what it did."""
     command, env, folder = box(home, scratch)
-    inside = folder / "box"
+    inside, keeper = folder / "box", None
     began = time.monotonic()
-    with (folder / "stdout").open("wb") as out, (folder / "stderr").open("wb") as err:
-        # bwrap's end kills the shell waiting in the box and leaves the rest running, so its own
-        # session keeps it from a stop meant for this script, as a terminal's ^C, till the box
-        # is halted.
-        proc = subprocess.Popen([*command, "sh", "-c", WAIT, "sh", sys.executable,
-                                 inside / "peak", program, *argv], start_new_session=True,
-                                stdin=subprocess.DEVNULL, stdout=out, stderr=err, env=env)
     try:
-        code, cut = proc.wait(CAP), False
+        with (folder / "stdout").open("wb") as out, (folder / "stderr").open("wb") as err:
+            # Its own session keeps the box from a stop meant for this script, as a terminal's
+            # ^C, till its keeper halts it.
+            keeper = subprocess.Popen([sys.executable, "-I", "-c", KEEP, *command, "sh", "-c",
+                                       WAIT, "sh", sys.executable, inside / "peak", program,
+                                       *argv], start_new_session=True,
+                                      stdin=subprocess.DEVNULL, stdout=out, stderr=err, env=env)
+        code, cut = keeper.wait(CAP), False
     except subprocess.TimeoutExpired:
         code, cut = f"none (killed at {CAP // 60} minutes)", True
     finally:
-        # past the cap, or this script was stopped: the box is halted, and its shell writes down
-        # the peak
-        end = time.monotonic() + 10
-        while proc.poll() is None and time.monotonic() < end:
-            _halt(proc.pid)
-            time.sleep(0.1)
-        proc.kill()     # past that, the box's shell goes and leaves what still runs to end alone
-        proc.wait()
+        # past the cap, or this script was stopped, the box begun or not: its keeper halts it,
+        # and its shell writes down the peak
+        if keeper:
+            keeper.terminate()
+            keeper.wait()
     seconds, peak = time.monotonic() - began, _lines(inside / "peak")
     peak = f"{int(peak[0]) / 1024:.0f} MB at its peak" if peak else "its peak unread"
     record = inside / "handover"
@@ -234,29 +277,6 @@ def run(label, program, argv, home, scratch):
                 home=touched(folder / "upper", home), page=set(_lines(inside / "pages")),
                 call={f"{name} {shlex.join(json.loads(text))}" for name in FAKES
                       for text in _lines(inside / "logs" / f"{name}.log")})
-
-
-def _halt(bwrap):
-    """Kill all that `bwrap`'s box runs but the shell waiting in it, bwrap's child, from here, out
-    of the box's reach, and wake that shell, which what it ran may have stopped.  What it detached
-    is below that shell, by the parents /proc names."""
-    parent = {}
-    for status in Path("/proc").glob("[0-9]*/status"):
-        try:
-            fields = {key: value.split() for key, _, value in
-                      (line.partition(":") for line in status.read_text().splitlines())}
-        except OSError:
-            continue    # ended meanwhile
-        parent[int(status.parent.name)] = int(fields["PPid"][0])
-    shell = {pid for pid, up in parent.items() if up == bwrap}
-    under = set(shell)
-    while more := {pid for pid, up in parent.items() if up in under} - under:
-        under |= more
-    for pid in under:
-        try:
-            os.kill(pid, signal.SIGCONT if pid in shell else signal.SIGKILL)
-        except ProcessLookupError:
-            pass    # ended meanwhile
 
 
 def _lines(path):

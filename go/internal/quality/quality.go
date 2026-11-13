@@ -408,8 +408,10 @@ func measuredError(values *run.Object, each measure, best float64) *float64 {
 // yours runs is no reason to leave it out, and Take what `r` takes: the same rule over yours.
 // Pick and Take stay visible even if rows outside their eligible pool beat them.  Choices and
 // Others are choices' over those with a cost, whoever runs them.  CostUnit is what its rows'
-// costs are in.
+// costs are in.  Rated is every row rated and priced, whatever is compared: the rows a model's
+// own row is found among.
 type Said struct {
+	Rated      []*Rating
 	Front      []*Rating
 	Choices    []*Rating
 	Others     []Other
@@ -429,8 +431,8 @@ type Pricer func(role string, rows []Row, rated []*Rating) string
 func Answer(rows []Row, compared map[string]bool, price Pricer) map[string]*Said {
 	out := map[string]*Said{}
 	for _, role := range Roles {
-		said := &Said{CostUnit: "board_dollars"}
 		ratings := Rated(rows, role)
+		said := &Said{Rated: ratings, CostUnit: "board_dollars"}
 		if price != nil {
 			said.CostUnit = price(role, rows, ratings)
 		}
@@ -449,10 +451,7 @@ func Answer(rows []Row, compared map[string]bool, price Pricer) map[string]*Said
 				priced = append(priced, row)
 			}
 		}
-		// the cheaper first, the higher quality on an equal cost
-		slices.SortStableFunc(priced, func(a, b *Rating) int {
-			return cmp.Or(cmp.Compare(*a.Cost, *b.Cost), cmp.Compare(b.Quality, a.Quality))
-		})
+		slices.SortStableFunc(priced, cheaper)
 		var yours []*Rating
 		for n, row := range priced {
 			better := true

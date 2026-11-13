@@ -555,8 +555,13 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
             and not usage.unready(cfg, executor, providers)):
         if reviewer not in reviewer_order(cfg, executor, review_order):
             reviewer = None
+        group, writer = workers, state.get("own_orchestrator") if state.get("own_pr") else None
+        if workers is not None and executor == writer:
+            # A seat's own PR is fixed by the model that wrote it (`run.review_pr`), which no
+            # worker list holds: the pick takes it as one, and who may review stays as it was.
+            group, reviewers = [*workers, writer], reviewers if reviewers is not None else workers
         return pick_models(cfg, providers, executor, reviewer, log, resuming=True, quiet=True,
-                           repo=repo, workers=workers, reviewers=reviewers)
+                           repo=repo, workers=group, reviewers=reviewers)
     pair = best_pair(cfg, order, review_order)
     if pair is not None:
         return pair

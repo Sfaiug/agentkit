@@ -7,11 +7,15 @@ subagent's session, or into one another seat's record names, leaves the seat whe
 first session too, or in none though that seat is forgotten.  A seat reopened on A, its receipt
 naming A and its record none, that goes to B before any prompt in A keeps A just the same, and
 stays on A through a prompt into beta's; a seat whose OpenCode's session API never answers
-follows all the same.  Black-box on `AK_BIN`, a fake model (fakeadapter.py), and in the seat's
-pane a fake `opencode`, one process as 2.2.6's TUI: it runs the plugin under Node as OpenCode
-loads it and hands it a `session.inbox.enqueued` for each prompt, its record of every session an
-opencode.db -- each session's row in session_v2, a subagent's naming its parent, and each prompt
-and its answer in session_message, shaped as tests/test_key_card_answers_opencode.py's.
+follows all the same; a prompt in a further server, one a tool's shell or the seat's own server
+started, moves nothing.
+Black-box on `AK_BIN`, a fake model (fakeadapter.py), and in the seat's pane a fake `opencode`,
+two processes as 2.2.7's: its TUI and, a child of that, the `opencode serve --stdio` that runs
+the plugin under Node as OpenCode loads it and hands it a `session.inbox.enqueued` for each
+prompt, its record of every session an opencode.db -- each session's row in session_v2, a
+subagent's naming its parent, and each prompt and its answer in session_message, shaped as
+tests/test_key_card_answers_opencode.py's.  One process as 2.2.6's, the plugin in its TUI,
+follows and is left where it was the same.
 """
 
 import json
@@ -38,11 +42,16 @@ EMAIL = "email me a receipt after every upload"
 FIRST = f"Add a retry button to the upload page, and {EMAIL}."
 # The TUI: each prompt the test enters (`said`) is written into opencode.db, the owner's words and
 # an answer, and handed to the plugin; once the plugin has reported it, it goes to `heard`.  Its
-# session API answers from opencode.db, or never (`api`).
+# session API answers from opencode.db, or never (`api`), which says how it runs too: as 2.2.6's
+# one process where that is the `--prompt` a seat's first message is launched as, and with a
+# further server taking the prompts where it ends `nested`, one a tool's shell started, or
+# `spawned`, one the server itself started.
 OPENCODE = r'''const { spawn, spawnSync } = require("node:child_process");
 const { appendFileSync, readFileSync } = require("node:fs");
 const { pathToFileURL } = require("node:url");
-const [plugin, python, db, said, heard, api, ...pane] = process.argv.slice(2);
+const SERVE = ["serve", "--stdio", "--port", "0"];     // how 2.2.7's TUI starts its server
+const serve = process.argv[2] === SERVE[0], own = process.argv.slice(serve ? 6 : 2);
+const [plugin, python, db, said, heard, api, ...pane] = own;
 const SQL = `import json, sqlite3, sys
 with sqlite3.connect(sys.argv[1]) as db:
     db.row_factory = sqlite3.Row
@@ -82,16 +91,33 @@ const ctx = {
   event: { subscribe: prompts },
 };
 console.log = () => {};     // OpenCode keeps a plugin's log off its screen
-spawn(python, pane, { stdio: "inherit" });
-import(pathToFileURL(plugin).href).then((loaded) => loaded.default.setup(ctx));
+const FURTHER = { nested: ["/bin/sh", "-c", '"$@" & wait', "sh"], spawned: [] };  // its starter
+function takePrompts() {
+  const by = !process.env.NESTED && FURTHER[api.split(" ").pop()];
+  if (by) {
+    const [program, ...args] = [...by, process.execPath, __filename, ...SERVE, ...own];
+    spawn(program, args, { stdio: "inherit", env: { ...process.env, NESTED: "1" } });
+  } else import(pathToFileURL(plugin).href).then((loaded) => loaded.default.setup(ctx));
+}
+if (serve) {
+  const tui = process.ppid;
+  setInterval(() => process.ppid === tui || process.exit(), 100);     // it ends with its TUI
+  takePrompts();
+} else {
+  spawn(python, pane, { stdio: "inherit" });
+  if (api.startsWith("--prompt=")) takePrompts();
+  else spawn(process.execPath, [__filename, ...SERVE, ...own], { stdio: "inherit" });
+}
 '''
 
 
-def arguments():
-    """Each running process's arguments."""
+def arguments(receipt):
+    """The arguments of each process running under the launch whose receipt that is."""
+    launch = f"AGENTKIT_OPENCODE_RECEIPT={receipt}".encode()
     for proc in Path("/proc").glob("[0-9]*"):
         try:
-            yield (proc / "cmdline").read_bytes().split(b"\0")[:-1]
+            if launch in (proc / "environ").read_bytes().split(b"\0"):
+                yield (proc / "cmdline").read_bytes().split(b"\0")[:-1]
         except OSError:
             pass        # gone meanwhile
 
@@ -153,13 +179,12 @@ class Rig:
                          str(PANE),
                          str(seat.screen_file), str(seat.typed_file), seat.composer)
         self.assertEqual(done.code, 0, done.err)
-        self.pid = home.tmux("display-message", "-p", "-t", seat.pane, "#{pane_pid}").out.strip()
         seat.show("opencode-prompt-pane.txt")
 
     def prompt(self, session, text):
         """The owner sends `text` into `session` in the seat's OpenCode, it is reported, and ak
         has followed it: on a loaded host the hook goes on past the plugin's wait for it, its
-        follow the one process naming the hook and, last, the TUI's pid (hooks/seat-state.sh)."""
+        follow the one process of the seat's launch naming the hook (hooks/seat-state.sh)."""
         before = self.heard.read_text().count("\n") if self.heard.exists() else 0
         with self.said.open("a") as out:
             out.write(json.dumps([session, text]) + "\n")
@@ -167,8 +192,8 @@ class Rig:
         while not self.heard.exists() or self.heard.read_text().count("\n") <= before:
             self.assertLess(time.monotonic(), until, "the seat's OpenCode never reported it")
             time.sleep(0.05)
-        hook, pid = str(REPO / "hooks/seat-state.sh").encode(), self.pid.encode()
-        while any(argv[-1:] == [pid] and hook in argv for argv in arguments()):
+        hook = str(REPO / "hooks/seat-state.sh").encode()
+        while any(hook in argv for argv in arguments(self.receipt)):
             self.assertLess(time.monotonic(), until, "ak never ended following it")
             time.sleep(0.05)
 
@@ -251,6 +276,34 @@ class OpencodeSessionApiHung(Rig, unittest.TestCase):
         self.prompt(B, "thanks")
         self.assert_found_reading_each_once()
         self.assertEqual(self.resumed(), [B])
+
+
+@unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")
+class OpencodeToolsServer(Rig, unittest.TestCase):
+    API = "nested"      # each prompt is taken by a server a tool of the seat's OpenCode started
+
+    def test_a_prompt_in_a_further_server_leaves_the_seat_where_it_was(self):
+        (self.receipt / "session").write_text(A)       # the launch opened on A
+        self.prompt(B, "hello")
+        self.assertEqual(self.resumed(), [A])
+
+
+class OpencodeServersServer(OpencodeToolsServer):
+    API = "spawned"     # each prompt is taken by a server the seat's own server started
+
+
+@unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")
+class OpencodeOneProcess(Rig, unittest.TestCase):
+    API = "--prompt=Explain opencode serve --stdio"     # ps reads a server's command in it
+
+    def test_reopening_the_seat_resumes_the_session_it_went_to(self):
+        self.prompt(A, FIRST)
+        self.prompt(B, "thanks")
+        self.assertEqual(self.resumed(), [B])
+
+
+class OpencodeOneProcessToolsServer(OpencodeToolsServer):
+    API = OpencodeOneProcess.API + " nested"
 
 
 @unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")

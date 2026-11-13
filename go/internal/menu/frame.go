@@ -326,7 +326,8 @@ func headerLine(clock string, room int) string {
 }
 
 // keyLine is the key line: each key dim, its word plain, wrapped to the layout; first, drawn as it
-// is, the item in front of them.
+// is, the item in front of them.  A key pointing right stands after its word, on the side it
+// points to (`better →`), as Python's terminal.key_parts has it.
 func keyLine(s terminal.Screen, text string, width int, first string) []string {
 	room := max(1, min(width, 120)) - 2
 	var pieces []string
@@ -334,7 +335,12 @@ func keyLine(s terminal.Screen, text string, width int, first string) []string {
 		pieces = append(pieces, first)
 	}
 	for _, phrase := range strings.Split(text, "   ") {
-		key, word, _ := strings.Cut(strings.TrimSpace(phrase), " ")
+		phrase = strings.TrimSpace(phrase)
+		if at := strings.LastIndexByte(phrase, ' '); at > 0 && (phrase[at+1:] == "→" || phrase[at+1:] == ">") {
+			pieces = append(pieces, strings.TrimSpace(phrase[:at])+" "+s.Styled(phrase[at+1:], "dim"))
+			continue
+		}
+		key, word, _ := strings.Cut(phrase, " ")
 		piece := s.Styled(key, "dim")
 		if word = strings.TrimSpace(word); word != "" {
 			piece += " " + word
