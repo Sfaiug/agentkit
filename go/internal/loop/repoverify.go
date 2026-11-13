@@ -69,12 +69,12 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 // checks runs the commands in the checkout, keeping on the record what they newly dirty: the
 // loop's own droppings, never the executor's work, which a later commit of leftovers leaves out.
 // Each go leaves its row in history under rows.
-func (r *repoPlace) checks(l *loop, cmds []string, path string, rows *history.Checked) (bool, string, error) {
+func (r *repoPlace) checks(l *loop, cmds []string, path string, rows *history.Checked, selections ...*checkSelection) (bool, string, error) {
 	before, err := uncommitted.Paths(r.git())
 	if err != nil {
 		return false, "", err
 	}
-	ok, text, _, err := l.checksIn(r.wt, cmds, path, rows)
+	ok, text, _, err := l.checksIn(r.wt, cmds, path, rows, selections...)
 	if err != nil {
 		return false, "", err
 	}

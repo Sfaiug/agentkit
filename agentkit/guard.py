@@ -1,5 +1,6 @@
 """What a seat's tmux may not do: end another seat, or type into it; where its git may not make a
-checkout: in ~/code, which holds only the owner's checkouts (`worktree_refusal`); and where its
+checkout: in ~/code, which holds only the owner's checkouts (`worktree_refusal`); where it may not
+stash: in a repository whose checkouts share its one stash list (`stash_refusal`); and where its
 scp/rsync/sftp may not put a file: on the live server (`transfer_refusal`).
 
 A `tmux` shim first on a seat's PATH (tools/tmux-shim) runs every tmux call the seat makes, with
@@ -434,21 +435,29 @@ GIT_VALUED = ("-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-e
               "--super-prefix", "--attr-source")
 
 
-def worktree_refusal(args, git="git"):
-    """Why a seat's git call (its argv after `git`) may not run, or None: a `git worktree add`
-    whose new checkout lands in ~/code, which holds only the owner's checkouts (owner, 5 Oct) -- a
-    seat's goes under ~/.agentkit/wt.  The path is read as git reads it: from the working directory
-    and every `-C` before the command, past `worktree add`'s options (`-b`, `-B` and `--reason`
-    take a value).  An alias of `worktree add`, or a git reached by its absolute path, passes."""
+def git_refusal(args, git):
+    """Why a seat's git call (its argv after `git`) may not run, or None: its command is read past
+    git's own options before it, from the working directory and each `-C` among them.  An alias
+    of `worktree add` or of `stash`, or a git reached by its absolute path, passes."""
     base, i = os.getcwd(), 0
     while i < len(args) and args[i].startswith("-"):
         if args[i] == "-C" and i + 1 < len(args):
             base = os.path.join(base, args[i + 1])
         i += 2 if args[i] in GIT_VALUED else 1
-    if args[i:i + 2] != ["worktree", "add"]:
-        return None
+    if args[i:i + 2] == ["worktree", "add"]:
+        return worktree_refusal(args[i + 2:], base)
+    if args[i:i + 1] == ["stash"]:
+        return stash_refusal(args[:i], args[i + 1:], git)
+    return None
+
+
+def worktree_refusal(rest, base):
+    """Why a `git worktree add` (`rest`, its argv after `add`, run from `base`) may not run, or
+    None: its new checkout lands in ~/code, which holds only the owner's checkouts (owner, 5 Oct)
+    -- a seat's goes under ~/.agentkit/wt.  The path is read as git reads it, past `worktree
+    add`'s options (`-b`, `-B` and `--reason` take a value)."""
     from . import worktrees        # only now: every seat's git call starts this guard
-    rest, j = args[i + 2:], 0
+    j = 0
     while j < len(rest) and rest[j].startswith("-") and rest[j] not in ("-", "--"):
         word, j = rest[j], j + 1
         if word == "--reason":
@@ -464,6 +473,25 @@ def worktree_refusal(args, git="git"):
     return (f"ak refused `git worktree add {rest[j]}`: ~/code holds only the owner's checkouts. "
             f"Make a seat's checkout under ~/.agentkit/wt/ instead: "
             f"`git worktree add ~/.agentkit/wt/<name> ...`.")
+
+
+def stash_refusal(options, rest, git):
+    """Why a `git stash` (`options`, git's own before it; `rest`, its argv after `stash`) may not
+    run, or None: its repository has more than one checkout, as the real git lists them, and they
+    share one stash list, so a pop, apply or drop takes the entry on top, whoever put it there.
+    `list` and `show` only read it; no word, or an option, is `push`.  Where that git cannot list
+    the checkouts nothing is refused, and git answers the call as typed."""
+    if rest[:1] in (["list"], ["show"]):
+        return None
+    listed = subprocess.run([git, *options, "worktree", "list", "--porcelain"],
+                            capture_output=True)
+    if listed.returncode or sum(line.startswith(b"worktree ")
+                                for line in listed.stdout.splitlines()) < 2:
+        return None
+    return ("ak refused `git stash`: this repository's checkouts share one stash list, so an entry "
+            "is any checkout's to take and the one on top may not be yours. Keep the change in a "
+            "file (`git diff HEAD > FILE`, and `git apply FILE` brings it back) or on a commit of "
+            "its own.")
 
 
 TRANSFER_SCHEMES = ("scp://", "sftp://", "rsync://", "ssh://")   # a remote spec's URI scheme
@@ -542,7 +570,7 @@ def reached_live(name):
 
 
 # What each shim asks: its refusal, called with the call's argv and the real binary's path.
-REFUSALS = {"tmux": refusal, "gh": gh_refusal, "git": worktree_refusal,
+REFUSALS = {"tmux": refusal, "gh": gh_refusal, "git": git_refusal,
             "scp": transfer_refusal, "rsync": transfer_refusal, "sftp": transfer_refusal,
             "ssh": live_reach}
 

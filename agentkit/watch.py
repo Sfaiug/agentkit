@@ -5072,7 +5072,8 @@ def tell_moves(name, log, cfg=None):
     last = stood = None
     while True:
         tell_owed(name, log, cfg)
-        lines = seat_read(name).get("owed_lines") or []
+        with notify.session_lock(name) as name:     # its name now: a rename takes its lines along
+            lines = seat_read(name).get("owed_lines") or []
         if lines != last:
             last, stood = lines, time.monotonic()
         if (not any(owed.get("switch") for owed in lines)
@@ -6292,11 +6293,6 @@ def _launch_grace(state, now):
     return now - started < handback.QUEUED_GRACE
 
 
-def _dead_parked(state):
-    deaths = state.get("deaths") or []
-    return bool(deaths) and isinstance(deaths[-1], dict) and deaths[-1].get("parked")
-
-
 def _backoff_until(deaths):
     for death in reversed(deaths):
         if not isinstance(death, dict):
@@ -6330,7 +6326,8 @@ def _dead_plan(state, run_dir, now):
     # record itself. Noticing the same dead pid again would launch a second loop.
     if _resume_ordered(state, now):
         return "skip", deaths, ""
-    reaped = last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at")
+    ending = transitions.loop_death(state)    # `last`, where it is this loop's ending
+    reaped = bool(ending) and not ending.get("parked") and not ending.get("resumed_at")
     # The hour runs to the death being judged, not to the tick judging it: a tick that gets
     # to a recorded death late must not age the first of three out of the window.
     upto = last.get("at") if reaped else now
@@ -6411,14 +6408,17 @@ def dead_loop(state, run_dir, now):
     status = state.get("state")
     if status not in (*run_record.ACTIVE, "interrupted"):
         return None
-    if status == "interrupted" and not (state.get("deaths") or []):
-        # An interruption with no death recorded on it is not this pass's: a
+    if status == "interrupted" and not transitions.loop_death(state):
+        # An interruption with no death of its loop recorded on it is not this pass's: a
         # failed launch, a worktree that went, an older record a person was told
         # about. Only a loop whose death was noticed -- here, or by the reap that
         # got to it first -- is one the tick carries on.
         return None
-    if (_dead_parked(state) or _launch_grace(state, now) or run_record.process_active(state)
-            or _run_working(run_dir)):
+    holding = state.get("resume_after")
+    if isinstance(holding, (int, float)) and not isinstance(holding, bool) and now < holding:
+        return None     # a death waiting out its backoff: the hold is the record's, as reap reads it
+    if (transitions.dead_parked(state) or _launch_grace(state, now)
+            or run_record.process_active(state) or _run_working(run_dir)):
         return None
     plan = _dead_plan(state, run_dir, now)
     return None if plan[0] in ("skip", "wait-quiet") else plan

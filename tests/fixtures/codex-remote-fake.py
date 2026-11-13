@@ -17,6 +17,7 @@ import threading
 import time
 import tomllib
 import uuid
+from datetime import datetime, timezone
 
 args = sys.argv[1:]
 home = Path.home()
@@ -59,8 +60,24 @@ if os.environ.get('FAKE_UNSUPPORTED') and args != ['--help']:
     assert '--remote' not in args and 'app-server' not in args
     (home / 'last-command.json').write_text(json.dumps(args))
     sys.exit(0)
+if args[:1] == ['app-server'] and 'FAKE_NATIVE' not in os.environ:
+    # npm's entry point, its child the native app server: two `codex` above each hook (0.167).
+    # Like npm's, it hands on a signal that would stop it and ends with its child, so a server
+    # still stopping (FAKE_STOP_GATE) holds its launch's cleanup.
+    native = subprocess.Popen([sys.executable, *sys.argv],
+                              env={**os.environ, 'FAKE_NATIVE': str(os.getpid())})
+    for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda signum, frame: native.send_signal(signum))
+    sys.exit(native.wait())
 if args[:1] == ['app-server']:
     assert '--remote-control' in args
+    # Its entry point killed, it never outlives the test. The entry point names itself: one killed
+    # before this runs has already left the child to another parent.
+    def orphaned(parent=int(os.environ.pop('FAKE_NATIVE'))):
+        while os.getppid() == parent:
+            time.sleep(.1)
+        os._exit(1)
+    threading.Thread(target=orphaned, daemon=True).start()
     path = args[args.index('--listen') + 1].removeprefix('unix://')
     data = {'argv': args, 'env': dict(os.environ), 'cwd': os.getcwd(), 'pid': os.getpid()}
     publish('fake-server', data)
@@ -93,7 +110,28 @@ if args[:1] == ['app-server']:
                 subprocess.run(shlex.split(command['command']), input=json.dumps(event),
                                text=True, check=True)
 
+    def rollout(sid, origin='user'):
+        # its header, written before its start's hook runs, as 0.167's for a TUI's thread
+        transcript = ch / 'sessions' / ('rollout-' + sid + '.jsonl')
+        if not transcript.exists():
+            transcript.write_text(json.dumps({'type': 'session_meta', 'payload': {
+                'id': sid, 'cwd': os.getcwd(), 'thread_source': origin, 'timestamp':
+                    os.environ.get('FAKE_STAMP', '2026-09-11T08:00:00Z')}}) + '\n')
+        return transcript
+
+    def payload(sid, event, **fields):
+        return {'session_id': sid, 'transcript_path': str(rollout(sid).resolve()),
+                'cwd': os.getcwd(), 'hook_event_name': event, **fields}
+
+    def said(sid, kind, part, text):      # a completed item, the owner's words or the model's
+        with rollout(sid).open('a') as fh:
+            item = {'type': 'item_completed', 'item': {'type': kind, 'content': [
+                {'type': part, 'text': text}]}}
+            fh.write(json.dumps({'timestamp': datetime.now(timezone.utc).isoformat(),
+                                 'type': 'event_msg', 'payload': item}) + '\n')
+
     loaded = threading.Event()
+    opened = {}     # each thread /new or /resume opened, by its start's source at its next prompt
 
     class Handler(socketserver.StreamRequestHandler):
         def send(self, message):
@@ -126,7 +164,7 @@ if args[:1] == ['app-server']:
                         fh.write(json.dumps(params) + '\n')
                     result = {'manualPairingCode': 'ACME-1234', 'pairingCode': 'invented',
                               'environmentId': environment, 'expiresAt': 2000000000}
-                elif method == 'thread/resume' and (params.get('excludeTurns') or loaded.is_set()):
+                elif method == 'thread/resume' and params.get('excludeTurns'):
                     transcript = ch / 'sessions' / ('rollout-' + params['threadId'] + '.jsonl')
                     if not transcript.exists() or (home / 'resume-blocked').exists():
                         self.send({'id': msg['id'], 'error': {'message': 'no rollout found'}})
@@ -141,17 +179,16 @@ if args[:1] == ['app-server']:
                             self.send(json.loads(current))
                             previous = current
                     return
+                elif method in ('thread/start', 'thread/resume') and loaded.is_set():
+                    sid = params.get('threadId') or str(uuid.uuid4())
+                    rollout(sid)
+                    opened[sid] = 'resume' if method.endswith('resume') else 'startup'
+                    result = {'thread': {'id': sid}}
                 elif method in ('thread/start', 'thread/resume'):
                     loaded.set()
                     sid = params.get('threadId') or os.environ['FAKE_THREAD']
-                    transcript = ch / 'sessions' / ('rollout-' + sid + '.jsonl')
-                    if not transcript.exists():
-                        transcript.write_text(json.dumps({'type': 'session_meta', 'payload': {
-                            'id': sid, 'cwd': os.getcwd(), 'timestamp': os.environ.get(
-                                'FAKE_STAMP', '2026-09-11T08:00:00Z')}}) + '\n')
-                    event = {'session_id': sid, 'transcript_path': str(transcript.resolve()),
-                             'cwd': os.getcwd(), 'hook_event_name': 'SessionStart',
-                             'source': 'resume' if method.endswith('resume') else 'startup'}
+                    event = payload(sid, 'SessionStart',
+                                    source='resume' if method.endswith('resume') else 'startup')
                     hook(event)
                     hook({**event, 'hook_event_name': 'UserPromptSubmit', 'prompt': 'Ready?'})
                     state = home / '.agentkit/state' / ('hook-' + os.environ['AGENTKIT_SESSION'] + '.json')
@@ -160,6 +197,21 @@ if args[:1] == ['app-server']:
                     stop.update(event, hook_event_name='Stop', last_assistant_message='ACME_READY')
                     hook(stop)
                     result = {'thread': {'id': sid}}
+                elif method == 'turn/start':
+                    sid, words = params['threadId'], params['input'][0]['text']
+                    if sid in opened:
+                        hook(payload(sid, 'SessionStart', source=opened.pop(sid)))
+                    hook(payload(sid, 'UserPromptSubmit', prompt=words))
+                    said(sid, 'UserMessage', 'text', words)
+                    said(sid, 'AgentMessage', 'Text', 'Done.')
+                    hook(payload(sid, 'Stop', last_assistant_message='Done.'))
+                elif method == 'fake/spawn':
+                    # a sub-agent's thread: 0.167 fires no start for one, the fake fires one for a
+                    # test to show it is not taken
+                    sid = str(uuid.uuid4())
+                    rollout(sid, 'subagent')
+                    said(sid, 'UserMessage', 'text', params['prompt'])
+                    hook(payload(sid, 'SessionStart', source='startup'))
                 elif method in ('thread/backgroundTerminals/list', 'thread/list'):
                     # what the test says the thread runs in the background now, as the server
                     # lists it, ending with no `nextCursor`
@@ -225,13 +277,29 @@ else:
         if os.environ.get('FAKE_SCREEN'):       # the screen a TUI at its prompt draws
             print(Path(os.environ['FAKE_SCREEN']).read_text(), end='', flush=True)
         publish('fake-tui', {'argv': args, 'pid': os.getpid()})
+        typed = b''
         while os.environ.get('FAKE_HOLD'):
             time.sleep(.05)
-            # a TUI at its prompt reads what is typed into it, and names its thread on /rename
-            # where Codex keeps the names (tests/fixtures/codex-title-index.jsonl)
+            # a TUI at its prompt takes each line typed into it, into fake-heard.jsonl with the
+            # thread it went to: it names its thread on /rename where Codex keeps the names
+            # (tests/fixtures/codex-title-index.jsonl), and its server takes the rest; a line
+            # longer than one read waits for its end
             if os.environ.get('FAKE_SCREEN') and select.select([0], [], [], 0)[0]:
-                for line in os.read(0, 4096).decode(errors='replace').splitlines():
-                    if line.startswith('/rename '):
+                *lines, typed = (typed + os.read(0, 4096)).split(b'\n')
+                for line in filter(str.strip, (line.decode(errors='replace') for line in lines)):
+                    command, _, rest = line.partition(' ')
+                    if command == '/rename':
                         with (ch / 'session_index.jsonl').open('a') as index:
-                            index.write(json.dumps({'id': sid, 'thread_name': line[8:].strip(),
+                            index.write(json.dumps({'id': sid, 'thread_name': rest.strip(),
                                                     'updated_at': '2026-09-11T08:00:00Z'}) + '\n')
+                    else:
+                        method, params = {
+                            '/new': ('thread/start', {}),
+                            '/resume': ('thread/resume', {'threadId': rest.strip()}),
+                            '/agent': ('fake/spawn', {'prompt': rest})}.get(command, (
+                                'turn/start', {'threadId': sid,
+                                               'input': [{'type': 'text', 'text': line}]}))
+                        send({'id': 2, 'method': method, 'params': params})
+                        sid = (receive(wire)['result'].get('thread') or {}).get('id', sid)
+                    with (ch / 'fake-heard.jsonl').open('a') as heard:
+                        heard.write(json.dumps([line, sid]) + '\n')

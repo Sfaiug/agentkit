@@ -60,7 +60,7 @@ class Runner(unittest.TestCase):
     def test_a_hang_fails_while_a_detached_process_still_holds_its_output(self):
         with self.assertRaisesRegex(AssertionError, "still running after 1 s"):
             self.home.run("sh", "-c", "setsid sleep 60 & sleep 60", timeout=1)
-        self.assertTrue(_strays(self.home.path))
+        self.assertTrue(_strays(self.home.root, self.home.tmux_dir))
 
     @unittest.skipUnless(Path("/proc/self/environ").exists(), "no /proc to find strays in")
     def test_a_process_the_program_detached_ends_with_the_home(self):
@@ -82,7 +82,7 @@ class Runner(unittest.TestCase):
         clock = Clock(slept.append)
         clock.monotonic = lambda: len(slept)
         with patch.object(Path, "glob", return_value=entries), patch("fixtures.akbin.time", clock):
-            self.assertEqual(_strays(self.home.path), [7])
+            self.assertEqual(_strays(self.home.root, self.home.tmux_dir), [7])
 
     @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
     def test_a_tick_waits_out_what_it_detached_however_long_it_runs(self):

@@ -803,6 +803,38 @@ def interrupt(state, reason):
     return state
 
 
+def loop_death(state):
+    """The last entry of `deaths` where it is the ending of the loop the record names now, else None.
+
+    An entry speaks of the loop that was running when it was noted, and a resume starts a new
+    loop and leaves `deaths` as it was: an entry noted before the record's loop started
+    (`process_identity`) is an earlier loop's, whatever pid it names, for a pid comes round
+    again, after a reboot above all.  The pid still has to match: a resume reaps the loop it
+    answers and then records its own process as the next loop, so that death is noted after
+    the next loop's start.  The start counts from the boot time, which /proc gives in whole
+    seconds, so it can read up to a second before the loop really started; an entry noted in
+    that second is this loop's, since its own death can be noted that soon, while an earlier
+    loop's would need its pid handed out again within the second.  A record that names no
+    start, or an entry no time, is read by its pid alone.
+    """
+    deaths = state.get("deaths") or []
+    death = deaths[-1] if deaths else None
+    if not isinstance(death, dict) or death.get("pid") != state.get("pid"):
+        return None
+    identity = state.get("process_identity")
+    start = identity.get("started_at") if isinstance(identity, dict) else None
+    at = death.get("at")
+    if all(isinstance(t, (int, float)) and not isinstance(t, bool) for t in (at, start)) and at < start:
+        return None
+    return death
+
+
+def dead_parked(state):
+    """Whether the tick parked the loop the record names now, at its third death in an hour: a
+    park an earlier loop's death carries ended when a resume started the next loop."""
+    return bool((loop_death(state) or {}).get("parked"))
+
+
 def tick_resumes(state):
     """A dead loop the tick continues itself, so its death is nobody's news.
 
@@ -813,8 +845,7 @@ def tick_resumes(state):
     third within an hour, which it parks itself -- and a launch that never got as far as a
     worktree are what is left for a person.
     """
-    deaths = state.get("deaths") or []
-    if deaths and isinstance(deaths[-1], dict) and deaths[-1].get("parked"):
+    if dead_parked(state):
         return False
     # Exactly what the pass itself will carry on, so the two never disagree over one
     # record: without a workspace to go back to there is nothing to continue, and a

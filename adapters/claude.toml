@@ -412,14 +412,25 @@ levels = ["low", "medium", "high", "xhigh", "max"]
 # is newer than 2.1.280's table: Anthropic's models API lists it with all five efforts (29 Sep),
 # and 2.1.280 runs it, warning `unrecognized_model`.  Fable 5.2 is newer too, and like every row
 # with no label is named off its id (`config.model_label`).
+# The rows 2.1.280's table lacks are those the API listed beyond it on 13 Nov 2026, ids as
+# `models` prints them: a model picked inside a seat is added at once only where a row names
+# it (`watch._taken_in`).
 [catalog]
 claude-fable-5-2 = { efforts = ["low", "medium", "high", "xhigh", "max"] }
+claude-haiku-5-5 = { label = "Haiku 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-fable-5-1 = { label = "Fable 5.1", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-opus-5-5 = { label = "Opus 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-sonnet-5-5 = { label = "Sonnet 5.5", efforts = ["low", "medium", "high", "xhigh", "max"] }
+claude-opus-5 = { label = "Opus 5", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-sonnet-5 = { label = "Sonnet 5", efforts = ["low", "medium", "high", "xhigh", "max"] }
+claude-fable-5 = { label = "Fable 5", efforts = ["low", "medium", "high", "xhigh", "max"] }
+claude-opus-4-8 = { label = "Opus 4.8", efforts = ["low", "medium", "high", "xhigh", "max"] }
+claude-opus-4-7 = { label = "Opus 4.7", efforts = ["low", "medium", "high", "xhigh", "max"] }
 claude-sonnet-4-6 = { label = "Sonnet 4.6", efforts = ["low", "medium", "high", "max"] }
+claude-opus-4-6 = { label = "Opus 4.6", efforts = ["low", "medium", "high", "max"] }
+claude-opus-4-5-20251101 = { label = "Opus 4.5", efforts = ["low", "medium", "high"] }
 claude-haiku-4-5 = { label = "Haiku 4.5", efforts = ["none"] }
+claude-sonnet-4-5-20250929 = { label = "Sonnet 4.5", efforts = ["none"] }
 
 # A worker credential of its own, apart from the seat's interactive login: `claude
 # setup-token` mints it, install.sh writes it here, `auth` dates it a year from this file,

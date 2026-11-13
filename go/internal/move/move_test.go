@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"agentkit/internal/install"
 )
 
 func TestPartsNameEachFolderAboveWhatIsAsked(t *testing.T) {
@@ -35,12 +37,6 @@ func machine(t *testing.T, ssh, rsyncCode string) (home, log string) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(root, "install.sh"), []byte("x\nCRON_MATCH='a b'\ny\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	shipped := repo
-	repo = func() string { return root }
-	t.Cleanup(func() { repo = shipped })
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", tools+":"+os.Getenv("PATH"))
 	return home, log
@@ -123,7 +119,7 @@ func TestTheCopy(t *testing.T) {
 		if words != wanted {
 			t.Fatalf("rsync's words %q, want %q", words, wanted)
 		}
-		if !strings.Contains(string(logged), `grep -qE '"'"'a b'"'"'`) {
+		if !strings.Contains(string(logged), `grep -qE '"'"'`+install.CronTagged.String()+`'"'"'`) {
 			t.Fatalf("the tick's match was not asked: %s", logged)
 		}
 	}
