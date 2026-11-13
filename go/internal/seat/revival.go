@@ -184,10 +184,14 @@ func (seat Seat) reviveTurn(now time.Time, cut owed, log func(string), errOut io
 	}
 	deaths = slices.DeleteFunc(deaths, func(when any) bool { return died-at(when) >= deathWindow })
 	if len(deaths) == 2 {
-		if err := Write(seat.Name, "reopened_at", append(deaths, run.Float(died))); err != nil {
-			return true, err
+		// decided before anything is written: a card Go does not carry leaves this death Python's
+		carried, err := seat.revivalFailed(died, cut, "it died again both times it was reopened within the hour", false, log, errOut)
+		if carried {
+			if wrote := Write(seat.Name, "reopened_at", append(deaths, run.Float(died))); err == nil {
+				err = wrote
+			}
 		}
-		return seat.revivalFailed(died, cut, "it died again both times it was reopened within the hour", log, errOut)
+		return carried, err
 	}
 	_, record, err := config.ResolveSession(seat.Name)
 	if err != nil || record == nil {
@@ -226,7 +230,7 @@ func (seat Seat) reviveTurn(now time.Time, cut owed, log func(string), errOut io
 		log(back.said())
 		name, err = back.launch(filepath.Join(config.Home(), "state"), rulebook, cmd, conversation)
 		if err != nil {
-			return seat.revivalFailed(died, cut, err.Error(), log, errOut)
+			return seat.revivalFailed(died, cut, err.Error(), true, log, errOut)
 		}
 		if !back.opened {
 			line += freshContinue
@@ -244,11 +248,13 @@ func (seat Seat) reviveTurn(now time.Time, cut owed, log func(string), errOut io
 	return carried, err
 }
 
-func (seat Seat) revivalFailed(died float64, cut owed, why string, log func(string), errOut io.Writer) (bool, error) {
+// revivalFailed asks the owner about a death ak could not bring back; `kept` where the death is on
+// record already, so that a card Python evaluates still finds its notice.
+func (seat Seat) revivalFailed(died float64, cut owed, why string, kept bool, log func(string), errOut io.Writer) (bool, error) {
 	event, when, ask := cut.about()
 	text := fmt.Sprintf("Its orchestrator session %s is gone %s. agentkit tried to reopen the seat and could not: %s. Press its number in the menu, then say: continue.", seat.Name, when, why)
 	source := "revive:" + seat.Name + ":" + event + ":" + strconv.FormatInt(int64(died), 10)
-	carried, err := notify.Failed(seat.Name, text, source, CardWord, errOut)
+	carried, err := notify.Failed(seat.Name, text, source, kept, failedWord, errOut)
 	if err == nil && carried {
 		log("could not reopen " + seat.Name + "; asked the user to " + ask)
 	}

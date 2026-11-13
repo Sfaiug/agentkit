@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"agentkit/internal/run"
 )
@@ -25,9 +26,9 @@ func TestAFailedRevivalPagesAtOnceInItsExistingEpisode(t *testing.T) {
 				card.Set("left", asked)
 			}
 			write(seatFile("card", "acme", "json"), run.Line(card))
-			published := func(string) (string, any) { return "needs you", nil }
+			word := func(string, *run.Object, time.Time) (string, any, bool) { return "needs you", nil, false }
 			for range 2 {
-				if carried, err := Failed("acme", "The seat could not reopen; say continue.", "revive:acme:turn:1", published, io.Discard); !carried || err != nil {
+				if carried, err := Failed("acme", "The seat could not reopen; say continue.", "revive:acme:turn:1", true, word, io.Discard); !carried || err != nil {
 					t.Fatal(carried, err)
 				}
 			}
