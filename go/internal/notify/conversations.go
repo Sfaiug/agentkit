@@ -18,12 +18,12 @@ type Conversation struct {
 }
 
 // Conversations is each conversation that seat had, oldest first (notify.conversations_of): each
-// one it left, as its record keeps them (`left`), then its current one, the owner's messages in
-// each without the lines ak typed (withoutAk); none with no record.  ErrUnread where Go does not
-// read one, and strictly, with none of them read, where Go does not read the owner's words in one
-// as strictly as Python's done check does (harness.Reads); read strictly as Python's done check
-// reads, the error where the seat's typing receipts, a conversation or the evidence proving it is
-// there and cannot be read.
+// one it left, as its record keeps them (`left`), then its current one once its harness names it
+// (harness.Named), the owner's messages in each without the lines ak typed (withoutAk); none with
+// no record.  ErrUnread where Go does not read one, and strictly, with none of them read, where Go
+// does not read the owner's words in one as strictly as Python's done check does (harness.Reads);
+// read strictly as Python's done check reads, the error where the seat's typing receipts, a
+// conversation or the evidence proving it is there and cannot be read.
 func Conversations(name string, strictly bool) ([]Conversation, error) {
 	current, had, err := Listed(name, strictly)
 	if err == nil {
@@ -36,8 +36,8 @@ func Conversations(name string, strictly bool) ([]Conversation, error) {
 }
 
 // Listed is the name that seat goes by now and its conversations as Conversations gives them, none
-// of them read yet (Read): no owner's message in any, and the current one's Name "" until read.
-// ErrUnread where Conversations is.
+// of them read yet (Read): no owner's message in any, and the current one's Name "" until read,
+// so one listed last with a name is one the seat left.  ErrUnread where Conversations is.
 func Listed(name string, strictly bool) (string, []Conversation, error) {
 	current, record, err := config.ResolveSession(name)
 	if err != nil {
@@ -68,7 +68,13 @@ func Listed(name string, strictly bool) (string, []Conversation, error) {
 		maps.Copy(was, entry)
 		had = append(had, Conversation{Harness: kind, Name: named, Record: was})
 	}
-	had = append(had, Conversation{Harness: config.SeatHarness(current), Record: record})
+	// asked before any is read or judged, so nothing of a harness that has named none yet is; a
+	// failure on the way keeps the conversation, for the read or check that follows to report or
+	// hand over
+	kind := config.SeatHarness(current)
+	if named, err := harness.Named(kind, record); err != nil || named != "" {
+		had = append(had, Conversation{Harness: kind, Record: record})
+	}
 	// before any is read, as reading one may keep what its harness's evidence follows
 	for _, each := range had {
 		if strictly && !harness.Reads(each.Harness, true) {

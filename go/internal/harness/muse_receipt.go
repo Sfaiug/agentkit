@@ -129,14 +129,8 @@ func museReported(record map[string]any) string {
 
 // museRead is the session that receipt's file names, "" for none or no receipt.
 func museRead(receipt, name string) string {
-	if receipt == "" {
-		return ""
-	}
-	session, err := os.ReadFile(filepath.Join(receipt, name))
-	if err != nil || !museSession.Match(session) {
-		return ""
-	}
-	return string(session)
+	session, _ := museNames(receipt, name)
+	return session
 }
 
 // museFollowed is the one session the registry has given a process of that receipt's lineage

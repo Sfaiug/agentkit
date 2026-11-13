@@ -47,9 +47,11 @@ type plugin struct {
 	resumable func(record *run.Object) bool
 	// owned is the conversation its own evidence names, which its harness reported (Python's
 	// plugin `conversation`), and found that and the error of evidence that is there and cannot be
-	// read, where Go reads it as strictly as Python's done check (harness.strictly).
+	// read, where Go reads it as strictly as Python's done check (harness.strictly); named is
+	// Named's, which every owned has: what owned reads, read as strictly as Named answers.
 	owned func(record map[string]any) string
 	found func(record map[string]any) (string, error)
+	named func(record map[string]any) (string, error)
 	// reported is the conversation its launch's evidence first named, which a line the launch
 	// opened on went into, where owned may since have moved on (WentInto); nil where owned is it.
 	reported func(record map[string]any) string
