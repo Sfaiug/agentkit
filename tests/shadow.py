@@ -51,6 +51,7 @@ CAP = 600   # seconds a run may take, what it detached included
 PREVIEWS = (("watch", "--dry-run"), ("doctor",), ("run", "gc", "--dry-run"), ("run", "status"),
             ("orch", "list"))
 WHOLE = 30 * 60     # seconds the previews may take in all: the live check's suite waits on them
+STOPS = (signal.SIGTERM, signal.SIGINT)     # what stops this script: the check's, a terminal's ^C
 # akbin's refusing fakes, tmux, and the copiers that would carry a file to another machine
 FAKES = (*akbin.REFUSED, "tmux", "scp", "rsync")
 # The host's memory and load, which ak's admission reads and `ak run status` prints: read once as
@@ -153,7 +154,7 @@ sys.exit(int(sys.argv[1]))' "$code" >"$peak"
 # It waits for a SIGTERM and never handles one, so no stop cuts its cleanup short.
 KEEP = """import ctypes, os, signal, subprocess, sys, time
 WAKE = {signal.SIGTERM, signal.SIGCHLD}
-signal.pthread_sigmask(signal.SIG_BLOCK, WAKE)
+signal.pthread_sigmask(signal.SIG_SETMASK, WAKE)   # not the stops the shadow held to start it
 signal.signal(signal.SIGCHLD, signal.SIG_DFL)   # inherited ignored, no child's end sends one
 libc = ctypes.CDLL(None)
 libc.prctl(36, 1, 0, 0, 0)                  # subreaper
@@ -265,11 +266,17 @@ def run(label, program, argv, home, scratch):
     try:
         with (folder / "stdout").open("wb") as out, (folder / "stderr").open("wb") as err:
             # Its own session keeps the box from a stop meant for this script, as a terminal's
-            # ^C, till its keeper halts it.
-            keeper = subprocess.Popen([sys.executable, "-I", "-c", KEEP, *command, "sh", "-c",
-                                       WAIT, "sh", sys.executable, inside / "peak", program,
-                                       *argv], start_new_session=True,
-                                      stdin=subprocess.DEVNULL, stdout=out, stderr=err, env=env)
+            # ^C, till its keeper halts it.  A stop waits till `keeper` holds it, or the box
+            # would outlive a caller that goes on.
+            try:
+                signal.pthread_sigmask(signal.SIG_BLOCK, STOPS)
+                keeper = subprocess.Popen([sys.executable, "-I", "-c", KEEP, *command, "sh",
+                                           "-c", WAIT, "sh", sys.executable, inside / "peak",
+                                           program, *argv], start_new_session=True,
+                                          stdin=subprocess.DEVNULL, stdout=out, stderr=err,
+                                          env=env)
+            finally:
+                signal.pthread_sigmask(signal.SIG_UNBLOCK, STOPS)
         code, cut = keeper.wait(CAP), False
     except subprocess.TimeoutExpired:
         code, cut = f"none (killed at {CAP // 60} minutes)", True
@@ -478,8 +485,8 @@ def previews(found, python, go, home, scratch, until):
 
 
 def _on_stop(handler):
-    """Have a stop, SIGTERM or SIGINT, call `handler` from now on."""
-    for each in (signal.SIGTERM, signal.SIGINT):
+    """Have a stop, any of `STOPS`, call `handler` from now on."""
+    for each in STOPS:
         signal.signal(each, handler)
 
 
