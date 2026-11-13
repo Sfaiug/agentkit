@@ -299,9 +299,14 @@ if [ "$MACHINE" = 1 ]; then
     { echo "install.sh: this Mac's Linux machine is not up; see above, then run ./install.sh again" >&2; exit 1; }
   if ! linux_machine_run test -e agentkit/.git; then
     copy=$(mktemp -d)
-    git clone -q --depth 1 -- "file://$REPO" "$copy/agentkit"
-    origin=$(git -C "$REPO" remote get-url origin 2>/dev/null || true)
-    [ -z "$origin" ] || git -C "$copy/agentkit" remote set-url origin "$origin"
+    # Named origin whatever clone.defaultRemoteName says, so the lines below act on it.
+    git clone -q --depth 1 --origin origin -- "file://$REPO" "$copy/agentkit"
+    # The clone's own origin is this Mac's folder, which the machine does not mount.
+    if origin=$(git -C "$REPO" remote get-url origin 2>/dev/null); then
+      git -C "$copy/agentkit" remote set-url origin "$origin"
+    else
+      git -C "$copy/agentkit" remote remove origin
+    fi
     tar -C "$copy/agentkit" -cf - . | linux_machine_run sh -c 'mkdir -p agentkit && tar -xf - -C agentkit'
     rm -rf -- "$copy"
     echo "linux: ak $(git -C "$REPO" rev-parse --short HEAD) copied into this Mac's Linux machine"
@@ -791,27 +796,30 @@ fi
 # daemon's, which allows any size: crashing browser tests once left 39 GiB in a seat's scratch
 # folder.  Nobody reads one: a crash is chased from what the program printed.  A live pattern
 # starting with `|` hands dumps to a program, a collector the owner set up or ours, and is left
-# as it is; any other becomes ours, which discards them, now and on every boot.  ak's one boot
-# entry is named to sort after every other in sysctl.d (99-sysctl.conf, which is
-# /etc/sysctl.conf, included), so ours is applied last whatever they say, and the live pattern
-# alone decides.  The entry is written first: once the live pattern starts with `|`, no install
-# writes it again.
-CORE_PATTERN="${AK_CORE_PATTERN:-/proc/sys/kernel/core_pattern}"
+# as it is; any other becomes ours, which discards them, now and on every boot.
 SYSCTL_D="${AK_SYSCTL_D:-/etc/sysctl.d}"
-core_none='|/bin/false' core_ours=-agentkit-no-core-dumps.conf
-core_off() {   # ak's boot entry in place of an earlier install's, then the live pattern
-  local LC_ALL=C name names fit last others=zz   # C: lengths and order in bytes
+# `sysctl_set LIVE KEY VALUE NAME WHY` sets KEY to VALUE on every boot, through ak's entry for
+# NAME in sysctl.d in place of an earlier install's, then now, in the LIVE file: the entry first,
+# as the live value alone decides whether an install writes it, and once that is ours none does.
+sysctl_set() {
+  local LC_ALL=C ours=-agentkit-$4.conf name names fit last others=zz   # C: lengths and order in bytes
   # listed and measured through sudo, as written, so an entry only root can reach still sorts
   # before ours
   sudo -n mkdir -p -- "$SYSCTL_D" 2>/dev/null && names=$(sudo -n ls -- "$SYSCTL_D" 2>/dev/null) &&
     fit=$(sudo -n getconf NAME_MAX "$SYSCTL_D" 2>/dev/null) || return 1
-  fit=$((fit - ${#core_ours}))
-  # systemd-sysctl applies entries in the byte order of their names, and a name extended sorts
-  # after it: ours is the last of `zz` and every other name, extended.  Only that rule makes
-  # these two shapes, so an entry of either is an earlier install's.
+  fit=$((fit - ${#ours}))
+  # systemd-sysctl applies entries in the byte order of their names, the last value for a key
+  # winning, and a name extended sorts after it: ours is the last of `zz` and every other name
+  # (99-sysctl.conf, which is /etc/sysctl.conf, included), extended, so it is applied last.
+  # Only that rule makes these two shapes, so an entry of either is an earlier install's.  ak's
+  # entries for other keys take them with their own names, and ours follows such a name only if
+  # it holds this key's last part, which every spelling of the key does, so an owner's entry
+  # named like ak's is still followed and neither of ak's names grows out of the other's.
   while IFS= read -r name; do
     case $name in
-      zz"$core_ours"|*.conf"$core_ours") sudo -n rm -f -- "$SYSCTL_D/$name" 2>/dev/null || return 1 ;;
+      zz"$ours"|*.conf"$ours") sudo -n rm -f -- "$SYSCTL_D/$name" 2>/dev/null || return 1 ;;
+      zz-agentkit-*.conf|*.conf-agentkit-*.conf)
+        sudo -n grep -qF -- "${2##*.}" "$SYSCTL_D/$name" 2>/dev/null && others+=$'\n'$name ;;
       *.conf) others+=$'\n'$name ;;
     esac
   done <<<"$names"
@@ -821,7 +829,7 @@ core_off() {   # ak's boot entry in place of an earlier install's, then the live
   # which no name holds)
   if [ ${#name} -gt $fit ]; then
     last=$name name=${name:0:fit-5}
-    until [[ $name.conf$core_ours > $last ]]; do
+    until [[ $name.conf$ours > $last ]]; do
       case ${name: -1} in
         '') return 1 ;;
         $'\377') name=${name%?} ;;
@@ -830,16 +838,18 @@ core_off() {   # ak's boot entry in place of an earlier install's, then the live
     done
     name+=.conf
   fi
-  printf '%s\n' "# Written by agentkit's install.sh: a crashed program leaves no core dump file" \
-    "kernel.core_pattern = $core_none" | sudo -n tee "$SYSCTL_D/$name$core_ours" >/dev/null 2>&1 &&
-    printf '%s' "$core_none" | sudo -n tee "$CORE_PATTERN" >/dev/null 2>&1
+  printf '%s\n' "# Written by agentkit's install.sh: $5" "$2 = $3" |
+    sudo -n tee "$SYSCTL_D/$name$ours" >/dev/null 2>&1 &&
+    printf '%s' "$3" | sudo -n tee "$1" >/dev/null 2>&1
 }
+CORE_PATTERN="${AK_CORE_PATTERN:-/proc/sys/kernel/core_pattern}"
 if [ "$SANDBOX" = 1 ] || ! core_now=$(cat -- "$CORE_PATTERN" 2>/dev/null) ||
    [ "${core_now:0:1}" = "|" ]; then
   :   # a sandbox touches no host, and one with no pattern to read (a Mac) has none to set
 elif ! have sudo || ! sudo -n true 2>/dev/null; then
   note "core dumps: no passwordless sudo, so kernel.core_pattern is not set to discard them; run \`sudo -v\` and re-run ./install.sh"
-elif core_off; then
+elif sysctl_set "$CORE_PATTERN" kernel.core_pattern '|/bin/false' no-core-dumps \
+       "a crashed program leaves no core dump file"; then
   echo "core dumps: a crashed program leaves none, now and on every boot"
 else
   note "core dumps: kernel.core_pattern could not be set; see $SYSCTL_D"
@@ -1272,6 +1282,26 @@ sys.path.insert(0, sys.argv[1])
 from agentkit.macbridge import install_launch_agent
 install_launch_agent(load=sys.argv[2] == "0")
 PYMACBRIDGE
+fi
+
+# --- every session has room for its inotify instances ------------------------
+# Each harness process holds an inotify instance or two, and the kernel allows one user 128
+# whatever the host's size: 30 seats and 33 runs once held 99, and past the limit a harness's
+# file watching fails, as a test opening its own did at landing.  An instance costs kernel
+# memory only while it is open, so a floor of 8192 costs a host nothing, and a host that allows
+# more keeps its own.
+INOTIFY_INSTANCES="${AK_INOTIFY_INSTANCES:-/proc/sys/fs/inotify/max_user_instances}"
+inotify_floor=8192
+if [ "$SANDBOX" = 1 ] || ! inotify_now=$(cat -- "$INOTIFY_INSTANCES" 2>/dev/null) ||
+   [ "$inotify_now" -ge $inotify_floor ]; then
+  :   # a sandbox touches no host, and one with no limit to read (a Mac) has none to set
+elif ! have sudo || ! sudo -n true 2>/dev/null; then
+  note "inotify: no passwordless sudo, so fs.inotify.max_user_instances stays $inotify_now; run \`sudo -v\` and re-run ./install.sh"
+elif sysctl_set "$INOTIFY_INSTANCES" fs.inotify.max_user_instances $inotify_floor inotify \
+       "every session has room for its inotify instances"; then
+  echo "inotify: room for $inotify_floor instances per user, now and on every boot"
+else
+  note "inotify: fs.inotify.max_user_instances could not be set; see $SYSCTL_D"
 fi
 
 # --- (i) what this run could not do, in one place at the end -----------------

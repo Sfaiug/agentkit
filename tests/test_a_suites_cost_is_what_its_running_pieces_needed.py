@@ -1,5 +1,6 @@
 """A suite's cost is what one piece needed while it ran: the CPU seconds its boxes needed over the
-seconds those boxes ran, however long its places stood empty meanwhile.
+seconds those boxes ran, however long its places stood empty meanwhile.  Only a pass that ended
+green measures it: a piece that ended red ran no whole length.
 
 Offline: temporary HOME and injected host readings; each box's command and report are faked, on
 an injected clock (tests/fixtures/clock.py) where every box starts at 0 and reads its own end.
@@ -48,27 +49,30 @@ class ASuitesCostIsWhatItsRunningPiecesNeeded(unittest.TestCase):
         record.save_state(self.run_dir, {"run_id": "fixture", "state": "running",
                                         "repo": str(self.root)})
 
-    def recorded(self, ends):
-        """The cost a pass records whose pieces' boxes all start at 0, the one of share k ending
-        at `ends[k - 1]`; the pass ends with its last."""
+    def recorded(self, ends, red=0, needed=NEEDED):
+        """The cost on record after a pass whose pieces' boxes all start at 0, the one of share k
+        ending at `ends[k - 1]`, each needing `needed` CPU seconds a second; the pass ends with
+        its last.  With `red`, every piece ends on that exit, and again when it goes alone."""
         latest, mine = [0.0], threading.local()
         clock = Clock(time.sleep)
         clock.monotonic = lambda: getattr(mine, "now", latest[0])
-        together = threading.Barrier(len(ends), timeout=30)
+        together, begun = threading.Barrier(len(ends), timeout=30), set()
 
         def limited(cmd, limit, env, output, **_kw):
-            together.wait()     # every box has read its start
+            if env["AK_SHARD"] not in begun:
+                begun.add(env["AK_SHARD"])
+                together.wait()     # every box has read its start
             mine.now = ends[int(env["AK_SHARD"].split("/")[0]) - 1]
             latest[0] = max(latest[0], mine.now)
-            return 0, "", False
+            return red, "", False
 
         with patch.object(gate, "time", clock), patch.object(worker, "time", clock), \
                 patch.object(worker, "limited", side_effect=limited), \
-                patch.object(box, "cpu_seconds", lambda _out_dir: NEEDED * mine.now):
+                patch.object(box, "cpu_seconds", lambda _out_dir: needed * mine.now):
             code, text, killed = gate.run_suite(
                 SUITE, 3600, cwd=self.root, activity=self.run_dir / "live.log",
                 output=BytesIO(), run_dir=self.run_dir)
-        self.assertEqual((code, killed), (0, False), text)
+        self.assertEqual((code, killed), (red, False), text)
         self.assertEqual(text.count("--- AK_SHARD="), len(ends))
         return gate.read_suite_cost(gate.suite_cost(SUITE, self.root, self.run_dir)[0])
 
@@ -77,6 +81,14 @@ class ASuitesCostIsWhatItsRunningPiecesNeeded(unittest.TestCase):
 
     def test_places_left_empty_for_half_the_pass_change_nothing(self):
         self.assertEqual(self.recorded([60, 60, 120, 120])["cpus"], NEEDED)
+
+    def test_a_pass_that_ends_red_measures_nothing(self):
+        """A stack red in its first check, every piece over in seconds of the suite's busiest
+        work, recorded 2.3 CPUs a piece where a whole piece needs 0.7; the next check then ran
+        7 pieces at once on 18 CPUs and took three times as long (12 Nov 2026)."""
+        self.assertNotIn("cpus", self.recorded([2, 2, 2, 2], red=3, needed=3 * NEEDED))
+        green = self.recorded([60, 60, 60, 60])["cpus"]
+        self.assertEqual(self.recorded([2], red=3, needed=3 * NEEDED)["cpus"], green)   # whole
 
 
 if __name__ == "__main__":

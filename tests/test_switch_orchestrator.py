@@ -87,7 +87,7 @@ class Switch(Sandbox):
             path.chmod(0o755)
         self.stack.enter_context(patch.dict(
             os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
-        self.calls, self.fail = [], set()
+        self.calls, self.fail, self.pid = [], set(), None    # `pid`: the pane's process, named
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.seat = {"name": "fix-api", "path": str(self.root), "created": 100,
                      "attached": False, "exited": False, "legacy": False}
@@ -120,6 +120,8 @@ class Switch(Sandbox):
         self.calls.append(pane.resolved(args))
         if args[0] in self.fail:
             return 1, "boom"
+        if self.pid and args[-1] == "#{pane_id}\t#{pane_pid}":
+            return 0, f"%7\t{self.pid}"
         return 0, PROMPT if args[0] == "capture-pane" else ""
 
     def rulebook(self, name="fix-api"):
@@ -177,7 +179,10 @@ class Switch(Sandbox):
         config.remove_model(self.cfg, "opus")     # fix-api is still open on it
         selected = self.selected()                # its record reads, on the models left
         self.assertEqual(selected["orchestrator"], "opus")
-        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}), "")
+        self.pid = 4207     # its pane runs claude, through which its empty field is read
+        with patch.object(orch, "processes", return_value={self.pid: (1, ["claude"])}):
+            self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
+                             "")
         self.assertEqual(config.load_session(self.cfg, "fix-api")["orchestrator"], "astra")
         respawns = [args for args in self.calls if args[0] == "respawn-pane"]
         self.assertEqual(len(respawns), 1)
@@ -314,6 +319,34 @@ class Switch(Sandbox):
         self.assertEqual([args for args in self.calls
                           if args[0] in ("respawn-pane", "new-session")], [])
         self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
+
+    def test_a_move_in_place_within_the_provider_skips_auth_and_still_refuses_spent(self):
+        before = self.at_xhigh()
+        (self.fixture / "logged-out-claude").write_text("yes\n")
+        spent = {"anthropic": {"meters": [{"name": "weekly_all", "used": 100,
+                                           "resets_at": time.time() + 86400,
+                                           "window_secs": 604800}]}}
+        dead = "0"
+
+        def live_tmux(*args, **kwargs):
+            if args[0] == "show-options":
+                return 0, "%7"
+            if args[0] == "display-message":
+                return 0, dead if args[-1] == "#{pane_dead}" else "fix-api"
+            return self.tmux(*args, **kwargs)
+
+        with patch.object(orch, "tmux_out", side_effect=live_tmux), \
+                patch.object(watch, "move_behind"), patch.object(watch, "announce_state"):
+            self.assertIn("spent", orch.switch_orchestrator(self.cfg, "fix-api", "fable", spent))
+            self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
+            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "opus", {},
+                                                      effort="max"), "")
+            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "fable", {}), "")
+            self.assertEqual([owed["line"] for owed in watch.seat_read("fix-api")["owed_lines"]],
+                             ["/effort max", "/model claude-fable-5-1", "/effort xhigh"])
+            dead = "1"      # pane dead: restarts, so auth runs first even beside a spent meter
+            self.assertIn("not logged in",
+                          orch.switch_orchestrator(self.cfg, "fix-api", "opus", spent))
 
     def test_a_restart_at_an_effort_that_fails_gives_the_effort_back(self):
         self.at_xhigh()

@@ -1,12 +1,14 @@
 """The pages `c` opens come up and move as `c` does: `Models` opening is written a frame whose
 header has `agentkit` and only part of `config · models` before the frame with all of it, and
-Space on Weekly audit's `On` is written the half-way mark (`◉`) before the new one.
+Space on Weekly audit's `On` is written the half-way mark, `●` in the ink `○` had, before the new
+one.
 
 The owner's ask of 27 Oct 2026, every screen moving as the main menu does.  Black-box: the
 program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) with its colours,
-its harnesses the fakes of tests/fixtures/fakeadapter.py.  A frame is the first of its motion
-whatever the host's load, so what the pane is written is read from tmux's `pipe-pane`, never
-timed off a capture.  Fails against `/bin/false`.
+its harnesses the fakes of tests/fixtures/fakeadapter.py.  Its clock injected: `AK_MOTION_CLOCK`
+names a file of seconds that stands still until the test moves it, so a motion's frame is
+written however late the host's load makes it; what the pane is written is read from tmux's
+`pipe-pane`, never timed off a capture.  Fails against `/bin/false`.
 """
 
 import re
@@ -33,7 +35,9 @@ class CPagesComeUp(unittest.TestCase):
         fakeadapter.install(self.home, claude="pass", codex="pass")
         akconfig.write(self.home, {"fable": {"harness": "claude", "effort": "xhigh"},
                                    "astra": {"harness": "codex", "effort": "high"}})
-        self.term = Terminal(self.home, size=(100, 30))
+        self.clock = self.home.root / "clock"
+        self.at(1000)
+        self.term = Terminal(self.home, size=(100, 30), env={"AK_MOTION_CLOCK": str(self.clock)})
         self.term.wait("esc leave")
         self.raw = self.home.root / "raw"
         piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane, f"cat >>{self.raw}",
@@ -41,6 +45,14 @@ class CPagesComeUp(unittest.TestCase):
         self.assertEqual(piped.code, 0, piped.err)
         self.term.keys("c", "j", "j")
         self.term.wait("› Models")
+
+    def at(self, seconds):
+        """ak's motion at `seconds` from now on: its clock's file swapped whole, never read half
+        written."""
+        self.now = seconds
+        new = self.clock.with_name("clock.new")
+        new.write_text(repr(seconds))
+        new.replace(self.clock)
 
     def written(self, until, since=0):
         """What the pane was written from byte `since` once it holds `until`."""
@@ -60,14 +72,22 @@ class CPagesComeUp(unittest.TestCase):
         opened = [found[1] for found in HEADER.finditer(out, 0, out.index(NOTE))][-1]
         self.assertNotEqual(opened, NAME)
         self.assertTrue(NAME.startswith(opened), opened)
+        self.at(self.now + 10)
         self.written(f"{NOTE}.*agentkit{NAME} ")      # and then all of it
 
     def test_space_on_audits_on_is_written_half_way_before_the_new_mark(self):
         self.term.keys("j", "j", "j", "Enter")
         self.term.wait(lambda screen: re.search(r"› On +○ off", screen))
+        self.at(self.now + 10)          # the page up
+        shown = r"On +(\x1b\[[\d;]*m)○"        # its ink alone: the page up, no fade over it
+        ink = re.findall(shown, self.written(shown))[-1]
         since = self.raw.stat().st_size
         self.term.keys("Space")
-        self.written("◉.*●", since)
+        self.written(re.escape(ink) + " ?●", since)    # half way while the clock stands, padded
+        self.at(self.now + 10)
+        # then in its own ink, the last ● of the last update: a whole redraw (terminal.TICK)
+        # writes the drawn ● before the half over it
+        self.written(rf"(?!{re.escape(ink)})\x1b\[[\d;]*m ?●[^●]*\x1b\[\?2026l[^●]*\Z", since)
 
 
 if __name__ == "__main__":

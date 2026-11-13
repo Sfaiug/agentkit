@@ -6,8 +6,8 @@ with `terminal.py`'s helpers, never its own.
 
 ## Frame
 
-Every screen has the same frame. The header is one line: `agentkit` at the left with the
-screen's name after it, and the clock at the right. Under it comes one dim rule, then the
+Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit`
+and the screen's name at the left, the clock at the right. Under it comes one dim rule, the
 screen's rows, one blank line, and the key line, always last. On the main screen and on
 `c`, the usage sits under the header.
 The rule is ak's one progress indicator. It fills while ak updates itself, and a segment
@@ -37,8 +37,7 @@ Example: `  1  atoll-fix  fable  ● working  ━━━━━╸─────�
 
 Words are plain and explain themselves.
 
-- **Glyphs:** every glyph is followed by its word (`● working`), except ⚒ for builds and ◎ for
-  reviews.
+- **Glyphs:** every glyph is followed by its word (`● working`).
 - **Models:** a model is named in full, its version included: `Opus 5.5`, `gpt-6.1-sol`
   (`config.model_name`).
 - **Subscriptions:** a subscription is named by its provider, with a roman numeral when there
@@ -104,13 +103,12 @@ under the pointer, on its meter, lighting its meter and models.
 
 ## Motion
 
-Something moves only while a model works on it, once when it changes, or under the pointer:
+Something moves only while it is worked on, once when it changes, or under the pointer:
 
-- **While a model works:** a working seat's `●` breathes, and so do the tip of its progress
-  line and its tasks' squares.
-- **When something changes:** the change moves once. A seat that turns `needs you` pulses,
-  one that turns `done` settles, a mark fills over two frames, and a refused change nudges
-  its mark.
+- **While work runs:** a working seat's `●` breathes, as do its progress line's tip, its
+  tasks' squares and ak's spinner, `▖▘▝▗`.
+- **When something changes:** a seat that turns `needs you` pulses, one that turns `done`
+  settles, a mark fills or empties through a dim `■`, and a refused change nudges its mark.
 
 Every animation runs on one clock, `motion.Clock`. A key ends an animation on its last frame.
 Nothing moves off a terminal or under `NO_COLOR`.

@@ -32,7 +32,7 @@ func waitAdapter[T any](title string, cells []menu.Cell, keyboard *terminal.Keyb
 	defer frame.Stop()
 	draw := func() {
 		screen := keyboard.Screen()
-		clock.Draw(time.Now())
+		clock.Draw(motion.Now())
 		painter.Write(menu.CatalogWaiting(screen, title, time.Now().Format("15:04"), cells, clock), screen)
 		if next, due := clock.Next(); due {
 			frame.Reset(next)

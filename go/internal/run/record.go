@@ -32,6 +32,9 @@ func Ended(record *Object) bool  { return stateIn(record, ended) }
 // whatever the tick has admitted of it (Going).
 func GoingState(record *Object) bool { return stateIn(record, goes) }
 
+// Judged are the states a run ends in with a verdict on the work itself, Python's record.JUDGED.
+var Judged = []string{"pass", "fail", "blocked"}
+
 // FailedState is whether a run that ended in that state word delivered nothing, not by choice.
 func FailedState(state string) bool { return slices.Contains(failed, state) }
 

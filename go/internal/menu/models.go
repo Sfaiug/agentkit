@@ -1,6 +1,5 @@
-// Package menu draws ak's screens.  This file is the models screen's answer per role, as `ak
-// models` prints it and as the `r recommended` screen will: each role's line of best quality for
-// the money, from its best, and the legend.
+// Package menu draws ak's screens.  This file is each role's answer as `ak models` prints it: each
+// role's line of best quality for the money, from its best, and the legend.
 package menu
 
 import (
@@ -26,9 +25,9 @@ var (
 
 // A Line is one row of a role's answer, or the words Said where it says something else.
 type Line struct {
-	Said, Mark, Name, Word, Quality, Cost, Maker string
-	Cells, Notes                                 []string
-	Near                                         float64
+	Said, Mark, Name, Word, Quality, Cost string
+	Cells, Notes                          []string
+	Near                                  float64
 }
 
 // A Role is what the screen says of one role's answer: its head, full frontier and its cost
@@ -61,7 +60,7 @@ func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup 
 				notes = append(notes, screen.Styled("measured", "dim"))
 			}
 			taken := levels[row.Release]
-			line := Line{Name: row.Name, Word: row.Effort, Notes: notes, Maker: row.Maker,
+			line := Line{Name: row.Name, Word: row.Effort, Notes: notes,
 				Cells:   screen.EffortCells(len(taken), slices.Index(taken, row.Effort)+1),
 				Near:    max(0, 1-(*found.Best-row.Quality)/10),
 				Quality: strconv.FormatFloat(row.Quality, 'f', 1, 64),
@@ -106,18 +105,18 @@ func packed(parts []string, room int) []string {
 	return lines
 }
 
-// modelsBody is the screen's lines.  Per role, a blank line between two, its head, beside it the
-// columns' heads where it heads them (headed), then its lines: a row's mark in `mark` cells, its
-// name, its effort -- its cells, then its word, in one column after the most cells any row has --
-// its line, taking the room the other columns leave, then its quality, cost and notes, these one
+// ModelsBody is the lines `ak models` prints.  Per role, a blank line between two, its head, beside
+// it the columns' heads where it heads them (headed), then its lines: a row's mark in `mark` cells,
+// its name, its effort -- its cells, then its word, in one column after the most cells any row has
+// -- its line, taking the room the other columns leave, then its quality, cost and notes, these one
 // under another in a column as wide as the widest. Every column fits the full frontier.
 // Where that leaves the line under 8 cells, the notes' column gives
 // way first, each row's notes going under it; where the line is still under 8 cells, each row's
 // mark, then its name and effort, take a line and its line, numbers and notes the next, the name
 // alone cut; the notes that do not fit beside the numbers then go under the row, broken only
 // between two. Then the legend, how many of the total listed models of your companies are
-// compared (matrix.Compared) and when the boards were read, broken only at ` · `.
-func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, total int, fetched float64, light ModelLight) []matrixRow {
+// compared and when the boards were read (modelsRead).
+func ModelsBody(screen terminal.Screen, said []Role, compared map[string]bool, total int, fetched float64) []string {
 	room := screen.LayoutWidth()
 	var rows []Line
 	for _, role := range said {
@@ -169,12 +168,10 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 		under = 2 + mark + 2 + 2
 	}
 	unit := "" // the last role with rows' unit
-	var lines []matrixRow
-	at, next := -1, 0
-	put := func(line string) { lines = append(lines, matrixRow{line: strings.TrimRight(line, " "), row: at}) }
+	var lines []string
+	put := func(line string) { lines = append(lines, strings.TrimRight(line, " ")) }
 	fill := func(text string, width int) string { return strings.Repeat(" ", max(0, width-terminal.Cells(text))) }
 	for number, role := range said {
-		at = -1
 		if number > 0 {
 			put("")
 		}
@@ -201,14 +198,12 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 				}
 				continue
 			}
-			at, next = next, next+1
 			text := effort(line)
 			nameRoom := label
 			if !wide {
 				nameRoom = min(label, room-6-levelled)
 			}
-			name, ink := modelPaint(screen, line, terminal.Pad(line.Name, nameRoom), light)
-			lead := name + "  " + text + fill(text, levelled) + "  "
+			lead := terminal.Pad(line.Name, nameRoom) + "  " + text + fill(text, levelled) + "  "
 			if wide {
 				lead = "  " + line.Mark + fill(line.Mark, mark) + "  " + lead
 			} else {
@@ -218,7 +213,7 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 				put("    " + lead)
 				lead = "    "
 			}
-			tail := lead + screen.ShareLine(line.Near, size, ink) + "  " +
+			tail := lead + screen.ShareLine(line.Near, size, "quiet") + "  " +
 				fill(line.Quality, qualityWide) + line.Quality + "  " + fill(line.Cost, costWide) + line.Cost + "  "
 			fit := 0 // the notes that fit, the rest under
 			for n := range len(line.Notes) + 1 {
@@ -236,7 +231,6 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 			}
 		}
 	}
-	at = -2 // the legend stays below the scrollable rows
 	put("")
 	for _, entry := range legendOf(said) {
 		for number, part := range terminal.Wrap(entry[1], room-named) {
@@ -247,6 +241,12 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 			put("  " + screen.TableRow([]string{name, part}, []int{9, room - named}, []string{"", "dim"}))
 		}
 	}
+	return append(lines, modelsRead(screen, compared, total, fetched)...)
+}
+
+// modelsRead is how many of your companies' total listed models are compared (matrix.Compared),
+// and when the boards were read, broken only at ` · `.
+func modelsRead(screen terminal.Screen, compared map[string]bool, total int, fetched float64) []string {
 	shown := "all"
 	if len(compared) != total {
 		shown = strconv.Itoa(len(compared)) + " of"
@@ -260,8 +260,9 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 		}
 		parts = append(parts, "boards read "+read.Format(layout))
 	}
-	for _, part := range packed(parts, room-2) {
-		put("  " + screen.Styled(part, "dim"))
+	var lines []string
+	for _, part := range packed(parts, screen.LayoutWidth()-2) {
+		lines = append(lines, "  "+screen.Styled(part, "dim"))
 	}
 	return lines
 }

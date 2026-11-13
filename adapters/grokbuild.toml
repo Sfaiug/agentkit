@@ -37,6 +37,9 @@ turn = ["env", "{off}", "grok", "--prompt-file", "{prompt}", "--model", "{model}
         "streaming-messages-json", "{conversation}"]
 resume = ["--resume", "{id}"]
 new = ["--session-id", "{id}"]
+# what the Go build's `login [again]` signs in with, on the login's own home; its `forget` takes
+# a named login's home and refusal ([login]) away
+login = ["grok", "login"]
 
 # The lines its prompt takes to move its conversation to another model or effort, `{model}` the
 # id `interactive` passes as --model (`orch.switch_lines`); Grok Build 1.0.46 takes both.

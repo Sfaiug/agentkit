@@ -11,8 +11,8 @@ time.  A whole run runs as many at once as live memory fits; waiting files can o
 cores. Before each start it samples CPU pressure, running one file at a time while it is high,
 and rereads host and cgroup headroom.
 The share is cut, and its files start longest first, by each test's last measured seconds,
-the record AK_TIMES holds (agentkit/suite_times.py), or one never measured by its size at the
-measured files' seconds per byte; a part, `<file>::<part>` (suite_shares.parts_of), at its
+the record in the file AK_TIMES names (agentkit/suite_times.py), or one never measured by its size
+at the measured files' seconds per byte; a part, `<file>::<part>` (suite_shares.parts_of), at its
 file's measured parts' mean, its file's parts in as few runs as keep each within PIECE.
 A failing file, or one reporting no executed cases, is named as it ends and runs once more after
 the pool, alone:
@@ -241,9 +241,15 @@ def pool_limit(readings):
 
 def costs(root, paths, only=None):
     """Each test's seconds by ID, of each file in `paths` the parts `only` (AK_ONLY) lists, else
-    those it is cut into (parts_of), else it whole: as AK_TIMES holds them, else a file's size at
-    the measured files' seconds a byte, a part at its file's measured parts' mean, else alone."""
-    times = suite_times.read(os.environ.get("AK_TIMES", ""))
+    those it is cut into (parts_of), else it whole: as the file AK_TIMES names holds them, else a
+    file's size at the measured files' seconds a byte, a part at its file's measured parts' mean,
+    else alone."""
+    record = os.environ.get("AK_TIMES", "")
+    try:
+        record = Path(record).read_text() if record else ""
+    except OSError:
+        pass    # an ak from before the file hands the record itself, as the variable's text
+    times = suite_times.read(record)
     sizes, cost = {}, {}
     for path in paths:
         name = str(path.relative_to(root))

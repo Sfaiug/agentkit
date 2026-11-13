@@ -715,6 +715,30 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(len(self.commands), 1)
         self.assertFalse(watch.seat_read(NAME).get("usage_wait"))
 
+    def test_a_refusal_in_the_same_words_is_new_once_a_later_prompt_s_turn_is_over(self):
+        """A provider refuses every turn of a spent model in the same words.  On 12 Nov 2026 a
+        seat prompted an hour after its refusal was refused again and stood for six hours."""
+        self.meters(20, 20)         # room on every meter: only the refusal says it is spent
+        self.pane = LIMIT
+        watch.seat_write(NAME, usage_refusal={"line": "Usage limit reached", "at": self.now - 3600,
+                                              "handled": True})
+
+        def spent(event, at, kind=""):
+            config.record_hook_fact(NAME, {"session": NAME, "event": event, "kind": kind,
+                                           "text": "", "at": at})
+            self.tick()
+            return usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"]
+        self.assertFalse(spent("Stop", self.now - 1800))        # no prompt since: the one acted on
+        config.stop_path(NAME).write_text(json.dumps({"turn": self.now - 60}))
+        self.assertFalse(spent("UserPromptSubmit", self.now - 60))      # its turn still runs
+        for event, kind, at in (("PreCompact", "manual", 50), ("PostToolUse", "", 45),
+                                ("Stop", "held", 40)):
+            # heard while it still runs, the old refusal still last on the pane
+            self.assertFalse(spent(event, self.now - at, kind), event)
+        self.assertEqual(self.commands, [])
+        self.assertEqual(config.session_records()[NAME]["account"], "default")
+        self.assertTrue(spent("StopFailure", self.now - 30))    # and has ended on them again
+
     def test_refusal_deadline_comes_only_from_the_current_output_line(self):
         config.save_session(self.cfg, NAME, "astra", ["opus"], {"cwd": str(self.root)})
         until = self.now + 240
@@ -742,7 +766,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertEqual(config.session_records()[later["name"]]["account"], "second")
         self.assertEqual(config.session_records()[NAME]["account"], "default")
 
-    def test_opening_to_look_preserves_recovery_and_a_draft_goes_on_with_the_seat(self):
+    def test_opening_to_look_preserves_recovery_and_a_draft_holds_the_seat_until_sent(self):
         self.meters(100, 100)
         self.tick()
         watch.opened_now(NAME)
@@ -750,11 +774,11 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         watch.opened_now(NAME)
         self.meters(100, 0)
         self.pane = "❯ the owner is typing"
-        with patch.object(watch, "seat_editor", return_value={"id": "%1"}), \
-                patch.object(watch, "carry_draft",     # lifted out of the composer
-                             side_effect=lambda *_a: setattr(self, "pane", "❯") or True) as carried:
-            self.tick()
-        carried.assert_called_once()        # into the composer the resumed harness opens
+        self.tick()
+        self.assertEqual(self.commands, [])     # a respawn would end the text
+        self.assertIsNotNone(watch.seat_read(NAME)["usage_wait"])
+        self.pane = "❯"
+        self.tick()
         self.assertEqual(len(self.commands), 1)
         self.assertEqual(self.typed, [])
         self.assertEqual(config.session_records()[NAME]["account"], "second")

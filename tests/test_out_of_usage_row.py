@@ -1,11 +1,11 @@
 """A seat whose usage ran out reads `out of usage` in red, says when it comes back, and under the
-pointer offers waiting for then or going on now with a model that has usage.
+pointer opens what any row opens: it offers nothing.
 
 The owner's pick of 20 Oct 2026: a spent window is no question for him -- ak resumes the seat
 when the usage comes back, or on another account sooner -- but no word for work going on, as
-nothing moves until then; so `○ out of usage  back 19:20` in red, and under the pointer
-`✓ Wait for 19:20` and `→ Go on now with gpt-6.1-sol`, by its full name, which a click
-answers.  A run waiting for usage is a red square.  A harness upgrade does not wait for such a seat: no turn of it is in
+nothing moves until then; so `○ out of usage  back 19:20` in red.  Under the pointer it read
+`✓ Wait for 19:20` and `→ Go on now with gpt-6.1-sol` until he had both removed, 12 Nov 2026.
+A run waiting for usage is a red square.  A harness upgrade does not wait for such a seat: no turn of it is in
 flight.  A move to another account that failed is no wait that ends by itself, and stays his.
 Offline: a temporary HOME, no tmux.
 """
@@ -19,13 +19,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_close_and_info as pty  # noqa: E402
 from fixtures.sandbox import Sandbox  # noqa: E402
-from agentkit import config, menu, orch, terminal, transitions, update, usage, watch  # noqa: E402
+from agentkit import config, menu, orch, terminal, transitions, update, watch  # noqa: E402
 
 SEAT = "acme-api"
 SPENT = "anthropic out of usage until 2026-10-15 20:00"
 RED = "be222a"
-# The real menu on a pty (test_close_and_info's), its one seat out of usage until 19:20 today
-# and astra with usage; the move reduced to a line saying where it was asked to go.
+# The real menu on a pty (test_close_and_info's), its one seat out of usage until 19:20 today.
 CHILD = pty.CHILD.replace("sys.exit(menu.loop(", """
 import time
 back = time.mktime(time.localtime()[:3] + (19, 20, 0, 0, 0, -1))
@@ -34,9 +33,6 @@ config.save_session(cfg, "acme-api", "opus", ["opus"], {"cwd": "/"})
 menu.seat_row_state = lambda cfg, session, **facts: {
     "word": "out of usage", "reason": "anthropic out of usage", "since": None,
     "resumes_at": back}
-orch.going_on = lambda cfg, current, providers: "astra"
-orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: print(
-    f"<moved {name} to {model}>", flush=True) or ""
 sys.exit(menu.loop(""")
 
 
@@ -63,12 +59,6 @@ class OutOfUsageRow(Sandbox):
                                     harness="claude", auth_out={}, gh_out={}, token_out=None,
                                     previous={})
         return found
-
-    def info(self, go_on="gpt-sol", back=None):
-        return {"word": "out of usage", "count": "out of usage",
-                "back": today_at(19, 20) if back is None else back, "go_on": go_on,
-                "go_on_name": go_on and "gpt-6.1-sol",
-                "runs_on": ("anthropic", config.DEFAULT_ACCOUNT)}
 
     def test_a_spent_window_reads_out_of_usage_until_it_comes_back(self):
         watch.seat_write(SEAT, usage_wait={"reason": SPENT, "until": 90000, "since": 9500})
@@ -132,46 +122,8 @@ class OutOfUsageRow(Sandbox):
         # it outranks work going on, as it is what stops it
         self.assertEqual(menu.rollup(["working", "out of usage", "done"]), "out of usage")
 
-    def test_under_the_pointer_it_offers_waiting_or_going_on_now(self):
-        cfg = {"providers": {"anthropic": {}}}
-        info = self.info()
-        [line] = menu.choices(info, 80)
-        text = terminal.ANSI.sub("", line)
-        self.assertEqual(text, "✓ Wait for 19:20   → Go on now with gpt-6.1-sol")
-        self.assertEqual(menu.choice_cells("     " + text, info, 80),
-                         [(6, 21, menu.WAIT), (25, 52, menu.GO_ON)])
-        # where both do not fit, each takes a line of its own, where a click still finds it
-        wait, go_on = [terminal.ANSI.sub("", line) for line in menu.choices(info, 40)]
-        self.assertEqual((wait, go_on), ("✓ Wait for 19:20", "→ Go on now with gpt-6.1-sol"))
-        self.assertEqual(menu.choice_cells("     " + go_on, info, 40), [(6, 33, menu.GO_ON)])
-        # and one wider than the room wraps at words, each of its lines a cell of its own
-        lines = [terminal.ANSI.sub("", line) for line in menu.choices(info, 12)]
-        self.assertEqual(lines, ["✓ Wait for", "19:20", "→ Go on now", "with", "gpt-6.1-sol"])
-        self.assertEqual([menu.choice_cells("  " + line, info, 12) for line in lines],
-                         [[(3, 12, menu.WAIT)], [(3, 7, menu.WAIT)], [(3, 13, menu.GO_ON)],
-                          [(3, 6, menu.GO_ON)], [(3, 13, menu.GO_ON)]])
-        # without an alternative there is no choice: its row says when usage comes back
-        info = self.info(go_on=None)
-        self.assertEqual(menu.choices(info, 80), [])
-        self.assertEqual(menu.choices({"word": "working"}, 80), [])
-
-    def test_going_on_takes_the_first_other_model_with_a_window(self):
-        # the sandbox offers fable, opus, astra, spark, ...: the default, opus, first
-        dry, credits = {"opus", "fable"}, set()
-        with patch.object(config, "harness_present", return_value=True), \
-                patch.object(usage, "model_spent",
-                             side_effect=lambda _c, name, _p: (name in dry, "")), \
-                patch.object(usage, "on_credits", side_effect=lambda _c, name, _p: name in credits):
-            self.assertEqual(orch.going_on(self.cfg, "opus", {}), "astra")
-            credits.add("astra")        # credits cost money: never spent on a click unasked
-            self.assertEqual(orch.going_on(self.cfg, "opus", {}), "spark")
-            dry.update(config.offered(self.cfg))
-            self.assertIsNone(orch.going_on(self.cfg, "opus", {}))
-            dry.discard("opus")         # its own model is never where it goes on
-            self.assertIsNone(orch.going_on(self.cfg, "opus", {}))
-
-    def test_going_on_skips_what_the_move_refuses_as_spent(self):
-        # fable full with no reset known: the move refuses it, so astra is offered
+    def test_a_move_refuses_a_model_that_is_spent(self):
+        # fable full with no reset known
         self.cfg["models"] = {k: self.cfg["models"][k] for k in ("opus", "fable", "astra")}
         full = {"meters": [{"name": "weekly_all", "used": 100, "exhausted": True,
                             "tier_a_exhausted": False}]}
@@ -182,9 +134,8 @@ class OutOfUsageRow(Sandbox):
                 patch.object(orch, "harness_plugin", return_value=Login({None})):
             self.assertEqual(orch._switch_plan(self.cfg, SEAT, "fable", providers)[0],
                              "fable is spent")
-            self.assertEqual(orch.going_on(self.cfg, "opus", providers), "astra")
 
-    def test_going_on_never_lands_on_a_login_on_credits(self):
+    def test_a_move_by_hand_lands_on_a_login_on_credits(self):
         # astra's login with a window has expired; the one left holds only credits
         self.cfg["models"] = {k: self.cfg["models"][k] for k in ("opus", "astra")}
         self.cfg["providers"]["openai"]["accounts"] = ["default", "second"]
@@ -200,20 +151,6 @@ class OutOfUsageRow(Sandbox):
                 patch.object(orch, "harness_plugin", return_value=Login({"second"})):
             self.assertEqual(orch._switch_plan(self.cfg, SEAT, "astra", providers),
                              ("", "second"))      # asked by hand, the owner may spend them
-            self.assertEqual(orch._switch_plan(self.cfg, SEAT, "astra", providers, False),
-                             ("astra has only credits left", None))
-
-    def test_a_click_on_going_on_moves_the_seat_and_a_refusal_is_said(self):
-        with patch.object(orch, "switch_orchestrator", return_value="") as switch, \
-                patch.object(menu, "pause") as said:
-            menu.go_on_now(self.cfg, SEAT, "gpt-sol")
-        self.assertEqual(switch.call_args[0][:3], (self.cfg, SEAT, "gpt-sol"))
-        self.assertEqual(switch.call_args[1], {"credits": False})
-        said.assert_not_called()
-        with patch.object(orch, "switch_orchestrator", return_value="gpt-sol: codex is not installed"), \
-                patch.object(menu, "pause") as said:
-            menu.go_on_now(self.cfg, SEAT, "gpt-sol")
-        said.assert_called_once_with("gpt-sol: codex is not installed")
 
     # red without usage. [2, 14, 19, 23, 26 Oct 2026]
     def test_a_run_waiting_for_usage_is_a_red_square(self):
@@ -228,20 +165,18 @@ class OutOfUsageRow(Sandbox):
 
 
 class OutOfUsageOnScreen(unittest.TestCase):
-    def test_pointed_at_it_offers_both_and_a_click_on_going_on_moves_it(self):
+    def test_pointed_at_it_opens_its_line_and_offers_nothing(self):
         with patch.object(pty, "CHILD", CHILD):
             screen = pty.Menu(self, {"acme-api": "out of usage"})
         lines = screen.frame()
         [row] = [line for line in lines if "acme-api" in line]
         self.assertRegex(row, r"○ out of usage +back \d\d:\d\d")
         screen.send(b"j")      # the highlight on its row opens its lines
-        lines = screen.frame(lambda lines: any("Go on now" in line for line in lines))
-        at = next(n for n, line in enumerate(lines) if "Go on now" in line)
-        self.assertRegex(lines[at - 1], r"^ +Opus \S+ \S+ ⚒◎$")     # its line, the crew alone
-        self.assertRegex(lines[at], r"✓ Wait for \d\d:\d\d   → Go on now with GPT-6-Astra")   # astra, in full
-        mark = screen.mark()
-        screen.click(lines[at].index("→") + 3, at + 1)
-        screen.saw("<moved acme-api to astra>", after=mark)
+        lines = screen.frame(lambda lines: any("orchestrates" in line for line in lines))
+        at = next(n for n, line in enumerate(lines) if "orchestrates" in line)
+        # its line, the crew alone
+        self.assertRegex(lines[at], r"^ +Opus \S+ \S+ orchestrates, builds, reviews$")
+        self.assertEqual(lines[at + 1], "")     # and nothing to choose under it
         screen.leave()
 
 

@@ -33,6 +33,7 @@ BOARD = {
     "parks": [{"parked": 1}, {"parked": 0}], "conflicts": [None, None], "sunk": [None, None],
     "broke": [{"merged": 6, "after_merge": 3, "landing": 0, "flakes": 0, "unknown": 0},
               {"merged": 5, "after_merge": 3, "landing": 0, "flakes": 0, "unknown": 0}],
+    "rewritten": [None, None],
     "pairs": [None, None], "findings": [None, None], "size": [None, None],
 }
 EMPTY = {key: [None, None] for key in BOARD}

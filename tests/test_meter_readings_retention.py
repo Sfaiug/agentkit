@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config, history  # noqa: E402
 
 NOW = time.time()
-KEPT = ("acme", "default", "weekly", 30.0, NOW + 86400, 604800.0, NOW - 60, "probe", "pro")
-AGED = ("acme", "default", "session", 20.0, None, 18000.0, NOW - 36 * 86400, "probe", "pro")
-NEW = ("acme", "default", "weekly", 35.0, NOW + 86400, 604800.0, NOW, "probe", "pro")
+KEPT = ("acme", "default", "weekly", 30.0, NOW + 86400, 604800.0, NOW - 60, "probe", "pro", None)
+AGED = ("acme", "default", "session", 20.0, None, 18000.0, NOW - 36 * 86400, "probe", "pro", None)
+NEW = ("acme", "default", "weekly", 35.0, NOW + 86400, 604800.0, NOW, "probe", "pro", None)
 
 
 class Retention(unittest.TestCase):
@@ -32,7 +32,7 @@ class Retention(unittest.TestCase):
         self.addCleanup(home.stop)
         history.keep_readings([KEPT])
         with sqlite3.connect(history.path()) as connection:
-            connection.execute("INSERT INTO meter_readings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", AGED)
+            connection.execute("INSERT INTO meter_readings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", AGED)
 
     def kept(self):
         with sqlite3.connect(history.path()) as connection:

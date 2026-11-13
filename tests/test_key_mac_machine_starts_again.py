@@ -3,16 +3,18 @@
 Lima's own LaunchDaemon starts the machine only when the Mac boots.  So the install also puts a
 LaunchDaemon of ak's own, which checks the machine every minute as the account: one stopped
 starts; one running, or Broken as Lima says while its host agent does not answer, that has not
-answered `ssh lima-ak true` for 10 minutes is stopped by force and starts, once, even when that
-start fails, until it answers again, is started anew or the Mac starts, each whatever the clock
-reads by then; anything else changes nothing.  The time it last answered or started outlives
+answered `ssh -F <Lima's own ssh file for it> lima-ak true` for 10 minutes, whatever the account's
+own ssh setup knows, is stopped by force and starts, once, even when that start fails, until it
+answers again, is started anew or the Mac starts, each whatever the clock reads by then;
+anything else changes nothing.  The time it last answered or started outlives
 each check and an install that finds it running, silence counts only while the machine runs, so
 never from before the Mac started, and with no answer on record, from the first check.  The
 install says so in one line, a second changes nothing, and one after the daemon was booted out
 loads it again.  Black-box on the Mac of fakes of tests/test_key_install_mac_linux_machine.py:
 each check runs the daemon's program as launchd would, with only its environment, on a clock of
 fakes (`date +%s` reads `<root>/now`, the Mac's boot time is `<root>/boot`, its boot's id
-`<root>/session`) and an `ssh` that answers while the machine runs and is not hung.
+`<root>/session`) and an `ssh` that answers while the machine runs and is not hung, and the
+config it reads, the one `-F` names or else the account's, with each file it includes, knows it.
 """
 
 import json
@@ -29,14 +31,19 @@ from test_key_install_mac_linux_machine import Mac
 
 BOOT, DAY = 1_794_268_800, 24 * 3600     # 10 Nov 2026, at midnight
 SSH = """#!{python}
-import json, sys
+import json, os, sys
 from pathlib import Path
-root = Path({root!r})
+args, root = sys.argv[1:], Path({root!r})
 with open(root / "logs/ssh.log", "a") as log:
-    log.write(json.dumps(sys.argv[1:]) + "\\n")
+    log.write(json.dumps(args) + "\\n")
+def knows(config):
+    lines = config.read_text().splitlines() if config.is_file() else []
+    return "Host lima-ak" in lines or any(knows(Path(line.split(None, 1)[1]))
+                                          for line in lines if line.startswith("Include "))
+config = Path(args[args.index("-F") + 1] if "-F" in args else os.environ["HOME"] + "/.ssh/config")
 machine = root / "machine"
 up = machine.exists() and machine.read_text() == "Running" and not (root / "hung").exists()
-sys.exit(0 if up and sys.argv[-2:] == ["lima-ak", "true"] else 255)
+sys.exit(0 if up and knows(config) and args[-2:] == ["lima-ak", "true"] else 255)
 """
 DATE = '#!/bin/sh\n[ "$*" = +%s ] && exec cat {now}\nPATH=/usr/bin:/bin exec date "$@"\n'
 
@@ -76,7 +83,8 @@ class Watched(Mac):
         (self.home.root / "machine").write_text("Broken")
 
     def answers(self):
-        return subprocess.run([self.home.bin / "ssh", "lima-ak", "true"]).returncode == 0
+        return subprocess.run([self.home.bin / "ssh", "-F", self.home.path / ".lima/ak/ssh.config",
+                               "lima-ak", "true"]).returncode == 0
 
     def loaded(self):
         """The services launchd has loaded, as `<domain>/<label>`."""
@@ -128,6 +136,12 @@ class KeptUp(unittest.TestCase):
         self.now = BOOT + KeptUp.day * DAY
         self.mac.started(self.now - 3600)
 
+    def holds(self, path, text):
+        """The file at `path` in the account's home holds `text` until the test ends."""
+        path = self.mac.home.path / path
+        self.addCleanup(path.write_text, path.read_text())
+        path.write_text(text)
+
     def minutes(self, first, last):
         """A check each minute from `first` to `last` minutes on: what each did to the machine."""
         return [[call[0] for call in self.mac.check(self.now + minute * 60)]
@@ -170,6 +184,18 @@ class KeptUp(unittest.TestCase):
         self.assertEqual(self.minutes(0, 0), [[]])
         self.assertEqual([call[-2:] for call in self.mac.home.calls("ssh")[asked:]],
                          [["lima-ak", "true"]])
+
+    def test_a_machine_answering_through_lima_s_own_file_is_left_as_it_is(self):
+        """Whatever the account's own ssh setup knows, as one that lost its Include."""
+        self.holds(".ssh/config", "")
+        self.assertEqual(self.minutes(0, 10), [[]] * 11)
+
+    def test_one_not_answering_through_lima_s_own_file_stops_by_force_after_ten_minutes(self):
+        """Whatever the account's own ssh setup reaches."""
+        self.minutes(0, 0)
+        self.holds(".ssh/config", "Host lima-ak\n")
+        self.holds(".lima/ak/ssh.config", "")
+        self.assertEqual(self.minutes(1, 10), [[]] * 9 + [["stop", "start"]])
 
     def test_nine_minutes_without_an_answer_change_nothing(self):
         self.minutes(0, 0)
@@ -270,6 +296,17 @@ class KeptUp(unittest.TestCase):
         self.assertEqual(self.minutes(61, 69), [[]] * 9)
         self.assertEqual(self.minutes(70, 70), [["stop", "start"]])
 
+    def test_silence_before_a_check_found_it_stopped_does_not_count_whoever_starts_it(self):
+        """Another start may come right after the check's look at its status."""
+        self.minutes(0, 0)
+        self.mac.hangs()
+        self.mac.stops()
+        root = self.mac.home.root
+        self.mac.home.fake("limactl", f'#!/bin/sh\n{shlex.quote(str(root / "limactl"))} "$@" &&'
+                                      f' printf Running >{shlex.quote(str(root / "machine"))}\n')
+        self.assertEqual(self.minutes(9, 9), [[]])
+        shutil.copy(root / "limactl", self.mac.home.bin / "limactl")
+        self.assertEqual(self.minutes(10, 19), [[]] * 9 + [["stop", "start"]])
 
 class RunningBefore(unittest.TestCase):
     """A Mac whose machine Lima started with it before ak's check came: the check has no answer

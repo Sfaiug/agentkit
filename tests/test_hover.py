@@ -456,7 +456,7 @@ class Screens(Sandbox):
     def test_the_models_screen_draws_no_highlight_off_every_row(self):
         said = [(role, {"name": "Alpha", "effort": "high"}, ("100.0", "$1.00"), "a task")
                 for role in menu.quality.ROLES]
-        empty = {role: {"choices": [], "others": []} for role in menu.quality.ROLES}
+        empty = {role: {"choices": [], "others": [], "whys": {}} for role in menu.quality.ROLES}
         for name, value in (("stored", {}), ("refresh", ({}, None)), ("answer", empty),
                             ("uses", dict.fromkeys(menu.quality.ROLES, (None, None, None)))):
             self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))

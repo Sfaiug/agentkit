@@ -1,7 +1,6 @@
 package usage
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -50,11 +49,13 @@ func collect(sources []source, models map[string]config.Model, refresh bool) (*r
 				}
 			}
 		}
-		var err error
 		if stored {
-			providers, err = store(sources, providers, models, now, nil, counted)
+			var err error
+			if providers, err = store(sources, providers, models, now, nil, counted); err != nil {
+				return nil, err
+			}
 		}
-		return gateFlags(providers, now, models), err
+		return gateFlags(providers, now, models), nil
 	}
 	providers := run.NewObject()
 	for _, src := range sources {
@@ -63,7 +64,10 @@ func collect(sources []source, models map[string]config.Model, refresh bool) (*r
 		}
 	}
 	providers, err := store(sources, providers, models, now, &now, nil)
-	return gateFlags(providers, now, models), err
+	if err != nil {
+		return nil, err
+	}
+	return gateFlags(providers, now, models), nil
 }
 
 // rolled is whether a meter of that record, or of an account it holds, is past its reset.
@@ -153,8 +157,7 @@ func patch(src source, prov *run.Object) *run.Object {
 var writes atomic.Int64 // a temporary name of each write's own
 
 // write changes the snapshot as it stands under its lock and writes it back whole, through a
-// temporary name, Python's usage._write: its age stays as it was unless fetchedAt dates it,
-// and it keeps the last two windows each weekly meter named.
+// temporary name, Python's usage._write: its age stays as it was unless fetchedAt dates it.
 func write(change func(providers *run.Object, now float64) *run.Object, fetchedAt *float64) (*run.Object, error) {
 	held, err := lockFile(filepath.Join(state(), "usage.lock"))
 	if err != nil {
@@ -175,7 +178,7 @@ func write(change func(providers *run.Object, now float64) *run.Object, fetchedA
 	cache := filepath.Join(state(), "usage.json")
 	tmp := filepath.Join(state(), fmt.Sprintf("usage.tmp-%d-%d", os.Getpid(), writes.Add(1)-1))
 	defer os.Remove(tmp)
-	snapshot := fields("fetched_at", fetched, "providers", providers, "windows", windows(blob.Get("windows"), providers))
+	snapshot := fields("fetched_at", fetched, "providers", providers)
 	if err := os.WriteFile(tmp, []byte(run.Line(snapshot)), 0o666); err != nil {
 		return nil, err
 	}
@@ -333,53 +336,4 @@ func freshWindow(prov, marked *run.Object, now float64) bool {
 		}
 	}
 	return false
-}
-
-// windows is the ends of the last two windows each weekly meter of each subscription named:
-// seen, what the snapshot held, and the readings of providers, Python's usage._windows.
-func windows(seen any, providers *run.Object) *run.Object {
-	kept := run.NewObject()
-	for _, name := range providers.Keys() {
-		kept.Set(name, object(object(seen).Get(name)))
-	}
-	for _, name := range providers.Keys() {
-		prov := object(providers.Get(name))
-		logins := run.NewObject() // each account's record, the usual login's for a provider of one
-		logins.Set("default", prov)
-		if accounts, ok := prov.Get("accounts").(*run.Object); ok && len(accounts.Keys()) > 0 {
-			logins = run.NewObject()
-			for _, account := range accounts.Keys() {
-				logins.Set(cmp.Or(account, "default"), object(accounts.Get(account)))
-			}
-		}
-		for _, key := range logins.Keys() {
-			held := object(kept.Dict(name).Get(key))
-			kept.Dict(name).Set(key, held)
-			for _, meter := range objects(logins.Dict(key).Get("meters")) {
-				ends, dated := number(meter.Get("resets_at"))
-				if title, named := meter.Get("name").(string); dated && named && !session(meter) {
-					held.Set(title, lastTwo(held.Get(title), ends))
-				}
-			}
-		}
-	}
-	return kept
-}
-
-// lastTwo is the latest two of the window ends listed and end, each once, earliest first.
-func lastTwo(listed any, end float64) []any {
-	ends := map[float64]any{}
-	var at []float64
-	items, _ := listed.([]any)
-	for _, each := range append(slices.Clone(items), run.Float(end)) {
-		if value, ok := number(each); ok && ends[value] == nil {
-			ends[value], at = each, append(at, value)
-		}
-	}
-	slices.Sort(at)
-	var latest []any
-	for _, value := range at[max(0, len(at)-2):] {
-		latest = append(latest, ends[value])
-	}
-	return latest
 }

@@ -694,24 +694,50 @@ sys.exit(1)
                                           {"--rounds": None, "--exec": self.executor,
                                            "--review": self.reviewer, "--no-merge": False,
                                            "--no-worktree": False}, None)
-        task = job["tasks"][0]
-        task.update(state="running", run_id="kept-run", executor=self.executor)
+        fresh = dict(job["tasks"][0], state="running", executor=self.executor)
         log = jobs.job_logger(job_dir)
         lock = threading.Lock()
-        # a pending review parked on spent meters: the message decides first, so the
-        # run waits for budget even with `review_pending` still set
-        parked = ("every tier B model has a gate meter at 100% used; "
-                  "done-when and review are pending")
-        with redirect_stdout(io.StringIO()):
-            jobs.job_ladder(self.cfg, job_dir, job, task, job_dir,
-                           {"state": "exhausted", "error": parked,
-                            "executor": self.executor, "reviewer": self.reviewer,
-                            "review_pending": {"round": 4}, "round_summaries": [{}, {}]},
-                           1, log, lock)
-        self.assertEqual(task["state"], "queued")
-        self.assertNotIn("resume_attempted", task)
-        self.assertNotIn("rerun_attempted", task)
-        self.assertEqual(task.get("exhausted_waits"), 1)
+        # a pending review parked on spent meters waits for budget even with
+        # `review_pending` still set, whichever attempt parked it: the first, the one
+        # rerun on the next executor, or the delivery retry's fixer
+        pair = {"executor": self.executor, "reviewer": self.reviewer}
+        pending = {**pair, "state": "exhausted", "review_pending": {"round": 4},
+                   "round_summaries": [{}, {}]}
+        parked = {**pending, "error": "every tier B model has a gate meter at 100% used; "
+                                      "done-when and review are pending"}
+        dry = {**pending, "quota_dry": True, "error": "fixer ran dry on usage limit"}
+        shortfall = {**pending, "error": "the round budget (3) is spent"}
+        passed = {**pair, "state": "pass", "verdict": "PASS", "merge_failed": True,
+                  "merge_note": "push rejected", "rounds": 1, "round_summaries": [{}],
+                  "review": {**pair, "returncode": 0, "verdict": "PASS", "done_when": True,
+                             "executor_provider": config.model(self.cfg, self.executor)["provider"],
+                             "reviewer_provider": config.model(self.cfg, self.reviewer)["provider"],
+                             "head_sha": "abc", "tree_sha": "def"}}
+
+        def drive(_cfg, rerun_dir, _opts, box, *_args, **_kw):
+            record.save_state(rerun_dir, dry)
+            box.update(state=dry, rc=1)
+
+        def merge(argv, **_kw):
+            record.save_state(config.RUNS / argv[0], dry)
+            return 1
+
+        for where, attempt in (("mid-run", parked), ("on rerun", shortfall),
+                               ("on delivery", passed)):
+            with self.subTest(where=where):
+                run_dir = jobs.job_allocate_run_dir("Alpha task")
+                record.save_state(run_dir, attempt)
+                job["tasks"][0] = task = dict(fresh, run_id=run_dir.name)
+                with patch.object(jobs, "job_drive", side_effect=drive), \
+                        patch.object(run, "cmd_merge", side_effect=merge), \
+                        redirect_stdout(io.StringIO()):
+                    jobs.job_ladder(self.cfg, job_dir, job, task, run_dir, dict(attempt), 1,
+                                   log, lock)
+                self.assertEqual(task["state"], "queued")
+                self.assertTrue(task.get("budget_wait"))
+                self.assertEqual(task.get("exhausted_waits"), 1)
+                self.assertNotIn("resume_attempted", task)
+                self.assertEqual(bool(task.get("rerun_attempted")), where == "on rerun")
 
     def test_v5q_transport_cap_counts_one_outage_not_history(self):
         a = self.task("a.md", "Alpha task")

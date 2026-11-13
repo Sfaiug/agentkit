@@ -335,12 +335,16 @@ def _kept(cached, fresh, now):
     if fresh.get("meters") or fresh.get("none"):
         meters = _beside(cached.get("meters") if isinstance(cached, dict) else None,
                          fresh.get("meters"), now)
-        return (fresh if meters is fresh.get("meters")
-                else {**fresh, "meters": meters, "fetched_at": _taken(cached)})
+        if meters is fresh.get("meters"):
+            return fresh
+        asked = {name: at for name, at in _meter_asked(cached).items()
+                 if any(m.get("name") == name for m in meters)}
+        asked.update(_meter_asked(fresh))
+        return {**fresh, "meters": meters, "fetched_at": _taken(cached), "probed_meters": asked}
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
-    keys = ("meters", "fetched_at", "resets", "credits", "currency", "error", "notes", "none",
-            "none_reason")
+    keys = ("meters", "fetched_at", "probed_meters", "resets", "credits", "currency", "error",
+            "notes", "none", "none_reason")
     if cached.get("none") or not cached.get("meters"):
         # No reading to keep, so nothing overwrites the ask's own error: dropping none here
         # is how a meterless row came to say `window reset`, and keeping an old error here
@@ -380,6 +384,27 @@ def _taken(prov):
     return _number(prov["fetched_at"] if "fetched_at" in prov else prov.get("probed_at"))
 
 
+def _ask_probe(cfg, provider, now, account=None):
+    """`_probe`, with each answered meter dated by when it was both asked and measured."""
+    fresh = _probe(cfg, provider, now, account)
+    probed, taken = _number(fresh.get("probed_at")), _taken(fresh)
+    if (fresh.get("meters") and not fresh.get("probe_error")
+            and probed is not None and taken is not None):
+        at = min(probed, taken)
+        fresh = {**fresh, "probed_meters": {
+            m["name"]: at for m in fresh["meters"]
+            if isinstance(m, dict) and isinstance(m.get("name"), str)}}
+    return fresh
+
+
+def _meter_asked(prov):
+    """{meter_name: when it was last asked and measured}, for `prov`'s probed meters."""
+    if not isinstance(prov, dict) or not isinstance(prov.get("probed_meters"), dict):
+        return {}
+    return {name: at for name, value in prov["probed_meters"].items()
+            if isinstance(name, str) and (at := _number(value)) is not None}
+
+
 def _probe_gently(cfg, provider, account=None):
     """`_probe`, but at most once per cadence per provider across this whole host.
 
@@ -417,7 +442,7 @@ def _probe_gently(cfg, provider, account=None):
         handle = lock.open("a")          # never "w": the file keeps when it was last asked
     except OSError:
         now = time.time()                # no lock to take: still one probe
-        fresh = _probe(cfg, provider, now, account)
+        fresh = _ask_probe(cfg, provider, now, account)
         _note_retry(provider, fresh, time.time(), account)
         cached = _cached_provider(provider, account)
         _keep_probed(provider, account, cached, fresh)
@@ -430,7 +455,7 @@ def _probe_gently(cfg, provider, account=None):
             return cached
         now = time.time()
         lock.write_text(repr(now))
-        fresh = _probe(cfg, provider, now, account)
+        fresh = _ask_probe(cfg, provider, now, account)
         _note_retry(provider, fresh, time.time(), account)
         _keep_probed(provider, account, cached, fresh)
         # The mark on disk travels with the record that replaces it (`_onto`), not the one
@@ -449,13 +474,13 @@ def _keep_probed(provider, account, cached, fresh):
 
 def _keep(provider, account, meters, at, source):
     """One fresh reading's meters, each a row of history.db's `meter_readings`, with the plan
-    its login is on as state/logins.json names it now."""
+    its login is on as state/logins.json names it now and the scope its provider names."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     account = account or config.DEFAULT_ACCOUNT
     plan = logins.whose(provider, account)[1]
     history.keep_readings([(provider, account, meter["name"], meter["used"],
                             _number(meter.get("resets_at")), _number(meter.get("window_secs")),
-                            at, source, plan) for meter in meters])
+                            at, source, plan, _text(meter.get("scope"))) for meter in meters])
 
 
 def _adapter_json(harness, verb, timeout, account=None):
@@ -476,6 +501,12 @@ def _number(value):
             or not math.isfinite(value) else float(value))
 
 
+def _text(value):
+    """`value` when it is a string with something in it, else None: an adapter's odd answer
+    is no column of a row SQLite refuses whole."""
+    return value if isinstance(value, str) and value else None
+
+
 def _past(meter, now):
     """True once this meter's window has rolled over, so its used% answers for nothing."""
     resets_at = meter.get("resets_at")
@@ -491,15 +522,18 @@ def _without_past(prov, now, name):
     """
     meters = [m for m in prov.get("meters") or [] if not _past(m, now)]
     paces = [m["pace"] for m in meters if m.get("pace") is not None]
+    extra = ({"probed_meters": {k: v for k, v in _meter_asked(prov).items()
+                                if any(m.get("name") == k for m in meters)}}
+             if "probed_meters" in prov else {})
     if prov.get("none") and not prov.get("error"):
-        return {**prov, "meters": meters, "pace": max(paces, default=None)}
+        return {**prov, **extra, "meters": meters, "pace": max(paces, default=None)}
     if meters or prov.get("error"):
         error = prov.get("error")
     elif prov.get("meters"):
         error = f"unknown: every meter {name} reports has already reset"
     else:   # its reading gone or never taken: it had no window to roll over
         error = f"unknown: {name} returned no meters"
-    return {**prov, "meters": meters, "pace": max(paces, default=None), "error": error}
+    return {**prov, **extra, "meters": meters, "pace": max(paces, default=None), "error": error}
 
 
 def _reread(cfg, provider, cached, now):
@@ -552,11 +586,14 @@ def _gate_flags(providers, now, cfg):
         # names only the window it hit, so the week beside it stays (`_beside`).
         recorded = harness_plugin(prov.get("harness")).usage_recorded(config.STATE, now)
         if recorded:
-            prov.update(meters=_beside(prov.get("meters"),
-                                       [_normalized(meter, now) for meter in recorded], now),
-                        error=None)
+            asked = _meter_asked(prov)
+            fresh = [_normalized(meter, now) for meter in recorded]
+            meters = _beside(prov.get("meters"), fresh, now)
+            kept = {m.get("name") for m in meters} - {m.get("name") for m in fresh}
+            prov.update(meters=meters, error=None,
+                        probed_meters={k: v for k, v in asked.items() if k in kept})
         # a provider that refused a worker is parked until it said it would have
-        # capacity, or until the meter that showed the refusal opens a new window
+        # capacity, or until the meter that showed the refusal opens a new window or falls
         until = _number(prov.get("exhausted_until"))
         if until is None or until <= now or _fresh_window(prov, prov, now):
             for key in MARK:
@@ -593,7 +630,7 @@ def _gate_flags(providers, now, cfg):
 
 
 _WRITES = itertools.count()   # a temporary name of each writer's own; see `_write`
-MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_by")
+MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_used", "exhausted_by")
 
 
 def _write(change, fetched_at=None):
@@ -718,33 +755,39 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
 
 
 def _fresh_window(prov, mark, now):
-    """Whether the meter that showed the refusal `mark` records now reports a later reset with
-    room left.
+    """Whether the meter that showed the refusal `mark` records now has room again: a later
+    reset, or a lower reading asked after the refusal.
 
     That meter is the one `mark_exhausted` named (`exhausted_by`).  Another meter's new window
     says nothing of the refusal: the 5-hour session rolling over under a weekly refusal leaves
     that week as spent as it was.  A mark that names none ends at its deadline alone.
-    Only reported reset times identify a replacement: a window's nominal length says
-    nothing about when it began.  Without a recorded reset there is nothing to compare.
+    Only reported reset times identify a replacement, and inside the same window only a reading
+    asked after the refusal that fell by more than a point of jitter counts: a meter below 100
+    that never fell is not permission to be refused again.
     """
-    ends = mark.get("exhausted_ends") if isinstance(mark, dict) else None
-    if not isinstance(prov, dict) or not isinstance(ends, dict):
+    name = mark.get("exhausted_by") if isinstance(mark, dict) else None
+    if not isinstance(prov, dict) or not isinstance(name, str) or not name:
         return False
+    ends = mark.get("exhausted_ends")
+    levels = mark.get("exhausted_used")
+    at = _number(mark.get("exhausted_at"))
+    asked = _meter_asked(prov).get(name)
+    # Marks written before `exhausted_used` existed named a meter only at 100%+.
+    stood = (_number(levels.get(name)) if isinstance(levels, dict)
+             else 100.0 if "exhausted_used" not in mark else None)
     for meter in prov.get("meters") or []:
-        if not isinstance(meter, dict) or meter.get("name") != mark.get("exhausted_by"):
+        if not isinstance(meter, dict) or meter.get("name") != name:
             continue
         used = _number(meter.get("used"))
-        if used is None or used >= 100:
+        if used is None or used >= 100 or _past(meter, now):
             continue
+        if (at is not None and asked is not None and asked > at
+                and stood is not None and round(stood - used, 6) > 1):
+            return True
         resets_at = _number(meter.get("resets_at"))
-        if resets_at is None:
-            continue
-        if resets_at <= now:
-            continue          # a window already rolled over answers for nothing
-        old = _number(ends.get(meter.get("name")))
-        if old is None or resets_at <= old:
-            continue          # the window the mark was made in, mismeasured or not
-        return True
+        old = _number(ends.get(name)) if isinstance(ends, dict) else None
+        if resets_at is not None and old is not None and resets_at > old:
+            return True
     return False
 
 
@@ -754,8 +797,8 @@ def _carry_mark(old, prov, now):
     A provider that has just refused a worker is parked until it says it has capacity again,
     and the meters it reports meanwhile are not that answer: the one that is, is the time the
     refusal itself named.  Once that time is behind us the mark is gone and the probe decides.
-    A new window with room on the meter that showed the refusal ends it sooner, and is that
-    same answer.
+    A new window with room on the meter that showed the refusal, or an asked reading where that
+    meter has fallen, ends it sooner and is that same answer.
 
     Every write carries the mark the file holds this way (`_onto`) but the credit's own: the
     meters a spend hands back are the capacity the mark said was missing, and re-applying it
@@ -773,6 +816,8 @@ def _carry_mark(old, prov, now):
         mark["exhausted_at"] = marked_at
     if isinstance(ends, dict):
         mark["exhausted_ends"] = ends
+    if isinstance(old.get("exhausted_used"), dict):
+        mark["exhausted_used"] = old["exhausted_used"]
     if isinstance(old.get("exhausted_by"), str):
         mark["exhausted_by"] = old["exhausted_by"]
     return mark
@@ -854,6 +899,22 @@ def collect(cfg, *, refresh=False):
                  for name in cfg["providers"]}
     # What is answered is what was written, a mark another worker made meanwhile included.
     providers = _store(cfg, providers, now, now)
+    return Readings(_gate_flags(providers, now, cfg))
+
+
+def held(cfg):
+    """What `collect` answers from the snapshot, however old, asking no adapter and waiting on
+    none, so a screen is up at once: a provider the config no longer has left out, a meter past
+    its reset dropped, each account's too, and the flags derived again.  {} with none held; the
+    menu's probe and the tick keep it current."""
+    now, providers = time.time(), {}
+    for name, prov in staffing._cached_providers().items():
+        if name in cfg["providers"] and isinstance(prov, dict):
+            providers[name] = _without_past(prov, now, "the cache")
+            if _record(prov.get("accounts")):
+                providers[name]["accounts"] = {
+                    account: _without_past(_record(record), now, "the cache")
+                    for account, record in prov["accounts"].items()}
     return Readings(_gate_flags(providers, now, cfg))
 
 
@@ -964,8 +1025,8 @@ def replenish(cfg, provider, account=None):
     week = ([_normalized({**weekly, "used": used, "resets_at": until}, now)]
             if weekly and _number(used) is not None and _number(until) is not None else [])
     kept = {key: value for key, value in prov.items() if key not in ("accounts", "account")
-            and (not week or key not in ("fetched_at", "probe_error", "probe_failed_at",
-                                         "stale_since"))}
+            and (not week or key not in ("fetched_at", "probed_meters", "probe_error",
+                                         "probe_failed_at", "stale_since"))}
     fresh = _without_past({**kept, "meters": week, "resets": None}
                           if _cooling(provider, account, _probe_every(cfg, provider))
                           else _probe_gently(cfg, provider, account),
@@ -1016,8 +1077,8 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
     The mark lives in the usage cache beside the meters, so `pick_order` excludes this
     provider for every later pick in every run, and it is dropped the moment the deadline has
-    passed, or the meter that showed the refusal reports a later reset than recorded at
-    marking, with room; a refusal no meter showed waits for its deadline.  An account's mark
+    passed, or the meter that showed the refusal reports a later reset or an asked fall with
+    room; a refusal no meter showed waits for its deadline.  An account's mark
     is its own: the provider stays eligible on its other accounts.  Returns the deadline
     recorded.
     """
@@ -1031,17 +1092,20 @@ def mark_exhausted(cfg, provider, until=None, account=None):
     said = _number(until) is not None and until > now
     if not said:
         until = _next_window(prov, now) or now + DRY_FOR
-    ends, shown = {}, []
+    ends, levels, shown = {}, {}, []
     for meter in prov.get("meters") or []:
         if not isinstance(meter, dict) or not isinstance(meter.get("name"), str):
             continue
+        used = _number(meter.get("used"))
+        if used is not None:
+            levels[meter["name"]] = used
         end = _number(meter.get("resets_at"))
         if end is not None:
             ends[meter["name"]] = end
             # the refusal shows on a meter spent as it came, of several the last to reset,
             # and never on a session -- or a window that does not say it is none -- when the
             # refusal outlasts one
-            if (_number(meter.get("used")) or 0) >= 100 and not (
+            if (used or 0) >= 100 and not (
                     _number(meter.get("window_secs")) in (SESSION_SECS, None)
                     and until - now > SESSION_SECS):
                 shown.append((end, meter["name"]))
@@ -1049,6 +1113,7 @@ def mark_exhausted(cfg, provider, until=None, account=None):
         until = min(until, now + DRY_FOR)
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
+                                          "exhausted_used": levels,
                                           "exhausted_by": max(shown, default=(0, None))[1]})
     return float(until)
 
@@ -1114,6 +1179,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     old = cached.get("meters") if isinstance(cached.get("meters"), list) else []
     # Normalized as a probed meter is, because every reader of the snapshot reads one.
     new = {m["name"]: _normalized(m, measured) for m in fresh}
+    asked = {name: at for name, at in _meter_asked(cached).items() if name not in new}
     merged = [new[m["name"]] if isinstance(m, dict) and m.get("name") in new else m
               for m in old if isinstance(m, dict) and isinstance(m.get("name"), str)]
     merged += [meter for name, meter in new.items()
@@ -1127,7 +1193,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
             prov.setdefault("via", via)
         except config.Error:
             pass
-    prov.update(meters=merged, probed_at=measured, error=None,
+    prov.update(meters=merged, probed_at=measured, probed_meters=asked, error=None,
                 pace=max((m["pace"] for m in merged
                             if isinstance(m, dict) and m.get("pace") is not None),
                            default=None))
@@ -1215,8 +1281,11 @@ def _gating_meters(cfg, name, providers):
 
     A model naming a `meter` is gated by that one, the shared weekly_all and the 5h session
     window, which every model of the subscription runs inside.  Otherwise use the provider's
-    meters minus any meter another model claims: `weekly_scoped` is Fable's cap, so it must not
-    gate Opus -- otherwise the orchestrator fallback from Fable to Opus could never fire.
+    meters less each cap that is another model's: `weekly_scoped` is Fable's, so it must not
+    gate Opus -- otherwise the orchestrator fallback from Fable to Opus could never fire.  A cap
+    is the model's its provider names in its `scope`, each word of which is a word of that
+    model's id or of the name every screen shows it by (`Fable` names `acme-fable-5-2`);
+    without a `scope`, the model's whose `meter` claims it.
     """
     entry = config.model(cfg, name)
     meters = providers.get(entry["provider"], {}).get("meters", [])
@@ -1226,7 +1295,13 @@ def _gating_meters(cfg, name, providers):
                 or m.get("window_secs") == SESSION_SECS], want
     claimed = {e["meter"] for n, e in cfg["models"].items()
                if n != name and e.get("meter") and e["provider"] == entry["provider"]}
-    return [m for m in meters if m["name"] not in claimed], PROVIDER_METERS
+
+    def words(text):
+        return set(re.findall(r"[^\W_]+", str(text).lower()))
+
+    own = words(entry["model"]) | words(config.model_name(cfg, name))
+    return [m for m in meters if (words(m["scope"]) <= own if m.get("scope")
+                                  else m["name"] not in claimed)], PROVIDER_METERS
 
 
 def model_pace(cfg, name, providers):
@@ -1282,7 +1357,7 @@ def shared_week(cfg, provider, prov, now=None):
     52% is wrong on its face.  So when every week that can be read is somebody's private cap
     there is no shared week at all, and this says None rather than borrowing one of them: a row
     that cannot be drawn is better than a wrong one.
-    The picker is unaffected -- it ranks on the tightest meter, whoever owns it.
+    The picker is unaffected -- it ranks each model on the meters gating it (`_gating_meters`).
 
     The menu's row and the `resets` column of the table both read this one answer, so the two
     can never disagree about which week they are naming the reset time of.
@@ -1366,14 +1441,14 @@ def credits_note(prov):
 
 
 def on_credits(cfg, name, providers):
-    """Whether this model runs on its provider's credits: a meter it watches is spent.
+    """Whether this model runs on its provider's credits: a meter gating it is spent.
 
     Credits cost money and the subscription is already paid, so every pick puts such a model
     after every model with a window left; it is spent only once the credits are gone too.
     """
     prov = providers.get(config.model(cfg, name)["provider"])
     return bool(credits_left(prov)) and any(m.get("used", 0) >= 100
-                                            for m in _watched(cfg, name, providers)[0])
+                                            for m in _gating_meters(cfg, name, providers)[0])
 
 
 def provider_budget(prov, now=None):
@@ -1433,22 +1508,13 @@ def model_low(cfg, name, providers):
     return running_low(meters, _probe_every(cfg, config.model(cfg, name)["provider"]))
 
 
-def _watched(cfg, name, providers):
-    """The meters gating the model plus its provider's 5h session meter, and their label."""
-    entry = config.model(cfg, name)
-    meters, label = _gating_meters(cfg, name, providers)
-    named = {m["name"] for m in meters}
-    return meters + [m for m in providers.get(entry["provider"], {}).get("meters") or []
-                     if m.get("window_secs") == SESSION_SECS and m["name"] not in named], label
-
-
 def spent_meter(cfg, name, providers):
-    """The worst meter this model watches that reads 100% used, or None: what the new-session
+    """The worst meter gating this model that reads 100% used, or None: what the new-session
     screen calls spent.  Unlike `model_spent`, a meter whose reset nobody knows counts too --
     the screen only declines to choose the model for him, and says when it resets if it can."""
     if on_credits(cfg, name, providers):
         return None
-    spent = [m for m in _watched(cfg, name, providers)[0] if m.get("used", 0) >= 100]
+    spent = [m for m in _gating_meters(cfg, name, providers)[0] if m.get("used", 0) >= 100]
     return max(spent, key=lambda m: m["used"]) if spent else None
 
 
@@ -1468,12 +1534,10 @@ def unready(cfg, name, providers):
 def model_spent(cfg, name, providers):
     """(spent, why) for the orchestrator choice: this model has nothing left to spend at all.
 
-    The meters gating the model plus its provider's 5h session meter, which a model naming a
-    weekly `meter =` runs inside without its own gate ever seeing it.  The used side only --
-    that choice does not read pace, because being ahead of pace is not a reason to refuse the seat
-    the user works from.
+    The meters gating the model, the used side only -- that choice does not read pace, because
+    being ahead of pace is not a reason to refuse the seat the user works from.
     """
-    watched, label = _watched(cfg, name, providers)
+    watched, label = _gating_meters(cfg, name, providers)
     spent = [m for m in watched if m.get("tier_a_exhausted", m.get("exhausted"))]
     left = credits_note(providers.get(config.model(cfg, name)["provider"]))
     if spent:
