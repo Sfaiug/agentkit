@@ -405,7 +405,7 @@ func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 		return false, err
 	}
 	suite := gitcall.Suite(r.wt, r.baseSHA)
-	every, once := landingGroups(cmds, r.wt, suite)
+	every, once, suites := landingGroups(cmds, r.wt, suite)
 	if len(once) == 0 {
 		return true, nil
 	}
@@ -420,7 +420,7 @@ func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 		return false, err
 	}
 	path := filepath.Join(l.dir, "final-check.log")
-	ok, text, err := r.checks(l, append(every, once...), path, nil, &checkSelection{base: cmp.Or(r.baseSHA, r.upstream())})
+	ok, text, err := r.checks(l, append(every, once...), path, nil, &checkSelection{base: cmp.Or(r.baseSHA, r.upstream()), suites: suites})
 	if err != nil {
 		return false, err
 	}

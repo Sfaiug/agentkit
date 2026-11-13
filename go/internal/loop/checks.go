@@ -88,7 +88,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 	var spent, last, stopReason string
 	var left []string
 	var marks []*int
-	passes := map[string]suitetimes.Pass{}
+	var passes []suitetimes.Pass
 	unstarted := false
 	asked := clock()  // a later go is asked for as the one before it ends
 	var at *placement // the command's heavy-suite turn, held through its re-run
@@ -172,8 +172,8 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 		}
 		passed := outcome.code == 0 && outcome.stopped == ""
 		ok = ok && passed
-		if passed && selection.refusesSlow() {
-			passes[cmd] = suitetimes.Pass{Times: measured(path, offset), Pieces: max(1, len(outcome.exits))}
+		if passed && selection.judges(cmd) {
+			passes = append(passes, suitetimes.Pass{Command: cmd, Times: measured(path, offset), Pieces: max(1, len(outcome.exits))})
 		}
 		selection.observe(cmd, outcome)
 		if outcome.stopped != "" {
@@ -231,7 +231,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 		l.say(line)
 	}
 	text := strings.Join(chunks, "\n\n")
-	if ok && selection.refusesSlow() {
+	if ok && len(passes) > 0 {
 		refused, failure, err := suitetimes.Refusal(cwd, selection.base, passes)
 		if err != nil {
 			return false, "", nil, err

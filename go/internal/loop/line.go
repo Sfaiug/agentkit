@@ -531,29 +531,34 @@ func (l *loop) checkTree(scratch string, checks []string, name, kind, suite stri
 }
 
 // landingChecks are the member's own landing checks on the scratch checkout, Python's
-// _landing_checks: its `# once` commands (landingGroups).  A PR review owes the target's suite,
-// never an earlier head's too.
-func landingChecks(m member, scratch, tip string) ([]string, error) {
+// _landing_checks: its `# once` commands and its suites (landingGroups).  A PR review owes the
+// target's suite, never an earlier head's too.
+func landingChecks(m member, scratch, tip string) (once, suites []string, err error) {
 	var cmds []string
 	if !m.record.Truthy("review_pr") {
-		var err error
 		if _, cmds, err = task.Read(filepath.Join(m.dir, "task.md")); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	_, once := landingGroups(cmds, scratch, gitcall.Suite(scratch, tip))
-	return once, nil
+	_, once, suites = landingGroups(cmds, scratch, gitcall.Suite(scratch, tip))
+	return once, suites, nil
 }
 
 // landingGroups are a task's commands as they land on checkout: those run every round, and those
-// run once, with the target's suite and a `tests:` line the change rewrites, which every later
-// change would land through.
-func landingGroups(cmds []string, checkout, suite string) (every, once []string) {
+// run once, with its suites: the target's and a `tests:` line the change rewrites, which every
+// later change would land through.
+func landingGroups(cmds []string, checkout, suite string) (every, once, suites []string) {
 	every, once = task.Group(task.RoundCommands(cmds, suite, true))
-	if own := gitcall.Declared(checkout, "tests"); own != "" && own != suite && !slices.Contains(once, own) {
-		once = append(once, own)
+	if suite != "" {
+		suites = []string{suite}
 	}
-	return every, once
+	if own := gitcall.Declared(checkout, "tests"); own != "" && own != suite {
+		suites = append(suites, own)
+		if !slices.Contains(once, own) {
+			once = append(once, own)
+		}
+	}
+	return every, once, suites
 }
 
 // covers is whether evidence that ran those checks answers for these, in their order.

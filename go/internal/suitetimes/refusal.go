@@ -11,25 +11,24 @@ import (
 	"agentkit/internal/gitcall"
 )
 
-// A Pass is what one passing command printed of its test files' seconds, by file, and how many
+// A Pass is what one passing suite printed of its test files' seconds, by file, and how many
 // pieces it ran in, Python's gate.run_done_when timings.
 type Pass struct {
-	Times  map[string]float64
-	Pieces int
+	Command string
+	Times   map[string]float64
+	Pieces  int
 }
 
 // Refusal is the failure a change on checkout owes for each test file it adds since base that its
 // suite's pass took longer over than the piece target, "" for none, Python's suite_times.refusal: a
-// file slower than its piece slows every landing after it.  The suite base declares and a `tests:`
-// line the change rewrites are each judged on their own pass alone, never on times kept from earlier
-// ones, the target being that pass's seconds over its pieces, and at least 60, so many pieces never
-// refuse an ordinary file of less than a minute.  Refused is the first command refused for: only a
-// pass of that command shows the file again.
-func Refusal(checkout, base string, passes map[string]Pass) (refused, failure string, err error) {
+// file slower than its piece slows every landing after it.  Each suite is judged on its own pass
+// alone, never on times kept from earlier ones, the target being that pass's seconds over its
+// pieces, and at least 60, so many pieces never refuse an ordinary file of less than a minute.
+// Refused is the first suite refused for: only a pass of that suite shows the file again.
+func Refusal(checkout, base string, passes []Pass) (refused, failure string, err error) {
 	var added []string
 	var failures []string
-	for _, command := range slices.Compact([]string{gitcall.Suite(checkout, base), gitcall.Declared(checkout, "tests")}) {
-		pass := passes[command]
+	for _, pass := range passes {
 		if len(pass.Times) == 0 {
 			continue
 		}
@@ -53,8 +52,8 @@ func Refusal(checkout, base string, passes map[string]Pass) (refused, failure st
 			}
 		}
 		if len(slow) > 0 {
-			refused = cmp.Or(refused, command)
-			failures = append(failures, "$ "+command+"\n[test file over piece target]\n"+strings.Join(slow, "\n"))
+			refused = cmp.Or(refused, pass.Command)
+			failures = append(failures, "$ "+pass.Command+"\n[test file over piece target]\n"+strings.Join(slow, "\n"))
 		}
 	}
 	return refused, strings.Join(failures, "\n\n"), nil

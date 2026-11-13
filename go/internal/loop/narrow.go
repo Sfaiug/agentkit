@@ -33,6 +33,7 @@ type narrowingStack struct {
 	head     string
 	tree     string
 	checks   []string
+	suites   []string
 }
 
 // withCandidates checks the pass's unwoken records under the same recovery locks publication
@@ -187,7 +188,7 @@ func buildNarrowing(repo, tip, upstream string, prefix, pending []member, said i
 		if err != nil {
 			return stacks, err
 		}
-		stack.checks, err = landingChecks(m, checkout.path, tip)
+		stack.checks, stack.suites, err = landingChecks(m, checkout.path, tip)
 		if err != nil {
 			checkout.close()
 			return stacks[:len(stacks)-1], err
@@ -278,19 +279,25 @@ func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks
 		}
 		return withCandidates(ahead, pending, action)
 	}
-	commands := func(index int) []string {
-		var checks []string
+	// the checks of the stacks up to index, and the suites a slow added test file is refused on:
+	// each a member rewrites, on its own pass
+	commands := func(index int) (checks, suites []string) {
 		for _, stack := range stacks[:index+1] {
 			for _, command := range stack.checks {
 				if command != suite && !slices.Contains(checks, command) {
 					checks = append(checks, command)
 				}
 			}
+			for _, command := range stack.suites {
+				if !slices.Contains(suites, command) {
+					suites = append(suites, command)
+				}
+			}
 		}
 		if suite != "" {
 			checks = append(checks, suite)
 		}
-		return checks
+		return checks, suites
 	}
 	publishAt := func(index int, answer *run.Object) bool {
 		after := run.NewObject()
@@ -314,7 +321,7 @@ func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks
 		if !valid(func() bool { return true }) {
 			return nil, nil
 		}
-		checks := commands(index)
+		checks, suites := commands(index)
 		covered := stacks[:index+1]
 		if !batched {
 			checks, covered = stacks[index].checks, stacks[index:index+1]
@@ -324,7 +331,7 @@ func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks
 		var err error
 		if cached == nil || cached.Str("tested") != stacks[index].tree || !covers(cached.List("checks"), checks) {
 			cached = nil
-			answer, err = stacks[index].check(checks, suite, "landing", &checkSelection{base: target.tip})
+			answer, err = stacks[index].check(checks, suite, "landing", &checkSelection{base: target.tip, suites: suites})
 		}
 		if err != nil || answer == nil {
 			return answer, err
@@ -444,7 +451,8 @@ func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks
 					runs = suite
 				}
 			}
-			selection := &checkSelection{shard: fix.Str("piece"), tests: tests, base: target.tip}
+			_, suites := commands(middle)
+			selection := &checkSelection{shard: fix.Str("piece"), tests: tests, base: target.tip, suites: suites}
 			if runs == "" {
 				answer, err = whole(middle)
 			} else if valid(func() bool { return true }) {
