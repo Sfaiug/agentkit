@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"os/exec"
@@ -14,25 +15,11 @@ import (
 
 // opencodeSwitchable is opencode.py's `switchable`: whether the running TUI can move to `model` at
 // `effort` by `/ak-model`, not where the variant a launch would run, the id's own `#variant`, else
-// the effort, is one a launch defines itself (adapters/opencode.sh `variants`), which OpenCode
-// reads only as it starts.  An answer that cannot be read restarts too: a launch defines whatever
-// it needs.
+// the effort, is one a launch defines itself (OpencodeVariants), which OpenCode reads only as it
+// starts.  An answer that cannot be read restarts too: a launch defines whatever it needs.
 func opencodeSwitchable(model, effort string) bool {
-	adapter, err := config.Adapter("opencode")
-	if errors.Is(err, config.ErrNoAdapterDir) {
-		adapter, err = config.ShippedAdapter("opencode")
-	}
-	env, unread := config.ChildEnv()
-	if err != nil || unread != nil {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, adapter, "variants", model)
-	cmd.Env, cmd.WaitDelay = env, time.Second
-	host.AdapterCall(cmd)
-	out, err := cmd.Output()
-	doc, unread := run.Decode([]byte(strings.ToValidUTF8(string(out), "�")))
+	said, err := opencodeDefined(model)
+	doc, unread := run.Decode(said)
 	top, _ := doc.(*run.Object)
 	if err != nil || unread != nil || top == nil {
 		return false
@@ -65,4 +52,25 @@ func opencodeSwitchable(model, effort string) bool {
 		}
 	}
 	return true
+}
+
+// opencodeDefined is the document defining the variants a launch on model defines itself: Go's own
+// where no adapter folder is named, as in every real home, else what that folder's adapter answers
+// `variants`.
+func opencodeDefined(model string) ([]byte, error) {
+	adapter, err := config.Adapter("opencode")
+	if errors.Is(err, config.ErrNoAdapterDir) {
+		return []byte(OpencodeVariants(model)), nil
+	}
+	env, unread := config.ChildEnv()
+	if err = cmp.Or(err, unread); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, adapter, "variants", model)
+	cmd.Env, cmd.WaitDelay = env, time.Second
+	host.AdapterCall(cmd)
+	out, err := cmd.Output()
+	return []byte(strings.ToValidUTF8(string(out), "�")), err
 }
