@@ -70,12 +70,13 @@ class MovesBeforeEmpty(unittest.TestCase):
         self.tick()
         self.assertEqual(self.account(), "second")
         self.assertIn(CONVERSATION, self.commands[0])
+        # the pane tmux named, whichever the owner selects by the time tmux thaws it itself
         freeze = next(n for n, args in enumerate(self.calls)
-                      if ["select-pane", "-d", "-t", f"={NAME}:"] in commands(args))
+                      if ["select-pane", "-d", "-t", "%7"] in commands(args))
         respawn = next(n for n, args in enumerate(self.calls) if "respawn-pane" in args)
         self.assertLess(freeze, respawn)
-        self.assertEqual(self.calls[freeze][-2:], ("-C", f"set-option -pu -t ={NAME}: "
-                                                         f"{orch.FROZEN_OPTION} ; select-pane -e -t ={NAME}:"))
+        self.assertEqual(self.calls[freeze][-2:], ("-C", f"set-option -pu -t %7 "
+                                                         f"{orch.FROZEN_OPTION} ; select-pane -e -t %7"))
         self.assertFalse(self.keys_off)             # the new harness takes keys at once
         self.tick()
         self.assertEqual((self.typed, len(self.commands)), ([], 1))
