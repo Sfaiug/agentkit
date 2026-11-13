@@ -4273,6 +4273,9 @@ case "${1:-} ${2:-}" in
 esac
 SH
 chmod +x "$PBIN/gh"
+# The workers' programs are stand-ins too: a pick takes a model only where its harness's program
+# is found (`config.harness_present`), and the host's own is not found while it upgrades.
+for h in claude codex; do printf '#!/bin/sh\n' >"$PBIN/$h"; chmod +x "$PBIN/$h"; done
 tm kill-session -t "=$INBOX" 2>/dev/null
 HOME="$PH" AGENTKIT_INBOX_SESSION="$INBOX" AGENTKIT_ADAPTER_DIR="$PAD" AGENTKIT_DISCORD_WEBHOOK= \
   PATH="$PBIN:$PATH" ak run --review-pr "https://github.com/smokeowner/$PREPO/pull/7" >"$WORK/prreview.log" 2>&1
@@ -4318,7 +4321,7 @@ chmod +x "$PBIN2/gh"
 grep -q 'HTTP 502' "$PBIN2/gh" || echo "      (25b: the refusing gh was not written)"
 tm kill-session -t =smoke-inbox-refused 2>/dev/null
 HOME="$PH" AGENTKIT_INBOX_SESSION=smoke-inbox-refused AGENTKIT_ADAPTER_DIR="$PAD" AGENTKIT_DISCORD_WEBHOOK= \
-  PATH="$PBIN2:$PATH" ak run --review-pr "https://github.com/smokeowner/$PREPO/pull/7" >"$WORK/prreview-refused.log" 2>&1
+  PATH="$PBIN2:$PBIN:$PATH" ak run --review-pr "https://github.com/smokeowner/$PREPO/pull/7" >"$WORK/prreview-refused.log" 2>&1
 PRC2=$?
 PRUNID2=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/prreview-refused.log" | head -1)
 PJSON2="$PH/.agentkit/runs/$PRUNID2/run.json"
