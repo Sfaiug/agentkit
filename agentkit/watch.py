@@ -8820,11 +8820,21 @@ def main(argv):
     # every line of a real tick, the overlap line included, bounds the log on its way out; a
     # dry run renames nothing at all, and the log it may be printing into is no exception
     log = print if dry_run else tick_log
+    if not dry_run:
+        stamp_log()
+    # A client's home may be a copy of its server's, at the same paths: a tick here would resume,
+    # land and tell all of it a second time, so it reads and writes nothing, not even the lock
+    # or the config's old names, which bin/ak renames for every other command.  Its line is
+    # printed, not `tick_log`'s: a roll of the log takes a lock in the state folder.
+    alias = config.server_alias()
+    if alias:
+        print(f"this machine is a client of {alias} and runs no tick")
+        return 0
+    config.migrate_policy()
     if dry_run:
         log(tick_health()[0])
         held = None
     else:
-        stamp_log()
         config.ensure_dirs()
         try:
             previous = tick_lock_path().stat().st_mtime   # before the lock stamps our start
