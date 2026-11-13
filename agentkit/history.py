@@ -243,9 +243,8 @@ CREATE TABLE IF NOT EXISTS done_runs (
 # `default` for the usual login; `source` is `probe` or `turn`; `plan` is the login's as
 # state/logins.json named it then (`logins.whose`), so a changed plan starts readings of its own,
 # NULL where it named none or on a row from before it; `scope` the model or surface whose own cap
-# the meter is, as its provider names it (adapters/claude.sh), NULL for a meter every model shares
-# or on a row from before it.  A reading kept already, the same meter at the same moment, adds
-# nothing.
+# the meter is, as its provider names it, NULL for a meter every model shares or on a row from
+# before it.  A reading kept already, the same meter at the same moment, adds nothing.
 METER_READINGS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS meter_readings (
     provider TEXT,
