@@ -3407,19 +3407,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if undecided:
             return {"word": "needs you", "since": found.get("began"), "reason":
                     f"run {undecided[0].name} parked: {handback.handback_reason(undecided[1])}"}
-        done = {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
-        # tmux remembers even visits between looks; only one since the work finished counts.
-        try:
-            done_at = max(_stamp(found.get("began")) or 0, plan_mod.path(name).stat().st_mtime)
-        except FileNotFoundError:   # a rename moved the plan; the next look resolves it anew
-            return done
-        rc, visit = orch.tmux_out("display-message", "-p", "-t", f"={name}:",
-                                  "#{session_attached}\t#{session_last_attached}",
-                                  socket=orch.seat_socket(session))
-        attached, _, last = visit.partition("\t")
-        if rc == 0 and attached == "0" and last.isdigit() and int(last) > done_at:
-            return {"word": "idle", "reason": "", "since": found.get("began")}
-        return done
+        # A visit ends nothing: only new work does.  Resting after a visit, the seat read `done`
+        # again whenever the owner was in it, two changes of word with nothing said (owner,
+        # 13 Nov 2026).
+        return {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
     return {"word": "idle", "reason": "", "since": found.get("began")}
 
 
