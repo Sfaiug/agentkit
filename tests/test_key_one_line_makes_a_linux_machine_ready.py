@@ -65,6 +65,9 @@ def sshd_test(options):    # what sshd -t says of its settings and `options`
         if line.split(" ")[0] in world["refuses"]:
             print(f"command-line line 0: Bad configuration option: {{line}}", file=sys.stderr)
             return 255
+    if not os.path.isdir("/run/sshd"):
+        print("Missing privilege separation directory: /run/sshd", file=sys.stderr)
+        return 255
     return 0
 with (root / "log").open("a") as log:
     print(json.dumps({{"run": [name, *words], "keys": read(keys), "sshd": read(conf),
@@ -130,10 +133,12 @@ PROGRAMS = ("useradd", "usermod", "chown", "mount", "mkdir", "touch", "apt-get",
 @unittest.skipUnless(BWRAP, "no bubblewrap here to bind root's files")
 class OneLineMakesALinuxMachineReady(unittest.TestCase):
     def machine(self, system=DEBIAN, docker_cli=True, refuses=(), sshd=True, ssh_active=True):
-        """A machine's root as files: none of ak's, sshd's settings directory empty."""
+        """A machine's root as files: none of ak's, sshd's settings directory empty, and its
+        runtime directory only where ssh runs."""
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root)
-        for path in ("bin", "home", "ssh/sshd_config.d" if sshd else "ssh", "lib", "run"):
+        for path in ("bin", "home", "ssh/sshd_config.d" if sshd else "ssh", "lib",
+                     "run/sshd" if ssh_active else "run"):
             (root / path).mkdir(parents=True)
         (root / "os-release").write_text(system)
         (root / "passwd").write_text("root:x:0:0:root:/root:/bin/bash\n")
