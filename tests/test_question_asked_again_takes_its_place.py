@@ -1,7 +1,6 @@
 """A question a reopened seat asks takes the place of those its ended process left open.
 
-Reopened told to ask again by the owner's number, the boot pass or the tick (11 Nov 2026).  Offline.
-"""
+Reopened told to ask again by the owner's number, the boot pass or the tick (11 Nov 2026)."""
 
 import unittest
 from unittest.mock import patch
@@ -26,10 +25,9 @@ class AskedAgain(Sandbox):
         config.save_session(self.cfg, "acme", "fable", ["astra"], {"cwd": str(self.root),
                             "created": 1, "conversation": "c-acme", "id_source": orch.LAUNCHER})
 
-    def asks(self, at, question):       # mid-turn, on its card, kept back for the turn's end
+    def asks(self, at, question):       # on its card, kept back for the turn's end: no look since
         self.now = at
         watch.keep("acme", question)
-        watch.seat_write("acme", state="asking")
 
     def answers(self, at, question):    # the owner, on that card
         self.now = at

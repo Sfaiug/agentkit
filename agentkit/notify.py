@@ -579,9 +579,8 @@ def card_answered(notice, replies, at, renewed, before=-math.inf):
 
 
 def again(kept):
-    """The moment before which every question their seat said is one those kept questions take
-    the place of, whatever their words: the latest it was reopened told to ask again before one
-    was said (`watch.asking_again`), else -inf.  Nothing clears it: one said since is newer."""
+    """The latest moment their seat was reopened told to ask again before one of those kept was
+    said (`watch.asking_again`), else -inf: whatever it said before, they take the place of."""
     return max((q["asked_again"] for q in kept if "asked_again" in q), default=-math.inf)
 
 

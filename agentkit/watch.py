@@ -598,7 +598,7 @@ def cut_off(cfg, name, moved=None):
     answer differently (`holding`).
 
     Its last look, unless its hook has spoken since, which is then the newest word.  Asking
-    the owner, in a turn or not: its question on the screen, or its own unanswered `ak notify
+    the owner, in a turn or not: its question kept or on screen, or its own unanswered `ak notify
     needs`.  Else in the middle of a turn: the ladder's own test -- a hook's prompt with no
     `Stop` after it, or a screen positively `working`, as it is once a question the turn asked
     was answered.  A move to another account knows what it cut instead: `moved` says whether
@@ -622,13 +622,14 @@ def _cut_line(cfg, name):
     if not harness:
         return None
     looked = seat_read(name)
+    kept = looked.get("unasked")      # asked on its card, whatever a look found since
     try:
         hooked, event, _text, when = hook_state(harness, seat_fact(name, harness))
     except config.Error:
         return None
     if when is not None and when != looked.get("hooked_at"):
         looked = {"state": hooked, "hooked": hooked, "hooked_at": when, "hooked_event": event}
-    if looked.get("state") == "asking" or owner_question(notify.last(name)):
+    if looked.get("state") == "asking" or kept or owner_question(notify.last(name)):
         return ASKED_LINE
     if _turn_in_flight(harness, looked)[0]:
         return MIDTURN_LINE

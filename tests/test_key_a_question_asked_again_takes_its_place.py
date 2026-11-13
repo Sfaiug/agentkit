@@ -1,8 +1,7 @@
 """A question a reopened seat asks takes the place of those its ended process left open.
 
 Black-box, as test_key_native_card_answer_scope.py is, reopened by `ak orch NAME` on a fake Claude
-taking ak's line as its first prompt; one never ended keeps its standing question (11 Nov 2026).
-"""
+taking ak's line as its first prompt; one never ended keeps its standing question (11 Nov 2026)."""
 
 import re
 import shlex
