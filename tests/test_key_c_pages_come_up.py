@@ -85,8 +85,9 @@ class CPagesComeUp(unittest.TestCase):
         self.term.keys("Space")
         self.written(re.escape(ink) + " ?●", since)    # half way while the clock stands, padded
         self.at(self.now + 10)
-        out = self.written(re.escape(ink) + " ?●.*●", since)
-        self.assertNotEqual(re.findall(r"(\x1b\[[\d;]*m) ?●", out)[-1], ink)     # then in its own
+        # then in its own ink, the last ● of the last update: a whole redraw (terminal.TICK)
+        # writes the drawn ● before the half over it
+        self.written(rf"(?!{re.escape(ink)})\x1b\[[\d;]*m ?●[^●]*\x1b\[\?2026l[^●]*\Z", since)
 
 
 if __name__ == "__main__":
