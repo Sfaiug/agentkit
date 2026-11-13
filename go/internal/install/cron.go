@@ -13,13 +13,13 @@ import (
 	"agentkit/internal/config"
 )
 
-// cronTag marks the tick's line as ak's; `ak move` reads it to see a tick on the machine it
-// would copy to.
+// cronTag marks the tick's line as ak's.
 const cronTag = "# agentkit watch"
 
-// cronTagged is the tag with its `#`s and spacing loose, so a pause retyped or commented out
-// again by hand is still ak's.
-var cronTagged = regexp.MustCompile(`#+[[:space:]]*agentkit[[:space:]]+watch([[:space:]]|$)`)
+// CronTagged is the tag with its `#`s and spacing loose, so a pause retyped or commented out
+// again by hand is still ak's; `ak move` asks the machine it would copy to with it, as POSIX
+// extended grep reads it.
+var CronTagged = regexp.MustCompile(`#+[[:space:]]*agentkit[[:space:]]+watch([[:space:]]|$)`)
 
 // cron keeps a server's tick, which moves every run, landing and stalled seat: one crontab line
 // running this program's `watch` every three minutes, as install.sh's step (g) does.  Every
@@ -61,7 +61,7 @@ func cron(sandboxed bool, out, errOut io.Writer) error {
 	current := strings.TrimRight(string(listed), "\n")
 	var wanted []string
 	for _, kept := range strings.Split(current, "\n") {
-		if current != "" && !cronTagged.MatchString(kept) {
+		if current != "" && !CronTagged.MatchString(kept) {
 			wanted = append(wanted, kept)
 		}
 	}
