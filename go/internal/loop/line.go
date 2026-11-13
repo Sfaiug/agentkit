@@ -531,8 +531,7 @@ func (l *loop) checkTree(scratch string, checks []string, name, kind, suite stri
 }
 
 // landingChecks are the member's own landing checks on the scratch checkout, Python's
-// _landing_checks: its `# once` commands and the target's suite, and a `tests:` line the change
-// rewrites, which every later change would land through.  A PR review owes the target's suite,
+// _landing_checks: its `# once` commands (landingGroups).  A PR review owes the target's suite,
 // never an earlier head's too.
 func landingChecks(m member, scratch, tip string) ([]string, error) {
 	var cmds []string
@@ -542,12 +541,19 @@ func landingChecks(m member, scratch, tip string) ([]string, error) {
 			return nil, err
 		}
 	}
-	suite := gitcall.Suite(scratch, tip)
-	_, once := task.Group(task.RoundCommands(cmds, suite, true))
-	if own := gitcall.Declared(scratch, "tests"); own != "" && own != suite && !slices.Contains(once, own) {
+	_, once := landingGroups(cmds, scratch, gitcall.Suite(scratch, tip))
+	return once, nil
+}
+
+// landingGroups are a task's commands as they land on checkout: those run every round, and those
+// run once, with the target's suite and a `tests:` line the change rewrites, which every later
+// change would land through.
+func landingGroups(cmds []string, checkout, suite string) (every, once []string) {
+	every, once = task.Group(task.RoundCommands(cmds, suite, true))
+	if own := gitcall.Declared(checkout, "tests"); own != "" && own != suite && !slices.Contains(once, own) {
 		once = append(once, own)
 	}
-	return once, nil
+	return every, once
 }
 
 // covers is whether evidence that ran those checks answers for these, in their order.

@@ -232,12 +232,13 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 	}
 	text := strings.Join(chunks, "\n\n")
 	if ok && selection.refusesSlow() {
-		failure, err := suitetimes.Refusal(cwd, selection.base, passes)
+		refused, failure, err := suitetimes.Refusal(cwd, selection.base, passes)
 		if err != nil {
 			return false, "", nil, err
 		}
 		if failure != "" {
-			ok, text = false, text+"\n\n"+failure
+			// the red is the refused command's, which a narrowing runs again: the others passed
+			ok, text, selection.red = false, text+"\n\n"+failure, run.Fields("command", refused, "piece", "")
 		}
 	}
 	keepTimes(cwd, path) // the log is whole until it holds text
