@@ -66,11 +66,11 @@ class AsWritten(Sandbox):
 
     def test_a_a_model_s_name_draws_every_hash_and_percent_as_said(self):
         for word in ("needs you", "done"):
-            line_two = statusbar.whys({"crew": ([SAID], []), "tasks": []})
+            line_two = statusbar.whys({"crew": (SAID, [SAID], []), "tasks": []})
             statusbar._write("fix-api", SAID, word, None, self.cfg, line_two)
             top, bottom = self.screen(word)
             self.assertIn("   " + SAID, top, word)
-            self.assertIn("  " + SAID + " ⚒", bottom, word)
+            self.assertIn("  " + SAID + " orchestrates, builds", bottom, word)
 
     def test_b_a_tasks_bar_keeps_every_cell(self):
         for lang in ("C.UTF-8", "C"):

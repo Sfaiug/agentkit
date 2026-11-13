@@ -26,7 +26,7 @@ func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 	needs := " #[fg=#3d2e00,bg=#f6c400,bold] ! needs you #[default]   #[bold]acme#[nobold]   #[fg=#6c7086]Opus 5.5#[default]   "
 	done := " #[fg=#ffffff,bg=#007e46] ✓ done #[default]   #[bold]acme#[nobold]   #[fg=#6c7086]Opus 5.5#[default]   "
 	idle := " #[fg=#ffffff,bg=#6c7086] ○ idle #[default]   #[bold]acme#[nobold]   #[fg=#6c7086]Opus 5.5#[default]"
-	crew := "  #[fg=#6c7086]Opus 5.5 ⚒◎   Astra ⚒   Spark ◎#[default]"
+	crew := "  #[fg=#6c7086]Opus 5.5 orchestrates, builds, reviews   Astra builds   Spark reviews#[default]"
 	for _, each := range []struct {
 		word, reason, why string
 		done, total       int

@@ -324,6 +324,34 @@ class Switch(Sandbox):
                           if args[0] in ("respawn-pane", "new-session")], [])
         self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
 
+    def test_a_move_in_place_within_the_provider_skips_auth_and_still_refuses_spent(self):
+        before = self.at_xhigh()
+        (self.fixture / "logged-out-claude").write_text("yes\n")
+        spent = {"anthropic": {"meters": [{"name": "weekly_all", "used": 100,
+                                           "resets_at": time.time() + 86400,
+                                           "window_secs": 604800}]}}
+        dead = "0"
+
+        def live_tmux(*args, **kwargs):
+            if args[0] == "show-options":
+                return 0, "%7"
+            if args[0] == "display-message":
+                return 0, dead if args[-1] == "#{pane_dead}" else "fix-api"
+            return self.tmux(*args, **kwargs)
+
+        with patch.object(orch, "tmux_out", side_effect=live_tmux), \
+                patch.object(watch, "move_behind"), patch.object(watch, "announce_state"):
+            self.assertIn("spent", orch.switch_orchestrator(self.cfg, "fix-api", "fable", spent))
+            self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
+            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "opus", {},
+                                                      effort="max"), "")
+            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "fable", {}), "")
+            self.assertEqual([owed["line"] for owed in watch.seat_read("fix-api")["owed_lines"]],
+                             ["/effort max", "/model claude-fable-5-1", "/effort xhigh"])
+            dead = "1"      # pane dead: restarts, so auth runs first even beside a spent meter
+            self.assertIn("not logged in",
+                          orch.switch_orchestrator(self.cfg, "fix-api", "opus", spent))
+
     def test_a_restart_at_an_effort_that_fails_gives_the_effort_back(self):
         self.at_xhigh()
         def saved_then_failed(*_args, **_kw):     # a build effort saved while it launches

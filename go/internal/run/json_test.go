@@ -68,6 +68,22 @@ func TestFloatIsPythonRepr(t *testing.T) {
 	}
 }
 
+// Numbers compare as Python compares them: exactly, an int past float64's precision too.
+func TestNumbersCompareAsPythonCompares(t *testing.T) {
+	for _, each := range []struct {
+		a, b string
+		want bool
+	}{{"9007199254740992", "9007199254740993", false}, {"9007199254740993", "9007199254740992.0", false},
+		{"9007199254740992", "9007199254740992.0", true}, {"true", "1.0", true}, {"-0", "0.0", true},
+		{"1e400", "1e999", true}, {"1" + strings.Repeat("0", 400), "1e400", false}, {"NaN", "NaN", false}} {
+		a, _ := Decode([]byte(each.a))
+		b, _ := Decode([]byte(each.b))
+		if Equal(a, b) != each.want || Equal(b, a) != each.want {
+			t.Errorf("%.20s == %s: want %v", each.a, each.b, each.want)
+		}
+	}
+}
+
 func TestUnreadableJSONIsRefused(t *testing.T) {
 	long := make([]byte, config.MaxDigits+1)
 	for i := range long {

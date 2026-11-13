@@ -63,7 +63,7 @@ def followup_open(state):
     return (followup_moving(state)
             or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error")
                 and transitions.going(state))
-            or (state.get("state") == "interrupted" and state.get("deaths")
+            or (state.get("state") == "interrupted" and transitions.loop_death(state)
                 and transitions.tick_resumes(state))
             or (state.get("state") == "fail"
                 and transitions.parkable_conflict(state, config.RUNS / str(state.get("run_id")))))
@@ -2098,9 +2098,8 @@ def reap(run_dir, state, memory_probe=None):
                 if status == "running":
                     turns.stop_run_tree(state)
                 transitions.interrupt(state, reason)
-                last = (state.get("deaths") or [None])[-1]
-                if transitions.tick_resumes(state) and not (isinstance(last, dict) and not last.get("resumed_at")
-                                                and last.get("pid") == state.get("pid")):
+                ending = transitions.loop_death(state)
+                if transitions.tick_resumes(state) and not (ending and not ending.get("resumed_at")):
                     # Whoever notices the death records it, so the tick's dead-loop pass reads
                     # this record as a loop to carry on rather than as an interruption somebody
                     # was already told about -- and so it counts towards the third death. Once:
@@ -2126,8 +2125,9 @@ def reap(run_dir, state, memory_probe=None):
                 mark_delivery(run_dir, state, tree_stopped=swept)
         # A death the tick resumes is nobody's news however many reaps see it before it does,
         # the tick's own included while it waits out a backoff.
-        if transitions.needs_recovery(state) and not (state.get("state") == "interrupted" and state.get("deaths")
-                                          and transitions.tick_resumes(state)):
+        if transitions.needs_recovery(state) and not (state.get("state") == "interrupted"
+                                                      and transitions.loop_death(state)
+                                                      and transitions.tick_resumes(state)):
             notify_recovery(run_dir, state)
     return state
 

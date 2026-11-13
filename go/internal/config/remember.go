@@ -26,7 +26,7 @@ var saveOrder = map[string][]string{
 // it, the home file's own top-level keys over it.  `keep` is what Python's save does once the
 // text is built and before it is written: every seat's record holding the efforts it runs at
 // (config.keep_efforts, the records' own package's).  An error leaves the file as it was.
-func RememberDefaults(orchestrator string, workers, reviewers []string, keep func() error, steps ...EffortStep) error {
+func RememberDefaults(orchestrator string, workers, reviewers []string, keep func() error) error {
 	file, err := fileTable()
 	if err != nil {
 		return err
@@ -38,12 +38,12 @@ func RememberDefaults(orchestrator string, workers, reviewers []string, keep fun
 		defaults.put("reviewers", listed(reviewers))
 	}
 	// read outside the save's lock: skipping what the file already holds comes before any later save
-	if len(steps) == 0 && reflect.DeepEqual(meant(file.get("defaults")), meant(defaults)) {
+	if reflect.DeepEqual(meant(file.get("defaults")), meant(defaults)) {
 		return nil
 	}
 	return saveConfig(fileTable, func(root *table) error {
 		root.put("defaults", defaults)
-		return recommendedEfforts(root, steps)
+		return nil
 	}, keep)
 }
 
