@@ -70,9 +70,7 @@ def main():
     else:
         sub, rest = argv[0], argv[1:]
     try:
-        # a client's tick is decided before anything reads or writes its home, this migration
-        # included (agentkit/watch.py)
-        if sub != "watch" or not config.server_alias():
+        if sub != "watch":      # which migrates once it knows it is no client's (agentkit/watch.py)
             config.migrate_policy()
         if sub not in SUBS + UNLISTED:
             print(f"ak: unknown subcommand {sub!r}; expected one of {', '.join(SUBS)}", file=sys.stderr)
