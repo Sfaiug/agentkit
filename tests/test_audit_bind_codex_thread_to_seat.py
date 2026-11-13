@@ -167,7 +167,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
 
     def test_missing_malformed_and_conflicting_metadata_never_falls_back(self):
         for kind in ("missing", "partial", "wrong-id", "wrong-cwd", "stale-id", "stale-launch",
-                     "malformed-receipt", "conflicting-hook"):
+                     "malformed-receipt"):
             with self.subTest(kind=kind):
                 name = "seat-" + kind
                 record = self.create(name, name)
@@ -186,11 +186,8 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
                 elif kind == "stale-launch":
                     receipt["launch"] = "0" * 32
                     codex_plugin.path_for(record).write_text(json.dumps(receipt))
-                elif kind == "malformed-receipt":
-                    codex_plugin.path_for(record).write_text("[]")
                 else:
-                    codex_plugin.capture(codex_plugin.path_for(record),
-                                       {**receipt["event"], "session_id": "unrelated"})
+                    codex_plugin.path_for(record).write_text("[]")
                 self.rollout("later-unrelated")
                 self.assertIsNone(orch.seat_conversation(orch.records()[name]))
                 args, _ = self.resume(name)
@@ -260,16 +257,56 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
         self.assertFalse(orch.listing()[0]["resumable"])
         record = self.create("used", "first-owned")
         event = codex_plugin.read(record)["event"]
-        # A harmless compaction retains ownership. A new conversation in this launch is
-        # ambiguous, even though both rollouts have matching cwd and qualifying timestamps.
+        # A compaction retains ownership, and so does a later start the receipt hears: only the
+        # seat's own Codex moves the seat to another thread (`codex.follow`).
         codex_plugin.capture(codex_plugin.path_for(record), {**event, "source": "compact"})
         self.assertEqual(orch.seat_conversation(record), "first-owned")
         second = self.rollout("second-owned")
         codex_plugin.capture(codex_plugin.path_for(record),
-                           {**event, "source": "clear", "session_id": "second-owned",
+                           {**event, "source": "startup", "session_id": "second-owned",
                             "transcript_path": str(second)})
+        self.assertEqual(orch.seat_conversation(record), "first-owned")
+        self.assertTrue(orch.records()["used"]["resumable"])
+        # A receipt a second start marked ambiguous before seats followed one reads as it did.
+        codex_plugin.path_for(record).write_text(
+            json.dumps({**codex_plugin.read(record), "ambiguous": True}))
         self.assertIsNone(orch.seat_conversation(record))
         self.assertFalse(orch.records()["used"]["resumable"])
+
+    def test_a_seat_follows_only_its_owner_s_threads_past_a_read_from_before(self):
+        config.save_session(self.cfg, "acme", "astra", ["opus"], {"cwd": str(self.cwd)})
+        receipt = codex_plugin.prepare("acme", self.cwd, None)
+        store = codex_plugin.seat_conversations(json.loads(receipt.read_text())["remote"])
+        store.mkdir(parents=True)
+        def start(thread, **header):
+            path = store / f"rollout-{thread}.jsonl"
+            path.write_text(json.dumps({"type": "session_meta", "payload": {
+                "id": thread, "cwd": str(self.cwd), **header}}) + "\n")
+            event = {"hook_event_name": "SessionStart", "source": "startup", "session_id": thread,
+                     "transcript_path": str(path), "cwd": str(self.cwd)}
+            codex_plugin.capture(receipt, event)
+            codex_plugin.follow("acme", event, 103)
+        # The hook's parent is 0.167's native app server, which npm's `codex` started in the pane.
+        server = ["app-server", "--remote-control", "--listen", "unix:///acme/seat.sock"]
+        table = {100: (1, ["python3", "tools/codex-seat.py", "codex"]),
+                 101: (100, ["node", "/opt/acme/bin/codex", *server]),
+                 102: (101, ["/opt/acme/vendor/codex", *server]),
+                 103: (102, ["sh", "-c", "bash hooks/seat-state.sh"])}
+        with patch.multiple(orch, find=lambda name: {"name": name}, processes=lambda: table,
+                            tmux_out=lambda *_a, **_k: (0, "/acme/tmux\tacme\t100\t%7")), \
+                patch.dict(os.environ, {"TMUX": "/acme/tmux,1,0", "TMUX_PANE": "%7"}):
+            start("acme-agent", thread_source="subagent")   # a subagent's, even first, is no one's
+            # ... nor is one whose header has no `thread_source` and names a subagent in `source`
+            start("acme-spawned", source={"subagent": {"thread_spawn": {"parent_thread_id": "x"}}})
+            read = config.session_records()                 # a status read from before A
+            start("acme-a", thread_source="user")
+            start("acme-older")         # a header from before `thread_source` proves no later thread
+            start("acme-b", thread_source="user")
+        with patch.object(config, "session_records", return_value=read):
+            orch.records()
+        seat = config.session_records()["acme"]
+        self.assertEqual((codex_plugin.conversation(seat), seat["conversation"]), ("acme-b",) * 2)
+        self.assertEqual([was["conversation"] for was in seat["left"]], ["acme-a"])
 
     def test_sweep_removes_receipt_but_keeps_the_transcript(self):
         record = self.create("swept", "saved")

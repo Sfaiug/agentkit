@@ -1,11 +1,12 @@
-"""A Codex seat owns only the thread reported by its own launch's SessionStart hook.
+"""A Codex seat owns only the threads its own Codex's SessionStart hook reports: its launch's
+first, in that launch's receipt (`capture`), and each it starts since, in its record (`follow`).
 
 Receipts are separate from session records so a late hook cannot undo a rename, overwrite
 the menu's state, or recreate a stopped seat. No directory or timestamp search is involved.
 
 This is also where the harness hooks the core asks for live -- `conversation`, `resumable`,
 `reconcile`, `restart_word`, `launched`, `forget` -- because every one of them is that
-receipt: a Codex thread is this seat's only where its own launch reported it.
+evidence: a Codex thread is this seat's only where its own Codex reported it.
 """
 
 import base64
@@ -186,21 +187,31 @@ def pairing_home(target):
 
 
 def conversation(record, cwd=None):
-    """Verify the launch receipt against the exact transcript the harness reported.
+    """Verify the thread the seat claims (`claimed`) against the first line of its rollout.
 
     `cwd` is what the hook is handed and what this harness has no use for: the receipt names
     the directory its thread was opened in, and nothing else establishes ownership.
     """
     found = claimed(record)
-    if found is None:
-        return None
-    sid, transcript, cwd = found
+    return found and proven(*found)
+
+
+def proven(sid, transcript, cwd, followed=False):
+    """`sid` where its rollout opens on its `session_meta` in `cwd` as a thread of the owner's.
+    Codex 0.167 says whose there, before the start's hook runs: `"thread_source": "user"` for
+    one the owner opened, `"subagent"` for a subagent's.  A launch's first start may resume a
+    thread from before that field, the owner's where its header names no subagent in `source`
+    either; nothing but `"user"` proves a later start's, one the seat would follow (`own`)."""
     from . import unread
     try:
         with Path(transcript).open(encoding="utf-8") as fh:
             meta = json.loads(fh.readline())
-        if (meta.get("type") == "session_meta" and meta["payload"].get("id") == sid
-                and meta["payload"].get("cwd") == cwd):
+        header = meta["payload"] if meta.get("type") == "session_meta" else {}
+        source = header.get("source")
+        if (header.get("id") == sid and header.get("cwd") == cwd
+                and (header.get("thread_source") == "user"
+                     or not followed and "thread_source" not in header
+                     and not (isinstance(source, dict) and "subagent" in source))):
             return sid
     except OSError as exc:
         unread(exc)
@@ -210,11 +221,16 @@ def conversation(record, cwd=None):
 
 
 def claimed(record):
-    """(The thread, its rollout, the directory it was opened in) as the launch receipt names them
-    where the receipt and the record agree on them, None where they do not: what `conversation`
-    proves by the rollout's first line."""
+    """(The thread, its rollout, the directory it was opened in) as the record names them where
+    it names the rollout, else as the launch receipt names them where the receipt and the record
+    agree on them, None where they do not: what `conversation` proves by the rollout's first
+    line.  The receipt names only its launch's first start (`capture`), and a seat may have
+    followed another since (`follow`) and been reopened in that one (`prepare`)."""
     receipt = read(record)
+    if record.get("transcript"):
+        return record.get("conversation"), record["transcript"], receipt.get("cwd")
     event = receipt.get("event")
+    # A second start marked a receipt doubtful before a seat followed its own (`follow`).
     if receipt.get("ambiguous") or not isinstance(event, dict):
         return None
     sid = event.get("session_id")
@@ -234,7 +250,7 @@ def claimed(record):
 
 
 def claim(record, cwd=None):
-    """The thread the launch receipt names (`claimed`), beside the receipt and the rollout whose
+    """The thread the seat claims (`claimed`), beside the launch receipt and the rollout whose
     first line `conversation` proves it by."""
     receipt, found = path_for(record), claimed(record)
     return (found[0], [receipt, found[1]]) if found else (None, [receipt] if receipt else [])
@@ -244,11 +260,12 @@ def transcript(record, cwd, conversation):
     """The rollout file the new orchestrator reads the last exchange from.
 
     Codex names it through the seat's home, whose `sessions` is a link the seat's removal takes
-    away; where the link leads stays (tools/codex-seat.py `seat_home`), so that is the path."""
+    away; where the link leads stays (tools/codex-seat.py `seat_home`), so that is the path.
+    The one the seat is in (`claimed`), whichever thread is asked about: a thread it left keeps
+    its own in its `left` entry (`notify.left`)."""
     if not conversation:
         return None
-    event = read(record).get("event") or {}
-    path = event.get("transcript_path")
+    path = record.get("transcript") or (read(record).get("event") or {}).get("transcript_path")
     return str(Path(path).resolve()) if isinstance(path, str) and path else None
 
 
@@ -618,6 +635,7 @@ def prepare(name, cwd, owned):
         json.dump(receipt, fh)
     config.update_session(name, codex_launch=token, codex_history=history or None,
                           conversation=owned, id_source=SOURCE if owned else None,
+                          transcript=transcript(record, cwd, owned) if owned else None,
                           resumable=bool(owned))
     return path
 
@@ -650,7 +668,10 @@ def launched(name, cwd, conversation):
 
 
 def capture(path, event):
-    """Record harness input, never an invented id. Conflicting starts invalidate the receipt."""
+    """Record harness input, never an invented id: the launch's first start of a thread of the
+    owner's (`proven`).  A start of one not the owner's, as a subagent's, is not that, so the
+    owner's next is.  A later start neither replaces it nor makes it doubtful: it moves the seat
+    only through `follow`, which proves the hook came from the seat's own Codex."""
     if not isinstance(event, dict) or event.get("hook_event_name") != "SessionStart":
         return
     try:
@@ -659,21 +680,9 @@ def capture(path, event):
         with Path(path).open("r+", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
             receipt = json.load(fh)
-            old = receipt.get("event")
-            if old and old != event:
-                same_path = old.get("transcript_path") == event.get("transcript_path")
-                if not same_path:
-                    # Codex resolves the launch's transcript symlink when it resumes.
-                    try:
-                        same_path = os.path.samefile(old.get("transcript_path"),
-                                                    event.get("transcript_path"))
-                    except (OSError, TypeError, ValueError):
-                        pass
-                if not same_path or any(old.get(k) != event.get(k)
-                                        for k in ("session_id", "cwd")):
-                    receipt["ambiguous"] = True
-            # Compaction also emits SessionStart, but cannot replace ownership evidence.
-            if not receipt.get("ambiguous") and event.get("source") in ("startup", "resume"):
+            # Compaction also emits SessionStart, but starts no thread.
+            if not receipt.get("event") and event.get("source") in ("startup", "resume") and proven(
+                    event.get("session_id"), event.get("transcript_path"), receipt.get("cwd")):
                 receipt["event"] = event
             # The callback runs under the TUI's actual login, including CODEX_HOME.
             receipt["home"] = str(Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")).resolve())
@@ -682,6 +691,32 @@ def capture(path, event):
             fh.truncate()
     except (OSError, ValueError, TypeError, AttributeError):
         return
+
+
+def follow(launched, payload, pid):
+    """Another thread its own Codex starts moves the seat there (`claim`): 0.167's app server, the
+    native program under npm's `codex`, fires one at the first prompt after `/new` or `/resume`.
+    The record names that thread's rollout, which the receipt cannot: it names its launch's first,
+    and the thread the seat left goes on being read from its own (`notify.left`)."""
+    from .. import orch
+    from . import claim
+    path = payload.get("transcript_path") if isinstance(payload, dict) else None
+    if (isinstance(path, str) and payload.get("hook_event_name") == "SessionStart"
+            and payload.get("source") in ("startup", "resume")):
+        claim(launched, "codex", payload.get("session_id"), path, own, pid,
+              lambda words: orch.program(words) == "codex", id_source=SOURCE,
+              transcript=str(Path(path).resolve()))
+
+
+def own(record, thread):
+    """That thread's rollout in the seat's own store, where it opens as the owner's in the launch's
+    directory (`proven`), or None: what a hook's payload names is only where Codex says it wrote,
+    and a rollout of another seat's or another login's is none of this seat's."""
+    receipt = read(record)
+    paths = (seat_conversations(receipt["remote"]).rglob(f"rollout-*{thread}.jsonl")
+             if isinstance(receipt.get("remote"), str) else ())
+    return next((path for path in paths
+                 if proven(thread, path, receipt.get("cwd"), followed=True)), None)
 
 
 class Client:

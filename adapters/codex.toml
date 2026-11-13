@@ -61,7 +61,7 @@ reset = true
 plus = 20
 pro = 200
 
-# A Codex seat owns only the thread its own launch's SessionStart hook reported, so its row is
+# A Codex seat owns only the threads its own Codex's SessionStart hook reported, so its row is
 # recomputed rather than read: a seat tmux has lost keeps it, and one that owns no thread comes
 # back under its own name with no past.
 [conversation]

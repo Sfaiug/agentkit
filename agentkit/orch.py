@@ -1521,7 +1521,9 @@ def owns_hook(session, pid, is_client):
     """A hook must come from the client in the pane agentkit launched.
 
     Other panes inherit AGENTKIT_SESSION, so the launch's saved pane must match first.
-    Nested clients inherit even TMUX_PANE; their ancestry names both clients.
+    Nested clients inherit even TMUX_PANE; their ancestry names both clients.  A client that
+    runs its program again with its own arguments is still one client, as an npm entry point
+    runs the native program its hooks then run under.
     """
     here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
     if session.get("exited") or not here or not pane:
@@ -1534,14 +1536,17 @@ def owns_hook(session, pid, is_client):
             or not parts[2].isdigit() or parts[3] != pane):
         return False
     root, table = int(parts[2]), processes() or {}
-    seen, clients = set(), 0
+    seen, clients, below = set(), 0, None
     while pid in table and pid not in seen:
         seen.add(pid)
         parent, words = table[pid]
-        if is_client(words):
+        run = ((program(words), words[words.index(program(words, full=True)) + 1:])
+               if is_client(words) else None)
+        if run:
             if "-p" in words or "--print" in words:
                 return False
-            clients += 1
+            clients += run != below
+        below = run
         if pid == root:
             return clients == 1
         pid = parent
@@ -2584,12 +2589,14 @@ def loaded():
 
 
 def records(cfg=None):
-    """Let each harness reconcile its own evidence before anything claims a seat is resumable."""
+    """Let each harness reconcile its own evidence before anything claims a seat is resumable:
+    of the record as it stands under its lock, where `harness.claim` moves a seat, so a read from
+    before a move never writes back the conversation the seat left."""
     kept = config.session_records()
     for name, record in kept.items():
-        fields = seat_plugin(record, cfg=cfg).reconcile(record)
-        if fields:
-            kept[name] = config.update_session(name, **fields) or record
+        reconcile = seat_plugin(record, cfg=cfg).reconcile
+        if any(record.get(key) != value for key, value in reconcile(record).items()):
+            kept[name] = config.update_session(name, reconcile) or record
     return kept
 
 
