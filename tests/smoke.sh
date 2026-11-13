@@ -5018,7 +5018,8 @@ env -u TMUX TMUX_TMPDIR="$STALLT" tmux -L agentkit-test kill-server 2>/dev/null
 RUNSH="$WORK/home-runs"
 mkdir -p -- "$RUNSH/.agentkit/state"
 cp "$MHOME/.agentkit/state/usage.json" "$RUNSH/.agentkit/state/usage.json"
-HOME="$RUNSH" PYTHONPATH="$REPO" COLUMNS=100 python3 - "$$" >"$WORK/runs.log" 2>&1 <<'PY'
+# its row's glyphs are UTF-8's, whatever locale the caller uses
+HOME="$RUNSH" PYTHONPATH="$REPO" COLUMNS=100 LC_ALL=C.UTF-8 python3 - "$$" >"$WORK/runs.log" 2>&1 <<'PY'
 import io
 import sys
 import time
