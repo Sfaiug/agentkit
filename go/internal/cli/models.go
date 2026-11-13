@@ -3,13 +3,14 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
-	"agentkit/internal/config"
 	"agentkit/internal/matrix"
 	"agentkit/internal/menu"
 	"agentkit/internal/quality"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 )
 
@@ -17,25 +18,32 @@ func init() { commands["models"] = modelsAnswer }
 
 // modelsAnswer answers `ak models` as Python's matrix.main does: the boards, the lineup, each role's
 // answer, priced at what ak's own runs measured, and ak's own run numbers, as JSON with --json
-// beside those measurements, else drawn.  A home whose own numbers count a run (ownNumbers) is
-// left to Python before anything is written.
+// beside those measurements, else the models screen's role lines for the seat AGENTKIT_SESSION
+// names where its record reads, else for new seats.  A home whose own numbers count a run
+// (ownNumbers), or whose seat's record Go cannot read, is left to Python before anything is
+// written.
 func modelsAnswer(args []string, out, errOut io.Writer) int {
 	fail := func(err error) int {
 		fmt.Fprintf(errOut, "ak models: %s\n", err)
 		return 1
 	}
-	names, err := config.Offered()
+	c, err := matrix.Configured()
 	if err != nil {
 		return fail(err)
 	}
-	models, err := config.Models()
-	if err != nil {
-		return fail(err)
-	}
-	if ownNumbers(names, models) {
+	if ownNumbers(c.Names, c.Models) {
 		return notImplemented(errOut, "models")
 	}
 	asJSON := contains(args, "--json")
+	if session := os.Getenv("AGENTKIT_SESSION"); session != "" && !asJSON {
+		selected, err := seat.ConfigSelection(session)
+		if err != nil && !os.IsNotExist(err) {
+			return notImplemented(errOut, "models")
+		}
+		if selected != nil {
+			c.Selected = selected
+		}
+	}
 	found, err := matrix.Refresh(contains(args, "--refresh"))
 	if err != nil {
 		return fail(err)
@@ -53,16 +61,17 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 		return fail(err)
 	}
 	if asJSON {
-		whole := modelsJSON(answer, names)
+		whole := modelsJSON(answer, c.Names)
 		whole.Set("task_usage", shares)
 		fmt.Fprintln(out, run.Encode(whole))
 		return 0
 	}
 	screen := terminal.For(out)
-	lines := menu.ModelsBody(screen, menu.ModelsSaid(screen, answer, found.Rows), marked, ours, found.Fetched)
-	if len(names) > 0 {
+	lines := menu.ModelsLines(screen, menu.ModelsView{Answer: answer, Uses: c.Uses(answer), Models: c.Models,
+		Compared: marked, Total: ours, Fetched: found.Fetched})
+	if len(c.Names) > 0 {
 		var own [][]string
-		for _, name := range names {
+		for _, name := range c.Names {
 			own = append(own, []string{name, "-", "-", "-"}) // ownNumbers counts no run of it
 		}
 		lines = append(append(lines, ""), menu.LiveLines(screen, own)...)
