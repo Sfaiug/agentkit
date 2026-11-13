@@ -278,20 +278,22 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
         receipt = codex_plugin.prepare("acme", self.cwd, None)
         store = codex_plugin.seat_conversations(json.loads(receipt.read_text())["remote"])
         store.mkdir(parents=True)
-        def start(thread, **header):
+        def start(thread, hook=103, **header):
             path = store / f"rollout-{thread}.jsonl"
             path.write_text(json.dumps({"type": "session_meta", "payload": {
                 "id": thread, "cwd": str(self.cwd), **header}}) + "\n")
             event = {"hook_event_name": "SessionStart", "source": "startup", "session_id": thread,
                      "transcript_path": str(path), "cwd": str(self.cwd)}
             codex_plugin.capture(receipt, event)
-            codex_plugin.follow("acme", event, 103)
+            codex_plugin.follow("acme", event, hook)
         # The hook's parent is 0.167's native app server, which npm's `codex` started in the pane.
         server = ["app-server", "--remote-control", "--listen", "unix:///acme/seat.sock"]
         table = {100: (1, ["python3", "tools/codex-seat.py", "codex"]),
                  101: (100, ["node", "/opt/acme/bin/codex", *server]),
                  102: (101, ["/opt/acme/vendor/codex", *server]),
-                 103: (102, ["sh", "-c", "bash hooks/seat-state.sh"])}
+                 103: (102, ["sh", "-c", "bash hooks/seat-state.sh"]),
+                 104: (102, ["/opt/acme/vendor/codex", *server]),   # a Codex the seat's ran
+                 105: (104, ["sh", "-c", "bash hooks/seat-state.sh"])}
         with patch.multiple(orch, find=lambda name: {"name": name}, processes=lambda: table,
                             tmux_out=lambda *_a, **_k: (0, "/acme/tmux\tacme\t100\t%7")), \
                 patch.dict(os.environ, {"TMUX": "/acme/tmux,1,0", "TMUX_PANE": "%7"}):
@@ -302,6 +304,7 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
             start("acme-a", thread_source="user")
             start("acme-older")         # a header from before `thread_source` proves no later thread
             start("acme-b", thread_source="user")
+            start("acme-nested", 105, thread_source="user")
         with patch.object(config, "session_records", return_value=read):
             orch.records()
         seat = config.session_records()["acme"]
