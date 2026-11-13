@@ -598,7 +598,7 @@ def cut_off(cfg, name, moved=None):
     answer differently (`holding`).
 
     Its last look, unless its hook has spoken since, which is then the newest word.  Asking
-    the owner, in a turn or not: its question on the screen, or its own unanswered `ak notify
+    the owner, in a turn or not: its question kept or on screen, or its own unanswered `ak notify
     needs`.  Else in the middle of a turn: the ladder's own test -- a hook's prompt with no
     `Stop` after it, or a screen positively `working`, as it is once a question the turn asked
     was answered.  A move to another account knows what it cut instead: `moved` says whether
@@ -622,17 +622,24 @@ def _cut_line(cfg, name):
     if not harness:
         return None
     looked = seat_read(name)
+    kept = looked.get("unasked")      # asked on its card, whatever a look found since
     try:
         hooked, event, _text, when = hook_state(harness, seat_fact(name, harness))
     except config.Error:
         return None
     if when is not None and when != looked.get("hooked_at"):
         looked = {"state": hooked, "hooked": hooked, "hooked_at": when, "hooked_event": event}
-    if looked.get("state") == "asking" or owner_question(notify.last(name)):
+    if looked.get("state") == "asking" or kept or owner_question(notify.last(name)):
         return ASKED_LINE
     if _turn_in_flight(harness, looked)[0]:
         return MIDTURN_LINE
     return None
+
+
+def asking_again(name, line):
+    """On its record, the moment that seat goes back told to ask again (`notify.again`)."""
+    if line and line.startswith(ASKED_LINE):
+        seat_write(name, asked_again=time.time())
 
 
 def resume_after_boot(cfg, dry_run=False, log=print):
@@ -685,6 +692,7 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             _write_state(state)       # a failed or interrupted launch is never repeated this boot
             try:
                 at = time.time()
+                asking_again(name, line)
                 back = orch.resume(cfg, name, log=lambda _: None, detached=True,
                                    hand_over=False, line=line)
                 log(f"resumed {name} after reboot")
@@ -2458,14 +2466,15 @@ def keeps_back(name):
 def questions_kept(unasked):
     """The questions a seat's record keeps back for their turn's end, in the order kept, each
     with when the seat said it (`at`) and that end (`ended`) once each is on record.  One the
-    older install kept is one."""
+    older install kept is one.  One kept since it was reopened told to ask again says when."""
     if not isinstance(unasked, dict):
         return []
     listed = unasked.get("questions")
     if not isinstance(listed, list):
         listed = [unasked]
     return [{"text": q["text"], "id": q.get("id"),
-             **{key: q[key] for key in ("at", "ended") if _stamp(q.get(key)) is not None}}
+             **{key: q[key] for key in ("at", "ended", "asked_again")
+                if _stamp(q.get(key)) is not None}}
             for q in listed if isinstance(q, dict) and isinstance(q.get("text"), str)]
 
 
@@ -2482,7 +2491,8 @@ def keep(name, text, question_id=None):
         with seat_lock(name):
             data = seat_read(name)
             kept = [*questions_kept(data.get("unasked")),
-                    {"text": text, "at": time.time(), "id": question_id}]
+                    {"text": text, "at": time.time(), "id": question_id,
+                     "asked_again": data.get("asked_again")}]
             _seat_put(name, data, {"unasked": _kept(kept), "wait": None})
     except (OSError, config.Error) as exc:
         print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
@@ -2525,7 +2535,8 @@ def answered_kept(name, replies, at):
     card's copy, and every copy of a question whose latest card it is.  Each question it answers
     is the owner's time, asked when first kept and answered at `at`, unless the reply naming it
     also answers a question the seat's notice asks (`notify.card_answered`), whose answer
-    records it.  The caller holds the notice lock."""
+    records it.  Those one takes the place of go with it, in its wait (`notify.again`).  What it
+    answered; the caller holds the notice lock."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
@@ -2536,21 +2547,26 @@ def answered_kept(name, replies, at):
                 notify.replied([reply], q["text"], card)
                 for card in (q.get("id"), latest[notify.question_key(q["text"])]))
         answered = [q for q in kept if any(answers(reply, q) for reply in replies)]
+        before = notify.again(answered)
+        first = next((q for q in answered if q.get("asked_again") == before), None)
+        def lead(q):        # the question whose wait that one is: one kept before, the first's
+            return first if q.get("asked_again", -math.inf) < before else q
+        answered = [q for q in kept if q in answered or lead(q) is first]
         if not answered:
-            return False
+            return []
         _seat_put(name, data, {"unasked": _kept([q for q in kept if q not in answered])})
     notice = notify.last(name)
-    noticed = [reply for reply in replies
-               if notice and notify.card_answered(notice, [reply], at, latest)]
+    noticed = [reply for reply in replies if notice and notify.card_answered(
+        notice, [reply], at, latest, before if first and answers(reply, first) else -math.inf)]
     asked = {}
     for q in answered:
-        key = notify.question_key(q["text"])
-        if not any(answers(reply, q) for reply in noticed):
-            asked[key] = min(q["at"], asked.get(key, math.inf))
+        key = notify.question_key(lead(q)["text"])
+        if not any(answers(reply, lead(q)) for reply in noticed):
+            asked[key] = min(q.get("at", at), asked.get(key, math.inf))
     for moment in asked.values():
         history.owner_time("asked", moment, session=name)
     notify.waited(name, {"asked_at": asked}, at)
-    return True
+    return answered
 
 
 def ask_kept_back(name, harness, found, held=False):
@@ -7312,6 +7328,7 @@ def revive_seats(cfg, log):
         if len(deaths) == 2:
             why = "it died again both times it was reopened within the hour"
         elif line:
+            asking_again(name, line)
             why = revive(name, line, log, cfg, prepare=lambda line: line)
         else:
             why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
