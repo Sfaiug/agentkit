@@ -121,8 +121,9 @@ def _pass(turn):
     """The line's singleton flock, and the time each held pass takes: its start and process
     while it runs, then the last 20 that checked something.  While this process holds it, the
     pass's own: `fruitless`, how many passes before it in a row checked something and moved
-    nobody, a pass whose process died mid-check one of them, and `moved`, None until it checks
-    members, then whether it wrote one a verdict.  A pass that only waited counts for neither."""
+    nobody, a pass whose process died mid-check one of them unless its record says it `moved`,
+    and `moved`, None until it checks members, then whether it wrote one a verdict.  A pass that
+    only waited counts for neither."""
     with turn.with_suffix(".lander.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -131,8 +132,8 @@ def _pass(turn):
             return
         kept = passes(turn)
         took = kept.get("took") or []
-        held = SimpleNamespace(moved=None, fruitless=kept.get("fruitless", 0) + bool(
-            kept.get("started") and not record.process_active(kept)))
+        held = SimpleNamespace(moved=None, fruitless=0 if kept.get("moved") else kept.get(
+            "fruitless", 0) + bool(kept.get("started") and not record.process_active(kept)))
         counted = {"fruitless": held.fruitless} if held.fruitless else {}
         started = time.time()
         _keep_passes(turn, {"took": took, **counted, "started": started, **record.process_owner()})
@@ -149,7 +150,7 @@ def _pass(turn):
 def passes(turn):
     """The line's passes (`_pass`): `took`, the seconds of its last passes that checked
     something, `fruitless` while the last of those moved nobody, and while one runs its
-    `started` and process."""
+    `started`, process and, once it wrote a verdict, `moved`."""
     try:
         data = json.loads(turn.with_suffix(".passes").read_text())
     except (OSError, ValueError):
@@ -732,8 +733,10 @@ def check_line(turn, log=lambda _: None):
                         # Later answers still compare against this pass's own writes.
                         snapshots[member]["waiting_on"] = dict(current["waiting_on"])
                     sent.update(fresh)
-                    if checked:
+                    if checked and not held.moved:
+                        # kept at once: a pass killed after this moved the line all the same
                         held.moved = True
+                        _keep_passes(turn, {**passes(turn), "moved": True})
                     for member, answer in fresh.items():
                         if "fix" not in answer:
                             watch.launch_resume(member.name, log)

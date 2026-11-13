@@ -1,169 +1,108 @@
 """Every pass of a landing line moves it.  A member that changes under a pass costs only the
-verdicts stacked on it: those ahead of it are written and the pass goes on, while a changed
-first member or green delivery ahead still ends the pass with nothing written.  A pass that
-checked and moved nobody, or died, is followed by one of half the members, down to one alone,
-and a pass that writes a verdict takes the whole line again.
+verdicts stacked on it: those ahead of it are written, and it and those behind it get none and
+wait for the next pass.  A pass killed mid-check before it wrote a verdict is followed by one of
+half the members, the first in line, and a pass that writes one gives the next the whole line
+again, as does a pass killed after it wrote one.
 
-Offline: local Git and real suites, with isolated state and fake wakes, as in test_lander.
+Black-box: the program `AK_BIN` names checks a landing line from outside through
+tests/fixtures/akline.py.  A test of the suite holds a check until the test lets it go, and
+meanwhile the test changes a member's record, as its seat would, or kills the pass.
+In-process: test_lander_every_pass_moves_the_line.
 """
 
+import json
+import os
 from pathlib import Path
+import signal
 import sys
+import time
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import test_lander as fixture
-from agentkit import gate, land, record
+from fixtures.akbin import _strays
+from fixtures.akline import READINGS, Line
 
-GONE = {"pid": 2 ** 22 + 1, "process_identity": {"boot": "gone", "ticks": 0}}
+HOLD = """storage=$(git rev-parse --git-common-dir)
+[ -f "$storage/go" ] && exit 0
+{only}touch "$storage/reached"
+until [ -f "$storage/go" ]; do sleep 0.1; done
+"""
+# every check, until the test lets it go
+EVERY = {"t/hold.sh": HOLD.format(only="")}
+# member 1 turns the suite red; the stack rebuilt without it, holding member 3, is held
+FIRST_RED = {"t/bad.sh": "test ! -f bad-1.txt\n",
+             "t/hold.sh": HOLD.format(only="[ -f member-3.txt ] && [ ! -f bad-1.txt ] || exit 0\n")}
 
 
-class EveryPassMovesTheLine(fixture.LanderFixture, unittest.TestCase):
-    def setUp(self):
-        super().setUp()
-        self.said = []
-        self.taken = self.stack.enter_context(
-            patch.object(land, "_check_members", side_effect=land._check_members))
+class EveryPassMovesTheLine(unittest.TestCase):
+    def line(self, tests, count=4, red=None):
+        """A line of `count` members, member `red` adding what turns the suite red."""
+        line = Line(tests)
+        self.addCleanup(line.close)
+        for n in range(1, count + 1):
+            line.member({f"member-{n}.txt": f"{n}\n", **({f"bad-{n}.txt": "x\n"} if n == red else {})})
+        return line
 
-    def line(self):
-        # One check fits, so the pass narrows: the deepest stack (red, behind broken),
-        # then the middle one, which is green, then broken's own
-        members = [self.member("first", joined=1),
-                   self.member("middle", joined=2, **{"middle.txt": "m\n"}),
-                   self.member("broken", joined=3, **{"broken.txt": "b\n"}),
-                   self.member("last", joined=4, **{"last.txt": "l\n"})]
-        self.advance()
-        return members
+    def held(self, line):
+        """A pass of the line, held at its first held check."""
+        lander = line.home.spawn("run", "--lander", line.line, env={"AK_HOST_READINGS": READINGS})
+        deadline = time.monotonic() + 300
+        while not (line.rig.path / ".git" / "reached").exists():
+            self.assertIsNone(lander.poll(), line.home.log("spawn-1.err").read_text())
+            self.assertLess(time.monotonic(), deadline, "no check was held")
+            time.sleep(0.2)
+        return lander
 
-    def green_line(self):
-        members = [self.member(f"member-{n}", joined=n, **{f"member-{n}.txt": f"{n}\n"})
-                   for n in range(1, 5)]
-        self.advance()
-        return members
+    def go(self, line):
+        (line.rig.path / ".git" / "go").touch()
 
-    def checked(self, changed=None, number=1):
-        """One pass, one check at a time, `changed` changing under it once its check `number`
-        has run."""
-        self.checks.clear()
-        inner = self.check
+    def killed(self, line, lander):
+        """Kill the held pass, as a reboot or the memory cap would, and let its check end."""
+        os.killpg(lander.pid, signal.SIGKILL)
+        lander.wait()
+        self.go(line)
+        deadline = time.monotonic() + 120
+        while _strays(line.home.path):
+            self.assertLess(time.monotonic(), deadline, "the killed pass's check is still running")
+            time.sleep(0.1)
 
-        def check(cmds, *args, **kw):
-            answer = inner(cmds, *args, **kw)
-            if changed and len(self.checks) == number:
-                with record.record(changed) as current:
-                    current["error"] = f"its seat pushed a new head ({len(self.taken.mock_calls)})"
-            return answer
+    def landed(self, line):
+        done = line.land()
+        self.assertEqual(done.code, 0, done.out + done.err)
 
-        with patch.object(gate, "derived_heavy_limit", return_value=1), \
-                patch.object(gate, "run_done_when", side_effect=check):
-            land.check_line(self.turn, log=self.said.append)
+    def answers(self, line):
+        return [[key for key in ("land", "fix") if key in line.verdict(n)]
+                for n in range(1, len(line.members) + 1)]
 
-    def unanswered(self, *members):
-        for directory in members:
-            self.assertEqual(set(self.wait(directory)), {"line", "joined"}, directory.name)
+    def test_a_member_changed_under_a_pass_costs_only_the_verdicts_stacked_on_it(self):
+        # member 3 turns the suite red, and its record changes while every check is held
+        line = self.line({"t/bad.sh": "test ! -f bad-3.txt\n", **EVERY}, red=3)
+        lander = self.held(line)
+        path = line.members[2] / "run.json"
+        fresh = path.with_name("run.json.new")
+        fresh.write_text(json.dumps({**json.loads(path.read_text()),
+                                     "error": "its seat pushed a new head"}))
+        fresh.replace(path)
+        self.go(line)
+        self.assertEqual(lander.wait(timeout=600), 0, line.home.log("spawn-1.err").read_text())
+        self.assertEqual(self.answers(line), [["land"], ["land"], [], []], line.runs())
 
-    def taken_by_each_pass(self):
-        return [len(call.args[1]) for call in self.taken.call_args_list]
+    def test_a_pass_killed_before_a_verdict_is_followed_by_one_of_half_the_line(self):
+        line = self.line(EVERY)
+        self.killed(line, self.held(line))
+        self.assertEqual(self.answers(line), [[], [], [], []])
+        self.landed(line)
+        self.assertEqual(self.answers(line), [["land"], ["land"], [], []], line.runs())
+        self.landed(line)       # it wrote verdicts: the next takes every member waiting
+        self.assertEqual(self.answers(line), [["land"]] * 4, line.runs())
 
-    def test_a_change_behind_leaves_the_verdicts_ahead_written_and_the_pass_going(self):
-        first, middle, broken, last = self.line()
-        self.checked(last)
-        self.assertEqual(len(self.checks), 3)
-        for directory in (first, middle):
-            self.assertIn("land", self.wait(directory))
-        self.assertIn("fix", self.wait(broken))
-        self.assertEqual(list(self.wait(broken)["after"]), [first.name, middle.name])
-        self.unanswered(last)
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, middle.name])
-        self.assertTrue(any(line.startswith("last changed during this pass")
-                            for line in self.said), self.said)
-
-    def test_a_changed_first_member_ends_the_pass_with_nothing_written(self):
-        members = self.line()
-        self.checked(members[0])
-        self.assertEqual(len(self.checks), 1)
-        self.unanswered(*members)
-        self.wake.assert_not_called()
-
-    def test_a_changed_green_delivery_ahead_ends_the_pass_with_nothing_written(self):
-        head = self.member("head", joined=0, **{"head.txt": "h\n"})
-        self.advance()
-        land.check_line(self.turn)
-        self.assertIn("land", self.wait(head))
-        with record.record(head) as current:
-            current.update(state="running", pid=5678)
-            review = dict(current["review"])
-        behind = [self.member(f"member-{n}", joined=n, **{f"member-{n}.txt": f"{n}\n"})
-                  for n in (1, 2)]
-        self.wake.reset_mock()
-        inner = self.check
-
-        def check(cmds, *args, **kw):
-            answer = inner(cmds, *args, **kw)
-            with record.record(head) as current:
-                current["review"] = {**review, "tree_sha": "f" * 40}
-            return answer
-
-        with patch.object(record, "process_active",
-                          side_effect=lambda state: state.get("pid") == 5678), \
-                patch.object(gate, "derived_heavy_limit", return_value=1), \
-                patch.object(gate, "run_done_when", side_effect=check):
-            self.checks.clear()
-            land.check_line(self.turn)
-        self.assertEqual(len(self.checks), 1)
-        self.unanswered(*behind)
-        self.wake.assert_not_called()
-
-    def test_nothing_ahead_is_written_from_a_check_of_a_tree_holding_the_changed_member(self):
-        # the deepest stack's green covers every member, and that stack holds the change: a
-        # member ahead lands only with the members its check tested
-        members = self.green_line()
-        self.checked(members[2])
-        self.assertEqual(len(self.checks), 1)
-        self.unanswered(*members)
-        self.wake.assert_not_called()
-
-    def test_a_fruitless_pass_halves_the_next_down_to_one_and_a_verdict_restores_the_line(self):
-        members = self.green_line()
-        with patch.object(land, "CHECKED", 0):      # each pass here checked something
-            for _ in range(3):
-                self.checked(members[0])
-            self.assertEqual(land.passes(self.turn)["fruitless"], 3)
-            self.unanswered(*members)
-            self.checked()      # one alone, however many moved nobody: its tree passed already
-            self.assertIn("land", self.wait(members[0]))
-            self.assertNotIn("fruitless", land.passes(self.turn))
-            self.checked()
-        self.assertEqual(self.taken_by_each_pass(), [4, 2, 1, 1, 3])
-        for directory in members:
-            self.assertIn("land", self.wait(directory))
-        for line in ("1 pass in a row checked this line and moved nobody: this one checks the "
-                     "first 2 of the 4 members waiting",
-                     "2 passes in a row checked this line and moved nobody: this one checks the "
-                     "first 1 of the 4 members waiting",
-                     "3 passes in a row checked this line and moved nobody: this one checks the "
-                     "first 1 of the 4 members waiting"):
-            self.assertTrue(any(said.startswith(line) for said in self.said), self.said)
-
-    def test_a_pass_that_only_waited_counts_for_nothing(self):
-        members = self.green_line()
-        with patch.object(land, "CHECKED", float("inf")):     # shorter than a check
-            self.checked(members[0])
-            self.checked(members[0])
-        self.assertEqual(self.taken_by_each_pass(), [4, 4])
-        self.assertNotIn("fruitless", land.passes(self.turn))
-
-    def test_a_pass_that_died_counts_as_fruitless(self):
-        members = self.green_line()
-        land._keep_passes(self.turn, {"took": [], "started": 1.0, **GONE})
-        self.checked()
-        self.assertEqual(self.taken_by_each_pass(), [2])
-        for directory in members[:2]:
-            self.assertIn("land", self.wait(directory))
-        self.unanswered(*members[2:])
-        self.assertNotIn("fruitless", land.passes(self.turn))
+    def test_a_pass_killed_after_a_verdict_is_followed_by_one_of_the_whole_line(self):
+        line = self.line(FIRST_RED, count=3, red=1)
+        lander = self.held(line)
+        self.assertEqual(self.answers(line), [["fix"], [], []], line.runs())
+        self.killed(line, lander)
+        self.landed(line)
+        self.assertEqual(self.answers(line), [["fix"], ["land"], ["land"]], line.runs())
 
 
 if __name__ == "__main__":
