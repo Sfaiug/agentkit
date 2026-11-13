@@ -69,7 +69,8 @@ heartbeats = ["tool_progress"]
 
 # How `ak update` moves this harness, and what `ak usage` needs beyond `<adapter> usage`:
 # `claude install <version>` is a versioned reinstall, so a failed upgrade goes back by command
-# and needs no snapshot, and the usage call is one plain adapter call with no reset to spend.
+# and needs no snapshot, and the usage call is one plain adapter call.  It counts the login's
+# resets and `reset <kind>` spends one, but no `[usage] reset` says so until a spend names a kind.
 # `latest` is the release the tick upgrades it to in the background: npm's, the same builds.
 [update]
 version = ["claude", "--version"]
