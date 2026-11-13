@@ -141,7 +141,8 @@ def renewed(cfg, provider, account, now=None):
 
 def whose(provider, account=None):
     """(email, plan) of `provider`'s `account` login as last answered, either None where not
-    known: what the ak screen says of a subscription."""
+    known, the plan in `login-end`'s own words: a screen names it as its harness does
+    (`Harness.plan_name`)."""
     login = _kept(read(), provider, account or config.DEFAULT_ACCOUNT)
     return login.get("email"), login.get("plan")
 
