@@ -1757,9 +1757,9 @@ def follow_model(cfg, name, asked=None):
     builds and reviews where they stood.  A model no entry the config can run runs on that
     harness is added to the config and becomes the seat's (_taken_in, asking its harness's
     listing only for the watch's pass, whose listings `asked` holds: a look waits on none): "Add
-    it to AK's models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat on its
-    harness's own model, a record that cannot be read, or an effort it records none of or its
-    model does not take leaves the record as it is."""
+    it to AK's models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat
+    on its harness's own model, a record that cannot be read, or an effort it records none of or
+    its model does not take leaves the record as it is."""
     try:
         record = config.load_session(cfg, name, required=False)
         entry = record and config.model(cfg, record["orchestrator"])
