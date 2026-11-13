@@ -4,7 +4,7 @@ Retention supplies the ownership proofs and deletion primitives; harness plugins
 supply their temporary-folder rules.
 """
 
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from datetime import datetime
 import fcntl
 import functools
@@ -663,40 +663,46 @@ def clear_scratch(folder):
     """Remove `folder`, one `left_scratch` named, its mark last: one a removal cannot finish
     keeps it, and the next collection tries again.  Each folder is opened through the one
     holding it, never through a link, and opened to its owner, as `TemporaryDirectory`'s own
-    removal opens what its command closed: a name a link took meanwhile fails the removal."""
+    removal opens what its command closed: a name a link took meanwhile fails the removal.
+    Only the folder it is in stays open, so no depth meets a limit on open files or recursion:
+    it climbs back through `..`, and one moved meanwhile, whose `..` is no longer the folder
+    it came down from, fails the removal rather than lose that folder's names elsewhere."""
     with retention.reading(folder.parent, directory=True) as parent:
-        with _opened(folder.name, parent) as fd:
-            for name in os.listdir(fd):
-                if name != record.SCRATCH:
-                    _remove(name, fd)
+        fd = _opened(folder.name, parent)
+        try:
+            names, above = [name for name in os.listdir(fd) if name != record.SCRATCH], []
+            while names or above:
+                if names:
+                    name = names.pop()
+                    try:
+                        os.unlink(name, dir_fd=fd)
+                    except IsADirectoryError:
+                        above.append((name, names, os.fstat(fd)))
+                        fd, outer = _opened(name, fd), fd
+                        os.close(outer)
+                        names = os.listdir(fd)
+                    continue
+                name, names, came_from = above.pop()
+                fd, inner = os.open("..", os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd), fd
+                os.close(inner)
+                if not os.path.samestat(os.fstat(fd), came_from):
+                    raise OSError(f"{name} moved while it was removed")
+                os.rmdir(name, dir_fd=fd)
             os.unlink(record.SCRATCH, dir_fd=fd)
+        finally:
+            os.close(fd)
         os.rmdir(folder.name, dir_fd=parent)
 
 
-def _remove(name, parent):
-    try:
-        os.unlink(name, dir_fd=parent)
-    except IsADirectoryError:
-        with _opened(name, parent) as fd:
-            for child in os.listdir(fd):
-                _remove(child, fd)
-        os.rmdir(name, dir_fd=parent)
-
-
-@contextmanager
 def _opened(name, parent):
     """The folder `name` in the one open as `parent`, open to its owner: its mode is set
     through a handle that reads nothing (`O_PATH`), as one closed to reading opens no other."""
     held = os.open(name, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
     try:
         os.chmod(f"/proc/self/fd/{held}", 0o700)
-        fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY, dir_fd=held)
+        return os.open(".", os.O_RDONLY | os.O_DIRECTORY, dir_fd=held)
     finally:
         os.close(held)
-    try:
-        yield fd
-    finally:
-        os.close(fd)
 
 
 def stale_worktrees(now, paths):
