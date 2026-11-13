@@ -4063,10 +4063,21 @@ def matrix_page(body, places, here, top, under, keys, over=(), lead=None, keyed=
     return max(0, min(max(top, lo), hi, len(body) - room)), room
 
 
-def note_lines(note):
-    """A matrix screen's `note`, dim lines of its own under a blank one; none for no note."""
-    return ["", *(terminal.styled("  " + part, "dim") for line in note.splitlines()
-                  for part in terminal.wrap(line, terminal.layout_width() - 2))] if note else []
+def note_lines(note, room=None):
+    """A matrix screen's `note`, dim lines of its own under a blank one; none for no note.
+    Given `room`, the lines its rows leave it, a taller note keeps the most of its lines that fit
+    over one saying how many more there are, so it never pushes the rows off the screen, and its
+    first two whatever the room: on `c` the first is ak's version, the second what a key did."""
+    said = [terminal.wrap(line, terminal.layout_width() - 2) for line in (note or "").splitlines()]
+    shown = len(said)
+    while room is not None and shown > 2 and (
+            sum(map(len, said[:shown])) + (shown < len(said)) >= room):
+        shown -= 1
+    if sum(map(len, said[shown:])) <= 1:
+        shown = len(said)       # how many more, in place of the one line it is, hides it for nothing
+    lines = [*(part for parts in said[:shown] for part in parts),
+             *([f"and {len(said) - shown} more"] if shown < len(said) else [])]
+    return ["", *(terminal.styled("  " + line, "dim") for line in lines)] if note else []
 
 
 def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, marks=2,
@@ -4098,7 +4109,7 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     on the lines shown, `over`'s counted back from the page's first, -1 its last, each by `start(clock, row, since, before)`, its frames drawn while the
     key is waited for; a key, not the pointer, ends them on their last frames.
     """
-    said = note_lines(note)
+    said = note_lines(note, page_room(under, keys, over, lead) - len(body))
     below = [*under, *said]
     top, room = matrix_page(body, places, here, top, below, keys, over, lead, keyed)
     shown, first = body[top:top + room], 3 + len(over)     # the screen row of the page's first
@@ -4191,8 +4202,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     under the rows, dim, on every page.
     On a screen too short for every row the part the highlight is on is shown, and what the
     last key could not do -- the last reviewer, a switch, a save or a catalog that failed -- has
-    lines of its own under it, whatever the height, until the next key; `note` is said so
-    before the first.  The worker token's date stands under the rows from TOKEN_WARN_DAYS out.
+    lines of its own under it, as many as the rows leave (note_lines), until the next key;
+    `note` is said so before the first.  The worker token's date stands under the rows from TOKEN_WARN_DAYS out.
     """
     from . import watch   # here, not at the top: the menu draws without the tick
     standing = watch.token_standing() or ""     # a file's date, read once a visit
@@ -4229,8 +4240,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                    selected, providers, moves, subs, lit, scope, under)
         # agentkit's build, read under the page so every page shows it, and what was said under it
         told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
-        over, meters, body, places, moves = meters_led((over, meters), body, places,
-                                                       note_lines(told), keys, moves)
+        said = note_lines(told, page_room((), keys, over) - len(body))
+        over, meters, body, places, moves = meters_led((over, meters), body, places, said, keys,
+                                                       moves)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             told, keys, marks=3,
                                             timeout=STIR if session else None,
@@ -5865,7 +5877,9 @@ def apply_defaults(cfg, around):
     changes, so a move refused or failed leaves its record on the one its harness runs, its
     other changes kept.  Listed: it has a row on the main screen, gone from tmux
     too.  Each one's bar names what it took at once (handback.redress_seat).
-    config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
+    config.toml is not written.  What to say under the rows, or "": each reason a seat was
+    refused for once, in the order the seats are listed, led by the seats it held -- every name
+    where they fit the line, else the first ones and how many more."""
     from . import audit     # here, not at the top: audit imports this module
     defaults, records = cfg["defaults"], config.session_records()
     skip = config.resolve_session(audit.NAME)
@@ -5901,7 +5915,7 @@ def apply_defaults(cfg, around):
         at = config.at_efforts(cfg, held)["models"][own]["effort"]
         return config.orchestrating_at(cfg["models"], {"efforts": efforts}, own, at)
 
-    said = []
+    held = {}     # each reason a seat was refused for, and the seats it held
     for name in seats:
         try:
             config.change_efforts(name, given)
@@ -5909,15 +5923,26 @@ def apply_defaults(cfg, around):
             config.update_session(name, workers=defaults["workers"],
                                   reviewers=defaults.get("reviewers"))
         except (config.Error, OSError) as exc:
-            said.append(f"{name}: {exc}")
-            continue
-        if name in moving:
-            note = orch.switch_orchestrator(cfg, name, lead, providers, effort=effort)
-            if note:
-                said.append(f"{name}: {note}")
-        # after the move, a restart's launch dressing a bar with no roles yet
-        handback.redress_seat(name)
-    return "\n".join(said)
+            note = str(exc)
+        else:
+            note = name in moving and orch.switch_orchestrator(cfg, name, lead, providers,
+                                                               effort=effort)
+            # after the move, a restart's launch dressing a bar with no roles yet
+            handback.redress_seat(name)
+        if note:
+            held.setdefault(terminal.plain(note), []).append(name)
+    width = terminal.layout_width() - 2       # a note's line (note_lines)
+    return "\n".join(f"{led(names, width)}: {why}" for why, names in held.items())
+
+
+def led(names, width):
+    """`names` leading a line `width` wide, the colon after them: every one where they fit, else
+    the first ones and how many more."""
+    for count in range(len(names), 0, -1):
+        lead = ", ".join(names[:count]) + (f" and {len(names) - count} more"
+                                           if count < len(names) else "")
+        if count == 1 or terminal.cells(lead) < width:
+            return lead
 
 
 def born_mark(cfg, selected, model, column, providers):
