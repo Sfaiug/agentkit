@@ -54,6 +54,9 @@ class LanderFixture:
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
         config.ensure_dirs()
         self.stack.enter_context(patch.object(land, "start_line"))
+        # a pass's length is the host's load: one that wrote nothing shrinks no later pass here
+        # unless a test says it checked something (test_key_every_pass_moves_the_line)
+        self.stack.enter_context(patch.object(land, "CHECKED", float("inf")))
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
         self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
