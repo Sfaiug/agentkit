@@ -1918,7 +1918,11 @@ print("opus" if not spent("anthropic", "weekly_all") else "fable" if not spent("
 PY
 )
 CMD=$(tail -1 "$WORK/orch-fable.log")
-if grep -q -- '--model' <<<"$CMD" && grep -q -- '--effort' <<<"$CMD" && grep -q '^claude\|claude$\| claude ' <<<"$CMD" &&
+# Past a spent Claude and OpenAI the pick stands on meta's meter too: its probe down there is
+# no bystander's, and leaves no reading to say whether spark or grok is the pick.
+if [ "$WANT" = grok ] && METER_WHY=$(meter_unavailable "$U" meta); then
+  skip "6: provider meter unavailable ($METER_WHY)"
+elif grep -q -- '--model' <<<"$CMD" && grep -q -- '--effort' <<<"$CMD" && grep -q '^claude\|claude$\| claude ' <<<"$CMD" &&
    [ "$PICK" = "$WANT" ] && grep -q -- '--model claude-fable-5-1' "$WORK/orch-fable.log"; then
   ok "6 ak orch --dry-run: picked $PICK (Claude weekly_all $AUSED% used, session ${SUSED:-none}%), claude cmd with --model/--effort, --model fable forces fable"
 else
@@ -4001,7 +4005,7 @@ rm -f -- "$WORK/menu-shape.log"
 { for _ in $(seq 300); do grep -qE "$ROW" "$WORK/menu-shape.log" 2>/dev/null && break
     sleep 0.1; done
   printf '\n'; } | HOME="$NSH" ak --dry-run >"$WORK/menu-shape.log" 2>&1 || SHAPE=1
-grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +[^ ].* ⚒' || SHAPE=1
+grep -A1 -E "$ROW" "$WORK/menu-shape.log" | grep -qE '^ +[^ ].* builds' || SHAPE=1
 HOME="$NSH" AGENTKIT_DISCORD_WEBHOOK= ak notify needs "no text" --file "$WORK/shape-attach.txt" >"$WORK/needs-file.log" 2>&1
 [ "$?" = 2 ] || SHAPE=1
 # the freeform message went with the attachments: needs or --check
@@ -4269,6 +4273,9 @@ case "${1:-} ${2:-}" in
 esac
 SH
 chmod +x "$PBIN/gh"
+# The workers' programs are stand-ins too: a pick takes a model only where its harness's program
+# is found (`config.harness_present`), and the host's own is not found while it upgrades.
+for h in claude codex; do printf '#!/bin/sh\n' >"$PBIN/$h"; chmod +x "$PBIN/$h"; done
 tm kill-session -t "=$INBOX" 2>/dev/null
 HOME="$PH" AGENTKIT_INBOX_SESSION="$INBOX" AGENTKIT_ADAPTER_DIR="$PAD" AGENTKIT_DISCORD_WEBHOOK= \
   PATH="$PBIN:$PATH" ak run --review-pr "https://github.com/smokeowner/$PREPO/pull/7" >"$WORK/prreview.log" 2>&1
@@ -4314,7 +4321,7 @@ chmod +x "$PBIN2/gh"
 grep -q 'HTTP 502' "$PBIN2/gh" || echo "      (25b: the refusing gh was not written)"
 tm kill-session -t =smoke-inbox-refused 2>/dev/null
 HOME="$PH" AGENTKIT_INBOX_SESSION=smoke-inbox-refused AGENTKIT_ADAPTER_DIR="$PAD" AGENTKIT_DISCORD_WEBHOOK= \
-  PATH="$PBIN2:$PATH" ak run --review-pr "https://github.com/smokeowner/$PREPO/pull/7" >"$WORK/prreview-refused.log" 2>&1
+  PATH="$PBIN2:$PBIN:$PATH" ak run --review-pr "https://github.com/smokeowner/$PREPO/pull/7" >"$WORK/prreview-refused.log" 2>&1
 PRC2=$?
 PRUNID2=$(sed -n 's/^\[[0-9:]*\] run \([^:]*\): .*$/\1/p' "$WORK/prreview-refused.log" | head -1)
 PJSON2="$PH/.agentkit/runs/$PRUNID2/run.json"
@@ -5011,7 +5018,8 @@ env -u TMUX TMUX_TMPDIR="$STALLT" tmux -L agentkit-test kill-server 2>/dev/null
 RUNSH="$WORK/home-runs"
 mkdir -p -- "$RUNSH/.agentkit/state"
 cp "$MHOME/.agentkit/state/usage.json" "$RUNSH/.agentkit/state/usage.json"
-HOME="$RUNSH" PYTHONPATH="$REPO" COLUMNS=100 python3 - "$$" >"$WORK/runs.log" 2>&1 <<'PY'
+# its row's glyphs are UTF-8's, whatever locale the caller uses
+HOME="$RUNSH" PYTHONPATH="$REPO" COLUMNS=100 LC_ALL=C.UTF-8 python3 - "$$" >"$WORK/runs.log" 2>&1 <<'PY'
 import io
 import sys
 import time
@@ -5074,7 +5082,7 @@ assert any(line == "atoll" for line in lines), lines
 assert not any("seats" in line for line in lines), lines
 assert any(line.strip().startswith("1  ") for line in lines), lines
 row = next(line for line in lines if "atoll-fix" in line)
-assert config.model_name(cfg, "fable") in row and "working" in row and row.endswith(" 2 of 5"), row   # the line's count
+assert config.model_name(cfg, "fable") in row and "working" in row and row.endswith(" 2 of 5 · 1 task"), row   # the line's count, its run going
 assert not any("Teach the menu" in line for line in lines), lines
 assert not any("Smoke" in line or SMOKE in line for line in lines), lines
 printed = io.StringIO()

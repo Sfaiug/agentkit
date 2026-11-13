@@ -5,9 +5,10 @@ Two runs on one project pass review and land one after the other.  A run asks Gi
 view` as it joins the line and again right before its delivery asks for the delivery lock; the
 GitHub here holds the second's first until the first has joined, so the line's order is theirs,
 and the first's second until the test lets it go.  The second, stacked on the first and green,
-asks for the lock meanwhile and says on its record that it waits.  Let go, the first merges,
-and the second follows at once: the slot poll (AK_SLOT_POLL) is set far past how long the test
-waits, so a second that slept one out never ends here.  Black-box: the program `AK_BIN` names
+has its verdict meanwhile and stays parked: only the line's head is woken, so it starts no
+process to wait for its place.  Let go, the first merges, and its end wakes the second, which
+follows at once: the slot poll (AK_SLOT_POLL) is set far past how long the test waits, so a
+second that slept one out never ends here.  Black-box: the program `AK_BIN` names
 runs from outside through tests/fixtures/akbin.py, against the bare origin of gitrig.py and the
 GitHub of fakegh.py, with scripted harnesses from fakeadapter.py.
 """
@@ -67,7 +68,9 @@ class AGreenDeliveryTakesItsTurnWithoutAPoll(unittest.TestCase):
         cls.joined = cls.until(lambda: (cls.record("fix-api").get("waiting_on") or {}).get("line"))
         marks["joined"].write_text("")
         cls.held = cls.until(marks["held"].exists)
-        cls.waited = cls.held and cls.until(lambda: "delivery_wait" in cls.record("fix-ui"))
+        cls.landed = cls.held and cls.until(
+            lambda: "land" in (cls.record("fix-ui").get("waiting_on") or {}))
+        cls.parked = cls.record("fix-ui")
         marks["go"].write_text("")
         cls.codes = [cls.ended(proc) for proc in cls.runs]
 
@@ -103,9 +106,10 @@ class AGreenDeliveryTakesItsTurnWithoutAPoll(unittest.TestCase):
         return "\n".join(self.home.log(f"spawn-{n}.{kind}").read_text()[-3000:]
                          for n in (1, 2) for kind in ("out", "err"))
 
-    def test_the_second_waits_for_its_turn_while_the_first_is_held(self):
-        self.assertTrue(self.joined and self.held, self.outputs())
-        self.assertTrue(self.waited, self.outputs())
+    def test_the_second_stays_parked_while_the_first_is_held(self):
+        self.assertTrue(self.joined and self.held and self.landed, self.outputs())
+        self.assertEqual(self.parked["state"], "waiting", self.outputs())
+        self.assertNotIn("delivery_wait", self.parked, self.outputs())
 
     def test_both_merge_in_line_order_well_inside_a_slot_poll(self):
         self.assertEqual(self.codes, [0, 0], self.outputs())

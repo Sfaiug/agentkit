@@ -6,6 +6,15 @@ import (
 	"agentkit/internal/run"
 )
 
+// verbs holds the adapter verbs Go carries out for one harness alone, by that harness and verb
+// (`opencode variants`); each one's file adds itself, as a command joins cli's commands.
+var verbs = map[string]func(args []string, out, errOut io.Writer) int{}
+
+// Verb is that harness's own adapter verb of that name, nil where it has none.
+func Verb(name, verb string) func(args []string, out, errOut io.Writer) int {
+	return verbs[name+" "+verb]
+}
+
 // Interactive is a harness's own seat launch where its command needs more than its manifest.
 func Interactive(name string) func(root string, args []string, out, errOut io.Writer) int {
 	return plugins[name].interactive

@@ -1,6 +1,6 @@
 """Offline Mac -> VM bridge regressions; all files and processes are isolated here."""
 
-from contextlib import ExitStack, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import io
 import json
 import os
@@ -19,7 +19,9 @@ from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "tests"))
 from agentkit import config, macbridge, menu
+from fixtures.clock import Clock
 
 
 class Sandbox(unittest.TestCase):
@@ -30,8 +32,10 @@ class Sandbox(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(patch.dict(os.environ, {
-            "HOME": str(self.root), "TMPDIR": str(self.root), "AK_FETCH_TIMEOUT": "3",
+            "HOME": str(self.root), "TMPDIR": str(self.root),
         }))
+        # A fetch waits its own default, which outlasts any test that answers it on a loaded host.
+        os.environ.pop("AK_FETCH_TIMEOUT", None)
         # The bridge reaches the recorded server, never a literal alias: a fixture value
         # here proves every ssh/scp call site reads it.
         self.stack.enter_context(patch.object(config, "server_alias", return_value="myserver"))
@@ -66,14 +70,14 @@ class Sandbox(unittest.TestCase):
         self.addCleanup(cleanup)
         return proc
 
-    def requests(self, count=1):
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline:
+    def requests(self, fetch, count=1):
+        """The `count` requests `fetch` queued, however long a loaded host takes to start it."""
+        while fetch.poll() is None:
             paths = list((self.bridge / "requests").glob("[a-f0-9]*"))
             if len(paths) == count:
                 return paths
             time.sleep(0.01)
-        self.fail(f"did not find {count} requests")
+        self.fail(f"the fetch ended before it queued {count} requests")
 
     def line(self, proc):
         self.assertTrue(select.select([proc.stdout], [], [], 3)[0], "server did not flush")
@@ -224,23 +228,33 @@ class Fetch(Sandbox):
         self.assertFalse(self.bridge.exists())
 
     def test_timeout_enqueues_normalized_request_then_cleans_up(self):
-        with patch.dict(os.environ, {"AK_FETCH_TIMEOUT": "0.3"}):
-            proc = self.process("fetch", "'/Users/me/Desktop/screen\\ shot.png'")
-        request, = self.requests()
-        self.assertEqual(json.loads(request.read_text()), {
+        # The fetch's 0.3s pass only in its own waits, and the queue is read at each of them:
+        # a loaded host can spend all of them before the fetch or a reader beside it looks.
+        queued, now, out, err = {}, [0.0], io.StringIO(), io.StringIO()
+
+        def wait(seconds):
+            queued.update((path.name, json.loads(path.read_text()))
+                          for path in (self.bridge / "requests").glob("[a-f0-9]*"))
+            now[0] += seconds
+        clock = Clock(wait)
+        clock.monotonic = lambda: now[0]
+        with patch.dict(os.environ, {"AK_FETCH_TIMEOUT": "0.3"}), \
+                patch.object(macbridge, "time", clock), redirect_stdout(out), redirect_stderr(err):
+            code = macbridge.fetch_main(["'/Users/me/Desktop/screen\\ shot.png'"])
+        (request, asked), = queued.items()
+        self.assertEqual(asked, {
             "path": "/Users/me/Desktop/screen shot.png", "basename": "screen_shot.png",
         })
-        out, err = proc.communicate(timeout=3)
-        self.assertNotEqual(proc.returncode, 0)
-        self.assertEqual(out, "")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(out.getvalue(), "")
         self.assertIn("no answer from the Mac bridge in 0.3s; the Mac may be asleep or offline, "
-                      "or ak macbridge is not running there (open ak on the Mac)", err)
-        self.assertFalse(request.exists())
+                      "or ak macbridge is not running there (open ak on the Mac)", err.getvalue())
+        self.assertFalse((self.bridge / "requests" / request).exists())
 
     def test_pending_and_new_requests_flush_and_inbox_drop_resolves(self):
         pasted = "/var/folders/ab/TemporaryItems/NSIRD_screencaptureui_ab12/Screenshot 2026.png"
         fetch = self.process("fetch", pasted, "/Users/me/logo.svg")
-        request, = self.requests()
+        request, = self.requests(fetch)
         server = self.process("fetch", "--serve")
         server.stdin.write("heartbeat\n")
         server.stdin.flush()
@@ -297,7 +311,7 @@ class Fetch(Sandbox):
         local = self.root / "local"
         local.touch()
         fetch = self.process("fetch", "/Users/me/gone.png", str(local))
-        request, = self.requests()
+        request, = self.requests(fetch)
         (self.bridge / "inbox" / f"{request.name}.missing").touch()
         out, err = fetch.communicate(timeout=3)
         self.assertEqual(fetch.returncode, 1)
@@ -306,7 +320,7 @@ class Fetch(Sandbox):
 
     def test_empty_missing_extension_file_is_not_a_failure(self):
         fetch = self.process("fetch", "/Users/me/empty.missing")
-        request, = self.requests()
+        request, = self.requests(fetch)
         (self.bridge / "inbox" / f".{request.name}.ready").touch()
         dest = self.bridge / "inbox" / f"{request.name}.missing"
         dest.touch()
@@ -333,7 +347,7 @@ class Fetch(Sandbox):
 
     def test_error_extension_is_a_delivery_and_error_part_is_not_a_marker(self):
         fetch = self.process("fetch", "/Users/me/file.error")
-        request, = self.requests()
+        request, = self.requests(fetch)
         (self.bridge / "inbox" / f".{request.name}.error.part").write_text("unfinished")
         time.sleep(0.15)
         self.assertIsNone(fetch.poll())
@@ -347,7 +361,7 @@ class Fetch(Sandbox):
     def test_ready_extension_and_long_basename_preserve_the_delivered_file(self):
         self.assertEqual(macbridge.extension("/Users/me/" + "x" * 240 + ".png"), ".png")
         fetch = self.process("fetch", "/Users/me/file.ready")
-        request, = self.requests()
+        request, = self.requests(fetch)
         dest = self.bridge / "inbox" / f"{request.name}.ready"
         dest.touch()
         out, err = fetch.communicate(timeout=3)

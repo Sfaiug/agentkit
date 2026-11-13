@@ -88,6 +88,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 	var spent, last, stopReason string
 	var left []string
 	var marks []*int
+	var passes []suitetimes.Pass
 	unstarted := false
 	asked := clock()  // a later go is asked for as the one before it ends
 	var at *placement // the command's heavy-suite turn, held through its re-run
@@ -169,7 +170,11 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 			chunks = append(chunks, "$ "+cmd+"\n[not run: the done-when limit was already spent]")
 			break
 		}
-		ok = ok && outcome.code == 0 && outcome.stopped == ""
+		passed := outcome.code == 0 && outcome.stopped == ""
+		ok = ok && passed
+		if passed && selection.judges(cmd) {
+			passes = append(passes, suitetimes.Pass{Command: cmd, Times: measured(path, offset), Pieces: max(1, len(outcome.exits))})
+		}
 		selection.observe(cmd, outcome)
 		if outcome.stopped != "" {
 			marks = append(marks, nil)
@@ -226,6 +231,16 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 		l.say(line)
 	}
 	text := strings.Join(chunks, "\n\n")
+	if ok && len(passes) > 0 {
+		refused, failure, err := suitetimes.Refusal(cwd, selection.base, passes)
+		if err != nil {
+			return false, "", nil, err
+		}
+		if failure != "" {
+			// the red is the refused command's, which a narrowing runs again: the others passed
+			ok, text, selection.red = false, text+"\n\n"+failure, run.Fields("command", refused, "piece", "")
+		}
+	}
 	keepTimes(cwd, path) // the log is whole until it holds text
 	return ok, text, marks, os.WriteFile(path, []byte(text), 0o666)
 }

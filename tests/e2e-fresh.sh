@@ -468,10 +468,12 @@ drive() {   # drive <name> <TERM> <command...>; the script is $WORK/<name>.exp
               exec python3 $WORK/ptydrive.py $WORK/pty/$name.txt $WORK/$name.exp -- $*" \
     >"$WORK/$name.log" 2>&1
 }
-# All supported harnesses: Claude's footer, Codex's composer, Muse's complete model footer.
+# All supported harnesses: Claude's footer, Codex's composer, Muse's complete model footer,
+# which ends `Launch overrides` on a seat: adapters/muse.sh launches one with
+# --disable-approval, not --yolo, which takes Muse's question tool away.
 # A selection cursor or the Codex banner's "permissions: YOLO mode" is not a ready composer.
 # Match the text without line anchors: tmux can position a row without emitting a newline.
-PROMPT='bypass permissions on|[▌›] Ask Codex to do (?:anything|something)|[\w.-]+ · \w+ · [^\n]+ · YOLO'
+PROMPT='bypass permissions on|[▌›] Ask Codex to do (?:anything|something)|[\w.-]+ · \w+ · [^\n]+ · Launch overrides'
 MENU='n new '
 MODELS='⏎ start   esc back'   # the models screen's key line: menu1.exp waits for it, PICKED reads up to it
 NODIALOG='Do you trust|trust the files|No, exit|Choose the text style|Select a theme|Yes, I accept|WARNING: Claude Code running|Update available|Sign in with|sign in again|Trust this directory|Trust directory'

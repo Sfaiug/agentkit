@@ -30,8 +30,8 @@ from test_key_models_answer import ENV
 from test_key_role_choices import hold
 
 SEAT = "acme-fix"
-# Release, name, effort, every measure's share and cost a task: five choices a point or more
-# apart, cheapest first; no harness runs Gap, and Step runs at two efforts
+# Release, name, effort, every measure's share and cost a task: four choices a point or more
+# apart, cheapest first, Step running at two efforts, and Gap, which no harness runs
 ROWS = [("acme-base-1", "Acme Base 1", "high", 0.82, 2),
         ("acme-gap-1", "Acme Gap 1", "high", 0.84, 3),
         ("acme-step-1", "Acme Step 1", "medium", 0.86, 4),
@@ -89,7 +89,7 @@ class RoleEditOnTheRecord(unittest.TestCase):
         term.wait("r recommended")
         if models:
             term.keys("r")
-            term.wait("orchestrator · five choices")
+            term.wait("orchestrator · four choices")
         return term
 
     def since(self, record):

@@ -631,6 +631,17 @@ def _injected():
     return readings if isinstance(readings, dict) else None
 
 
+def load_per_core():
+    """The host's one-minute load for each of its cores; 0 where it keeps no load average."""
+    readings = _injected()
+    if readings is None:
+        try:
+            return os.getloadavg()[0] / cpu_count()
+        except OSError:
+            return 0
+    return (_reading(readings, "load") or 0) / (_reading(readings, "cpus") or 1)
+
+
 def disk_use(path):
     """(used, size) in MiB of the disk holding `path`, or None where that cannot be read.
 

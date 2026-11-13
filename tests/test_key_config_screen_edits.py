@@ -34,7 +34,9 @@ SEAT = "atoll-ask"
 # `x_custom` is a key ak does not know; config.toml is the owner's, so a save must keep it.
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh", "x_custom": 1},
           "astra": {"harness": "codex", "effort": "high"}}
-CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `models` lists
+# what the claude adapter's `models` lists: a model the config does not run, then Fable, which it
+# does
+CATALOG = "m1\tModel One\tlow medium high\nclaude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 HEADER = "# agentkit's config, written by the menu's `c` screen."
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # on a mark
 PAGE_KEYS = "  ↑↓←→ move   ⏎ open   esc back"   # a page under it, with no `r`
@@ -168,12 +170,13 @@ class ConfigScreenEdits(unittest.TestCase):
                        and body(screen)[:2] == ["› Claude Code  Fable 5.1",
                                                 "  Codex        GPT-6-Astra"]
                        and key_line(screen) == PAGE_KEYS)
-        # its list draws once the harness's models are asked of it
+        # its list draws once the harness's models are asked of it, the highlight on the one marked
         self.term.keys("Enter")
-        self.term.wait(lambda screen: body(screen)[:3] == ["  Claude Code  Fable 5.1",
-                                                           "›   □ Model One",
+        self.term.wait(lambda screen: body(screen)[:4] == ["  Claude Code  Fable 5.1",
+                                                           "    □ Model One",
+                                                           "›   ■ Fable 5.1",
                                                            "  Codex        GPT-6-Astra"])
-        self.term.keys("Space")
+        self.term.keys("Up", "Space")
         self.term.wait(lambda screen: "›   ■ Model One" in rows(screen))
         text = self.config.read_text()
         self.assertTrue(text.startswith(HEADER), text)

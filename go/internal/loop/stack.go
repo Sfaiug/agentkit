@@ -11,7 +11,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
-	"agentkit/internal/helper"
 	"agentkit/internal/run"
 )
 
@@ -68,9 +67,6 @@ func lineUpstream(record *run.Object) string {
 func landingFixHandoff(record *run.Object) string {
 	if record.Truthy("review_pr") && !ownLands(record) {
 		return "a PR's landing fix"
-	}
-	if helper.May() {
-		return "a landing red with suite helpers"
 	}
 	return ""
 }

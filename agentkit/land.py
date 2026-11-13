@@ -118,27 +118,40 @@ def note(turn, trees, leader, *, checks=(), tested=None, at=None, code=None, red
 
 @contextmanager
 def _pass(turn):
-    """The line's singleton flock, True while this process holds it, and the time each held
-    pass takes: its start and process while it runs, then the last 20 that checked something."""
+    """The line's singleton flock, and the time each held pass takes: its start and process
+    while it runs, then the last 20 that checked something.  While this process holds it, the
+    pass's own: `fruitless`, how many passes before it in a row checked something and moved
+    nobody, a pass whose process died mid-check one of them unless its record says it `moved`,
+    and `moved`, None until it checks members, then whether it wrote one a verdict.  A pass that
+    only waited counts for neither."""
     with turn.with_suffix(".lander.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             yield False
             return
-        took = passes(turn).get("took") or []
+        kept = passes(turn)
+        took = kept.get("took") or []
+        held = SimpleNamespace(moved=None, fruitless=0 if kept.get("moved") else kept.get(
+            "fruitless", 0) + bool(kept.get("started") and not record.process_active(kept)))
+        counted = {"fruitless": held.fruitless} if held.fruitless else {}
         started = time.time()
-        _keep_passes(turn, {"took": took, "started": started, **record.process_owner()})
+        held.start = {"took": took, **counted, "started": started, **record.process_owner()}
+        _keep_passes(turn, held.start)
         try:
-            yield True
+            yield held
         finally:
             spent = time.time() - started
-            _keep_passes(turn, {"took": (took + [spent])[-20:] if spent >= CHECKED else took})
+            fruitless = 0 if held.moved else held.fruitless + (
+                held.moved is False and spent >= CHECKED)
+            _keep_passes(turn, {"took": (took + [spent])[-20:] if spent >= CHECKED else took,
+                                **({"fruitless": fruitless} if fruitless else {})})
 
 
 def passes(turn):
     """The line's passes (`_pass`): `took`, the seconds of its last passes that checked
-    something, and while one runs its `started` and process."""
+    something, `fruitless` while the last of those moved nobody, and while one runs its
+    `started`, process and, once it wrote a verdict, `moved`."""
     try:
         data = json.loads(turn.with_suffix(".passes").read_text())
     except (OSError, ValueError):
@@ -210,11 +223,12 @@ def _waking(turn, log):
     on no run in it (`red_behind`) is woken, once a pass.  Asked as the pass starts and ends,
     for each verdict it gives, and every WAKE seconds while it runs: the runs ahead leave on
     their own time, and one check holds a pass for hours (a run blamed behind runs that all
-    merged at 20:26 waited past 22:40 for the next pass, 5 Nov 2026)."""
+    merged at 20:26 waited past 22:40 for the next pass, 5 Nov 2026).  Each wake ends with
+    the line's next delivery (`deliver_next`)."""
     from . import watch
     # a resume takes its record a moment after its start, and one refused leaves it parked:
     # that one the next pass wakes again
-    woken, done = set(), threading.Event()
+    woken, launched, done = set(), {}, threading.Event()
 
     def wake():
         members = line(turn)
@@ -228,6 +242,7 @@ def _waking(turn, log):
                             and not record.process_active(state)):
                         woken.add(directory.name)
                         watch.launch_resume(directory.name, log)
+        deliver_next(turn, log, launched, members)
 
     def watching():
         while not done.wait(WAKE):
@@ -242,6 +257,47 @@ def _waking(turn, log):
         done.set()
         watcher.join()
     wake()
+
+
+def deliver_next(turn, log=lambda _: None, launched=None, members=None):
+    """Wake the line's head, its first green delivery, once it is parked with no process and
+    no resume of it is coming up; no other delivery is woken for its place.
+
+    Only the head takes the merge lock (`deliver.members_ahead`): each delivery woken behind
+    it only polls for its turn.  On 13 Nov 2026 a green stack of 41 woke 41 runs, the load
+    went from 125 to 215 on 18 cores and one merged every ~100 s (7 in 12 min), against 15 to
+    25 s uncontended.  Asked by each wake of a pass (`_waking`), the one after each verdict
+    too, and by each delivery as it ends (`deliver.land_from_line`), handing on the turn.
+    A resume coming up writes the run's log (`watch.resumes`) until it takes the record or
+    ends; a terminal's only follows the run it started, as long as the run waits in line.
+    `launched` holds the (pid, identity) of each head a pass woke while that process lives:
+    one refused or dead is woken again at the pass's next wake."""
+    from . import host, watch
+    try:
+        members = line(turn) if members is None else members
+        green = [(directory, state) for directory, state in members
+                 if green_delivery(state["waiting_on"])]
+        if not green:
+            return False
+        head, state = green[0]
+        # under the run's own lock, as `_waking`'s: two threads of a pass wake it once
+        with record.recovery_lock(head):
+            pid, identity = (launched or {}).get(head.name, (None, None))
+            if ((identity is not None and host.process_identity(pid) == identity)
+                    or state.get("state") != "waiting"
+                    or record.read_state(head) != state or record.process_active(state)
+                    or any(writes for _, writes in watch.resumes(head).values())):
+                return False
+            pid = watch.launch_resume(head.name, log)
+            if not pid:
+                return False
+            if launched is not None:
+                launched[head.name] = (pid, host.process_identity(pid))
+        log(f"{head.name} delivers next in {turn.name}, {len(green) - 1} waiting behind it")
+        return True
+    except (OSError, config.Error) as exc:
+        log(f"WARN could not wake the next delivery in {turn.name}: {exc}")
+        return False
 
 
 def start_line(turn, log=lambda _: None):
@@ -484,6 +540,20 @@ def _file(test):
     return test.split("::")[0].split("#")[0]
 
 
+def _first_holding(stacks, red, tests):
+    """The first of `stacks` whose tree holds a file (`_file`) of `tests`, where the stack at
+    `red` holds each one's, else 0: a test named by no file there may fail anywhere.  Each path
+    is read as a revision names it, so `./t/a.sh` is `t/a.sh`, and a directory, or a name no
+    path can be, is no file."""
+    from . import run
+    files = {_file(test) for test in tests}
+
+    def holds(index):
+        return [run.git_out(stacks[red][2], "cat-file", "-t", f"{stacks[index][3]}:{path}")
+                == (0, "blob") for path in files]
+    return next(index for index in range(red + 1) if any(holds(index))) if all(holds(red)) else 0
+
+
 def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed, passed):
     """Keep in the record of the line `turn` the tests that failed, then passed, on `tree`, as
     this member's check there found them: `flaky`, those `gate.run_done_when` names, and those
@@ -561,7 +631,7 @@ def check_line(turn, log=lambda _: None):
     can resume or stop during its check: only an unchanged, processless parked record gets
     the verdict.  The recovery lock covers that write and the wake, never the suite.
     """
-    from . import handback, roundloop, run, watch
+    from . import handback, roundloop, run
     turn = Path(turn)
     _code()     # read as the pass starts: an update installed during a check is not this pass's
     with _pass(turn) as held, ExitStack() as waking:
@@ -643,21 +713,41 @@ def check_line(turn, log=lambda _: None):
                         if ((saved.get("review") or {}).get("verdict") == "PASS"
                                 and "land" not in saved["waiting_on"]):
                             candidates.append((later, saved))
+                # After passes that moved nobody, fewer: one alone always ends in a verdict or
+                # in the target's own red.
+                take = max(1, len(candidates) >> held.fruitless)
+                if take < len(candidates):
+                    log(f"{held.fruitless} pass{'es' if held.fruitless > 1 else ''} in a row "
+                        f"checked this line and moved nobody: this one checks the first {take} of "
+                        f"the {len(candidates)} members waiting, as fewer change under a shorter pass")
+                    candidates = candidates[:take]
             else:
                 candidates = [(directory, state)]
-            sent, snapshots, valid = set(), dict(candidates), True
+            sent, snapshots, offered, cut = set(), dict(candidates), {}, len(candidates)
 
             def publish(answers):
-                nonlocal valid
-                if not valid:
-                    return False
-                fresh = {member: answer for member, answer in answers.items() if member not in sent}
+                """Write each verdict offered this pass that still stands, under the recovery
+                locks, and say how many candidates, from the first, a verdict of it could still
+                go to.  Candidates stack in line order, so a candidate's tree holds the prefix
+                and those ahead of it, never one behind: the first that changes under the pass,
+                the cut, costs the verdicts from it on, and nothing ahead of it.  A verdict a
+                later stack's check covered (`tested`) stands only while that stack is ahead of
+                the cut too, as its member must land with it.  A changed prefix member or first
+                candidate leaves none: every tree stands on it.  A pass that had checked 3.5
+                hours with 60 stacked was thrown away for one member that changed, one of 32
+                such passes in the logs (13 Nov 2026)."""
+                nonlocal cut
+                if checked and held.moved is None:
+                    # asked before each check: a pass that never came to one only waited
+                    held.moved = False
+                if not cut:
+                    return 0
+                offered.update(answers)
                 # Delivery rewrites ownership and rebase receipts, but keeps the reviewed
                 # work and tested tree. Only an unwoken recipient must stay processless.
-                # No answers asks only whether the line is still the one this pass checks.
-                with ExitStack() as held:
-                    for member, saved in prefix + candidates:
-                        held.enter_context(record.recovery_lock(member))
+                with ExitStack() as locks:
+                    for place, (member, saved) in enumerate(prefix + candidates[:cut]):
+                        locks.enter_context(record.recovery_lock(member))
                         if member in sent and "fix" in saved["waiting_on"]:
                             continue  # this member is already omitted from rebuilt stacks
                         current = record.read_state(member)
@@ -677,21 +767,40 @@ def check_line(turn, log=lambda _: None):
                         else:
                             same = current == saved and not record.process_active(current)
                         if not same:
-                            valid = False
-                            return False
+                            cut = max(0, place - len(prefix))
+                            if cut:
+                                log(f"{member.name} changed during this pass, which goes on for the "
+                                    f"{cut} ahead of it: it and the {len(candidates) - cut - 1} "
+                                    "behind it wait for the next pass")
+                            break
+                    # the member a covered verdict's check ran on gives its own verdict just after
+                    tested = {answer["land"]: member for member, answer in offered.items()
+                              if "land" in answer and "tested" not in answer}
+                    places = {member: place for place, (member, _) in enumerate(candidates)}
+
+                    def stands(member, answer):
+                        under = tested.get(answer["tested"]) if "tested" in answer else member
+                        return max(places[member], places.get(under, cut)) < cut
+
+                    fresh = {member: answer for member, answer in offered.items() if member not in sent
+                             and (cut == len(candidates) or stands(member, answer))}
                     if not fresh:
-                        return True
+                        # No answers asks only whether a verdict of this pass could still be
+                        # written: not once each candidate ahead of the cut has had its own.
+                        return cut if answers or cut == len(candidates) or any(
+                            member not in sent for member, _ in candidates[:cut]) else 0
                     for member, answer in sorted(fresh.items(), key=lambda item: "land" in item[1]):
                         with record.record(member) as current:
                             current["waiting_on"] = {**current["waiting_on"], **answer}
                         # Later answers still compare against this pass's own writes.
                         snapshots[member]["waiting_on"] = dict(current["waiting_on"])
                     sent.update(fresh)
-                    for member, answer in fresh.items():
-                        if "fix" not in answer:
-                            watch.launch_resume(member.name, log)
-                    wake()
-                return True
+                    if checked and not held.moved:
+                        # kept at once: a pass killed after this moved the line all the same
+                        held.moved = True
+                        _keep_passes(turn, {**held.start, "moved": True})
+                    wake()      # fixes, and the line's next delivery (`deliver_next`)
+                return cut
 
             verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log, prefix=prefix,
                                       ready=publish, tip_green=tip_green) if checked else {directory: verdict})
@@ -925,65 +1034,79 @@ def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
                     **red}} if red.get("tests") else {}
 
 
-def _probe(directory, state, scratch, tree, command, tests, cost):
-    """Whether just `tests` of `command` pass on the stack `scratch` holds, run once on a suite
-    helper as a piece of `cost` (CPUs, MiB): True where each was named as run (`AK_RAN`) or as
-    not there (`gate.passes_what_it_holds`), False where the run failed naming one of them both
-    as run and as failed (`AK_FAILED`), and None where it proved neither -- no helper took it,
-    it hung, the helper lost it, had no room or handed back no names, a test was not named as
-    run.  It leaves its `checks` row and records nothing else, no flaky sighting either: a red
-    only a helper shows is no evidence (`_check_tests` decides)."""
+def _probe(directory, state, scratch, tree, command, tests, cost, here=False):
+    """Whether just `tests` of `command` pass on the stack `scratch` holds, run once as a suite
+    helper's piece of `cost` (CPUs, MiB) runs them (`gate.pinned`), on a helper or `here` in a
+    box as the single step runs them: True where each was named as run (`AK_RAN`) or as not
+    there (`gate.passes_what_it_holds`), False where the run failed naming one of them both as
+    run and as failed (`AK_FAILED`), and None where it proved neither -- no helper took it, it
+    hung, the helper lost it, had no room or handed back no names, a test was not named as run.
+    It takes no turn, leaves its `checks` row and records nothing else, no flaky sighting
+    either: a red only a probe shows is no evidence (`_check_tests` decides)."""
     from . import gate, helper, history, run, worker
     asked, head = time.time(), run.git(scratch, "rev-parse", "HEAD")
-    there = gate.pinned(command, suite_times.handed(scratch), only=tests)
-    away = helper.start(*cost, scratch, lambda _: None, there, one=True)[0]
-    if not away:
+    times = suite_times.handed(scratch)
+    there, files = gate.pinned(command, times, only=tests)
+    away = None if here else helper.start(*cost, scratch, lambda _: None, there, one=True,
+                                          files=files)[0]
+    if not (here or away):
         return None
     log_path = directory / f"lander-{tree}-probe.log"
     silence = 60 * state.get("silence_minutes", record.SILENCE_MINUTES)
+    named = {"ran": [], "failed": [], "absent": []}     # what a run here names
     try:
         with log_path.open("wb") as output, history.check(
-                (directory, None, "landing", head), command, asked, away.alias) as ended:
+                (directory, None, "landing", head), command, asked, away and away.alias) as ended:
             # A hang ends as a suite piece's first go does, at its suite's pace: its round
             # waits for it.
-            code, _, killed = worker.limited(
-                helper.piece(away, "1/1", there),
-                3600 * state.get("ceiling_hours", record.CEILING_HOURS), cwd=str(scratch),
-                activity=log_path, output=output, env=gate.suite_env(),
-                silence=gate.quiet_window(command, scratch, None, silence) or silence,
-                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            how = {"cwd": str(scratch), "activity": log_path, "output": output,
+                   "silence": gate.quiet_window(command, scratch, None, silence) or silence,
+                   "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL}
+            limit = 3600 * state.get("ceiling_hours", record.CEILING_HOURS)
+            code, _, killed = (
+                worker.limited(helper.piece(away, "1/1", there), limit, env=gate.suite_env(),
+                               **how) if away else
+                worker.boxed(["bash", "-c", there], limit, used=ended, times=times, only=tests,
+                             env={**gate.suite_env(), "AK_SHARD": "1/1"}, **named, **how))
             ended["exit"] = None if killed else code
-        if killed or code < 0 or code in (*helper.GONE, helper.FULL):
+        if killed or code < 0 or away and code in (*helper.GONE, helper.FULL):
             return None
-        ran, failed, absent = (helper.failed(away, "1/1", named)
-                               for named in ("ran", "failed", "not-there"))
+        ran, failed, absent = ([helper.failed(away, "1/1", which)
+                                for which in ("ran", "failed", "not-there")] if away else
+                               named.values())
         if None in (ran, failed, absent):
             return None
         if code and set(tests) & set(ran) & set(failed):
             return False
         return gate.passes_what_it_holds(code, tests, ran, failed, absent) or None
     finally:
-        helper.finish(away)
+        if away:
+            helper.finish(away)
+        else:
+            _put_back(scratch, head)
 
 
 def _round(stacks, floor, high, command, tests, log):
     """One round of a red stack's narrowing: probes (`_probe`) of the stacks between `floor` and
-    `high`, as many as the suite helpers have places for, spread evenly and all at once, and
-    each probed stack's answer once the last has ended; {} where the helpers have no place.
-    Probes running the same tests end about together, so waiting for the last costs little,
-    and none outlives its round: nothing is ever called off on a helper."""
+    `high`, as many as the suite helpers have places for, or where they have none as this host
+    fits (`gate.places`), spread evenly and all at once, and each probed stack's answer once
+    the last has ended; {} where neither has a place.  Probes running the same tests end about
+    together, so waiting for the last costs little, and none outlives its round: nothing is
+    ever called off on a helper."""
     from . import gate, helper
     cost = gate.suite_cost(command, stacks[high][2], None)[1:]
-    count = min(helper.places(*cost, stacks[high][2]), high - floor - 1)
+    away = helper.places(*cost, stacks[high][2])
+    count = min(away or gate.places(*cost), high - floor - 1)
     picked = [floor + (n + 1) * (high - floor) // (count + 1) for n in range(count)]
     with ThreadPoolExecutor(max_workers=max(1, count)) as pool:
-        probes = {index: pool.submit(_probe, *stacks[index][:4], command, tests, cost)
+        probes = {index: pool.submit(_probe, *stacks[index][:4], command, tests, cost, not away)
                   for index in picked}
     answers = {index: probe.result() for index, probe in probes.items()}
     if answers:
         said = {True: "passes", False: "fails", None: "proves nothing"}
-        log(f"{' '.join(tests)} on the suite helpers: " + ", ".join(
-            f"{said[answer]} up to {stacks[index][0].name}" for index, answer in answers.items()))
+        log(f"{' '.join(tests)} {'on the suite helpers' if away else 'on this host'}: " +
+            ", ".join(f"{said[answer]} up to {stacks[index][0].name}"
+                      for index, answer in answers.items()))
     return answers
 
 
@@ -1002,8 +1125,7 @@ def _check_tree(directory, state, scratch, tree, checks, log, suite):
                                               "log": str(log_path), **red}, "parts": parts}
 
 
-def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
-                   tip_green=None):
+def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=(), tip_green=None):
     from . import gate, roundloop, run
     if prefix:
         wait = prefix[-1][1]["waiting_on"]
@@ -1018,7 +1140,6 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
     tip_green = set(tip_green or ())   # the pieces the target's tip passed on this pass, the
                                        # pass's own re-probe of a paused piece included
     limit = None
-    below = -1      # the stack just below the last culprit, unchanged by the rebuild without it
     carried = []    # the red parts the pass's last red whole check confirmed (`_check_tree`)
 
     def ahead(index):
@@ -1126,10 +1247,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
                 elif red.get(tree, {}).get("checks") == list(checks):
                     answers[tree, checks] = cached_red(tree)
-            unanswered = {index: stack[3:] for index, stack in enumerate(stacks)
-                          if stack[3:] not in answers}
-            # However many fit, the stack below a culprit goes first, covering those under it.
-            batched = below in unanswered or len(set(unanswered.values())) > limit
+            batched = len({stack[3:] for stack in stacks if stack[3:] not in answers}) > limit
 
             def cover(index, checks, tested, at=None, code=None):
                 covered = stacks[:index + 1] if batched else [stacks[index]]
@@ -1171,16 +1289,31 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
 
             def stopped():
                 """Has the line changed under this pass?  Asked before every check it would
-                start: none of its verdicts could be written any more, so it starts no check,
-                and the next pass checks the line as it is now."""
-                nonlocal stale
-                if not stale and ready({}) is False:
+                start.  Where none of its verdicts could be written any more, it starts no
+                check, and the next pass checks the line as it is now.  Where only the members
+                from one that changed on can get none (`ready`), the stacks are rebuilt without
+                them, as without a culprit: a check green with one answers nobody ahead of it."""
+                nonlocal stale, pending, rebuild
+                if stale:
+                    return True
+                standing = ready({})
+                if not standing:
                     stale = True
                     log("the line changed during this pass; the next pass checks it afresh")
-                return stale
+                    return True
+                behind = dict(members[standing:])
+                if not any(member in behind for member, _ in pending):
+                    return False
+                pending = [(m, s) for m, s in pending if m not in behind]
+                for member, _ in pending:
+                    # a green verdict a stack behind covered is offered again once its own
+                    # stack is answered without them
+                    verdicts.pop(member, None)
+                rebuild = True
+                return True
 
             def decide():
-                nonlocal pending, rebuild, target_red, below
+                nonlocal pending, rebuild, target_red
                 if target_red:
                     return
                 green_prefix = bool(prefix)
@@ -1220,7 +1353,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         # Later stacks need new checks on trees without this member.
                         pending = [(m, s) for m, s in pending
                                    if m not in verdicts or "land" in verdicts[m]]
-                        rebuild, below = True, index - 1
+                        rebuild = True
                         return
 
             with ThreadPoolExecutor(max_workers=max(1, limit)) as pool:
@@ -1234,7 +1367,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # Failing, a part is that top's red, narrowed as a batch's however many whole
                     # checks fit, and tried again on the next top, as another member may break
                     # it too; passing, proving nothing or its command run there no more, it is
-                    # dropped.
+                    # dropped.  Then the top goes whole, no stack under it first: it is red again
+                    # only on what no part showed, and so is the stack just below the culprit,
+                    # whose whole check, first, held a line 87 minutes at a time to land one to
+                    # five members (13 Nov 2026).
                     top = len(stacks) - 1
                     carried[:] = [part for part in carried if part["command"] in commands(top)]
                     for part in list(carried):
@@ -1253,15 +1389,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         narrowing, command, owner = None, None, 0
-                        if below in unchecked and not any("fix" in answer
-                                                          for answer in answers.values()):
-                            # It waits on no culprit above it: its whole check comes before the
-                            # new top's, named tests passing there being no evidence, and green
-                            # lands every stack under it (40 members waited, 30 Oct 2026).  A red
-                            # already known, a part's on the top, is narrowed first: its steps
-                            # run just what failed.
-                            unchecked = [below]
-                        elif batched and unchecked:
+                        if batched and unchecked:
                             # Narrow the first unresolved red between the last green and it.
                             red_index = next((index for index in range(unchecked[0], len(stacks))
                                               if "fix" in answers.get(tuple(stacks[index][3:]), {})), None)
@@ -1283,6 +1411,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                     narrowing = command, tests
                                     owner = next((index for index, stack in enumerate(stacks)
                                                   if command in stack[4]), 0)
+                                    # No stack below the first holding their file can fail
+                                    # them: run there, a suite that names no test as not there
+                                    # proved nothing, and that stack went whole (13 Nov 2026).
+                                    low = max(low, _first_holding(stacks, red_index, tests) - 1)
                                     # a probe's red bounds it sooner, though it blames nobody,
                                     # until a pass here outweighs it
                                     high = min([red_index] + [
@@ -1301,15 +1433,15 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                     ready({member: verdicts[member]})
                                 pending = [(m, s) for m, s in pending
                                            if m not in verdicts or "land" in verdicts[m]]
-                                rebuild, below = True, red_index - 1
+                                rebuild = True
                                 break
                             # No stack below the command's first runs it: the search starts
                             # just ahead of that one, and it reaches lower only on evidence.
                             floor = max(low, owner - 1)
                             if narrowing and floor + 1 < high:
-                                # The stacks between go to the suite helpers, many at once, a
-                                # round at a time: here each step took minutes, one after the
-                                # other (127 of a pass's 370, 5 Nov 2026).  A round that proves
+                                # The stacks between go many at once, a round at a time, to
+                                # the suite helpers or else this host: one step at a time took
+                                # 127 of a pass's 370 minutes (5 Nov 2026).  A round that proves
                                 # nothing leaves the step to this host.
                                 probed = _round(stacks, floor, high, command, tests, log)
                                 passed_alone.update(((index, narrowing), True)

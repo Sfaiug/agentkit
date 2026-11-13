@@ -1,13 +1,16 @@
 """A dead maker's scratch goes whole, what its command closed included, and never through a
 link: a link inside goes as a link, and a scratch whose name a link took fails, the folder it
-names as it was.  One whose removal cannot finish keeps its mark, for the next collection.
+names as it was, as does a folder moved out while it goes.  No depth is too deep for it.  One
+whose removal cannot finish keeps its mark, for the next collection.
 
 Offline, in the test's own folder: `gc.clear_scratch`, as a collection calls it once
 `gc.left_scratch` names a folder.
 """
 
 import json
+import os
 from pathlib import Path
+import resource
 import sys
 import tempfile
 import unittest
@@ -50,6 +53,35 @@ class ScratchGoesThroughNoLink(unittest.TestCase):
         self.scratch.symlink_to(self.outside, target_is_directory=True)
         with self.assertRaises(OSError):
             gc.clear_scratch(self.scratch)
+        self.assertOutsideAsItWas()
+
+    def test_a_tree_deeper_than_the_recursion_and_open_file_limits_goes_whole(self):
+        folder = self.scratch
+        for _ in range(sys.getrecursionlimit() + 100):
+            folder /= "d"
+            folder.mkdir()
+        (folder / "payload").write_text("scratch\n")
+        limits = resource.getrlimit(resource.RLIMIT_NOFILE)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (64, limits[1]))
+        try:
+            gc.clear_scratch(self.scratch)
+        finally:
+            resource.setrlimit(resource.RLIMIT_NOFILE, limits)
+        self.assertFalse(self.scratch.exists())
+
+    def test_a_folder_moved_out_while_it_goes_fails_and_keeps_where_it_went(self):
+        inner = self.scratch / "a" / "b"
+        inner.mkdir(parents=True)
+        listdir = os.listdir
+
+        def moving(fd):
+            if inner.exists() and os.path.samestat(os.fstat(fd), inner.stat()):
+                inner.rename(self.outside / "b")
+            return listdir(fd)
+
+        with patch("os.listdir", moving), self.assertRaises(OSError):
+            gc.clear_scratch(self.scratch)
+        self.assertTrue((self.outside / "b").is_dir())
         self.assertOutsideAsItWas()
 
     def test_one_whose_removal_cannot_finish_keeps_its_mark(self):

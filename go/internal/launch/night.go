@@ -14,7 +14,6 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/loop"
-	"agentkit/internal/pick"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -105,9 +104,10 @@ func (l launcher) write() error {
 	return nil
 }
 
-// unstaffed is why no pair of the bound lists can run here, "" where one can.
-func unstaffed(bound config.Binding) string {
-	rules, ok := pick.Within(names(bound.Workers), names(bound.Reviewers))
+// unstaffed is why no pair of the bound lists, as a run held to these numbers picks (staffing), can
+// run here, "" where one can.
+func unstaffed(bound config.Binding, numbers config.Numbers) string {
+	rules, ok := staffing(bound, numbers)
 	if !ok {
 		return ""
 	}

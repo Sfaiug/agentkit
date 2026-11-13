@@ -79,3 +79,38 @@ func TestAReadWritesTheProvidersAndAccountsConfigListsAsItWrites(t *testing.T) {
 		t.Fatalf("answered %v, not what it asked that config.toml still lists", got)
 	}
 }
+
+// A snapshot that cannot be written is the read's error, read cold or answered from the cache,
+// never a panic that ends the job checking its budget.
+func TestAReadWhoseSnapshotCannotBeWrittenSaysWhy(t *testing.T) {
+	for _, cached := range []bool{false, true} {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		adapters := filepath.Join(home, "adapters")
+		for _, dir := range []string{state(), adapters} {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
+		files := map[string]string{
+			filepath.Join(home, ".agentkit", "config.toml"): "[models.anvil]\nharness='claude'\nmodel='anvil-1'\neffort='high'\nprovider='acme'\n" +
+				"[providers.acme]\nmode='subscription'\n",
+			filepath.Join(home, ".agentkit", "work"): "not a directory\n", // so no write can take its lock
+			filepath.Join(adapters, "claude.sh"):     "#!/bin/sh\nprintf 'ready\\n'\n",
+		}
+		if cached { // fresh, but without the reset count a read writes down
+			files[filepath.Join(state(), "usage.json")] = run.Line(fields("fetched_at", clock(), "providers",
+				fields("acme", fields("harness", "claude", "none", true, "meters", []any{}, "accounts", run.NewObject()))))
+		}
+		for path, data := range files {
+			if err := os.WriteFile(path, []byte(data), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := Read(); err == nil {
+			t.Fatalf("cached=%v: a snapshot that cannot be written read as written", cached)
+		}
+	}
+}

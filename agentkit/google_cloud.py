@@ -62,23 +62,18 @@ NEED = "google-cloud-need"      # MiB a vCPU and work kind of each request since
 REFUSALS = {"QUOTA_EXCEEDED", "quotaExceeded", "ZONE_RESOURCE_POOL_EXHAUSTED",   # Google's codes:
             "ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS"}    # a zone's quota or stock is out
 # A machine's setup, each line run on those that served suites on 31 Oct 2026: docker's data and
-# trees in memory, as on disk a suite's cores idled in disk wait; sshd keeps a piece's connection,
-# and its penalties off, as 40 connections that never logged in made each ssh from here exit 255
-# at once (tried on 2 Nov 2026, the day 247 pieces went so in 3 minutes): only ak's key gets in.
+# trees in memory, as on disk a suite's cores idled in disk wait; then `JOIN`, the lines that make
+# a machine the owner brings ready, given ak's key.
 STARTUP = """#!/bin/bash
 set -e
 useradd -m -s /bin/bash {user}
 mkdir -p /var/lib/docker ~{user}/.agentkit-helper ~{user}/.ssh
 mount -t tmpfs -o size=70% tmpfs /var/lib/docker
 mount -t tmpfs -o size=70% tmpfs ~{user}/.agentkit-helper
-echo '{key}' >~{user}/.ssh/authorized_keys
-chown -R {user}: ~{user}
-apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy docker.io docker-cli git jq
-usermod -aG docker {user}
-printf 'MaxStartups 500:30:1000\\nPerSourcePenalties no\\n' >/etc/ssh/sshd_config.d/ak.conf
-systemctl reload ssh
-touch {ready}
+set -- '{key}'
+{join}touch {ready}
 """
+JOIN = config.REPO / "tools" / "join.sh"
 SSH_KEY, KNOWN_HOSTS = "google-cloud-ssh", "google-cloud-known-hosts"     # beside KEY
 SSH_CONFIG = "google-cloud-ssh-config"  # in config.STATE: the machines ak rents, then the owner's
 # A machine that held nothing this long goes back.  A new machine's first suite pays about a
@@ -549,7 +544,7 @@ def _create(compute, token, zone, machine):
 def _machine(name, zone, offer, life, key):
     """What Google is asked to make: Spot, deleted by Google itself at its end whatever becomes
     of this host, its boot disk with it, reached by `key`, the public half of ak's, alone."""
-    startup = STARTUP.format(user=USER, key=key, ready=SET_UP)
+    startup = STARTUP.format(user=USER, key=key, ready=SET_UP, join=JOIN.read_text())
     return {"name": name, "machineType": f"zones/{zone}/machineTypes/{offer.name}",
             "labels": {"ak": "rented"}, "scheduling": {
                 "provisioningModel": "SPOT", "instanceTerminationAction": "DELETE",

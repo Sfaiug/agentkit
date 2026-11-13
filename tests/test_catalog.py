@@ -3,11 +3,11 @@
 `adapters/<h>.sh models` prints one `id<TAB>label<TAB>efforts` line per model: live where the
 harness lists its own (`opencode api model.list`, `agy models`, `grok models`, `codex debug models`, and
 Claude's and Muse's in tests/test_live_catalog.py), else the `[catalog]` table of its manifest,
-which is also where a failed or unbounded listing lands.  `none` is
+and fails where that listing fails.  `none` is
 the one effort of a model that runs at no effort; an empty efforts field, one whose efforts
-its harness does not say.  `config.catalog()` reads that as data,
-`config.efforts()` answers from it for one model, and `ak doctor` names a model set to an
-effort it does not take.
+its harness does not say.  `config.catalog()` reads that as data and keeps it, the table
+standing in for a login never listed; `config.efforts()` answers from it for one model, and
+`ak doctor` names a model set to an effort it does not take.
 
 Offline and deterministic: every HOME is a temporary directory, PATH holds only a stub
 directory and the system's own, and every harness that can list live has a stub there -- one
@@ -20,7 +20,6 @@ import io
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -80,7 +79,7 @@ class Catalog(unittest.TestCase):
         os.environ["ANTHROPIC_BASE_URL"] = "http://127.0.0.1:9"
         for name in ("agy", "opencode", "grok", "codex", "muse"):
             self.stub(name, rc=1)
-        cache = patch.dict(config._CATALOGS, clear=True)
+        cache = patch.dict(config._ASKED, clear=True)
         cache.start()
         self.addCleanup(cache.stop)
 
@@ -89,11 +88,15 @@ class Catalog(unittest.TestCase):
         path.write_text(STUB.format(listing=shlex.quote(str(listing)), rc=rc, sleep=sleep))
         path.chmod(0o755)
 
-    def models(self, harness):
+    def models(self, harness, code=0):
         proc = subprocess.run(["bash", str(REPO / f"adapters/{harness}.sh"), "models"],
                               capture_output=True, text=True, timeout=60)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.returncode, code, proc.stderr)
         return proc.stdout
+
+    def rows(self, harness):         # its `[catalog]` table, as an adapter's lines say it
+        return [[model["id"], model["label"], " ".join(model["efforts"])]
+                for model in config.catalog_table(harness)]
 
     def table(self, harness):
         with open(REPO / f"adapters/{harness}.toml", "rb") as fh:
@@ -102,14 +105,12 @@ class Catalog(unittest.TestCase):
     # -- the static tables, one per shape ---------------------------------------------------
 
     def test_claude_table_differs_per_model_and_names_none_for_haiku(self):
-        out = self.models("claude")
-        got = {model: (label, efforts) for model, label, efforts in lines(out)}
+        got = {model: (label, efforts) for model, label, efforts in self.rows("claude")}
         self.assertEqual(list(got), list(self.table("claude")))
         self.assertEqual(got["claude-opus-5-5"], ("Opus 5.5", "low medium high xhigh max"))
         # Sonnet 4.6 has no xhigh; Haiku 4.5 runs at no effort
         self.assertEqual(got["claude-sonnet-4-6"][1], "low medium high max")
         self.assertEqual(got["claude-haiku-4-5"], ("Haiku 4.5", "none"))
-        self.assertEqual(self.log.read_text(), "", "claude itself is never asked")
 
     def test_codex_lists_every_model_for_a_chatgpt_login_and_an_api_key(self):
         auth = self.home / ".codex/auth.json"
@@ -132,14 +133,12 @@ class Catalog(unittest.TestCase):
             self.assertEqual(lines(self.models("codex")), listed, login)
             self.assertEqual(self.log.read_text(), "debug models\n",
                              "not --bundled: it never refreshes")
-        # and a listing that fails leaves the table
+        # and a listing that fails fails
         self.stub("codex", listing=FIXTURES / "codex-models.json", rc=1)
-        got = {model: efforts for model, _, efforts in lines(self.models("codex"))}
-        self.assertEqual(list(got), list(self.table("codex")))
-        self.assertEqual(got["gpt-5.5"], "low medium high xhigh")
+        self.assertEqual(self.models("codex", 1), "")
 
     def test_muse_table_labels_models_by_their_ids(self):
-        rows = lines(self.models("muse"))
+        rows = self.rows("muse")
         self.assertEqual([row[0] for row in rows], list(self.table("muse")))
         self.assertTrue(all(model == label for model, label, _ in rows), rows)
         got = {model: efforts for model, _, efforts in rows}
@@ -161,8 +160,7 @@ class Catalog(unittest.TestCase):
         ])
         self.assertEqual(self.log.read_text(), "models\n")
         self.stub("grok", listing=listing, rc=1)
-        self.assertEqual([row[0] for row in lines(self.models("grokbuild"))],
-                         list(self.table("grokbuild")))
+        self.assertEqual(self.models("grokbuild", 1), "")
 
     def test_opencode_listing_is_parsed_and_cached_a_minute(self):
         self.stub("opencode", listing=FIXTURES / "opencode-model-list.json")
@@ -201,40 +199,55 @@ class Catalog(unittest.TestCase):
         ])
         self.assertEqual(self.log.read_text(), "models\n")
 
-    def test_a_listing_that_fails_or_hangs_falls_back_to_the_table(self):
-        static = [[model, entry.get("label", model), " ".join(entry.get("efforts", []))]
-                  for model, entry in self.table("antigravity").items()]
+    def test_a_listing_that_fails_or_says_nothing_fails(self):
         self.stub("agy", listing=FIXTURES / "antigravity-models.txt", rc=1)   # failed, half said
-        self.assertEqual(lines(self.models("antigravity")), static)
+        self.assertEqual(self.models("antigravity", 1), "")
         self.stub("opencode")                                                  # said nothing
-        self.assertEqual([row[0] for row in lines(self.models("opencode"))],
-                         list(self.table("opencode")))
-        self.stub("agy", listing=FIXTURES / "antigravity-models.txt", sleep=30)
-        started = time.monotonic()
-        self.assertEqual(lines(self.models("antigravity")), static)
-        self.assertLess(time.monotonic() - started, 20, "the listing is given ten seconds")
-        # a host with no `timeout` to bound a listing never starts one
-        tools = self.root / "tools"
-        tools.mkdir()
-        for name in ("bash", "python3", "awk", "dirname", "cat"):
-            (tools / name).symlink_to(shutil.which(name))
-        self.log.write_text("")
-        with patch.dict(os.environ, {"PATH": f"{self.bin}:{tools}"}):
-            for harness, binary in (("antigravity", "agy"), ("opencode", "opencode"),
-                                    ("grokbuild", "grok")):
-                self.stub(binary, listing=FIXTURES / f"{harness}-models.txt")
-                self.assertEqual([row[0] for row in lines(self.models(harness))],
-                                 list(self.table(harness)))
-        self.assertEqual(self.log.read_text(), "")
-        # and an adapter that fails, even one that said something first, leaves
-        # config.catalog() the same table
+        self.assertEqual(self.models("opencode", 1), "")
+
+    def test_a_listing_read_stands_until_a_newer_one_is_read(self):
+        # an adapter answering what `listing` holds after $ACME_SLEEP seconds, failing without one
         fake = self.root / "adapters"
         fake.mkdir()
         (fake / "antigravity.sh").write_text(
-            "#!/usr/bin/env bash\nprintf 'half\\tsaid\\tlow\\n'; exit 1\n")
+            '#!/usr/bin/env bash\nd=$(dirname "$0")\nl=$(cat "$d/listing") || exit 1\n'
+            'sleep "${ACME_SLEEP:-0}" && echo "$l"\n')
         (fake / "antigravity.sh").chmod(0o755)
+
+        def look(again=True):
+            if again:                 # a login asked anew, as after a sign-in
+                config.forget_catalog("antigravity")
+            return [model["id"] for model in config.catalog("antigravity")]
+
+        def answers(*models):
+            (fake / "listing").write_text("".join(f"{model}\t{model}\tlow\n" for model in models))
+
         with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(fake)}):
-            self.assertEqual(config.catalog("antigravity"), config.catalog_table("antigravity"))
+            table = [model["id"] for model in config.catalog_table("antigravity")]
+            self.assertEqual(look(), table, "never listed: the table")
+            answers("acme-9")
+            self.assertEqual(look(), ["acme-9"])
+            (fake / "listing").unlink()
+            self.assertEqual(look(), ["acme-9"], "a failure replaces nothing")
+            answers("acme-9", "acme-10")
+            self.assertEqual(look(), ["acme-9", "acme-10"], "a newer listing replaces it")
+            # one answering past the wait is kept, for the next look, though an ask after it failed
+            answers("acme-11")
+            os.environ["ACME_SLEEP"] = "1"
+            with patch.object(config, "CATALOG_WAIT", 0.1):
+                self.assertEqual(look(), ["acme-9", "acme-10"])
+                late = config._ASKED["antigravity", config.DEFAULT_ACCOUNT][1]
+                with patch.dict(os.environ, ACME_SLEEP="never"):     # an ask that fails
+                    self.assertEqual(look(), ["acme-9", "acme-10"])
+            late.wait()
+            self.assertEqual(look(again=False), ["acme-11"])
+            # and one past its time replaces nothing
+            answers("acme-12")
+            with patch.object(config, "CATALOG_TTL", 0.1):
+                config._keep(config._kept("antigravity"), "antigravity", config.DEFAULT_ACCOUNT)
+            with patch.object(config, "_logins", return_value={config.DEFAULT_ACCOUNT: [], "acme": []}):
+                self.assertEqual([model["id"] for model in config.catalog_held("antigravity")],
+                                 ["acme-11", *table], "acme: never listed")
 
     # -- what the rest of agentkit makes of it ------------------------------------------------
 
@@ -281,7 +294,7 @@ class Catalog(unittest.TestCase):
         self.assertEqual(path.read_text(), text, "flagged, never changed")
         # `none` is how a model that runs at no effort is configured
         path.write_text(default + haiku.format("none"))
-        config._CATALOGS.clear()
+        config._ASKED.clear()
         with patch.object(config, "HOME", self.home), \
                 patch.object(orch, "slice_line", return_value="slice test"), \
                 patch.object(watch, "tick_health", return_value=("lock free", False)), \

@@ -859,6 +859,10 @@ def land_from_line(lp, upstream, deliver):
                     lp.write()
                 return result
         finally:
+            # Merged, rejoined or failed, this delivery's turn is over: the next is woken.  One
+            # that failed or raised still reads as delivering till its run writes how it ended.
+            landing.deliver_next(turn, lp.log, members=[
+                member for member in landing.line(turn) if member[0] != lp.run_dir])
             # Departures and changed-target rejoins were written under this flock.
             landing.start_line(turn, lp.log)
     if "fix" not in wait:
@@ -965,18 +969,16 @@ def landing_weight(lp):
     """Deliver a green verdict at its check's CPU weight (`land.start_line`): it is the same
     landing, and at a run's weight beside a line's check each delivery crawled while every member
     behind it waited (one merge every 55 s in a line of 53 on 11 Nov 2026; 25 at the check's).
-    A delivery that ends unmerged goes back to a run's weight for the wait or repair ahead."""
+    A delivery that ends unmerged goes back to what a run has for the wait or repair ahead."""
     from . import host, run  # here, not at the top: run imports this module
-    # The record names the unit bare, scope or service alike; the cgroup says which it is.
-    unit = Path(host.process_cgroup() or "").name
-    own = unit in turns._scope_units(lp.state.get("scope"))
-    if own:
+    unit = run.own_unit(lp.state)
+    if unit:
         run.set_property(unit, "CPUWeight", host.CPU_WEIGHT_MAX, lp.log)
     try:
         yield
     finally:
-        if own and not lp.state.get("merged"):
-            run.set_property(unit, "CPUWeight", run.RUN_CPU_WEIGHT, lp.log)
+        if unit and not lp.state.get("merged"):
+            run.yield_cpu(unit, lp.log)
 
 
 def members_ahead(lp, turn):

@@ -100,11 +100,11 @@ func removeEntry(path string) (bool, error) {
 }
 
 // takeConversation ends a conversation its harness's own way, nil where that way is Python's.
-func takeConversation(name, path, conversation string) func(*collection) (bool, error) {
-	if _, ours, err := harness.ConversationParts(name, path); !ours || err != nil {
+func takeConversation(store harness.Store, path, conversation string) func(*collection) (bool, error) {
+	if _, ours, err := harness.ConversationParts(store.Harness, path); !ours || err != nil {
 		return nil
 	}
-	return balking(name, func() (bool, error) { return endConversation(name, path, conversation) })
+	return balking(store.Harness, func() (bool, error) { return endConversation(store, path, conversation) })
 }
 
 // takeIdle ends a conversation kept as rows of its harness's database its harness's own way, only
@@ -137,14 +137,14 @@ func balking(name string, end func() (bool, error)) func(*collection) (bool, err
 // endConversation takes what the harness keeps of a conversation, then the conversation, only
 // while it is still stale, no seat holds it, the seats read again now, and each part is ours,
 // reached through no link and held by nobody (harness.end_conversation, gc.conversation_ends).
-func endConversation(name, path, conversation string) (bool, error) {
-	parts, ours, err := harness.ConversationParts(name, path)
+func endConversation(store harness.Store, path, conversation string) (bool, error) {
+	parts, ours, err := harness.ConversationParts(store.Harness, path)
 	if !ours || err != nil {
 		return false, err
 	}
 	r := &reads{now: epoch()}
 	paths := r.every()
-	if r.conversationStale(path, paths) == "" || !r.free(name, conversation) || slices.ContainsFunc(parts, func(part string) bool {
+	if r.conversationStale(path, paths, store.Names) == "" || !r.free(store.Harness, conversation) || slices.ContainsFunc(parts, func(part string) bool {
 		return !safe(part) || busy(part, paths)
 	}) {
 		return false, nil

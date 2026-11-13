@@ -233,6 +233,7 @@ type loop struct {
 	reviewer      string
 	workers       []string // the lists the run was launched with, nil where none was bound
 	reviewers     []string
+	alone         bool // review off (run.ReviewOff): no reviewer, its checks judge the work (judgeOnChecks)
 	efforts       *run.Object
 	silence       time.Duration
 	ceiling       time.Duration
@@ -328,6 +329,7 @@ func (l *loop) adopt() error {
 		l.prior = record.Truthy("worktree")
 		l.pull = record.Str("review_pr")
 		l.workers, l.reviewers = names(record.List("workers")), names(record.List("reviewers"))
+		l.alone = run.ReviewOff(record)
 		l.efforts = record.Dict("efforts")
 		minutes, _ := record.Num("silence_minutes")
 		hours, _ := record.Num("ceiling_hours")
@@ -560,11 +562,17 @@ func names(list []any) (found []string) {
 
 // rules is what every pick of this run reads: the lists it was launched with, Python's run_workers
 // and run_reviewers, as the config can change while it lives; the config's own where none was bound.
-func (l *loop) rules() (*pick.Rules, bool) {
+// With review off its executor is picked alone.
+func (l *loop) rules() (rules *pick.Rules, ok bool) {
 	if l.workers == nil {
-		return pick.Load()
+		rules, ok = pick.Load()
+	} else {
+		rules, ok = pick.Within(l.workers, l.reviewers)
 	}
-	return pick.Within(l.workers, l.reviewers)
+	if ok && l.alone {
+		rules = rules.Alone()
+	}
+	return rules, ok
 }
 
 // pick chooses who executes and who reviews, as Python's pick_models and best_pair: a harness that
@@ -576,7 +584,7 @@ func (l *loop) pick() error {
 	}
 	if l.prior {
 		l.executor, l.reviewer = record.Str("executor"), record.Str("reviewer")
-		l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", l.executor, l.reviewer, l.budget))
+		l.say(l.staffed(l.budget))
 		return nil
 	}
 	rules, ok := l.rules()
@@ -619,12 +627,12 @@ func (l *loop) pick() error {
 	l.executor, l.reviewer = executor, reviewer
 	var rounds int
 	if err := l.save(func(record *run.Object) {
-		run.SetAll(record, "executor", executor, "reviewer", reviewer)
+		run.SetAll(record, "executor", executor, "reviewer", none(reviewer))
 		rounds, _ = record.Int("rounds")
 	}); err != nil {
 		return err
 	}
-	l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", executor, reviewer, rounds))
+	l.say(l.staffed(rounds))
 	l.sayLaunched()
 	return nil
 }

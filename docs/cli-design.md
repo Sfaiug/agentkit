@@ -37,8 +37,7 @@ Example: `  1  atoll-fix  fable  ● working  ━━━━━╸─────�
 
 Words are plain and explain themselves.
 
-- **Glyphs:** every glyph is followed by its word (`● working`), except ⚒ for builds and ◎ for
-  reviews.
+- **Glyphs:** every glyph is followed by its word (`● working`).
 - **Models:** a model is named in full, its version included: `Opus 5.5`, `gpt-6.1-sol`
   (`config.model_name`).
 - **Subscriptions:** a subscription is named by its provider, with a roman numeral when there
@@ -46,8 +45,9 @@ Words are plain and explain themselves.
 - **Ages:** ages read `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
 - **Tasks, runs and estimates:** no screen names a task or a run, and none says when work
   will finish.
-- **Bars:** every bar is a seat's progress line, `━━━━╸──── 3 of 8`
-  (`terminal.plan_bar`, `terminal.share_line`).
+- **Progress:** every bar is a seat's progress line; a row's count ends in its tasks going:
+  `━━━━╸──── 3 of 8 · 2 tasks` (owner, 11 Nov 2026; `terminal.plan_bar`,
+  `terminal.share_line`).
 
 Nothing explains itself on hover. A highlighted row opens its models and squares, never what
 its seat said (owner, 9 Nov 2026).
@@ -56,8 +56,7 @@ its seat said (owner, 9 Nov 2026).
 
 A screen draws only characters every terminal draws alike: Windows-1252, which every font
 carries, `−≈≤≥`, `●○■□✓▸◂←↑→↓⏎␣`, and Box Drawing and Block Elements, which a terminal draws
-itself. A terminal borrows any other from whatever font it finds, at another size in each
-(`tests/test_boundaries.py`).
+itself (`tests/test_boundaries.py`).
 
 ## States
 

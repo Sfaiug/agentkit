@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Claude Code adapter.  run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]
-#                       usage        -> Anthropic subscription meters as JSON
+#                       usage        -> Anthropic subscription meters as JSON, with the
+#                                    usage-limit resets the login holds, by kind
+#                       reset <kind> -> spend one reset of that kind, and print what is left
 #                       interactive <model> <effort> [session-id [new]] -> the TUI command line,
 #                                    for `ak orch`; the id resumes that conversation, or with
 #                                    `new` opens the seat's next one under an id it was given
@@ -25,8 +27,7 @@
 #                                    that account reads it
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
-#                                    Anthropic's models API, else the [catalog] table of
-#                                    adapters/claude.toml
+#                                    Anthropic's models API; 1 where that fails
 #                       $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
 #                       uses that subscription's own login, and no other
 set -uo pipefail
@@ -136,6 +137,88 @@ share() {
     { tmp=$(mktemp "$own.XXXXXX") && ln -sf -- "$usual" "$tmp" && mv -f -- "$tmp" "$own"; } || exit 2
 }
 
+# The login `usage` and `reset` ask on: the seat login's token while its own expiry is still in
+# the future, else the worker token -- never both.  A second request per ask kept both tokens
+# inside a 429 penalty nothing read, and a fallback answer replaced a good reading with an empty
+# one.  The Keychain holds the usual login's pair, the credentials file every login's.  It goes
+# in $hf, a 0600 file curl reads with `-H @`, so the token is in no argument list, beside the
+# headers Claude Code sends: the usage endpoint tells a login's resets only to a client naming
+# itself Claude Code.  $df takes an answer's headers.
+login() {
+  local tok seat_at seat_exp at= ver
+  renew
+  tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
+    || tok=$(cat "$CREDS" 2>/dev/null) || tok=
+  # pipe, not a here-string: a here-string would put the credentials in a temp file
+  seat_at=$(printf '%s' "${tok:-{\}}" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
+  seat_exp=$(printf '%s' "${tok:-{\}}" | jq -r '.claudeAiOauth.expiresAt // empty' 2>/dev/null)
+  case "$seat_exp" in ''|*[!0-9]*) ;; *)
+    # `expiresAt` is epoch milliseconds in every file seen; a ten-digit value is seconds
+    [ "${#seat_exp}" -gt 11 ] || seat_exp="${seat_exp}000"
+    [ "$seat_exp" -gt "$(( $(date +%s) * 1000 ))" ] && [ -n "$seat_at" ] && at=$seat_at ;;
+  esac
+  if [ -z "$at" ]; then
+    # No live seat login: the worker's own token, which never reads or refreshes the pair
+    # the seat is refreshing -- this probe runs beside a dozen turns.
+    at=${CLAUDE_CODE_OAUTH_TOKEN:-}
+    [ -n "$at" ] || at=$(cat "$TOKEN" 2>/dev/null) || at=
+  fi
+  [ -n "$at" ] || err "no Claude Code OAuth token ($TOKEN / macOS Keychain 'Claude Code-credentials' / $CREDS); run 'claude' once to log in"
+  mkdir -p -- "$TMPD" && chmod 700 "$TMPD" 2>/dev/null   # BSD chmod has no -- option
+  hf=$(mktemp "$TMPD/.hdr.XXXXXX") || err "cannot create header file in $TMPD"
+  df=$(mktemp "$TMPD/.resp.XXXXXX") || err "cannot create header file in $TMPD"
+  trap 'rm -f -- "$hf" "$df"' EXIT HUP INT TERM   # an interrupt must not leave the token on disk
+  ver=$(claude --version 2>/dev/null)
+  chmod 600 "$hf"
+  printf 'Authorization: Bearer %s\nanthropic-beta: oauth-2025-04-20\nanthropic-version: 2023-06-01\nUser-Agent: claude-cli/%s (external, cli)\n' \
+    "$at" "${ver%% *}" >"$hf"
+}
+# One request on that login, answered `<body>\n<HTTP code>`.
+ask() { curl -s -m 10 -w $'\n%{http_code}' -H @"$hf" "$@" 2>/dev/null; }
+# The usage endpoint's answer, with the resets Claude Code asks it for: $body, $code, and its
+# headers in $df.
+status() {
+  body=$(ask -D "$df" 'https://api.anthropic.com/api/oauth/usage?cedar_ember=1')
+  code=${body##*$'\n'}; body=${body%$'\n'*}
+}
+# The organization this login belongs to, as Claude Code keeps it beside the login.
+organization() {
+  local org
+  org=$(jq -r '.oauthAccount.organizationUuid // empty' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" \
+        2>/dev/null) || return 1
+  case "$org" in ''|*[!0-9a-f-]*) return 1 ;; esac
+  printf '%s' "$org"
+}
+# How the usage endpoint's answer reads, for `usage` and `reset` alike.  A limit that is one
+# model's or one surface's own cap names it in `scope`; its meter keeps that name.  The resets
+# are its `cedar_ember` block's, sorted as Claude Code 2.1.322 sorts them: an eligible login's
+# unpaused grants with resets left, each of the kind of what it refills.  One that gives its use
+# back to the week refills the scoped weekly cap, whatever its `type`, and is named as that
+# meter is (`Fable`); any other is its `type`, or with none what it clears says.  `reset_kinds`
+# is Claude Code's list, in its order, a kind `usable` where one of its grants can be spent now.
+# A block of a shape never seen holds no resets, and costs the meters nothing.
+READ='def scope: [.scope | objects | (.model, .surface) | objects | .display_name | strings
+                  | select(. != "")] | first;
+  def fable: [.limits[]? | select(.group == "weekly") | scope | strings] | first // "scoped";
+  def grants: fable as $fable
+    | [.cedar_ember | objects | select(.eligible == true) | .grants[]? | objects
+       | select(.paused != true and (.resets_left | numbers) > 0) | (.clears // []) as $c
+       | .kind = if .gives_back_weekly == true then $fable
+                 else {session: "5-hour", weekly: "weekly", full: "full"}[(.type | strings) //
+                   if $c == ["five_hour"] then "session" elif any($c[]; . == "five_hour")
+                   then "full" else "weekly" end] end];
+  def held: [grants[].resets_left] | add // 0;
+  def reading: {provider:"anthropic", error:null, meters:[ .limits[]
+      | select(.resets_at != null and .percent != null)
+      | {name:.kind, used:.percent,
+         resets_at:(.resets_at|sub("\\.[0-9]+";"")|sub("\\+00:00$";"Z")|fromdateiso8601),
+         window_secs:(if .group=="session" then 18000 else 604800 end)}
+        + ((scope | strings | {scope:.}) // {}) ]}
+    + ((grants as $g | {resets: held, reset_kinds: [("5-hour", "weekly", fable, "full") as $k
+         | [$g[] | select(.kind == $k)] | select(length > 0)
+         | {kind: $k, left: (map(.resets_left) | add), usable: any(.[]; .usable_now == true)}]})?
+       // {resets: 0, reset_kinds: []});'
+
 case "$cmd" in
 run)
   [ $# -ge 5 ] || { echo "claude.sh run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]" >&2; exit 2; }
@@ -225,37 +308,7 @@ interactive)
       "$first" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
-  # One request per ask: the seat login's token while its own expiry is still in the future,
-  # else the worker token -- never both.  A second request per ask kept both tokens inside a
-  # 429 penalty nothing read, and a fallback answer replaced a good reading with an empty one.
-  # The Keychain holds the usual login's pair, the credentials file every login's.
-  renew
-  tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
-    || tok=$(cat "$CREDS" 2>/dev/null) || tok=
-  # pipe, not a here-string: a here-string would put the credentials in a temp file
-  seat_at=$(printf '%s' "${tok:-{\}}" | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
-  seat_exp=$(printf '%s' "${tok:-{\}}" | jq -r '.claudeAiOauth.expiresAt // empty' 2>/dev/null)
-  at=
-  case "$seat_exp" in ''|*[!0-9]*) ;; *)
-    # `expiresAt` is epoch milliseconds in every file seen; a ten-digit value is seconds
-    [ "${#seat_exp}" -gt 11 ] || seat_exp="${seat_exp}000"
-    [ "$seat_exp" -gt "$(( $(date +%s) * 1000 ))" ] && [ -n "$seat_at" ] && at=$seat_at ;;
-  esac
-  if [ -z "$at" ]; then
-    # No live seat login: the worker's own token, which never reads or refreshes the pair
-    # the seat is refreshing -- this probe runs beside a dozen turns.
-    at=${CLAUDE_CODE_OAUTH_TOKEN:-}
-    [ -n "$at" ] || at=$(cat "$TOKEN" 2>/dev/null) || at=
-  fi
-  [ -n "$at" ] || err "no Claude Code OAuth token ($TOKEN / macOS Keychain 'Claude Code-credentials' / $CREDS); run 'claude' once to log in"
-  mkdir -p -- "$TMPD" && chmod 700 "$TMPD" 2>/dev/null   # BSD chmod has no -- option
-  hf=$(mktemp "$TMPD/.hdr.XXXXXX") || err "cannot create header file in $TMPD"
-  df=$(mktemp "$TMPD/.resp.XXXXXX") || err "cannot create header file in $TMPD"
-  trap 'rm -f -- "$hf" "$df"' EXIT HUP INT TERM   # an interrupt must not leave the token on disk
-  chmod 600 "$hf"; printf 'Authorization: Bearer %s\n' "$at" >"$hf"
-  body=$(curl -s -m 10 -D "$df" -w $'\n%{http_code}' https://api.anthropic.com/api/oauth/usage -H @"$hf" \
-      -H 'anthropic-beta: oauth-2025-04-20' -H 'anthropic-version: 2023-06-01' 2>/dev/null)
-  code=${body##*$'\n'}; body=${body%$'\n'*}
+  login; status
   # The endpoint's own not-before, when it named one: delay seconds, or the HTTP date to
   # wait for, answered in seconds from now.  Either arrives with any amount of header
   # whitespace around it, and leading zeros are decimal, never octal.  Anything else waits
@@ -275,14 +328,10 @@ usage)
   # that balance is asked for -- only while extra usage is on, by the organization this login
   # belongs to.  No balance read, none is counted.
   prepaid=null
-  org=$(jq -r '.oauthAccount.organizationUuid // empty' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" \
-        2>/dev/null) || org=
-  case "$org" in *[!0-9a-f-]*) org= ;; esac
-  if [ "$code" = 200 ] && [ -n "$org" ] \
+  if [ "$code" = 200 ] && org=$(organization) \
      && jq -e '.extra_usage.is_enabled == true' >/dev/null 2>&1 <<<"$body"; then
     prepaid=$(curl -sf -m 5 "https://api.anthropic.com/api/oauth/organizations/$org/prepaid/credits" \
-        -H @"$hf" -H "x-organization-uuid: $org" -H 'anthropic-beta: oauth-2025-04-20' \
-        -H 'anthropic-version: 2023-06-01' 2>/dev/null) || prepaid=null
+        -H @"$hf" -H "x-organization-uuid: $org" 2>/dev/null) || prepaid=null
     jq -e 'type == "object"' >/dev/null 2>&1 <<<"$prepaid" || prepaid=null
   fi
   rm -f -- "$hf" "$df"
@@ -299,15 +348,9 @@ usage)
   # what its monthly limit has left and the prepaid balance, the limit unbounded when none is
   # set and the balance while auto-reload tops it up -- both unbounded is `unlimited`.  The
   # amounts are minor units of its `currency`, `decimal_places` of them to the unit.  The
-  # one-time credit (`cinder_cove`) adds nothing, as it adds nothing there.  A limit that is
-  # one model's or one surface's own cap names it in `scope`; its meter keeps that name.
-  jq -c --argjson prepaid "$prepaid" '{provider:"anthropic", error:null, meters:[ .limits[]
-      | select(.resets_at != null and .percent != null)
-      | {name:.kind, used:.percent,
-         resets_at:(.resets_at|sub("\\.[0-9]+";"")|sub("\\+00:00$";"Z")|fromdateiso8601),
-         window_secs:(if .group=="session" then 18000 else 604800 end)}
-        + ([.scope | objects | (.model, .surface) | objects | .display_name | strings
-            | select(. != "") | {scope:.}] | first // {}) ]}
+  # one-time credit (`cinder_cove`) adds nothing, as it adds nothing there.  `-e`: an answer cut
+  # off before its body reads as nothing, which is no reading.
+  jq -ce --argjson prepaid "$prepaid" "$READ"' reading
     + ([.extra_usage | objects | select(.is_enabled == true) | . as $x
         | $prepaid | objects | . as $p
         | ($x.decimal_places // $p.balance.money.exponent) as $e
@@ -321,6 +364,31 @@ usage)
            currency:($x.currency // $p.currency // "USD" | ascii_upcase)}]
        | first // {})' <<<"$body" \
     2>/dev/null || err "unparsable response from api.anthropic.com" ;;
+reset)
+  # Spend one usage-limit reset of the kind named, as Claude Code 2.1.322 spends one: the first
+  # grant of that kind the status lists that can be spent now, claimed once, under a fresh
+  # request id, for the login's own organization.  Only `reset` spent one; any other result is
+  # the endpoint's word for why not, and with no such grant nothing is asked.
+  command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
+  login; status
+  [ "$code" = 200 ] || err "HTTP ${code:-000} from api.anthropic.com/api/oauth/usage"
+  grant=$(jq -r --arg kind "${1:-}" "$READ"' first(grants[] | select(.kind == $kind
+      and .usable_now == true)) | .id | strings' <<<"$body" 2>/dev/null)
+  [ -n "$grant" ] || { echo '{"code":"unavailable"}'; exit 0; }
+  left=$(jq "$READ"' held - 1' <<<"$body" 2>/dev/null)
+  org=$(organization) || err "no organization in ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json to spend a reset for"
+  req=$(jq -nc --arg grant "$grant" --arg id "$(python3 -c 'import uuid; print(uuid.uuid4())')" \
+        '{program: "cedar_ember", grant_id: $grant, request_id: $id}') || err "cannot build the reset request"
+  said=$(ask -X POST -H 'Content-Type: application/json' -d "$req" \
+         "https://api.anthropic.com/api/organizations/$org/reset_rate_limits")
+  code=${said##*$'\n'}; said=${said%$'\n'*}
+  result=$(jq -r '.result | strings' <<<"$said" 2>/dev/null)
+  [ -n "$result" ] || err "HTTP ${code:-000} from api.anthropic.com/api/organizations/$org/reset_rate_limits"
+  [ "$result" = reset ] || { jq -c '{code: .result, reason}' <<<"$said"; exit 0; }
+  # from here on a reset has gone, so every answer says so, whatever the read after it does
+  status
+  { [ "$code" = 200 ] && jq -ce "$READ"' reading | {code: "reset", available: .resets, reset_kinds,
+      meters}' <<<"$body" 2>/dev/null; } || printf '{"code":"reset","available":%s}\n' "${left:-null}" ;;
 install)
   if command -v claude >/dev/null; then echo "claude: already installed ($(claude --version 2>/dev/null | head -1))"; exit 0; fi
   command -v curl >/dev/null || { echo "claude.sh install: curl is required" >&2; exit 2; }
@@ -565,18 +633,18 @@ models)
   # (`claude-haiku-4-5-20251001`) answers as the table's, so a model added from the table stays
   # marked as added.  The worker token asks, else the seat's own login, never renewed for this;
   # $ANTHROPIC_BASE_URL is claude's own, and where the tests' fake API lives.  A listing that
-  # fails, outlasts ten seconds or names nothing leaves the table as it is.
+  # fails or names nothing, or no login to ask with, fails: config.catalog decides what stands
+  # in, and how long it waits.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   table=$(python3 "$REPO/tools/catalog.py" claude)
   at=${CLAUDE_CODE_OAUTH_TOKEN:-}
   [ -n "$at" ] || at=$(cat "$TOKEN" 2>/dev/null) || at=
   [ -n "$at" ] || at=$( { security find-generic-password -s "Claude Code-credentials" -w ||
       cat "$CREDS"; } 2>/dev/null | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
-  pages= after= deadline=$(( $(date +%s) + 10 ))
+  pages= after=
   while [ -n "$at" ]; do
-    left=$(( deadline - $(date +%s) ))
     # the header on stdin, from a builtin: the token is in no argument list and no file
-    page=$([ "$left" -gt 0 ] && printf 'Authorization: Bearer %s\n' "$at" | curl -sf -m "$left" \
+    page=$(printf 'Authorization: Bearer %s\n' "$at" | curl -sf \
         -H @- -H 'anthropic-beta: oauth-2025-04-20' -H 'anthropic-version: 2023-06-01' \
         "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/models?limit=1000${after:+&after_id=$after}") &&
       after=$(jq -r 'select(.has_more == true) | .last_id // ""' <<<"$page") || { pages=; break; }
@@ -592,9 +660,9 @@ models)
             then [to_entries[] | select(.value | type == "object" and .supported == true) | .key]
               | join(" ")
             else "none" end)]
-      | @tsv' 2>/dev/null) || listed=
-  printf '%s\n' "${listed:-$table}" ;;
+      | @tsv' 2>/dev/null) && [ -n "$listed" ] || exit 1
+  printf '%s\n' "$listed" ;;
 *)
-  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh forget | claude.sh login-end | claude.sh lend <home> [own] | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
+  echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh reset <kind> | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh forget | claude.sh login-end | claude.sh lend <home> [own] | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;
 esac

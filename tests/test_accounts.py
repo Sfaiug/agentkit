@@ -38,7 +38,9 @@ printf '%s\\n%s\\n' "$(sed -n '2,$p' "$resp")" "$(sed -n '1p' "$resp")"
 # One JSON line per turn: the login it ran on and the conversation it resumed.  A token with a
 # `refuse-<token>` file is refused as a spent subscription is, in Claude's own words; one with a
 # `dry-<token>` file fails with an answer that names its quota, which is the model talking.
+# `--version`, which `usage` names itself by, is no turn.
 FAKE_CLAUDE = """#!/usr/bin/env bash
+[ "$*" != --version ] || exec echo "2.1.322 (Claude Code)"
 sid=""
 while [ $# -gt 0 ]; do [ "$1" = --resume ] && sid=$2; shift; done
 cat >/dev/null

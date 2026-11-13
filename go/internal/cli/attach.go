@@ -59,9 +59,10 @@ func serverAlias() string {
 	return strings.TrimSpace(string(data))
 }
 
-// onLiveCheckout is whether this program is ~/agentkit's own build (config.Running).  A program it
-// cannot locate counts as on it, which leaves the hop to Python.
+// onLiveCheckout is whether this program lies beside ~/agentkit's own build (config.Running), the
+// checkouts Python's update_first compares: a worktree nested inside ~/agentkit is not on it.  A
+// program it cannot locate counts as on it, which leaves the hop to Python.
 func onLiveCheckout() bool {
 	self, live, err := config.Running()
-	return err != nil || self == live
+	return err != nil || filepath.Dir(self) == filepath.Dir(live)
 }
