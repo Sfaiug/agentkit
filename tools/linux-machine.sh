@@ -18,7 +18,9 @@ LINUX_CHECK=com.agentkit.linux-machine
 # The Mac account's own name and /home/<name>, Lima's default being /home/<name>.linux: a server
 # moved in from a Linux VM with the same user keeps the absolute paths its run records hold.
 linux_user() { printf '%s' "${USER:-$(id -un)}"; }
-linux_dir() { printf '%s' "${LIMA_HOME:-$HOME/.lima}/$LINUX_INSTANCE"; }
+# Lima keeps its machines in the store LIMA_HOME names, else ~/.lima.
+linux_store() { printf '%s' "${LIMA_HOME:-$HOME/.lima}"; }
+linux_dir() { printf '%s' "$(linux_store)/$LINUX_INSTANCE"; }
 
 # What the machine takes of the Mac's `total`: macOS keeps a quarter for the desktop and its
 # renders, and never less than `floor` until that would be more than half, so a small Mac still
@@ -107,8 +109,9 @@ linux_machine_up() {
 # `limactl shell` puts a terminal on the command when its stdin is one.
 linux_machine_run() { limactl shell --workdir "/home/$(linux_user)" "$LINUX_INSTANCE" "$@"; }
 
-# ak's LaunchDaemon, run as the account <name>, which launchd gives neither its HOME nor
-# Homebrew's PATH.  The host agent a check's `limactl start` leaves outlives the check.
+# ak's LaunchDaemon, run as the account <name>, which launchd gives neither its HOME, Homebrew's
+# PATH nor the Lima store the install used.  The host agent a check's `limactl start` leaves
+# outlives the check.
 linux_check_daemon() {   # linux_check_daemon <name>
   local path
   path=$(dirname "$(command -v limactl)"):/usr/bin:/bin:/usr/sbin:/sbin
@@ -125,6 +128,7 @@ linux_check_daemon() {   # linux_check_daemon <name>
   <dict>
     <key>HOME</key><string>$(linux_xml "$HOME")</string>
     <key>PATH</key><string>$(linux_xml "$path")</string>
+    <key>LIMA_HOME</key><string>$(linux_xml "$(linux_store)")</string>
   </dict>
   <key>StartInterval</key><integer>60</integer>
   <key>AbandonProcessGroup</key><true/>
