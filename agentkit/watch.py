@@ -636,8 +636,7 @@ def _cut_line(cfg, name):
 
 
 def asking_again(name, line):
-    """Stamp on its record, before its process starts, the moment that seat goes back told to ask
-    again (ASKED_LINE): its next question takes the place of all it said before (`notify.again`)."""
+    """On its record, the moment that seat goes back told to ask again (`notify.again`)."""
     if line and line.startswith(ASKED_LINE):
         seat_write(name, asked_again=time.time())
 
@@ -2465,8 +2464,8 @@ def keeps_back(name):
 
 def questions_kept(unasked):
     """The questions a seat's record keeps back for their turn's end, in the order kept, each
-    with when the seat said it (`at`), that end (`ended`) once each is on record, and its last
-    reopening to ask again before (`asked_again`).  One the older install kept is one."""
+    with when the seat said it (`at`) and that end (`ended`) once each is on record.  One the
+    older install kept is one.  One kept since it was reopened told to ask again says when."""
     if not isinstance(unasked, dict):
         return []
     listed = unasked.get("questions")
@@ -2532,11 +2531,11 @@ def kept_asked(name, kept):
 
 def answered_kept(name, replies, at):
     """A native card reply answers only its questions, including before the turn ends: its own
-    card's copy, every copy of a question whose latest card it is, and those they take the place
-    of (`notify.again`), each in the wait of the first that took it.  Each question it answers
+    card's copy, and every copy of a question whose latest card it is.  Each question it answers
     is the owner's time, asked when first kept and answered at `at`, unless the reply naming it
     also answers a question the seat's notice asks (`notify.card_answered`), whose answer
-    records it.  What it answered; the caller holds the notice lock."""
+    records it.  Those one takes the place of go with it, in its wait (`notify.again`).  What it
+    answered; the caller holds the notice lock."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
@@ -2549,7 +2548,6 @@ def answered_kept(name, replies, at):
         answered = [q for q in kept if any(answers(reply, q) for reply in replies)]
         before = notify.again(answered)
         first = next((q for q in answered if q.get("asked_again") == before), None)
-
         def lead(q):        # the question whose wait that one is: one kept before, the first's
             return first if q.get("asked_again", -math.inf) < before else q
         answered = [q for q in kept if q in answered or lead(q) is first]

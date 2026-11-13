@@ -1,8 +1,6 @@
 """A question a reopened seat asks takes the place of those its ended process left open.
 
-Reopened told to ask again (`watch.ASKED_LINE`) by the owner's number, the boot pass or the tick,
-a seat's next question, in any words, takes the place of all it said before, at its answer and as
-it becomes the notice, the owner's time one wait from the first wording (11 Nov 2026).  Offline.
+Reopened told to ask again by the owner's number, the boot pass or the tick (11 Nov 2026).  Offline.
 """
 
 import unittest
@@ -77,18 +75,25 @@ class AskedAgain(Sandbox):
     def test_standing_its_answer_in_other_words_leaves_nothing(self):
         self.answered_in_other_words(self.standing, "tick")
 
-    def test_cut_off_again_its_notice_asks_the_newest_wording_alone_from_the_first(self):  # 2, 6
-        self.standing(100.0, FIRST)
+    def cut_off_again(self, first):     # 2, 6
+        first(100.0, FIRST)
         self.reopened(200.0)
         self.asks(210.0, AGAIN)
         self.reopened(230.0, "boot")
         self.asks(235.0, THIRD)
+        self.asks(237.0, THIRD)         # its card shown twice
         self.assertEqual(self.turn_ends(240.0), ([THIRD], "needs you"))
         self.assertEqual(notify.last("acme")["asked_at"], {notify.question_key(THIRD): 100.0})
         self.answers(250.0, THIRD)
         self.assertEqual(self.turn_ends(260.0)[0], [])
         self.assertEqual(sorted(history.owner(0, 10_000)),     # one wait, from the first
                          [(100.0, "asked", None), (250.0, "answered", 150.0)])
+
+    def test_kept_back_cut_off_again_its_notice_asks_the_newest_wording_from_the_first(self):
+        self.cut_off_again(self.asks)
+
+    def test_standing_cut_off_again_its_notice_asks_the_newest_wording_from_the_first(self):
+        self.cut_off_again(self.standing)
 
     def asks_nothing(self, first):      # 3: it stands as it was, then its next question
         first(100.0, FIRST)

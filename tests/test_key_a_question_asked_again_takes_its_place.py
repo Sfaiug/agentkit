@@ -1,10 +1,7 @@
 """A question a reopened seat asks takes the place of those its ended process left open.
 
-Its harness ended while its question was open, kept back on its card or standing, a seat comes
-back told to ask it again: its next question, in any words, takes the place of all it said before,
-and the owner's answer there leaves nothing (11 Nov 2026).  One whose harness never ended keeps its
-standing question past another card's answer.  Black-box, as test_key_native_card_answer_scope.py
-is, reopened by `ak orch NAME` on a fake Claude taking ak's line as its first prompt.
+Black-box, as test_key_native_card_answer_scope.py is, reopened by `ak orch NAME` on a fake Claude
+taking ak's line as its first prompt; one never ended keeps its standing question (11 Nov 2026).
 """
 
 import re
@@ -40,16 +37,14 @@ class AQuestionAskedAgain(unittest.TestCase):
     ask, standing, answer, stop = (vars(scope.NativeCardAnswerScope)[verb]
                                    for verb in ("ask", "standing", "answer", "stop"))
 
-    def shows(self, seat, asked):
-        """The seat asks on its card: its hook keeps the question back, the card is up."""
+    def shows(self, seat, asked):       # on its card: its hook keeps it back, the card is up
         fired = self.hooks.fire("PreToolUse", {k: v for k, v in asked.items()
                                                if k != "tool_response"}, seat=seat.name, pane=seat)
         self.assertEqual(fired.code, 0, fired.err)
         seat.show("claude-question-pane.txt")
 
     def asks_again(self, seat):
-        """Its harness ends and the owner opens the seat on the conversation Claude filed under its
-        path; ak's line is its first prompt, and it asks in other words on a card he answers."""
+        """Its harness ends, the owner reopens it, and it asks in other words on a card answered."""
         conversation = seat.record["conversation"]
         self.home.write(f".claude/projects/{re.sub(r'[^A-Za-z0-9]', '-', str(seat.cwd))}/"
                         f"{conversation}.jsonl",
