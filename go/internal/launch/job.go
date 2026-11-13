@@ -239,14 +239,19 @@ func (j *jobRun) carry() (int, error) {
 }
 
 // begin starts the task as Python's job_start_task does, its file read again and judged as it
-// reads now, refusals and round budget too: a run of its own, its receipt naming the job, filed
-// on the job's before its driver starts apart, and followed until it ends.  False where it starts
-// no run: the task settled, blocked where its file now refuses it, stopped where a stop ended it
-// and failed where it cannot start for any other reason, or, saying why, left queued where Go does
-// not start it.  The job's own receipt that cannot be written ends this launcher.
+// reads now, refusals and round budget too, an ordered job's on origin's tip fetched first (tip):
+// a run of its own, its receipt naming the job, filed on the job's before its driver starts apart,
+// and followed until it ends.  False where it starts no run: the task settled, blocked where its
+// file now refuses it, stopped where a stop ended it and failed where it cannot start for any
+// other reason, a fetch that failed among them, or, saying why, left queued where Go does not
+// start it.  The job's own receipt that cannot be written ends this launcher.
 func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
-	name := task.Str("name")
-	l, _, why, err := j.task(task.Str("task_file"))
+	name, path := task.Str("name"), task.Str("task_file")
+	var l *launching
+	why, err := "", j.tip(path)
+	if err == nil {
+		l, _, why, err = j.task(path)
+	}
 	refused := ""
 	switch {
 	case l != nil:

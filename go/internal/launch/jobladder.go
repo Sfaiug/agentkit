@@ -59,14 +59,10 @@ func (j *jobRun) end(task *run.Object, word string, kept ...any) error {
 	return nil
 }
 
-// ready makes the task's run up to its driver, as Python's job_start_task does, an ordered job's
-// on origin's tip fetched first (tip): one preflight refuses ends in error, as Python's run.prepare
-// ends it, and its refusal is what the task fails with.  A stop that landed stands as the run's
-// word over whatever else preparing it met.
+// ready makes the task's run up to its driver, as Python's job_start_task does: one preflight
+// refuses ends in error, as Python's run.prepare ends it, and its refusal is what the task fails
+// with.  A stop that landed stands as the run's word over whatever else preparing it met.
 func (j *jobRun) ready(l *launching) error {
-	if err := j.tip(l.place.repo); err != nil {
-		return err
-	}
 	log, unstopped, err := l.make(j.out)
 	switch {
 	case err != nil:

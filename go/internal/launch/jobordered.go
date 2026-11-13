@@ -8,19 +8,28 @@ import (
 	"agentkit/internal/gitcall"
 	"agentkit/internal/job"
 	"agentkit/internal/run"
+	"agentkit/internal/task"
 )
 
 // JobRefusal is the sentence for a job's task file at path that cannot start as written, "" for
 // none, Python's job_refusal, asked at launch and again at the task's start of the file as it reads
-// then: a task of an ordered job is cut from its repository's default branch, where the one before
-// it merged, so it names no branch of its own; then Refusal.
+// then: a task of an ordered job names no branch of its own (ownBranch); then Refusal.
 func JobRefusal(path string, meta map[string]string, cmds []string, flags map[string]bool) (string, error) {
-	for _, key := range []string{"base", "target", "from"} {
-		if _, named := meta[key]; flags["--in-order"] && named {
-			return "an ordered job cuts each task from its repository's default branch, where the one before it merged: drop base:, target: and from:", nil
-		}
+	if flags["--in-order"] && ownBranch(meta) {
+		return "an ordered job cuts each task from its repository's default branch, where the one before it merged: drop base:, target: and from:", nil
 	}
 	return Refusal(path, meta, cmds)
+}
+
+// ownBranch is whether the task names a branch of its own, which an ordered job's task may not: it
+// is cut from its repository's default branch, where the one before it merged.
+func ownBranch(meta map[string]string) bool {
+	for _, key := range []string{"base", "target", "from"} {
+		if _, named := meta[key]; named {
+			return true
+		}
+	}
+	return false
 }
 
 // behind is whether the queued task at i of an ordered job waits on the one before it, which has
@@ -35,18 +44,24 @@ func (j *jobRun) behind(tasks []any, i int) (bool, error) {
 	case before == "merged":
 		return false, nil
 	case slices.Contains(job.Terminal, before):
-		task := tasks[i].(*run.Object)
-		return true, j.end(task, "skipped", "verdict_line", task.Str("name")+": not started")
+		skipped := tasks[i].(*run.Object)
+		return true, j.end(skipped, "skipped", "verdict_line", skipped.Str("name")+": not started")
 	}
 	return true, nil
 }
 
-// tip fetches every branch origin has into repo, the checkout an ordered job's task works in, just
-// before its run: the task is cut where the one before it merged, which only origin's tip holds,
-// and the tracking ref its run falls back to is that tip (job_start_task).  Nothing to fetch for
-// a scratch task, nor for a task of a job in no order.
-func (j *jobRun) tip(repo string) error {
-	if repo == "" || !j.flags["--in-order"] {
+// tip fetches every branch origin has into the checkout the ordered job's task at path works in,
+// before the task is judged: the task is cut where the one before it merged, which only origin's
+// tip holds, so its policy and refusals are read there and the tracking ref its run falls back to
+// is that tip (job_start_task).  Nothing to fetch for a job in no order, a scratch task, or one
+// whose file, checkout or own branch its judging then refuses.
+func (j *jobRun) tip(path string) error {
+	meta, _, unread := task.Read(path)
+	if !j.flags["--in-order"] || unread != nil || ownBranch(meta) {
+		return nil
+	}
+	repo, refused, err := checkout(meta, path, path)
+	if err != nil || refused != "" || repo == "" {
 		return nil
 	}
 	code, out, err := gitcall.Git{Repo: repo}.Fetch("origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
