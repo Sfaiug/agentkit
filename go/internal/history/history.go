@@ -203,6 +203,7 @@ var migrations = []struct{ table, columns string }{
 	{"owner", "conversation TEXT"},
 	{"dones", "work TEXT"},
 	{"meter_readings", "plan TEXT"},
+	{"meter_readings", "scope TEXT"},
 }
 
 // dropped are the columns of runs an older ak made and nothing reads or writes.

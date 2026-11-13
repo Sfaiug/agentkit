@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, guard  # noqa: E402
+from agentkit import config, guard, update  # noqa: E402
 
 SHIM = REPO / "tools/git-shim"
 
@@ -146,7 +146,8 @@ class GitShim(unittest.TestCase):
         self.assertTrue(ran.stdout.startswith("git version"), ran.stdout)
 
     def test_the_shim_is_installed_as_git(self):
-        with patch.object(config, "HOME", self.home / ".agentkit"):
+        with patch.object(config, "HOME", self.home / ".agentkit"), \
+                patch.object(update, "agentkit_dir", return_value=config.REPO):
             self.assertEqual((guard.install_shim() / "git").resolve(), SHIM.resolve())
 
 

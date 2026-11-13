@@ -34,9 +34,9 @@ func detail(s terminal.Screen, seat Seat, room int, clock *motion.Clock) []strin
 	if len(seat.Tasks) > 0 {
 		least = 3 + terminal.Cells(squares(s, seat.Tasks, 3, nil))
 	}
-	who := s.Crew(seat.Builds, seat.Reviews)
+	who := terminal.Crew(seat.Model, seat.Builds, seat.Reviews)
 	if terminal.Cells(who) > room-least {
-		who = terminal.Cut(who, room-least)
+		who = terminal.CutSpaced(who, room-least)
 	}
 	line := s.Styled(who, "dim")
 	left := room - terminal.Cells(who) - 3

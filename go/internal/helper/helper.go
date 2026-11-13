@@ -67,19 +67,15 @@ var carried embed.FS
 // Python runs again here or which it sends on to the next machine.
 var ErrPython = errors.New("the suite helper's work is not Go's yet")
 
-// May is whether a helper may take this host's work: a machine config.toml names, or one ak may
-// rent.
-func May() bool {
-	return len(config.MachineNames()) > 0 || config.MayRent()
-}
-
 // An Away is a suite a helper took: Alias the machine, Count the VMs it runs there at once, CPUs
-// and MemoryMB each VM's, Most the VMs it fits empty.  Its key names its tree and VMs there.
+// and MemoryMB each VM's, Most the VMs it fits empty.  Its key names its tree and VMs there, and
+// cwd is the checkout it was sent from.
 type Away struct {
 	Alias                       string
 	Count, CPUs, MemoryMB, Most int
 	key, repo, image, branch    string
 	base, programs, command     string
+	cwd                         string
 }
 
 // Start sends the suite to the machine with the most room that takes it, and on to the next where
@@ -107,7 +103,7 @@ func start(cwd string, cpus, memoryMB float64, command string, turn map[string]f
 	}
 	ends := googlecloud.Serving()
 	aliases = slices.DeleteFunc(aliases, func(alias string) bool { return !lasts(ends, alias, lasting) })
-	away := &Away{key: token(), repo: gitcall.RepositoryID(cwd), command: command, programs: programs()}
+	away := &Away{key: token(), repo: gitcall.RepositoryID(cwd), command: command, programs: programs(), cwd: cwd}
 	image, files, err := recipeOf(cwd, away.repo)
 	if err != nil {
 		say(fmt.Sprintf("WARN the suite helper cannot build suite_image: %v; the suite runs here", err))
@@ -169,10 +165,11 @@ func start(cwd string, cpus, memoryMB float64, command string, turn map[string]f
 }
 
 // Piece runs the suite's piece of shard there, its output into out, until it ends or ctx does: its
-// exit there, `lost` where ssh could not start.
+// exit there, `lost` where ssh could not start.  Its ssh starts in the checkout the suite was sent
+// from, as Python's worker.limited starts it.
 func (a *Away) Piece(ctx context.Context, shard string, out io.Writer) int {
 	cmd := remote(ctx, a.Alias, "run", a.args(shard, strconv.Itoa(a.CPUs), strconv.Itoa(a.MemoryMB))...)
-	cmd.Stdout, cmd.Stderr = out, out
+	cmd.Dir, cmd.Stdout, cmd.Stderr = a.cwd, out, out
 	cmd.Run()
 	if cmd.ProcessState == nil {
 		return lost

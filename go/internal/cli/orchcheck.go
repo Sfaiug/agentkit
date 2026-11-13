@@ -145,8 +145,16 @@ func gaps(ctx context.Context, name string, record map[string]any, errOut io.Wri
 	} else if err != nil {
 		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
 	}
-	if len(owner) == 0 {
+	// read with the seat's other records, as Python's check reads them, so one that cannot be read
+	// stops the check whatever its owner said; one Go reads otherwise is Python's where it goes on
+	pictures, err := keptPictures(name)
+	switch {
+	case err != nil && !errors.Is(err, errLeft):
+		return nil, "", err
+	case len(owner) == 0:
 		return nil, "", nil // asked nothing, so nothing is missing
+	case err != nil:
+		return nil, "", err
 	}
 	lines, err := plan.Lines(name)
 	if err != nil {
@@ -154,20 +162,13 @@ func gaps(ctx context.Context, name string, record map[string]any, errOut io.Wri
 	}
 	// every record read, and every case Python carries settled, before the pick's meters or the
 	// turn's folders are written
-	files, err := checkFiles(name, owner, said, lines)
+	files, err := checkFiles(name, owner, said, lines, pictures)
 	if err != nil {
 		return nil, "", err
 	}
-	pictures, err := keptPictures(name)
-	if err != nil {
-		return nil, "", err
-	}
-	// the ask names each picture as the workspace holds it, never one a look kept since
 	var shown []string
 	for _, each := range pictures {
-		if files[each.path] == each.data {
-			shown = append(shown, each.shown)
-		}
+		shown = append(shown, each.shown)
 	}
 	model, err := checker(name, record)
 	if err != nil {
@@ -247,9 +248,9 @@ func keep(name, read string) error {
 
 // checkFiles is the checking turn's workspace, each file by its path there: the owner's words a
 // file each, each conversation of the seat's, its plan's lines, each picture it kept and each run
-// it launched, read without writing anything.  errLeft where Go does not read the pictures or the
-// runs as Python does.
-func checkFiles(name string, owner []plan.Said, said [][]harness.Turn, lines []string) (map[string]string, error) {
+// it launched, read without writing anything.  errLeft where Go does not read the runs as Python
+// does.
+func checkFiles(name string, owner []plan.Said, said [][]harness.Turn, lines []string, pictures []picture) (map[string]string, error) {
 	files := map[string]string{}
 	for n, each := range owner {
 		files[fmt.Sprintf("owner/%d.md", n+1)] = each.Shown
@@ -267,10 +268,6 @@ func checkFiles(name string, owner []plan.Said, said [][]harness.Turn, lines []s
 		planned.WriteString(line + "\n")
 	}
 	files["conversation.md"], files["plan.md"] = strings.Join(conversations, "---\n\n"), planned.String()
-	pictures, err := keptPictures(name)
-	if err != nil {
-		return nil, err
-	}
 	for _, each := range pictures {
 		files[each.path] = each.data
 	}
@@ -318,7 +315,8 @@ type picture struct{ path, data, shown string }
 
 // keptPictures is each picture the seat kept, oldest first (done_check.gaps): numbered in the
 // workspace, never named, since a name the filesystem took leaves no room for more, its type
-// kept for the reader and its name in the ask.  errLeft where Go does not read one as Python does.
+// kept for the reader and its name in the ask.  errLeft where Go does not read one as Python does,
+// as a name holding U+FFFD, which a lone surrogate Python keeps in a name reads as in Go.
 func keptPictures(name string) ([]picture, error) {
 	var kept []picture
 	read := true
@@ -327,7 +325,7 @@ func keptPictures(name string) ([]picture, error) {
 		named, isName := entry.Get("name").(string)
 		encoded, isData := entry.Get("data").(string)
 		data, err := base64.StdEncoding.DecodeString(encoded)
-		if !read || !timed || !isName || !isData || err != nil {
+		if !read || !timed || !isName || !isData || err != nil || strings.ContainsRune(named, '\ufffd') {
 			read = false
 			return
 		}
