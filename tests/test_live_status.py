@@ -31,8 +31,9 @@ from agentkit import config, menu, orch, record, run, statusbar, terminal, watch
 from agentkit.guard import commands  # noqa: E402
 
 # The hook's own process asks tmux through PATH, so this stands in for the server: one marked
-# seat on the suite's socket, which lives at /fake/agentkit-test, whose pane is %7, a capture as
-# slow as $FAKE_TMUX_SLOW, and every option it is told to set written down, `option<TAB>value`.
+# seat on the suite's socket, which lives at /fake/agentkit-test, whose pane is %7, a capture held
+# until $FAKE_TMUX_GATE is there, and every option it is told to set written down as
+# `option<TAB>value`.
 FAKE_TMUX = r"""#!/bin/bash
 socket=
 if [[ $1 = -L ]]; then socket=$2; shift 2; fi
@@ -41,7 +42,7 @@ case $1 in
                  printf 'herdr\t%s\t1\t0\t1\t$0\n' "$HOME" ;;
   list-panes) printf 'herdr\t0\n' ;;
   display-message) [[ $4 = %7 ]] && printf '/fake/agentkit-test\therdr\n' ;;
-  capture-pane) sleep "${FAKE_TMUX_SLOW:-0}"; printf '$ \n' ;;
+  capture-pane) until [[ -e $FAKE_TMUX_GATE ]]; do sleep 0.05; done; printf '$ \n' ;;
   set-option) while (( $# )); do   # each command of a list, as tmux runs them
                 [[ $1 = set-option && $2 != -u ]] && printf '%s\t%s\n' "$4" "$5" >>"$FAKE_TMUX_LOG"
                 while (( $# )) && [[ $1 != ";" ]]; do shift; done
@@ -159,17 +160,15 @@ class LiveStatus(unittest.TestCase):
         fake.parent.mkdir()
         fake.write_text(FAKE_TMUX)
         fake.chmod(0o755)
-        log = self.root / "tmux.log"
+        log, gate = self.root / "tmux.log", self.root / "gate"
         env = {key: value for key, value in os.environ.items()
                if key not in ("AK_RUN_ROLE", "NO_COLOR")}
         env.update({"PATH": f"{fake.parent}:{os.environ['PATH']}", "AGENTKIT_SESSION": "herdr",
-                    "FAKE_TMUX_LOG": str(log), "FAKE_TMUX_SLOW": "3"})
+                    "FAKE_TMUX_LOG": str(log), "FAKE_TMUX_GATE": str(gate)})
 
         def hook(payload):
-            began = time.monotonic()
             subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")], input=json.dumps(payload),
                            env=env, text=True, capture_output=True, timeout=30, check=True)
-            return time.monotonic() - began
 
         def stop(payload):
             """hooks/orchestrator-stop.sh judging that Stop, as Claude Code runs it beside it."""
@@ -192,15 +191,16 @@ class LiveStatus(unittest.TestCase):
                 time.sleep(0.05)
             self.fail(f"the bar never said {word!r}: {sets()}")
 
-        # a turn begins: the look takes three seconds of capture, and the hook waits on none
-        self.assertLess(hook({"hook_event_name": "UserPromptSubmit", "prompt": "go"}), 2.0)
+        # a turn begins: the hook returns while its look's capture is held, the bar not yet moved
+        hook({"hook_event_name": "UserPromptSubmit", "prompt": "go"})
+        self.assertNotIn(["set-titles-string", "herdr · working"], sets())
+        gate.touch()
         options = published("working")
         self.assertEqual(drawn(options[statusbar.TOP]), "  ● working    herdr   Opus 5.5 xhigh" + NO_PLAN)
         self.assertEqual(watch.seat_read("herdr")["word"], "working")
         # Claude's Stop is written down by hooks/orchestrator-stop.sh, beside this hook, in
         # whichever order the two finish, and that one looks at the seat once its word is down:
         # that one first ...
-        env["FAKE_TMUX_SLOW"] = "0"
         stop({"hook_event_name": "Stop", "background_tasks": []})
         hook({"hook_event_name": "Stop", "background_tasks": []})
         published("idle")
