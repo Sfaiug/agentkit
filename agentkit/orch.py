@@ -2760,16 +2760,26 @@ FROZEN_MOST = 10
 FROZEN_OPTION = "@ak_frozen"
 
 
-def harness_pane(name, server):
-    """The pane our launch created, even if another window is active; if it was removed, the
-    session's current pane, as older launches used."""
+def launch_pane(name, server):
+    """The pane our launch created, even if another window is active; None once it is gone."""
     rc, pane = tmux_out("show-options", "-qv", "-t", f"={name}:", PANE_OPTION, socket=server)
     if rc == 0 and re.fullmatch(r"%[0-9]+", pane):
         rc, owner = tmux_out("display-message", "-p", "-t", pane, "#{session_name}",
                              socket=server)
         if rc == 0 and owner == name:
             return pane
-    return f"={name}:"
+    return None
+
+
+def harness_pane(name, server):
+    """The pane our launch created (`launch_pane`); if it was removed, the session's current
+    pane, as older launches used, by id: what is read there is what a respawn replaces,
+    whichever window the owner selects meanwhile.  `=name:` where tmux cannot say."""
+    pane = launch_pane(name, server)
+    if pane:
+        return pane
+    rc, pane = tmux_out("display-message", "-p", "-t", f"={name}:", "#{pane_id}", socket=server)
+    return pane if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else f"={name}:"
 
 
 def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=None):
@@ -4475,12 +4485,12 @@ def switch_lines(cfg, name, model, effort=None):
         return None         # its model is gone: nothing says what runs in its pane
     block = config.manifest(entry["harness"]).get("switch") or {}
     server = seat_socket(find(name))
-    pane = harness_pane(name, server)   # no id once it is gone, whatever other window lives on
+    pane = launch_pane(name, server)    # none once it is gone, whatever other window lives on
     if (was["harness"] != entry["harness"]
             or was["provider"] != entry["provider"] and not config.one_login(entry["harness"])
             or not config.lists(cfg, was["provider"], record.get("account"))
             or "model" not in block or entry["model"] in ("", config.DEFAULT_MODEL)
-            or not pane.startswith("%") or tmux_out(
+            or not pane or tmux_out(
                 "display-message", "-p", "-t", pane, "#{pane_dead}", socket=server) != (0, "0")):
         return None
     at = effort or config.role_effort(config.at_efforts(cfg, record)["models"][model],

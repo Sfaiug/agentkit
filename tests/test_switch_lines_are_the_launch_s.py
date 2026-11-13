@@ -81,7 +81,7 @@ class SwitchLinesAreTheLaunchS(unittest.TestCase):
         with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: ""}), \
                 patch.object(config, "session_records", return_value={"atoll": {
                     "orchestrator": "was"}}), patch.object(orch, "find", return_value=None), \
-                patch.object(orch, "harness_pane", return_value="%7"), \
+                patch.object(orch, "launch_pane", return_value="%7"), \
                 patch.object(orch, "tmux_out", return_value=(0, "0")):
             return [owed["line"] for owed in orch.switch_lines(cfg, "atoll", "to", effort) or ()]
 
