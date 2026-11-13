@@ -713,20 +713,21 @@ def check_line(turn, log=lambda _: None):
 
             def publish(answers):
                 """Write each verdict offered this pass that still stands, under the recovery
-                locks, and say whether the pass still stands.  Candidates stack in line order,
-                so a candidate's tree holds the prefix and those ahead of it, never one behind:
-                the first that changes under the pass, the cut, costs the verdicts from it on,
-                and nothing ahead of it.  A verdict a later stack's check covered (`tested`)
-                stands only while that stack is ahead of the cut too, as its member must land
-                with it.  A changed prefix member or first candidate leaves none: every tree
-                stands on it.  A pass that had checked 3.5 hours with 60 stacked was thrown away
-                for one member that changed, one of 32 such passes in the logs (13 Nov 2026)."""
+                locks, and say how many candidates, from the first, a verdict of it could still
+                go to.  Candidates stack in line order, so a candidate's tree holds the prefix
+                and those ahead of it, never one behind: the first that changes under the pass,
+                the cut, costs the verdicts from it on, and nothing ahead of it.  A verdict a
+                later stack's check covered (`tested`) stands only while that stack is ahead of
+                the cut too, as its member must land with it.  A changed prefix member or first
+                candidate leaves none: every tree stands on it.  A pass that had checked 3.5
+                hours with 60 stacked was thrown away for one member that changed, one of 32
+                such passes in the logs (13 Nov 2026)."""
                 nonlocal cut
                 if checked and held.moved is None:
                     # asked before each check: a pass that never came to one only waited
                     held.moved = False
                 if not cut:
-                    return False
+                    return 0
                 offered.update(answers)
                 # Delivery rewrites ownership and rebase receipts, but keeps the reviewed
                 # work and tested tree. Only an unwoken recipient must stay processless.
@@ -772,8 +773,8 @@ def check_line(turn, log=lambda _: None):
                     if not fresh:
                         # No answers asks only whether a verdict of this pass could still be
                         # written: not once each candidate ahead of the cut has had its own.
-                        return cut > 0 and (bool(answers) or cut == len(candidates) or any(
-                            member not in offered for member, _ in candidates[:cut]))
+                        return cut if answers or cut == len(candidates) or any(
+                            member not in sent for member, _ in candidates[:cut]) else 0
                     for member, answer in sorted(fresh.items(), key=lambda item: "land" in item[1]):
                         with record.record(member) as current:
                             current["waiting_on"] = {**current["waiting_on"], **answer}
@@ -785,7 +786,7 @@ def check_line(turn, log=lambda _: None):
                         held.moved = True
                         _keep_passes(turn, {**held.start, "moved": True})
                     wake()      # fixes, and the line's next delivery (`deliver_next`)
-                return True
+                return cut
 
             verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log, prefix=prefix,
                                       ready=publish, tip_green=tip_green) if checked else {directory: verdict})
@@ -1110,8 +1111,7 @@ def _check_tree(directory, state, scratch, tree, checks, log, suite):
                                               "log": str(log_path), **red}, "parts": parts}
 
 
-def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), ready=lambda _: None,
-                   tip_green=None):
+def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=(), tip_green=None):
     from . import gate, roundloop, run
     if prefix:
         wait = prefix[-1][1]["waiting_on"]
@@ -1126,7 +1126,6 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
     tip_green = set(tip_green or ())   # the pieces the target's tip passed on this pass, the
                                        # pass's own re-probe of a paused piece included
     limit = None
-    below = -1      # the stack just below the last culprit, unchanged by the rebuild without it
     carried = []    # the red parts the pass's last red whole check confirmed (`_check_tree`)
 
     def ahead(index):
@@ -1234,10 +1233,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
                 elif red.get(tree, {}).get("checks") == list(checks):
                     answers[tree, checks] = cached_red(tree)
-            unanswered = {index: stack[3:] for index, stack in enumerate(stacks)
-                          if stack[3:] not in answers}
-            # However many fit, the stack below a culprit goes first, covering those under it.
-            batched = below in unanswered or len(set(unanswered.values())) > limit
+            batched = len({stack[3:] for stack in stacks if stack[3:] not in answers}) > limit
 
             def cover(index, checks, tested, at=None, code=None):
                 covered = stacks[:index + 1] if batched else [stacks[index]]
@@ -1279,16 +1275,31 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
 
             def stopped():
                 """Has the line changed under this pass?  Asked before every check it would
-                start: none of its verdicts could be written any more, so it starts no check,
-                and the next pass checks the line as it is now."""
-                nonlocal stale
-                if not stale and ready({}) is False:
+                start.  Where none of its verdicts could be written any more, it starts no
+                check, and the next pass checks the line as it is now.  Where only the members
+                from one that changed on can get none (`ready`), the stacks are rebuilt without
+                them, as without a culprit: a check green with one answers nobody ahead of it."""
+                nonlocal stale, pending, rebuild
+                if stale:
+                    return True
+                standing = ready({})
+                if not standing:
                     stale = True
                     log("the line changed during this pass; the next pass checks it afresh")
-                return stale
+                    return True
+                behind = dict(members[standing:])
+                if not any(member in behind for member, _ in pending):
+                    return False
+                pending = [(m, s) for m, s in pending if m not in behind]
+                for member, _ in pending:
+                    # a green verdict a stack behind covered is offered again once its own
+                    # stack is answered without them
+                    verdicts.pop(member, None)
+                rebuild = True
+                return True
 
             def decide():
-                nonlocal pending, rebuild, target_red, below
+                nonlocal pending, rebuild, target_red
                 if target_red:
                     return
                 green_prefix = bool(prefix)
@@ -1328,7 +1339,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         # Later stacks need new checks on trees without this member.
                         pending = [(m, s) for m, s in pending
                                    if m not in verdicts or "land" in verdicts[m]]
-                        rebuild, below = True, index - 1
+                        rebuild = True
                         return
 
             with ThreadPoolExecutor(max_workers=max(1, limit)) as pool:
@@ -1342,7 +1353,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                     # Failing, a part is that top's red, narrowed as a batch's however many whole
                     # checks fit, and tried again on the next top, as another member may break
                     # it too; passing, proving nothing or its command run there no more, it is
-                    # dropped.
+                    # dropped.  Then the top goes whole, no stack under it first: it is red again
+                    # only on what no part showed, and so is the stack just below the culprit,
+                    # whose whole check, first, held a line 87 minutes at a time to land one to
+                    # five members (13 Nov 2026).
                     top = len(stacks) - 1
                     carried[:] = [part for part in carried if part["command"] in commands(top)]
                     for part in list(carried):
@@ -1361,15 +1375,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                         unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
                                      if (tree, checks) not in answers]
                         narrowing, command, owner = None, None, 0
-                        if below in unchecked and not any("fix" in answer
-                                                          for answer in answers.values()):
-                            # It waits on no culprit above it: its whole check comes before the
-                            # new top's, named tests passing there being no evidence, and green
-                            # lands every stack under it (40 members waited, 30 Oct 2026).  A red
-                            # already known, a part's on the top, is narrowed first: its steps
-                            # run just what failed.
-                            unchecked = [below]
-                        elif batched and unchecked:
+                        if batched and unchecked:
                             # Narrow the first unresolved red between the last green and it.
                             red_index = next((index for index in range(unchecked[0], len(stacks))
                                               if "fix" in answers.get(tuple(stacks[index][3:]), {})), None)
@@ -1409,7 +1415,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                     ready({member: verdicts[member]})
                                 pending = [(m, s) for m, s in pending
                                            if m not in verdicts or "land" in verdicts[m]]
-                                rebuild, below = True, red_index - 1
+                                rebuild = True
                                 break
                             # No stack below the command's first runs it: the search starts
                             # just ahead of that one, and it reaches lower only on evidence.

@@ -378,33 +378,35 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.advance(**{"AGENTS.md": f"---\ntests: {suite}\n---\n"})
         self.capacity.return_value = 1
 
-        def stop_tip(cmds, cwd, log_path, *args, **kw):
-            result = self.check(cmds, cwd, log_path, *args, **kw)
+        def stop_tip():
             with record.record(members[-1]) as current:
                 current.update(state="stopped")
-                current.pop("waiting_on")
+                current.pop("waiting_on", None)
+
+        def check(cmds, cwd, log_path, *args, **kw):
+            result = self.check(cmds, cwd, log_path, *args, **kw)
+            stop_tip()
             return result
 
         if crash:
             with patch.object(record, "record", side_effect=RuntimeError("before verdict")):
                 with self.assertRaisesRegex(RuntimeError, "before verdict"):
                     land.check_line(self.turn)
-            with record.record(members[-1]) as current:
-                current.update(state="stopped")
-                current.pop("waiting_on")
+            stop_tip()
+            tested = self.checked[0][0]
+            self.assertTrue(all("land" not in self.wait(m) for m in members[:-1]))
+            self.assertTrue(all(land.passed(self.turn, tree)["tested"] == tested
+                                for tree in land._trees(self.turn)[1]))
+            self.checked.clear()
+            self.checks.clear()
+            # the next pass, its stacks all fitting, answers each from the evidence it can
+            self.capacity.return_value = 9
+            land.check_line(self.turn)
         else:
-            with patch.object(gate, "run_done_when", side_effect=stop_tip):
+            # the same pass, crowded, checks the members ahead of it again without it
+            with patch.object(gate, "run_done_when", side_effect=check):
                 land.check_line(self.turn)
-        tested = self.checked[0][0]
-        self.assertTrue(all("land" not in self.wait(m) for m in members[:-1]))
-        self.assertTrue(all(land.passed(self.turn, tree)["tested"] == tested
-                            for tree in land._trees(self.turn)[1]))
-        self.checked.clear()
-        self.checks.clear()
-        self.wake.reset_mock()
-        # Exercise both direct cached answers and the crowded pass's prefix replay.
-        self.capacity.return_value = 9 if crash else 1
-        land.check_line(self.turn)
+            tested = self.checked[0][0]
         self.assertTrue(self.checks)
         self.assertIn("fix", self.wait(members[0]))
         self.assertNotIn("land", self.wait(members[0]))
