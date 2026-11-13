@@ -235,6 +235,9 @@ func (a *Away) prepare(cwd string, known []string, files map[string]file, holds 
 	if err != nil {
 		return lost
 	}
+	// nameless at once, as Python's TemporaryFile: a turn's holds its login, and `prepare` runs on
+	// long after reading it.  Windows removes no open file: there it goes as it closes.
+	os.Remove(parcel.Name())
 	defer os.Remove(parcel.Name())
 	defer parcel.Close()
 	if err := a.pack(cwd, known, files, parcel); err != nil {
