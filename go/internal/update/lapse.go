@@ -35,28 +35,14 @@ func margin(key string, limit float64) float64 {
 // update._waits_for_login: a login lent to it lapses within seconds of its start.  The log hears
 // it once: state/<key>-check-held keeps what it heard, gone once what starts.
 func waitsForLogin(key, what string, seconds, at float64, say func(string)) bool {
-	if heldForLogin(key, what, seconds, at, say) {
-		return true
-	}
-	os.Remove(heardPath(key))
-	return false
-}
-
-// heardPath is state/<key>-check-held, what the log last heard of what a login holds.
-func heardPath(key string) string {
-	return filepath.Join(config.Home(), "state", key+"-check-held")
-}
-
-// heldForLogin is waitsForLogin for a what Python starts: where it does not wait, what the log
-// heard stays for Python's own call, which clears it as it starts what.
-func heldForLogin(key, what string, seconds, at float64, say func(string)) bool {
+	heard := filepath.Join(config.Home(), "state", key+"-check-held")
 	ends, whose, lapses := firstLapse()
 	// it starts once all asking ends, never before the tick's at: a release's lookup, `auth
 	// seat` and lending can each take minutes of a login's life
 	if !lapses || float64(ends) >= max(at, now())+seconds {
+		os.Remove(heard)
 		return false
 	}
-	heard := heardPath(key)
 	line := fmt.Sprintf("%s waits: %s's login lapses at %s, before it could end", what, whose,
 		time.Unix(ends, 0).Format("2006-01-02 15:04"))
 	if was, err := os.ReadFile(heard); err != nil || string(was) != line {
