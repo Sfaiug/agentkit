@@ -28,7 +28,6 @@ USAGE = {
     "plan": "usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
             "ak plan check N 'COMMAND'",
     "notify": 'usage: ak notify needs "QUESTION" [--session NAME] [--dry-run]\n'
-              "       ak notify settled\n"
               "       ak notify --check",
     "hand-in": "",  # Exact usage is in test_key_disputes_are_answered.py.
     "wait": "usage: ak wait PR_URL|RUN_ID",

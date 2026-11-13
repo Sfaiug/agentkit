@@ -20,7 +20,6 @@ from fixtures.akseat import Seat
 from fixtures.sink import Sink
 
 NOTIFY_USAGE = ('ak notify: usage: ak notify needs "QUESTION" [--session NAME] [--dry-run]\n'
-                "       ak notify settled\n"
                 "       ak notify --check\n")
 PLAN_USAGE = ("ak plan: usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
               "ak plan check N 'COMMAND'\n")
