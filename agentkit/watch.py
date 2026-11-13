@@ -4575,23 +4575,25 @@ def _line_left(session, text, log, cfg, stale, answered=None):
 
 def carry_draft(session, harness, pane, to, cfg=None):
     """Whether the owner's unsent text in that seat's composer is kept from a switch ending its
-    harness, on any turn: lifted whole by ak's editor (its `line` step with no line) into its
-    pane's kept buffer, which the respawn keeps with the pane and `drafts_back` hands the
-    harness launched there next, or left there, set aside already for a line of ak's.  Not
-    where the editor gives no answer, or finds text typed since that set aside, which no step
-    merges.  Only through ak's editor, which reads a composer whole, and only to a harness
-    (`to`) that opens it too: a screen draws a draft late, wrapped and cropped, and elsewhere
-    the text would go with the old harness.  Not where the editor may not be asked a step now
-    either (`_editor_read`): a picker drawn since, or input unread, would take its keys.
+    harness, on any turn: its composer read empty, through `harness`, else the one its pane
+    runs (`orch.pane_harness`), as a seat whose model left the config does; or lifted whole by
+    ak's editor (its `line` step with no line) into its pane's kept buffer, which the respawn
+    keeps with the pane and `drafts_back` hands the harness launched there next, or left there,
+    set aside already for a line of ak's.  Not where the editor gives no answer, or finds text
+    typed since that set aside, which no step merges.  Only through ak's editor, which reads a
+    composer whole, and only to a harness (`to`) that opens it too: a screen draws a draft late,
+    wrapped and cropped, and elsewhere the text would go with the old harness.  Not where the
+    editor may not be asked a step now either (`_editor_read`): a question or picker drawn
+    since, or input unread, would take its keys.
     Under the seat's lock its caller holds over the respawn too, so no tick hands the text back
     to the harness going; the pane is read again under it, as the caller's capture predates a
     paste or picker taken since."""
     pane = pane_text(session)
-    # no keys to a question: they could answer it; nothing to keep in a composer read empty,
-    # but a picker may draw it empty over the owner's text
-    if not harness or asking(session["name"], harness, pane):
-        return True
-    if composer_draft(harness, pane) == "" and not (
+    if not harness:
+        pid = pinned(session).get("pid")
+        harness = pid and orch.pane_harness(pid)
+    # nothing to keep in a composer read empty, but a picker may draw it empty over the owner's text
+    if harness and composer_draft(harness, pane) == "" and not (
             pane.strip() and _picker_up(harness, live_state(session, harness, pane=pane, cfg=cfg))):
         return True
     where = screen(to).get("editor") and seat_editor(session, cfg)
