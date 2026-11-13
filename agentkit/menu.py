@@ -3092,11 +3092,11 @@ def next_choice(cfg, found, row, step, kept):
     up, in order of cost and on a tie of quality, that a configured model runs, passing the
     others; None past either end.  The steps: its `choices`, each as the first configured model
     running it (runner) at its effort, and the row of `kept` (model, effort, row) where it is no
-    choice, its why saying so (matrix._choices), as the role used it: the owner, 12 Nov 2026.
+    choice, `whys` holding it (matrix._choices), as the role used it: the owner, 12 Nov 2026.
     A `row` that is no step stands at its cost and quality, one with no cost as its best choice."""
     name, effort, own = kept
     steps = [(one, runner(cfg, one), one["effort"]) for one in found["choices"]]
-    steps += [(own, name, effort)] if own and "why" in own else []
+    steps += [(own, name, effort)] if id(own) in found["whys"] else []
     here = row if row and row["cost"] is not None else next(reversed(found["choices"]), None)
     if here is None:
         return None
@@ -3334,7 +3334,7 @@ def columned(text, room, after=" -."):
 def models_bars(found, role, used, kept, room=None, marked=True, why=True):
     """`role`'s answer `found` (matrix.answer) drawn as bars under the role lines, the owner's
     design of 5 Nov 2026: under a heading counting them, its choices, then `kept`, a row the role
-    used, where it is no choice, its why saying so (matrix._choices), one more where the choices
+    used, where it is no choice, `whys` holding it (matrix._choices), one more where the choices
     leave no place (the owner, 12 Nov 2026), then as many of its `others`, best first, as fill
     matrix.PLACES; side by side, cheapest on the left, on a tie the worse, each as tall
     as its cost over the dearest shown, in eighths of a cell, its cost on its top and under it
@@ -3349,7 +3349,8 @@ def models_bars(found, role, used, kept, room=None, marked=True, why=True):
     one at least, else TALL; `marked` false leaves the `━` out, `why` false the whys."""
     utf8, width, choices = terminal.utf8(), terminal.layout_width(), found["choices"]
     solid, shade, mark = "█░━" if utf8 else "#:="
-    own = [kept] if kept and "why" in kept else []
+    whys = found["whys"]
+    own = [kept] if id(kept) in whys else []
     shaded = [*own, *(row for row in found["others"] if row is not kept)][
         :max(len(own), matrix.PLACES - len(choices))]
     while True:
@@ -3358,7 +3359,8 @@ def models_bars(found, role, used, kept, room=None, marked=True, why=True):
         size = max(1, min(WIDE, (width - 2 * len(rows)) // max(1, len(rows))))
         labels = [(cost_said(found, row), f"{row['quality']:.1f}", row["effort"] or "")
                   for row, _ in rows]
-        words = [[row["name"], *([f"{shade} {row['why']}"] if why and fill == shade else [])]
+        words = [[row["name"], *([f"{shade} {whys[id(row)][0]}"] if why and fill == shade
+                                 else [])]
                  for row, fill in rows]
         # a column as wide as its labels and its words' widest part (columned)
         widths = [max(size, *map(terminal.cells, [*three, *(
@@ -3505,7 +3507,8 @@ def models_screen(cfg, session, selected, providers):
             answer = matrix.answer(held.get("lineup") or [], compared, cfg=cfg)
         # a take changes what each role uses, never the answer, which takes seconds to price
         used = matrix.uses(cfg, selected, answer)
-        kept.update({role: one[:2] for role, one in used.items() if one[2] and "why" in one[2]})
+        kept.update({role: one[:2] for role, one in used.items()
+                     if id(one[2]) in answer[role]["whys"]})
         # the row each role kept, else the one it uses, of the answer as it stands: `p` and the
         # boards landing make it anew
         own = {**used, **{role: (name, effort, matrix.row_of(answer[role]["rated"],
