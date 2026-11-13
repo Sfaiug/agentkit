@@ -132,11 +132,12 @@ os.execvp(sys.argv[cut + 1], sys.argv[cut + 1:])
 # too, and it writes them down: a child's peak starts from its parent's, some 20 MB for this
 # script.  The shell's own words, as its `Killed` for what is killed at the cap, go nowhere: only
 # the program's are compared.  dash says it on the killed command's stderr, so the program is a
-# subshell that becomes it.
+# subshell that becomes it.  -I ignores PYTHONDONTWRITEBYTECODE, so -B keeps its bytecode out of
+# HOME where Python is installed there, as the seal's.
 WAIT = """python=$1 peak=$2; shift 2
 exec 3>&2 2>/dev/null
 ("$@" 2>&3 3>&-); code=$?
-exec "$python" -I -c 'import os, resource, sys
+exec "$python" -I -B -c 'import os, resource, sys
 try:
     while True:
         os.wait()
@@ -230,10 +231,20 @@ def box(home, scratch):
                XDG_RUNTIME_DIR=str(inside / "runtime"),
                # Pages go nowhere, and each one aimed at a configured webhook leaves a line here.
                AK_NOTIFY_SINK="dry-run", AK_NOTIFY_SINK_LOG=str(inside / "pages"),
-               AK_HANDOVER=str(inside / "handover"))
+               AK_HANDOVER=str(inside / "handover"),
+               # Python's bytecode is no behaviour of ak's, yet lands beside its modules, a live
+               # check's under HOME, unless the caller's environment says otherwise.
+               PYTHONDONTWRITEBYTECODE="1")
     # A shell hands bwrap the filter on descriptor 3.  All --unshare-all unshares but the process
     # table, whose /proc the read-only root shows, the MOMENT over it.  /tmp comes before the
-    # overlay: a home under /tmp is mounted inside the box's own.
+    # overlay: a home under /tmp is mounted inside the box's own.  Go's SQLite, compiled and kept
+    # where go/internal/sqlite keeps it, is no behaviour of ak's either: that folder, which bwrap
+    # makes in every run's HOME alike, is a tmpfs gone with the box.  Only on that plain path: a
+    # link on it may lead to a folder other things share, which the tmpfs would hide, so where a
+    # link or a file is any part of it the box mounts none, and what Go writes there is named.
+    cache = home / ".cache" / "agentkit" / "sqlite"
+    plain = all(stat.S_ISDIR(part.lstat().st_mode)
+                for part in (cache.parents[1], cache.parent, cache) if os.path.lexists(part))
     return ["sh", "-c", 'exec "$@" 3<"$0"', folder / "filter",
             "bwrap", "--unshare-user-try", "--unshare-ipc", "--unshare-net", "--unshare-uts",
             "--unshare-cgroup-try", "--die-with-parent", "--new-session", "--seccomp", "3",
@@ -241,7 +252,9 @@ def box(home, scratch):
             *(arg for name in MOMENT for arg in ("--ro-bind", scratch / name, f"/proc/{name}")),
             "--tmpfs", "/tmp", "--bind", inside, inside,
             "--overlay-src", home, "--overlay", folder / "upper", folder / "work", home,
-            "--", sys.executable, "-I", "-c", SEAL, home, "/tmp", "/dev", inside, "--"], env, folder
+            *(("--tmpfs", cache) if plain else ()),
+            "--", sys.executable, "-I", "-B", "-c", SEAL,
+            home, "/tmp", "/dev", inside, "--"], env, folder
 
 
 def run(label, program, argv, home, scratch):
