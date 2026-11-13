@@ -1521,9 +1521,7 @@ def owns_hook(session, pid, is_client):
     """A hook must come from the client in the pane agentkit launched.
 
     Other panes inherit AGENTKIT_SESSION, so the launch's saved pane must match first.
-    Nested clients inherit even TMUX_PANE; their ancestry names both clients.  A script its
-    interpreter runs, whose child runs its program again with its own arguments, is that one
-    client: npm's entry point runs the native program the hooks run under.
+    Nested clients inherit even TMUX_PANE; their ancestry names both clients.
     """
     here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
     if session.get("exited") or not here or not pane:
@@ -1536,18 +1534,14 @@ def owns_hook(session, pid, is_client):
             or not parts[2].isdigit() or parts[3] != pane):
         return False
     root, table = int(parts[2]), processes() or {}
-    seen, clients, below = set(), 0, None
+    seen, clients = set(), 0
     while pid in table and pid not in seen:
         seen.add(pid)
         parent, words = table[pid]
-        run = None
         if is_client(words):
             if "-p" in words or "--print" in words:
                 return False
-            at = words.index(program(words, full=True))     # past 0: an interpreter's script
-            run = program(words), words[at + 1:]
-            clients += not (at and run == below)
-        below = run
+            clients += 1
         if pid == root:
             return clients == 1
         pid = parent

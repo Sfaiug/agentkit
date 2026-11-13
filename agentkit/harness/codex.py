@@ -698,14 +698,18 @@ def follow(launched, payload, pid):
     native program under npm's `codex`, fires one at the first prompt after `/new` or `/resume`.
     The record names that thread's rollout, which the receipt cannot: it names its launch's first,
     and the thread the seat left goes on being read from its own (`notify.left`)."""
-    from .. import orch
     from . import claim
     path = payload.get("transcript_path") if isinstance(payload, dict) else None
     if (isinstance(path, str) and payload.get("hook_event_name") == "SessionStart"
             and payload.get("source") in ("startup", "resume")):
-        claim(launched, "codex", payload.get("session_id"), path, own, pid,
-              lambda words: orch.program(words) == "codex", id_source=SOURCE,
-              transcript=str(Path(path).resolve()))
+        claim(launched, "codex", payload.get("session_id"), path, own, pid, native,
+              id_source=SOURCE, transcript=str(Path(path).resolve()))
+
+
+def native(words):
+    """A Codex is its native program: a script an interpreter runs under its name is npm's entry
+    point, which only runs that program (0.167), so the seat's hook has one Codex above it."""
+    return bool(words) and Path(words[0]).name == "codex"
 
 
 def own(record, thread):
