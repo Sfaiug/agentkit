@@ -6433,12 +6433,15 @@ def _run_working(run_dir):
                  if status not in ("Z", "X")}
     if any(pid in processes for pid in worker.run_pids(str(run_dir))):
         return True
-    return bool(resumes(run_dir, processes))
+    # One under another checkout that does not write the log only follows the run from a
+    # terminal: counted, it would keep the tick from resuming the loop it waits on.
+    return any(writes or ak == str(config.REPO / "bin/ak")
+               for ak, writes in resumes(run_dir, processes).values())
 
 
 def resumes(run_dir, processes=None):
-    """{pid: whether it writes the run's log} of the live `ak run resume` processes of the run,
-    under any ak checkout, as one enters its run's own version (`versions.dispatch`).  One
+    """{pid: (its ak, whether it writes the run's log)} of the live `ak run resume` processes of
+    the run, under any ak checkout, as one enters its run's own version (`versions.dispatch`).  One
     started in the background writes the log; a terminal's starts the run there, then only
     follows it (`run.foreground_cli`).  `processes`: {pid: argv} of the live ones."""
     from . import run as run_mod
@@ -6453,9 +6456,9 @@ def resumes(run_dir, processes=None):
                   and run_mod.resume_args(args[3:]))
         if parsed and parsed[0] == run_dir.name:
             try:
-                found[pid] = os.path.samefile(f"/proc/{pid}/fd/1", run_dir / "log.txt")
+                found[pid] = args[0], os.path.samefile(f"/proc/{pid}/fd/1", run_dir / "log.txt")
             except OSError:
-                found[pid] = False
+                found[pid] = args[0], False
     return found
 
 

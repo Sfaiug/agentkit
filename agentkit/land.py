@@ -286,7 +286,7 @@ def deliver_next(turn, log=lambda _: None, launched=None, members=None):
             if ((identity is not None and host.process_identity(pid) == identity)
                     or state.get("state") != "waiting"
                     or record.read_state(head) != state or record.process_active(state)
-                    or any(watch.resumes(head).values())):
+                    or any(writes for _, writes in watch.resumes(head).values())):
                 return False
             pid = watch.launch_resume(head.name, log)
             if not pid:
