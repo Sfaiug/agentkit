@@ -117,9 +117,10 @@ func rolesSaid(s terminal.Screen, view ModelsView) []roleSaid {
 }
 
 // roleLines is Python's models_body: per role `▸` where it is at (-1 for none), its word, the row it
-// uses and what follows, under `quality` and its unit wherever the unit changes; a row too wide
-// beside the words goes under its word, only its name cut.  Each line's row is its role's place in
-// quality.Roles, -1 on a heading.
+// uses and what follows, under `quality` and its unit wherever the unit changes.  A row too wide
+// beside the words goes on the lines under its word (columned), what follows it staying on the
+// word's line: a model is named in full (docs/cli-design.md).  Each line's row is its role's place
+// in quality.Roles, -1 on a heading.
 func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 	said := rolesSaid(s, view)
 	room := s.LayoutWidth()
@@ -147,43 +148,69 @@ func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 		}
 		return ""
 	}
+	// a board's name may hold control characters: none reaches the terminal (terminal.Plain)
+	models := make([]string, len(said))
 	full, tail := 0, 0
-	for _, one := range said {
-		full, tail = max(full, terminal.Cells(withEffort(one.name, one.effort, room))), max(tail, terminal.Cells(follows(one)))
+	for i, one := range said {
+		models[i] = terminal.Plain(one.name + " " + one.effort)
+		full, tail = max(full, terminal.Cells(models[i])), max(tail, terminal.Cells(follows(one)))
 	}
 	wide := 2+2+word+2+full+tail <= room
-	before := 4 // folded, the row under its role's word
+	column := 2 + 2 + word // where what follows a row begins
 	if wide {
-		before = 2 + 2 + word + 2
+		column += 2 + full
 	}
-	size := min(full, room-before-tail) // the rows' column, only a name cut to fit it
 	var lines []matrixRow
 	unit := ""
 	for i, one := range said {
 		if one.numbered && one.unit != unit { // a role with no numbers heads nothing
 			unit = one.unit
-			lines = append(lines, matrixRow{line: strings.Repeat(" ", max(0, before+size+2)) +
+			lines = append(lines, matrixRow{line: strings.Repeat(" ", column+2) +
 				s.Styled(right("quality", qualityWide)+"  "+right(unit, costWide), "dim"), row: -1})
 		}
 		pointer := " "
 		if i == at {
 			pointer = s.Styled(mark, "accent")
 		}
-		lead := "  " + pointer + " " + terminal.Pad(matrix.ConfigRoles[quality.Roles[i]], word) + "  "
+		lead := "  " + pointer + " " + terminal.Pad(matrix.ConfigRoles[quality.Roles[i]], word)
+		own := []string{lead + "  " + models[i]}
 		if !wide {
-			lines = append(lines, matrixRow{line: strings.TrimRight(lead, " "), row: i})
-			lead = strings.Repeat(" ", before)
+			own = []string{lead}
+			for _, part := range columned(models[i], room-4, " -.") {
+				own = append(own, "    "+part)
+			}
 		}
-		used := terminal.Pad(withEffort(one.name, one.effort, size), size)
-		lines = append(lines, matrixRow{line: strings.TrimRight(lead+used+follows(one), " "), row: i})
+		own[0] += strings.Repeat(" ", max(0, column-terminal.Cells(own[0]))) + follows(one)
+		for _, line := range own {
+			lines = append(lines, matrixRow{line: strings.TrimRight(line, " "), row: i})
+		}
 	}
 	return lines
 }
 
-// withEffort is a model and its effort in room cells, only the name cut.
-func withEffort(name, effort string, room int) string {
-	if effort != "" {
-		effort = " " + effort
+// columned is text on lines of room cells, never cut (docs/cli-design.md), as Python's
+// menu.columned: wrapped at its spaces, a word wider than a line broken after each hyphen in it, a
+// part still wider after each dot (`GPT-` over `6.1`, a version kept whole where it can be), and a
+// part with neither left whole, wider than room.
+func columned(text string, room int, after string) []string {
+	text = terminal.Plain(text)
+	if terminal.Cells(text) <= room || after == "" {
+		return []string{text}
 	}
-	return terminal.Cut(name, room-terminal.Cells(effort)) + effort
+	var lines []string
+	for _, part := range strings.SplitAfter(text, after[:1]) {
+		if part == "" {
+			continue
+		}
+		if last := len(lines) - 1; last >= 0 && terminal.Cells(strings.TrimRight(lines[last]+part, " ")) <= room {
+			lines[last] += part
+		} else {
+			lines = append(lines, part)
+		}
+	}
+	var parts []string
+	for _, line := range lines {
+		parts = append(parts, columned(strings.TrimRight(line, " "), room, after[1:])...)
+	}
+	return parts
 }

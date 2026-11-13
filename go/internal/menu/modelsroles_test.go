@@ -82,10 +82,35 @@ func TestEachRoleSaysTheRowItUses(t *testing.T) {
 			t.Errorf("after %+d `▸` is not on role %d alone: %q", step.by, step.on, lines)
 		}
 	}
-	// too narrow beside its word, each row goes under it in one column, only its name cut
-	want = []string{"▸ orchestrator", "C… high not on the boards", "quality a task", "executor",
-		"bolt 90.0 ≈$80.00", "reviewer", "ac… low 76.0 ≈$60.00"}
-	if got := said("30", newSeats, 0); !reflect.DeepEqual(got, want) {
-		t.Errorf("on 30 cells:\n%q\nwant\n%q", got, want)
+	// too narrow beside its word, each row goes under it, named in full with its effort, wrapped at
+	// its words where it is wider still, what follows it staying on the word's line
+	for columns, want := range map[string][]string{
+		"24": {"▸ orchestrator not on the boards", "Crux 9 high", "quality a task",
+			"executor 90.0 ≈$80.00", "bolt", "reviewer 76.0 ≈$60.00", "acme low"},
+		"14": {"▸ orchestrator not on the boards", "Crux 9", "high", "quality a task",
+			"executor 90.0 ≈$80.00", "bolt", "reviewer 76.0 ≈$60.00", "acme low"},
+	} {
+		if got := said(columns, newSeats, 0); !reflect.DeepEqual(got, want) {
+			t.Errorf("on %s cells:\n%q\nwant\n%q", columns, got, want)
+		}
+	}
+}
+
+// A model too wide for its lines wraps at its spaces, then after a hyphen, then after a dot,
+// never cut, a part with none of these left whole: Python's menu.columned.
+func TestAModelWrapsAtItsWordsNeverCut(t *testing.T) {
+	for _, one := range []struct {
+		text string
+		room int
+		want []string
+	}{
+		{"Acme gpt-6.1-sol high", 8, []string{"Acme", "gpt-6.1-", "sol", "high"}},
+		{"gpt-6.1-sol", 5, []string{"gpt-", "6.1-", "sol"}},
+		{"gpt-6.10-sol", 3, []string{"gpt-", "6.", "10-", "sol"}},
+		{"Acme Mid 5 high", 20, []string{"Acme Mid 5 high"}},
+	} {
+		if got := columned(one.text, one.room, " -."); !reflect.DeepEqual(got, one.want) {
+			t.Errorf("%q in %d cells: %q, want %q", one.text, one.room, got, one.want)
+		}
 	}
 }
