@@ -24,13 +24,13 @@ const (
 
 // A Seat is one row of the screen: its place in the whole list, what it is, and what opens under it.
 type Seat struct {
-	Number                                    int
-	Name, Checkout, Model, Word, Unsent, Said string // Checkout "" is filed under none; Said, the past screen's
-	Alone                                     string // its model without the effort Model names
-	Done, Total                               int    // its plan's lines done, of how many; none without one
-	Builds, Reviews                           []string
-	Tasks                                     []Task
-	draft                                     *Draft
+	Number                              int
+	Name, Checkout, Model, Word, Unsent string // Checkout "" is filed under none
+	Alone                               string // its model without the effort Model names
+	Done, Total                         int    // its plan's lines done, of how many; none without one
+	Builds, Reviews                     []string
+	Tasks                               []Task
+	draft                               *Draft
 
 	// where it moves this frame (moving): its mark as drawn now, "" where it holds still, and its
 	// line moved (0 to 1) from the share it stood at, its count from counted, its head lit
