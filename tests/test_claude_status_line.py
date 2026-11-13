@@ -1,6 +1,7 @@
 """Status-line composition, conversation reports and their collection, with a temporary HOME."""
 
 from datetime import datetime, timezone
+from functools import partial
 import json
 import os
 import shlex
@@ -9,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gc
+from agentkit import config, gc, usage, watch
 from agentkit.harness import claude
 
 
@@ -99,7 +100,7 @@ class ClaudeStatusLine(Sandbox):
         os.utime(self.report, (3000, 3000))
         self.assertEqual(claude.running(record, self.cwd, "conv-acme"), ("claude-sonnet-5-5", None, 3000))
         limits = config.STATE / "limits-conv-acme.json"
-        limits.write_text(' {"five_hour":null,"seven_day":null}\n')
+        limits.write_text("{}")
         config.save_session(self.cfg, "renamed", "opus", ["astra"], {"conversation": "conv-acme"})
         self.assertEqual(list(gc.stale_model_reports()), [])
         config.update_session("renamed", conversation="conv-new")
@@ -109,6 +110,29 @@ class ClaudeStatusLine(Sandbox):
                 patch.object(gc.jobs, "forget_owner_words"):
             self.assertEqual(sorted(gc.gc(lambda _: None)), reports)
         self.assertFalse(self.report.exists() or limits.exists())
+
+    def test_renders_are_judged_in_the_order_they_were_rendered(self):
+        config.save_session(self.cfg, "acme", "opus", ["opus"], {"conversation": "conv-acme"})
+        hand_in = partial(watch.hook_meters, "acme", "conv-acme", "")
+        hand_in("1000", "five_hour 20 30000", "seven_day 20 900000")
+        # a later render's hand-in arrives before an earlier one's; then a worker's turn, at 10000
+        hand_in("3000", "seven_day 40 900000")
+        hand_in("2000", "five_hour 30 30000", "seven_day 20 900000")
+        usage.record_turn_meters(self.cfg, "anthropic", [{"name": "session", "used": 50}])
+        note = (config.STATE / "limits-conv-acme.json").read_text()
+        limits = {"five_hour": {"used_percentage": 30, "resets_at": 30000},
+                  "seven_day": {"used_percentage": 40, "resets_at": 900000}}
+        end, held = os.pipe()
+        self.addCleanup(os.close, end)
+        subprocess.run(["bash", str(REPO / "hooks/claude-status.sh")], env=self.env,
+                       input=json.dumps({**json.loads(self.payload), "rate_limits": limits}),
+                       text=True, capture_output=True, timeout=30, pass_fds=(held,))
+        os.close(held)
+        self.assertEqual(os.read(end, 1), b"")      # the render, and all it started, ended
+        self.assertEqual((config.STATE / "limits-conv-acme.json").read_text(), note)
+        self.assertEqual({meter["name"]: meter["used"]
+                          for meter in usage._cached_provider("anthropic")["meters"]},
+                         {"session": 50, "weekly_all": 40})
 
 
 if __name__ == "__main__":

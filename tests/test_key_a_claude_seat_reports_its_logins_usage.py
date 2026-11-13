@@ -1,16 +1,16 @@
 """A Claude seat's status render is its login's usage reading, at once and with no ask.
 
 ak asks Anthropic's usage endpoint about a login at most every fifteen minutes; every status
-render of a seat on that login carries the numbers the API last reported to it (Claude Code
-2.1.322's `rate_limits`).  A render carrying other numbers than its conversation's last is that
-login's reading of `session` and `weekly_all` from then on, with no ask: `ak usage --json` holds
-it.  A render carrying the same numbers again changes nothing, not the reading's time either.
+render carries the numbers the API last reported to its seat (Claude Code 2.1.322's
+`rate_limits`), an idle seat's the same again and again.  Numbers for a window other than its
+conversation's last render's are that login's reading of the window's meter, with no ask; a
+conversation's first numbers may be as old as its last answer and are only kept.
 
 Black-box against AK_BIN: a Home whose Claude provider lists a second login, read once through a
-fake `curl` standing in for the endpoint, which counts each ask; then a seat on that login
-(tests/fixtures/akseat.py), its status command as `ak orch --dry-run` prints it, run as Claude
-Code runs it: in a shell, in the environment the seat's line sets, the render's JSON on stdin.
-Each render is waited out with everything it started.  This test fails against `/bin/false`.
+fake `curl` that counts each ask; then two seats on that login (tests/fixtures/akseat.py), each
+one's status command as `ak orch --dry-run` prints it, run in a shell, in the environment the
+seat's line sets, the render's JSON on stdin, and waited out with everything it started.  This
+test fails against `/bin/false`.
 """
 
 import json
@@ -66,10 +66,7 @@ class ClaudeSeatReportsItsLoginsUsage(unittest.TestCase):
                                f"cat {shlex.quote(str(answer))}\nprintf '\\n200'\n")
 
     def asked(self):
-        try:
-            return len(self.asks.read_text().splitlines())
-        except FileNotFoundError:
-            return 0
+        return len(self.asks.read_text().splitlines()) if self.asks.exists() else 0
 
     def reading(self):
         """The second login's reading as `ak usage --json` shows it."""
@@ -80,22 +77,10 @@ class ClaudeSeatReportsItsLoginsUsage(unittest.TestCase):
     def weekly(self, reading):
         return [meter["used"] for meter in reading["meters"] if meter["name"] == "weekly_all"]
 
-    def render(self, command, env, cwd, payload):
-        """Run the status command on `payload` and wait until it, and all it started, ended."""
-        end, held = os.pipe()
-        try:
-            done = self.home.run("sh", "-c", command, input=json.dumps(payload), env=env,
-                                 cwd=cwd, keep=(held,))
-        finally:
-            os.close(held)
-        with os.fdopen(end, "rb") as drained:
-            drained.read()
-        self.assertEqual(done.code, 0, done.err)
-
-    def test_a_render_is_its_logins_reading_and_the_same_render_again_changes_nothing(self):
-        self.assertEqual(self.weekly(self.reading()), [10])
-        self.assertEqual(self.asked(), 1)
-        seat = Seat(self.home, "acme", alive=False, record={"account": LOGIN})
+    def status(self, name):
+        """`render(week, session=None)`: seat `name`'s status line run on those percentages,
+        waited out with all it started."""
+        seat = Seat(self.home, name, alive=False, record={"account": LOGIN})
         done = self.home.ak("orch", seat.name, "--dry-run", cwd=self.home.path)
         self.assertEqual(done.code, 0, done.out + done.err)
         words = shlex.split(done.out.splitlines()[-1])
@@ -103,18 +88,38 @@ class ClaudeSeatReportsItsLoginsUsage(unittest.TestCase):
         env = {**seat_env(words), "AGENTKIT_SESSION": seat.name}
         self.assertEqual(env.get("AGENTKIT_ACCOUNT"), LOGIN, words)
         now = int(time.time())
-        payload = {"session_id": seat.record["conversation"],
-                   "model": {"id": "claude-opus-5-5"}, "effort": {"level": "high"},
-                   "rate_limits": {"five_hour": {"used_percentage": 12.5, "resets_at": now + 3600},
-                                   "seven_day": {"used_percentage": 42, "resets_at": now + WEEK - 60}}}
-        self.render(command, env, seat.cwd, payload)
+
+        def render(week, session=None):
+            limits = {"seven_day": {"used_percentage": week, "resets_at": now + WEEK - 60}}
+            if session is not None:
+                limits["five_hour"] = {"used_percentage": session, "resets_at": now + 3600}
+            payload = {"session_id": seat.record["conversation"],
+                       "model": {"id": "claude-opus-5-5"}, "rate_limits": limits}
+            end, held = os.pipe()
+            try:
+                done = self.home.run("sh", "-c", command, input=json.dumps(payload), env=env,
+                                     cwd=seat.cwd, keep=(held,))
+            finally:
+                os.close(held)
+            with os.fdopen(end, "rb") as drained:
+                drained.read()
+            self.assertEqual(done.code, 0, done.err)
+        return render
+
+    def test_only_a_conversations_changed_numbers_are_its_logins_reading(self):
+        self.assertEqual(self.weekly(self.reading()), [10])
+        one = self.status("acme")
+        one(20, session=12.5)
+        self.assertEqual(self.weekly(self.reading()), [10])
+        one(42, session=12.5)
         reading = self.reading()
         self.assertEqual(self.weekly(reading), [42])
-        self.assertEqual(self.asked(), 1, "a probe was asked")
-        self.render(command, env, seat.cwd, payload)
-        again = self.reading()
-        self.assertEqual(self.weekly(again), [42])
-        self.assertEqual(again["probed_at"], reading["probed_at"])
+        two = self.status("brine")
+        for render, week, session in ((one, 42, 12.5), (one, 42, None), (two, 20, None),
+                                      (two, 20, None)):
+            render(week, session)
+            again = self.reading()
+            self.assertEqual((self.weekly(again), again["probed_at"]), ([42], reading["probed_at"]))
         self.assertEqual(self.asked(), 1, "a probe was asked")
 
 

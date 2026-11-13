@@ -2,36 +2,28 @@
 # The report belongs to the status render's conversation,
 # never its launch name; a detached look reads whatever report stands when it gets there.
 set -u
+# The moment this render began, by which its limits are judged: bash 5's (an older bash's hand-in
+# takes its own).
+rendered=${EPOCHREALTIME:-}
 payload=$(cat; printf .)
 payload=${payload%.}
 # A status command that ignores stdin must not end reporting by closing its pipe.
 trap '' PIPE
 printf '%s' "$payload" 2>/dev/null
 [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || exit 0
-# Every render runs this one jq: its conversation, its model, and its login's limits where the
-# API has reported them (2.1.322's `rate_limits`).
-report=$(jq -er 'select(.session_id | strings | test("^[A-Za-z0-9_-]+$"))
+# Every render runs this one jq: its conversation, its model, and each window of its login's
+# limits the API has reported (2.1.322's `rate_limits`) as `<window> <used%> <resets_at>`.
+IFS=$'\n' read -r -d '' -a said < <(jq -r 'select(.session_id | strings | test("^[A-Za-z0-9_-]+$"))
     | select(.model.id | strings | length > 0)
     | .session_id, ({model: .model.id, effort: (.model.effort // .effort.level // null)} | tojson),
-      (.rate_limits | objects | {five_hour, seven_day} | select(any(.[]; type == "object")) | tojson)' \
-    <<<"$payload" 2>/dev/null) || exit 0
-conversation=${report%%$'\n'*}
-report=${report#*$'\n'}
-limits=
-[[ $report != *$'\n'* ]] || { limits=${report#*$'\n'}; report=${report%%$'\n'*}; }
+      (.rate_limits | objects | {five_hour, seven_day} | to_entries[]
+       | select(.value | objects | [.used_percentage, .resets_at] | all(type == "number"))
+       | "\(.key) \(.value.used_percentage) \(.value.resets_at)")' <<<"$payload" 2>/dev/null)
+# Its lines as "$@": macOS's bash 3.2 takes an empty array or slice for unset under `set -u`.
+[[ -n ${said[1]:-} ]] && set -- "${said[@]}" || exit 0
+conversation=$1 report=$2
+shift 2
 dir="$HOME/.agentkit/state"
-umask 077
-trap 'rm -f -- "${tmp:-}"' EXIT
-trap 'exit 0' HUP INT TERM
-# keep KIND TEXT: TEXT is what state/KIND-<conversation>.json says from now on, written whole
-# through a dot-file beside it; 1, with nothing started, where it said so already.  Read with a
-# builtin: a render that changed nothing costs the jq alone.
-keep() {
-  local path="$dir/$1-$conversation.json" was=
-  IFS= read -r -d '' was 2>/dev/null <"$path"
-  [[ $was != "$2"$'\n' ]] && mkdir -p -- "$dir" && tmp=$(mktemp "$dir/.$1-$conversation.XXXXXX") &&
-    printf '%s\n' "$2" >"$tmp" && mv -f -- "$tmp" "$path"
-}
 # start CODE ARG...: agentkit's CODE, its words in sys.argv[2:], in a session of its own
 start() {
   ( /usr/bin/env python3 -c 'import os, sys
@@ -41,14 +33,29 @@ try:
 except OSError:
     pass
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
+from agentkit import watch
 '"$1" "${BASH_SOURCE[0]}" "${@:2}" </dev/null >/dev/null 2>&1 & )
 }
-# Limits are kept per conversation, not per login: a seat that has not asked the API since
-# renders its older numbers, and those would replace another seat's newer ones.
-[[ -z $limits ]] || ! keep limits "${AGENTKIT_ACCOUNT:-} $limits" || start '
-from agentkit import watch
-watch.hook_meters(*sys.argv[2:])' "$AGENTKIT_SESSION" "${AGENTKIT_ACCOUNT:-}" "$limits"
-keep model "$report" && [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || exit 0
-start '
-from agentkit import watch
-watch.hook_look(sys.argv[2])' "$AGENTKIT_SESSION"
+# A window that reads otherwise than the note holds it, as watch.hook_meters writes it, hands
+# every window of the render to that, the note's one writer.  This read takes no lock: a note
+# read half-written or a moment old only costs one more hand-in, which the lock judges.
+note=
+IFS= read -r -d '' note 2>/dev/null <"$dir/limits-$conversation.json"
+for window; do
+  [[ $note == *"\"${window%% *}\": [\"${AGENTKIT_ACCOUNT:-}\", \"${window#* }\","* ]] || {
+    start 'watch.hook_meters(*sys.argv[2:])' "$AGENTKIT_SESSION" "$conversation" \
+      "${AGENTKIT_ACCOUNT:-}" "${rendered/[!0-9]/.}" "$@"
+    break
+  }
+done
+path="$dir/model-$conversation.json"
+kept=$(cat "$path" 2>/dev/null) || kept=
+[[ $report != "$kept" ]] || exit 0
+umask 077
+mkdir -p -- "$dir" || exit 0
+tmp=$(mktemp "$dir/.model-$conversation.XXXXXX") || exit 0
+trap 'rm -f -- "$tmp"' EXIT
+trap 'exit 0' HUP INT TERM
+printf '%s\n' "$report" >"$tmp" && mv -f -- "$tmp" "$path" || exit 0
+[[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || exit 0
+start 'watch.hook_look(sys.argv[2])' "$AGENTKIT_SESSION"

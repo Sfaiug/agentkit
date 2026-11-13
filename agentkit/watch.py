@@ -2867,19 +2867,48 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     return answer
 
 
-def hook_meters(launched, account, limits):
-    """What a seat's status render said of its login's limits, changed since its conversation's
-    last render, becomes that login's reading, as a worker turn's does.
+def hook_meters(launched, conversation, account, rendered, *windows):
+    """The limits a seat's status render carried, where they read otherwise than its
+    conversation's note holds them: what changed becomes its login's reading at the render's
+    moment, as a worker turn's does.
 
-    hooks/claude-status.sh starts this in the background with the render's `rate_limits` as
-    JSON.  The login is the account the seat's harness was launched on, `account`, the usual one
-    where that is empty, of the provider of the model the seat holds.
+    hooks/claude-status.sh starts this with the seat's login (`account`, "" for the usual one),
+    the render's moment and each window it carries as `<window> <words>`, its jq's words for the
+    numbers.  An idle seat renders its last answer again and again, so the note,
+    state/limits-<conversation>.json, holds each window as `[login, words, moment]`; a window it
+    did not hold is only kept, as those numbers may be as old as the seat's last answer.
+
+    Only this changes the note, holding an exclusive lock on it from its read to its write, so
+    each window is judged in the order renders began, whatever order their hand-ins arrive in.
+    Written in place, as a rename would take the lock's file away, in json.dumps's spacing, which
+    the hook matches as text, and before the reading: a hand-in that dies between the two loses
+    that reading, never shows numbers as newer than they are.
     """
+    rendered = float(rendered or time.time())
     cfg = config.load()
     harness, provider = seat_model(cfg, config.resolve_session(launched))
-    if harness:
-        usage.record_turn_meters(cfg, provider, orch.harness_plugin(harness).status_meters(
-            json.loads(limits)), account or None)
+    fd = os.open(config.STATE / f"limits-{conversation}.json", os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "r+") as note:
+        fcntl.flock(note, fcntl.LOCK_EX)
+        try:
+            held = json.loads(note.read())
+        except ValueError:
+            held = {}
+        changed = {}
+        for window, _, words in (line.partition(" ") for line in windows):
+            was = held.get(window)
+            if was and was[2] >= rendered:
+                continue
+            if was and was[:2] != [account, words]:
+                changed[window] = words
+            held[window] = [account, words, rendered]
+        note.seek(0)
+        note.write(json.dumps(held))
+        note.truncate()
+        note.flush()
+        if harness and changed:
+            usage.record_turn_meters(cfg, provider, orch.harness_plugin(harness).status_meters(
+                changed), account or None, now=rendered)
 
 
 def pane_reads(form):
