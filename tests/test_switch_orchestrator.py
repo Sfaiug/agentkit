@@ -457,11 +457,11 @@ class Switch(Sandbox):
             lines, _ = menu.config_body(self.cfg, ("model", "opus"), 0,
                                         self.selected())
         self.assertEqual(lines[0].split(), ["orch", "builds", "reviews"])
-        rows = {terminal.plain(line).lstrip("› ").split()[0]: "".join(
+        rows = {re.split(r" [[●○■□]", terminal.plain(line).lstrip("› "))[0]: "".join(
             char for char in terminal.plain(line) if char in "●○■□") for line in lines
                 if any(char in terminal.plain(line) for char in "●○■□")}
-        self.assertEqual(rows["Opus"], "●■□")
-        self.assertEqual(rows["GPT-6-Astra"], "○■■")
+        self.assertEqual(rows["Opus 5.5"], "●■□")
+        self.assertEqual(rows["6 Astra"], "○■■")
         with patch.object(menu.update, "agentkit_version", return_value="fixture"), \
                 patch.object(menu.usage, "collect", return_value={}), \
                 patch.object(terminal, "layout_width", return_value=100), \

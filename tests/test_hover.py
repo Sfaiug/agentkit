@@ -195,8 +195,8 @@ class Screens(Sandbox):
     def test_the_matrix_lights_the_row_and_the_cell_under_the_pointer(self):
         first = self.matrix()[0]
         self.assertOneHighlight(first, "Fable 5.1")
-        label = at(first, "GPT-6-Astra")
-        beside = (label[0] + len("GPT-6-Astra") + 1, label[1])   # on its row, between its cells
+        label = at(first, "6 Astra")
+        beside = (label[0] + len("6 Astra") + 1, label[1])   # on its row, between its cells
         line = texts(first)[label[1] - 1]
         mark = (line.index("○", label[0]) + 1, label[1])          # its orchestrator mark
         # blank on its row is on nothing: nothing lights, the keys' highlight off as off every
@@ -206,15 +206,15 @@ class Screens(Sandbox):
         self.assertOneHighlight(screens[2], "Opus 5.5")
         # its label is a cell, a click's to put the highlight on its first mark
         self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"),
-                         {label[1]: "GPT-6-Astra"})
+                         {label[1]: "6 Astra"})
         # on a mark the cell lights, in place of the keys' reverse: one highlight, not two
         last = self.matrix(move(*mark) + ESC)[-1]
-        self.assertOneHighlight(last, "GPT-6-Astra")
+        self.assertOneHighlight(last, "6 Astra")
         self.assertEqual(marked(last, "lit"), {mark[1]: "○"})
         self.assertEqual(marked(last, "reverse"), {})
         # a key takes it from there: the next cell is the keys', and nothing is lit
         last = self.matrix(move(*mark) + RIGHT + ESC)[-1]
-        self.assertOneHighlight(last, "GPT-6-Astra")
+        self.assertOneHighlight(last, "6 Astra")
         self.assertEqual(marked(last, "lit"), {})
         self.assertEqual(marked(last, "reverse"), {mark[1]: "□"})
         # off every row the row and its cell lose it, a key-line item lighting alone and
@@ -227,7 +227,7 @@ class Screens(Sandbox):
         self.assertEqual((highlighted(screens[2]), marked(screens[2], "reverse")), ([], {}))
         self.assertEqual(marked(screens[3], "lit"), {})
         self.assertEqual((highlighted(screens[3]), marked(screens[3], "reverse")), ([], {}))
-        self.assertOneHighlight(screens[4], "GPT-6-Astra")
+        self.assertOneHighlight(screens[4], "6 Astra")
         self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "□"})
 
     def test_the_highlighted_model_opens_no_line_and_nothing_moves(self):
@@ -370,7 +370,7 @@ class Screens(Sandbox):
         answer, screens = picking(ESC)
         self.assertFalse(answer)
         self.assertOneHighlight(screens[0], "Fable 5.1")      # the first model, as on `c`
-        row = at(screens[0], "GPT-6-Astra")[1]
+        row = at(screens[0], "6 Astra")[1]
         review = (texts(screens[0])[row - 1].index("■", at(screens[0], "review")[0]) + 1, row)
         last = picking(move(*review) + ESC)[1][-1]
         self.assertEqual(len(highlighted(last)), 1)

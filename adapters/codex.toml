@@ -265,12 +265,12 @@ levels = ["low", "medium", "high", "xhigh", "max", "ultra"]
 # the words above.
 [catalog]
 default = { label = "Codex's own model", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
-gpt-6-astra = { label = "GPT-6-Astra", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
-"gpt-6.1-sol" = { label = "GPT-6.1-Sol", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
-"gpt-6.1-terra" = { label = "GPT-6.1 Terra", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
-"gpt-6-sol" = { label = "GPT-6-Sol", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
-"gpt-6-luna" = { label = "GPT-6-Luna", efforts = ["low", "medium", "high", "xhigh", "max"] }
-"gpt-5.6-sol" = { label = "GPT-5.6-Sol", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
-"gpt-5.6-terra" = { label = "GPT-5.6-Terra", efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
-"gpt-5.6-luna" = { label = "GPT-5.6-Luna", efforts = ["low", "medium", "high", "xhigh", "max"] }
-"gpt-5.5" = { label = "GPT-5.5", efforts = ["low", "medium", "high", "xhigh"] }
+gpt-6-astra = { efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-6.1-sol" = { efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-6.1-terra" = { efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-6-sol" = { efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-6-luna" = { efforts = ["low", "medium", "high", "xhigh", "max"] }
+"gpt-5.6-sol" = { efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-5.6-terra" = { efforts = ["low", "medium", "high", "xhigh", "max", "ultra"] }
+"gpt-5.6-luna" = { efforts = ["low", "medium", "high", "xhigh", "max"] }
+"gpt-5.5" = { efforts = ["low", "medium", "high", "xhigh"] }

@@ -222,10 +222,12 @@ def running(record, cwd, conversation):
     from . import model_report
     latest, report = answered_model(conversation), model_report(conversation)
     if report and (not latest or report[2] > latest[2]):
-        # agy 1.5 reports catalog labels with a bracketed effort, even as `model.id`.
+        # agy 1.5 reports its own labels with a bracketed effort, even as `model.id`: the row
+        # is the one named as that label is (config.model_label), off its own label or its id.
         label = re.sub(r" \([^()]*\)$", "", report[0])
+        named = config.model_label("antigravity", "", label)
         model = next((row["id"] for row in config.catalog_table("antigravity")
-                      if row["label"] == label), label)
+                      if config.model_label("antigravity", "", row["label"]) == named), label)
         return model, report[1], report[2]
     return latest
 

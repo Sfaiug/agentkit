@@ -303,15 +303,15 @@ class RoleMarksScreen(unittest.TestCase):
         screen.picker()
         screen.send(DOWN + RIGHT * 4 + SPACE)   # past Opus's efforts: Opus joins reviewers
         lines = screen.picker(lambda lines: marks(highlighted(lines)) == "●■■")
-        number = next(number for number, line in enumerate(lines, 1) if "GPT-6-Astra" in line)
+        number = next(number for number, line in enumerate(lines, 1) if "6 Astra" in line)
         col = lines[2].index("review") + 2
         screen.send(LEFT * 4)                  # the click must move from orch to review
         screen.send(f"\x1b[<0;{col};{number}M\x1b[<0;{col};{number}m".encode())
-        screen.picker(lambda lines: "GPT-6-Astra" in highlighted(lines)
+        screen.picker(lambda lines: "6 Astra" in highlighted(lines)
                       and marks(highlighted(lines)) == "○■□")
         screen.send(LEFT * 2 + SPACE)          # past its build effort: Opus reviewing itself could
                                                # start, so it goes
-        lines = screen.picker(lambda lines: "GPT-6-Astra" in highlighted(lines)
+        lines = screen.picker(lambda lines: "6 Astra" in highlighted(lines)
                               and marks(highlighted(lines)) == "○□□")
         self.assertFalse(any("no allowed" in line for line in lines))
         screen.start()

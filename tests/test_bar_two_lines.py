@@ -22,7 +22,7 @@ from agentkit.guard import commands  # noqa: E402
 from agentkit import record
 
 NOW = 1_800_000_000
-CREW = "Fable 5.1 xhigh orchestrates   GPT-6-Astra xhigh builds, reviews"   # line two
+CREW = "Fable 5.1 xhigh orchestrates   6 Astra xhigh builds, reviews"   # line two
 DIM = terminal.colour("dim", tmux=True)
 
 

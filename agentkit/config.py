@@ -726,7 +726,7 @@ def remove_model(cfg, name):
 
 
 def short_name(cfg, label):
-    """`sonnet` for `Sonnet 5`, `gemini-pro` for `Gemini 3 Pro`: a label's words without their
+    """`sol` for `6.1 Sol`, `grok-fast` for `Grok 4.7 Fast`: a label's words without their
     versions, then `-2`, `-3` and on until it names no model the config has."""
     words = [word for word in re.findall(r"[a-z0-9]+", label.lower().replace("'", ""))
              if not any(char.isdigit() for char in word)]

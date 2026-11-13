@@ -23,7 +23,7 @@ from agentkit import config, menu, terminal, watch  # noqa: E402
 SAID = {"acme-plan": ("needs you", "Which schema should acme use, the old one or the new one?"),
         "acme-docs": ("done", "The docs say v2 only, with a note for v1 readers."),
         "acme-fix": ("idle", "session closed: press 3 to reopen")}
-CREW = "Opus 5.5 xhigh orchestrates   GPT-6-Astra xhigh builds   Fable 5.1 xhigh reviews"
+CREW = "Opus 5.5 xhigh orchestrates   6 Astra xhigh builds   Fable 5.1 xhigh reviews"
 UNSENT = " ".join(["Fix the login redirect for acme and tell me what broke."] * 2)  # two lines
 
 
