@@ -2,9 +2,10 @@
 
 The tip fails tests/test_widget.py alone, by name: stacks red in nothing else land over it, on
 helper pieces too, unproven and with no trailer; one red in another test gets a fix naming that
-alone, its fixer told of the target's.  The repair lands once its stack passes the test, or is
-the culprit.  A red naming no test holds the line.  Offline: the lander fixture, a shell suite,
-fake launches, wakes and helper, merges by a push.
+alone, its fixer told of the target's, and one naming none is the member's where the tip fails
+nothing else.  The repair lands once its stack passes the test, or is the culprit, a stack of
+one tree with it answered apart.  A target red naming no test holds the line.  Offline: the
+lander fixture, a shell suite, fake launches, wakes and helper, merges by a push.
 """
 
 from pathlib import Path
@@ -117,17 +118,33 @@ class ATargetsOwnRedDoesNotHoldItsLine(unittest.TestCase):
         self.assertIsNone(self.red())
 
     def test_a_repair_whose_stack_still_fails_the_targets_red_is_its_culprit(self):
-        first, second, _ = self.line(**{"broken.txt": "target\n", "worse.txt": "breakage\n"})
+        first, second, _ = self.line(**{"broken.txt": "target breakage\n"})
+        for task in (first / "task.md", second / "task.md"):    # their checks the repair's
+            task.write_text(task.read_text().replace("true  # once\n", ""))
         land.check_line(self.turn)
         repair = self.prepared[0][0]
-        self.ready_repair(repair)       # it mends broken.txt alone
+        run.git(self.repo, "checkout", self.ready_repair(repair))
+        run.git(self.repo, "checkout", "origin/main", "--", "broken.txt")
+        self.commit("mend nothing")     # its stack's tree second's, as its checks are
         with record.record(repair) as state:
+            state["review"].update(run.commit_identity(self.repo))
             state["waiting_on"]["joined"] = 2.5     # between second and third
+        run.git(self.repo, "checkout", "main")
         land.check_line(self.turn)
         self.assertEqual([self.wait(directory)["over"] for directory in (first, second)],
                          [[WIDGET]] * 2)
         self.assertEqual(self.wait(repair)["fix"]["tests"], [WIDGET])
         self.assertNotIn("excused", self.wait(repair)["fix"])
+
+    def test_a_member_red_naming_nothing_beside_the_targets_named_red_is_its_own(self):
+        first, second, _ = self.line(**{"broken.txt": "target breakage\n"})
+        land.check_line(self.turn)
+        crashing = self.member("crashing", 0.5, **{"crash.txt": "crash\n"})    # first in line
+        land.check_line(self.turn)
+        self.assertEqual(self.red()["tests"], [WIDGET])
+        self.assertEqual(self.wait(crashing)["fix"]["excused"], [WIDGET])
+        self.assertEqual([self.wait(member)["over"] for member in (first, second)],
+                         [[WIDGET]] * 2)
 
     def test_each_helper_piece_red_in_the_targets_red_alone_is_confirmed(self):
         first, *_ = self.line(**{"broken.txt": "target\n", "acme.txt": "target\n"})

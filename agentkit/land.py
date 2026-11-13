@@ -391,7 +391,7 @@ def _clear_left():
 
 
 def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log, green,
-               tests=None):
+               tests=None, over=()):
     """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, the target's tip
     alone, for the member in `directory`: True when it passes there, so the red is the
     member's own, the piece then in `green`, what the tip passed on this pass.  Where
@@ -405,7 +405,9 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
     target's one repair (`_repair`); a repeat of named tests keeps them in the entry, with those
-    it kept before, and walks for the commit that first turned the target red (`_blame_tip`)."""
+    it kept before, and walks for the commit that first turned the target red (`_blame_tip`).
+    Where the stack excused `over`, the target's named red, the piece passing on the tip or red
+    there in nothing else is the member's red, and the entry stays as it is."""
     path = directory / "target-probe.log"
     again = None
     if tests:
@@ -418,8 +420,12 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
             return True
         _put_back(scratch, tip)
     if not again:       # a repeat needs no piece to say the tip is red
-        ok, probe, _ = _check(directory, state, scratch, [suite], path, log, shard=piece or None,
-                              kind="tip")
+        ok, probe, red = _check(directory, state, scratch, [suite], path, log,
+                                shard=piece or None, kind="tip", over=over)
+        if over and (ok or "over" in red):
+            # passing, it mends nothing: the red's tests may be in another piece
+            green.add(piece)
+            return True
     if ok:
         # the pass is the piece's, named so it covers no stack's own checks
         note(turn, [tree], directory.name, checks=[f"{suite} (AK_SHARD={piece})" if piece else suite],
@@ -1198,6 +1204,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
     while pending:
         with ExitStack() as opened:
             top, stacks = tip, []
+            # `over`'s tests are no stack's to answer for below the one holding its repair `run`
+            holding = not over or over["run"] in [member.name for member, _ in prefix]
             for _, saved in prefix:
                 scratch, text = _stack_member(repo, saved, top, upstream, opened)
                 if text:
@@ -1242,17 +1250,17 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                     continue
                 top = run.git(scratch, "rev-parse", "HEAD")
                 tree = run.git(scratch, "rev-parse", "HEAD^{tree}")
+                holding = holding or member.name == over["run"]
+                # what a stack excuses is its answer's, as its tree and checks are: two stacks
+                # of one tree either side of the repair are answered each its own way
                 stacks.append((member, saved, scratch, tree,
-                               _landing_checks(member, saved, scratch, tip)))
+                               _landing_checks(member, saved, scratch, tip),
+                               () if holding else tuple(over["tests"])))
             if not stacks:
                 break
             suite = gitcall.declared_suite(stacks[0][2], ref=tip)
             if limit is None:
                 limit = gate.whole_checks_that_fit(suite)
-            # `over`'s tests are no stack's to answer for below the one holding its repair `run`
-            names = [member.name for member, *_ in [*prefix, *stacks]]
-            excused = [over["tests"] if over and over["run"] not in names[:len(prefix) + index + 1]
-                       else () for index in range(len(stacks))]
             green, red = (_answering(turn, kind) for kind in ("trees", "red_stacks"))
             # The first stack has no green prefix to attribute a cached failure to.
             # Retry its own check after a kill or flake; later evidence survives a crash.
@@ -1264,9 +1272,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                 ran = iter(entry.get("checks", ()))
                 return all(cmd in ran for cmd in checks)
 
-            def cached_red(tree):
-                return {"fix": {key: red[tree][key] for key in (
-                    "line", "log", "command", "piece", "tests", "excused") if key in red[tree]}}
+            def cached_red(tree, checks, excused):
+                kept = red.get(tree, {})
+                if kept.get("checks") == list(checks) and kept.get("excused", []) == list(excused):
+                    return {"fix": {key: kept[key] for key in (
+                        "line", "log", "command", "piece", "tests", "excused") if key in kept}}
 
             def green_answer(tree, tested):
                 return {"land": tree} if tree == tested else {"land": tree, "tested": tested}
@@ -1288,11 +1298,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
             answers = {}
             passed_alone = {}   # (index, what failed): whether just that passed run alone there
             probed_red = set()  # (index, what failed): a probe found just that red there
-            for _, _, _, tree, checks in stacks:
+            for _, _, _, tree, checks, excused in stacks:
                 if tree in green and checked(green[tree], checks):
-                    answers[tree, checks] = green_answer(tree, green[tree]["tested"])
-                elif red.get(tree, {}).get("checks") == list(checks):
-                    answers[tree, checks] = cached_red(tree)
+                    answers[tree, checks, excused] = green_answer(tree, green[tree]["tested"])
+                elif cached := cached_red(tree, checks, excused):
+                    answers[tree, checks, excused] = cached
             batched = len({stack[3:] for stack in stacks if stack[3:] not in answers}) > limit
 
             def cover(index, checks, tested, at=None, code=None, failed=()):
@@ -1302,14 +1312,14 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                      checks=checks, tested=tested, at=at, code=code,
                      red=failed and {stack[3]: {"as": over["tree"]} for stack in covered
                                      if stack[3] != over["tree"]})
-                for _, _, _, tree, own in covered:
-                    answers[tree, own] = {**green_answer(tree, tested),
+                for _, _, _, tree, own, excused in covered:
+                    answers[tree, own, excused] = {**green_answer(tree, tested),
                                           **({"over": failed} if failed else {})}
 
             if batched:
-                for index, (_, _, _, tree, checks) in enumerate(stacks):
-                    if red.get(tree, {}).get("checks") == list(commands(index)):
-                        answers[tree, checks] = cached_red(tree)
+                for index, (_, _, _, tree, checks, excused) in enumerate(stacks):
+                    if cached := cached_red(tree, commands(index), excused):
+                        answers[tree, checks, excused] = cached
                     evidence = green.get(tree)
                     if evidence and checked(evidence, commands(index)):
                         cover(index, evidence["checks"], evidence["tested"], evidence["at"],
@@ -1324,7 +1334,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                         return
                     # A confirmed failed part makes the stack's planned check red.
                     checks = commands(index)
-                tree, own = stacks[index][3:]
+                tree, own, excused = stacks[index][3:]
                 if not answer:      # the host's red (`_check_tree`): this pass ends
                     short = True
                 elif "land" in answer:
@@ -1332,7 +1342,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                 else:
                     if failed is None:
                         carried[:] = answer.pop("parts")
-                    answers[tree, own] = answer
+                    answers[tree, own, excused] = answer
                     if not target_red:  # beside the target's own red, it may be nothing else
                         note(turn, [], directory.name, checks=checks,
                              red_stacks={tree: answer["fix"]})
@@ -1369,8 +1379,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                 if target_red:
                     return
                 green_prefix = bool(prefix)
-                for index, (member, saved, scratch, tree, checks) in enumerate(stacks):
-                    answer = answers.get((tree, checks))
+                for index, (member, saved, scratch, tree, checks, excused) in enumerate(stacks):
+                    answer = answers.get((tree, checks, excused))
                     # A red is blamed only behind stacks all answered green: an unanswered
                     # one ahead may be the culprit, and removing it changes every later tree.
                     if answer is None or ("fix" in answer and index and not green_prefix):
@@ -1393,7 +1403,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                             return
                         _put_back(scratch, tip)
                         if not _probe_tip(turn, member, saved, scratch, tip, upstream,
-                                          target_tree, suite, piece, log, tip_green, tests):
+                                          target_tree, suite, piece, log, tip_green, tests,
+                                          excused):
                             target_red = True
                             return
                     if member not in verdicts:
@@ -1432,7 +1443,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                             break
                         answer_tree(top, None, pool.submit(
                             _check_tests, *stacks[top][:4], part["command"], part["piece"],
-                            part["tests"], log, excused[top]),
+                            part["tests"], log, stacks[top][5]),
                             (part["command"], tuple(part["tests"])))
                         if tuple(stacks[top][3:]) in answers:
                             batched = True
@@ -1440,8 +1451,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                             carried.remove(part)
                         decide()
                     while not rebuild and not target_red and not short and not stopped():
-                        unchecked = [index for index, (_, _, _, tree, checks) in enumerate(stacks)
-                                     if (tree, checks) not in answers]
+                        unchecked = [index for index, stack in enumerate(stacks)
+                                     if stack[3:] not in answers]
                         narrowing, command, owner = None, None, 0
                         if batched and unchecked:
                             # Narrow the first unresolved red between the last green and it.
@@ -1511,8 +1522,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                                          high if low + 1 == high else (floor + high) // 2]
                         active = {tuple(stacks[index][3:]) for index, *_ in running.values()}
                         for index in unchecked:
-                            member, saved, scratch, tree, own = stacks[index]
-                            if (tree, own) in active or len(running) >= limit:
+                            member, saved, scratch, tree, own, excused = stacks[index]
+                            if stacks[index][3:] in active or len(running) >= limit:
                                 continue
                             # Ahead of the command's first stack the target's suite runs where
                             # that stack's `tests:` line does: its tests that failed run there.
@@ -1521,14 +1532,14 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                             if runs:
                                 job = pool.submit(_check_tests, member, saved, scratch, tree,
                                                   runs, failing["fix"]["piece"], tests, log,
-                                                  excused[index])
+                                                  excused)
                                 running[job] = index, None, narrowing
                             else:
                                 checks = commands(index) if batched else own
                                 running[pool.submit(_check_tree, member, saved, scratch, tree,
-                                                    checks, log, suite, excused[index])] = (
+                                                    checks, log, suite, excused)] = (
                                     index, checks, None)
-                            active.add((tree, own))
+                            active.add(stacks[index][3:])
                         if not running:
                             break
                         check = next(as_completed(running))
