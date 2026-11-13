@@ -18,14 +18,12 @@ from fixtures.clock import Clock
 
 class Exec:
     """A /proc entry whose reads come in turn, as from a process in the middle of an exec, the
-    last of each for good; its root is the test's own."""
+    last of each for good."""
 
     def __init__(self, pid, **reads):
         self.name, self.reads = str(pid), reads
 
     def __truediv__(self, field):
-        if field == "root":
-            return Path("/")
         reads = self.reads[field]
         return SimpleNamespace(read_bytes=lambda: reads.pop(0) if len(reads) > 1 else reads[0])
 
