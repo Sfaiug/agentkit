@@ -448,7 +448,6 @@ test_key_reviewer_other_provider_first
 test_key_reviewer_verdict_only
 test_key_revive_seat
 test_key_revived_seat_told_when_ready
-test_key_role_choices
 test_key_role_cost_from_runs
 test_key_role_picks
 test_key_round_budget_across_runs

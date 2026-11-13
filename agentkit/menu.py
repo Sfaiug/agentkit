@@ -3089,23 +3089,16 @@ def model_heading(harness):
 TAKEN = {"orchestrate": "orchestrator", "execute": "workers", "review": "reviewers"}
 
 
-def runner(cfg, row):
-    """The configured model a take of `row` takes: the first of config.offered running it."""
-    return next((name for name in config.offered(cfg) if {
-        "harness": cfg["models"][name]["harness"], "model": cfg["models"][name]["model"]}
-        in row["yours"]), None)
-
-
 def next_choice(cfg, found, row, step, kept):
     """What ← (`step` -1) or → (1) takes off `row`, the row a role uses, of its answer `found`
     (matrix.answer), the owner's design of 5 Nov 2026: (model, effort) of its next step down or
-    up, in order of cost and on a tie of quality, that a configured model runs, passing the
-    others; None past either end.  The steps: its `choices`, each as the first configured model
-    running it (runner) at its effort, and the row of `kept` (model, effort, row) where it is no
-    choice, `whys` holding it (matrix._choices), as the role used it: the owner, 12 Nov 2026.
-    A `row` that is no step stands at its cost and quality, one with no cost as its best choice."""
+    up, in order of cost and on a tie of quality; None past either end.  The steps: its
+    `choices`, each as the configured model taking it (matrix.runner) at its effort, and the row
+    of `kept` (model, effort, row) where it is no choice, `whys` holding it (matrix._choices), as
+    the role used it: the owner, 12 Nov 2026.  A `row` that is no step stands at its cost and
+    quality, one with no cost as its best choice."""
     name, effort, own = kept
-    steps = [(one, runner(cfg, one), one["effort"]) for one in found["choices"]]
+    steps = [(one, matrix.runner(cfg, one), one["effort"]) for one in found["choices"]]
     steps += [(own, name, effort)] if id(own) in found["whys"] else []
     here = row if row and row["cost"] is not None else next(reversed(found["choices"]), None)
     if here is None:
@@ -3113,7 +3106,7 @@ def next_choice(cfg, found, row, step, kept):
     steps += [] if any(one is here for one, *_ in steps) else [(here, None, None)]
     steps = sorted(steps, key=lambda one: (one[0]["cost"], one[0]["quality"]))[::step]
     at = next(n for n, (one, *_) in enumerate(steps) if one is here)
-    return next(((model, level) for _, model, level in steps[at + 1:] if model), None)
+    return next(((model, level) for _, model, level in steps[at + 1:]), None)
 
 
 def take_choice(cfg, name, selected, providers, role, model, effort, around):
@@ -3354,7 +3347,7 @@ def models_bars(found, role, used, kept, room=None, marked=True, why=True):
     heights and costs say which is dearer, as a shaded bar on the right is dearer, not better.
     On a narrow screen the two-cell gutters, then the indent, give way to the labels, and where
     a word too wide for its column widens it past the screen, fewer bars stand: the shaded ones
-    go first, `kept` last, then the cheapest choices, as matrix._choices keeps the costliest.  Given
+    go first, `kept` last, then the cheapest choices, as matrix._chosen keeps the costliest.  Given
     `room` lines, the dearest stands as tall as the rest leaves room for, TALL cells at most and
     one at least, else TALL; `marked` false leaves the `━` out, `why` false the whys."""
     utf8, width, choices = terminal.utf8(), terminal.layout_width(), found["choices"]
