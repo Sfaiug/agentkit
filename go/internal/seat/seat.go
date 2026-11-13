@@ -62,7 +62,7 @@ type Seat struct {
 	path   string
 	seen   sight
 
-	bars func() ([]barRow, bool) // the bars as the reading that read it listed them, once (statusbar's look.once)
+	bars *func() ([]barRow, bool) // the bars as the reading that read it listed them, once until it writes one (barTell)
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -208,7 +208,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 			if !ok {
 				return Home{}, false
 			}
-			seat.home, seat.bars = homeKey("", stands), bars
+			seat.home, seat.bars = homeKey("", stands), &bars
 			home.Seats = append(home.Seats, seat)
 			continue
 		}
@@ -218,7 +218,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		if !ok {
 			return Home{}, false
 		}
-		seat.held, seat.live, seat.bars = slices.Contains(held, name), isLive, bars
+		seat.held, seat.live, seat.bars = slices.Contains(held, name), isLive, &bars
 		if seat.live {
 			facts := climbingOf(state, seat, sight{}, seconds(now))
 			if deferred {

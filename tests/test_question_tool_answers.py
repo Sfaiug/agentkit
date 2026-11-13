@@ -34,7 +34,7 @@ FAKE_TMUX = r"""#!/bin/bash
 [[ $1 = -L && $2 = agentkit-test ]] || exit 1
 shift 2
 case $1 in
-  list-sessions) printf '%s\t%s\t100\t0\t1\n' acme "$HOME" ;;
+  list-sessions) printf '%s\t%s\t100\t0\t1\t$0\n' acme "$HOME" ;;
   list-panes) printf 'acme\t0\n' ;;
   display-message) [[ $4 = %7 ]] && printf '/fake/agentkit-test\tacme\n' ;;
   capture-pane) cat "$FAKE_CAPTURE" ;;

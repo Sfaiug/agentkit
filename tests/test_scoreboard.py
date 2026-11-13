@@ -201,7 +201,7 @@ class Scoreboard(unittest.TestCase):
                                  "built": [None, None], "waits": [None, None], "merged": [None, None],
                                  "checks": [None, None],
                                  "parks": [None, None], "conflicts": [None, None],
-                                 "sunk": [None, None], "broke": [None, None],
+                                 "sunk": [None, None], "broke": [None, None], "rewritten": [None, None],
                                  "pairs": [None, None], "findings": [None, None], "size": [None, None]})
         text = self.status("--history")
         self.assertIn("no runs ended", text)
@@ -221,6 +221,7 @@ class Scoreboard(unittest.TestCase):
         stats = scoreboard.compute(NOW)["products"][0]
         self.assertEqual((stats["runs"], stats["hours"], stats["tokens"]), (1, 1, 100))
         self.assertEqual(scoreboard.compute(NOW)["checks"], [None, None])
+        self.assertEqual(scoreboard.compute(NOW)["rewritten"], [None, None])
         self.assertEqual(history.path().read_bytes(), before)
 
     def test_review_pairs_count_merged_changes_with_known_pairs_and_landing_results(self):
@@ -281,6 +282,7 @@ class Scoreboard(unittest.TestCase):
             "conflicts": [None, None],
             "sunk": [{"share": .4, "tokens": 1200}, None],
             "broke": [{"merged": 2, "after_merge": 1, "landing": 1, "flakes": 2, "unknown": 1}, None],
+            "rewritten": [{"live": 3, "rewritten": 1}, {"live": 0, "rewritten": 0}],
             "pairs": [{"self": .5, "self_landing": .25, "same_provider": .3,
                        "same_provider_landing": .4, "other_landing": .1}, None],
             "findings": [{"blocking": 4, "disputed": 3, "conceded": 2, "raised_again": 1,
@@ -318,6 +320,8 @@ class Scoreboard(unittest.TestCase):
             "              after merge; 1 went red at landing; 2 more",
             "              were flakes; 1 merged before breaks were",
             "              recorded",
+            "rewritten     1 of 3 live plan lines rewritten within 14  no plan line went live",
+            "              days",
             "review pairs  50% self-reviewed (25% went red at          not recorded",
             "              landing); 30% reviewed by another model of",
             "              the same provider (40% went red at",

@@ -3,6 +3,11 @@
 screen reads it, is listed without one.
 
 Black-box: AK_BIN reads history.db in a temporary HOME, with no project checkout.
+
+Owner, 12 Nov 2026: the board lists no change that rewrote lines another seat's change added in
+the 7 days before (write-up risk 18, two seats with opposite intent).  Of 80 of that week's 688
+merges 12 did, 38 pairs, 24 of them of one or two lines: churn, as the count dropped on 16 Oct
+was.  The first change's own key, run at landing, is what stops a second from undoing it.
 """
 
 from contextlib import closing

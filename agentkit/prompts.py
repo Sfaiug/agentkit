@@ -12,7 +12,6 @@ import io
 import json
 import re
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 
@@ -373,8 +372,10 @@ def inside_fix(lp, row, since, head):
     if since is None or row.get("line") is None:
         return None
     try:
-        # -z: each path as it is, never quoted
-        named = iter(gitcall.git(lp.wt, "diff", "-M", "-z", "--name-status", since, head).split("\0"))
+        # -z and every byte kept: each path as it is, never quoted, and handed back to git a
+        # source name that is not UTF-8 still names its file
+        named = iter(gitcall.git_bytes(lp.wt, "diff", "-M", "-z", "--name-status", since,
+                                       head).split("\0"))
         for status, path in zip(named, named):
             # a rename or a copy names its source first
             path, was = (next(named), path) if status[0] in "RC" else (path, None)
@@ -417,7 +418,7 @@ def proof_on(lp, command, log_path, revision=None, tests_from=None):
         env = gate.suite_env()
         env.pop(hand_in.ENV, None)
         env.pop(hand_in.CONTINUE, None)
-        with tempfile.TemporaryDirectory(dir=lp.run_dir) as cache, log_path.open("w+b") as progress:
+        with run_record.scratch(lp.run_dir) as cache, log_path.open("w+b") as progress:
             # Same-size revisions can share a timestamp, making ignored bytecode look valid.
             env["PYTHONPYCACHEPREFIX"] = cache
             progress.write(f"$ {command} (on {revision or 'workspace'})\n".encode())

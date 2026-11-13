@@ -1095,7 +1095,7 @@ def repository_lock(repo, *, exclusive=False):
     directory = os.open(common, os.O_RDONLY | os.O_DIRECTORY)
     try:
         fcntl.flock(directory, fcntl.LOCK_EX | fcntl.LOCK_NB if exclusive else fcntl.LOCK_SH)
-        yield env
+        yield env, Path(common)
     finally:
         os.close(directory)
 
@@ -1103,7 +1103,12 @@ def repository_lock(repo, *, exclusive=False):
 def no_auto_gc(repo):
     # Linked worktrees share this config: a turn's detached gc can lock all their HEADs,
     # then leave those locks behind when the worker stops its leftover processes.
-    with repository_lock(repo) as env:
+    with repository_lock(repo) as (env, common), \
+            (common / "ak-config.lock").open("a") as turn:
+        # Preparations share the repository lock, and git refuses a config write outright
+        # while another holds config.lock, so their check-and-writes take turns.  On a file
+        # git never replaces, as it replaces the config on every write.
+        fcntl.flock(turn, fcntl.LOCK_EX)
         for key, value in (("gc.auto", "0"), ("maintenance.auto", "false")):
             if git(repo, "config", "--local", "--get", key, check=False, env=env) != value:
                 git(repo, "config", "--local", "--replace-all", key, value, env=env)

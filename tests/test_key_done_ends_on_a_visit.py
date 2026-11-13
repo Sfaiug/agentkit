@@ -28,7 +28,7 @@ args = args[2:]
 home = Path(os.environ["HOME"])
 visit = json.loads((home / "tmux.json").read_text())
 fields = {
-    "session_name": "acme", "session_path": str(home), "session_created": "100",
+    "session_id": "$0", "session_name": "acme", "session_path": str(home), "session_created": "100",
     "session_attached": str(visit["attached"]), "session_last_attached": str(visit["last"]),
     "@ak_orch": "1", "@ak_harness_pane": "%1", "pane_id": "%1", "pane_dead": "0",
 }

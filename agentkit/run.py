@@ -949,8 +949,12 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
     launch, so a write landing after the hold is never taken for this failure and undone.
     """
     log_path = run_dir / "log.txt"
-    env = dict(os.environ, **{config.RUN_DIR_ENV: str(run_dir)})
-    child = [sys.executable, str(config.REPO / "bin" / "ak"), "run"] + [a for a in argv if a != "--bg"]
+    # on the install, whoever starts it: a run's own process runs the version it was admitted
+    # on, and a launch from there would wait, pick up and be admitted by that version's rules;
+    # `resume` and `merge` go back to the run's own version (`versions.dispatch`)
+    env = dict(versions.unpinned(os.environ), **{config.RUN_DIR_ENV: str(run_dir)})
+    child = ([sys.executable, str(versions.live() / "bin" / "ak"), "run"]
+             + [a for a in argv if a != "--bg"])
     with gate.slot_lock(), run_record.recovery_lock(run_dir):
         previous = run_record.read_state(run_dir) or {}
         if seat_launch(previous):
@@ -1591,6 +1595,7 @@ def cmd_merge(argv):
     previous = getattr(_RUN_CONTEXT, "state", {})
     _RUN_CONTEXT.state = state
     clear_delivery(state)
+    jobs.answer_job_line(state)
     # the merge step's time is checkpointed as a loop's is, so a retry killed here keeps it
     sampler = history.Sampler(run_dir.name, log=log)
     sampler.start()
@@ -1718,6 +1723,21 @@ def cmd_resume(argv):
         raise
 
 
+def resume_args(argv):
+    """(run id, rounds or None) of `ak run resume`'s arguments, None where they are not its usage."""
+    argv = [arg for arg in argv if arg != "--bg"]
+    n_rounds = None
+    if len(argv) == 3 and argv[1] == "--rounds" and argv[2].isdigit():
+        try:
+            n_rounds = int(argv[2])
+        except ValueError:      # isdigit holds for "²", and int reads only so many digits
+            return None
+        argv = argv[:1]
+    if len(argv) != 1 or n_rounds == 0 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
+        return None
+    return argv[0], n_rounds
+
+
 def resume_run(argv):
     ids = [arg for arg in argv if not arg.startswith("-") and arg != "--bg"]
     if ids and jobs.receipt_path(config.JOBS / ids[0]).exists():
@@ -1725,22 +1745,19 @@ def resume_run(argv):
         if result is not None:
             return result
     background = "--bg" in argv
-    argv = [arg for arg in argv if arg != "--bg"]
-    requested = list(argv)
-    n_rounds = None
-    if len(argv) == 3 and argv[1] == "--rounds" and argv[2].isdigit() and int(argv[2]) > 0:
-        n_rounds = int(argv[2])
-        argv = argv[:1]
-    if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
+    requested = [arg for arg in argv if arg != "--bg"]
+    parsed = resume_args(argv)
+    if parsed is None:
         raise config.Error("usage: ak run resume <runid> [--rounds N] [--bg]")
+    run_id, n_rounds = parsed
     config.ensure_dirs()
-    run_dir = config.RUNS / argv[0]
+    run_dir = config.RUNS / run_id
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
     refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["review_rounds"])
     if refusal:
         raise config.Error(refusal)
     if state is None:
-        raise config.Error(f"no resumable run: {argv[0]} (looked in {config.RUNS})")
+        raise config.Error(f"no resumable run: {run_id} (looked in {config.RUNS})")
     try:
         box.check()
     except config.Error as exc:
@@ -1754,7 +1771,7 @@ def resume_run(argv):
         state = run_record.read_state(run_dir)
     # The lander's verdict authorizes the member to take back its own record.
     if landing_line(state) and not any(key in state["waiting_on"] for key in ("land", "fix")):
-        raise config.Error(f"{argv[0]} is in line to land; only the lander moves it")
+        raise config.Error(f"{run_id} is in line to land; only the lander moves it")
     child = (os.environ.get(config.RUN_DIR_ENV) == str(run_dir) and
              state.get("state") == "queued" and state.get("resume_from") and
              state.get("pid") == os.getpid() and run_record.process_active(state))
@@ -1777,7 +1794,7 @@ def resume_run(argv):
         return drive(cfg, run_dir, opts, log, prior=state if wt else None)
     if not child and state.get("state") in run_record.ACTIVE:
         if run_record.process_active(state):
-            raise config.Error(f"{argv[0]} is still running as pid {state['pid']}")
+            raise config.Error(f"{run_id} is still running as pid {state['pid']}")
         state = reap(run_dir, state)
     if state.get("state") == "blocked":
         # The task itself is what failed, so there is nothing here to carry on: another
@@ -1819,9 +1836,9 @@ def resume_run(argv):
         # holds a --rounds to
         left, why = change_budget(state, run_dir, run_record.policy_of(state)["review_rounds"], own=state["rounds"])
         if why:
-            raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); {why}")
+            raise config.Error(f"{run_id} FAILed at its round budget ({state['rounds']}); {why}")
         if n_rounds is None or n_rounds <= state["rounds"]:
-            raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); "
+            raise config.Error(f"{run_id} FAILed at its round budget ({state['rounds']}); "
                                f"give --rounds N above it, at most {state['rounds'] + left}, to continue")
     # A FAIL recorded by integration below its budget carries its branch and its rounds
     # with it: the work is reviewed and only the merge is left to try again.
@@ -1843,7 +1860,7 @@ def resume_run(argv):
     if (not needs_recovery(state) and not legacy_pass and not at_budget and not tick_resume
             and not integration_fail and not judged_fail and not queued_resume
             and not parked):
-        raise config.Error(f"{argv[0]} is {state.get('state')!r}, not interrupted or exhausted; "
+        raise config.Error(f"{run_id} is {state.get('state')!r}, not interrupted or exhausted; "
                            "only unfinished work or an unverified PASS can be resumed")
     # An abandoned queued launcher has not allocated its workspace yet. Replay only the
     # saved task/launch options, on an explicit resume. Old receipts have no option record;
@@ -1853,10 +1870,10 @@ def resume_run(argv):
         "repo", "worktree", "branch", "base", "base_sha", "rounds"))
     for key in needed:
         if not state.get(key) and not (key == "rounds" and state.get(key) == 0 and run_record.review_off(state)):
-            raise config.Error(f"{argv[0]}: run.json records no {key}; there is nothing to resume")
+            raise config.Error(f"{run_id}: run.json records no {key}; there is nothing to resume")
     wt = Path(state["worktree"]) if not unstarted else None
     if wt is not None and not wt.is_dir():
-        raise config.Error(f"{argv[0]}: its worktree {wt} is gone; there is nothing to resume")
+        raise config.Error(f"{run_id}: its worktree {wt} is gone; there is nothing to resume")
     if not state.get("review_pr"):
         _, body, _ = taskfile.parse_task(run_dir / "task.md")
         taskfile.done_when(body, run_dir / "task.md")
@@ -1981,6 +1998,8 @@ def resume_run(argv):
         state.pop("stall_resume_at", None)
         state.pop("resume_after", None)
         run_record.save_state(run_dir, state)
+    # past the slot lock: a tick typing the job's line holds the job's lock until it is said
+    jobs.answer_job_line(state)
     log = logger(run_dir)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
     if not child:
