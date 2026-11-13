@@ -169,8 +169,11 @@ class ARedTestsFileIsOneItsTreeHolds(test_lander.LanderFixture, unittest.TestCas
             trees.append(run.git(self.repo, "write-tree"))
         stacks = [(None, None, self.repo, tree) for tree in trees]
         for tests, first in ((["t/new.sh"], 2), (["./t/new.sh::case", "t/new.sh#2"], 2),
+                             (["t//new.sh", "t/./new.sh", ".//t/.//./new.sh"], 2),
                              (["t_tax"], 0),        # a directory
                              (["::t_tax"], 0), (["#t_tax"], 0), (["/t_tax"], 0), (["../t_tax"], 0),
+                             (["/t/new.sh"], 0), (["./t_tax/../t/new.sh"], 0),
+                             *(([f"t/new.sh{end}"], 0) for end in ("/", "//", "/.", "/./")),
                              (["t/new.sh", "t_tax"], 0)):
             with self.subTest(tests=tests):
                 self.assertEqual(land._first_holding(stacks, 3, tests), first)
