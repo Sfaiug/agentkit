@@ -159,6 +159,23 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 4), None)])
 
 
+class ARedTestsFileIsOneItsTreeHolds(test_lander.LanderFixture, unittest.TestCase):
+    def test_only_a_file_the_red_stack_holds_bounds_the_search(self):
+        trees = []
+        for path in ("ok.sh", "t_tax/data.txt", "t/new.sh", "member-4.txt"):
+            (self.repo / path).parent.mkdir(exist_ok=True)
+            (self.repo / path).write_text("x\n")
+            run.git(self.repo, "add", path)
+            trees.append(run.git(self.repo, "write-tree"))
+        stacks = [(None, None, self.repo, tree) for tree in trees]
+        for tests, first in ((["t/new.sh"], 2), (["./t/new.sh::case", "t/new.sh#2"], 2),
+                             (["t_tax"], 0),        # a directory
+                             (["::t_tax"], 0), (["#t_tax"], 0), (["/t_tax"], 0), (["../t_tax"], 0),
+                             (["t/new.sh", "t_tax"], 0)):
+            with self.subTest(tests=tests):
+                self.assertEqual(land._first_holding(stacks, 3, tests), first)
+
+
 # A piece naming test_new.sh not there.
 GONE = 'echo test_new.sh >> "$AK_NOT_THERE"; '
 

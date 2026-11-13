@@ -542,14 +542,16 @@ def _file(test):
 
 def _first_holding(stacks, red, tests):
     """The first of `stacks` whose tree holds a file (`_file`) of `tests`, where the stack at
-    `red` holds each one's, else 0: a test named by no file there may fail anywhere."""
+    `red` holds each one's, else 0: a test named by no file there may fail anywhere.  Each path
+    is read as a revision names it, so `./t/a.sh` is `t/a.sh`, and a directory, or a name no
+    path can be, is no file."""
     from . import run
     files = {_file(test) for test in tests}
 
-    def held(index):
-        return set(run.git(stacks[red][2], "--literal-pathspecs", "ls-tree", "-z", "--name-only",
-                           stacks[index][3], "--", *files).split("\0")) & files
-    return next(index for index in range(red + 1) if held(index)) if held(red) == files else 0
+    def holds(index):
+        return [run.git_out(stacks[red][2], "cat-file", "-t", f"{stacks[index][3]}:{path}")
+                == (0, "blob") for path in files]
+    return next(index for index in range(red + 1) if any(holds(index))) if all(holds(red)) else 0
 
 
 def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed, passed):
