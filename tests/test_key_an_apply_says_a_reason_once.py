@@ -136,6 +136,7 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
         self.assertEqual(version, "  Version ?")
         self.assertTrue(other.startswith(f"  {SPENT}: fable is spent · resets "), shorter)
         self.assertEqual(matrix(shorter), matrix(before))
+        self.assertEqual(key_line(shorter), KEYS)
         self.term.resize(100, 25)       # the rows leave one line: the count takes the version's
         shortest = self.term.wait(lambda screen: "  2 more reasons" in lines(screen))
         self.assertEqual(said(shortest), ["  2 more reasons"])
