@@ -151,6 +151,21 @@ def smoke_source(source, root, piece, live=False, offline=False):
                    else ":\n" for name, body in blocks)
 
 
+def smoke_mode():
+    """smoke_owners' `live` and `offline`, as AGENTKIT_SMOKE_LIVE and AGENTKIT_SMOKE_OFFLINE set."""
+    return (os.environ.get("AGENTKIT_SMOKE_LIVE", "0") == "1",
+            os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1")
+
+
+def smoke_share(path):
+    """The IDs of the blocks of the smoke.sh at `path` that this run's share (AK_SHARD) owns, in
+    its mode: listed in AK_ONLY, they run that share again, and nothing else."""
+    number, total = shard()
+    owners = smoke_owners(smoke_blocks(path.read_text()), path.resolve().parents[1], total,
+                          *smoke_mode())
+    return [f"{SMOKE}#{name}" for name, owner in owners.items() if owner == number]
+
+
 def main():
     try:
         piece = shard()
@@ -158,9 +173,7 @@ def main():
         print(exc, file=sys.stderr)
         return 2
     path = Path(sys.argv[1])
-    print(smoke_source(path.read_text(), path.resolve().parents[1], piece,
-                       os.environ.get("AGENTKIT_SMOKE_LIVE", "0") == "1",
-                       os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1"), end="")
+    print(smoke_source(path.read_text(), path.resolve().parents[1], piece, *smoke_mode()), end="")
     return 0
 
 

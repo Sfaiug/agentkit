@@ -95,7 +95,8 @@ class KilledTest(unittest.TestCase):
             self.fail(maker.communicate(timeout=60)[1])
         root, tmux_dir, helper, *pids = json.loads(line)
         self.addCleanup(os.kill, helper, signal.SIGKILL)
-        self.addCleanup(_clear, root, tmux_dir)     # what a failing reaper left
+        # what a failing reaper left
+        self.addCleanup(_clear, root, tmux_dir, Path(root) / "home")
         self.assertLessEqual({*pids}, running(root, tmux_dir))
         # a runner reads a test's output to its end
         self.assertEqual(holding(running(root, tmux_dir), maker.stdout, maker.stderr), set())

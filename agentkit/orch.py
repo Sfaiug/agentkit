@@ -92,6 +92,9 @@ POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
 DIM = f"fg=#{terminal.colour('dim').rgb}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
+# The tmux client a popup opened on, by name, handed to that popup alone: the window a seat
+# picked in it opens in (`attach`).  Nothing outside it holds the name (`tmux_env`, `warm.serve`).
+CLIENT_ENV = "AGENTKIT_CLIENT"
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
 # opens over: the first popup over it keeps each style the pane has of its own, if it has one
 # (`h`), every one counts itself in, the pane draws dim, the popup is held until it is down, and
@@ -178,20 +181,6 @@ def choose(cfg, providers):
         return credits
     return default, (f"WARN {'; '.join(notes)}; every model is exhausted, "
                      f"launching {default} anyway")
-
-
-def going_on(cfg, current, providers):
-    """The model a seat out of usage on `current` goes on with now, or None: the first in
-    `in_order` on another provider, whose harness is here and that has a window left -- none
-    the move would refuse as spent (`_switch_plan`), and none on credits, which cost money a
-    click to go on now never spends unasked (`switch_orchestrator`'s `credits`)."""
-    provider = config.model(cfg, current)["provider"]
-    return next((name for name in in_order(cfg)
-                 if config.model(cfg, name)["provider"] != provider
-                 and config.harness_present(config.model(cfg, name)["harness"])
-                 and not usage.model_spent(cfg, name, providers)[0]
-                 and not usage.spent_meter(cfg, name, providers)
-                 and not usage.on_credits(cfg, name, providers)), None)
 
 
 @contextmanager
@@ -1141,19 +1130,21 @@ def tmux_env(client=False):
     Inside somebody else's tmux, $TMUX is what a bare tmux command would follow -- so it goes,
     and the server named on the command line is the only one that can be reached.  Only
     `switch-client` keeps it, because without it there is no client to switch.  The mark goes
-    from every one (`owner`), and so does the version a run is pinned to (`versions.unpinned`):
-    any may start a server, whose global environment is the starting client's, a pane takes the
-    PATH of the client that spawns it, and both outlive the caller.
+    from every one (`owner`), and so does the version a run is pinned to (`versions.unpinned`),
+    and the popup's client (CLIENT_ENV): any may start a server, whose global environment is the
+    starting client's, a pane takes the PATH of the client that spawns it, and both outlive the
+    caller.
     """
-    return {k: v for k, v in versions.unpinned(owner.unmarked()).items() if client or k != "TMUX"}
+    return {k: v for k, v in versions.unpinned(owner.unmarked()).items()
+            if k != CLIENT_ENV and (client or k != "TMUX")}
 
 
 def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
-             rows=False, utf8=False):
+             rows=False, utf8=False, input=None):
     """(exit code, output) of one tmux command; 127 when there is no tmux to ask.  The output is
     stripped, unless `rows` keeps a capture's leading blank rows, where each row's place counts.
     `utf8` asks as a UTF-8 client, for what must come back as it is: tmux shows a client outside
-    a UTF-8 locale every other letter as `_`.
+    a UTF-8 locale every other letter as `_`.  `input` is what the command reads on stdin.
 
     `unit` names the transient scope a command that starts a server runs in, so that the
     server -- and every pane it ever opens -- lives in agentkit's slice.  Where the scope
@@ -1178,7 +1169,7 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
     timeout = TMUX_CEILING if timeout is None else timeout
     try:
         proc = subprocess.run(argv, capture_output=True, encoding="utf-8", errors="replace",
-                              env=env, timeout=timeout)
+                              env=env, timeout=timeout, input=input)
     except OSError as exc:
         return 127, str(exc)
     except subprocess.TimeoutExpired:
@@ -1186,7 +1177,7 @@ def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shi
         return 124, f"tmux did not answer {next(iter(args), '')} within {timeout:g} s"
     if proc.returncode != 0 and argv != plain:
         return tmux_out(*args, socket=socket, client=client, timeout=timeout, path_shim=path_shim,
-                        rows=rows, utf8=utf8)
+                        rows=rows, utf8=utf8, input=input)
     out = proc.stdout + proc.stderr
     return proc.returncode, out.rstrip() if rows else out.strip()
 
@@ -1287,7 +1278,8 @@ def dead(socket):
 
 
 def agent_programs():
-    """The names a process in a pane goes by when it is an agent: every adapter's harness.
+    """{harness: the names a process in a pane goes by when it runs that harness}, for every
+    adapter's.
 
     Each adapter names its harness's program as the first word of its `[update] version`
     command -- `grok` for Grok's -- and the adapter's own name stands for it besides;
@@ -1298,14 +1290,14 @@ def agent_programs():
     override = os.environ.get(config.ADAPTER_DIR_ENV)
     roots = ([Path(override).expanduser(), config.REPO / "adapters"] if override
              else [config.REPO / "adapters"])
-    found = set()
+    found = {}
     for root in roots:
         try:
             paths = sorted(root.glob("*.toml"))
         except OSError:
             continue
         for path in paths:
-            found.add(path.stem)
+            names = found.setdefault(path.stem, {path.stem})
             try:
                 facts = config.manifest(path.stem)
             except config.Error:
@@ -1313,10 +1305,10 @@ def agent_programs():
             block = facts.get("update")
             version = block.get("version") if isinstance(block, dict) else None
             if isinstance(version, list) and version and isinstance(version[0], str):
-                found.add(Path(version[0]).name)
+                names.add(Path(version[0]).name)
             block = facts.get("launch")
             named = block.get("programs") if isinstance(block, dict) else None
-            found.update(n for n in named or [] if isinstance(n, str))
+            names.update(n for n in named or [] if isinstance(n, str))
     return found
 
 
@@ -1412,9 +1404,9 @@ def processes():
 
 
 def agentless(socket, names):
-    """Of those sessions, the ones with no interactive harness under a live pane of theirs.
+    """Of those sessions, the ones with no interactive harness under a live pane of theirs
+    (`agent_in`).
 
-    An ak worker and everything under it belong to a run, not an interactive seat.
     A pane the reading has not seen is newer than it, so the table is read again: a session
     just started is judged by what it runs, and a watcher is no seat for as long as a reading
     is kept.  A pane that reading has not seen either has ended, and runs nothing.
@@ -1431,37 +1423,56 @@ def agentless(socket, names):
         parts = line.split("\t")
         if len(parts) == 3 and parts[0] in panes and parts[1].isdigit() and parts[2] != "1":
             panes[parts[0]].append(int(parts[1]))
-    table = processes()
-    if table is not None and any(pid not in table for pids in panes.values() for pid in pids):
-        _PROCESSES.pop("table", None)
-        table = processes()
+    table = processes_of([pid for pids in panes.values() for pid in pids])
     if table is None:
         return set()
+    return {name for name, pids in panes.items() if not agent_in(pids, table)}
+
+
+def pane_harness(pid):
+    """The harness running in the pane whose process that is (`agent_in`), or None where none
+    does or `ps` cannot say: a seat whose model left the config runs one all the same."""
+    table = processes_of([pid])
+    return agent_in([pid], table) if table else None
+
+
+def processes_of(pids):
+    """`processes`, read again where its reading has not seen one of those: a pane started
+    since it is judged by what it runs."""
+    table = processes()
+    if table is not None and any(pid not in table for pid in pids):
+        _PROCESSES.pop("table", None)
+        table = processes()
+    return table
+
+
+def agent_in(pids, table):
+    """The harness of the agent at or under those processes of that table (`processes`), by the
+    names its program goes by (`agent_programs`), or None.  An ak worker and everything under
+    it belong to a run, not an interactive seat."""
     children = {}
     for pid, (ppid, _) in table.items():
         children.setdefault(ppid, []).append(pid)
-    patterns = agent_programs()
-    found = set()
-    for name, pids in panes.items():
-        stack, seen = [pid for pid in pids if pid in table], set()
-        while stack:
-            pid = stack.pop()
-            if pid in seen:
-                continue
-            seen.add(pid)
-            running = program(table[pid][1])
-            if any(fnmatch.fnmatchcase(running, pattern) for pattern in patterns):
-                try:
-                    env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
-                    if b"AK_RUN_ROLE=worker" in env:
-                        continue         # its descendants cannot make a seat either
-                except OSError:
-                    pass                 # an unreadable role is no proof this is a worker
-                break
-            stack.extend(children.get(pid, []))
-        else:
-            found.add(name)
-    return found
+    programs = agent_programs()
+    stack, seen = [pid for pid in pids if pid in table], set()
+    while stack:
+        pid = stack.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        running = program(table[pid][1])
+        harness = next((harness for harness, names in programs.items()
+                        if any(fnmatch.fnmatchcase(running, name) for name in names)), None)
+        if harness:
+            try:
+                env = Path(f"/proc/{pid}/environ").read_bytes().split(b"\0")
+                if b"AK_RUN_ROLE=worker" in env:
+                    continue         # its descendants cannot make a seat either
+            except OSError:
+                pass                 # an unreadable role is no proof this is a worker
+            return harness
+        stack.extend(children.get(pid, []))
+    return None
 
 
 def bind_pane(session):
@@ -1537,42 +1548,68 @@ def owns_hook(session, pid, is_client):
     return False
 
 
-def seated(socket, marks):
-    """Of one tmux server's sessions, each name with its mark, the names that are seats.
+def tagged(socket, ids):
+    """Of those sessions, by id, the ones a seat's tmux shim tagged as that seat's
+    (`guard.tmux_owned`), asked in one call however many there are.
+
+    Only the session's own environment counts: `#{}` falls back to the server's, which holds a
+    tag whenever a process in a tagged pane started the server.  `source-file` reads the asks on
+    stdin, which no call's size caps, and each line as a command list of its own, whose
+    `show-environment` fails, before the session is named, where the session holds no tag of
+    its own; an empty tag names no seat.
+    """
+    asks = "".join(f"show-environment -t '{sid}' {guard.TMUX_OWNER} ; display-message -p -t "
+                   f"'{sid}' '{sid} #{{{guard.TMUX_OWNER}}}'\n"
+                   for sid in ids if re.fullmatch(r"\$[0-9]+", sid))
+    if not asks:
+        return set()
+    _, out = tmux_out("source-file", "-", socket=socket, input=asks)
+    return {sid for sid, _, owner in (line.partition(" ") for line in out.splitlines())
+            if sid in ids and owner}
+
+
+def seated(socket, sessions):
+    """Of one tmux server's sessions, each name with its id and mark, the names that are seats.
 
     A session agentkit did not start -- no mark and no record -- is a seat only while an agent
-    runs in it: somebody's `tmux new` with a harness in it is one, and a watcher loop an
-    orchestrator left there is nobody's, so it is never listed, carded or counted, on any
-    screen or bar.  The process table is read only when there is such a session to ask about.
+    runs in it, and never once a seat has tagged it (`tagged`): somebody's `tmux new` with a
+    harness in it is one; a watcher loop an orchestrator left there is nobody's, and a session
+    a seat started is that seat's, whatever runs in it, so neither is ever listed, carded or
+    counted, on any screen or bar.  The process table is read only when there is an untagged
+    such session to ask about.
     """
-    strangers = {name for name, mark in marks.items() if mark != "1"}
-    idle = agentless(socket, strangers - set(config.session_records())) if strangers else set()
-    return set(marks) - idle
+    unmarked = {name: sid for name, (sid, mark) in sessions.items() if mark != "1"}
+    records = config.session_records() if unmarked else {}
+    strangers = {name: sid for name, sid in unmarked.items() if name not in records}
+    owned = tagged(socket, set(strangers.values()))
+    untagged = {name for name, sid in strangers.items() if sid not in owned}
+    return (set(sessions) - set(strangers)) | (untagged - agentless(socket, untagged))
 
 
 def server_sessions(socket, marked_only, legacy):
     """The seats one tmux server is holding (`seated`): name, path, created, attached, exited."""
     rc, out = tmux_out("list-sessions", "-F",
                        f"#{{session_name}}\t#{{session_path}}\t#{{session_created}}\t"
-                       f"#{{session_attached}}\t#{{{MARK}}}", socket=socket)
+                       f"#{{session_attached}}\t#{{{MARK}}}\t#{{session_id}}", socket=socket)
     if rc != 0:
         return []
-    found, marks = [], {}
+    found, listed = [], {}
     for line in out.splitlines():
         parts = line.split("\t")
-        if len(parts) == 4:
-            parts.append("")   # no mark: the last line's empty field went with the output's strip
-        if len(parts) != 5 or parts[0] == CONTROL or (marked_only and parts[4] != "1"):
+        if len(parts) != 6:
+            continue
+        name, path, created, attached, mark, sid = parts
+        if name == CONTROL or (marked_only and mark != "1"):
             continue
         try:
-            created = int(parts[2])
+            created = int(created)
         except ValueError:
             created = int(time.time())
-        found.append({"name": parts[0], "path": parts[1], "created": created,
-                      "attached": parts[3] not in ("", "0"), "exited": False,
+        found.append({"name": name, "path": path, "created": created,
+                      "attached": attached not in ("", "0"), "exited": False,
                       "legacy": legacy, "resumable": False})
-        marks[parts[0]] = parts[4]
-    seats = seated(socket, marks)
+        listed[name] = (sid, mark)
+    seats = seated(socket, listed)
     found = [session for session in found if session["name"] in seats]
     exited = dead(socket) if found else set()   # a second ask, and only where there is a seat
     for session in found:
@@ -1585,7 +1622,7 @@ def sessions():
 
     The toolkit's server is the toolkit's, so every agent on it is a seat -- including one made
     by hand with `tmux new`, which is listed with no models rather than not at all -- and what
-    runs no agent there is not (see server_sessions).  The user's
+    runs no agent there, or runs in a session a seat started, is not (see `seated`).  The user's
     default server is theirs, so only what carries agentkit's own mark is taken from it: the
     seats started before the toolkit had a server of its own.  Those are `legacy`; they attach
     where they are, and no new one is ever made there.
@@ -2057,7 +2094,9 @@ def tmux_conf():
     press it on; anywhere larger it is the 80% by 70% it always was.  `display-popup` takes
     no format for its size, so the choice is `if-shell -F`'s.  The client's terminal features
     ride in with it (`terminal.FEATURES_ENV`), read as the key is pressed, so the menu's first
-    frame waits on no tmux call to learn whether it takes true colour.
+    frame waits on no tmux call to learn whether it takes true colour; and so does the client's
+    name (CLIENT_ENV), so a seat picked in it opens in that window, whichever window tmux last
+    heard a key from: a key pressed in a popup is none.
 
     The popup floats, on a tmux that has what it takes (FLOATS; an older one draws the plain
     popup, and says nothing): a rounded border in the dim colour with ` agentkit ` set into
@@ -2074,14 +2113,14 @@ def tmux_conf():
     small, large = f"display-popup -E {POPUP_FULL}", f"display-popup -E {POPUP_SIZE}"
     if tmux_version() >= FLOATS:
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
+        handed = f'-e "{terminal.FEATURES_ENV}=$f" -e "{CLIENT_ENV}=$c"'
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "
                                         "f='#{client_termfeatures}'; " + tmux_text(
                 FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
                          "popup": popup, "command": shlex.quote(popup_command())}))
-            for popup in (f'{small} {border} -e "{terminal.FEATURES_ENV}=$f"',
-                          f'{large} {border} -e "{terminal.FEATURES_ENV}=$f"'
-                          f" -e {terminal.PAD_ENV}={POPUP_PADDING}"))
+            for popup in (f"{small} {border} {handed}",
+                          f"{large} {border} {handed} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
         small, large = (f"{popup} {tmux_word(popup_command())}" for popup in (small, large))
     text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
@@ -2357,8 +2396,12 @@ def attach(name, log=print, wait=False, session=None):
             f"`{shlex.join(tmux_argv(socket, 'attach', '-t', name))}`")
         return 0
     if inside(session):
-        # a client on this seat's own server: switch it, rather than nest one tmux in another
-        rc, out = tmux_out("switch-client", "-t", f"={name}", socket=socket, client=True)
+        # a client on this seat's own server: switch it, rather than nest one tmux in another --
+        # the popup's own, where it names one (CLIENT_ENV); else the one tmux finds, as for `ak`
+        # typed in a pane
+        named = os.environ.get(CLIENT_ENV)
+        rc, out = tmux_out("switch-client", *(("-c", named) if named else ()), "-t", f"={name}",
+                           socket=socket, client=True)
         if rc != 0:
             raise config.Error(f"cannot switch to the session {name}: {out}")
         seen_by_user(name, session)
@@ -2492,7 +2535,7 @@ def reopen(cfg, name, **kw):
 #
 # Claude owns its launcher-issued id, following replacements from its own process's hooks.
 # Codex owns only its launch hook's recorded thread.
-# OpenCode owns the session its seat plugin reported into that launch's receipt.
+# OpenCode owns the session its seat followed a prompt into, kept in that launch's receipt.
 # Muse still starts fresh. Cwd and timestamps never establish ownership.
 
 
@@ -3144,15 +3187,18 @@ def no_server(said):
 
 
 def seatless(name):
-    """No seat holds that name, on tmux's own word: no session by it, or one with no agent in it.
+    """No seat holds that name, on tmux's own word: no session by it, or one that is no seat
+    (`seated`).
 
     Asked of that one session afresh, and never taken from a listing a failed probe left empty.
     """
     if find(name) is not None:
         return False
-    if tmux_out("has-session", "-t", f"={name}")[0] != 0:
+    rc, out = tmux_out("display-message", "-p", "-t", f"={name}:", f"#{{session_id}}\t#{{{MARK}}}")
+    if rc != 0:
         return session_absent(name)
-    return name in agentless(None, {name})
+    sid, _, mark = out.partition("\t")
+    return name not in seated(None, {name: (sid, mark)})
 
 
 def unread_question(name):
@@ -4284,20 +4330,24 @@ def role_groups(cfg, selected, providers, **groups):
     return changed, ""
 
 
-def role_mark(cfg, selected, name, column, providers):
+def role_mark(cfg, selected, name, column, providers, shown=None):
     """A proposed mark (role_groups), without mutating the saved groups when it cannot form a
-    pair.  Executors may be left empty: the orchestrator then builds everything.  Reviewers
-    keep one."""
+    pair: set where the groups `shown` (`selected` where None) leave it off, else taken off.
+    Executors may be left empty: the orchestrator then builds everything.  Reviewers keep
+    one."""
     if column == 0:
         if selected["orchestrator"] == name:
             return selected, ""
         return role_groups(cfg, selected, providers, orchestrator=name)
     role = "workers" if column == 1 else "reviewers"
-    group = selected["workers"] if column == 1 else selected.get("reviewers", selected["workers"])
-    if name in group and len(group) == 1 and role == "reviewers":
+    group, drawn = (one["workers"] if column == 1 else one.get("reviewers", one["workers"])
+                    for one in (selected, shown or selected))
+    on = name not in drawn
+    if not on and group == [name] and role == "reviewers":
         return selected, "at least one model reviews"
-    return role_groups(cfg, selected, providers, **{
-        role: [peer for peer in group if peer != name] if name in group else [*group, name]})
+    return role_groups(cfg, selected, providers, **{role: (
+        group if name in group else [*group, name]) if on else [
+        peer for peer in group if peer != name]})
 
 
 def handover(record, old_model, old_harness, owned):
@@ -4321,18 +4371,24 @@ def handover(record, old_model, old_harness, owned):
     return f"## Its conversation on {old_model}\n\n{told}"
 
 
-def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
+def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
     """(note, account): why the seat cannot move to `model`, or "" and the login to use; given
     `effort`, its own model is judged as another would be, for the move at it.
 
     One computation for the refusal and the launch, so the menu's key path asks each
     login once: installed is read off the filesystem, the seat login off the kept or
-    picked account, the meter off the cache. The same provider keeps its login; another
-    one takes the first of its accounts whose seat login passes, in the seat's order,
-    else the default login to be judged below. No answer withholds nothing, the way a
-    turn goes ahead on an `auth` verb that said nothing. Without `credits`, a login that
-    would run on credits refuses the move.
+    picked account, the meter off the cache. The same provider keeps its login, and a
+    move within it that `in_place` takes in the running harness asks none; another
+    provider takes the first of its accounts whose seat login passes, in the seat's
+    order, else the default login to be judged below. No answer withholds nothing, the
+    way a turn goes ahead on an `auth` verb that said nothing.
     """
+    def provider_of(current):
+        try:
+            return config.model(cfg, current)["provider"]
+        except config.Error:
+            return None
+
     try:
         record = config.load_session(cfg, name, required=False)
     except config.Error as exc:
@@ -4348,12 +4404,22 @@ def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
         return str(exc), None
     if not config.harness_present(harness):
         return f"{model}: {harness} is not installed", None
-    try:
-        old_provider = config.model(cfg, record["orchestrator"])["provider"]
-    except config.Error:
-        old_provider = None
+    old_provider = provider_of(record["orchestrator"])
     new_provider = config.model(cfg, model)["provider"]
     known, account = None, record.get("account")
+    spent = spent_note(cfg, model, providers)
+    refusal = f"{model} is {spent}" if spent else ""
+    if old_provider is not None and new_provider == old_provider and in_place is not None:
+        said = in_place(refusal)
+        if said is not None:
+            return said, (None if said else account)
+        try:
+            record = config.load_session(cfg, name, required=False)
+        except config.Error as exc:
+            return str(exc), None
+        if record is None:
+            return f"session: {name} has no saved models", None
+        old_provider, account = provider_of(record["orchestrator"]), record.get("account")
     if new_provider != old_provider:
         accounts = config.accounts(cfg, new_provider)
         if accounts:
@@ -4371,13 +4437,8 @@ def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
     ok, why = known if known is not None else harness_plugin(harness).seat_auth(account)
     if ok is False:
         return f"{model}: {why}", None
-    note = spent_note(cfg, model, providers)
-    if note:
-        return f"{model} is {note}", None
-    reading = providers.get(new_provider) or {}
-    reading = (reading.get("accounts") or {}).get(account) or reading
-    if not credits and usage.on_credits(cfg, model, {new_provider: reading}):
-        return f"{model} has only credits left", None
+    if refusal:
+        return refusal, None
     return "", account
 
 
@@ -4433,25 +4494,34 @@ def effort_back(name, model, effort, was):
     config.change_efforts(name, back)
 
 
-def switch_in_place(cfg, name, chosen, effort):
+def switch_in_place(cfg, name, chosen, effort, refusal=""):
     """Move that seat to the record fields `chosen` name -- its orchestrator, and the account
     of another provider -- at `effort` where given, by owing its harness the lines
-    `switch_lines` gives (`watch.owe_line`), a turn its usage cut off told to go on after them:
-    nothing restarts, so nothing is cut or asked.  The record takes the move first, those fields and the effort, put
-    back where it or the lines cannot be written, so a refused move is left to make again; the
-    harness's next answer puts it back where it refused a line (`watch.follow_model`).  What to
-    say under the rows, or ""; None where the seat, as it stands under its lock, must restart
-    for the move."""
+    `switch_lines` gives (`watch.owe_line`), a turn its usage cut off told to go on after them,
+    typed in behind it (`watch.move_behind`): nothing restarts, so nothing is cut or asked.
+    `refusal` refuses an in-place move within the seat's provider without writing.  The record
+    takes the move first, those fields and the effort, put back where it or the lines cannot be
+    written, so a refused move is left to make again; the harness's next answer puts it back
+    where it refused a line (`watch.follow_model`).  What to say under the rows, or ""; None
+    where the seat, as it stands under its lock, must restart for the move."""
     from . import notify, watch   # here, not at the top: both import this module
     model = chosen["orchestrator"]
     try:    # in one hold, so no look follows the old model's last answer back meanwhile
+        name = config.resolve_session(name)
         with notify.session_lock(name), watch.announcing(name):
             lines = switch_lines(cfg, name, model, effort)
             if not lines:
                 return None
+            record = config.session_records()[name]
+            # Without `account` in `chosen`, no login was asked for another provider: a seat
+            # another process moved onto one meanwhile falls back to `_switch_plan`.
+            if ("account" not in chosen and config.model(cfg, record["orchestrator"])["provider"]
+                    != config.model(cfg, model)["provider"]):
+                return None
+            if refusal:
+                return refusal
             if (watch.seat_read(name).get("usage_wait") or {}).get("continue"):
                 lines.append({"line": watch.ACCOUNT_LINE})
-            record = config.session_records()[name]
             try:
                 if effort is not None:
                     config.change_efforts(name, lambda data: config.orchestrating_at(
@@ -4467,15 +4537,14 @@ def switch_in_place(cfg, name, chosen, effort):
             watch.seat_write(name, usage_wait=None)
     except (config.Error, OSError) as exc:
         return f"session: {_one_line(exc)}"
-    watch.tell_owed(name, lambda _: None, cfg)
+    watch.move_behind(name)
     session = find(name)
     if session:
         watch.announce_state(session, cfg=cfg)     # its bar names the new model now
     return ""
 
 
-def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=None,
-                        effort=None):
+def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=None):
     """Move the open seat to another orchestrator at once, under the same name: inside its
     running harness where that takes lines for it (`switch_lines`), asking nothing; else by a
     restart.
@@ -4496,8 +4565,8 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     The record names the new model before the harness is up, so no redress draws the old
     one after it. Nothing on its screen refuses the move: the owner moving it knows what is
     there, and their unsent text goes on into the new composer (`watch.carry_draft`), or the
-    move is refused where it cannot be kept; a login on credits without `credits` refuses it
-    too. A refusal, and a restart that fails, leave the seat as they found it and say so in
+    move is refused where it cannot be kept.
+    A refusal, and a restart that fails, leave the seat as they found it and say so in
     one line. What to say under the rows, or ""; None where `asked(kept)`, the owner's say on
     a move that passed every refusal -- `kept` whether its conversation goes on -- answered
     False, the seat left as it was.  Given `effort`, `model` runs its orchestrator at it, and the
@@ -4523,7 +4592,15 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
                 pass    # the note returned already says the restart failed
 
     providers = usage.collect(cfg) if providers is None else providers
-    note, account = _switch_plan(cfg, name, model, providers, credits, effort)
+    tried = []
+
+    def within_provider(refusal):
+        tried.append(switch_in_place(cfg, name, {"orchestrator": model}, effort, refusal))
+        return tried[0]
+
+    note, account = _switch_plan(cfg, name, model, providers, effort, in_place=within_provider)
+    if tried and tried[0] is not None:
+        return tried[0]
     if note:
         return note
     name = config.resolve_session(name)    # a screen open across a rename has the old name
@@ -4539,14 +4616,15 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     except config.Error:
         moved = True          # its model is gone: no provider to stay home on
     homed = {"account": account, "home_account": account} if moved else {}
-    note = switch_in_place(cfg, name, {"orchestrator": model, **homed}, effort)
-    if note is not None:
-        return note
+    if not tried or moved:
+        note = switch_in_place(cfg, name, {"orchestrator": model, **homed}, effort)
+        if note is not None:
+            return note
     new_harness = config.model(cfg, model)["harness"]
     try:
         old_harness = config.model(cfg, old_model)["harness"]
     except config.Error:
-        old_harness = None    # its model is gone: nothing names its harness or transcript
+        old_harness = None    # its model is gone: its record names no harness or transcript
     owned = seat_conversation(record, old_harness) if old_harness else None
     kept = owned if old_harness == new_harness and resumable(record, cfg=cfg) else None
     if asked and not asked(bool(kept)):
@@ -4590,7 +4668,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     chosen = {"orchestrator": model, "account": account, **homed,
               **({"left": notify.left(record, old_harness, owned)} if owned and not kept else {})}
     # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
-    # of the seat's lock, so no tick hands the text back to the harness going or before that line
+    # of the seat's lock, so nothing hands the text back to the harness going or before that line
     with notify.session_lock(name):
         if pane and not watch.carry_draft(session, old_harness, pane, new_harness, cfg):
             unhanded(handed, before)
@@ -4614,6 +4692,8 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
                 given_back()
         if line and not failed:
             watch.relaunched(name, new_harness, line, at)
+        if not (kept or failed):    # the old conversation's notice, while the lock is the
+            notify.clear(name)      # switch's: past it the text's return may hold it a while
     if failed:
         try:
             config.update_session(name, **{key: record.get(key) for key in chosen})
@@ -4626,7 +4706,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     if not kept:
         if old_harness:
             harness_plugin(old_harness).forget(record)
-        watch.forget(name)    # a new conversation: no latch of the old one's survives it
+        watch.forget(name, acknowledge=False)    # no latch of the old conversation survives it
     return ""
 
 

@@ -473,16 +473,16 @@ class Login(unittest.TestCase):
                 job = {"job_id": "job-2", "tasks": [task]}
                 jobs.save_job(job_dir, job)
                 logs, lock = [], threading.Lock()
-                self.assertTrue(jobs.job_wait_login(job_dir, job, task, logs.append, lock,
-                                                   parked, where))
+                self.assertTrue(jobs.job_wait_parked(job_dir, job, task, logs.append, lock,
+                                                    parked, where))
                 self.assertEqual(task["state"], "queued")
                 self.assertTrue(task["budget_wait"])
                 self.assertGreater(task["retry_after"], time.time())
                 self.assertIn(where, " ".join(logs))
         # ... and anything else is none of its business
         task = {"name": "one", "state": "running"}
-        self.assertFalse(jobs.job_wait_login(job_dir, {"tasks": [task]}, task, print,
-                                            threading.Lock(), {"state": "fail"}, "mid-run"))
+        self.assertFalse(jobs.job_wait_parked(job_dir, {"tasks": [task]}, task, print,
+                                             threading.Lock(), {"state": "fail"}, "mid-run"))
         self.assertEqual(task["state"], "running")
 
     def test_a_login_expiring_on_the_delivery_retry_waits_instead_of_failing_the_task(self):

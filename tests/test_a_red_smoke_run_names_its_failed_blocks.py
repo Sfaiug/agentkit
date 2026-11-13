@@ -1,5 +1,6 @@
 """A red smoke.sh run names each block a check failed in, once, as `tests/smoke.sh#<block>`;
-where it ends red with no block named, each block AK_ONLY lists that started, or else itself whole.
+where it ends red with no block named, each block AK_ONLY lists that started, with none listed
+each block of its share, or else itself whole.
 
 Offline: the real tests/landing.py, every_file.py, suite_shares.py and acceptance.sh run on a
 temporary checkout whose smoke.sh is a shared setup and three blocks that each note their start
@@ -107,11 +108,25 @@ class ARedSmokeRunNamesItsFailedBlocks(unittest.TestCase):
         self.assertEqual(failed, ["tests/smoke.sh#beta"])
 
     def test_a_red_in_no_block_names_smoke_sh_whole(self):
-        for fails, extra in (("setup", {}), ("", {"ACME_EXIT": "3"})):
-            with self.subTest(fails=fails, **extra):
-                proc, _, failed, _ = self.landing(fails=fails, **extra)
+        # A fourth share of three blocks owns none; a listed block that never started is no name.
+        for fails, only, extra in (("setup", None, {"AK_SHARD": "4/4"}),
+                                   ("", None, {"AK_SHARD": "4/4", "ACME_EXIT": "3"}),
+                                   ("", ["tests/smoke.sh#alpha"], {"ACME_EXIT": "3"})):
+            with self.subTest(fails=fails, only=only, **extra):
+                proc, _, failed, _ = self.landing(fails=fails, only=only, **extra)
                 self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
                 self.assertEqual(failed, ["tests/smoke.sh"])
+
+    def test_a_red_before_any_block_names_the_shares_blocks(self):
+        # Two shares split the three blocks: the first owns those its green run starts.
+        _, owned, _, _ = self.landing(AK_SHARD="1/2")
+        share = [f"tests/smoke.sh#{name}" for name in owned[1:]]
+        proc, log, failed, _ = self.landing(AK_SHARD="1/2", ACME_EXIT="3")
+        self.assertEqual(proc.returncode, 3, proc.stdout + proc.stderr)
+        self.assertEqual((log, failed), (["setup"], share))
+        proc, log, _, ran = self.landing(only=share)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual((log, ran), (owned, share))
 
     def test_a_red_no_check_named_names_each_listed_block_that_started(self):
         listed = ["tests/smoke.sh#alpha", "tests/smoke.sh#gamma"]

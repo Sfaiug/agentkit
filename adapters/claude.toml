@@ -69,7 +69,8 @@ heartbeats = ["tool_progress"]
 
 # How `ak update` moves this harness, and what `ak usage` needs beyond `<adapter> usage`:
 # `claude install <version>` is a versioned reinstall, so a failed upgrade goes back by command
-# and needs no snapshot, and the usage call is one plain adapter call with no reset to spend.
+# and needs no snapshot, and the usage call is one plain adapter call.  It counts the login's
+# resets and `reset <kind>` spends one, but no `[usage] reset` says so until a spend names a kind.
 # `latest` is the release the tick upgrades it to in the background: npm's, the same builds.
 [update]
 version = ["claude", "--version"]
@@ -216,8 +217,9 @@ PreToolUse = ["orchestrator-stop.sh"]
 
 [screen]
 # fullmatch against a bottom line: the input box, which is chrome and not anything Claude said;
-# a renamed session's name sits in the box's top rule
-composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\))?(?: · \d+ \w+)? · ← for agents|● \w+ · /effort|[✻✽✶✳✢] \w+ for .+ · done .+|─{3,} \S.* ─+)$'
+# a renamed session's name sits in the box's top rule, and 2.1.322 draws a goal's age where the
+# effort is otherwise (`◎ /goal active (5m)`)
+composer = '(?:(?:│\s*)?[>❯](?:\s+Try ["“].*["”])?\s*(?:│)?|⏵⏵ bypass permissions on(?: \(shift\+tab to cycle\))?(?: · \d+ \w+)? · ← for agents|● \w+ · /effort|◎ /goal active \([^()]+\)|[✻✽✶✳✢] \w+ for .+ · done .+|─{3,} \S.* ─+)$'
 # Ctrl-G hands the composer to $VISUAL, ak's editor, mid-turn too (Claude Code 2.1.302)
 editor = ["C-g"]
 # and the key hints under it, on top of the box-drawing and prompt footer every harness shares
@@ -354,8 +356,12 @@ none = ["esc to interrupt"]
 # `harness.claude.error`), a headless `result` record's `api_error`.  With no typed kind, "You've
 # hit your" begins every window's refusal (session limit, weekly limit, 2.1.314's "5-hour limit")
 # and no warning: "You've used 84% of your weekly limit" has room left.
+# `model_requires_usage_credits` is one model's own cap, spent in a week with room, and "You've
+# reached your" begins it (2.1.322, 12 Nov 2026): "You've reached your Fable limit. Run
+# /usage-credits to continue or switch models with /model."
 signatures = ["API Error", "Overloaded", "rate limit", "rate_limit_error",
               "Usage limit reached", "usage_limit_reached", "You've hit your",
+              "model_requires_usage_credits", "You've reached your",
               "Can't reach the API server"]
 refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529",
             "500", "502", "503", "504", "Internal server error", "API Error",
@@ -363,7 +369,8 @@ refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529"
 # What 2.1.316 says resuming an id it does not hold (2 Nov 2026): `turns.resume_failed`.
 lost = ["No conversation found with session ID"]
 quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit",
-          "usage_limit_reached", "You've hit your", "429", "insufficient_quota", "insufficient quota"]
+          "usage_limit_reached", "You've hit your", "429", "insufficient_quota", "insufficient quota",
+          "model_requires_usage_credits", "You've reached your"]
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,
 # which is what adapters/claude.sh reads final.md out of, failure or not.
 terminal = "result"

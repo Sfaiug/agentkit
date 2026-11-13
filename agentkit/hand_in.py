@@ -174,6 +174,13 @@ class Review:
                 if row["kind"] == "follow-up" and "commit" in row["evidence"]}
 
     @property
+    def followup_defects(self):
+        """Each follow-up's text with the defect it names: its file and what is wrong there,
+        whatever line, why or proof a later round's head gives it."""
+        return {item_text(row): json.dumps([row["path"], row["what"]])
+                for row in self.records if row["kind"] == "follow-up"}
+
+    @property
     def preexisting(self):
         """The follow-ups from before the task: what the review found already on the base."""
         return [row for row in self.records if row["kind"] == "follow-up" and row.get("before")]
@@ -394,8 +401,10 @@ def failed_checks(turn, commands):
         left = deadline - time.monotonic()
         if left <= 0:
             break
-        # The worker already has its checkout and sandbox; never reset its uncommitted fix.
-        with tempfile.TemporaryDirectory(dir=Path(os.environ[ENV]).parent) as cache, \
+        # The worker already has its checkout and sandbox; never reset its uncommitted fix.  The
+        # box's temporary folder, not the run's (`record.scratch`): in the box's own pid
+        # namespace this process's pid names another one outside it.
+        with tempfile.TemporaryDirectory() as cache, \
                 tempfile.NamedTemporaryFile(dir=cache) as output:
             env["PYTHONPYCACHEPREFIX"] = cache
             try:
