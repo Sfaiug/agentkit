@@ -178,10 +178,19 @@ class Bars(Sandbox):
                 self.assertNotIn(terminal.styled("Claude", "#D97757"), rest)
 
     def test_a_light_grey_of_the_callers_reads_as_its_mirror_on_a_light_background(self):
+        owns = {"acme": "#FFFFFF", "acme-grey": "#C8C8C0", "acme-dark": "#303030", "anthropic": None}
+        self.cfg["providers"].update({name: {"colour": own} for name, own in owns.items() if own})
         with patch.object(terminal, "colour_depth", return_value=24):
-            dark = [terminal.styled("█", own) for own in ("#FFFFFF", "#C8C8C0", "#303030", "#D97757")]
+            dark = [terminal.styled("█", menu.colour(self.cfg, name)) for name in owns]
             with patch.object(terminal, "_LIGHT", True):
-                light = [terminal.styled("█", own) for own in ("#FFFFFF", "#C8C8C0", "#303030", "#D97757")]
+                light = [terminal.styled("█", menu.colour(self.cfg, name)) for name in owns]
+                # a fade is a colour as it reads here already: light toward a light background
+                fade = terminal.faded("dim", 0.5)
+                self.assertEqual(terminal.styled("█", fade), "\033[38;2;{};{};{}m█\033[0m".format(
+                    *(int(fade[i:i + 2], 16) for i in (1, 3, 5))))
+                self.assertTrue(terminal.light_grey(fade[1:]), fade)
+                # a harness's white heading reads black as a company's does
+                self.assertIn("\033[38;2;0;0;0m", menu.model_heading("codex"))
         self.assertEqual(dark, ["\033[38;2;255;255;255m█\033[0m", "\033[38;2;200;200;192m█\033[0m",
                                 "\033[38;2;48;48;48m█\033[0m", "\033[38;2;217;119;87m█\033[0m"])
         # ChatGPT's white reads black and a light grey dark; a dark grey and a hue read as they are
@@ -189,7 +198,7 @@ class Bars(Sandbox):
                                  "\033[38;2;48;48;48m█\033[0m", "\033[38;2;217;119;87m█\033[0m"])
         with patch.object(terminal, "colour_depth", return_value=8), \
                 patch.object(terminal, "_LIGHT", True):
-            self.assertEqual(terminal.styled("█", "#FFFFFF"), "\033[30m█\033[0m")
+            self.assertEqual(terminal.styled("█", menu.colour(self.cfg, "acme")), "\033[30m█\033[0m")
 
 
 if __name__ == "__main__":

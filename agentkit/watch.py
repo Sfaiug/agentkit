@@ -446,7 +446,8 @@ def tick_ended():
 
 def tick_health():
     """The line `--dry-run` and `ak doctor` print: who holds the lock, when the last tick ended
-    and what it took, how big the log is; and whether the tick reads as hung."""
+    and what it took, how big the log is, when git housekeeping last ran; and whether the tick
+    reads as hung."""
     running = tick_running()
     lock = (f"lock held by pid {running[0]} for {int(running[1] // 60)} min" if running
             else "lock free")
@@ -456,7 +457,11 @@ def tick_health():
     except OSError:
         size = 0
     kept = f"{LOG_NAME} {size / 1048576:.1f} MB of {LOG_MAX / 1048576:.0f} MB"
-    return f"{lock} · {ended} · {kept}", hung
+    at = gc.stamped(gc.housekeeping_mark())
+    # named once a tick has run it: until then there is nothing to name
+    housekept = ("" if at is None
+                 else f" · git housekeeping ran {terminal_mod.format_age(time.time() - at)} ago")
+    return f"{lock} · {ended} · {kept}{housekept}", hung
 
 
 def generation(value):
@@ -738,9 +743,9 @@ def prompted_since(name, at):
     return isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at
 
 
-def continue_turns(cfg, log, accounts=False):
+def continue_turns(cfg, log, accounts=False, names=None):
     """Continue rebooted seats or have them ask again, or (`accounts`) continue seats reopened
-    on another subscription.
+    on another subscription; of `names` only, where given.
 
     The mark goes on once the relaunch is back and comes off once the line has landed, so a
     send that failed -- or a tick killed in the warmup -- is tried again by the next tick,
@@ -759,7 +764,7 @@ def continue_turns(cfg, log, accounts=False):
     till the prompt is stamped, or for MIDTURN_TRIES passes.
     """
     boot = boot_id()
-    for name in config.session_records():
+    for name in config.session_records() if names is None else names:
         mark = seat_read(name).get("midturn")
         if not isinstance(mark, dict) or bool(mark.get("account")) != accounts:
             continue
@@ -1743,7 +1748,9 @@ def follow_model(cfg, name):
     were written down counts every record.  The model is the configured entry running it on
     that harness, the seat's own first, at the effort recorded where one does, and
     `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
-    builds and reviews where they stood.  A model no entry runs, a seat on its harness's own
+    builds and reviews where they stood.  A model no entry the config can run runs on that
+    harness is added to the config and becomes the seat's (_taken_in): "Add it to AK's
+    models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat on its harness's own
     model, a record that cannot be read, or an effort it records none of or its model does not
     take leaves the record as it is."""
     try:
@@ -1764,11 +1771,12 @@ def follow_model(cfg, name):
              if at is not None]
     if not ran or since and not (ran[2] or 0) > max(since):
         return
-    kept, models = record["orchestrator"], config.at_efforts(cfg, record)["models"]
-    runs = [each for each in (kept, *config.offered(cfg))
-            if (models[each]["harness"], models[each]["model"]) == (entry["harness"], ran[0])]
+    kept = record["orchestrator"]
+    runs = (sorted(config.running(cfg, entry["harness"], ran[0]), key=lambda each: each != kept)
+            or _taken_in(cfg, entry, ran))
     if not runs:
         return
+    models = config.at_efforts(cfg, record)["models"]
     chosen = next((each for each in runs if models[each].get("effort") == ran[1]), runs[0])
     if chosen != kept:
         config.update_session(name, orchestrator=chosen)
@@ -1776,6 +1784,31 @@ def follow_model(cfg, name):
             entry["harness"], ran[0], config.catalog_held):     # a look waits on no listing
         config.change_efforts(name, lambda data: config.orchestrating_at(
             cfg["models"], data, chosen, ran[1]))
+
+
+def _taken_in(cfg, left, ran):
+    """[name] of the entry made for the model a seat's harness recorded (`ran`, as follow_model
+    reads it) where no entry of `cfg` runs it there, as `add a subscription` makes one: on the
+    harness and provider of `left`, the entry the seat leaves, with its mode where it has one,
+    at the effort recorded where the model takes it, else the last it takes, and added to the
+    file and to `cfg` (config.add_model).  [] for a harness that runs any provider it logs in
+    to, since nothing read says which runs the model; a model its listing as held does not
+    name, as an id recorded for an error or a fallback; or an add that fails."""
+    harness = left["harness"]
+    if harness in config.provider_hosts():
+        return []
+    listing = config.catalog_held(harness, cfg)       # a look waits on no listing
+    listed = next((model for model in listing if model["id"] == ran[0]), None)
+    if listed is None:
+        return []
+    levels = config.efforts(harness, ran[0], lambda _: listing)
+    entry = {"harness": harness, "model": ran[0], "provider": left["provider"],
+             "effort": ran[1] if ran[1] in levels else levels[-1],
+             **{key: left[key] for key in ("mode",) if key in left}}
+    try:
+        return [config.add_model(cfg, entry, listed["label"])]
+    except (config.Error, OSError):
+        return []
 
 
 def cancelled(harness, name, pane):
@@ -2818,15 +2851,11 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     else:
         notify.answer_written(name)
     cfg = config.load()
-    harness, provider = seat_model(cfg, name)
+    harness = seat_model(cfg, name)[0]
     # A turn its harness says failed settles its account before its word is told, as the tick
     # does: a spent subscription moves now, not at the next tick, and never reads `working`.
-    # It is looked at first, as the tick looks: an older reading may still say it is asking.
     if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
-        with announcing(name):
-            pane = pane_text(session)
-            look_at(session, cfg=cfg, pane=pane)
-        seat_account(cfg, session, harness, provider, pane, False, lambda _: None)
+        settle_account(cfg, session, lambda _: None)
     answer = announce_state(session, cfg=cfg, look=True, number=number)
     if stop_enforced(harness):
         from . import menu as menu_mod
@@ -3540,7 +3569,9 @@ def wait_over(cfg, log):
             if job and transitions.launched_session({"launched_session": job.get("seat")}) == name:
                 if job.get("handback_pending"):
                     continue
-                if (job.get("card_sent") or {}).get("kind") == "handback":
+                # its line handed back, or answered by resuming the runs it told of, whose own
+                # endings then tell the seat (`job.answer_job_line`)
+                if (job.get("card_sent") or {}).get("kind") in ("handback", "resumed"):
                     if wait_mark(name, wait, told=time.time()):
                         log(f"{name}: its own job's notice told it that {wait['over']}; its "
                             "wait is over")
@@ -3665,11 +3696,13 @@ def stuck_notice(name, harness):
             "open the host, press this session's number, and check this session.")
 
 
-def observe(entry, tail, harness, now):
-    """Age the last error line and the last pane change separately."""
-    if entry.get("pane") != tail:
-        entry.update(pane=tail, changed_at=now, since=now)
-    line = next((line for line in reversed(tail.splitlines())
+def observe(entry, pane, harness, now):
+    """Age the last error line and the last conversation change separately."""
+    lines = content_lines(harness, pane)
+    said = "\n".join(lines)
+    if entry.get("pane") != said:
+        entry.update(pane=said, changed_at=now, since=now)
+    line = next((line for line in reversed(lines)
                  if any(says(line, mark) for mark in stalls(harness))), "")
     if entry.get("stall_line") != line:
         entry.update(stall_line=line, stall_at=now, since=now)
@@ -4557,23 +4590,25 @@ def _line_left(session, text, log, cfg, stale, answered=None):
 
 def carry_draft(session, harness, pane, to, cfg=None):
     """Whether the owner's unsent text in that seat's composer is kept from a switch ending its
-    harness, on any turn: lifted whole by ak's editor (its `line` step with no line) into its
-    pane's kept buffer, which the respawn keeps with the pane and `drafts_back` hands the
-    harness launched there next, or left there, set aside already for a line of ak's.  Not
-    where the editor gives no answer, or finds text typed since that set aside, which no step
-    merges.  Only through ak's editor, which reads a composer whole, and only to a harness
-    (`to`) that opens it too: a screen draws a draft late, wrapped and cropped, and elsewhere
-    the text would go with the old harness.  Not where the editor may not be asked a step now
-    either (`_editor_read`): a picker drawn since, or input unread, would take its keys.
+    harness, on any turn: its composer read empty, through `harness`, else the one its pane
+    runs (`orch.pane_harness`), as a seat whose model left the config does; or lifted whole by
+    ak's editor (its `line` step with no line) into its pane's kept buffer, which the respawn
+    keeps with the pane and `drafts_back` hands the harness launched there next, or left there,
+    set aside already for a line of ak's.  Not where the editor gives no answer, or finds text
+    typed since that set aside, which no step merges.  Only through ak's editor, which reads a
+    composer whole, and only to a harness (`to`) that opens it too: a screen draws a draft late,
+    wrapped and cropped, and elsewhere the text would go with the old harness.  Not where the
+    editor may not be asked a step now either (`_editor_read`): a question or picker drawn
+    since, or input unread, would take its keys.
     Under the seat's lock its caller holds over the respawn too, so no tick hands the text back
     to the harness going; the pane is read again under it, as the caller's capture predates a
     paste or picker taken since."""
     pane = pane_text(session)
-    # no keys to a question: they could answer it; nothing to keep in a composer read empty,
-    # but a picker may draw it empty over the owner's text
-    if not harness or asking(session["name"], harness, pane):
-        return True
-    if composer_draft(harness, pane) == "" and not (
+    if not harness:
+        pid = pinned(session).get("pid")
+        harness = pid and orch.pane_harness(pid)
+    # nothing to keep in a composer read empty, but a picker may draw it empty over the owner's text
+    if harness and composer_draft(harness, pane) == "" and not (
             pane.strip() and _picker_up(harness, live_state(session, harness, pane=pane, cfg=cfg))):
         return True
     where = screen(to).get("editor") and seat_editor(session, cfg)
@@ -5367,7 +5402,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
             return True       # a move to another account waits for that turn's end
         if said(pane_text(current_seat)) != said(pane):
             return True       # nor typing
-        if refusal and not waiting and not spent(current):
+        parks = refusal and not waiting and not spent(current)
+        if parks:
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
             if until is not None and until <= now:
@@ -5388,6 +5424,11 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                     if type_into(session, keystroke(harness, cue), log):
                         seat_write(name, usage_refusal={**observed, "nudged_at": now})
                 return True
+        if owned and target is not None and not field_empty(harness, pane):
+            # The respawn would end the owner's text (5 and 12 Nov 2026): the first look at an
+            # empty field moves the seat, its refusal left unparked for that look to act on.
+            return True
+        if parks:
             until = usage.mark_exhausted(cfg, provider, until=until,
                                          account=current if accounts else None)
             readings[current] = {**readings.get(current, {}), "exhausted_until": until}
@@ -5399,13 +5440,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if target is not None:
             try:
                 if owned:
-                    # the owner's text lifted and the harness respawned in one hold, as a switch does;
-                    # a move nobody asked for waits while no editor of ak's lifts it, or none could
-                    with notify.session_lock(name):
-                        if not carry_draft(session, harness, pane, harness, cfg):
-                            return True     # a respawn would lose the text
-                        _resume_on(cfg, name, log, target, continuing, lambda at: field_empty(
-                            harness, pane_text(dict(session, pane=at))))
+                    # the last look, its keys frozen: text typed since keeps the seat too
+                    _resume_on(cfg, name, log, target, continuing, lambda at: field_empty(
+                        harness, pane_text(dict(session, pane=at))))
                 elif continuing and not type_into(session, keystroke(harness, cue), log,
                                                   asked=True):
                     return True
@@ -5441,6 +5478,32 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                                     "since": waiting["since"] if waiting else now,
                                     "continue": continuing})
         return True
+
+
+def settle_account(cfg, session, log):
+    """`seat_account` on a fresh look at that seat: an older look may still say it is asking."""
+    harness, provider = seat_model(cfg, session["name"])
+    with announcing(session["name"]):
+        pane = pane_text(session)
+        look_at(session, cfg=cfg, pane=pane)
+    seat_account(cfg, session, harness, provider, pane, False, log)
+
+
+def usage_waits(cfg, state, log):
+    """Settle each seat waiting for usage again, on the reading the usage refresh has just made:
+    seat health settled it on the one before, so a seat this one frees goes on in this tick, not
+    the next.  One out of login (an `auth` stall) is left alone, as `health` leaves it."""
+    reopened = []
+    for session in orch.sessions():
+        name = session["name"]
+        if (seat_read(name).get("usage_wait")
+                and state["stalls"].get(name, {}).get("kind") != "auth"):
+            settle_account(cfg, session, log)
+            if not seat_read(name).get("usage_wait"):
+                reopened.append(name)
+    # ... and told to go on now where its harness took no first prompt: `switched turns`, which
+    # tells seat health's, has run this tick, and no other mark may have a second try in it
+    continue_turns(cfg, log, accounts=True, names=reopened)
 
 
 def health(cfg, state, dry_run, log):
@@ -5731,7 +5794,7 @@ def health(cfg, state, dry_run, log):
                 if owner_question(notice):
                     continue    # a question may have arrived during slow meter I/O
                 current = pane_text(session)
-                if current != pane:
+                if content_lines(harness, current) != content_lines(harness, pane):
                     observe(entry, current, harness, time.time())
                     continue
                 now = time.time()
@@ -6297,10 +6360,15 @@ def _run_working(run_dir):
                  if status not in ("Z", "X")}
     if any(pid in processes for pid in worker.run_pids(str(run_dir))):
         return True
-    resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
-    # The env python3 shebang leaves "python3" as argv[0].
-    return any(args in (resume, [sys.executable, *resume], ["python3", *resume])
-               for args in processes.values())
+    from . import run as run_mod
+    resume = [str(config.REPO / "bin/ak"), "run", "resume"]
+    for args in processes.values():
+        # The env python3 shebang leaves "python3" as argv[0].
+        args = args[1:] if args[:1] in ([sys.executable], ["python3"]) else args
+        parsed = args[:3] == resume and run_mod.resume_args(args[3:])
+        if parsed and parsed[0] == run_dir.name:
+            return True
+    return False
 
 
 def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
@@ -8560,6 +8628,9 @@ def local_passes(state, dry_run, log):
         ("seat headroom", lambda: run.give_way(state, log), False),
         ("state save", lambda: save_state(state), False),
         ("usage refresh", read_usage, True),
+        # ... and each seat waiting for usage settled again on what it read.  The refresh stays
+        # after seat health: an adapter may take 30 s to answer, and no seat's look waits on it.
+        ("usage waits", lambda: usage_waits(config.load(), state, log), False),
         # when each subscription's login ends and whose it is, each asked hourly at most; one
         # ending within 3 days pages the owner once a day, and so does a worker token
         ("login reminder", lambda: logins.remind(config.load()), False),

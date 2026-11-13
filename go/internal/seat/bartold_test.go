@@ -3,6 +3,7 @@ package seat
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"agentkit/internal/tmux"
@@ -40,6 +41,23 @@ func TestABarPythonToldTheSameIsLeftAlone(t *testing.T) {
 		told, _ := tmux.Ask(tmux.Own(), "show-options", "-v", "-t", target, barTold)
 		if shown != each.said || (each.told != "") != (told == each.told) {
 			t.Errorf("told %q: the bar shows %q under %s", each.said, shown, told)
+		}
+	}
+}
+
+// A reading lists the bars once, but its digests go old with its first write: a bar told and then
+// told back, in one reading, what it showed when listed shows it again.
+func TestABarToldBackInOneReadingShowsIt(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	paneDied(t, "acme")
+	state, target := filepath.Join(home, ".agentkit", "state"), "=acme:"
+	barTell(state, "acme", [][3]string{{target, barWhy, "first"}}, nil)
+	listing := sync.OnceValues(barSessions)
+	for _, said := range []string{"second", "first"} {
+		barTell(state, "acme", [][3]string{{target, barWhy, said}}, &listing)
+		if shown, _ := tmux.Ask(tmux.Own(), "show-options", "-v", "-t", target, barWhy); shown != said {
+			t.Errorf("told %q, the bar shows %q", said, shown)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 """The pages `c` opens come up and move as `c` does: `Models` opening is written a frame whose
 header has `agentkit` and only part of `config · models` before the frame with all of it, and
-Space on Weekly audit's `On` is written the half-way mark (`◉`) before the new one.
+Space on Weekly audit's `On` is written the half-way mark, `●` in the ink `○` had, before the new
+one.
 
 The owner's ask of 27 Oct 2026, every screen moving as the main menu does.  Black-box: the
 program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) with its colours,
@@ -65,9 +66,11 @@ class CPagesComeUp(unittest.TestCase):
     def test_space_on_audits_on_is_written_half_way_before_the_new_mark(self):
         self.term.keys("j", "j", "j", "Enter")
         self.term.wait(lambda screen: re.search(r"› On +○ off", screen))
+        shown = r"On +(\x1b\[[\d;]*m)○"        # its ink alone: the page up, no fade over it
+        ink = re.findall(shown, self.written(shown))[-1]
         since = self.raw.stat().st_size
         self.term.keys("Space")
-        self.written("◉.*●", since)
+        self.written(re.escape(ink) + " ?●.*●", since)    # a frame pads it in its column
 
 
 if __name__ == "__main__":
