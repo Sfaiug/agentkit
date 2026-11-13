@@ -48,7 +48,7 @@ func menuFeatures(checkout string, keyboard *terminal.Keyboard, painter *termina
 		}
 		now := time.Now()
 		view.Reading, view.Waiting = features.Read(checkout, rereadEvery), nil
-		clock.Draw(now)
+		clock.Draw(motion.Now())
 		asked := view.Asking
 		if flip != nil {
 			asked = flipped

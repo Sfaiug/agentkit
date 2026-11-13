@@ -501,7 +501,7 @@ class HelperMac(unittest.TestCase):
 
         with patch.object(helper.config, "suite_helper", return_value="acme-mac"), \
                 patch.object(helper, "room", return_value=((1, 2, 512, 1), "")), \
-                patch.object(helper.orch, "agent_programs", return_value=[]), \
+                patch.object(helper.orch, "agent_programs", return_value={}), \
                 patch.object(helper, "_known", side_effect=gone):
             for _ in range(2):
                 away, reason = helper.start(1, 512, self.repo, logs.append, "true")

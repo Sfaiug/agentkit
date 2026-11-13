@@ -102,7 +102,7 @@ class LandingSuiteOffline(unittest.TestCase):
              'shift 2; ACME_CAPS=dropped exec "$@"\n')
         said = '"ns=${ACME_NS:-} caps=${ACME_CAPS:-} required=${AGENTKIT_ACCEPTANCE_REQUIRED:-}"'
         (self.root / "tests/smoke.sh").write_text(
-            f'echo "smoke "{said} >>"$ACME_LOG"\nexit "${{ACME_SMOKE:-0}}"\n')
+            suite_shares.SETUP + f'echo "smoke "{said} >>"$ACME_LOG"\nexit "${{ACME_SMOKE:-0}}"\n')
         (self.root / "tests/every_file.py").write_text(
             "import os, sys\ne = os.environ.get\n"
             "with open(e('ACME_LOG'), 'a') as fh:\n"

@@ -188,7 +188,7 @@ def serve(lock):
     from . import config, macbridge, menu, notify, orch, terminal, update, watch  # noqa: F401
     import pickle, pkgutil, runpy  # noqa: E401, F401
     config.load()                      # what it parses with, imported once here
-    for name in (config.SESSION_ENV, "TMUX", "TMUX_PANE", terminal.PAD_ENV):
+    for name in (config.SESSION_ENV, "TMUX", "TMUX_PANE", terminal.PAD_ENV, orch.CLIENT_ENV):
         os.environ.pop(name, None)     # the popup's that started it: no seat is the reader's
     names = sorted(set(orch.seat_env("", "")) - {config.SESSION_ENV})
     own = [os.environ.get(name) for name in names]

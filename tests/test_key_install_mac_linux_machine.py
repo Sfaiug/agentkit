@@ -1,23 +1,25 @@
 """On a Mac, a server install puts ak's server in a Linux machine of its own and makes the Mac
 its client.
 
-ak's worker box, landing gate and limits exist only on Linux.  So a Mac's server install (no
-saved server elsewhere, or `--server`) sets up a Linux machine once, sized from the Mac with a
-share left to macOS, with the account's name and /home/<name>, none of the Mac's folders and the
-Mac's checkout at the same commit; runs the Linux server install in it, with a terminal when it
-has one; starts it with the Mac; and records it as the Mac's server, reached over a local ssh
-alias.  A second install finds it and changes nothing already right; a client stays a client.
-Black-box: install.sh of the checkout `AK_BIN` names runs in an answer-key Home that is the
-account's own (tests/fixtures/installer.py), on a Mac of fakes: `uname`, `df`, `brew`,
-`fdesetup`, a `sysctl` whose boot time is `<root>/boot` and whose boot's id `<root>/session`, a
-`launchctl` keeping what launchd has loaded in `<root>/launchd.json`, a `pmset` keeping its
-settings in `<root>/pmset.json`, a `sudo` that runs only `pmset`, `tee` and `launchctl`, and a
-`limactl` whose machine is a directory, `<root>/guest`, in the state `<root>/machine` names.
+ak's worker box, landing gate and limits exist only on Linux.  So a Mac's server install (no saved
+server elsewhere, or `--server`) sets up a Linux machine once, sized from the Mac with a share left
+to macOS, with the account's name and /home/<name>, none of the Mac's folders and the Mac's
+checkout at the same commit, its origin the Mac's or none where the Mac has none; runs the Linux
+server install in it, with a terminal when it has one; starts it with the Mac; and records it as
+the Mac's server, reached over a local ssh alias.  A second install finds it and changes nothing
+already right; a client stays a client.  Black-box: install.sh of the checkout `AK_BIN` names, or
+of a Mac's own copy of it, runs in an answer-key Home that is the account's own
+(tests/fixtures/installer.py), on a Mac of fakes: `uname`, `df`, `brew`, `fdesetup`, a `sysctl`
+whose boot time is `<root>/boot` and whose boot's id `<root>/session`, a `launchctl` keeping what
+launchd has loaded in `<root>/launchd.json`, a `pmset` keeping its settings in `<root>/pmset.json`,
+a `sudo` that runs only `pmset`, `tee` and `launchctl`, and a `limactl` whose machine is a
+directory, `<root>/guest`, in the state `<root>/machine` names.
 """
 
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,7 +27,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import installer
-from fixtures.akbin import LOG, Home
+from fixtures.akbin import AK, LOG, Home
+from fixtures.akinstall import PROGRAM, copy_tracked
 
 GIB = 1024 ** 3
 # The machine is a directory: `shell` runs its command in the home there, but for ak's own
@@ -169,10 +172,24 @@ class Mac:
         self.daemons.mkdir()
         home.env.update(USER="acme", AK_LAUNCH_DAEMONS=str(self.daemons))
         self.guest = home.root / "guest/home/acme"
+        self.script = installer.INSTALL
+
+    def own_checkout(self, origin=None):
+        """Install from now on from a checkout of the Mac's own: what `AK_BIN`'s tracks and the
+        program however it was built, in one commit, with `origin` its origin, else none."""
+        checkout = self.home.root / "checkout"
+        copy_tracked(checkout)
+        program = checkout / Path(AK).resolve().relative_to(PROGRAM)
+        program.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(AK, program)
+        for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "the Mac's checkout"],
+                     *([["remote", "add", "origin", origin]] if origin else [])):
+            done = self.home.run("git", "-C", str(checkout), *args)
+            assert done.code == 0, done.err
+        self.script = checkout / installer.INSTALL.resolve().relative_to(PROGRAM)
 
     def install(self, *args, tty=False):
-        done = installer.run(self.home, *args) if not tty else \
-            self.home.run("bash", str(installer.INSTALL), *args, tty=True)
+        done = self.home.run("bash", str(self.script), *args, tty=tty)
         assert done.code == 0, done.out + done.err
         return done
 
@@ -257,6 +274,32 @@ class FreshMac(unittest.TestCase):
         self.assertEqual(self.mac.home.calls("brew").count(["install", "lima"]), 1)
         self.assertEqual((self.mac.home.path / ".ssh/config").read_text(), self.ssh_config)
         self.assertEqual(self.mac.server(), "lima-ak\n")
+
+
+class OwnCheckout(unittest.TestCase):
+    """The clone install.sh copies in has the Mac's folder for its origin, which the machine
+    does not mount."""
+
+    def remotes(self, origin=None, name=None):
+        """Each remote of the machine's copy, and its URL, from a Mac whose checkout's origin is
+        `origin` and whose clone.defaultRemoteName is `name`."""
+        mac = Mac()
+        self.addCleanup(mac.close)
+        if name:
+            mac.home.run("git", "config", "--global", "clone.defaultRemoteName", name)
+        mac.own_checkout(origin)
+        mac.install()
+        listed = mac.home.run("git", "-C", str(mac.guest / "agentkit"), "remote", "-v").out
+        return {remote: url for remote, url, _ in map(str.split, listed.splitlines())}
+
+    def test_a_mac_checkout_with_no_origin_gives_the_copy_no_remote(self):
+        self.assertEqual(self.remotes(), {})
+
+    def test_a_mac_naming_a_clone_s_remote_upstream_gives_the_copy_its_origin_or_none(self):
+        for origin in (None, "https://github.com/acme/agentkit.git"):
+            with self.subTest(origin=origin):
+                self.assertEqual(self.remotes(origin, "upstream"),
+                                 {"origin": origin} if origin else {})
 
 
 class SmallMac(unittest.TestCase):

@@ -1,17 +1,16 @@
-"""OpenCode: the session a seat's own OpenCode last took a prompt into, kept in its record, and
-the one its plugin last reported, kept in a receipt of that launch's own.
+"""OpenCode: the session a seat's own OpenCode last took a prompt into, kept in its record and
+in a receipt of that launch's own.
 
 Everything else about this harness is data -- adapters/opencode.sh and adapters/opencode.toml.
 Its TUI cannot be told the id of a session it has not opened yet, so a seat's conversation is
 learned rather than issued: the plugin's prompt fact names the session it went into, and the
 seat follows it there (`follow`) -- its first, or another the owner opened in the seat's screen
 (`/new`, or one from its list).  Every launch also gets a receipt, a directory named in its
-environment, and hooks/opencode-seat writes into it the id of the session that seat is talking
-in -- whole, renamed over the last one, so an interrupted write leaves the last good id: the
-session ak's title goes on, and the one a seat whose record names none yet comes back to.  The
-receipt's token is kept in the seat's record, so it follows a rename, and no other seat -- not
-one in the same directory -- reads or writes it.  Nothing here asks which session of a
-directory is the latest.
+environment, and ak alone writes into it the id of the session that seat is in, as the launch
+resumes it and as the seat follows a prompt: the session hooks/opencode-seat puts ak's title
+on, and the one a seat whose record names none yet comes back to.  The receipt's token is kept
+in the seat's record, so it follows a rename, and no other seat -- not one in the same
+directory -- reads or writes it.  Nothing here asks which session of a directory is the latest.
 
 OpenCode ends no session, and keeps each as rows of its database: gc ends a top-level one
 nobody updated for 30 days with OpenCode's own delete, which takes its children along.
@@ -45,8 +44,8 @@ def path_for(record):
 
 
 def conversation(record, cwd=None):
-    """The session the seat followed to (`follow`), else the one its launch's plugin last
-    reported, or None where neither names one yet."""
+    """The session the seat followed to (`follow`), else the one its launch's receipt names, or
+    None where neither names one yet."""
     from . import unread
     if isinstance(record.get("conversation"), str) and SESSION.fullmatch(record["conversation"]):
         return record["conversation"]
@@ -74,7 +73,11 @@ def follow(launched, payload, pid):
     """A prompt the seat's own OpenCode took into a top-level session moves the seat there
     (`claim`), whoever typed it, its first one too.  opencode.db says which, read as the prompt
     is reported: a subagent's session names the session that started it there, and is never
-    followed.  OpenCode keeps every session in that one database, that session's file too."""
+    followed.  OpenCode keeps every session in that one database, that session's file too.
+
+    The session the seat is in then goes into its launch's receipt: whole, renamed over the last
+    one, and only into the launch's own directory, which a seat stopped since has had removed.
+    Only what `claim` left in the record goes there, never a session it refused."""
     from .. import orch
     from . import claim, rows
     session = payload.get("session_id") if isinstance(payload, dict) else None
@@ -85,6 +88,14 @@ def follow(launched, payload, pid):
         claim(launched, "opencode", session, str(database()),
               lambda record, session: database(), pid,
               lambda words: orch.program(words) == "opencode")
+        record = config.session_records().get(config.resolve_session(launched), {})
+        path, current = path_for(record), record.get("conversation")
+        if path and isinstance(current, str) and SESSION.fullmatch(current):
+            try:
+                (path / "session.next").write_text(current, encoding="utf-8")
+                (path / "session.next").replace(path / "session")
+            except OSError:
+                pass        # the receipt says what it said before
 
 
 def forget(record):
@@ -120,7 +131,7 @@ def switchable(model, effort):
 
 
 def launched(name, cwd, conversation):
-    """A receipt of this launch's own, for the seat plugin to write its session into.
+    """A receipt of this launch's own, which keeps the seat's session (`follow`) for its plugin.
 
     A resumed session is in it from the start, so a seat that dies again before its next
     turn still comes back to it.  A resume opens on the session the seat is in, whichever

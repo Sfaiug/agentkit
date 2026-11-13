@@ -139,12 +139,13 @@ def light_grey(rgb):
     return top > 127 and (top - min(r, g, b)) / top < GREY
 
 
-def on_background(rgb):
-    """A caller's own colour as it reads here: on a light background a light grey is drawn
-    as its mirror tone, so a white company reads black; a hue or a dark grey reads on both."""
-    if _LIGHT and light_grey(rgb):
-        return "".join(f"{255 - int(rgb[i:i + 2], 16):02x}" for i in (0, 2, 4))
-    return rgb
+def on_background(kind):
+    """A caller's own colour -- `#RRGGBB`, or a kind as `styled` reads it -- as it reads here: on
+    a light background a light grey is drawn as its mirror tone, so a white company reads black;
+    a hue or a dark grey reads on both."""
+    if _LIGHT and kind.startswith("#") and light_grey(kind[1:]):
+        return "#" + "".join(f"{255 - int(kind[i:i + 2], 16):02x}" for i in (1, 3, 5))
+    return kind
 
 
 def basic_colour(rgb):
@@ -156,7 +157,7 @@ def faded(word, amount):
     """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
     background, or with a negative one that far toward the foreground, where it is lit; as
     `#RRGGBB` for `styled`."""
-    rgb = on_background(word[1:]) if word.startswith("#") else colour(word, _LIGHT).rgb
+    rgb = word[1:] if word.startswith("#") else colour(word, _LIGHT).rgb
     to, amount = (255 if _LIGHT else 0) if amount >= 0 else (0 if _LIGHT else 255), abs(amount)
     return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + to * amount):02x}"
                          for i in (0, 2, 4))
@@ -363,9 +364,9 @@ def styled(text, kind):
     if kind in ("bold", "reverse"):
         code = "1" if kind == "bold" else "7"
     else:
-        # `#RRGGBB` is a colour of the caller's own -- a provider's, on its usage bar -- and
-        # takes the nearest the terminal has, as a state's colour does
-        own = kind.startswith("#") and on_background(kind[1:])
+        # `#RRGGBB` is a colour as it reads here -- a provider's (`on_background`), a fade's --
+        # and takes the nearest the terminal has, as a state's colour does
+        own = kind.startswith("#") and kind[1:]
         tone, emphasis = (basic_colour(own), "") if own else STATE_STYLES[word][3:]
         rgb = own or colour(word, _LIGHT).rgb
         code = ("38;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4))

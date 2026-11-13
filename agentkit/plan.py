@@ -27,7 +27,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from . import command_help, config, gitcall, guard, parsed, terminal
+from . import command_help, config, gitcall, guard, history, parsed, terminal
 
 CHECK_LIMIT = 600    # an unfinished check proves nothing
 # an eye line, from before every line had a check, reads done: how a change looks is the
@@ -436,6 +436,12 @@ def identity(line):
     return undone(line.strip(), found)[6:] if found and found["check"] else None
 
 
+def link(found):
+    """The words a run names the parsed line it serves by (`plan_line`): its outcome and when
+    it was written, which `ak plan check` keeps when it replaces the check."""
+    return f"{found['what']} · written {found['when']}"
+
+
 def served_line(name, commands):
     """The first open line matching a task's check, else the sole open line, else None.
 
@@ -445,7 +451,7 @@ def served_line(name, commands):
     checks = {" ".join(command.split()) for command in commands}
     found = next((line for line in opened if " ".join(line["check"].split()) in checks),
                  opened[0] if len(opened) == 1 else None)
-    return f"{found['what']} · written {found['when']}" if found else None
+    return link(found) if found else None
 
 
 def finished(name):
@@ -785,6 +791,9 @@ def recheck(name, number, check):
                                "run `ak plan check` again")
         text[same[0]] = text[same[0]][:len(text[same[0]]) - len(text[same[0]].lstrip())] + new
         write(current, text)
+        seats = names(current)
+    if check != found["check"]:     # its own check again gives the line nothing new
+        history.rewrote(seats, link(found))
     return new
 
 

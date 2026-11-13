@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"agentkit/internal/agent"
@@ -241,9 +242,11 @@ func barSet(option [3]string) []string {
 // caller's own options on a session tmux lists, each only where it would change what the bar
 // shows (bartold.go), and binds its click with any write, under one lock across every bar's
 // reading and writing, so whoever writes last has read last (statusbar._tell).  The sessions are
-// those `listing` lists, a reading's once, else listed here: a listing older than a write can only
-// cost a write not needed, or leave a bar wrong until the next look.
-func barTell(state, only string, own [][3]string, listing func() ([]barRow, bool)) {
+// those `listing` lists, a reading's once until it writes: the digests read before are that bar's
+// no longer, and would leave out telling it back what it showed then; else listed here.  A listing
+// older than another program's write can only cost a write not needed, or leave a bar wrong until
+// the next look.
+func barTell(state, only string, own [][3]string, listing *func() ([]barRow, bool)) {
 	if config.EnsureDirs() != nil {
 		return
 	}
@@ -255,10 +258,11 @@ func barTell(state, only string, own [][3]string, listing func() ([]barRow, bool
 	if !config.Publishes() {
 		return
 	}
-	if listing == nil {
-		listing = barSessions
+	list := barSessions
+	if listing != nil {
+		list = *listing
 	}
-	listed, known := listing()
+	listed, known := list()
 	if !known {
 		return
 	}
@@ -275,6 +279,9 @@ func barTell(state, only string, own [][3]string, listing func() ([]barRow, bool
 	lists = append(lists, barOwn(own, listed)...)
 	if len(lists) > 0 {
 		tmux.Lists(tmux.Own(), append(lists, barClick))
+		if listing != nil {
+			*listing = sync.OnceValues(barSessions)
+		}
 	}
 }
 
