@@ -2,8 +2,8 @@
 
 state/usage.json holds only each login's latest reading.  history.db's `meter_readings` keeps
 each one a probe or a worker turn took, a row per meter: its provider, account (`default` for
-the usual login), name, used%, reset and window, the moment it was measured, and `probe` or
-`turn` for what read it.  A tick within the provider's probe interval reads nothing new, so it
+the usual login), name, used%, reset and window, the moment it was measured, `probe` or `turn`
+for what read it, and the model whose own cap it is where its provider names one (`scope`).  A tick within the provider's probe interval reads nothing new, so it
 keeps nothing; a probe the provider refuses keeps nothing either.  A write that keeps readings
 drops the rows past five weeks.
 
@@ -33,7 +33,8 @@ LOCK = ".agentkit/state/anthropic-probe.lock"     # the provider of Claude's shi
 WEEK = 604800
 FIVE_WEEKS = 5 * WEEK
 NOW = int(time.time())
-FIRST = {"session": (20, NOW + 3600, 18000), "weekly_all": (30, NOW + 3 * 86400, WEEK)}
+FIRST = {"session": (20, NOW + 3600, 18000), "weekly_all": (30, NOW + 3 * 86400, WEEK),
+         "weekly_scoped": (60, NOW + 3 * 86400, WEEK, "Anvil")}
 LATER = {"session": (25, NOW + 3600, 18000), "weekly_all": (40, NOW + 3 * 86400, WEEK)}
 # no route anywhere: nothing a run asks leaves the host
 OFFLINE = {name: "http://127.0.0.1:9" for name in (
@@ -41,10 +42,12 @@ OFFLINE = {name: "http://127.0.0.1:9" for name in (
 
 
 def answer(fake, meters):
-    """What the provider answers for its usage from now on: {name: (used, resets_at, window)}."""
+    """What the provider answers for its usage from now on: {name: (used, resets_at, window,
+    and the scope it names, if any)}."""
     fake.answer("usage", json.dumps({"meters": [
-        {"name": name, "used": used, "resets_at": resets, "window_secs": window}
-        for name, (used, resets, window) in meters.items()]}))
+        {"name": name, "used": used, "resets_at": resets, "window_secs": window,
+         **({"scope": scope[0]} if scope else {})}
+        for name, (used, resets, window, *scope) in meters.items()]}))
 
 
 def readings(home):
@@ -61,8 +64,9 @@ def readings(home):
 def rows(meters, account="default", source="probe"):
     """The rows a reading of `meters` keeps, less its moment: the fake names no plan."""
     return [{"provider": "anthropic", "account": account, "meter": name, "used": used,
-             "resets_at": resets, "window_secs": window, "source": source, "plan": None}
-            for name, (used, resets, window) in meters.items()]
+             "resets_at": resets, "window_secs": window, "source": source, "plan": None,
+             "scope": scope[0] if scope else None}
+            for name, (used, resets, window, *scope) in meters.items()]
 
 
 def timed(act, *args, **kwargs):
