@@ -342,11 +342,11 @@ class DesktopAndBoot(Sandbox):
         # done by itself, so the tick's log's, dated, and no notice the owner must dismiss
         self.boot_fixture()
         with patch.object(config, "server_alias", return_value=None), \
-                patch("agentkit.macbridge.start_background"), patch.object(menu, "loop", return_value=0), \
-                patch.object(menu.os, "_exit"), patch.object(menu, "show_notices") as notices:
+                patch("agentkit.macbridge.start_background"), \
+                patch.object(menu, "loop", return_value=0) as loop, patch.object(menu.os, "_exit"):
             menu.main(["--overlay"])
             menu.main(["--overlay"])
-        self.assertEqual([call.args[0] for call in notices.call_args_list], [[], []])
+        self.assertEqual([call.args[-1] for call in loop.call_args_list], [[], []])   # no notice
         self.assertEqual(self.started.call_count, 2)
         self.assertEqual([line.split(" ", 2)[2] for line in
                           watch.log_path().read_text().splitlines()],

@@ -2,7 +2,7 @@
 
 A repository's finished pieces leave their CPU cost behind, as each piece's box reported it,
 the CPU its processes needed, and later pieces of that suite are sized by it; one with no
-record starts from the estimate.
+record starts from the estimate, or from what another suite has on record where it takes that.
 CPU the host spends outside ak's slice -- ak's own menus, tick and live checks among it --
 takes room the slice's quota would still promise.
 
@@ -116,6 +116,18 @@ class SuitesFitTheMachine(unittest.TestCase):
         self.assertEqual(gate.suite_cost(fixture.SUITE, self.root, self.run_dir)[1:],
                          (gate.HEAVY_CPUS, gate.HEAVY_MEM_MB))
         self.assertEqual(self.started(ROOMY), int(6 / gate.HEAVY_CPUS))
+
+    def test_a_suite_takes_only_the_measures_it_lacks_that_another_has(self):
+        repo, rewritten = self.checkout("acme"), f"{fixture.SUITE} again"
+        gate.inherit_suite_cost(rewritten, fixture.SUITE, repo)
+        self.assertEqual(gate.suite_cost(rewritten, repo, None)[1:],
+                         (gate.HEAVY_CPUS, gate.HEAVY_MEM_MB))
+        gate.write_suite_cost(gate.suite_cost(fixture.SUITE, repo, None)[0],
+                              {"cpus": 1.4, "mem_mb": 900})
+        path = gate.suite_cost(rewritten, repo, None)[0]
+        gate.write_suite_cost(path, {"cpus": 2.0, "quiet": [5]})
+        gate.inherit_suite_cost(rewritten, fixture.SUITE, repo)
+        self.assertEqual(gate.read_suite_cost(path), {"cpus": 2.0, "quiet": [5], "mem_mb": 900})
 
     def test_cpu_used_outside_the_slice_lowers_the_count(self):
         # 8 cores less 4 outside leave the slice 4 of its quota's 7; it uses 1 of them.

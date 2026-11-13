@@ -198,7 +198,8 @@ func carry(inside func(...string) *exec.Cmd, out, errOut io.Writer) error {
 	}
 	defer os.RemoveAll(tmp)
 	clone, archive := filepath.Join(tmp, "agentkit"), filepath.Join(tmp, "agentkit.tar")
-	if err := tool(out, errOut, "git", "clone", "-q", "--depth", "1", "--", "file://"+repo, clone); err != nil {
+	// named origin whatever clone.defaultRemoteName says, so the lines below act on it
+	if err := tool(out, errOut, "git", "clone", "-q", "--depth", "1", "--origin", "origin", "--", "file://"+repo, clone); err != nil {
 		return err
 	}
 	// the checkout's origin, or none where it has none: the machine cannot reach the Mac's path

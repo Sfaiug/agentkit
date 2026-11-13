@@ -218,7 +218,8 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one
         return None, "no recipe for the suite helper"
     code, branch = gitcall.git_out(cwd, "symbolic-ref", "-q", "--short", "HEAD")
     named, default = gitcall.git_out(cwd, "rev-parse", "--abbrev-ref", "origin/HEAD")
-    programs = {program for program in orch.agent_programs() if config.harness_binary(program)}
+    programs = {program for names in orch.agent_programs().values() for program in names
+                if config.harness_binary(program)}
     wide = 2 ** 64 - 1    # the shard, CPUs and MiB, unknown before the probe, at their widest
     away = Away("", secrets.token_hex(6), repo, image, wide, wide, wide, wide,
                 "" if code else branch,
