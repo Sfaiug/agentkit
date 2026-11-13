@@ -149,7 +149,10 @@ sys.exit(int(sys.argv[1]))' "$code" >"$peak"
 # shell ran may end it.  Once bwrap ends, it ends all left.  A SIGTERM, the shadow's or at the
 # shadow's end, halts the box first: it kills all the box runs but that shell and wakes the shell,
 # which what it ran may have stopped, till it writes down the peak and ends, for 10 seconds at most.
+# It waits for a SIGTERM and never handles one, so no stop cuts its cleanup short.
 KEEP = """import ctypes, os, signal, subprocess, sys, time
+WAKE = {signal.SIGTERM, signal.SIGCHLD}
+signal.pthread_sigmask(signal.SIG_BLOCK, WAKE)
 libc = ctypes.CDLL(None)
 libc.prctl(36, 1, 0, 0, 0)                  # subreaper
 libc.prctl(1, signal.SIGTERM, 0, 0, 0)      # its parent's death, a SIGTERM
@@ -170,29 +173,21 @@ def kill(pid, sig):
         os.kill(pid, sig)
     except ProcessLookupError:
         pass    # ended meanwhile
-class Stop(BaseException):
-    pass    # not KeyboardInterrupt, on which Popen.wait waits a while more
-def stop(*_):
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    raise Stop
-signal.signal(signal.SIGTERM, stop)
-bwrap = None
-try:
-    bwrap = subprocess.Popen(sys.argv[1:])
-    sys.exit(bwrap.wait())
-except Stop:
-    end = time.monotonic() + 10
-    while bwrap and bwrap.poll() is None and time.monotonic() < end:
-        for pid, up in below().items():
-            if pid != bwrap.pid:
-                kill(pid, signal.SIGCONT if up == bwrap.pid else signal.SIGKILL)
-        time.sleep(0.1)
-finally:
-    signal.signal(signal.SIGTERM, signal.SIG_IGN)
-    while left := below():
-        for pid in left:
-            kill(pid, signal.SIGKILL)
-        os.wait()
+bwrap = subprocess.Popen(sys.argv[1:],
+                         preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_UNBLOCK, WAKE))
+while bwrap.poll() is None and signal.sigwaitinfo(WAKE).si_signo == signal.SIGCHLD:
+    pass    # what ended was not bwrap
+end = time.monotonic() + 10
+while bwrap.poll() is None and time.monotonic() < end:
+    for pid, up in below().items():
+        if pid != bwrap.pid:
+            kill(pid, signal.SIGCONT if up == bwrap.pid else signal.SIGKILL)
+    time.sleep(0.1)
+while left := below():
+    for pid in left:
+        kill(pid, signal.SIGKILL)
+    os.wait()
+sys.exit(bwrap.returncode)
 """
 
 
