@@ -6,7 +6,6 @@ import json
 import os
 import shlex
 import subprocess
-import time
 import unittest
 from unittest.mock import patch
 
@@ -136,13 +135,17 @@ class ClaudeStatusLine(Sandbox):
                           for meter in usage._cached_provider("anthropic")["meters"]},
                          {"session": 50, "weekly_all": 40})
 
-
-    def test_a_bash_without_a_clock_judges_a_render_by_its_jqs(self):
-        before = time.time_ns() / 1e9       # the sandbox's time.time stands still
+    def test_a_bash_without_a_clock_hands_in_no_limits(self):
+        config.save_session(self.cfg, "acme", "opus", ["opus"], {"conversation": "conv-acme"})
+        watch.hook_meters("acme", "conv-acme", "", "1000", "seven_day 20 900000")
+        watch.hook_meters("acme", "conv-acme", "", "2000", "seven_day 30 900000")
+        note = config.STATE / "limits-conv-acme.json"
+        held = note.read_text(), usage._cached_provider("anthropic")
         self.render({"seven_day": {"used_percentage": 40, "resets_at": 900000}},
                     'unset EPOCHREALTIME; . "$0"')
-        note = json.loads((config.STATE / "limits-conv-acme.json").read_text())
-        self.assertTrue(before < note["seven_day"][2] < time.time_ns() / 1e9, note)
+        self.assertEqual((note.read_text(), usage._cached_provider("anthropic")), held)
+        self.assertEqual([meter["used"] for meter in held[1]["meters"]], [30])
+
 
 if __name__ == "__main__":
     unittest.main()
