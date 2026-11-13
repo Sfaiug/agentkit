@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"agentkit/internal/handback"
 	"agentkit/internal/run"
 )
 
@@ -41,7 +40,7 @@ func TestAFailedLookLeavesItsEndingForTheTick(t *testing.T) {
 					code = Main([]string{"run", "status", "r"}, output(), &errOut)
 				}
 				record, _ := run.Read(dir)
-				if code != 1 || !handback.Waiting(record) || record.Truthy("handed_back") {
+				if code != 1 || !run.Waits(record) || record.Truthy("handed_back") {
 					t.Fatalf("exit=%d record=%s stderr=%s", code, run.Line(record), errOut.String())
 				}
 			})

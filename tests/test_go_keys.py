@@ -13,10 +13,14 @@ Key file names keep it to those files' claims, and one go/keys.txt does not list
 in the file NOT_THERE names and as no failing part, as it ran nowhere; without names every claim
 runs, as the suite's pieces of it name theirs (every_file.py).  With AK_BIN set it judges that
 program, a relative name read from the checkout, instead of building; it builds nothing where no
-claim runs.  With AK_GO_ALONE=1 the copy is shaped like the commit switching ak to Go, so a claim
-passing only by what that commit drops fails: its hooks/, adapters/, tools/ and install.sh are
-go/'s but for the shell KEPT names, its bin/ holds only the program judged, and
-tests/fixtures/akbin.py's Home refuses Python.
+claim runs.  A claim is judged in a copy shaped like the commit switching ak to Go, as
+AK_GO_ALONE=1 asks of checkout() and of tests/fixtures/akbin.py's Home, so one passing only by
+what that commit drops fails: its hooks/, adapters/, tools/ and install.sh are go/'s but for the
+shell KEPT names, its bin/ holds only the program judged, and the Home refuses Python.  A key file
+go/leans/ names still leans on Python's files: its claims are judged in a copy as checked out, with
+no AK_GO_ALONE, and the list only shrinks (tests/test_go_leans.py).  With AK_GO_ALONE=1 each claim
+is judged switched, named or not, as the switch's own gate judges them and a milestone shows a
+lean gone.  The claims judged one way share one copy and one build.
 Each failing claim is named by its key file's name in the file FAILED_PARTS names: a piece
 takes minutes, so every_file.py's re-run, and a narrowing step on that claim, run it alone.
 Each passing one's seconds are in the file PART_TIMES names: they cut the next suite's pieces.
@@ -32,6 +36,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 from suite_shares import claims, name_failed, name_timed
 from test_go import ENV
@@ -47,6 +52,11 @@ SWITCHED = ("hooks", "adapters", "tools")
 # What that commit keeps of Python's tools/: shell run on another machine, or by git as its merge
 # driver, that Go does not replace.  A key playing such a machine reads the helper's from here.
 KEPT = ("tools/helper", "tools/machine.sh", "tools/linux-machine.sh", "tools/merge")
+
+
+def leaning(root):
+    """The key files go/leans/ at `root` names, an empty file each: none where it is not there."""
+    return {lean.name for lean in Path(root, "go/leans").glob("*")}
 
 
 @contextmanager
@@ -119,27 +129,40 @@ class Claims(unittest.TestCase):
         # naming no failing part, and those it lists still run.
         unlisted = set(asked) - {claim[0] for claim in listed}
         name_failed(sorted(unlisted), "NOT_THERE")
-        with checkout(build=bool(listed)) as (tree, program, built):
-            if built and built.returncode:
-                # Go that does not build fails every claim asked of it, never as a skip: the
-                # landing suite counts a skipped case as passed.  Named, a landing's narrowing
-                # finds the change that broke the build: unnamed, the claim proves nothing on
-                # each stack holding that change (land._probe).
-                name_failed([name for name, *_ in listed], "FAILED_PARTS")
-                self.fail(built.stderr)
-            failed, took = [], {}
-            # One after another: every_file.py already runs other files beside this one.
-            for name, *parts in listed:
-                claim = " ".join((name, *parts))
-                # Named as it starts: a few claims on a loaded host, or all of go/keys.txt, run
-                # longer than a check may stay silent, and a claim that hangs is then the last line.
-                print(f"--- {claim}", flush=True)
-                began = time.monotonic()
-                done, passed = run(tree, program, name, *parts)
-                took[name] = time.monotonic() - began
-                if not passed:
-                    failed.append(claim)
-                    print(f"{done.stdout}{done.stderr}", flush=True)
+        alone = os.environ.get("AK_GO_ALONE") == "1"
+        leans = set() if alone else leaning(REPO)
+        # Said first: a claim a milestone adds that leans on Python's files reads why it fails.
+        switched = "judged in the switched tree (tests/test_go_keys.py): " + (
+            "AK_GO_ALONE=1 judges every claim there\n" if alone else
+            "go/leans/ does not name its key file\n")
+        failed, took = [], {}
+        for lean in (False, True):
+            judged = [claim for claim in listed if (claim[0] in leans) == lean]
+            if not judged:
+                continue
+            # A lean's run with the caller's AK_GO_ALONE, which is not 1 where any is one.
+            with (patch.dict(os.environ, {} if lean else {"AK_GO_ALONE": "1"}),
+                  checkout(build=True) as (tree, program, built)):
+                if built and built.returncode:
+                    # Go that does not build fails every claim asked of it, never as a skip: the
+                    # landing suite counts a skipped case as passed.  Named, a landing's narrowing
+                    # finds the change that broke the build: unnamed, the claim proves nothing on
+                    # each stack holding that change (land._probe).
+                    name_failed([name for name, *_ in listed], "FAILED_PARTS")
+                    self.fail(built.stderr)
+                # One after another: every_file.py already runs other files beside this one.
+                for name, *parts in judged:
+                    claim = " ".join((name, *parts))
+                    # Named as it starts: a few claims on a loaded host, or all of go/keys.txt, run
+                    # longer than a check may stay silent, and a claim that hangs is then the last
+                    # line.
+                    print(f"--- {claim}", flush=True)
+                    began = time.monotonic()
+                    done, passed = run(tree, program, name, *parts)
+                    took[name] = time.monotonic() - began
+                    if not passed:
+                        failed.append(claim)
+                        print(f"{'' if lean else switched}{done.stdout}{done.stderr}", flush=True)
         failing = [claim.split()[0] for claim in failed]
         name_failed(failing, "FAILED_PARTS")
         name_timed({name: seconds for name, seconds in took.items() if name not in failing})

@@ -122,7 +122,7 @@ class OutOfUsageRow(Sandbox):
         # it outranks work going on, as it is what stops it
         self.assertEqual(menu.rollup(["working", "out of usage", "done"]), "out of usage")
 
-    def test_a_move_refuses_a_model_that_is_spent(self):
+    def test_a_move_by_hand_takes_a_model_that_is_spent(self):
         # fable full with no reset known
         self.cfg["models"] = {k: self.cfg["models"][k] for k in ("opus", "fable", "astra")}
         full = {"meters": [{"name": "weekly_all", "used": 100, "exhausted": True,
@@ -132,8 +132,9 @@ class OutOfUsageRow(Sandbox):
         config.save_session(self.cfg, SEAT, "opus", ["astra"], {"cwd": str(self.root)})
         with patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "harness_plugin", return_value=Login({None})):
-            self.assertEqual(orch._switch_plan(self.cfg, SEAT, "fable", providers)[0],
-                             "fable is spent")
+            self.assertEqual(orch.spent_note(self.cfg, "fable", providers), "spent")
+            self.assertEqual(orch._switch_plan(self.cfg, SEAT, "fable", providers),
+                             ("", None))      # the owner's switch asks nothing of usage
 
     def test_a_move_by_hand_lands_on_a_login_on_credits(self):
         # astra's login with a window has expired; the one left holds only credits
@@ -172,9 +173,10 @@ class OutOfUsageOnScreen(unittest.TestCase):
         [row] = [line for line in lines if "acme-api" in line]
         self.assertRegex(row, r"○ out of usage +back \d\d:\d\d")
         screen.send(b"j")      # the highlight on its row opens its lines
-        lines = screen.frame(lambda lines: any("⚒◎" in line for line in lines))
-        at = next(n for n, line in enumerate(lines) if "⚒◎" in line)
-        self.assertRegex(lines[at], r"^ +Opus \S+ \S+ ⚒◎$")     # its line, the crew alone
+        lines = screen.frame(lambda lines: any("orchestrates" in line for line in lines))
+        at = next(n for n, line in enumerate(lines) if "orchestrates" in line)
+        # its line, the crew alone
+        self.assertRegex(lines[at], r"^ +Opus \S+ \S+ orchestrates, builds, reviews$")
         self.assertEqual(lines[at + 1], "")     # and nothing to choose under it
         screen.leave()
 

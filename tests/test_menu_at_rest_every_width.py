@@ -21,6 +21,7 @@ from agentkit import record
 
 NOW = 1_800_000_000
 DAY = 86400
+CREW = r"Fable 5\.1 xhigh orchestrates   Opus 5\.5 xhigh builds, reviews"   # each seat's
 # `need you` is said once, on the top line: no other line of the menu at rest says
 # it, so the fixture's needing seats read their own reason in the last column.
 LONG_TITLE = ("Rebuild the dashboard filters so archived runs stay hidden "
@@ -154,9 +155,10 @@ class V5oMenu(Sandbox):
         self.assertLess(screen.index("\natoll\n"), screen.index("\nagentkit\n"))
         self.assertLess(screen.index("\nagentkit\n"), screen.index("\nnot assigned yet\n"))
         # Each needing row carries its number and its word, and opens who builds and reviews.
-        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +Opus 5\.5 xhigh ⚒◎\n")
+        self.assertRegex(screen,
+                         r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +" + CREW + r"\n")
         self.assertRegex(screen, re.compile(r"4\s+herdr-long\s+Fable 5\.1 xhigh\s+● working\s+─+ no plan yet$", re.M))
-        self.assertRegex(screen, r"5\s+scribe\s+Fable 5\.1 xhigh\s+! needs you\n +Opus 5\.5 xhigh ⚒◎\n")
+        self.assertRegex(screen, r"5\s+scribe\s+Fable 5\.1 xhigh\s+! needs you\n +" + CREW + r"\n")
         # Nothing needs you when nothing does.
         with patch("agentkit.watch.live_state", return_value={"state": "working", "rule": "fixture",
                                                              "since": NOW - 60, "began": NOW - 60}):
@@ -202,7 +204,7 @@ class V5oMenu(Sandbox):
         # A working seat without a plan reads its unfinished job's bar: short, never wrapped.
         screen, _ = self.draw(100, 30)
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
-        self.assertRegex(job, r"[━╸]+─+ 3 of 7$")
+        self.assertRegex(job, r"[━╸]+─+ 3 of 7 · 2 tasks$")
         self.assertNotIn("2 running", job)
         # Lines too long for a page's are cut with … on the last of them.
         info = {"number": "1", "name": "atoll-job", "count": "needs you",
@@ -226,13 +228,14 @@ class V5oMenu(Sandbox):
         long_turn = next(line for line in screen.splitlines() if "herdr-long" in line)
         self.assertTrue(long_turn.rstrip().endswith("─ no plan yet"))
         self.assertNotIn("Fix the", long_turn)
-        # Runs going without a plan or a job read `no plan yet`, never `N running`.
+        # Runs going without a plan or a job read `no plan yet` and their tasks, never
+        # `N running`.
         quiet = next(line for line in screen.splitlines() if "atoll-solo" in line)
-        self.assertTrue(quiet.rstrip().endswith("─ no plan yet"))
+        self.assertTrue(quiet.rstrip().endswith("─ no plan yet · 2 tasks"), quiet)
         # A working seat without a plan reads its unfinished job's bar, the orchestrator,
         # no title.
         job = next(line for line in screen.splitlines() if "atoll-job" in line)
-        self.assertRegex(job, r"[━╸]+─+ 3 of 7$")
+        self.assertRegex(job, r"[━╸]+─+ 3 of 7 · 2 tasks$")
         self.assertIn("Fable 5.1", job)
         self.assertNotIn("Rebuild the dashboard filters", screen)
         # A plan draws the bar; without a plan or a job the line has nothing done.
@@ -243,7 +246,7 @@ class V5oMenu(Sandbox):
         self.assertRegex(screen, r"[━╸]+─+ 3 of 7")
         solo = next(line for line in screen.splitlines() if "atoll-solo" in line)
         self.assertNotIn("2 running", solo)
-        self.assertTrue(solo.rstrip().endswith("─ no plan yet"))
+        self.assertTrue(solo.rstrip().endswith("─ no plan yet · 2 tasks"), solo)
         solo_lines = [line for line in screen.splitlines() if "atoll-solo" in line]
         self.assertTrue(solo_lines and "/" not in solo_lines[0])
 
@@ -364,7 +367,8 @@ class V5oMenu(Sandbox):
         screen, _ = self.draw(100, 30)
         # No ending ever reaches the gone seat's row.
         self.assertNotIn("Herdr first pass", screen)
-        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +Opus 5\.5 xhigh ⚒◎\n")
+        self.assertRegex(screen,
+                         r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +" + CREW + r"\n")
         self.assertNotIn("press r", screen)
         # ak run status <id> marks an ending looked at, and acknowledge does.
         second = self.touching("herdr-second-pass", owner="herdr-quiet",
@@ -447,7 +451,7 @@ class V5oMenu(Sandbox):
         # A seat row is two lines on a phone: head plus its last column indented.
         idx = next(i for i, line in enumerate(screen.splitlines()) if "atoll-job" in line)
         self.assertTrue(screen.splitlines()[idx + 1].startswith("    "))
-        self.assertRegex(screen.splitlines()[idx + 1], r"^    [━╸]+─+ 3 of 7$")
+        self.assertRegex(screen.splitlines()[idx + 1], r"^    [━╸]+─+ 3 of 7 · 2 tasks$")
 
     def test_v5o_n_no_age_in_seconds(self):
         for width in (40, 100, 170):

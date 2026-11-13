@@ -88,7 +88,7 @@ class SeatBar(Sandbox):
         self.plan("api-fix", 3, 7)
         word, last, row, bar = self.drawn(seat)
         self.assertEqual(word, "working")
-        self.assertRegex(last, r"^[━╸]+─+ 3 of 7$")
+        self.assertRegex(last, r"^[━╸]+─+ 3 of 7 · 1 task$")
         self.assertIn(last, row)
         self.assertIn(" 3 of 7", bar)
         self.assertEqual(watch.plan_progress("fix-api"), (3, 7))
@@ -120,7 +120,7 @@ class SeatBar(Sandbox):
         word, last, row, bar = self.drawn(seat)
         self.assertEqual(word, "working")
         # merged, passed and skipped are done, of every task of the two unfinished jobs
-        self.assertRegex(last, r"^[━╸]+─+ 3 of 7$")
+        self.assertRegex(last, r"^[━╸]+─+ 3 of 7 · 1 task$")
         self.assertIn(last, row)
         self.assertIn(" 3 of 7", bar)
         self.assertEqual(menu.seat_progress("web-portal"), (1, 2))
@@ -139,7 +139,7 @@ class SeatBar(Sandbox):
         self.assertNotIn("running", bar)
         self.job("job-new", "fix-api", ["merged", "running"])
         word, last, row, bar = self.drawn(seat)
-        self.assertRegex(last, r"^[━╸]+─+ 1 of 2$")
+        self.assertRegex(last, r"^[━╸]+─+ 1 of 2 · 2 tasks$")
         self.assertNotIn("running", row)
         self.assertNotIn("running", bar)
 
@@ -150,7 +150,7 @@ class SeatBar(Sandbox):
         self.job("fix-api", "web-portal", ["queued"])      # its directory's name is no owner
         word, last, row, bar = self.drawn(seat)
         self.assertEqual(word, "working")
-        self.assertRegex(last, r"^─+ no plan yet$")
+        self.assertRegex(last, r"^─+ no plan yet · 1 task$")
         self.assertIn(last, row)
         self.assertIn(" no plan yet", bar)
         self.assertEqual(menu.seat_progress("fix-api"), (0, 0))

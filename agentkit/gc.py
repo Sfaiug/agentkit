@@ -4,7 +4,7 @@ Retention supplies the ownership proofs and deletion primitives; harness plugins
 supply their temporary-folder rules.
 """
 
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from datetime import datetime
 import fcntl
 import functools
@@ -635,15 +635,28 @@ def submodule_set_up(wt, private):
         for entry in staged.split(b"\0") if entry.startswith(b"160000 "))
 
 
+def scratches(directory):
+    """Each folder `record.scratch` made in a run's folder, and whether its maker lives.  Its
+    mark alone decides: a box's processes see the folder under another path, so no look at
+    who holds it proves anything."""
+    for folder in retention.children(directory):
+        maker = retention.read_json(folder / record.SCRATCH)
+        if maker is not None:
+            yield folder, retention.writer_active(maker)
+
+
+def scratch_lives(directory):
+    """Whether a run's folder holds a scratch whose maker lives: the folder stays whole."""
+    return any(living for _, living in scratches(directory))
+
+
 def left_scratch():
     """Each folder `record.scratch` made in a run's folder whose maker is gone, the run in any
     state: a killed one removes none of its own, and a run's folder stays 30 days (645 in 226
-    runs, 27 GiB, 12 Nov 2026).  Its mark alone decides: a box's processes see the folder
-    under another path, so no look at who holds it proves anything."""
+    runs, 27 GiB, 12 Nov 2026)."""
     for directory in retention.children(config.RUNS):
-        for folder in retention.children(directory):
-            maker = retention.read_json(folder / record.SCRATCH)
-            if maker is not None and not retention.writer_active(maker):
+        for folder, living in scratches(directory):
+            if not living:
                 yield {"action": "remove", "kind": "run-scratch", "path": str(folder)}
 
 
@@ -651,40 +664,46 @@ def clear_scratch(folder):
     """Remove `folder`, one `left_scratch` named, its mark last: one a removal cannot finish
     keeps it, and the next collection tries again.  Each folder is opened through the one
     holding it, never through a link, and opened to its owner, as `TemporaryDirectory`'s own
-    removal opens what its command closed: a name a link took meanwhile fails the removal."""
+    removal opens what its command closed: a name a link took meanwhile fails the removal.
+    Only the folder it is in stays open, so no depth meets a limit on open files or recursion:
+    it climbs back through `..`, and one moved meanwhile, whose `..` is no longer the folder
+    it came down from, fails the removal rather than lose that folder's names elsewhere."""
     with retention.reading(folder.parent, directory=True) as parent:
-        with _opened(folder.name, parent) as fd:
-            for name in os.listdir(fd):
-                if name != record.SCRATCH:
-                    _remove(name, fd)
+        fd = _opened(folder.name, parent)
+        try:
+            names, above = [name for name in os.listdir(fd) if name != record.SCRATCH], []
+            while names or above:
+                if names:
+                    name = names.pop()
+                    try:
+                        os.unlink(name, dir_fd=fd)
+                    except IsADirectoryError:
+                        above.append((name, names, os.fstat(fd)))
+                        fd, outer = _opened(name, fd), fd
+                        os.close(outer)
+                        names = os.listdir(fd)
+                    continue
+                name, names, came_from = above.pop()
+                fd, inner = os.open("..", os.O_RDONLY | os.O_DIRECTORY, dir_fd=fd), fd
+                os.close(inner)
+                if not os.path.samestat(os.fstat(fd), came_from):
+                    raise OSError(f"{name} moved while it was removed")
+                os.rmdir(name, dir_fd=fd)
             os.unlink(record.SCRATCH, dir_fd=fd)
+        finally:
+            os.close(fd)
         os.rmdir(folder.name, dir_fd=parent)
 
 
-def _remove(name, parent):
-    try:
-        os.unlink(name, dir_fd=parent)
-    except IsADirectoryError:
-        with _opened(name, parent) as fd:
-            for child in os.listdir(fd):
-                _remove(child, fd)
-        os.rmdir(name, dir_fd=parent)
-
-
-@contextmanager
 def _opened(name, parent):
     """The folder `name` in the one open as `parent`, open to its owner: its mode is set
     through a handle that reads nothing (`O_PATH`), as one closed to reading opens no other."""
     held = os.open(name, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
     try:
         os.chmod(f"/proc/self/fd/{held}", 0o700)
-        fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY, dir_fd=held)
+        return os.open(".", os.O_RDONLY | os.O_DIRECTORY, dir_fd=held)
     finally:
         os.close(held)
-    try:
-        yield fd
-    finally:
-        os.close(fd)
 
 
 def stale_worktrees(now, paths):
@@ -808,7 +827,7 @@ def gc_candidates(now=None):
                 and not state.get("notification_pending") and not state.get("pending_inbox")
                 and not state.get("handback_pending")
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
-                and not record.writing(directory)
+                and not record.writing(directory) and not scratch_lives(directory)
                 and retention.safe(directory)):
             yield {"action": "remove", "kind": "throwaway-run", "path": str(directory),
                    "run": str(directory), "throwaway": True,
@@ -823,7 +842,8 @@ def gc_candidates(now=None):
                 and (interrupted or worktrees.provably_final(state)
                      and run_aged_out(directory, state, now))
                 and not retention.writer_active(state) and not retention.busy(directory, paths)
-                and not record.writing(directory) and retention.safe(directory)):
+                and not record.writing(directory) and not scratch_lives(directory)
+                and retention.safe(directory)):
             try:
                 owner = transitions.launched_session(state)
             except config.Error:
@@ -1320,7 +1340,8 @@ def gc(report, automatic=False):
                             same = (item.get("final") and worktrees.provably_final(state or {})) or (
                                 retention.fingerprint(directory / "run.json") == item["state_identity"])
                             if (not same or retention.writer_active(state or {})
-                                    or retention.busy(directory, paths)):
+                                    or retention.busy(directory, paths)
+                                    or scratch_lives(directory)):
                                 continue
                             if item.get("whole"):
                                 try:

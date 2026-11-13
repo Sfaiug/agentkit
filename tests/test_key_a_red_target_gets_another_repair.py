@@ -84,8 +84,9 @@ class ARedTargetGetsAnotherRepair(unittest.TestCase):
         self.assertEqual(self.repairs(), [first])
         self.assertEqual(set(self.line.verdict(1)), {"line", "joined"})
         self.release.touch()
+        home = self.line.home
         self.until(lambda: record(first)["state"] == "blocked"
-                   and record(first)["pid"] not in _strays(self.line.home.path),
+                   and record(first)["pid"] not in _strays(home.root, home.tmux_dir),
                    "the first repair never ended blocked")
         # ended blocked, it holds the line until the step has gone by from its end
         for ago in (0, STEP - 600):

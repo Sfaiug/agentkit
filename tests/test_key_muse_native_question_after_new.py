@@ -8,12 +8,11 @@ another session or quoted in a message.  An Esc rests the seat, its plan unfinis
 next prompt.  A settled card stays closed, its seat neither reopened to ask it again after its
 process dies nor shown it once reopened on that session.  Black-box: a seat opened by `ak orch`
 from a person's terminal on a fake muse that fires its line's SessionStart hooks as Muse 1.4.12
-does and lists its sessions in Muse's registry, its log in Muse's store, under the Home; this
-test fails against `/bin/false`.
+does and lists its sessions in Muse's registry (tests/fixtures/musetui.py), its log in Muse's
+store, under the Home; this test fails against `/bin/false`.
 """
 
 import json
-import shlex
 import sys
 import time
 import uuid
@@ -21,51 +20,15 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import akconfig
+from fixtures import akconfig, musetui
 from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akpane import stamp
-from fixtures.akseat import PANE, PLAN_LINE
+from fixtures.akseat import PLAN_LINE
 from fixtures.akterm import Terminal
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 ASKED = "Which shape should acme use?"
 DAY = ".local/share/muse/sessions/2026/10/26"
-REGISTRY = ".local/share/muse/runtime/muse/sessions"
-
-MUSE = """#!/bin/sh
-if [ "$1 $2 $3" = "schema generate-json-schema --out" ]; then
-  exec printf '%s' '{{"enum": ["sessionStart", "stop", "notification"]}}' >"$4/msp.schema.json"
-fi
-[ -t 0 ] || exit 1
-exec {python} {tui} "$@"
-"""
-
-# Opens the session `resume` names, or a new one, fires its line's SessionStart hooks, lists the
-# session under its own pid, says which in `<seat>.json`, and becomes the pane showing `screen`.
-TUI = """import json, os, subprocess, sys, uuid
-from pathlib import Path
-root, home, argv = Path({root!r}), Path(os.environ["HOME"]), sys.argv[1:]
-seat = os.environ["AGENTKIT_SESSION"]
-session = argv[argv.index("resume") + 1] if "resume" in argv else str(uuid.uuid4())
-payload = json.dumps({{"hook_event_name": "SessionStart", "session_id": session,
-                      "source": "resume" if "resume" in argv else "startup",
-                      "cwd": os.getcwd(), "transcript_path": None, "model": "unknown"}})
-for flag, value in zip(argv, argv[1:]):
-    if flag == "-c" and value.startswith("hooks.SessionStart="):
-        for group in json.loads(value.partition("=")[2]):
-            for hook in group["hooks"]:
-                subprocess.run(["sh", "-c", hook["command"]], input=payload, text=True,
-                               env={{"HOME": str(home), "PATH": os.environ["PATH"]}})
-registry = home / {registry!r}
-registry.mkdir(parents=True, exist_ok=True)
-(registry / f"{{session}}.json").write_text(json.dumps({{"schema_version": 1, "session_id": session,
-    "endpoint_hint": "ms-0a0b0c0d0e0f.sock", "target_eligibility": "message_capable",
-    "process_generation_hint": f"pid={{os.getpid()}}"}}))
-(root / f"{{seat}}.json").write_text(json.dumps({{"argv": argv, "pid": os.getpid(),
-                                                  "session": session}}))
-os.execv(sys.executable, [sys.executable, {pane!r}, str(root / "screen.txt"),
-                          str(root / f"{{seat}}.typed")])
-"""
 
 
 def card(prompt, kind, **fields):
@@ -84,12 +47,9 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
-        root = self.home.root
-        tui = root / "tui.py"
-        tui.write_text(TUI.format(root=str(root), registry=REGISTRY, pane=str(PANE)))
-        self.home.fake("muse", MUSE.format(python=shlex.quote(sys.executable),
-                                           tui=shlex.quote(str(tui))))
-        (root / "screen.txt").write_text((FIXTURES / "muse-prompt-pane.txt").read_text())
+        screen = self.home.root / "screen.txt"
+        screen.write_text((FIXTURES / "muse-prompt-pane.txt").read_text())
+        musetui.install(self.home, screen)
         # no audit seat of ak's own, nor a collection due, to outlive a tick's box
         akconfig.write(self.home, ["opus", "spark"])
         self.home.write(".agentkit/state/gc.json", {"started_at": time.time()})
@@ -125,25 +85,18 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
             time.sleep(0.05)
 
     def launch(self, *opening):
-        started = self.home.root / "acme.json"
-        started.unlink(missing_ok=True)
         term = Terminal(self.home, "orch", "acme", *opening, size=(120, 40))
-        deadline = time.monotonic() + 60
-        while not started.exists() or not started.read_text().endswith("}"):
-            if time.monotonic() > deadline:
-                raise AssertionError(f"no muse started; the terminal shows:\n{term.screen()}")
-            time.sleep(0.05)
+        try:
+            muse = musetui.started(self.home, "acme")
+        except AssertionError:
+            raise AssertionError(f"no muse started; the terminal shows:\n{term.screen()}") from None
         self.drawn()
-        return json.loads(started.read_text())
+        return muse
 
     def new(self, muse):
         """The owner types `/new`: the same Muse moves to another session; no hook runs."""
         session = str(uuid.uuid4())
-        (self.home.path / REGISTRY / f"{muse['session']}.json").unlink()
-        self.home.write(f"{REGISTRY}/{session}.json", {
-            "schema_version": 1, "session_id": session, "endpoint_hint": "ms-0a0b0c0d0e0f.sock",
-            "target_eligibility": "message_capable",
-            "process_generation_hint": f"pid={muse['pid']}"})
+        musetui.register(self.home.path, session, muse["pid"])
         return session
 
     def logs(self, session, *events):

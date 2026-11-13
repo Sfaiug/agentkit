@@ -6,19 +6,19 @@ agentkit                                                                        
 
 
 atoll
-  1  atoll-job    Fable 5.1 xhigh  ● working    ━━━━━━━━━━━━━━━━━━━╸───────────────────────── 3 of 7
-     Opus 5.5 xhigh ⚒◎   ■□□  ■□□
-  2  atoll-solo   Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
-     Opus 5.5 xhigh ⚒◎   ■□□  ■□□
+  1  atoll-job    Fable 5.1 xhigh  ● working    ━━━━━━━━━━━━━━━──────────────────── 3 of 7 · 2 tasks
+     Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews   ■□□  ■□□
+  2  atoll-solo   Fable 5.1 xhigh  ● working    ────────────────────────────── no plan yet · 2 tasks
+     Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews   ■□□  ■□□
 
 agentkit
   3  herdr-quiet  Fable 5.1 xhigh  ! needs you
-     Opus 5.5 xhigh ⚒◎
+     Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews
   4  herdr-long   Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
-     Opus 5.5 xhigh ⚒◎
+     Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews
 
 not assigned yet
   5  scribe       Fable 5.1 xhigh  ! needs you
-     Opus 5.5 xhigh ⚒◎
+     Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews
 
   n new   c config   esc leave

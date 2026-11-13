@@ -234,7 +234,7 @@ class Tallies(Sandbox):
         self.assertNotIn("press r", screen)
         # Narrow rows keep the head line and put the last column below it.
         self.assertIn("atoll-proxy", screen)
-        self.assertIn("\n    ──────────────────────── no plan yet\n", screen)
+        self.assertIn("\n    ─────────────── no plan yet · 1 task\n", screen)
         self.assertTrue(all(terminal.cells(line) <= 40 for line in screen.splitlines()))
         # At every width the last column is drawn whole beside whole names, and every
         # line still fits; merges stay off the menu at every width.

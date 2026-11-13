@@ -1,5 +1,5 @@
 """← and → on `r recommended` on `c` move the role `▸` is on to its next cheaper or next better
-choice at once, passing a choice no configured model runs, and past either end change nothing,
+choice at once, a row no configured model runs being none, and past either end change nothing,
 the owner's design of 5 Nov 2026.  Over a seat its executor becomes that model at the choice's
 effort in its record; its orchestrator asks first, as the move restarts it, `Keep` leaving the
 record as it was and `Restart` moving it, on a terminal too short for every line the role lines
@@ -9,7 +9,7 @@ takes nothing, and a save that fails changes nothing and says why.
 
 Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40, and one 40 by 16
 (tests/fixtures/akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own,
-its harness a fake running three of four invented choices, the boards held as just asked
+its harness a fake running three of four invented releases, the boards held as just asked
 (tests/test_key_role_choices.py); judged by the screen, the seats' records, config.toml and
 the launches the harness is asked for.  Fails against /bin/false.
 """
@@ -31,8 +31,8 @@ from test_key_role_choices import hold
 
 SEAT, MOVED = "acme-fix", "acme-move"
 WIDTHS = (100, 40)
-# Release, name, effort, every measure's share and cost a task: four choices a point or more
-# apart, cheapest first; no harness runs Gap
+# Release, name, effort, every measure's share and cost a task: three choices a point or more
+# apart, cheapest first, and Gap between two, which no harness runs
 ROWS = [("acme-base-1", "Acme Base 1", "high", 0.82, 2),
         ("acme-gap-1", "Acme Gap 1", "high", 0.84, 3),
         ("acme-step-1", "Acme Step 1", "medium", 0.86, 4),
@@ -96,7 +96,7 @@ class ArrowsTake(unittest.TestCase):
         term.keys("c")
         term.wait("r recommended")
         term.keys("r")
-        term.wait("orchestrator · four choices")
+        term.wait("orchestrator · three choices")
         return term
 
     def path(self, name):
@@ -126,7 +126,7 @@ class ArrowsTake(unittest.TestCase):
             with self.subTest(width=width):
                 self.fresh()
                 term = self.models(width, SEAT)
-                term.keys("Down", "Right")      # past Gap, which no harness runs
+                term.keys("Down", "Right")      # Step: Gap, cheaper, is no choice
                 self.until(lambda: self.record(SEAT)["workers"] == ["step"], "→ took nothing")
                 record = self.record(SEAT)
                 self.assertEqual(record["efforts"]["step"],
@@ -158,7 +158,7 @@ class ArrowsTake(unittest.TestCase):
                 self.assertIn("▸ orchestrator", shown)
                 self.assertEqual(self.path(SEAT).read_bytes(), before)
                 term.keys("Enter")              # Keep, the answer highlighted
-                term.wait(lambda screen: "orchestrator · four choices" in screen
+                term.wait(lambda screen: "orchestrator · three choices" in screen
                           and not asked(screen, SEAT))
                 time.sleep(1)       # a restart, were one under way, would have begun
                 self.assertEqual((self.path(SEAT).read_bytes(), self.launches()),

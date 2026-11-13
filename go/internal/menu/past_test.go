@@ -15,7 +15,7 @@ func TestPastKeepsItsFrameAroundLongDetailsAndPages(t *testing.T) {
 	var past []PastSeat
 	for i := range 12 {
 		past = append(past, PastSeat{Seat: Seat{Name: "seat-" + strconv.Itoa(i+1), Checkout: "/code/acme",
-			Done: 1, Total: 5, Said: strings.Repeat("Finished the changes and checked every case ", 100)}, Closed: float64(now.Unix())})
+			Done: 1, Total: 5}, Said: strings.Repeat("Finished the changes and checked every case ", 100), Closed: float64(now.Unix())})
 	}
 	for _, size := range [][2]int{{100, 30}, {80, 10}, {40, 16}, {24, 16}, {150, 12}} {
 		s := screenAt(t, strconv.Itoa(size[0]))
@@ -57,7 +57,7 @@ func TestPastKeepsItsFrameAroundLongDetailsAndPages(t *testing.T) {
 func TestPastRemovalUsesTheMenusConfirmation(t *testing.T) {
 	s := screenAt(t, "80")
 	now := time.Now()
-	past := []PastSeat{{Seat: Seat{Name: "beta", Said: strings.Repeat("the finished work ", 100)}, Closed: float64(now.Unix())}}
+	past := []PastSeat{{Seat: Seat{Name: "beta"}, Said: strings.Repeat("the finished work ", 100), Closed: float64(now.Unix())}}
 	f := DrawPast(s, past, Highlight{Cursor: "beta", Hidden: true}, now, 80, 18).
 		Confirm(s, "beta", "Remove beta from past sessions?", "It can no longer be reopened.", "Remove", Highlight{})
 	if len(f.Lines) > 16 || !strings.HasPrefix(f.Lines[0], "agentkit · past sessions") || f.Open(terminal.Key{Name: "enter"}) != "Keep" {

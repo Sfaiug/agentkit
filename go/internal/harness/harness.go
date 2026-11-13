@@ -136,6 +136,8 @@ type plugin struct {
 	// switchable is Switchable's: nil where its running seat takes every model at every effort
 	// from its `[switch]` lines.
 	switchable func(model, effort string) bool
+	// moves is Moves': nil where Follows carries every event that moves its seat.
+	moves func(event *run.Object) bool
 }
 
 var plugins = map[string]plugin{}

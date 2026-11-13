@@ -187,7 +187,7 @@ class SuiteOnAHelper(unittest.TestCase):
     def test_a_finished_suite_never_waits_on_the_helper_s_answer(self):
         asked, returned, answered = threading.Event(), threading.Event(), threading.Event()
 
-        def start(*_args):
+        def start(*_args, **_kw):
             if self.turns:    # asked again while a piece waits: the suite ends meanwhile
                 asked.set()
                 returned.wait(10)

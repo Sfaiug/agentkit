@@ -95,10 +95,10 @@ func TestLocalPieceRedReachesTheLandingFixerAfterItsPrefixLeaves(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".agentkit"), 0o777); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte("suite_helper = 'acme'\n"), 0o666); err != nil {
+	if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte("suite_helper = 'acme'\n\n[google_cloud]\nactive = true\n"), 0o666); err != nil {
 		t.Fatal(err)
 	}
-	if landingFixHandoff(record) == "" {
-		t.Fatal("helper work was handed to Go's fixer")
+	if road := landingFixHandoff(record); road != "" {
+		t.Fatal("a red on a host with helpers and machines it may rent is Go's fixer's: " + road)
 	}
 }

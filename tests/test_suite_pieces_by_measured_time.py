@@ -59,8 +59,10 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
             return path.name in failing and starts.count(path.name) == 1, "TESTS_RUN=1\n", \
                 FILES[path.name][1]
 
+        record = self.sandbox / "times"
+        record.write_text(times)
         # A serial pool shows start order without depending on thread scheduling.
-        with patch.dict(os.environ, {"AK_SHARD": shard, "AK_TIMES": times}), \
+        with patch.dict(os.environ, {"AK_SHARD": shard, "AK_TIMES": str(record)}), \
                 patch.object(every_file.host, "host_readings", return_value={
                     "cpu_pressure": 0, "free_mb": 230}), \
                 patch.object(every_file, "run_file", side_effect=measured), redirect_stdout(out):
@@ -99,12 +101,14 @@ class SuitePiecesByMeasuredTime(unittest.TestCase):
         self.assertEqual(suite_times.read(times),
                          {f"tests/{name}": seconds for name, (_, seconds) in FILES.items()},
                          "a file the checkout lacks leaves the record")
-        self.assertEqual(gate.suite_env(times)["AK_TIMES"], times)
-        # The helper hands its pieces no environment: they get the same record in the command.
-        seen = self.sandbox / "seen"
-        subprocess.run(["bash", "-c", gate.pinned(f'printf %s "$AK_TIMES" >{seen}', times)],
-                       cwd=box, check=True)
-        self.assertEqual(seen.read_text(), times)
+        # A piece here reads it from the file AK_TIMES names in its box; the helper hands its
+        # pieces no environment, and its parcel holds the same record.
+        with (self.sandbox / "live.log").open("wb") as output:
+            self.assertEqual(worker.boxed(
+                ["bash", "-c", 'cat "$AK_TIMES" >seen'], 30, env=gate.suite_env(), cwd=box,
+                activity=self.sandbox / "live.log", output=output, times=times)[0], 0)
+        self.assertEqual((box / "seen").read_text(), times)
+        self.assertEqual(gate.pinned("true", times)[1]["AK_TIMES"], times)
 
     def test_a_newer_time_replaces_the_older_and_no_record_stops_no_check(self):
         self.keep_a_suite()

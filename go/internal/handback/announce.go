@@ -17,12 +17,12 @@ func Awaiting(record *run.Object, now time.Time) bool {
 		!record.Truthy("reported") && !record.Truthy("recovery_notified") && !record.Truthy("recovery_acknowledged_at")
 }
 
-// Reaches is whether Give reaches the seat that launched the run, or the owner in its stead: up
-// on ak's own server, nothing left of it (Orphaned), or neither, for an ending that wakes nothing,
-// recorded, riding on its next prompt or held for its change to go live, as Python's announce
-// decides before it wakes anything; else asleep where Go wakes it, for an ending typed into it.
-// Never where Go cannot read how the seat hears it, or how its change going live meets it.  From
-// census as Give reads it.
+// Reaches is whether Give reaches the seat that launched the run, the owner in its stead, or the
+// job whose one line says it: up on ak's own server, nothing left of it (Orphaned), or neither, for
+// an ending that wakes nothing, recorded, riding on its next prompt or held for its change to go
+// live, as Python's announce decides before it wakes anything, or a job's task's gone from under
+// it (muted); else asleep where Go wakes it, for an ending typed into it.  Never where Go cannot
+// read how the seat hears it, or how its change going live meets it.  From census as Give reads it.
 func Reaches(record *run.Object, census []*run.Object) bool {
 	reaches, _ := reach(record, census)
 	return reaches
@@ -44,7 +44,7 @@ func reach(record *run.Object, census []*run.Object) (reaches, wakes bool) {
 	switch {
 	case err != nil:
 		return false, false
-	case recordOnly || pending || held:
+	case recordOnly || pending || held || muted(record):
 		return true, false
 	}
 	wakes = seat.Wakes(session)

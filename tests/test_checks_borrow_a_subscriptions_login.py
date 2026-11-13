@@ -19,8 +19,7 @@ from unittest.mock import patch
 from test_checks_lend_logins_that_cannot_renew import LentLogins, REPO, SMOKE
 from test_lend_a_listed_subscription import place
 from test_update_gate_every_harness import unboxed_worker
-from agentkit import config
-import check4_pair
+from agentkit import config, contract
 
 CONFIG = """[models.grok]
 harness = "grokbuild"
@@ -87,7 +86,7 @@ class ChecksBorrowASubscriptionsLogin(LentLogins):
                           for end in ("lock", "retry")})
         (host / "usage.json").write_text(json.dumps(
             {"providers": {"google": {"account": "acme", "accounts": READINGS}}}))
-        self.assertEqual(check4_pair.providers(cfg, host / "usage.json")["google"],
+        self.assertEqual(contract.providers(cfg, host / "usage.json")["google"],
                          READINGS[account or "default"])
 
     def test_a_listed_account_alone_is_lent_and_counted_by_name(self):
