@@ -81,6 +81,9 @@ KEY_GAP = 0.5           # text and Enter go separately: a return in the same rea
                         # 0.153.4 and Muse 1.2.1, 0.10 s still lost it and 0.15 s did not
 SENT_WAIT = 5.0         # how long a typed line gets to show whole in its composer, and to leave it
 SENT_POLL = 0.5         # ... polling the pane this often for its absence
+MOVE_STANDS = 3 * SENT_WAIT     # a move's lines unchanged this long are the tick's: a harness
+                        # drew what it asks up to 4 s after the line, at a load of 68 on 18 cores
+                        # (11 Nov 2026)
 RESUME_EVERY = 600      # seconds between resume attempts for one exhausted run: a start that
                         # failed -- and a launch already on its way -- is retried at most this often
 DEAD_BACKOFF = 600      # a loop that dies again this soon after its resume waits this long
@@ -5017,6 +5020,41 @@ def tell_owed(name, log, cfg=None):
             tell_owed(name, log, cfg)
 
 
+def tell_moves(name, log, cfg=None):
+    """`tell_owed`'s passes for that seat, SENT_POLL apart, while it is owed a move's line
+    (`switch`): one types the line, the next answers what its harness asks in its composer's
+    place, the next reads that composer back and types the next line, so a move is in within
+    seconds.  Over once its lines stand as they were for MOVE_STANDS: a harness slower than
+    that, or busy in a turn, is the tick's at its next prompt.  One pass where none is owed."""
+    last = stood = None
+    while True:
+        tell_owed(name, log, cfg)
+        lines = seat_read(name).get("owed_lines") or []
+        if lines != last:
+            last, stood = lines, time.monotonic()
+        if (not any(owed.get("switch") for owed in lines)
+                or time.monotonic() - stood >= MOVE_STANDS):
+            return
+        time.sleep(SENT_POLL)
+
+
+def move_behind(name):
+    """`tell_moves` for that seat in a process of its own session, as a look goes
+    (`start_look`), saying what it did in the tick's log (`note`): a move owes its lines and goes
+    on, so no menu waits for a harness to redraw, and seats moved together move side by side.
+    It marks itself.  Where it cannot start, the tick types the lines."""
+    try:
+        subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+             "from agentkit import owner, watch; owner.mark('seat move'); "
+             "watch.tell_moves(sys.argv[2], watch.note)",
+             str(Path(__file__).resolve().parents[1]), name],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, env=owner.unmarked(config.owner_env()))
+    except OSError:
+        pass
+
+
 def seat_subscription(cfg, provider, name):
     """The subscription of that provider the seat is on, or None where it lists none."""
     if not config.accounts(cfg, provider):
@@ -8637,7 +8675,7 @@ def local_passes(state, dry_run, log):
         # run that is over is told so, which ends the wait; a seat ak reopened, what it missed.
         ("job handbacks", lambda: jobs.deliver_job_handbacks(log), False),
         ("ended waits", lambda: wait_over(config.load(), log), False),
-        ("owed lines", lambda: [tell_owed(name, log) for name in config.session_records()], False),
+        ("owed lines", lambda: [tell_moves(name, log) for name in config.session_records()], False),
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
         ("switch retirement", lambda: retire.hand(log), False),
