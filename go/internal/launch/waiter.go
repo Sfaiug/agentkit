@@ -10,15 +10,15 @@ import (
 	"syscall"
 	"time"
 
-	"agentkit/internal/loop"
 	"agentkit/internal/run"
 )
 
 // A run behind the first in line for its slot, who alone can be let in, waits in a process holding
 // next to no memory, as Python's waiter: its driver execs this program again as its waiter, keeping
-// its pid and so its receipt and its place in line.  The waiter reads only runs/.slots.queue, opens
-// no SQLite, and execs the driver back once the run is no longer behind the first or the queue is
-// stale for its place (behindFirst).  Without exec (Windows) the run waits in its driver.
+// its pid and so its receipt and its place in line.  The waiter reads only runs/.slots.queue and the
+// installed version, opens no SQLite, and execs the driver back on the installed ak once the run is
+// no longer behind the first, the queue is stale for its place (behindFirst), or the installed
+// version moved (pickUp).  Without exec (Windows) the run waits in its driver.
 
 // waiterName is the waiter's argv[0], which nobody types; the driver's own words follow it, so its
 // command line still names the run's driver (loop.driving).
@@ -35,16 +35,13 @@ const slotWait = "AK_SLOT_WAIT"
 const lean = "disablethp=1"
 
 // becomeWaiter replaces the run's driver with its waiter.  It returns only where it cannot or may
-// not: this process is not the run's own driver, the receipt its last poll read names a checkout of
-// ak's (ak_checkout), whose run stays as it is, as Python's pickup_while_queued keeps it, or the
-// system has no exec.
+// not (movable), or the system has no exec.
 func becomeWaiter(dir string, record *run.Object) {
-	words := []string{"run", loop.DriveFlag, dir}
 	self, err := os.Executable()
-	if err != nil || !slices.Equal(os.Args[1:], words) || record.Truthy("ak_checkout") {
+	if err != nil || !movable(dir, record) {
 		return
 	}
-	syscall.Exec(self, append([]string{waiterName}, words...), append(debugged(lean), slotWait+"="+os.Getenv("GODEBUG")))
+	syscall.Exec(self, append([]string{waiterName}, os.Args[1:]...), append(debugged(lean), slotWait+"="+os.Getenv("GODEBUG")))
 }
 
 // debugged is this process's environment with GODEBUG that, or none for "".
@@ -72,8 +69,12 @@ func Waiter() (int, bool) {
 	}
 	id := filepath.Base(os.Args[3])
 	poll, _ := slotPoll()
+	_, on := installed()
 	for behindFirst(id, poll) {
 		time.Sleep(untilTurn(id, poll))
+		if _, now := moved(on); now != "" {
+			break
+		}
 	}
 	self, err := os.Executable()
 	if err == nil {
