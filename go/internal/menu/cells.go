@@ -76,7 +76,7 @@ func Cells(now time.Time) ([]Cell, error) {
 				Harness: logins.Harness(each.sub),
 				Held:    readings.InHand(each.sub.Name, account), Notes: readings.Detail(each.sub.Name, account)}
 			if login != nil {
-				cell.Email, cell.Plan = login.Str("email"), login.Str("plan")
+				cell.Email, cell.Plan = login.Str("email"), config.PlanName(cell.Harness, login.Str("plan"))
 			}
 			cells = append(cells, cell)
 		}

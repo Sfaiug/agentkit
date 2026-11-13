@@ -142,6 +142,7 @@ from statistics import median
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import done_check, google_cloud, look, machines, open_runs, parsed, record
 from . import warm
+from .harness import load as harness_plugin
 
 KEYS = "n new   c config   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
@@ -4910,6 +4911,7 @@ def config_subscriptions(cfg, keyboard):
                 acts = dict(subscription_acts(cfg, keyboard, number, remove=True))
                 on = on if on in acts else None
                 email, plan = logins.whose(name, account)
+                plan = harness_plugin(logins.harness(cfg, name)).plan_name(plan)
                 told = " · ".join(filter(None, (ending[number - 1] or email, plan,
                                                 not beside and held)))
                 for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
