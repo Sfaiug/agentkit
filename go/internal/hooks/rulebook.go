@@ -30,7 +30,7 @@ import (
 type Rulebooks struct {
 	Current func(string) (string, error)
 	Update  func(string, func(*run.Object) bool) error
-	Riding  func(string) (string, error)
+	Riding  func(string) (func() string, error)
 }
 
 type RulebookRefusal string
@@ -51,27 +51,32 @@ const (
 	wholeWords = "Your current rulebook follows, whole: where it differs from the one you were opened with, it wins."
 )
 
-// PromptNews is the context a seat's prompt carries (orch.prompt_news), "" for none: only for its
-// own conversation on a harness taking context, the runs riding on it, the questions an owner's
-// prompt may answer and the Mac files pasted into it, then its rulebook's news.  `said` is the
-// owner's words, nil for a prompt that is not theirs.  The rulebook is decided last, as it is held
-// from its hand-over on, so nothing may fail after it.  False for known, with nothing written,
-// where Go cannot tell its runs as Python does.
-func (books Rulebooks) PromptNews(launched, conversation string, said *string) (news string, known bool) {
+// PromptNews decides the context a seat's prompt carries (orch.prompt_news), and tell writes what
+// it is told and says it, "" for none: only for its own conversation on a harness taking context,
+// the runs riding on it, the questions an owner's prompt may answer and the Mac files pasted into
+// it, then its rulebook's news.  `said` is the owner's words, nil for a prompt that is not theirs.
+// The rulebook is decided last, as it is held from its hand-over on, so nothing may fail after it.
+// False for known, with nothing written, where Go cannot tell its runs as Python does.
+func (books Rulebooks) PromptNews(launched, conversation string, said *string) (tell func() string, known bool) {
 	name, record, kind := owned(launched, conversation)
 	if record == nil || !harness.TakesContext(kind) {
-		return "", true
+		return func() string { return "" }, true
 	}
-	besides := ""
+	riding := func() string { return "" }
 	if said != nil {
-		riding, err := books.Riding(name)
-		if err != nil {
-			return "", false
+		var err error
+		if riding, err = books.Riding(name); err != nil {
+			return nil, false
 		}
-		besides = paragraphs(riding, notify.AnswerContext(name, *said), fetch.Pasted(*said))
 	}
-	whole := func(news string) string { return paragraphs(besides, news) }
-	return whole(books.rulebookNews(name, kind, record, conversation, whole)), true
+	return func() string {
+		besides := ""
+		if said != nil {
+			besides = paragraphs(riding(), notify.AnswerContext(name, *said), fetch.Pasted(*said))
+		}
+		whole := func(news string) string { return paragraphs(besides, news) }
+		return whole(books.rulebookNews(name, kind, record, conversation, whole))
+	}, true
 }
 
 // paragraphs is the parts that say anything, a blank line apart.

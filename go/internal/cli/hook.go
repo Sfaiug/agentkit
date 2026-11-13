@@ -72,17 +72,21 @@ func seatState(payload []byte, out io.Writer) int {
 		if ownersWords(event) != nil && !followed(seat, event) {
 			return leftToPython()
 		}
+		// decided before the turn is recorded, so a prompt Python tells has nothing of Go's written;
+		// told after, so the turn is recorded before anything the telling may wait on
+		tell, known := rulebooks.PromptNews(seat, event.Str("session_id"), ownersWords(event))
+		if !known {
+			return leftToPython()
+		}
 		data, _ := json.Marshal(struct {
 			Session string  `json:"session"`
 			Turn    float64 `json:"turn"`
 			Blocks  int     `json:"blocks"`
 		}{seat, at, 0})
 		if relatch(seat, string(data)) != nil {
-			return 0
+			return 0 // untold, its runs stay owed: their locks end with this process
 		}
-		if !tellPrompt(seat, event, out) {
-			return leftToPython()
-		}
+		tellPrompt(tell(), out)
 	}
 	// The answer it heard goes first: a rename taken while it waits moves the seat its fact
 	// goes to.
