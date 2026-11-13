@@ -143,16 +143,16 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		keyboard.Wake()
 		return known
 	}
-	var looked looks
-	reread := func() { read(looked.look) }
-	go looked.watch(read)
+	looked := &looks{read: read}
+	reread := looked.look // off the frame, which no look waits for
+	go looked.watch()
 	go func() { // behind the frame, which draws from the cache and waits on no adapter: what it writes is news
 		for {
 			usage.Refresh()
 			time.Sleep(usage.RefreshEvery)
 		}
 	}()
-	go reread()
+	reread()
 	clock, model, own := &motion.Clock{}, menu.Model{}, popupSeat(overlay)
 	model.Highlight.Cursor = own
 	if cursor, restarted := os.LookupEnv("AK_MENU_CURSOR"); restarted {
@@ -229,7 +229,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 							show(&latest, &found)
 						}
 					})
-					go reread()
+					reread()
 				}
 			}
 			continue
@@ -257,7 +257,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 				keyboard.Give()
 				return notImplemented(errOut, "attach")
 			}
-			go reread() // a login made again greys its meter
+			reread() // a login made again greys its meter
 		case key.Name == "char" && (key.Char == "n" || key.Char == "N"):
 			var known bool
 			if model.New, known = newMenuRow(); !known {
@@ -278,7 +278,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			}
 			returned.began = time.Now() // past any read that met a seat it removed
 			latest.Store(&returned)
-			go reread()
+			reread()
 		case key.Name == "char" && (key.Char == "c" || key.Char == "C"):
 			session := ""
 			if overlay {

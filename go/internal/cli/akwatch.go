@@ -17,17 +17,19 @@ import (
 // stir is how often the ak screen looks for news (menu.STIR).
 const stir = time.Second
 
-// looks is what an open screen knows of its own looks at every seat (menu.Live.met).
+// looks is an open screen's reads on news and its looks at every seat behind them (menu.Live).
 type looks struct {
-	mu  sync.Mutex
-	met map[string]bool // the seats its last look listed that every read since has listed
+	read    func(take func(seat.Home, time.Time) error) bool // one read, taking the home it read, and whether it landed
+	mu      sync.Mutex
+	met     map[string]bool // the seats a look of this screen's has listed, that every read since has listed
+	passing bool            // a look is going
+	again   bool            // and another was asked for meanwhile
 }
 
-// watch has the screen read again within stir of news, the words as recorded (menu.Live._watch):
-// a seat file, the runs' moved mark, usage.json or config.toml changed, or a project's switches
-// landed.  With none for rereadEvery, every seat is looked at again.  read is one read, taking
-// the home it read as it is given, and whether it landed.
-func (l *looks) watch(read func(take func(seat.Home, time.Time) error) bool) {
+// watch reads again within stir of news, the words as recorded (menu.Live._watch): a seat file,
+// the runs' moved mark, usage.json or config.toml changed, or a project's switches landed.  With
+// no read landing for rereadEvery, every seat is looked at again.
+func (l *looks) watch() {
 	seen, last := marks(), time.Now()
 	for {
 		news := false
@@ -40,9 +42,9 @@ func (l *looks) watch(read func(take func(seat.Home, time.Time) error) bool) {
 		news = news || !slices.EqualFunc(now, seen, parsed.Same)
 		seen = now
 		switch {
-		case news && read(l.news):
+		case news && l.read(l.news):
 		case time.Since(last) >= rereadEvery:
-			read(l.look)
+			l.look()
 		default:
 			continue
 		}
@@ -50,30 +52,53 @@ func (l *looks) watch(read func(take func(seat.Home, time.Time) error) bool) {
 	}
 }
 
-// news takes a read on news: each live seat's word as recorded, captured and written by nobody,
-// so no screen's read keeps waking another, or itself; but where it lists a seat no look of this
-// screen's has met, a look at every seat (menu.Live.meet).
+// news takes a read on news: the words as recorded, captured and written by nobody, so no
+// screen's read keeps waking another, or itself; where it lists a seat no look of this screen's
+// has met, a look starts behind it, which it does not wait on (menu.Live.meet).
 func (l *looks) news(home seat.Home, now time.Time) error {
 	listed := names(home)
 	l.mu.Lock()
 	maps.DeleteFunc(l.met, func(name string, _ bool) bool { return !listed[name] }) // one that went and came back is new
 	unmet := len(l.met) < len(listed)
+	if unmet {
+		l.met = listed
+	}
 	l.mu.Unlock()
 	if unmet {
-		return l.look(home, now)
+		l.look()
 	}
-	return home.Recorded()
+	return home.Recorded(now)
 }
 
-// look is a look at every seat, each one's word written down (Home.Announce), which meets them all.
-func (l *looks) look(home seat.Home, now time.Time) error {
-	if err := home.Announce(now); err != nil {
-		return err
-	}
+// look has every seat looked at in a pass of its own, one at a time: one asked for while another
+// goes follows it.
+func (l *looks) look() {
 	l.mu.Lock()
-	l.met = names(home)
+	defer l.mu.Unlock()
+	if l.passing {
+		l.again = true
+		return
+	}
+	l.passing = true
+	go func() {
+		for again := true; again; {
+			l.read(l.meet)
+			l.mu.Lock()
+			again, l.again = l.again, false
+			l.passing = again
+			l.mu.Unlock()
+		}
+	}()
+}
+
+// meet is a pass's take: every seat looked at, each one's word written down (Home.Announce), and
+// all it listed met.
+func (l *looks) meet(home seat.Home, now time.Time) error {
+	listed := names(home)
+	l.mu.Lock()
+	l.met = listed
 	l.mu.Unlock()
-	return nil
+	return home.Announce(now)
 }
 
 func names(home seat.Home) map[string]bool {
