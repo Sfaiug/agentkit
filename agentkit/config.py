@@ -18,7 +18,7 @@ import tomllib
 from pathlib import Path
 from string import Template
 
-from . import host, look, owner, parsed
+from . import host, look, parsed
 
 REPO = Path(__file__).resolve().parent.parent
 STARTED = time.time()   # when this process read its code: every entry imports this module first
@@ -952,6 +952,7 @@ def _ask(harness, account, providers):
     """One login of that harness asked for its models by a process of its own (_keep), which
     outlives a screen that stops waiting on it, and marks itself so that what the harness
     leaves once it ends is swept (owner.leftovers); None where none starts."""
+    from . import owner     # here: only an ask needs it, and a harness's probe imports config
     try:
         return subprocess.Popen(
             [sys.executable, "-c", "import sys; from agentkit import config, owner; "
