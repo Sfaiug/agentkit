@@ -132,7 +132,9 @@ class ConfigScreen(unittest.TestCase):
         self.assertEqual((saved["orchestrator"], saved["workers"], saved["reviewers"]),
                          ("fable", ["astra", "fable"], ["astra"]))
         self.assertEqual(akconfig.read(self.home)["defaults"], defaults)
-        deadline = time.monotonic() + 10    # no look runs on `c`: only the mark redraws the bar
+        # no look runs on `c`, so only the mark redraws the bar; as long as the record's wait, as a
+        # loaded host took longer than 10 s
+        deadline = time.monotonic() + 30
         while "Fable 5.1 xhigh orchestrates, builds" not in bar(self.home, self.seat):
             self.assertLess(time.monotonic(), deadline, "the bar kept the builders it had")
         self.leave()
