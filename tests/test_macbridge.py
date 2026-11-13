@@ -19,6 +19,7 @@ from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "tests"))
 from agentkit import config, macbridge, menu
 from fixtures.clock import Clock
 
