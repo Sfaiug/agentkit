@@ -231,9 +231,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
              "ak move acme-mini"),
     "standby": ("usage: ak standby ALIAS",
                 "On a client of ALIAS, copy ak's folder from that home to the same path here, but its\n"
-                "runs and checkouts; refused on any other machine.  It sends what changed, compressed,\n"
-                "and what the home deleted goes here too.  This machine keeps its own record of its\n"
-                "server, ak's tmp folder, ak's repository and its versions.",
+                "runs and checkouts.  It sends what changed, compressed, and what the home deleted goes\n"
+                "here too.  This machine keeps its own record of its server, ak's tmp folder, ak's\n"
+                "repository and its versions.  Refused on any other machine, or if one of those left\n"
+                "out or kept is a link here, or under one in ak's folder.",
                 "ak standby acme-mini"),
 }
 

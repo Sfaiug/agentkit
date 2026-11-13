@@ -237,7 +237,7 @@ var entries = map[string]entry{
 	},
 	"standby": {
 		"usage: ak standby ALIAS",
-		"On a client of ALIAS, copy ak's folder from that home to the same path here, but its\nruns and checkouts; refused on any other machine.  It sends what changed, compressed,\nand what the home deleted goes here too.  This machine keeps its own record of its\nserver, ak's tmp folder, ak's repository and its versions.",
+		"On a client of ALIAS, copy ak's folder from that home to the same path here, but its\nruns and checkouts.  It sends what changed, compressed, and what the home deleted goes\nhere too.  This machine keeps its own record of its server, ak's tmp folder, ak's\nrepository and its versions.  Refused on any other machine, or if one of those left\nout or kept is a link here, or under one in ak's folder.",
 		"ak standby acme-mini",
 	},
 }
