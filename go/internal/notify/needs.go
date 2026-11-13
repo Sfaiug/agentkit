@@ -14,11 +14,12 @@ import (
 // only where `kept`: Go reads no word but the one published since, so a question it just put to
 // the seat is kept on record for the word to turn, and any other is Python's, nothing written.
 func Needs(name, text, source string, kept bool, published func(string) (string, any), errOut io.Writer) (bool, error) {
-	return needs(name, text, source, kept, looked(published), errOut)
+	return needs(name, text, source, kept, false, looked(published), errOut)
 }
 
-// needs is Needs on the word `asked` says the seat says once the question stands.
-func needs(name, text, source string, kept bool, asked Asked, errOut io.Writer) (bool, error) {
+// needs is Needs on the word `asked` says the seat says once the notice stands, carded as a need
+// where it is a `failure`, which is no question (watch.session_state's question).
+func needs(name, text, source string, kept, failure bool, asked Asked, errOut io.Writer) (bool, error) {
 	if Suppressed(false, errOut) {
 		return true, nil
 	}
@@ -65,7 +66,11 @@ func needs(name, text, source string, kept bool, asked Asked, errOut io.Writer) 
 		question = is
 		return word, since
 	}
-	return questionTransition(name, said, clock, 0, errOut, func(*run.Object, *run.Object) bool { return question }, func(current string, file *run.Object) *run.Object {
+	var asks func(file, notice *run.Object) bool
+	if !failure {
+		asks = func(*run.Object, *run.Object) bool { return question }
+	}
+	return questionTransition(name, said, clock, 0, errOut, asks, func(current string, file *run.Object) *run.Object {
 		if notice == nil || !unanswered(current, notice) || file.Str("state") == "asking" {
 			return nil
 		}
