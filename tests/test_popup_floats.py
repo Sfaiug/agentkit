@@ -2,12 +2,13 @@
 
 `Ctrl-b m`'s popup has a rounded border in the dim colour with ` agentkit ` set into its top edge
 and, but on a phone, a column and a row of padding inside it, a line typed into it included; it
-is handed its client's terminal features, so its menu asks tmux nothing before it draws; the
-pane behind it draws its text dim while it is up and has exactly its own styles back once the last
+is handed its client's terminal features, so its menu asks tmux nothing before it draws, and its
+client's name, the window a seat picked in it opens in, which no tmux command hands on; the pane
+behind it draws its text dim while it is up and has exactly its own styles back once the last
 popup over it is down, however it comes down -- its menu ending, a crash, a kill, which is what
-its client going does to it too; every tmux call on the way is tmux's own, never the shim a seat's
-PATH starts with; and its content fades in on the motion clock, a key pressed meanwhile answered
-at once.
+its client going does to it too; every tmux call on the way is tmux's own, never the shim a
+seat's PATH starts with; and its content fades in on the motion clock, a key pressed meanwhile
+answered at once.
 
 tmux is a fake answering as tmux 3.5a: its version, the one pane's options, kept in a file, and
 `display-popup`, which runs the popup's command and returns once it is down, as tmux 3.5a's
@@ -340,10 +341,15 @@ class TheBinding(unittest.TestCase):
         self.assertEqual((phone["-w"], phone["-h"]), ("100%", "100%"))
         handed = [[popup[at + 1] for at, word in enumerate(popup[:-1]) if word == "-e"]
                   for popup in tmux.popups()]
-        features = f"{terminal.FEATURES_ENV}={FEATURES}"
-        self.assertEqual(handed, [[features],                # a phone spares no cell
-                                  [features, f"{terminal.PAD_ENV}=1"]])
+        features = f"{terminal.FEATURES_ENV}={FEATURES}", f"{orch.CLIENT_ENV}={CLIENT}"
+        self.assertEqual(handed, [[*features],                # a phone spares no cell
+                                  [*features, f"{terminal.PAD_ENV}=1"]])
         self.assertNotIn("set-hook", "\n".join(tmux.lines))   # no other session is touched
+
+    def test_its_client_s_name_reaches_no_server_a_tmux_command_starts(self):
+        with patch.dict(os.environ, {orch.CLIENT_ENV: CLIENT, "TMUX": "/tmp/acme,1,0"}):
+            for client in (False, True):
+                self.assertNotIn(orch.CLIENT_ENV, orch.tmux_env(client))
 
     def test_it_runs_tmux_itself_never_the_shim_a_seat_s_path_starts_with(self):
         tmux = FakeTmux(self, shim=True)

@@ -112,27 +112,25 @@ class SessionModels(Sandbox):
         down = usage.Readings({})
         down.harnesses = {"claude": "claude is not logged in",
                           "codex": "codex is not logged in"}
-        with patch.object(config, "update_session") as saved:
-            self.assertEqual(menu.session_mark(self.cfg, "tight", selected, "fable", 2,
-                                               down),
-                             "no allowed executor/reviewer pair")
-            saved.assert_not_called()
+        saved = config.session_path("tight").read_bytes()
+        self.assertEqual(menu.session_mark(self.cfg, "tight", selected, "fable", 2, down),
+                         "no allowed executor/reviewer pair")
+        self.assertEqual(config.session_path("tight").read_bytes(), saved)
         self.assertEqual(selected["reviewers"], ["opus"])
-        self.assertEqual(config.load_session(self.cfg, "tight")["reviewers"], ["opus"])
         selected = self.selected("fix-api")
         before = dict(selected)
-        with patch.object(config, "update_session", side_effect=OSError("read only")):
+        with patch.object(config, "change_session", side_effect=OSError("read only")):
             self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "fable", 1,
                                                {}), "session: read only")
         self.assertEqual(selected, before)
 
-    def test_a_flip_after_its_model_was_removed_is_one_line_and_no_save(self):
+    def test_a_flip_of_a_model_removed_since_the_screen_opened_is_one_line_and_no_save(self):
         selected = self.selected("fix-api")
-        config.remove_model(self.cfg, "astra")
-        with patch.object(config, "update_session") as saved:
-            self.assertIn("unknown model 'astra'",
-                          menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {}))
-            saved.assert_not_called()
+        config.save(config.remove_model(config.load(), "fable"))     # another window's
+        saved = config.session_path("fix-api").read_bytes()
+        self.assertIn("unknown model 'fable'",
+                      menu.session_mark(self.cfg, "fix-api", selected, "fable", 1, {}))
+        self.assertEqual(config.session_path("fix-api").read_bytes(), saved)
         self.assertEqual(selected["workers"], ["opus", "astra"])
 
     def test_runs_launched_next_read_the_new_groups_and_going_runs_keep_theirs(self):

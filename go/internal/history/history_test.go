@@ -84,7 +84,7 @@ func TestAnOlderDatabaseIsBroughtUpToTodaysTables(t *testing.T) {
 		t.Fatalf("tables %v, want %v", tables, want)
 	}
 	columns, _ := db.columns("runs")
-	if !columns["no_review"] || !columns["landing_flakes"] || columns["suite_repo"] {
+	if !columns["check_rewritten_at"] || !columns["no_review"] || !columns["landing_flakes"] || columns["suite_repo"] {
 		t.Fatalf("runs columns %v", columns)
 	}
 	if rows := query(t, db, "SELECT run_id, repo, executor_tokens, reviewer_tokens, finished_at, kind FROM runs"); len(rows) != 1 ||
