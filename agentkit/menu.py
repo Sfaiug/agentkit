@@ -5925,14 +5925,14 @@ def session_mark(cfg, name, selected, model, column, providers, around=None):
     (orch.switch_lines), else by a restart once `Move` is picked on the card `around` draws
     (terminal.confirm), the owner's 24 Oct words: "when pressing a different orch, it should
     ask me to confirm. As this restarts the session. for exec and review should be instant."
-    A harness that is not installed or not logged in, or a meter that is spent, is refused in
-    one line before any question with the seat as it was, and so is a record naming a model
-    removed on this screen. An executor or reviewer mark flips on the record as it stands
-    (roles_saved): the role gains the model `selected` shows unmarked, or loses it.
-    Reviewers keep one model, executors may be empty, and a flip leaving no allowed pair is
-    refused. A run launched afterwards reads the record as left here; one already going
-    keeps the groups its receipt saved. A refusal or a save that fails leaves the record,
-    and `selected`, alone. What to say under the rows, or "".
+    A harness that is not installed or not logged in is refused in one line before any
+    question with the seat as it was, and so is a record naming a model removed on this
+    screen; a spent model is not (orch._switch_plan). An executor or reviewer mark flips
+    on the record as it stands (roles_saved): the role gains the model `selected` shows
+    unmarked, or loses it. Reviewers keep one model, executors may be empty, and a flip
+    leaving no allowed pair is refused. A run launched afterwards reads the record as left
+    here; one already going keeps the groups its receipt saved. A refusal or a save that
+    fails leaves the record, and `selected`, alone. What to say under the rows, or "".
     """
     if column == 0:
         note = orch.switch_orchestrator(cfg, name, model, providers,
