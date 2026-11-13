@@ -5232,15 +5232,24 @@ def models_page(cfg, keyboard):
             cfg["providers"].setdefault(entry["provider"], copy.deepcopy(tables[entry["provider"]]))
         return _saved(cfg, cfg, before)
 
+    # each harness's models as the page opened, {id: name}: one its catalog does not list keeps
+    # a row of its own, taken out here or not
+    ran = {harness: {cfg["models"][name]["model"]: config.model_name(cfg, name)
+                     for name in on(harness)} for harness in harnesses}
+
     def listing(harness):     # what a harness's row opens onto: (model, the provider it is
         if harness not in config.provider_hosts():      # listed under) each, (None, one to log in)
-            return [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
-        listed = waited(lambda: config.listed_providers(harness), "config · models",
-                        doing=f"asking {config.provider_hosts()[harness]} which providers it has")
-        rows = {row[0]: row for row in listed}
-        return [(model, rows[provider]) for (((_, provider), model), _)
-                in _through_choices(cfg, harness, listed, ("config · models",))
-                if model or provider in cfg["providers"]]
+            rows = [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
+        else:
+            listed = waited(lambda: config.listed_providers(harness), "config · models",
+                            doing=f"asking {config.provider_hosts()[harness]} which providers it has")
+            by = {row[0]: row for row in listed}
+            rows = [(model, by[provider]) for (((_, provider), model), _)
+                    in _through_choices(cfg, harness, listed, ("config · models",))
+                    if model or provider in cfg["providers"]]
+        ids = {model["id"] for model, _ in rows if model}
+        return rows + [({"id": model, "label": label}, None)
+                       for model, label in ran[harness].items() if model not in ids]
 
     def ticks(harness):       # the list a harness's row opens
         got = []

@@ -168,12 +168,14 @@ class ConfigScreenEdits(unittest.TestCase):
                        and body(screen)[:2] == ["› Claude Code  Fable 5.1",
                                                 "  Codex        GPT-6-Astra"]
                        and key_line(screen) == PAGE_KEYS)
-        # its list draws once the harness's models are asked of it
+        # its list draws once the harness's models are asked of it, after them Fable, which it
+        # does not list, the highlight on the one marked
         self.term.keys("Enter")
-        self.term.wait(lambda screen: body(screen)[:3] == ["  Claude Code  Fable 5.1",
-                                                           "›   □ Model One",
+        self.term.wait(lambda screen: body(screen)[:4] == ["  Claude Code  Fable 5.1",
+                                                           "    □ Model One",
+                                                           "›   ■ Fable 5.1",
                                                            "  Codex        GPT-6-Astra"])
-        self.term.keys("Space")
+        self.term.keys("Up", "Space")
         self.term.wait(lambda screen: "›   ■ Model One" in rows(screen))
         text = self.config.read_text()
         self.assertTrue(text.startswith(HEADER), text)
