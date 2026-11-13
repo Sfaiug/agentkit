@@ -19,7 +19,7 @@ func liveOwed(record *run.Object, census []*run.Object) (owed, rides bool, err e
 
 // How telling that a merged run went live goes (livePass).
 const (
-	liveUntold   = iota // nothing done now: its ending's own line says it, or it rides on the seat's next prompt
+	liveUntold   = iota // nothing done now: its ending's own line says it, it rides on the seat's next prompt, or no seat is up
 	liveRecorded        // recorded and never typed
 	liveTyped           // typed alone into its seat (tellLive)
 	liveLeft            // Python's
@@ -28,9 +28,10 @@ const (
 // livePass is how telling that the merged run went live goes, as Python's live_passed decides it
 // under the run's delivery lock: recorded and never typed where its seat need not hear it
 // (live_owed); nothing done where its ending's own line says it (carries_live) or it rides on the
-// seat's next prompt (rides); typed alone into the seat otherwise.  A line an earlier pass typed for
-// it, which gets its Enter first, is Python's, as is a read Go cannot make.  The seat's other runs
-// are read from census, the merge checks' one read of every run.
+// seat's next prompt (rides); typed alone into the seat otherwise, once it is up (after_merge_live).
+// A line an earlier pass typed for it, which gets its Enter first, is Python's, as are a seat Go
+// does not type into and a read Go cannot make.  The seat's other runs are read from census, the
+// merge checks' one read of every run.
 func livePass(record *run.Object, census []*run.Object) int {
 	owed, rides, err := liveOwed(record, census)
 	typed := record.Dict("live_typed")
@@ -44,6 +45,13 @@ func livePass(record *run.Object, census []*run.Object) int {
 	case record.Truthy("live_typed"):
 		return liveLeft
 	case rides:
+		return liveUntold
+	}
+	session := run.Seat(record)
+	switch up, known := seat.Found(session); {
+	case !known || up && !seat.Typable(session):
+		return liveLeft
+	case !up:
 		return liveUntold
 	}
 	return liveTyped
