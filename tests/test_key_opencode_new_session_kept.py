@@ -13,7 +13,8 @@ two processes as 2.2.7's: its TUI and, a child of that, the `opencode serve --st
 the plugin under Node as OpenCode loads it and hands it a `session.inbox.enqueued` for each
 prompt, its record of every session an opencode.db -- each session's row in session_v2, a
 subagent's naming its parent, and each prompt and its answer in session_message, shaped as
-tests/test_key_card_answers_opencode.py's.
+tests/test_key_card_answers_opencode.py's.  One process as 2.2.6's, the plugin in its TUI,
+follows and is left where it was the same.
 """
 
 import json
@@ -40,7 +41,9 @@ EMAIL = "email me a receipt after every upload"
 FIRST = f"Add a retry button to the upload page, and {EMAIL}."
 # The TUI: each prompt the test enters (`said`) is written into opencode.db, the owner's words and
 # an answer, and handed to the plugin; once the plugin has reported it, it goes to `heard`.  Its
-# session API answers from opencode.db, or never (`api`).
+# session API answers from opencode.db, or never (`api`), which says how it runs too: as 2.2.6's
+# one process where that is the `--prompt` a seat's first message is launched as, and with a
+# server a tool's shell started taking the prompts where it ends `nested`.
 OPENCODE = r'''const { spawn, spawnSync } = require("node:child_process");
 const { appendFileSync, readFileSync } = require("node:fs");
 const { pathToFileURL } = require("node:url");
@@ -86,25 +89,31 @@ const ctx = {
   event: { subscribe: prompts },
 };
 console.log = () => {};     // OpenCode keeps a plugin's log off its screen
-if (serve) {
-  const tui = process.ppid;
-  setInterval(() => process.ppid === tui || process.exit(), 100);     // it ends with its TUI
-  if (api === "nested" && !process.env.NESTED)    // a tool's shell starts a server of its own
+function takePrompts() {
+  if (api.endsWith("nested") && !process.env.NESTED)   // a tool's shell starts a server of its own
     spawn("/bin/sh", ["-c", '"$@" & wait', "sh", process.execPath, __filename, ...SERVE, ...own],
           { stdio: "inherit", env: { ...process.env, NESTED: "1" } });
   else import(pathToFileURL(plugin).href).then((loaded) => loaded.default.setup(ctx));
+}
+if (serve) {
+  const tui = process.ppid;
+  setInterval(() => process.ppid === tui || process.exit(), 100);     // it ends with its TUI
+  takePrompts();
 } else {
   spawn(python, pane, { stdio: "inherit" });
-  spawn(process.execPath, [__filename, ...SERVE, ...own], { stdio: "inherit" });
+  if (api.startsWith("--prompt=")) takePrompts();
+  else spawn(process.execPath, [__filename, ...SERVE, ...own], { stdio: "inherit" });
 }
 '''
 
 
-def arguments():
-    """Each running process's arguments."""
+def arguments(receipt):
+    """The arguments of each process running under the launch whose receipt that is."""
+    launch = f"AGENTKIT_OPENCODE_RECEIPT={receipt}".encode()
     for proc in Path("/proc").glob("[0-9]*"):
         try:
-            yield (proc / "cmdline").read_bytes().split(b"\0")[:-1]
+            if launch in (proc / "environ").read_bytes().split(b"\0"):
+                yield (proc / "cmdline").read_bytes().split(b"\0")[:-1]
         except OSError:
             pass        # gone meanwhile
 
@@ -166,13 +175,12 @@ class Rig:
                          str(PANE),
                          str(seat.screen_file), str(seat.typed_file), seat.composer)
         self.assertEqual(done.code, 0, done.err)
-        self.pid = home.tmux("display-message", "-p", "-t", seat.pane, "#{pane_pid}").out.strip()
         seat.show("opencode-prompt-pane.txt")
 
     def prompt(self, session, text):
         """The owner sends `text` into `session` in the seat's OpenCode, it is reported, and ak
         has followed it: on a loaded host the hook goes on past the plugin's wait for it, its
-        follow the one process naming the hook and, last, the TUI's pid (hooks/seat-state.sh)."""
+        follow the one process of the seat's launch naming the hook (hooks/seat-state.sh)."""
         before = self.heard.read_text().count("\n") if self.heard.exists() else 0
         with self.said.open("a") as out:
             out.write(json.dumps([session, text]) + "\n")
@@ -180,8 +188,8 @@ class Rig:
         while not self.heard.exists() or self.heard.read_text().count("\n") <= before:
             self.assertLess(time.monotonic(), until, "the seat's OpenCode never reported it")
             time.sleep(0.05)
-        hook, pid = str(REPO / "hooks/seat-state.sh").encode(), self.pid.encode()
-        while any(argv[-1:] == [pid] and hook in argv for argv in arguments()):
+        hook = str(REPO / "hooks/seat-state.sh").encode()
+        while any(hook in argv for argv in arguments(self.receipt)):
             self.assertLess(time.monotonic(), until, "ak never ended following it")
             time.sleep(0.05)
 
@@ -274,6 +282,20 @@ class OpencodeToolsServer(Rig, unittest.TestCase):
         (self.receipt / "session").write_text(A)       # the launch opened on A
         self.prompt(B, "hello")
         self.assertEqual(self.resumed(), [A])
+
+
+@unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")
+class OpencodeOneProcess(Rig, unittest.TestCase):
+    API = "--prompt=Explain opencode serve --stdio"     # ps reads a server's command in it
+
+    def test_reopening_the_seat_resumes_the_session_it_went_to(self):
+        self.prompt(A, FIRST)
+        self.prompt(B, "thanks")
+        self.assertEqual(self.resumed(), [B])
+
+
+class OpencodeOneProcessToolsServer(OpencodeToolsServer):
+    API = OpencodeOneProcess.API + " nested"
 
 
 @unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")

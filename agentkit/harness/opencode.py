@@ -75,8 +75,10 @@ def follow(launched, payload, pid):
     is reported: a subagent's session names the session that started it there, and is never
     followed.  OpenCode keeps every session in that one database, that session's file too.
     2.2.7's TUI runs its server, the plugin reporting the prompt in it, as a child of its own,
-    `opencode serve --stdio`: the seat's one OpenCode is then counted from that TUI up, so a
-    server a tool started under it is a second, and moves nothing.
+    `opencode serve --stdio`: a process whose command starts so, and which an OpenCode started
+    straight, is counted from that OpenCode up, so a server started under the seat's own is a
+    second, and moves nothing.  Any other OpenCode counts itself: a server whose parent is a
+    tool's shell, and a TUI whose `--prompt` names that command.
 
     The session the seat is in then goes into its launch's receipt: whole, renamed over the last
     one, and only into the launch's own directory, which a seat stopped since has had removed.
@@ -88,12 +90,14 @@ def follow(launched, payload, pid):
             and payload.get("hook_event_name") == "UserPromptSubmit"
             and rows(database(), "SELECT 1 FROM session_v2 WHERE id = ? AND parent_id IS NULL",
                      session)):
-        parent, words = (orch.processes() or {}).get(pid, (pid, ()))
-        if orch.program(words) == "opencode" and {"serve", "--stdio"} <= set(words):
-            pid = parent
+        table, opencode = orch.processes() or {}, lambda words: orch.program(words) == "opencode"
+        parent, words = table.get(pid, (pid, []))
+        if opencode(words) and opencode(table.get(parent, (parent, []))[1]):
+            command = words.index(orch.program(words, full=True)) + 1
+            if words[command:command + 2] == ["serve", "--stdio"]:
+                pid = parent
         claim(launched, "opencode", session, str(database()),
-              lambda record, session: database(), pid,
-              lambda words: orch.program(words) == "opencode")
+              lambda record, session: database(), pid, opencode)
         record = config.session_records().get(config.resolve_session(launched), {})
         path, current = path_for(record), record.get("conversation")
         if path and isinstance(current, str) and SESSION.fullmatch(current):
