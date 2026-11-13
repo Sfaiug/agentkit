@@ -14,20 +14,26 @@ machine, as a real one runs outside the machine that calls it: no machine sees a
 nor its own where the test's side keeps them (`path`, `write`, `calls`).  A path given to a
 command (`cwd`) is one on the machine.  akbin's `boxable()` says whether bubblewrap can build
 the machines here.
+
+A key holds one machine: `vm.client_of(mini)` makes it the other's client, as install.sh records
+it; `mini.silence()` turns it off and `mini.hang()` has it take ssh and answer nothing, till
+`mini.answer()`.
 """
 
 import contextlib
+import errno
 import json
 import os
 import select
 import shlex
+import signal
 import socket
 import sys
 import tempfile
 import threading
 from pathlib import Path
 
-from .akbin import _FILES, AK, REPO, Home, _binds, _end
+from .akbin import _FILES, AK, REPO, Home, _binds, _end, _wait_gone
 
 # ssh [-o OPTION | -FLAG]... NAME [COMMAND]...: NAME and COMMAND, a line however long, to the
 # sshd on $1, with this ssh's own input and outputs, and its answer, the exit of COMMAND or 255,
@@ -41,7 +47,8 @@ name, *command = words or [""]
 with socket.socket(socket.AF_UNIX) as asked:
     asked.connect(sshd)
     line = json.dumps([name, " ".join(command)]).encode() + b"\n"
-    asked.sendall(line[socket.send_fds(asked, [line], [0, 1, 2]):])
+    if rest := line[socket.send_fds(asked, [line], [0, 1, 2]):]:   # sending none fails, the
+        asked.sendall(rest)                                            # sshd answered and gone
     sys.exit(int(asked.recv(16) or 255))
 """
 
@@ -52,6 +59,8 @@ class Machine(Home):
     def __init__(self, name, at):
         super().__init__(at=at)
         self.name = name
+        self.down = None    # how ssh to it fails: "silent", or "hang"
+        self._starting, self._started = threading.Lock(), []
         self.sshd = self.tmux_dir / "sshd.sock"     # short, as a socket's path must be
         self.fake("ssh", f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -I -c "
                          f'{shlex.quote(SSH)} {shlex.quote(str(self.sshd))} "$@"\n')
@@ -67,7 +76,56 @@ class Machine(Home):
                 *(word for item in self._env(env).items() for word in ("--setenv", *item)), "--"]
 
     def _popen(self, argv, env, cwd, **kwargs):
-        return super()._popen([*self.on(env, cwd), *argv], None, None, **kwargs)
+        """Start `argv` on this machine, or refuse while it is off: `silence` holds `_starting`
+        and ends every command started here, bwrap's still setting up the machine included."""
+        with self._starting:
+            if self.down == "silent":
+                raise OSError(errno.EHOSTUNREACH, os.strerror(errno.EHOSTUNREACH))
+            proc = super()._popen([*self.on(env, cwd), *argv], None, None, **kwargs)
+            self._started = [*(each for each in self._started if each.returncode is None), proc]
+        return proc
+
+    def client_of(self, server):
+        """Make this machine `server`'s client, as `install.sh --client NAME` here and
+        `install.sh --server` there leave them: this one's record names it, and it keeps none."""
+        (server.path / ".agentkit" / "state" / "server").unlink(missing_ok=True)
+        self.write(".agentkit/state/server", f"{server.name}\n")
+
+    def silence(self):
+        """Turn this machine off till it `answer`s: nothing starts on it, ssh to it fails, 255,
+        and every process on it ends."""
+        with self._starting:
+            self.down = "silent"
+            for proc in self._started:
+                if proc.returncode is None:     # not yet reaped: its group is its own still
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(proc.pid, signal.SIGKILL)
+            while running := self._running():     # what detached, and forked meanwhile
+                for pid in running:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.kill(pid, signal.SIGKILL)
+                for pid in running:
+                    _wait_gone(pid)
+
+    def hang(self):
+        """Have ssh to this machine take the connection and answer nothing, its command neither
+        run nor failed, till whoever called gives up, or the test ends it; `answer` lets a later
+        ssh through."""
+        self.down = "hang"
+
+    def answer(self):
+        """Have this machine answer ssh again."""
+        self.down = None
+
+    def _running(self):
+        """The processes on this machine: those that find its root where every machine's is,
+        however they detached."""
+        own, found = os.stat(self.root), []
+        for entry in Path("/proc").glob("[0-9]*"):
+            with contextlib.suppress(OSError):     # gone meanwhile, or not ours to read
+                if os.path.samestat(os.stat(f"{entry}/root{self.at}"), own):
+                    found.append(int(entry.name))
+        return found
 
     def box(self, box=_FILES):
         """`box` past the /tmp of its own it would make: a machine's is its own already."""
@@ -119,7 +177,7 @@ def _session(peer, machines):
     exit; an ssh gone before it ends ends it, as sshd does."""
     with peer:
         asked, fds, _, _ = socket.recv_fds(peer, 1 << 16, 3)
-        machine, code = None, 255
+        proc = hung = None
         try:     # whatever it asks, its input and outputs are this side's no longer
             while not asked.endswith(b"\n"):     # the rest of its line
                 more = peer.recv(1 << 16)
@@ -131,13 +189,22 @@ def _session(peer, machines):
             if machine is None:
                 os.write(fds[2], f"ssh: Could not resolve hostname {name}: "
                                  "Name or service not known\n".encode())
+            elif machine.down == "hang":
+                hung = True
             else:
-                proc = machine._popen(["/bin/sh", "-c", command], None, None,
-                                      stdin=fds[0], stdout=fds[1], stderr=fds[2])
+                try:
+                    proc = machine._popen(["/bin/sh", "-c", command], None, None,
+                                          stdin=fds[0], stdout=fds[1], stderr=fds[2])
+                except OSError as error:     # off
+                    os.write(fds[2], f"ssh: connect to host {name} port 22: "
+                                     f"{error.strerror}\n".encode())
         finally:
             for fd in fds:
                 os.close(fd)
-        if machine is not None:
+        if hung:
+            return peer.recv(1)     # an ssh sends nothing past its line: till it is gone
+        code = 255
+        if proc is not None:
             ended = os.pidfd_open(proc.pid)
             gone = peer in select.select([peer, ended], [], [])[0]
             os.close(ended)

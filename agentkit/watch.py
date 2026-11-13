@@ -1386,9 +1386,14 @@ def pinned(session):
 
 def pane_text(session):
     """The whole pane: output above the tail must reset the quiet clock too."""
+    return pane_capture(session) or ""
+
+
+def pane_capture(session):
+    """The whole pane, "" where it shows nothing, or None where tmux gives no capture."""
     rc, out = orch.tmux_out("capture-pane", "-p", "-e", "-J", "-t", _pane(session),
                             socket=orch.seat_socket(session))
-    return out if rc == 0 else ""
+    return out if rc == 0 else None
 
 
 def strip_sgr(text):
@@ -1739,7 +1744,7 @@ def seat_fact(name, harness):
             else fact)
 
 
-def follow_model(cfg, name):
+def follow_model(cfg, name, asked=None):
     """Make the model that seat's harness last recorded its orchestrator:
     `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
     nothing restarted (the owner's word of 20 Oct 2026).  Only a record made since the harness
@@ -1750,10 +1755,11 @@ def follow_model(cfg, name):
     that harness, the seat's own first, at the effort recorded where one does, and
     `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
     builds and reviews where they stood.  A model no entry the config can run runs on that
-    harness is added to the config and becomes the seat's (_taken_in): "Add it to AK's
-    models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat on its harness's own
-    model, a record that cannot be read, or an effort it records none of or its model does not
-    take leaves the record as it is."""
+    harness is added to the config and becomes the seat's (_taken_in, asking its harness's
+    listing only for the watch's pass, whose listings `asked` holds: a look waits on none): "Add
+    it to AK's models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat
+    on its harness's own model, a record that cannot be read, or an effort it records none of or
+    its model does not take leaves the record as it is."""
     try:
         record = config.load_session(cfg, name, required=False)
         entry = record and config.model(cfg, record["orchestrator"])
@@ -1774,7 +1780,7 @@ def follow_model(cfg, name):
         return
     kept = record["orchestrator"]
     runs = (sorted(config.running(cfg, entry["harness"], ran[0]), key=lambda each: each != kept)
-            or _taken_in(cfg, entry, ran))
+            or _taken_in(cfg, entry, ran, asked))
     if not runs:
         return
     models = config.at_efforts(cfg, record)["models"]
@@ -1787,27 +1793,39 @@ def follow_model(cfg, name):
             cfg["models"], data, chosen, ran[1]))
 
 
-def _taken_in(cfg, left, ran):
+def _taken_in(cfg, left, ran, asked):
     """[name] of the entry made for the model a seat's harness recorded (`ran`, as follow_model
     reads it) where no entry of `cfg` runs it there, as `add a subscription` makes one: on the
     harness and provider of `left`, the entry the seat leaves, with its mode where it has one,
-    at the effort recorded where the model takes it, else the last it takes, and added to the
-    file and to `cfg` (config.add_model).  [] for a harness that runs any provider it logs in
-    to, since nothing read says which runs the model; a model its listing as held does not
-    name, as an id recorded for an error or a fallback; or an add that fails."""
+    at the effort recorded where the model takes it, else the last it takes, named from its
+    label, and added to the file and to `cfg` (config.add_model).  [] for a harness that runs
+    any provider it logs in to, since nothing read says which runs the model; a model neither
+    its listing as held nor its `[catalog]` table names, nor, for a pass, its listing as the
+    pass asked it (config.catalog), once at most into `asked` ({harness: listing}) however long
+    the pass runs, as an id recorded for an error or a fallback; or an add that fails."""
     harness = left["harness"]
     if harness in config.provider_hosts():
         return []
-    listing = config.catalog_held(harness, cfg)       # a look waits on no listing
-    listed = next((model for model in listing if model["id"] == ran[0]), None)
+
+    def named(models):
+        return next((model for model in models if model["id"] == ran[0]), None)
+    # the table too, which a held listing answers without: an id only it names (Muse's
+    # `-contributor` ones) is added however much is held, and asks nothing
+    models = config.catalog_held(harness, cfg) + config.catalog_table(harness)
+    if asked is not None and named(models) is None:
+        if harness not in asked:
+            asked[harness] = config.catalog(harness, cfg)
+        models = asked[harness]
+    listed = named(models)
     if listed is None:
         return []
-    levels = config.efforts(harness, ran[0], lambda _: listing)
+    levels = config.efforts(harness, ran[0], lambda _: models)
     entry = {"harness": harness, "model": ran[0], "provider": left["provider"],
              "effort": ran[1] if ran[1] in levels else levels[-1],
              **{key: left[key] for key in ("mode",) if key in left}}
     try:
-        return [config.add_model(cfg, entry, listed["label"])]
+        return [config.add_model(cfg, entry,     # a table row's label as every screen's
+                                 config.model_label(harness, ran[0], listed["label"]))]
     except (config.Error, OSError):
         return []
 
@@ -5628,6 +5646,7 @@ def health(cfg, state, dry_run, log):
         else:
             forget(gone, resolve=False, acknowledge=False)
             sync_seen(state, load_state())
+    asked = {}      # each harness's listing, which this pass asks once at most (follow_model)
     for session in seats:
         name = session["name"]
         harness, provider = seat_model(cfg, name)
@@ -5667,7 +5686,7 @@ def health(cfg, state, dry_run, log):
                 live = ({} if blank or dry_run or session.get("exited")
                         else live_state(session, harness, pane=pane, cfg=cfg))
                 if live:
-                    follow_model(cfg, name)
+                    follow_model(cfg, name, asked)
                     harness, provider = seat_model(cfg, name)   # a harness can span providers
                 ask_kept_back(name, harness, live)
             at_prompt = (live or seat_read(name)).get("state") == "at_prompt"
@@ -6427,20 +6446,39 @@ def dead_loop(state, run_dir, now):
 def _run_working(run_dir):
     """Whether a process of the run outlives its recorded loop: a worker carrying its marker --
     this process or an ancestor too, as when that worker calls `ak doctor` -- or an `ak run
-    resume` of it that has not recorded its pid yet, which a second resume would race."""
+    resume` of it that has not recorded its pid yet (`resumes`), which a second resume would
+    race."""
     processes = {pid: args for pid, (_, status, args) in _proc_table().items()
                  if status not in ("Z", "X")}
     if any(pid in processes for pid in worker.run_pids(str(run_dir))):
         return True
+    # One under another checkout that does not write the log only follows the run from a
+    # terminal: counted, it would keep the tick from resuming the loop it waits on.
+    return any(writes or ak == str(config.REPO / "bin/ak")
+               for ak, writes in resumes(run_dir, processes).values())
+
+
+def resumes(run_dir, processes=None):
+    """{pid: (its ak, whether it writes the run's log)} of the live `ak run resume` processes of
+    the run, under any ak checkout, as one enters its run's own version (`versions.dispatch`).  One
+    started in the background writes the log; a terminal's starts the run there, then only
+    follows it (`run.foreground_cli`).  `processes`: {pid: argv} of the live ones."""
     from . import run as run_mod
-    resume = [str(config.REPO / "bin/ak"), "run", "resume"]
-    for args in processes.values():
+    if processes is None:
+        processes = {pid: args for pid, (_, status, args) in _proc_table().items()
+                     if status not in ("Z", "X")}
+    found = {}
+    for pid, args in processes.items():
         # The env python3 shebang leaves "python3" as argv[0].
         args = args[1:] if args[:1] in ([sys.executable], ["python3"]) else args
-        parsed = args[:3] == resume and run_mod.resume_args(args[3:])
+        parsed = (args[1:3] == ["run", "resume"] and Path(args[0]).parts[-2:] == ("bin", "ak")
+                  and run_mod.resume_args(args[3:]))
         if parsed and parsed[0] == run_dir.name:
-            return True
-    return False
+            try:
+                found[pid] = args[0], os.path.samefile(f"/proc/{pid}/fd/1", run_dir / "log.txt")
+            except OSError:
+                found[pid] = args[0], False
+    return found
 
 
 def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
@@ -8801,11 +8839,21 @@ def main(argv):
     # every line of a real tick, the overlap line included, bounds the log on its way out; a
     # dry run renames nothing at all, and the log it may be printing into is no exception
     log = print if dry_run else tick_log
+    if not dry_run:
+        stamp_log()
+    # A client's home may be a copy of its server's, at the same paths: a tick here would resume,
+    # land and tell all of it a second time, so it reads and writes nothing, not even the lock
+    # or the config's old names, which bin/ak renames for every other command.  Its line is
+    # printed, not `tick_log`'s: a roll of the log takes a lock in the state folder.
+    alias = config.server_alias()
+    if alias:
+        print(f"this machine is a client of {alias} and runs no tick")
+        return 0
+    config.migrate_policy()
     if dry_run:
         log(tick_health()[0])
         held = None
     else:
-        stamp_log()
         config.ensure_dirs()
         try:
             previous = tick_lock_path().stat().st_mtime   # before the lock stamps our start

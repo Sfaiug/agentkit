@@ -1,4 +1,5 @@
-"""A green delivery takes its turn as soon as the one ahead has left the line.
+"""A green delivery takes its turn as soon as the one ahead has left the line: each delivery, as
+it ends, however it ends, wakes the next.
 
 Offline: real Git and checks, sandbox records, fake processes and wakes, an injected clock.
 """
@@ -10,7 +11,7 @@ from unittest.mock import patch
 
 from test_lander import LanderFixture, land, record, run, gate
 from fixtures.clock import Clock
-from agentkit import deliver as delivery
+from agentkit import config, deliver as delivery, roundloop
 
 
 class GreenDeliveryTurn(LanderFixture, unittest.TestCase):
@@ -74,6 +75,72 @@ class GreenDeliveryTurn(LanderFixture, unittest.TestCase):
         self.assertEqual(land.line(self.turn), [])
         for directory in members:
             self.assertNotIn("delivery_wait", record.read_state(directory))
+
+    def delivering(self, directory, said):
+        """`directory`'s run as it delivers, its branch checked out."""
+        state = record.read_state(directory)
+        state.update(state="running")
+        lp = SimpleNamespace(state=state, wt=self.repo, run_dir=directory, base_sha=self.base,
+                             target="main", log=said.append)
+        lp.write = lambda: record.save_state(lp.run_dir, lp.state)
+        lp.write()
+        run.git(self.repo, "checkout", state["branch"])
+        return lp
+
+    def test_each_delivery_as_it_ends_wakes_the_next(self):
+        members = [self.member(f"member-{n}", joined=n, **{f"member-{n}.txt": f"{n}\n"})
+                   for n in range(1, 4)]
+        self.advance()
+        land.check_line(self.turn)
+        said = []
+        for n, ending in enumerate(("merged", "red"), 1):
+            lp = self.delivering(members[n - 1], said)
+
+            def deliver(lp=lp, ending=ending):
+                if ending == "red":
+                    lp.state["waiting_on"] = {**lp.state["waiting_on"], "fix": {"line": "red", "log": "x"}}
+                    return False
+                run.git(self.repo, "push", "origin", "HEAD:main")
+                lp.state.update(state="pass", merged=True)
+                return True
+
+            self.assertEqual(delivery.land_from_line(lp, "origin/main", deliver), ending == "merged")
+            self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                             [m.name for m in members[:n + 1]])
+            self.assertEqual(said[-1], f"{members[n].name} delivers next in {self.turn.name}, "
+                                       f"{2 - n} waiting behind it")
+
+    def assert_hands_on(self, ending):
+        """The head's delivery, ending unmerged as `ending`, wakes the one behind it."""
+        first, second = [self.member(f"member-{n}", joined=n, **{f"member-{n}.txt": f"{n}\n"})
+                         for n in (1, 2)]
+        self.advance()
+        land.check_line(self.turn)
+        said = []
+        lp = self.delivering(first, said)
+        self.wake.reset_mock()
+
+        def deliver():
+            if ending == "raised":
+                raise config.Error("gh: acme/widget unreachable")
+            return roundloop.note(lp, "gh pr merge failed for acme/widget", failed=True)
+
+        if ending == "raised":
+            with self.assertRaises(config.Error):
+                delivery.land_from_line(lp, "origin/main", deliver)
+        else:
+            self.assertFalse(delivery.land_from_line(lp, "origin/main", deliver))
+        # its record still reads as delivering, till its run writes how it ended
+        self.assertEqual([directory for directory, _ in land.line(self.turn)], [first, second])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [second.name])
+        self.assertEqual(said[-1], f"{second.name} delivers next in {self.turn.name}, "
+                                   "0 waiting behind it")
+
+    def test_a_delivery_that_fails_wakes_the_next_too(self):
+        self.assert_hands_on("failed")
+
+    def test_a_delivery_that_raises_wakes_the_next_too(self):
+        self.assert_hands_on("raised")
 
 
 if __name__ == "__main__":

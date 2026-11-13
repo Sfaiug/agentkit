@@ -43,7 +43,9 @@ def every_byte_and_time(home):
             for path in (home, *sorted(home.rglob("*")))}
 
 
-class Shadowed(unittest.TestCase):
+class Shadowing(unittest.TestCase):
+    """A Home, and fake programs for the shadow to run on it."""
+
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
@@ -63,6 +65,8 @@ class Shadowed(unittest.TestCase):
         return done.code, {kind for kind in (*dict(MORE), "exit") for line in done.out.splitlines()
                            if line.startswith(f"{kind}: ")}, done.out + done.err
 
+
+class Shadowed(Shadowing):
     @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
     def test_each_way_go_differs_is_named_and_the_home_is_kept(self):
         before = every_byte_and_time(self.home.path)

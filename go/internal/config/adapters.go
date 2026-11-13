@@ -143,6 +143,16 @@ func plain(value any) any {
 	return value
 }
 
+// PlanName is what a screen calls plan, one that harness's `login-end` names, as Python's
+// Harness.plan_name: its manifest's `[plan_names]` word for it, else those words.
+func PlanName(harness, plan string) string {
+	names, _ := Section(harness, "plan_names")
+	if named, ok := names[plan].(string); ok {
+		return named
+	}
+	return plan
+}
+
 // Words is the strings a harness's manifest lists under one key of one section.
 func Words(harness, section, key string) ([]string, error) {
 	manifests, err := manifests()
