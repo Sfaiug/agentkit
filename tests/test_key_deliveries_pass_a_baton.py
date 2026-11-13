@@ -63,7 +63,7 @@ class DeliveriesPassABaton(unittest.TestCase):
     def resuming(self):
         """The Home's `ak run resume` processes but the test's own."""
         found = []
-        for pid in set(_strays(self.line.home.path)) - self.fakes:
+        for pid in set(_strays(self.line.home.root, self.line.home.tmux_dir)) - self.fakes:
             try:
                 if b"resume" in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0"):
                     found.append(pid)
