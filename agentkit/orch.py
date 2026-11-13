@@ -2770,7 +2770,8 @@ def harness_pane(name, server):
 
 
 def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=None):
-    """The harness in the seat: respawned in its exited pane, or a new session.  `started` is
+    """The harness in the seat: respawned in its pane -- the one `session` is bound to, as the
+    one a caller read (`watch._pane`), else its harness's -- or a new session.  `started` is
     called once it runs, before the setup after it that can still fail.
 
     `still`, for a live harness replaced unasked, is asked of the pane once the respawn is
@@ -2778,7 +2779,7 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
     one holds.  False leaves that harness as it is, and raises config.Error."""
     if session:
         server = seat_socket(session)
-        target = harness_pane(name, server)
+        target = session.get("pane") or harness_pane(name, server)
         values = seat_env(name, server)
         command, launch = seat_command(name, cmd, server)
         thaw = ("set-option", "-pu", "-t", target, FROZEN_OPTION, ";",
@@ -4639,7 +4640,10 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     if asked and not asked(bool(kept)):
         return None
     # Its screen and hooks as they are now: a recorded reading can be a prompt or a draft behind.
+    # Read, kept and respawned at one pane, its harness's, whichever window the owner selects.
     session = find(name)
+    if session:
+        session = dict(session, pane=harness_pane(name, seat_socket(session)))
     pane = (watch.pane_text(session)
             if session and not any(session.get(key) for key in CLOSED) else None)
     live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
