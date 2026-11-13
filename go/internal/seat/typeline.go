@@ -48,11 +48,13 @@ var (
 // composer holding text among them, which Python's own editor types past, it puts nothing in and
 // the line is the tick's.  No key goes in while the cursor is off its composer (offComposer).
 func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
-	return typeAtPane(name, "", line, typed, receipt, log, stale)
+	return typeAtPane(name, "", line, typed, receipt, log, stale, true)
 }
 
-// typeAtPane is typeAtPrompt into that pane, "" for the seat's window's own.
-func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
+// typeAtPane is typeAtPrompt into that pane, "" for the seat's window's own.  alone is typeAtPrompt's
+// gate on each Enter, the pass not stale and the composer holding the line alone, and its proof,
+// the composer read empty after; typeInto's Enters go ungated, its line sent once it left.
+func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool, alone bool) bool {
 	own, record := seatHarness(name)
 	if !typable(own) {
 		return false
@@ -115,7 +117,7 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 			return err
 		}
 		time.Sleep(keyGap)
-		if !poll(ready) || stale(current) || !at.enter(log) {
+		if alone && (!poll(ready) || stale(current)) || !at.enter(log) {
 			return errUntyped
 		}
 		return nil
@@ -126,7 +128,7 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	if !poll(func() bool { return at.sent(text) }) {
 		again := notify.Held(context.Background(), name, func(current string) error {
 			at.name = current
-			if stale(current) || !ready() || !at.enter(log) {
+			if alone && (stale(current) || !ready()) || !at.enter(log) {
 				return errUntyped
 			}
 			return nil
@@ -139,7 +141,7 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 			return false
 		}
 	}
-	return at.holds(text) == "empty" && !at.unread()
+	return !alone || at.holds(text) == "empty" && !at.unread()
 }
 
 // linePane is the pane a line goes into, "" naming the seat's window's own, as tmux says it now: its

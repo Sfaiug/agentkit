@@ -5074,7 +5074,8 @@ def tell_moves(name, log, cfg=None):
     last = stood = None
     while True:
         tell_owed(name, log, cfg)
-        lines = seat_read(name).get("owed_lines") or []
+        with notify.session_lock(name) as name:     # its name now: a rename takes its lines along
+            lines = seat_read(name).get("owed_lines") or []
         if lines != last:
             last, stood = lines, time.monotonic()
         if (not any(owed.get("switch") for owed in lines)
@@ -6428,20 +6429,39 @@ def dead_loop(state, run_dir, now):
 def _run_working(run_dir):
     """Whether a process of the run outlives its recorded loop: a worker carrying its marker --
     this process or an ancestor too, as when that worker calls `ak doctor` -- or an `ak run
-    resume` of it that has not recorded its pid yet, which a second resume would race."""
+    resume` of it that has not recorded its pid yet (`resumes`), which a second resume would
+    race."""
     processes = {pid: args for pid, (_, status, args) in _proc_table().items()
                  if status not in ("Z", "X")}
     if any(pid in processes for pid in worker.run_pids(str(run_dir))):
         return True
+    # One under another checkout that does not write the log only follows the run from a
+    # terminal: counted, it would keep the tick from resuming the loop it waits on.
+    return any(writes or ak == str(config.REPO / "bin/ak")
+               for ak, writes in resumes(run_dir, processes).values())
+
+
+def resumes(run_dir, processes=None):
+    """{pid: (its ak, whether it writes the run's log)} of the live `ak run resume` processes of
+    the run, under any ak checkout, as one enters its run's own version (`versions.dispatch`).  One
+    started in the background writes the log; a terminal's starts the run there, then only
+    follows it (`run.foreground_cli`).  `processes`: {pid: argv} of the live ones."""
     from . import run as run_mod
-    resume = [str(config.REPO / "bin/ak"), "run", "resume"]
-    for args in processes.values():
+    if processes is None:
+        processes = {pid: args for pid, (_, status, args) in _proc_table().items()
+                     if status not in ("Z", "X")}
+    found = {}
+    for pid, args in processes.items():
         # The env python3 shebang leaves "python3" as argv[0].
         args = args[1:] if args[:1] in ([sys.executable], ["python3"]) else args
-        parsed = args[:3] == resume and run_mod.resume_args(args[3:])
+        parsed = (args[1:3] == ["run", "resume"] and Path(args[0]).parts[-2:] == ("bin", "ak")
+                  and run_mod.resume_args(args[3:]))
         if parsed and parsed[0] == run_dir.name:
-            return True
-    return False
+            try:
+                found[pid] = args[0], os.path.samefile(f"/proc/{pid}/fd/1", run_dir / "log.txt")
+            except OSError:
+                found[pid] = args[0], False
+    return found
 
 
 def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):

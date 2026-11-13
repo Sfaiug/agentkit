@@ -12,8 +12,9 @@ finds changed or added in a version swapped out keeps it there all the same.  Ea
 record in the repository is locked: a `git worktree prune` that could not see ~/agentkit would
 take it, and without it no git works there and nothing moves it again.
 
-A move is final only once a tick of the version it put live completes (`final`): until then the
-version it replaced is kept (`kept`) and nothing else moves, for the way back (`back`) to run from.
+A move is final only once a tick of the version it put live completes with its install.sh passed
+(`final`): until then the version it replaced is kept (`kept`) and nothing else moves, for the
+way back (`back`) to run from.
 
 A clone at ~/agentkit is adopted at its first move, once it is main as origin left it
 (`update.left_as_is`): its repository goes to `REPOSITORY`, a link left in its place, and each
@@ -110,7 +111,8 @@ def kept():
 
 def final(ended, completed=True):
     """A tick's end at `ended`.  Only a tick that began from the folder at ~/agentkit now proves
-    that version runs, and one that `completed` makes the move that put it live final.  One that
+    that version runs, and one that `completed` makes the move that put it live final, once no
+    install.sh is owed (`update.PENDING`): a version that never installs is put back.  One that
     began in the version the move replaced, the tick that made it among them, sets the link's
     time to its end however it ends: no tick of the version live runs while it holds the tick
     lock, so `back` counts its hour from there."""
@@ -123,7 +125,8 @@ def final(ended, completed=True):
         try:
             if replaced and os.path.samestat(config.BEGAN, os.stat(replaced)):
                 os.utime(link, (ended, ended), follow_symlinks=False)
-            elif completed and os.path.samestat(config.BEGAN, os.stat(update.agentkit_dir())):
+            elif (completed and os.path.samestat(config.BEGAN, os.stat(update.agentkit_dir()))
+                    and not (config.STATE / update.PENDING).exists()):
                 link.unlink(missing_ok=True)
         except OSError:
             pass        # no ~/agentkit: nothing of it ran

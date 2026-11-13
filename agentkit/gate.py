@@ -1135,6 +1135,29 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
         running = len(others)
     if readings is None:
         readings = _run_readings()
+    more = _more(readings, running, job_cpus, job_mem_mb, unit, others)
+    return 1 if more is None else max(1, running + more)
+
+
+def places(piece_cpus, piece_mem_mb):
+    """How many pieces of that cost this host fits now beside the turns held here, as a line's
+    check reads its room: a red stack's narrowing runs as many probes here in a round where no
+    suite helper has a place (land._round). 0 where none fits."""
+    others = _heavy_held()
+    return _more(_room_readings(), len(others), piece_cpus, piece_mem_mb, True, others) or 0
+
+
+def _room_readings():
+    """The run readings a check reads its room in: at the top CPU weight (the line's checker) the
+    use lower-weighted runs hold is its own (`host.kept_cpu`)."""
+    readings = _run_readings()
+    kept = host.kept_cpu(orch.run_slice_cgroup())
+    return readings if kept is None else {**readings, "slice_cpu_used": kept}
+
+
+def _more(readings, running, job_cpus, job_mem_mb, unit, others):
+    """How many more jobs fit beside `running`, as `derived_heavy_limit` weighs them; None where
+    neither resource answers."""
     cpu_quota = host._reading(readings, "slice_cpu_quota")
     cpus = host._reading(readings, "cpus", "nproc")
     used = host._reading(readings, "slice_cpu_used")
@@ -1176,13 +1199,13 @@ def derived_heavy_limit(readings=None, running=None, job_cpus=HEAVY_CPUS,
     if mem_free is not None:
         candidates.append(_fits(mem_free, job_mem_mb))
     if not candidates:
-        return 1
+        return None
     said = [cost for cost in others if cost]
     candidates += [_fits(total - sum(cost[part] for cost in said), job) - (running - len(said))
                    for part, (total, job) in enumerate(((cpu_whole, job_cpus),
                                                         (mem_whole, job_mem_mb)))
                    if total is not None]
-    return max(1, running + max(0, min(candidates)))
+    return max(0, min(candidates))
 
 
 def _fits(room, cost):
@@ -1250,11 +1273,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     log(f"done-when: {exc} · the heavy suite takes a derived turn")
                 pinned = None
             # CPU sampling sleeps; locking free slots across it would count them as running.
-            readings = _run_readings() if pinned is None else None
-            # At the top CPU weight (the line's checker) the use lower-weighted runs hold is its own.
-            kept = host.kept_cpu(orch.run_slice_cgroup()) if pinned is None else None
-            if kept is not None:
-                readings = {**readings, "slice_cpu_used": kept}
+            readings = _room_readings() if pinned is None else None
             with _place_costs():
                 total = max(1, _heavy_max_existing() + 1, len(slots))
                 while len(slots) < total:
@@ -1501,15 +1520,16 @@ def suite_env():
 
 
 def pinned(command, times, only=None):
-    """`command` as a piece runs it on the suite helper, which hands it no environment: (its
-    line, the files its parcel takes there, each by the variable piece.sh names it in). AK_TIMES
-    names the record `times`, and AK_ONLY one listing the tests `only` names, for a piece that
-    runs just those (land._probe). Neither is in the line, which one argument must hold
-    (helper.start).
+    """`command` as a piece runs it on the suite helper, which hands it no environment, and as a
+    red stack's probe runs it there or here (land._probe): (its line, the files its parcel takes
+    there, each by the variable piece.sh names it in). AK_TIMES names the record `times`, and
+    AK_ONLY one listing the tests `only` names, for a piece that runs just those. Neither is in
+    the line, which one argument must hold (helper.start).
 
-    The piece runs in a clone there, which land._check's look at this checkout never sees: it
-    checks that clone itself and fails, as land._check does, if it changed, however the command
-    exited, dropping the tests it named as not there, which say nothing of the tree it was given.
+    No land._check looks at the checkout the piece runs in, a clone there or a probed stack's
+    here: it checks that checkout itself and fails, as land._check does, if it changed, however
+    the command exited, dropping the tests it named as not there, which say nothing of the tree
+    it was given.
     """
     files = {"AK_TIMES": times}
     if only is not None:

@@ -197,7 +197,8 @@ class EffortCells(unittest.TestCase):
         (adapters / "acme.sh").chmod(0o755)
         (adapters / "acme.toml").write_text('[effort]\nlevels = ["low", "medium", "high"]\n')
         entry = {"harness": "acme", "model": "acme-fast"}
-        with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}):
+        with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}), \
+                patch.object(config, "STATE", adapters / "state"):    # not the owner's ~/.agentkit
             self.assertEqual(menu.effort_levels(entry, None), ["low", "medium", "high"])  # unlisted
             config.catalog("acme")                      # as `Models` asks it
             self.assertEqual(menu.effort_levels(entry, None), ["none"])
