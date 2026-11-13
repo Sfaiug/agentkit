@@ -25,11 +25,12 @@ import (
 	"agentkit/internal/task"
 )
 
-// Rulebooks shares the launch's renderer and record writer without depending on seat launchers,
-// whose adapters also install hooks.
+// Rulebooks shares the launch's renderer and record writer, and the runs a prompt carries
+// (handback.Riding), without depending on seat launchers, whose adapters also install hooks.
 type Rulebooks struct {
 	Current func(string) (string, error)
 	Update  func(string, func(*run.Object) bool) error
+	Riding  func(string) (string, error)
 }
 
 type RulebookRefusal string
@@ -51,21 +52,26 @@ const (
 )
 
 // PromptNews is the context a seat's prompt carries (orch.prompt_news), "" for none: only for its
-// own conversation on a harness taking context, the questions an owner's prompt may answer and
-// the Mac files pasted into it, then its rulebook's news.  `said` is the owner's words, nil for a
-// prompt that is not theirs.  The rulebook is decided last, as it is held from its hand-over on,
-// so nothing may fail after it.
-func (books Rulebooks) PromptNews(launched, conversation string, said *string) string {
+// own conversation on a harness taking context, the runs riding on it, the questions an owner's
+// prompt may answer and the Mac files pasted into it, then its rulebook's news.  `said` is the
+// owner's words, nil for a prompt that is not theirs.  The rulebook is decided last, as it is held
+// from its hand-over on, so nothing may fail after it.  False for known, with nothing written,
+// where Go cannot tell its runs as Python does.
+func (books Rulebooks) PromptNews(launched, conversation string, said *string) (news string, known bool) {
 	name, record, kind := owned(launched, conversation)
 	if record == nil || !harness.TakesContext(kind) {
-		return ""
+		return "", true
 	}
 	besides := ""
 	if said != nil {
-		besides = paragraphs(notify.AnswerContext(name, *said), fetch.Pasted(*said))
+		riding, err := books.Riding(name)
+		if err != nil {
+			return "", false
+		}
+		besides = paragraphs(riding, notify.AnswerContext(name, *said), fetch.Pasted(*said))
 	}
 	whole := func(news string) string { return paragraphs(besides, news) }
-	return whole(books.rulebookNews(name, kind, record, conversation, whole))
+	return whole(books.rulebookNews(name, kind, record, conversation, whole)), true
 }
 
 // paragraphs is the parts that say anything, a blank line apart.

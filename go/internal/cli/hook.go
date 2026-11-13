@@ -80,7 +80,9 @@ func seatState(payload []byte, out io.Writer) int {
 		if relatch(seat, string(data)) != nil {
 			return 0
 		}
-		tellPrompt(seat, event, out)
+		if !tellPrompt(seat, event, out) {
+			return leftToPython()
+		}
 	}
 	// The answer it heard goes first: a rename taken while it waits moves the seat its fact
 	// goes to.
