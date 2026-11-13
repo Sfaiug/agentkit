@@ -3,7 +3,6 @@ package loop
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
@@ -14,7 +13,7 @@ import (
 // a lander fix takes effect once it is installed, and members launched on different versions
 // stack.  The installed ak may be one that cannot say it started where it was placed.
 func lander(name string) (*exec.Cmd, error) {
-	installed := filepath.Join(config.UserHome(), ".local", "bin", "ak")
+	installed := config.UnderHome(".local", "bin", "ak")
 	if found, err := os.Stat(installed); err == nil && found.Mode().IsRegular() {
 		return host.Witnessed(installed, "run", "--lander", name), nil
 	}

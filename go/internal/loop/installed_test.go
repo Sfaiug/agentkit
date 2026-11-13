@@ -12,10 +12,22 @@ import (
 )
 
 // A line's lander is the installed ak, ~/.local/bin/ak where that is a file, else this program.
+// HOME's `..` after a link is the link's target's parent, as to Python, never the folder holding
+// the link, whose own ~/.local/bin/ak is not this home's.
 func TestALanderStartsTheInstalledAk(t *testing.T) {
-	home := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "real")
+	if err := os.MkdirAll(filepath.Join(home, "inner"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real/inner", filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
 	// no user manager: each starts plainly
-	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "XDG_RUNTIME_DIR": t.TempDir()} {
+	for key, value := range map[string]string{"HOME": root + "/link/..", "XDG_RUNTIME_DIR": t.TempDir()} {
 		t.Setenv(key, value)
 	}
 	turn := filepath.Join(run.Runs(), ".merge-acme.lock")
@@ -37,8 +49,10 @@ func TestALanderStartsTheInstalledAk(t *testing.T) {
 		return ""
 	}
 	installed := filepath.Join(home, ".local", "bin", "ak")
-	os.MkdirAll(filepath.Dir(installed), 0o700)
-	os.WriteFile(installed, []byte("#!/bin/sh\nprintf %s \"$0 $*\" >\"$AK_TEST_LANDER\"\n"), 0o755)
+	for _, ak := range []string{installed, filepath.Join(root, ".local", "bin", "ak")} {
+		os.MkdirAll(filepath.Dir(ak), 0o700)
+		os.WriteFile(ak, []byte("#!/bin/sh\nprintf %s \"$0 $*\" >\"$AK_TEST_LANDER\"\n"), 0o755)
+	}
 	if got, want := started(), installed+" run --lander .merge-acme.lock"; got != want {
 		t.Errorf("with an installed ak, the lander was %q, want %q", got, want)
 	}

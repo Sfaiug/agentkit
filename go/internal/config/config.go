@@ -30,15 +30,8 @@ import (
 //go:embed default.toml
 var defaultConfig string
 
-// Home is Python's config.HOME, ~/.agentkit.  A `..` in HOME is the parent of the link before
-// it, so such a HOME is resolved here, before this Join or a caller's cleans that `..` away.
-func Home() string {
-	home := UserHome()
-	if slices.Contains(strings.Split(home, "/"), "..") {
-		home = Resolve(home)
-	}
-	return filepath.Join(home, ".agentkit")
-}
+// Home is Python's config.HOME, ~/.agentkit.
+func Home() string { return UnderHome(".agentkit") }
 
 // Repo is the checkout ak runs from, Python's config.REPO: the top of the git checkout its
 // resolved executable sits in, else, as in a copied tree, the folder above the executable's bin/,
