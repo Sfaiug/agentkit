@@ -162,10 +162,12 @@ class Home:
     the process that made it, ends every process it left and removes it.  `tmux_log=False` keeps
     no log of the program's tmux calls (`calls`): each would start a Python, which a test counting
     what the program reads would count.  `at` is where its commands find its root, if not where
-    it is: on a machine of tests/fixtures/twohomes.py, at the path every machine's is at."""
+    it is: on a machine of tests/fixtures/twohomes.py, at the path every machine's is at.  Its
+    root is made in `at`, so that a machine's commands, finding theirs there, find no other, and
+    `at` empties, and goes, with the last of them."""
 
     def __init__(self, tmux_log=True, at=None):
-        self.root = Path(tempfile.mkdtemp(prefix="akbin-")).resolve()
+        self.root = Path(tempfile.mkdtemp(prefix="akbin-", dir=at)).resolve()
         self.at = Path(at or self.root)
         self.path = self.root / "home"
         self.bin = self.root / "bin"
@@ -182,7 +184,7 @@ class Home:
         try:
             self._reaper = subprocess.Popen(
                 ["/bin/sh", "-c", 'read _ || exec "$@"', "sh", sys.executable, "-I",
-                 f"/dev/fd/{script}", "reap", self.root, self.tmux_dir, self.at / "home"],
+                 f"/dev/fd/{script}", "reap", self.root, self.tmux_dir, self.at],
                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True, pass_fds=[script])
         finally:
@@ -237,7 +239,7 @@ class Home:
     def close(self):
         for proc in self._spawned:
             _end(proc)
-        _clear(self.root, self.tmux_dir, self.at / "home")
+        _clear(self.root, self.tmux_dir, self.at)
         _end(self._reaper)      # last: a close cut short leaves the rest to it
 
     def log(self, name):
@@ -399,9 +401,9 @@ class Manager:
 STUCK = 30
 
 
-def _clear(root, tmux_dir, home):
-    """End the tmux servers the Home at `root` started, and its strays, whose HOME is `home`,
-    and remove it, and the folder its commands found it at once that is empty."""
+def _clear(root, tmux_dir, at):
+    """End the tmux servers the Home at `root` started, and its strays, and remove it, and `at`,
+    the folder its commands found it at, once that is empty."""
     servers = Path(tmux_dir, f"tmux-{os.getuid()}")
     for socket in servers.iterdir() if servers.is_dir() else ():
         ask = [REAL_TMUX, "-S", str(socket)]
@@ -410,7 +412,7 @@ def _clear(root, tmux_dir, home):
         subprocess.run([*ask, "kill-server"], capture_output=True, timeout=30)
         _wait_gone(int(pid) if pid.isdigit() else None)
     # what the program detached from them: a stray still writing would put the Home back
-    for pid in _strays(home):
+    for pid in _strays(Path(root, "home")):
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -419,28 +421,33 @@ def _clear(root, tmux_dir, home):
     shutil.rmtree(root, ignore_errors=True)
     shutil.rmtree(tmux_dir, ignore_errors=True)
     try:
-        Path(home).parent.rmdir()
-    except OSError:     # its root, gone already
+        Path(at).rmdir()
+    except OSError:     # its root, gone already, or holding another machine's
         pass
 
 
 def _strays(home):
-    """Processes still running in a Home: their environment names `home` as HOME.  Those caught
-    in an exec are read again till it ends, for `STUCK` seconds in all: an exec stuck longer,
-    the Home's or another's, would hold the cleanup up for good."""
-    mark = f"HOME={home}".encode()
+    """Processes still running in a Home: the HOME their environment names is, where they look
+    for it, the folder `home`; the path alone would be every machine's (tests/fixtures/
+    twohomes.py).  Those caught in an exec are read again till it ends, for `STUCK` seconds in
+    all: an exec stuck longer, the Home's or another's, would hold the cleanup up for good."""
+    try:
+        own = os.stat(home)
+    except FileNotFoundError:   # removed already, after its strays
+        return []
     found, entries, deadline = [], Path("/proc").glob("[0-9]*"), time.monotonic() + STUCK
     while True:
         execing = []
         for entry in entries:
             try:
                 env = _environ(entry)
-            except OSError:      # gone meanwhile, or not ours to read
+                if env is None:
+                    execing.append(entry)
+                elif any(os.path.samestat(own, os.stat(bytes(entry / "root") + var[5:]))
+                         for var in env.split(b"\0") if var.startswith(b"HOME=")):
+                    found.append(int(entry.name))
+            except OSError:      # gone meanwhile, not ours to read, or its HOME nowhere
                 continue
-            if env is None:
-                execing.append(entry)
-            elif mark in env.split(b"\0"):
-                found.append(int(entry.name))
         if not execing or time.monotonic() >= deadline:
             return found
         entries = execing
