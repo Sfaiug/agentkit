@@ -638,7 +638,7 @@ def patch_id(wt, base_sha, head="HEAD"):
             return None
         proc = subprocess.run(["git", "-C", str(wt), "patch-id", "--stable"],
                               input=diff, capture_output=True, encoding="utf-8",
-                              errors="replace", timeout=gitcall.TOOL_CAP, env=gitcall.tool_env())
+                              errors="replace", timeout=gitcall.local_cap(), env=gitcall.tool_env())
         if proc.returncode != 0:
             return None
         out = (proc.stdout or "").strip()
@@ -1792,7 +1792,7 @@ def conflict_added_only(wt, path):
     try:
         with tempfile.TemporaryDirectory(prefix="ak-conflict-") as work:
             stages = [Path(work) / str(n) for n in (1, 2, 3)]
-            call = dict(cwd=wt, env=gitcall.tool_env(), timeout=gitcall.TOOL_CAP,
+            call = dict(cwd=wt, env=gitcall.tool_env(), timeout=gitcall.local_cap(),
                         stderr=subprocess.DEVNULL)
             for n, stage in enumerate(stages, 1):
                 with stage.open("wb") as output:

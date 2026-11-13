@@ -523,8 +523,8 @@ class GateTolerance(unittest.TestCase):
         self.assertNotIn("Muse usage probe", result.stdout)
 
     def test_healthy_pick_runs_despite_a_bystander_timeout(self):
-        # Only anthropic and openai feed check 6's pick; a timed-out meta probe beside
-        # healthy meters must not skip the coverage the check exists to prove.
+        # Unspent, anthropic and openai alone feed check 6's pick; a timed-out meta probe
+        # beside healthy meters must not skip the coverage the check exists to prove.
         self.adapter("claude", meters("anthropic"))
         self.adapter("codex", meters("openai", 45))
         self.adapter("muse", refused("meta", "unknown: Muse usage probe timed out"))
@@ -534,6 +534,20 @@ class GateTolerance(unittest.TestCase):
         self.assertIn("PASS  6 ak orch --dry-run", result.stdout)
         self.assertIn("PASS  6b ak orch", result.stdout)
         self.assertNotIn("SKIP", result.stdout)
+
+    def test_pick_past_spent_meters_skips_when_metas_meter_is_down(self):
+        # Claude's and OpenAI's meters spent, the pick stands on meta's: on 12 Nov 2026 its
+        # probe answered 503 there, and check 6 failed main expecting grok for ak's spark.
+        self.adapter("claude", meters("anthropic", 100))
+        self.adapter("codex", meters("openai", 100))
+        self.adapter("muse", refused("meta", "unknown: responses probe returned HTTP 503"))
+        self.usage_json()
+        result = self.shell(CHECK_6, U=str(self.root / "usage.json"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP  6: provider meter unavailable (", result.stdout)
+        self.assertIn("HTTP 503", result.stdout)
+        self.assertIn("PASS  6b ak orch", result.stdout)
+        self.assertNotIn("FAIL", result.stdout)
 
     def test_held_check_1_picks_once_the_hold_lifts(self):
         # Check 1 skipped on the host's hold; by check 6 the hold has lifted and the

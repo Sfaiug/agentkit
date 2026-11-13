@@ -22,6 +22,7 @@ from agentkit.guard import commands  # noqa: E402
 from agentkit import record
 
 NOW = 1_800_000_000
+CREW = "Fable 5.1 xhigh orchestrates   GPT-6-Astra xhigh builds, reviews"   # line two
 DIM = terminal.colour("dim").rgb
 
 
@@ -101,7 +102,7 @@ class TwoLines(Sandbox):
         self.assertEqual(drawn(top), f"  ● working    fix-api   Fable 5.1 xhigh   {drawn(bar)}")
         # line two is its row's open line: who builds and reviews, and its task building
         self.assertEqual(drawn(self.options[statusbar.WHY]),
-                         "  GPT-6-Astra xhigh ⚒◎   ■□□")
+                         f"  {CREW}   ■□□")
         self.assertNotIn("going", self.options[statusbar.WHY])      # never a task's name
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api · working")
@@ -112,7 +113,7 @@ class TwoLines(Sandbox):
         top, why = self.options[statusbar.TOP], self.options[statusbar.WHY]
         self.assertIn("#[fg=#3d2e00,bg=#f6c400,bold] ! needs you #[default]", top)
         self.assertEqual(drawn(top), "  ! needs you    fix-api   Fable 5.1 xhigh")
-        self.assertEqual(drawn(why), "  GPT-6-Astra xhigh ⚒◎")
+        self.assertEqual(drawn(why), f"  {CREW}")
         self.assertNotIn("Merge", "".join(self.options.values()))
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
 
@@ -138,7 +139,8 @@ class TwoLines(Sandbox):
         self.assertEqual(title, "fix-api · done")
 
     def test_e_a_client_short_of_room_keeps_its_tasks_over_who_builds(self):
-        versions = statusbar.whys({"crew": (["astra"], ["opus"]), "tasks": [(0, "moving")] * 101})
+        versions = statusbar.whys({"crew": ("fable", ["astra"], ["opus"]),
+                                   "tasks": [(0, "moving")] * 101})
         self.assertEqual(len(versions), len(statusbar.WHYS))
         self.assertTrue(all("■" in drawn(version) for version in versions), versions)
         # the narrowest, which fits beside the key on a client 40 columns wide: one and a count

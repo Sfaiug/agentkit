@@ -2,6 +2,8 @@ package seat
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -38,6 +40,9 @@ func JoinProject(name string) error {
 	return notify.Held(context.Background(), name, func(current string) error {
 		state := filepath.Join(config.Home(), "state")
 		record, err := run.ReadJSON(filepath.Join(state, "session-"+current+".json"))
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil // a seat gone has nothing to file, its job's later tasks still its own
+		}
 		if record == nil || record.Has(config.Renamed) || record.Truthy("filed") {
 			return err
 		}

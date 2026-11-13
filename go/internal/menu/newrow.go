@@ -164,17 +164,10 @@ func (d *Draft) block(s terminal.Screen, seat Seat, w widths) []row {
 		}
 		return shown
 	}
-	builds := d.Workers
-	if len(builds) == 0 {
-		builds = []string{d.Orchestrator}
-	}
-	text, tone := s.Crew(named(builds, "exec_effort"), named(d.Reviewers, "review_effort")), "dim"
+	room := max(1, w.room-len(indent))
+	parts, tone := []string{terminal.CutSpaced(terminal.Crew(seat.Model, named(d.Workers, "exec_effort"), named(d.Reviewers, "review_effort")), room)}, "dim"
 	if why := d.Refusal(); why != "" {
-		text, tone = why, "amber"
-	}
-	parts := []string{text}
-	if room := max(1, w.room-len(indent)); terminal.Cells(text) > room {
-		parts = terminal.Wrap(text, room)
+		parts, tone = terminal.Wrap(why, room), "amber"
 	}
 	for _, part := range parts {
 		lines = append(lines, row{indent + s.Styled(part, tone), seat.Name})

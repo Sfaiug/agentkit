@@ -137,34 +137,48 @@ func TestAJobsUndeliveredTasksEndItNeedingYou(t *testing.T) {
 	}
 }
 
-// A stop that lands as preflight's refusal ends a task's run keeps the run's word, which refuse
-// leaves standing: the task is stopped, not failed.
+// A stop that lands as preflight refuses a task's run keeps the run's word, which refuse leaves
+// standing: the task is stopped, not failed, and so it is where the log can then no longer be
+// written, as preflight refuses or prepares the run.
 func TestAStopAsPreflightRefusesKeepsItsWord(t *testing.T) {
-	jobHome(t)
-	j := createdJob(t, "fix-api.md")
-	path := j.receipt.List("tasks")[0].(*run.Object).Str("task_file")
-	write(t, path, "---\nrepo: none\nfrom: previous\n---\n# Fix api\n\n## Done when\n```bash\ntrue\n```\n")
-	l, _, _, err := j.task(path)
-	if l == nil || l.reason == "" {
-		t.Fatalf("preflight did not refuse it: %v", err)
-	}
-	// the stop lands as the refusal's warning is said, past every look make took
-	l.warning = "the base moved"
-	j.out = stopAt{l.dir, l.warning}
-	if err := j.ready(l); !errors.Is(err, ErrStopped) {
-		t.Fatalf("ready said %v", err)
-	}
-	if record, _ := run.Read(l.dir); record == nil || record.Str("state") != "stopped" {
-		t.Fatalf("the run ended %v", record)
+	for _, c := range []struct {
+		from string
+		lost bool
+	}{{"\nfrom: previous", false}, {"\nfrom: previous", true}, {"", true}} {
+		jobHome(t)
+		j := createdJob(t, "fix-api.md")
+		path := j.receipt.List("tasks")[0].(*run.Object).Str("task_file")
+		write(t, path, "---\nrepo: none"+c.from+"\n---\n# Fix api\n\n## Done when\n```bash\ntrue\n```\n")
+		l, _, _, err := j.task(path)
+		if l == nil || (l.reason == "") != (c.from == "") {
+			t.Fatalf("preflight judged %v: %v", l, err)
+		}
+		// the stop lands as the warning is said, past every look make took
+		l.warning = "the base moved"
+		j.out = stopAt{l.dir, l.warning, c.lost}
+		if err := j.ready(l); !errors.Is(err, ErrStopped) {
+			t.Fatalf("ready said %v for %+v", err, c)
+		}
+		if record, _ := run.Read(l.dir); record == nil || record.Str("state") != "stopped" {
+			t.Fatalf("the run ended %v", record)
+		}
 	}
 }
 
-// stopAt stops the run at dir once a line it is told says that.
-type stopAt struct{ dir, that string }
+// stopAt stops the run at dir once a line it is told says that, and then loses its log if told.
+type stopAt struct {
+	dir, that string
+	lose      bool
+}
 
 func (s stopAt) Write(p []byte) (int, error) {
 	if strings.Contains(string(p), s.that) {
 		run.Change(s.dir, func(record *run.Object) error { record.Set("state", "stopped"); return nil })
+		if s.lose {
+			log := filepath.Join(s.dir, "log.txt")
+			os.Remove(log)
+			os.Mkdir(log, 0o700) // a log that is a directory cannot be written
+		}
 	}
 	return len(p), nil
 }
@@ -178,7 +192,7 @@ func jobHome(t *testing.T) string {
 	home, adapters := t.TempDir(), t.TempDir()
 	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "XDG_CACHE_HOME": "", "XDG_RUNTIME_DIR": t.TempDir(),
 		"AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "", "AK_RUN_DEPTH": "", "AK_PARENT_RUN": "", "AK_MAX_RUNS": "0",
-		"AGENTKIT_ADAPTER_DIR": adapters, "PATH": adapters + string(os.PathListSeparator) + os.Getenv("PATH")} {
+		"AGENTKIT_ADAPTER_DIR": adapters, "AGENTKIT_JOB_DIR": "", "PATH": adapters + string(os.PathListSeparator) + os.Getenv("PATH")} {
 		t.Setenv(key, value)
 	}
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), jobConfig)

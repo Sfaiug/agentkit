@@ -2075,18 +2075,36 @@ def tmux_conf():
     everything else a seat wants is a session option, set on the session itself.
 
     `-f` is only read when the tmux command is the one that starts the server, so `start` also
-    loads this file into a server that was already up.  On agentkit's own server that is the
-    whole of it; a key table and the two global options below belong to the server, so on the
-    default server -- where the legacy seats are -- they reach the user's own sessions too.
+    loads this file into a server that was already up, and the tick loads all of it but its
+    `terminal-features` again (`set_hook_options`).  On agentkit's own server that is the
+    whole of it; a key table and the global options belong to the server, so on the default
+    server -- where the legacy seats are -- they reach the user's own sessions too.
+
+    `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
+    wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
+    one attached before this file was loaded gets the rows apart until it attaches again.
+    """
+    config.ensure_dirs()
+    path = config.STATE / "tmux.conf"
+    text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
+            'set -as terminal-features ",*:RGB:hyperlinks:sync"\n' + server_conf())
+    try:
+        if not path.exists() or path.read_text() != text:
+            path.write_text(text)
+    except OSError as exc:
+        raise config.Error(f"cannot write the tmux config {path}: {exc}")
+    return path
+
+
+def server_conf():
+    """The lines of `tmux_conf` that leave a server as they found it however often it loads
+    them: every one but `terminal-features`, which `-a` adds to each time.
 
     `mouse on` is what makes a touch scroll on the phone scroll the session's output instead of
     sending arrow keys into the harness, and 50000 lines of history is what there is to scroll.
     `remain-on-exit` is here as well as on the session itself, because a seat whose harness
     exits in the moment it opens has to survive that too, and the file is read before it runs;
     so is what then brings it back (`hook_options`).
-    `hyperlinks` hands a link a harness prints (OSC 8) on to the owner's terminal, so a login's,
-    wrapped over a popup's rows, is one thing to click; tmux reads it as a terminal attaches, so
-    one attached before this file was loaded gets the rows apart until it attaches again.
 
     The popup is sized for the client that opens it, read when the key is pressed: on a
     phone -- under sixty columns or twenty-five rows -- it takes the whole screen but the
@@ -2108,8 +2126,6 @@ def tmux_conf():
     down -- its menu ending, a crash, a kill, `display-popup -C`, its client going -- and the
     job then puts the pane's style back, when no other client's popup is still up over it.
     """
-    config.ensure_dirs()
-    path = config.STATE / "tmux.conf"
     small, large = f"display-popup -E {POPUP_FULL}", f"display-popup -E {POPUP_SIZE}"
     if tmux_version() >= FLOATS:
         border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
@@ -2123,22 +2139,14 @@ def tmux_conf():
                           f"{large} {border} {handed} -e {terminal.PAD_ENV}={POPUP_PADDING}"))
     else:
         small, large = (f"{popup} {tmux_word(popup_command())}" for popup in (small, large))
-    text = ("# written by `ak orch`; agentkit's own tmux config, never the user's ~/.tmux.conf\n"
-            "set -g mouse on\n"
+    return ("set -g mouse on\n"
             "set -g history-limit 50000\n"
             "set -g remain-on-exit on\n"
             + "".join(f"set -gq {option} {tmux_word(value)}\n"
                       for option, value in hook_options().items()) +
             "set -g allow-passthrough on\n"
-            'set -as terminal-features ",*:RGB:hyperlinks:sync"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
             f"{tmux_word(small)} {tmux_word(large)}\n")
-    try:
-        if not path.exists() or path.read_text() != text:
-            path.write_text(text)
-    except OSError as exc:
-        raise config.Error(f"cannot write the tmux config {path}: {exc}")
-    return path
 
 
 def hook_options():
@@ -2167,10 +2175,11 @@ def hook_options():
 
 
 def set_hook_options():
-    """`hook_options` on ak's own server, which one started before them lacks: those alone,
-    since loading the whole conf again adds its `terminal-features` once more each time.  The
-    default server never gets them (`on_own_server`); a server that is not up gets nothing."""
-    tmux_lists([["set-option", "-gq", option, value] for option, value in hook_options().items()])
+    """`server_conf` on ak's own server, which one started before it last changed lacks: the
+    hooks a seat comes back by, and the `Ctrl-b m` its popup takes the client's name from.  The
+    default server never gets it (`on_own_server`); a server that is not up gets nothing.
+    `source-file` runs each line on its own, so one a tmux refuses leaves the rest set."""
+    tmux_out("source-file", "-", input=server_conf())
 
 
 # Beside a launch's harness in its scope, from just before the harness starts: the harness is
@@ -4371,17 +4380,24 @@ def handover(record, old_model, old_harness, owned):
     return f"## Its conversation on {old_model}\n\n{told}"
 
 
-def _switch_plan(cfg, name, model, providers, effort=None):
+def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
     """(note, account): why the seat cannot move to `model`, or "" and the login to use; given
     `effort`, its own model is judged as another would be, for the move at it.
 
     One computation for the refusal and the launch, so the menu's key path asks each
     login once: installed is read off the filesystem, the seat login off the kept or
-    picked account, the meter off the cache. The same provider keeps its login; another
-    one takes the first of its accounts whose seat login passes, in the seat's order,
-    else the default login to be judged below. No answer withholds nothing, the way a
-    turn goes ahead on an `auth` verb that said nothing.
+    picked account, the meter off the cache. The same provider keeps its login, and a
+    move within it that `in_place` takes in the running harness asks none; another
+    provider takes the first of its accounts whose seat login passes, in the seat's
+    order, else the default login to be judged below. No answer withholds nothing, the
+    way a turn goes ahead on an `auth` verb that said nothing.
     """
+    def provider_of(current):
+        try:
+            return config.model(cfg, current)["provider"]
+        except config.Error:
+            return None
+
     try:
         record = config.load_session(cfg, name, required=False)
     except config.Error as exc:
@@ -4397,12 +4413,22 @@ def _switch_plan(cfg, name, model, providers, effort=None):
         return str(exc), None
     if not config.harness_present(harness):
         return f"{model}: {harness} is not installed", None
-    try:
-        old_provider = config.model(cfg, record["orchestrator"])["provider"]
-    except config.Error:
-        old_provider = None
+    old_provider = provider_of(record["orchestrator"])
     new_provider = config.model(cfg, model)["provider"]
     known, account = None, record.get("account")
+    spent = spent_note(cfg, model, providers)
+    refusal = f"{model} is {spent}" if spent else ""
+    if old_provider is not None and new_provider == old_provider and in_place is not None:
+        said = in_place(refusal)
+        if said is not None:
+            return said, (None if said else account)
+        try:
+            record = config.load_session(cfg, name, required=False)
+        except config.Error as exc:
+            return str(exc), None
+        if record is None:
+            return f"session: {name} has no saved models", None
+        old_provider, account = provider_of(record["orchestrator"]), record.get("account")
     if new_provider != old_provider:
         accounts = config.accounts(cfg, new_provider)
         if accounts:
@@ -4420,9 +4446,8 @@ def _switch_plan(cfg, name, model, providers, effort=None):
     ok, why = known if known is not None else harness_plugin(harness).seat_auth(account)
     if ok is False:
         return f"{model}: {why}", None
-    note = spent_note(cfg, model, providers)
-    if note:
-        return f"{model} is {note}", None
+    if refusal:
+        return refusal, None
     return "", account
 
 
@@ -4478,25 +4503,34 @@ def effort_back(name, model, effort, was):
     config.change_efforts(name, back)
 
 
-def switch_in_place(cfg, name, chosen, effort):
+def switch_in_place(cfg, name, chosen, effort, refusal=""):
     """Move that seat to the record fields `chosen` name -- its orchestrator, and the account
     of another provider -- at `effort` where given, by owing its harness the lines
-    `switch_lines` gives (`watch.owe_line`), a turn its usage cut off told to go on after them:
-    nothing restarts, so nothing is cut or asked.  The record takes the move first, those fields and the effort, put
-    back where it or the lines cannot be written, so a refused move is left to make again; the
-    harness's next answer puts it back where it refused a line (`watch.follow_model`).  What to
-    say under the rows, or ""; None where the seat, as it stands under its lock, must restart
-    for the move."""
+    `switch_lines` gives (`watch.owe_line`), a turn its usage cut off told to go on after them,
+    typed in behind it (`watch.move_behind`): nothing restarts, so nothing is cut or asked.
+    `refusal` refuses an in-place move within the seat's provider without writing.  The record
+    takes the move first, those fields and the effort, put back where it or the lines cannot be
+    written, so a refused move is left to make again; the harness's next answer puts it back
+    where it refused a line (`watch.follow_model`).  What to say under the rows, or ""; None
+    where the seat, as it stands under its lock, must restart for the move."""
     from . import notify, watch   # here, not at the top: both import this module
     model = chosen["orchestrator"]
     try:    # in one hold, so no look follows the old model's last answer back meanwhile
+        name = config.resolve_session(name)
         with notify.session_lock(name), watch.announcing(name):
             lines = switch_lines(cfg, name, model, effort)
             if not lines:
                 return None
+            record = config.session_records()[name]
+            # Without `account` in `chosen`, no login was asked for another provider: a seat
+            # another process moved onto one meanwhile falls back to `_switch_plan`.
+            if ("account" not in chosen and config.model(cfg, record["orchestrator"])["provider"]
+                    != config.model(cfg, model)["provider"]):
+                return None
+            if refusal:
+                return refusal
             if (watch.seat_read(name).get("usage_wait") or {}).get("continue"):
                 lines.append({"line": watch.ACCOUNT_LINE})
-            record = config.session_records()[name]
             try:
                 if effort is not None:
                     config.change_efforts(name, lambda data: config.orchestrating_at(
@@ -4512,7 +4546,7 @@ def switch_in_place(cfg, name, chosen, effort):
             watch.seat_write(name, usage_wait=None)
     except (config.Error, OSError) as exc:
         return f"session: {_one_line(exc)}"
-    watch.tell_owed(name, lambda _: None, cfg)
+    watch.move_behind(name)
     session = find(name)
     if session:
         watch.announce_state(session, cfg=cfg)     # its bar names the new model now
@@ -4567,7 +4601,15 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
                 pass    # the note returned already says the restart failed
 
     providers = usage.collect(cfg) if providers is None else providers
-    note, account = _switch_plan(cfg, name, model, providers, effort)
+    tried = []
+
+    def within_provider(refusal):
+        tried.append(switch_in_place(cfg, name, {"orchestrator": model}, effort, refusal))
+        return tried[0]
+
+    note, account = _switch_plan(cfg, name, model, providers, effort, in_place=within_provider)
+    if tried and tried[0] is not None:
+        return tried[0]
     if note:
         return note
     name = config.resolve_session(name)    # a screen open across a rename has the old name
@@ -4583,9 +4625,10 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     except config.Error:
         moved = True          # its model is gone: no provider to stay home on
     homed = {"account": account, "home_account": account} if moved else {}
-    note = switch_in_place(cfg, name, {"orchestrator": model, **homed}, effort)
-    if note is not None:
-        return note
+    if not tried or moved:
+        note = switch_in_place(cfg, name, {"orchestrator": model, **homed}, effort)
+        if note is not None:
+            return note
     new_harness = config.model(cfg, model)["harness"]
     try:
         old_harness = config.model(cfg, old_model)["harness"]
@@ -4634,7 +4677,7 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     chosen = {"orchestrator": model, "account": account, **homed,
               **({"left": notify.left(record, old_harness, owned)} if owned and not kept else {})}
     # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
-    # of the seat's lock, so no tick hands the text back to the harness going or before that line
+    # of the seat's lock, so nothing hands the text back to the harness going or before that line
     with notify.session_lock(name):
         if pane and not watch.carry_draft(session, old_harness, pane, new_harness, cfg):
             unhanded(handed, before)
@@ -4658,6 +4701,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
                 given_back()
         if line and not failed:
             watch.relaunched(name, new_harness, line, at)
+        if not (kept or failed):    # the old conversation's notice, while the lock is the
+            notify.clear(name)      # switch's: past it the text's return may hold it a while
     if failed:
         try:
             config.update_session(name, **{key: record.get(key) for key in chosen})
@@ -4670,7 +4715,7 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     if not kept:
         if old_harness:
             harness_plugin(old_harness).forget(record)
-        watch.forget(name)    # a new conversation: no latch of the old one's survives it
+        watch.forget(name, acknowledge=False)    # no latch of the old conversation survives it
     return ""
 
 
