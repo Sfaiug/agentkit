@@ -25,7 +25,8 @@ join() {
   # sshd where the system came without it; docker's client has been a package of its own since
   # Debian 13, and Docker's daemon is what makes group docker.
   if ! type -P dockerd docker git jq sshd >/dev/null; then
-    apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy docker.io \
+    apt-get update -q
+    DEBIAN_FRONTEND=noninteractive apt-get install -qy docker.io \
       $(apt-cache show docker-cli >/dev/null 2>&1 && echo docker-cli) git jq \
       $(type -P sshd >/dev/null || echo openssh-server)
   fi
