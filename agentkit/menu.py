@@ -2562,9 +2562,12 @@ def percent_left(meter):
 
 def in_hand(prov):
     """`1 reset in hand`, `2 resets in hand`: the usage-limit resets this subscription holds,
-    for the owner to spend on `c` (config_spend_reset); "" with none, or none known."""
+    for the owner to spend on `c` (config_spend_reset); "" with none, or none known.  Where its
+    reading names their kinds it says them in its order, as Claude Code does: `1 weekly, 3 Fable
+    resets in hand`."""
     held = int(usage._number(prov.get("resets")) or 0)
-    return f"{held} reset{'' if held == 1 else 's'} in hand" if held > 0 else ""
+    kinds = ", ".join(f"{kind['left']:g} {kind['kind']}" for kind in prov.get("reset_kinds") or [])
+    return f"{kinds or held} reset{'' if held == 1 else 's'} in hand" if held > 0 else ""
 
 
 def resets_note(meter, now):

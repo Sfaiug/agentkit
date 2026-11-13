@@ -106,18 +106,34 @@ def _normalized(meter, now):
             "exhausted": False}
 
 
-def _resets(harness, account=None):
-    """Usage-limit resets that account still holds, or None when its adapter cannot say.
+def _resets(harness, account=None, said=None):
+    """The usage-limit resets that account still holds, as a reading keeps them (_reset_counts).
 
-    Only an adapter whose manifest says `[usage] reset` has any: the others answer 0 without
-    being asked, because a count nobody can spend is not an unknown.  It is read beside the
-    meters and cached with them, for the owner to spend by hand; it ranks nothing.
+    Only an adapter whose manifest says `[usage] reset` has any: the others hold 0 without
+    being asked, because a count nobody can spend is not an unknown.  Where its `usage` answer,
+    `said`, counts them they are its, because an endpoint may take one request an ask
+    (Claude's: tests/test_claude_usage_polite.py); elsewhere `reset-status` counts them.  They
+    are read beside the meters and cached with them, for the owner to spend by hand; they rank
+    nothing.
     """
     if not harness_plugin(harness).usage["reset"]:
-        return 0.0
+        return {"resets": 0.0}
+    if _number((said or {}).get("resets")) is not None:
+        return _reset_counts(said["resets"], said.get("reset_kinds"))
     said = _adapter_json(harness, "reset-status", 30, account) or {}
-    available = _number(said.get("available"))
-    return None if available is None else max(0.0, available)
+    return _reset_counts(said.get("available"))
+
+
+def _reset_counts(count, kinds=None):
+    """`resets`, a count of usage-limit resets or None when unknown, and beside a known one
+    `reset_kinds` where the adapter names kinds holding any: what each refills differs by kind,
+    a weekly reset beside Fable ones on one Claude login, each `{"kind", "left", "usable"}`."""
+    count = _number(count)
+    if count is None:
+        return {"resets": None}
+    kinds = [kind for kind in kinds if isinstance(kind, dict) and _text(kind.get("kind"))
+             and (_number(kind.get("left")) or 0) > 0] if isinstance(kinds, list) else []
+    return {"resets": max(0.0, count), **({"reset_kinds": kinds} if kinds else {})}
 
 
 def probe_refused(error):
@@ -176,7 +192,7 @@ def _probe(cfg, provider, now, account=None):
     # company -- it has a fresh ask and no fresh measurement -- which is why `_kept` writes the
     # measurement down.
     out = {"provider": provider, "harness": harness, "via": via, "meters": [],
-           "error": data.get("error"), "pace": None, "resets": _resets(harness, account),
+           "error": data.get("error"), "pace": None, **_resets(harness, account, data),
            "exhausted": False, "probed_at": now}
     credits = "unlimited" if data.get("credits") == "unlimited" else _number(data.get("credits"))
     if credits is not None:
@@ -343,14 +359,14 @@ def _kept(cached, fresh, now):
         return {**fresh, "meters": meters, "fetched_at": _taken(cached), "probed_meters": asked}
     cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
-    keys = ("meters", "fetched_at", "probed_meters", "resets", "credits", "currency", "error",
-            "notes", "none", "none_reason")
+    keys = ("meters", "fetched_at", "probed_meters", "resets", "reset_kinds", "credits",
+            "currency", "error", "notes", "none", "none_reason")
     if cached.get("none") or not cached.get("meters"):
         # No reading to keep, so nothing overwrites the ask's own error: dropping none here
         # is how a meterless row came to say `window reset`, and keeping an old error here
         # is how a 429 came to still say 401.
-        keys = ("meters", "fetched_at", "resets", "credits", "currency", "notes", "none",
-                "none_reason")
+        keys = ("meters", "fetched_at", "resets", "reset_kinds", "credits", "currency", "notes",
+                "none", "none_reason")
     kept = {key: cached[key] for key in keys if key in cached}
     # The ask that follows is this moment's; the measurement is not, so it is written down
     # here rather than inferred from it.
@@ -721,7 +737,7 @@ def _store(cfg, providers, now, fetched_at=None, counted=None):
             record = prov["accounts"][asked] if listed and asked in prov["accounts"] else prov
             if name in (counted or {}) and _number(record.get("resets")) is None:
                 # a count written since -- the one a credit left -- is the later word
-                record["resets"] = counted[name]
+                record.update(counted[name])
             disk[name] = prov
         return _gate_flags({name: disk[name] for name in providers}, now, cfg)
     return _write(change, fetched_at)
@@ -886,8 +902,8 @@ def collect(cfg, *, refresh=False):
                         harness, _ = config.provider_harness(cfg, name)
                     except config.Error:
                         continue      # a provider whose models were all removed: nothing to ask
-                    counted[name] = providers[name]["resets"] = _resets(
-                        harness, providers[name].get("account"))
+                    counted[name] = _resets(harness, providers[name].get("account"))
+                    providers[name].update(counted[name])
                 if rolled or missing:
                     # fetched_at stays put: re-reading one provider must not extend the cache
                     # over the others, which were not re-read
@@ -1024,10 +1040,11 @@ def replenish(cfg, provider, account=None):
     used, until = result.get("weekly_used"), result.get("resets_at")
     week = ([_normalized({**weekly, "used": used, "resets_at": until}, now)]
             if weekly and _number(used) is not None and _number(until) is not None else [])
-    kept = {key: value for key, value in prov.items() if key not in ("accounts", "account")
+    kept = {key: value for key, value in prov.items()
+            if key not in ("accounts", "account", "resets", "reset_kinds")
             and (not week or key not in ("fetched_at", "probed_meters", "probe_error",
                                          "probe_failed_at", "stale_since"))}
-    fresh = _without_past({**kept, "meters": week, "resets": None}
+    fresh = _without_past({**kept, "meters": week}
                           if _cooling(provider, account, _probe_every(cfg, provider))
                           else _probe_gently(cfg, provider, account),
                           now, "the adapter")
@@ -1035,9 +1052,9 @@ def replenish(cfg, provider, account=None):
     left = max(0.0, available - 1 if left is None else left)
     # The re-read counts the resets again, and when it cannot -- the credits list is a second
     # request, free to fail on its own, and inside the cadence there is no re-read -- the count
-    # the spend itself came back with stands.
+    # the spend itself came back with stands, by kind where it names them.
     if _number(fresh.get("resets")) is None:
-        fresh["resets"] = left
+        fresh.update(_reset_counts(left, result.get("reset_kinds")))
     fresh["notes"] = [*(prov.get("notes") or []), f"usage-limit reset applied ({left:.0f} left)"]
     fresh["reset_spent_at"] = spent_at
     # Every mark made before the credit went was a refusal of the week it replaced, one a
