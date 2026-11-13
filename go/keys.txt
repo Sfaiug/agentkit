@@ -475,6 +475,7 @@ test_key_run_clean
 test_key_run_count_cap_and_first
 test_key_run_depth_refused
 test_key_run_duplicates
+test_key_run_kind
 test_key_run_merge_refusals
 test_key_run_no_worktree
 test_key_run_nomerge_pass
