@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import AK, Home
 
 INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor",
-            "move")
+            "move", "standby")
 COLOUR = {"TERM": "xterm", "NO_COLOR": None, "COLORTERM": None}   # eight colours, per terminfo
 
 

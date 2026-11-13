@@ -229,13 +229,20 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
              "Refused if ALIAS is this machine, its home has another path, its crontab holds ak's\n"
              "tick or fails, or one of those kept is a link or under one on either machine.",
              "ak move acme-mini"),
+    "standby": ("usage: ak standby ALIAS",
+                "On a client of ALIAS, copy ak's folder from that home to the same path here, but its\n"
+                "runs and checkouts; refused on any other machine.  It sends what changed, compressed,\n"
+                "and what the home deleted goes here too.  This machine keeps its own record of its\n"
+                "server, ak's tmp folder, ak's repository and its versions.",
+                "ak standby acme-mini"),
 }
 
 
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
 ORCHESTRATOR = ("run", "plan", "notify", "wait", "usage", "models", "browser", "fetch")
-INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move")
+INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move",
+            "standby")
 
 PURPOSES = {
     "run": "execute a task file to a merged PR",
@@ -255,6 +262,7 @@ PURPOSES = {
     "fetch": "copy requested Mac files to this host",
     "macbridge": "macOS only: forward requested files to the server over SSH",
     "move": "copy this home to the same path on another machine",
+    "standby": "copy ak's folder from the server to the same path here",
 }
 
 
