@@ -371,6 +371,7 @@ def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
     `typed` and `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the
     composer is never typed a second time.  A line `watch.too_long` refuses is never typed.
     """
+    seat = config.resolve_session(seat)     # a receipt names the seat as it was launched
     refusal = watch.too_long(line)
     if refusal:
         log(f"WARN {line[:60]}… not handed to {seat}: {refusal}")
@@ -644,18 +645,22 @@ def job_wait_budget(job_dir, job, task, log, lock, error, where, rounds=None):
 JOB_TRANSPORT_WAITS = 5  # paced outage waits before a transport-exhausted task needs its owner
 
 
-def job_wait_login(job_dir, job, task, log, lock, run_state, where):
-    """Whether this attempt parked on an expired login, and if so, wait beside it.
+def job_wait_parked(job_dir, job, task, log, lock, run_state, where):
+    """Whether this attempt parked on an expired login or spent budget, and if so, wait beside it.
 
-    Nothing in a job can log anybody in, and the tick resumes the run itself the moment that
-    harness's `auth` verb passes: the task waits at the picker's own rate, the way it waits
-    for spent budget, rather than spending its one resume and its one rerun on a wall and
-    then calling work nobody faulted a failure.  Every attempt a task makes asks this.
+    Nothing in a job can log anybody in or refill a meter: the task waits at the picker's
+    rate with its run kept, rather than spending its one rerun on a wall and then calling
+    work nobody faulted a failure.  Every attempt a task makes asks this first, so a pending
+    review parked on spent meters waits too -- the rerun the shortfall rule would spend has
+    nothing to bill to.  True also when a transport outage past its cap failed the task.
     """
-    if run_state.get("state") != "waiting_login":
+    error = run_state.get("error") or ""
+    if run_state.get("state") == "waiting_login":
+        error = error or "a harness login expired"
+    elif run_state.get("state") != "exhausted" or not (
+            job_budget_exhausted(run_state) or job_transport_exhausted(error)):
         return False
-    job_wait_budget(job_dir, job, task, log, lock,
-                    run_state.get("error") or "a harness login expired", where,
+    job_wait_budget(job_dir, job, task, log, lock, error or "no reason was recorded", where,
                     rounds=len(run_state.get("round_summaries") or []))
     return True
 
@@ -882,32 +887,24 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         # so its dependants wait instead of skipping.
         log(f"{task['name']}: parked waiting ({run_state.get('error')}); following it")
     run_state = job_follow_waiting(run_dir, run_state, log)
-    if job_wait_login(job_dir, job, task, log, lock, run_state, "mid-run"):
+    if job_wait_parked(job_dir, job, task, log, lock, run_state, "mid-run"):
         return
     if run_state.get("state") == "stopped":
         # Deliberately ended: no resume, no rerun, no budget wait. The task keeps
         # the run's word.
         job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock)
         return
-    if run_state.get("state") == "exhausted":
+    if run_state.get("state") == "exhausted" and not job_round_shortfall(run_state):
+        # a stopped tool or a structural complaint: no resume can fix it, the owner
+        # is needed
         error = run_state.get("error") or "no reason was recorded"
-        if job_budget_exhausted(run_state) or job_transport_exhausted(error):
-            # the message decides first: a pending review parked on spent meters waits
-            # for budget even with `review_pending` still set -- the resume the shortfall
-            # rule would spend has nothing to bill to
-            job_wait_budget(job_dir, job, task, log, lock, error, "mid-run",
-                            rounds=len(run_state.get("round_summaries") or []))
-            return
-        if not job_round_shortfall(run_state):
-            # a stopped tool or a structural complaint: no resume can fix it, the owner
-            # is needed
-            task.update(state="failed", finished_at=time.time(),
-                        verdict_line=f"{task['name']}: FAIL: needs you ({error[:300]})",
-                        findings=error)
-            with lock:
-                save_job(job_dir, job)
-            log(task["verdict_line"])
-            return
+        task.update(state="failed", finished_at=time.time(),
+                    verdict_line=f"{task['name']}: FAIL: needs you ({error[:300]})",
+                    findings=error)
+        with lock:
+            save_job(job_dir, job)
+        log(task["verdict_line"])
+        return
     outcome = job_classify(run_state, cfg)
     if outcome in ("merged", "passed", "skipped"):
         job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock)
@@ -939,7 +936,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         task["executor"] = run_state.get("executor") or task.get("executor")
         task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
         log(job_exit_line(task, run_dir, run_state, mrc))
-        if job_wait_login(job_dir, job, task, log, lock, run_state, "on delivery"):
+        if job_wait_parked(job_dir, job, task, log, lock, run_state, "on delivery"):
             return
         if job_classify(run_state, cfg) in ("merged", "passed"):
             job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock)
@@ -1020,15 +1017,8 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             task["executor"] = run_state2.get("executor") or nxt
             task["reviewer"] = run_state2.get("reviewer") or task.get("reviewer")
             log(job_exit_line(task, run_dir2, run_state2, box.get("rc", 1)))
-            if job_wait_login(job_dir, job, task, log, lock, run_state2, "on rerun"):
+            if job_wait_parked(job_dir, job, task, log, lock, run_state2, "on rerun"):
                 return
-            if run_state2.get("state") == "exhausted" \
-                    and not job_round_shortfall(run_state2):
-                error2 = run_state2.get("error") or "no reason was recorded"
-                if job_budget_exhausted(run_state2) or job_transport_exhausted(error2):
-                    job_wait_budget(job_dir, job, task, log, lock, error2, "on rerun",
-                                    rounds=len(run_state2.get("round_summaries") or []))
-                    return
             if job_classify(run_state2, cfg) in ("merged", "passed"):
                 job_settle(cfg, job_dir, job, task, run_dir2, run_state2, log, lock)
                 return
