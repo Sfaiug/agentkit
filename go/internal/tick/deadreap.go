@@ -9,11 +9,13 @@ import (
 )
 
 // reapable is whether Python's reap of that live record is one Go carries: a running loop that is
-// gone, with no unit to ask whether its memory cap ended it, or to stop, and no worktree for the
-// dead loops row to continue into, so its death is the seat's news, which the endings row offers
-// (handback.notify_recovery).
+// gone, with no unit to ask whether its memory cap ended it, or to stop, no worktree for the dead
+// loops row to continue into, so its death is the seat's news, which the endings row offers
+// (handback.notify_recovery), and no wait, whose landing line Python's save of its ending times
+// into history.db and wakes.
 func reapable(record *run.Object, now float64) bool {
-	return record.Str("state") == "running" && !run.GoesOn(record, now) && !scoped(record) && !directory(record.Str("worktree"))
+	return record.Str("state") == "running" && !run.GoesOn(record, now) && !scoped(record) && !directory(record.Str("worktree")) &&
+		record.Get("waiting_on") == nil && !run.Lined(record)
 }
 
 // interrupted is the record as that reap leaves it (transitions.interrupt).
