@@ -13,7 +13,7 @@ import (
 )
 
 // SyncTitle is watch.sync_title as the tick's health row makes it before its look, where Go
-// carries it: a seat up on ak's own server, its pane bound, of a harness Go types a title into
+// carries it: a seat up on ak's own server, its pane bound and selected, of a harness Go types a title into
 // (harness.TitleLine), with no send of a title on its record, and no title of the owner's on its
 // conversation for the seat to follow (watch.follow_title).  A title its conversation already
 // gives it is recorded; else the line naming it goes in at its quiet prompt, its try recorded the
@@ -26,13 +26,19 @@ func SyncTitle(name string, log func(string)) error {
 	if line == "" || !Watching(name) {
 		return nil
 	}
-	if pane, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{"+tmux.HarnessPane+"}"); err != nil || pane == "" {
+	pane, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{"+tmux.HarnessPane+"}")
+	if err != nil || pane == "" {
 		return nil // watch.bind_pane's first
+	}
+	// sync_title types at the session's selected pane: Go types only where that is the harness's
+	// own, and into that pane alone, so a pane the owner selects meanwhile is never renamed
+	if selected, _, _, found := linePane(name, ""); !found || selected != pane {
+		return nil
 	}
 	named := []field{{"session_title", name}, {"title_sync", nil}}
 	var conversation any
 	send := false
-	err := titleHeld(name, own, func(record *run.Object, title any) []field {
+	err = titleHeld(name, own, func(record *run.Object, title any) []field {
 		conversation = record.Get("conversation")
 		switch {
 		case record.Has("title_conversation") && !run.Equal(record.Get("title_conversation"), conversation), record.Get("title_sync") != nil,
@@ -68,7 +74,7 @@ func SyncTitle(name string, log func(string)) error {
 	}
 	// each Enter only while this try is still the seat's and its line alone is in the composer,
 	// as sync_title's veto holds back its retry
-	if !typeAtPrompt(name, line, nil, typed, log, stale) {
+	if !typeAtPane(name, pane, line, nil, typed, log, stale, true) {
 		return nil
 	}
 	return titleHeld(name, own, func(record *run.Object, title any) []field {
