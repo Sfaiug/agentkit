@@ -369,11 +369,13 @@ reset)
   # Spend one usage-limit reset of the kind named, as Claude Code 2.1.322 spends one: the first
   # grant of that kind the status lists that can be spent now, claimed once, under a fresh
   # request id, for the login's own organization.  Only `reset` spent one; any other result is
-  # the endpoint's word for why not, and with no such grant nothing is asked.
+  # the endpoint's word for why not, and with no such grant nothing is asked.  No kind named
+  # is no such grant, known before the status is even read.
+  [ -n "${1:-}" ] || { echo '{"code":"unavailable"}'; exit 0; }
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   login; status
   [ "$code" = 200 ] || err "HTTP ${code:-000} from api.anthropic.com/api/oauth/usage"
-  grant=$(jq -r --arg kind "${1:-}" "$READ"' first(grants[] | select(.kind == $kind
+  grant=$(jq -r --arg kind "$1" "$READ"' first(grants[] | select(.kind == $kind
       and .usable_now == true)) | .id | strings' <<<"$body" 2>/dev/null)
   [ -n "$grant" ] || { echo '{"code":"unavailable"}'; exit 0; }
   left=$(jq "$READ"' held - 1' <<<"$body" 2>/dev/null)
