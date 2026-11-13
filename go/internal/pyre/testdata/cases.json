@@ -55,6 +55,7 @@
   "claude-stall-pane.txt",
   "claude-stop-hooks-running-pane.txt",
   "claude-suggestion-pane.txt",
+  "claude-switch-model-card-pane.txt",
   "claude-tall-draft-lines-pane.txt",
   "claude-tall-draft-rows-pane.txt",
   "claude-ten-row-draft-pane.txt",
@@ -1873,6 +1874,15 @@
      "groups": {}
     },
     {
+     "fixture": "claude-switch-model-card-pane.txt",
+     "row": 18,
+     "span": [
+      0,
+      30
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "claude-tray-idle-pane.txt",
      "row": 42,
      "span": [
@@ -2675,6 +2685,15 @@
      "span": [
       82,
       98
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-switch-model-card-pane.txt",
+     "row": 16,
+     "span": [
+      0,
+      4
      ],
      "groups": {}
     },
@@ -15591,6 +15610,15 @@
      "span": [
       58,
       84
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-switch-model-card-pane.txt",
+     "row": 18,
+     "span": [
+      13,
+      30
      ],
      "groups": {}
     },

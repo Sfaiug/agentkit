@@ -71,11 +71,13 @@ class GoKeysPieces(unittest.TestCase):
         (self.root / "go/keys.txt").write_text("".join(f"{claim}\n" for claim in claims))
         for key in list(SECONDS)[:count]:
             (self.root / "tests" / f"{key}.py").write_text(KEY)
-        output, shares = self.sandbox / "suite.log", []
+        output, shares, record = self.sandbox / "suite.log", [], self.sandbox / "times"
+        record.write_text(times)
         for share in ("1/3", "2/3", "3/3"):
             ran = self.sandbox / f"ran-{share[0]}.log"
             with output.open("a") as out:
-                done = self.every_file(out, AK_SHARD=share, AK_TIMES=times, ACME_LOG=str(ran))
+                done = self.every_file(out, AK_SHARD=share, AK_TIMES=str(record),
+                                       ACME_LOG=str(ran))
             self.assertEqual(done.returncode, 0, output.read_text())
             pieces = {}
             for tree, key, *parts in map(str.split, ran.read_text().splitlines()

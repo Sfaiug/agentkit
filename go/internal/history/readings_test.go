@@ -16,7 +16,7 @@ func TestReadingsGoInBesideAnOwedRepair(t *testing.T) {
 	Start(record(t, `{"run_id": "20261105-1200-fix-api", "state": "queued"}`), nil)
 	write(t, "PRAGMA user_version=1")
 	put(t, filepath.Join(run.Runs(), "20261105-1200-fix-api", "round-1", "executor-opus", "events.jsonl"), "")
-	KeepReadings([][]any{{"anthropic", "default", "weekly_all", 30.0, nil, 604800.0, now(), "probe", nil}})
+	KeepReadings([][]any{{"anthropic", "default", "weekly_all", 30.0, nil, 604800.0, now(), "probe", nil, nil}})
 	if commit(func(*DB) error { return nil }) == nil {
 		t.Fatal("a write that may touch tokens went in before the repair")
 	}

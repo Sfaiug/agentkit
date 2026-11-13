@@ -100,21 +100,11 @@ func opencodeAnswered(record map[string]any) (said []Turn, cards []Card, err err
 		return nil, nil, err
 	}
 	for _, row := range rows {
-		if row.user {
-			if text, _ := row.data.Get("text").(string); text != "" {
-				said = append(said, Turn{"user", text})
-			}
-			continue
+		if turn, shown := row.turn(); shown {
+			said = append(said, turn)
 		}
-		var texts []string
 		for _, part := range row.parts {
-			if text, isText := part.Get("text").(string); isText && part.Get("type") == "text" {
-				texts = append(texts, text)
-			}
 			cards = append(cards, opencodeCards(part)...)
-		}
-		if text := strings.Join(texts, "\n"); text != "" {
-			said = append(said, Turn{"model", text})
 		}
 	}
 	return said, cards, nil

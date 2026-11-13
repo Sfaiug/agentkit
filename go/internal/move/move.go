@@ -14,14 +14,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"syscall"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
-	"agentkit/internal/task"
+	"agentkit/internal/install"
 )
 
 const (
@@ -37,9 +36,6 @@ var (
 	// file is a link by nature, so its folder is asked instead.
 	kept  = []string{tmp, keys, profile + "/SingletonLock", profile + "/SingletonSocket", profile + "/SingletonCookie"}
 	asked = []string{tmp, keys, profile}
-	// install.sh's own match for its tick's line, so what the tick looks like has one home
-	cronMatch = regexp.MustCompile(`(?m)^CRON_MATCH='(.*)'$`)
-	repo      = config.Repo
 )
 
 // Main is a refusal's 1, a usage or failure's 2, a Ctrl-C's 130, else what rsync says.
@@ -110,14 +106,6 @@ func refusals(ctx context.Context, alias, home string, errOut io.Writer) ([]stri
 	if len(refused) > 0 {
 		return refused, nil
 	}
-	install, err := os.ReadFile(filepath.Join(repo(), "install.sh"))
-	if err != nil {
-		return nil, err
-	}
-	tick := cronMatch.FindStringSubmatch(task.Text(install))
-	if tick == nil {
-		return nil, errors.New("install.sh holds no CRON_MATCH")
-	}
 	// a name only this run has made, gone before the copy: a machine whose home holds it shares
 	// this home
 	token, err := os.CreateTemp(home, ".ak-move-*")
@@ -130,7 +118,7 @@ func refusals(ctx context.Context, alias, home string, errOut io.Writer) ([]stri
 [ ! -e `+commandhelp.ShellJoin([]string{filepath.Base(token.Name())})+` ] || echo here
 if command -v crontab >/dev/null; then
   tab=$(crontab -l) || echo tick
-  ! printf '%s\n' "$tab" | grep -qE `+commandhelp.ShellJoin(tick[1:])+` || echo tick
+  ! printf '%s\n' "$tab" | grep -qE `+commandhelp.ShellJoin([]string{install.CronTagged.String()})+` || echo tick
 fi`, errOut)
 	if err != nil {
 		return nil, err

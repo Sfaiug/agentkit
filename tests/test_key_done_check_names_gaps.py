@@ -5,10 +5,11 @@ with none and 2 where it could not check.
 The model is given the owner's messages, the seat's plan and each run the seat launched, and
 names a gap as a finding handed in with `--quote`.  One whose quote is not word for word in a
 message of the owner's is no gap, whatever the model wrote in its workspace: ak decides that.
-The model is the one `[done_check] model` names, else a reviewer the seat marks.  Black-box:
-the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a Claude seat
-of tests/fixtures/akseat.py whose transcript the test writes, with fake harnesses of
-fakeadapter.py for the model.
+The model is the one `[done_check] model` names, else a reviewer the seat marks, and its turn
+runs on the account a run's turn on its provider would take.  Black-box: the program `AK_BIN`
+names runs from outside through tests/fixtures/akbin.py, on a Claude seat of
+tests/fixtures/akseat.py whose transcript the test writes, with fake harnesses of fakeadapter.py
+for the model.
 """
 
 import json
@@ -53,10 +54,10 @@ class DoneCheck(unittest.TestCase):
                                        "verdict": "PASS", "merged": True, "pr": PR})
         self.task = home.write(f"{run}/task.md", f"# {TITLE}\n\n## Goal\n{FIRST}\n")
 
-    def check(self, *quotes, model=None):
+    def check(self, *quotes, model=None, providers=None):
         """`ak orch check acme`, the model's turn naming a gap for each of `quotes` at whichever
         file of its workspace holds those words (MADE_UP it writes there itself), then done."""
-        akconfig.write(self.home, ["opus", "astra"],
+        akconfig.write(self.home, ["opus", "astra"], providers=providers,
                        extra=f'[done_check]\nmodel = "{model}"' if model else "")
         # what the model was given: its prompt, beside its hand-in file, and its workspace
         sh = [f'cat "$(dirname "$AK_HAND_IN")/prompt.md" > {shlex.quote(str(self.seen))}',
@@ -95,6 +96,13 @@ class DoneCheck(unittest.TestCase):
         self.assertEqual(done.code, 1, done.out + done.err)
         self.assertIn(SECOND, done.out)
         self.assertEqual(self.took(), {"claude": 1})
+
+    def test_the_turn_runs_on_the_account_a_run_s_turn_would_take(self):
+        done = self.check(SECOND, model="opus", providers={
+            "anthropic": {"mode": "subscription", "accounts": ["second"]}})
+        self.assertEqual(done.code, 1, done.out + done.err)
+        self.assertEqual([run["env"].get("AGENTKIT_ACCOUNT")
+                          for run in self.fakes["claude"].runs()], ["second"])
 
     def test_a_turn_that_never_closes_could_not_check_and_exits_2(self):
         akconfig.write(self.home, ["opus", "astra"])

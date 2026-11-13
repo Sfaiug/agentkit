@@ -34,11 +34,6 @@ func noDeadLoops() bool {
 // in one, which Go does not read yet.
 func unseated() bool { return os.Getenv("AGENTKIT_SESSION") == "" }
 
-// A dry tick hands over wherever a run waits on the tick's resume, which Python's says it would make.
-func noExhaustedResume() bool {
-	return run.Every(func(_ string, record *run.Object) bool { return run.ExhaustedWait(record) == "" })
-}
-
 func directory(path string) bool {
 	info, err := os.Stat(path)
 	return path != "" && err == nil && info.IsDir()

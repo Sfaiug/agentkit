@@ -5,9 +5,12 @@ composer holds, one composer for any pane ak names.  Whether it hears the keys (
 it drops a key written alone, as OpenCode opening a new session does (`opening`), the seat's
 launch, the panes of its session and the one selected (PANE until a test selects another), each
 pane running its own process, unread input and when its terminal last took keys are the test's
-to set."""
+to set.  What ak starts in a process of its own to give text a switch carried back
+(`watch.start_carried_back`) runs on a thread of the test's, on these fakes, which `settle`
+waits for."""
 
 import os
+import threading
 from unittest.mock import patch
 
 from fixtures.seats import NOW, PANE, REPO, Seats
@@ -21,7 +24,7 @@ class EditorSeat(Seats):
         self.opened = []        # the owner's own editor, opened where ak asked nothing
         self.deaf, self.opening, self.held = False, False, ()
         self.launched, self.tty, self.panes, self.selected = True, self.root / "tty", [PANE], PANE
-        self.unread = False
+        self.unread, self.behind = False, []
         self.tty.write_text("")
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
                                    (aside_editor, "_tmux", lambda *args, data=None:
@@ -29,11 +32,23 @@ class EditorSeat(Seats):
                                    (aside_editor.os, "execvp",
                                     lambda *argv: self.opened.append(argv)),
                                    (watch, "pane_text", self.read),
+                                   (watch, "start_carried_back", self.carried_back),
                                    (watch, "pane_unread", lambda _session: self.unread)):
             patcher = patch.object(target, name, side_effect=fake)
             patcher.start()
             self.addCleanup(patcher.stop)
+        self.addCleanup(self.settle)
         self.show("")
+
+    def carried_back(self, name):
+        thread = threading.Thread(target=watch.carried_back, args=(name,), daemon=True)
+        thread.start()
+        self.behind.append(thread)
+
+    def settle(self):
+        """What ak started behind, ended."""
+        for thread in self.behind:
+            thread.join(10)
 
     def on_muse(self):
         """The seat on Muse, its empty composer drawn as Muse's faint placeholder."""

@@ -65,7 +65,7 @@ def until_true(test, bound=120):
 
 def running(home, command):
     """Whether one of the Home's processes runs `command`, as a check runs: `bash -c`."""
-    for pid in _strays(home.path):
+    for pid in _strays(home.root, home.tmux_dir):
         try:
             if command.encode() in Path(f"/proc/{pid}/cmdline").read_bytes():
                 return True
@@ -147,7 +147,7 @@ class ResumeAfterPassedReview(unittest.TestCase):
         cls.landing = record(cls.run_dir)
         # cut off as a restart cuts a run off: every process the Home runs ends at once, one
         # that ended since the scan found it and one started before its parent was killed too
-        while strays := _strays(home.path):
+        while strays := _strays(home.root, home.tmux_dir):
             for pid in strays:
                 try:
                     os.kill(pid, signal.SIGKILL)

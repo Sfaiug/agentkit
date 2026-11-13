@@ -172,9 +172,10 @@ class OutOfUsageOnScreen(unittest.TestCase):
         [row] = [line for line in lines if "acme-api" in line]
         self.assertRegex(row, r"○ out of usage +back \d\d:\d\d")
         screen.send(b"j")      # the highlight on its row opens its lines
-        lines = screen.frame(lambda lines: any("⚒◎" in line for line in lines))
-        at = next(n for n, line in enumerate(lines) if "⚒◎" in line)
-        self.assertRegex(lines[at], r"^ +Opus \S+ \S+ ⚒◎$")     # its line, the crew alone
+        lines = screen.frame(lambda lines: any("orchestrates" in line for line in lines))
+        at = next(n for n, line in enumerate(lines) if "orchestrates" in line)
+        # its line, the crew alone
+        self.assertRegex(lines[at], r"^ +Opus \S+ \S+ orchestrates, builds, reviews$")
         self.assertEqual(lines[at + 1], "")     # and nothing to choose under it
         screen.leave()
 

@@ -55,12 +55,17 @@ func TestGoLiveHandsANewLiveScriptToPythonBeforeMoving(t *testing.T) {
 	if !LiveReady(checkout) {
 		t.Fatal("handed over before the fetch found the live script")
 	}
+	// a hold said on an earlier tick is Python's to clear as it starts the check
+	heard := filepath.Join(home, ".agentkit", "state", "live-check-held")
+	if err := os.WriteFile(heard, []byte("tests/live.sh waits: gamma's login lapses at 2026-11-13 12:00, before it could end"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var said []string
 	if err := GoLive(checkout, func(line string) { said = append(said, line) }); !errors.Is(err, ErrPython) {
 		t.Fatalf("live script gave %v", err)
 	}
-	if git(checkout, "rev-parse", "HEAD") != before || len(said) > 0 || exists(filepath.Join(home, ".agentkit", "state", "agentkit-install-pending")) {
-		t.Fatal("the handover moved or installed the unchecked commit")
+	if git(checkout, "rev-parse", "HEAD") != before || len(said) > 0 || exists(filepath.Join(home, ".agentkit", "state", "agentkit-install-pending")) || !exists(heard) {
+		t.Fatal("the handover moved or installed the unchecked commit, or cleared the hold Python clears")
 	}
 	check := filepath.Join(home, ".agentkit", "state", "live-checks", "acme-1")
 	if err := os.MkdirAll(check, 0o700); err != nil {

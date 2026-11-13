@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,7 +14,8 @@ import (
 )
 
 // What the row does before any pick: a run a later merge replaced is settled, one resumed lately
-// waits, and one whose worktree is gone is said once; a run waiting on a reviewer is Python's.
+// waits, and one whose worktree is gone is said once; a run waiting on a reviewer is Python's.  A
+// dry tick writes none of it, and says the gone worktree each time.
 func TestTheExhaustedRowSettlesWaitsAndWarnsBeforeAnyPick(t *testing.T) {
 	now, worktree := time.Unix(1_800_000_000, 0), t.TempDir()
 	window := func(more ...any) *run.Object {
@@ -24,7 +26,7 @@ func TestTheExhaustedRowSettlesWaitsAndWarnsBeforeAnyPick(t *testing.T) {
 	for name, each := range map[string]struct {
 		record, merged, want *run.Object
 		said                 string
-		left                 bool
+		left, dry            bool
 	}{
 		"replaced by a later merge": {record: window(), merged: run.Fields("run_id", "s", "state", "pass", "merged", true, "title", "Fix api", "finished_at", 6),
 			want: window("replaced", true)},
@@ -32,6 +34,10 @@ func TestTheExhaustedRowSettlesWaitsAndWarnsBeforeAnyPick(t *testing.T) {
 		"its worktree gone": {record: window("worktree", "/nonexistent/wt"), want: window("worktree", "/nonexistent/wt", "exhausted_resume_at", epoch(now)),
 			said: "WARN r is exhausted but its worktree /nonexistent/wt is gone; leaving it for an explicit resume\n"},
 		"waiting on a reviewer": {record: reviewer, want: reviewer, left: true},
+		"replaced, on a dry tick": {record: window(), merged: run.Fields("run_id", "s", "state", "pass", "merged", true, "title", "Fix api", "finished_at", 6),
+			want: window(), dry: true},
+		"its worktree gone, on a dry tick": {record: window("worktree", "/nonexistent/wt"), want: window("worktree", "/nonexistent/wt"), dry: true,
+			said: strings.Repeat("would leave r alone: worktree /nonexistent/wt is gone\n", 2)},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
@@ -43,8 +49,8 @@ func TestTheExhaustedRowSettlesWaitsAndWarnsBeforeAnyPick(t *testing.T) {
 				put(t, filepath.Join(runs, "s", "run.json"), run.Line(each.merged))
 			}
 			var out bytes.Buffer
-			tick := &ticking{clock: func() time.Time { return now }, log: newLog(&out, io.Discard)}
-			for range 2 { // a second tick finds nothing more to do or say
+			tick := &ticking{clock: func() time.Time { return now }, log: newLog(&out, io.Discard), dry: each.dry}
+			for range 2 { // a second tick finds nothing more to do, or to say unless dry
 				if err := tick.exhaustedResume(); (err == errLeft) != each.left {
 					t.Fatalf("left %v", err)
 				}

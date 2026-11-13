@@ -50,11 +50,11 @@ func table(t *ticking) []pass {
 		{"stall recovery", true, configured, t.stallRecovery},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
-		// a dry tick's reading is the snapshot as it stands, which no row Go carries reads
+		// a dry tick's reading is the snapshot as it stands, which its exhausted resume picks on
 		{"usage refresh", true, configured, t.wet(refreshUsage)},
 		{"login reminder", false, nil, t.remindLogins},
 		{"token reminder", false, nil, t.remindTokens},
-		{"exhausted resume", true, all(configured, unseated, t.dryly(noExhaustedResume)), t.wet(t.exhaustedResume)},
+		{"exhausted resume", true, all(configured, unseated), t.exhaustedResume},
 		{"error retry", true, t.dryly(noErrorRetry), t.wet(t.errorRetry)},
 		{"waiting resume", true, nil, t.waiting},
 		{"old endings", false, nil, func() error {

@@ -22,7 +22,8 @@ const resumeEvery = 600
 // goes on by Go's own resume once the pick a resume makes finds a pair with room, handed to
 // another executor where its own has none, its order written with the resume taking the run up; a
 // run a later merged run replaced is settled, marked `replaced`, and never resumed.  A run waiting
-// on a reviewer, or on a refusal's short retry, is Python's.
+// on a reviewer, or on a refusal's short retry, is Python's.  A dry tick writes and starts
+// nothing, and says the resume it would start.
 func (t *ticking) exhaustedResume() error {
 	var waiting []errored
 	var records []*run.Object
@@ -54,20 +55,27 @@ func (t *ticking) resumeExhausted(each errored, index run.Index, now time.Time) 
 	case run.ExhaustedWait(record) != "window" || record.Has("refusal_retry"):
 		return errLeft
 	case index.MergedOver(record):
+		if t.dry {
+			return nil
+		}
 		// a later merged run did the work: the wait nothing will lift ends here
 		return t.changeExhausted(id, each, func(current *run.Object) { current.Set("replaced", true) })
 	case stamped && 0 <= at-last && at-last < resumeEvery:
 		return nil
 	case !directory(record.Str("worktree")):
+		worktree := cmp.Or(record.Str("worktree"), "(none)")
+		if t.dry {
+			t.log.line(fmt.Sprintf("would leave %s alone: worktree %s is gone", id, worktree))
+			return nil
+		}
 		if record.Get("exhausted_resume_at") != nil {
 			return nil
 		}
 		// once for the life of the missing worktree: the stamp keeps later ticks silent
-		t.log.line(fmt.Sprintf("WARN %s is exhausted but its worktree %s is gone; leaving it for an explicit resume",
-			id, cmp.Or(record.Str("worktree"), "(none)")))
+		t.log.line(fmt.Sprintf("WARN %s is exhausted but its worktree %s is gone; leaving it for an explicit resume", id, worktree))
 		return t.changeExhausted(id, each, func(current *run.Object) { current.Set("exhausted_resume_at", at) })
 	}
-	executor, reviewer, dry, ok := loop.ResumeModels(record)
+	executor, reviewer, dry, ok := loop.ResumeModels(record, t.dry)
 	if !ok {
 		return errLeft
 	}
@@ -77,6 +85,10 @@ func (t *ticking) resumeExhausted(each errored, index run.Index, now time.Time) 
 	model, err := config.ModelNamed(executor)
 	if err != nil {
 		return errLeft
+	}
+	if t.dry {
+		t.log.line(fmt.Sprintf("would resume %s: %s window refilled", id, model.Provider))
+		return nil
 	}
 	order := resumeOrder(executor, reviewer, at)
 	code, said, err := launch.ResumeExpected(id, record, order, nil)

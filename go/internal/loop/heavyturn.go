@@ -80,16 +80,18 @@ func (l *loop) placed(cwd, cmd string, selection *checkSelection, path string) (
 	return at, err
 }
 
-// again is whether cmd, which ended so on the placement's turn, answered that the turn is busy
+// again is whether heavy cmd, which ended so on the placement, answered that the turn is busy
 // (host.SuiteBusy): its own host-wide lock is another copy's, so it never ran, and runs again.  As
-// Python's busy_turn, it first gives its turn back for a poll, which every other suite may use
-// meanwhile and which counts toward the ceiling, so a command that only ever says busy still ends,
-// then waits for one as a new waiter (turnHere).
+// Python's busy_turn, it first waits a poll, which counts toward the ceiling, so a command that only
+// ever says busy still ends.  One on a turn gives it back for the poll, which every other suite may
+// use meanwhile, then waits for one as a new waiter (turnHere); one on none, as tests named alone,
+// takes none.
 func (l *loop) again(on *placement, cmd string, ended ran, deadline *time.Time) (bool, error) {
-	if !on.holds() || ended.code != host.SuiteBusy || ended.stopped != "" {
+	if on == nil || ended.code != host.SuiteBusy || ended.stopped != "" {
 		return false, nil
 	}
-	if !on.busied {
+	held := on.holds()
+	if held && !on.busied {
 		on.busied = true
 		l.say(fmt.Sprintf("done-when: busy: %s exited %d; it runs again each poll, its heavy suite turn given back meanwhile", cmd, host.SuiteBusy))
 	}
@@ -100,8 +102,8 @@ func (l *loop) again(on *placement, cmd string, ended ran, deadline *time.Time) 
 		return false, context.Cause(l.ctx)
 	case <-time.After(turn.Poll):
 	}
-	if _, err := l.stillWaits(); err != nil {
-		return false, err
+	if _, err := l.stillWaits(); err != nil || !held {
+		return err == nil, err
 	}
 	err := l.turnHere(on, deadline)
 	return err == nil, err

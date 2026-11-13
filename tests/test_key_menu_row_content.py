@@ -21,7 +21,7 @@ from fixtures.akterm import Terminal
 
 SIZE = (100, 30)
 OPENS = 60      # the first draw looks at every seat, which a loaded host makes slow
-CREW = "     Fable 5.1 xhigh ⚒◎"     # the line under a row, at the name's column
+CREW = "     Fable 5.1 xhigh orchestrates, builds, reviews"     # under a row, at its name
 BAR = re.compile(r" (?P<full>━*)(?P<half>╸?)(?P<rest>─*) (?P<done>\d+) of (?P<total>\d+)$")
 
 

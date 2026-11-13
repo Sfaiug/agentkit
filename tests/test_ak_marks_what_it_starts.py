@@ -133,6 +133,7 @@ class AkMarksWhatItStarts(Sandbox):
             "menu.update_first": menu.update_first,
             "menu.stop_behind": lambda: menu.stop_behind("acme", True),
             "watch.start_look": lambda: watch.start_look("acme"),
+            "watch.start_carried_back": lambda: watch.start_carried_back("acme"),
             "orch.stop_scope": lambda: orch.stop_scope("agentkit-run-fix-api", wait=False),
         }
         with patch.object(subprocess, "Popen", popen), \

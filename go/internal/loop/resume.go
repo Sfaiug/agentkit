@@ -133,7 +133,7 @@ func point(dir string, record *run.Object) bool {
 // cannot run and a reviewer no longer eligible are for Python's to hand over, and so is a saved
 // self-review where a pair that is none is ready.
 func pairReady(dir string, record *run.Object) bool {
-	rules, room, ok := picking(record)
+	rules, room, ok := picking(record, false)
 	return ok && asIs(dir, record, rules, room)
 }
 

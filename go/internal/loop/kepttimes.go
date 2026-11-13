@@ -2,6 +2,7 @@ package loop
 
 import (
 	"bufio"
+	"io"
 	"os"
 	"regexp"
 	"strconv"
@@ -19,15 +20,21 @@ const lineRead = 4096
 
 // keepTimes keeps the seconds the check whose whole output is the file at log printed for each
 // test in the record of cwd, the checkout it ran on, as Python's suite_times.keep does once the
-// check ends: only a line read whole, from its start, is one a piece printed.
+// check ends.
 func keepTimes(cwd, log string) {
+	suitetimes.Keep(cwd, measured(log, 0))
+}
+
+// measured is the seconds the output in the file at log from offset printed for each test,
+// Python's suite_times.measured: only a line read whole, from its start, is one a piece printed.
+func measured(log string, offset int64) map[string]float64 {
+	found := map[string]float64{}
 	file, err := os.Open(log)
 	if err != nil {
-		return
+		return found
 	}
 	defer file.Close()
-	found := map[string]float64{}
-	lines := bufio.NewReaderSize(file, lineRead)
+	lines := bufio.NewReaderSize(io.NewSectionReader(file, offset, 1<<62), lineRead)
 	for start := true; ; {
 		part, err := lines.ReadSlice('\n')
 		if len(part) == 0 {
@@ -44,5 +51,5 @@ func keepTimes(cwd, log string) {
 			break
 		}
 	}
-	suitetimes.Keep(cwd, found)
+	return found
 }

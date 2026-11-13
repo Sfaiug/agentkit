@@ -49,11 +49,13 @@ func collect(sources []source, models map[string]config.Model, refresh bool) (*r
 				}
 			}
 		}
-		var err error
 		if stored {
-			providers, err = store(sources, providers, models, now, nil, counted)
+			var err error
+			if providers, err = store(sources, providers, models, now, nil, counted); err != nil {
+				return nil, err
+			}
 		}
-		return gateFlags(providers, now, models), err
+		return gateFlags(providers, now, models), nil
 	}
 	providers := run.NewObject()
 	for _, src := range sources {
@@ -62,7 +64,10 @@ func collect(sources []source, models map[string]config.Model, refresh bool) (*r
 		}
 	}
 	providers, err := store(sources, providers, models, now, &now, nil)
-	return gateFlags(providers, now, models), err
+	if err != nil {
+		return nil, err
+	}
+	return gateFlags(providers, now, models), nil
 }
 
 // rolled is whether a meter of that record, or of an account it holds, is past its reset.

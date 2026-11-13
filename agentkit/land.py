@@ -935,8 +935,8 @@ def _probe(directory, state, scratch, tree, command, tests, cost):
     only a helper shows is no evidence (`_check_tests` decides)."""
     from . import gate, helper, history, run, worker
     asked, head = time.time(), run.git(scratch, "rev-parse", "HEAD")
-    there = gate.pinned(command, suite_times.handed(scratch), only=tests)
-    away = helper.start(*cost, scratch, lambda _: None, there, one=True)[0]
+    there, files = gate.pinned(command, suite_times.handed(scratch), only=tests)
+    away = helper.start(*cost, scratch, lambda _: None, there, one=True, files=files)[0]
     if not away:
         return None
     log_path = directory / f"lander-{tree}-probe.log"

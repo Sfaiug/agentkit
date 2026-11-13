@@ -4,11 +4,11 @@ it is gone the tick's sweep ends what it left in its session, naming it.
 The helpers, each started the way ak starts it, its start caught at `Popen` where it is one and
 run then: the harness update and agentkit's (`python3 -m agentkit.update`), the background
 cleanup (`python3 -m agentkit.retention collect`), the seat look (`watch.start_look`, and the one
-hooks/seat-state.sh starts), the menu's seat stop (`menu.teardown`), and the warm server's reader
-(`warm._read`), forked as the server forks it.  Each runs under PROBE, a sitecustomize whose
-`owner.mark` writes down the mark it made and what the process is, and ends it there: none of its
-work runs.  The sweep then reads a fake /proc (`host.PROC`) holding a `sleep` the helper left in
-its session.
+hooks/seat-state.sh starts), the menu's seat stop (`menu.teardown`), a switch's draft return
+(`watch.start_carried_back`), and the warm server's reader (`warm._read`), forked as the server
+forks it.  Each runs under PROBE, a sitecustomize whose `owner.mark` writes down the mark it made
+and what the process is, and ends it there: none of its work runs.  The sweep then reads a fake
+/proc (`host.PROC`) holding a `sleep` the helper left in its session.
 """
 
 import json
@@ -133,6 +133,9 @@ class HelperLeftoversEnd(Sandbox):
 
     def test_the_seat_stop(self):
         self.swept(self.started(lambda: menu.stop_behind("acme", True), "seat stop"))
+
+    def test_the_draft_return(self):
+        self.swept(self.started(lambda: watch.start_carried_back("acme"), "draft return"))
 
     def test_the_menu_reader(self):
         with patch.object(owner, "mark", owner.mark):     # what the probe puts there goes after

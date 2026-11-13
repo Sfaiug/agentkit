@@ -11,17 +11,17 @@ agentkit                           14:02
 atoll
   1  atoll-job    Fable 5.1  ● working
     ━━━━━━━━━━━━╸──────────────── 3 of 7
-     Opus 5.5 xhigh ⚒◎   ■□□  ■□□
+     Fable 5.1 xhigh orchestrates…   +2
   2  atoll-solo   Fable 5.1  ● working
     ──────────────────────── no plan yet
-     Opus 5.5 xhigh ⚒◎   ■□□  ■□□
+     Fable 5.1 xhigh orchestrates…   +2
 
 agentkit
   3  herdr-quiet  Fable 5.1  ! needs you
-     Opus 5.5 xhigh ⚒◎
+     Fable 5.1 xhigh orchestrates…
   4  herdr-long   Fable 5.1  ● working
     ──────────────────────── no plan yet
-     Opus 5.5 xhigh ⚒◎
+     Fable 5.1 xhigh orchestrates…
 
   1 / 2   n new   c config   esc leave
   j more   k previous

@@ -90,12 +90,15 @@ func pythons(record *run.Object, now float64) bool {
 }
 
 // mergeChecks reads each followed merge's verdict off its run, keeping its commit there once,
-// under the run's lock, and then each repository's break (breaks). A dry tick decides the same,
-// and says what it would probe, record and hand back.
+// under the run's lock, and then each repository's break (breaks). Every run is read once, and
+// that census answers what each merge asks of its seat's other runs: one read each was 5167 files
+// read 200 times a tick (30 Oct 2026). A dry tick decides the same, and says what it would probe,
+// record and hand back.
 func (t *ticking) mergeChecks() error {
 	now := epoch(t.clock())
-	grouped := map[string][]*merge{}
+	grouped, census := map[string][]*merge{}, []*run.Object{}
 	carried := run.Every(func(dir string, record *run.Object) bool {
+		census = append(census, record)
 		key := followed(record, now)
 		if key != "" {
 			finished, _ := dated(record, "finished_at")
@@ -118,7 +121,7 @@ func (t *ticking) mergeChecks() error {
 			return cmp.Or(cmp.Compare(a.finished, b.finished), strings.Compare(a.name, b.name))
 		})
 		for _, each := range found {
-			if err := t.verdict(each, key, now, probes); errors.Is(err, errLeft) {
+			if err := t.verdict(each, key, now, probes, census); errors.Is(err, errLeft) {
 				return err
 			} else if err != nil && (each.record.Truthy("health") || each.record.Truthy("live_at")) {
 				each.verdict = "unknown"
@@ -134,7 +137,7 @@ func (t *ticking) mergeChecks() error {
 
 // verdict is after_merge_checks's reading of one merge: a pass told before is one still, and any
 // other is followed at its merge commit, the run's own, else the one GitHub names.
-func (t *ticking) verdict(each *merge, key string, now float64, probes map[[2]string]probe) error {
+func (t *ticking) verdict(each *merge, key string, now float64, probes map[[2]string]probe, census []*run.Object) error {
 	record := each.record
 	if passedBefore(record, now) {
 		each.sha, each.verdict = record.Str("merge_sha"), "passed"
@@ -155,7 +158,7 @@ func (t *ticking) verdict(each *merge, key string, now float64, probes map[[2]st
 			return nil
 		}
 	}
-	return mergeHealth(each, key, now, probes, t.log.line, t.dry)
+	return mergeHealth(each, key, now, probes, census, t.log.line, t.dry)
 }
 
 // recordedSHA is the merge commit the run holds, "" for none (after_merge_sha).

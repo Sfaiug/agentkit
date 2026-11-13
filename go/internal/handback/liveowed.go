@@ -21,9 +21,10 @@ func liveOwed(record *run.Object, census []*run.Object) (owed, rides bool, err e
 // under the run's delivery lock: recorded and never typed where its seat need not hear it
 // (live_owed); nothing done where its ending's own line says it (carries_live) or it rides on the
 // seat's next prompt (rides); typed alone into the seat otherwise, which is Python's (left), as are
-// a line an earlier pass typed for it, which gets its Enter first, and a read Go cannot make.
-func livePass(record *run.Object) (recorded, left bool) {
-	owed, rides, err := liveOwed(record, nil)
+// a line an earlier pass typed for it, which gets its Enter first, and a read Go cannot make.  The
+// seat's other runs are read from census, the merge checks' one read of every run.
+func livePass(record *run.Object, census []*run.Object) (recorded, left bool) {
+	owed, rides, err := liveOwed(record, census)
 	typed := record.Dict("live_typed")
 	switch {
 	case err != nil:

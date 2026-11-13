@@ -31,11 +31,12 @@ func TestAnOpenQuestionKeepsTheFrameAndItsPointerPlaces(t *testing.T) {
 }
 
 func TestTasksGiveWayToACountWhileTheCrewKeepsItsRoles(t *testing.T) {
-	seat := Seat{Word: "working", Builds: []string{"Spark", "Fable"}, Reviews: []string{"Fable"},
+	seat := Seat{Word: "working", Model: "Opus", Builds: []string{"Spark", "Fable"}, Reviews: []string{"Fable"},
 		Tasks: []Task{{Stage: 0, Moving: true}, {Stage: 0}, {Stage: 1, Moving: true}, {Stage: 2}}}
 	for room, want := range map[int]string{
-		80: "Spark ⚒   Fable ⚒◎   ■□□  ■□□  ■■□  ■■■",
-		25: "Spark ⚒   Fable ⚒◎   +4",
+		80: "Opus orchestrates   Spark builds   Fable builds, reviews   ■□□  ■□□  ■■□  ■■■",
+		61: "Opus orchestrates   Spark builds   Fable builds, reviews   +4",
+		40: "Opus orchestrates   Spark builds…   +4",
 		5:  "   +4",
 	} {
 		if got := detail(terminal.Screen{}, seat, room, nil); len(got) != 1 || got[0] != want || terminal.Cells(got[0]) > room {

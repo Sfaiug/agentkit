@@ -227,7 +227,7 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     for every one), `best` quality, `pick` by role, `front`: those with a cost, best first,
     each better than every cheaper one, a row of yours than every cheaper one of yours, as one
     no harness of yours runs is no reason to leave it out; `take`: the same rule over yours;
-    and `choices` and `others` over those with a cost, whoever runs them (`_choices`).
+    and `choices`, `others` and `whys` over those with a cost, whoever runs them (`_choices`).
     Keep the pick and take visible even if rows outside their eligible pool beat them.
     Every role's costs are in one unit (`_costs`)."""
     shares = task_usage if task_usage is not None else _task_usage(cfg) if cfg else {}
@@ -245,9 +245,10 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
         front = sorted((row for n, row in enumerate(priced) if row is pick or row is take or all(
             cheaper["quality"] < row["quality"] for cheaper in priced[:n]
             if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
-        choices, others = _choices(priced)
+        choices, others, whys = _choices(priced)
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
-                     "front": front, "take": take, "choices": choices, "others": others}
+                     "front": front, "take": take, "choices": choices, "others": others,
+                     "whys": whys}
     return out
 
 
@@ -264,15 +265,17 @@ def _above(row, other):
 
 
 def _choices(priced):
-    """Of `priced`, cheapest first and an equal cost better first, (`choices`, `others`).  Its
-    front holds each row better than every cheaper one, the best last.  `choices`: the front's
-    rows within `WINDOW` of the best, cheapest first, each kept when `APART` above the last kept,
-    the best taking the place of one less than that below it; the costliest `PLACES` of them.
-    `others`: of each release with no choice its best row, a cheaper one on a tie, best first,
-    each with its `why` and `by`: `beaten` by the cheapest choice, else row of the front, as
-    good and no dearer; on the front, `far below`, by None, more than `WINDOW` under the best;
-    else `close` to the nearest choice, less than `APART` from it; else `no room`, by None:
-    `APART` or more under every choice, as the costliest `PLACES` leave it."""
+    """Of `priced`, cheapest first and an equal cost better first, (`choices`, `others`, `whys`).
+    Its front holds each row better than every cheaper one, the best last.  `choices`: the
+    front's rows within `WINDOW` of the best, cheapest first, each kept when `APART` above the
+    last kept, the best taking the place of one less than that below it; the costliest `PLACES`
+    of them.  `others`: of each release with no choice its best row, a cheaper one on a tie,
+    best first.  `whys`: by its id, each row no choice's (`why`, `by`), which a role using it
+    draws too (menu.models_bars), kept beside the rows as what is compared never changes a row:
+    `beaten` by the cheapest choice, else row of the front, as good and no dearer; on the front,
+    `far below`, by None, more than `WINDOW` under the best; else `close` to the nearest choice,
+    less than `APART` from it; else `no room`, by None: `APART` or more under every choice, as
+    the costliest `PLACES` leave it."""
     front = []
     for row in priced:
         if not front or row["quality"] > front[-1]["quality"]:
@@ -293,18 +296,21 @@ def _choices(priced):
         if row["release"] not in chosen and (top is None or row["quality"] > top["quality"]):
             tops[row["release"]] = row
     others = sorted(tops.values(), key=lambda row: (-row["quality"], row["cost"]))
-    for row in others:
+    whys = {}
+    for row in priced:
+        if any(one is row for one in choices):
+            continue
         if not any(one is row for one in front):
-            row["why"], row["by"] = "beaten", next(
+            whys[id(row)] = "beaten", next(
                 one for one in (*choices, *front)
                 if one["quality"] >= row["quality"] and one["cost"] <= row["cost"])
         elif _above(front[-1], row) > WINDOW:
-            row["why"], row["by"] = "far below", None
+            whys[id(row)] = "far below", None
         else:
             near = min(choices, key=lambda one: abs(_above(one, row)))
             close = abs(_above(near, row)) < APART
-            row["why"], row["by"] = ("close", near) if close else ("no room", None)
-    return choices, others
+            whys[id(row)] = ("close", near) if close else ("no room", None)
+    return choices, others, whys
 
 
 def companies(cfg, lineup):
@@ -579,8 +585,9 @@ def main(argv):
         json.dump({**{role: {
             "best": said["best"], "cost_unit": said["cost_unit"],
             **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
-            "others": [{**drawn(row, said), "why": row["why"], "by": row["by"] and {
-                key: row["by"][key] for key in ("name", "effort")}} for row in said["others"]]}
+            "others": [{**drawn(row, said), "why": why, "by": by and {
+                key: by[key] for key in ("name", "effort")}}
+                for row in said["others"] for why, by in [said["whys"][id(row)]]]}
             for role, said in found.items()}, "live": own,
             "task_usage": {name: {effort: {role: share for role, (share, _) in did.items()}
                                   for effort, did in efforts.items()}
@@ -591,7 +598,8 @@ def main(argv):
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
     used = uses(cfg, seat, found)
     body, _ = menu.models_body(menu.models_said(cfg, found, used))
-    bars = [line for role in found for line in menu.models_bars(found[role], role, used[role][2])]
+    bars = [line for role in found
+            for line in menu.models_bars(found[role], role, used[role][2], used[role][2])]
     print("\n".join([*body, *bars, "", *menu.models_read(marked, len(ours(cfg)),
                                                    stored().get("fetched_at")),
                       *(["", *live_lines(own)] if own else [])]))

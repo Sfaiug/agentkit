@@ -7,16 +7,16 @@ agentkit                                                                        
 
 atoll
   1  atoll-fix    Fable 5.1 xhigh  ○ idle
-     Opus 5.5 xhigh ⚒◎
+     Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews
   2  atoll-proxy  Fable 5.1 xhigh  ! needs you
-     Opus 5.5 xhigh ⚒◎
+     Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews
 
 agentkit
   3  herdr        Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
-     Opus 5.5 xhigh ⚒◎   ■□□
+     Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews   ■□□
 
 not assigned yet
   4  scribe       Fable 5.1 xhigh  ○ idle
-     Opus 5.5 xhigh ⚒◎
+     Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews
 
   n new   c config   esc leave

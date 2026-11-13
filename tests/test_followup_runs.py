@@ -204,6 +204,8 @@ class FollowupRuns(unittest.TestCase):
             self.assertIn(item, (child / "task.md").read_text())
             self.assertIn("base: origin/main", (child / "task.md").read_text())
             self.assertEqual(receipt["followup"]["run"], directory.name)
+            # what an older ak still running a run it admitted matches its site by
+            self.assertEqual(receipt["followup"]["place"], handback.followup_place(item))
             self.assertEqual(receipt["base_proof"], "regression.sh")   # its own probe proves it
             self.assertIn(child.name, (directory / "result.md").read_text())
         self.assertFalse((config.HOME / "followups").exists())
@@ -739,9 +741,9 @@ class FollowupRuns(unittest.TestCase):
         child_dir.mkdir()
         wt = self.root / "wt-fix"
         wt.mkdir()
-        # an earlier merge's fix at this site: one of the parent's own would be another defect
-        base = {"run_id": "fix", "followup": {"run": "earlier", "text": DEFECT,
-                                              "place": handback.followup_place(DEFECT)},
+        # an earlier merge's fix at this site: one of the parent's own would be another defect;
+        # its site is read from its text, whatever an older ak recorded beside it
+        base = {"run_id": "fix", "followup": {"run": "earlier", "text": DEFECT, "place": "/stale:1"},
                 "launched_session": "seat", "repo": str(self.repo)}
         blocking = [
             {"state": "running", "pid": "dead"},
@@ -749,16 +751,16 @@ class FollowupRuns(unittest.TestCase):
             {"state": "queued", "pid": "dead", "slot_waiting": True},
             {"state": "exhausted", "quota_dry": True},
             {"state": "waiting_login", "waiting_for": "claude"},
-            {"state": "interrupted", "worktree": str(wt),
+            {"state": "interrupted", "worktree": str(wt), "pid": 1,
              "deaths": [{"at": 1, "pid": 1, "reason": "loop gone"}]},
         ]
         quiet = [
             {"state": "queued", "pid": "dead"},
             {"state": "queued", "pid": "dead", "slot_waiting": False},
             {"state": "interrupted"},
-            {"state": "interrupted", "worktree": str(wt),
+            {"state": "interrupted", "worktree": str(wt), "pid": 1,
              "deaths": [{"at": 1, "pid": 1, "reason": "loop gone", "parked": True}]},
-            {"state": "interrupted",
+            {"state": "interrupted", "pid": 1,
              "deaths": [{"at": 1, "pid": 1, "reason": "loop gone"}]},
             {"state": "exhausted", "error": "tool stopped"},
             {"state": "stalled"},

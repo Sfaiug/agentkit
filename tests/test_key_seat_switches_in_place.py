@@ -1,13 +1,19 @@
 """A seat moved on `c` to another model of its harness and login is typed `/model <id>` then
 `/effort <level>` in its harness's process, whichever window it shows, asking nothing, and keeps
-its conversation; to another harness's model, or with that process's pane gone, it asks, restarts.
+its conversation; to another harness's model, or with that process's pane gone, it asks, restarts,
+and the text in its input field goes on into the new harness's once that draws one, though the
+popup closed at once.
 
 The owner (30 Oct 2026): "if its a different harness, then yes, a restart must happen, but if
 it is merely a model change or effort, or both, then the change should be able to happen inside
-the session, without any need to restart."  Black-box: `AK_BIN`, as the popup over a seat on Opus
-5.5 whose pane keeps each line typed into it, its harnesses fakes; fails against `/bin/false`."""
+the session, without any need to restart."  (12 Nov 2026): "Swithich providers, models, accounts,
+always the input in the text field must be preserved."  Black-box: `AK_BIN`, as the popup over a
+seat on Opus 5.5 whose pane keeps each line typed into it, its harnesses fakes, whose Ctrl-G
+hands their input field to $VISUAL as Claude Code's and Codex's do (tests/fixtures/akpane.py);
+fails against `/bin/false`."""
 
 import json
+import shlex
 import sys
 from pathlib import Path
 import unittest
@@ -15,10 +21,11 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
-from fixtures.akseat import Seat
+from fixtures.akseat import FIXTURES, PANE, Seat
 from fixtures.akterm import SERVER, Terminal
 
 SEAT = "acme-fix"
+DRAFT = "and add these posts"
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
@@ -59,6 +66,15 @@ class SeatSwitchesInPlace(unittest.TestCase):
     def orchestrator(self):
         return self.record()["orchestrator"]
 
+    def shows(self, text):
+        return text in self.home.tmux("capture-pane", "-p", "-t", self.seat.pane).out
+
+    def restarted(self, *keys, on):
+        self.term.keys(*keys, "Space")
+        self.term.wait(lambda screen: f"  Restart {SEAT} on {on}?" in rows(screen))
+        self.term.keys("Down", "Enter")
+        self.term.wait(lambda screen: key_line(screen) == KEYS)
+
     def test_another_model_of_its_harness_is_typed_into_it_asking_nothing(self):
         self.home.tmux("new-window", "-t", f"={SEAT}:", "sleep 86400")   # the one it shows
         pid = self.pid()
@@ -81,6 +97,30 @@ class SeatSwitchesInPlace(unittest.TestCase):
         self.term.wait(lambda _: self.pid() != pid)
         self.assertEqual(self.orchestrator(), "astra")
         self.assertEqual(self.seat.lines(), [])
+
+    def test_text_in_its_input_field_goes_on_into_the_new_harness_s_once_that_draws_one(self):
+        screens = {}
+        for harness, composer, screen in (
+                ("codex", "›", (FIXTURES / "codex-prompt-pane.txt").read_text()),
+                ("claude", "❯", "Claude Code is starting\n\n\n")):     # no input field yet
+            shown = screens[harness] = self.home.root / "panes" / f"{harness}.txt"
+            shown.write_text(screen)
+            self.fakes[harness].answer("interactive", shlex.join(
+                [sys.executable, str(PANE), "--editor", str(shown),
+                 str(shown.with_suffix(".typed")), composer]))
+        self.fakes["codex"].answer("interactive", "", 3, given=["new"])  # Codex takes no id of ours
+        self.restarted("Down", "Down", on="GPT-6-Astra")
+        self.term.wait(lambda _: self.orchestrator() == "astra" and self.shows("› Ask Codex"))
+        self.home.tmux("send-keys", "-t", self.seat.pane, "-l", DRAFT)    # the owner's
+        self.term.wait(lambda _: self.shows(f"› {DRAFT}"))
+        self.restarted("Up", "Up", on="Opus 5.5")
+        self.term.keys("Escape", "Escape")      # the popup closes at once
+        self.assertEqual(self.term.exit_code(), 0)
+        self.term.wait(lambda _: self.orchestrator() == "opus"
+                       and self.shows("Claude Code is starting"))
+        self.assertFalse(self.shows(DRAFT))
+        screens["claude"].write_text((FIXTURES / "claude-prompt-pane.txt").read_text())
+        self.term.wait(lambda _: self.shows(f"❯ {DRAFT}"))
 
     def test_a_seat_whose_harness_s_pane_is_gone_asks(self):
         self.home.tmux("new-window", "-d", "-t", f"={SEAT}:", "sleep 86400")

@@ -396,14 +396,16 @@ func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Ob
 
 // finalCheck runs the round's checks and those deferred to landing on the commit about to be
 // delivered, Python's final_check: the task's and the target's declarations at the tip it was
-// taken in on, pinned to that commit.  A red is a final check's fixer's, which is Python's.
+// taken in on, and a `tests:` line the change rewrites, pinned to that commit, refusing a test file
+// the change adds slower than its suite's piece target as the lander does.  A red is a final
+// check's fixer's, which is Python's.
 func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 	_, cmds, err := task.Read(filepath.Join(l.dir, "task.md"))
 	if err != nil {
 		return false, err
 	}
 	suite := gitcall.Suite(r.wt, r.baseSHA)
-	every, once := task.Group(task.RoundCommands(cmds, suite, true))
+	every, once, suites := landingGroups(cmds, r.wt, suite)
 	if len(once) == 0 {
 		return true, nil
 	}
@@ -418,7 +420,7 @@ func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 		return false, err
 	}
 	path := filepath.Join(l.dir, "final-check.log")
-	ok, text, err := r.checks(l, append(every, once...), path, nil)
+	ok, text, err := r.checks(l, append(every, once...), path, nil, &checkSelection{base: cmp.Or(r.baseSHA, r.upstream()), suites: suites})
 	if err != nil {
 		return false, err
 	}

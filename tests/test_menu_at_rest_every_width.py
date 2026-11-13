@@ -21,6 +21,7 @@ from agentkit import record
 
 NOW = 1_800_000_000
 DAY = 86400
+CREW = r"Fable 5\.1 xhigh orchestrates   Opus 5\.5 xhigh builds, reviews"   # each seat's
 # `need you` is said once, on the top line: no other line of the menu at rest says
 # it, so the fixture's needing seats read their own reason in the last column.
 LONG_TITLE = ("Rebuild the dashboard filters so archived runs stay hidden "
@@ -154,9 +155,10 @@ class V5oMenu(Sandbox):
         self.assertLess(screen.index("\natoll\n"), screen.index("\nagentkit\n"))
         self.assertLess(screen.index("\nagentkit\n"), screen.index("\nnot assigned yet\n"))
         # Each needing row carries its number and its word, and opens who builds and reviews.
-        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +Opus 5\.5 xhigh ⚒◎\n")
+        self.assertRegex(screen,
+                         r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +" + CREW + r"\n")
         self.assertRegex(screen, re.compile(r"4\s+herdr-long\s+Fable 5\.1 xhigh\s+● working\s+─+ no plan yet$", re.M))
-        self.assertRegex(screen, r"5\s+scribe\s+Fable 5\.1 xhigh\s+! needs you\n +Opus 5\.5 xhigh ⚒◎\n")
+        self.assertRegex(screen, r"5\s+scribe\s+Fable 5\.1 xhigh\s+! needs you\n +" + CREW + r"\n")
         # Nothing needs you when nothing does.
         with patch("agentkit.watch.live_state", return_value={"state": "working", "rule": "fixture",
                                                              "since": NOW - 60, "began": NOW - 60}):
@@ -364,7 +366,8 @@ class V5oMenu(Sandbox):
         screen, _ = self.draw(100, 30)
         # No ending ever reaches the gone seat's row.
         self.assertNotIn("Herdr first pass", screen)
-        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +Opus 5\.5 xhigh ⚒◎\n")
+        self.assertRegex(screen,
+                         r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\n +" + CREW + r"\n")
         self.assertNotIn("press r", screen)
         # ak run status <id> marks an ending looked at, and acknowledge does.
         second = self.touching("herdr-second-pass", owner="herdr-quiet",

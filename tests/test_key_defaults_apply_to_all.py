@@ -109,7 +109,8 @@ class DefaultsApplyToAll(unittest.TestCase):
         return self.records()
 
     def test_apply_gives_every_seat_gone_too_the_defaults_on_its_bar_at_once(self):
-        self.assertIn("Opus 5.5 xhigh ⚒◎", bar(self.home, self.seats["acme-calm"]))   # drawn before `a`
+        self.assertIn("Opus 5.5 xhigh builds, reviews",              # drawn before `a`
+                      bar(self.home, self.seats["acme-calm"]))
         for name, record in self.applied().items():
             with self.subTest(seat=name):
                 self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
@@ -117,11 +118,11 @@ class DefaultsApplyToAll(unittest.TestCase):
                 self.assertEqual(record["efforts"]["astra"]["review_effort"], "medium")
         self.assertEqual(self.config.read_text(), self.given)
         deadline = time.monotonic() + 30    # no look runs on `c`: only `a` redraws the bar
-        while "GPT-6-Astra medium ◎" not in bar(self.home, self.seats["acme-calm"]):
+        while "GPT-6-Astra medium reviews" not in bar(self.home, self.seats["acme-calm"]):
             self.assertLess(time.monotonic(), deadline, "the bar kept the models it had")
         for name in MOVING:     # its move dresses its bar anew, which names them too
             with self.subTest(seat=name):
-                while "GPT-6-Astra medium ◎" not in self.home.tmux(
+                while "GPT-6-Astra medium reviews" not in self.home.tmux(
                         "show-options", "-qv", "-t", f"={name}:", "@ak_why").out:
                     self.assertLess(time.monotonic(), deadline, "the restart left a bare bar")
                     time.sleep(0.2)

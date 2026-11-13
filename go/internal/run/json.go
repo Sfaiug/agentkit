@@ -190,12 +190,12 @@ func truthy(value any) bool {
 	return true
 }
 
-// Equal is Python's == between two JSON values: numbers by value, true as 1, objects
+// Equal is Python's == between two JSON values: numbers by exact value, true as 1, objects
 // whatever the order of their keys.
 func Equal(a, b any) bool {
 	if x, ok := numeric(a); ok {
 		y, ok := numeric(b)
-		return ok && x == y
+		return ok && x != nil && y != nil && x.Cmp(y) == 0
 	}
 	switch a := a.(type) {
 	case nil:
@@ -229,15 +229,26 @@ func Equal(a, b any) bool {
 	return false
 }
 
-// numeric is a number or a bool as the number Python compares it as.
-func numeric(value any) (float64, bool) {
-	if flag, ok := value.(bool); ok {
-		if flag {
-			return 1, true
+// numeric is a number or a bool as the exact value Python compares it as, an int past float64's
+// precision whole; NaN, equal to nothing, is nil.
+func numeric(value any) (*big.Float, bool) {
+	switch value := value.(type) {
+	case bool:
+		if value {
+			return big.NewFloat(1), true
 		}
-		return 0, true
+		return big.NewFloat(0), true
+	case Number:
+		if Integral(value) {
+			whole, _ := new(big.Int).SetString(string(value), 10)
+			return new(big.Float).SetInt(whole), true
+		}
+		if parsed, _ := Num(value); !math.IsNaN(parsed) {
+			return big.NewFloat(parsed), true
+		}
+		return nil, true
 	}
-	return Num(value)
+	return nil, false
 }
 
 // ErrLoneSurrogate is a \ud800-\udfff escape that is not half of a pair, nor a byte no UTF-8

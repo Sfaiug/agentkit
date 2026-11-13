@@ -86,12 +86,12 @@ class DeliveringRunHasTheLandingWeight(LanderFixture, unittest.TestCase):
         self.assertEqual(self.asked(), [weight(10000)])
         self.assertTrue(record.read_state(member)["merged"])
 
-    def test_a_member_whose_target_moved_asks_for_a_runs_weight_again_as_it_rejoins(self):
+    def test_a_member_whose_target_moved_asks_for_a_runs_cpu_again_as_it_rejoins(self):
         member = self.green()
         self.advance(**{"moved.txt": "moved\n"})
         self.assertFalse(self.deliver(member))
         self.assertEqual(record.read_state(member)["state"], "waiting")
-        self.assertEqual(self.asked(), [weight(10000), weight(run.RUN_CPU_WEIGHT)])
+        self.assertEqual(self.asked(), [weight(10000), weight("idle")])
 
     def test_a_member_in_no_unit_of_its_own_asks_nothing(self):
         member = self.green(scope="none")

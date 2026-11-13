@@ -844,7 +844,7 @@ def job_await(run_dir, poll=lambda: None):
                 state = handback.reap(run_dir, state)
             line = transitions.landing_line(state)
             if not (state.get("state") in record.ACTIVE or line
-                    or (state.get("state") == "interrupted" and state.get("deaths")
+                    or (state.get("state") == "interrupted" and transitions.loop_death(state)
                         and transitions.tick_resumes(state))):
                 return state
             if line and time.time() - asked >= JOB_PICKER_INTERVAL:

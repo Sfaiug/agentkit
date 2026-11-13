@@ -35,9 +35,10 @@ type probe struct {
 // its seat is Python's to tell (handback.LiveLeft).  Each is decided before this merge's first
 // write, and left there: the one write, or where the probe keeps a row, written as it starts, the
 // probe.  A seat that comes to owe a pass after that has it recorded, as Python records it, and the
-// next tick, reading it owed first, hands its telling over.  A dry tick decides the same, runs no
-// probe and makes no write: it says what it would check and record.
-func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, say func(string), dry bool) error {
+// next tick, reading it owed first, hands its telling over.  What a pass asks of the merge's seat's
+// other runs is read from census, the merge checks' one read of every run.  A dry tick decides the
+// same, runs no probe and makes no write: it says what it would check and record.
+func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, census []*run.Object, say func(string), dry bool) error {
 	rows, err := mergeRows(each, dry)
 	if err != nil {
 		return err
@@ -64,7 +65,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 		health = healthOf(found)
 	}
 	// read once, ahead of any probe, and only where a probe or a pass needs it
-	owed := sync.OnceValue(func() bool { return handback.LiveLeft(record) })
+	owed := sync.OnceValue(func() bool { return handback.LiveLeft(record, census) })
 	verdict, probed := "", (*probe)(nil)
 	switch command := run.Text(health.Get("command")); {
 	case record.Truthy("live_at"):
@@ -128,7 +129,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	}
 	keepMerge(rows, record, verdict == "passed", say)
 	if verdict == "passed" {
-		if err := handback.Live(dir, record, now, say, dry); err != nil {
+		if err := handback.Live(dir, record, census, now, say, dry); err != nil {
 			return err
 		}
 	}

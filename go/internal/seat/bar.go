@@ -151,11 +151,6 @@ func barLine(screen terminal.Screen, word string, done, total, room int) (string
 	return line + "#[default] " + count, size + 1 + len(count)
 }
 
-// barCrew is who builds and reviews a seat's work, each named once with its marks, all dim (menu.crew).
-func barCrew(screen terminal.Screen, builds, reviews []string) string {
-	return barPaint(screen.Crew(builds, reviews), "dim")
-}
-
 // barSelection is the seat's model and crew, each named at the effort it runs that role at
 // (config.ModelAt), none where its record does not read as a seat's (config.load_session).
 func barSelection(state, name string, models map[string]config.Model) (model string, builds, reviews []string) {
@@ -208,7 +203,7 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 	if model != "" {
 		head += "   " + barPaint(model, "dim")
 	}
-	why := barCrew(screen, builds, reviews)
+	why := barPaint(terminal.Crew(model, builds, reviews), "dim")
 	if seat.Word == "needs you" && !seat.question {
 		why = tmuxText(terminal.Plain(seat.reason))
 	}

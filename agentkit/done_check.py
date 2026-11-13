@@ -30,7 +30,7 @@ import time
 from pathlib import Path
 
 from . import (command_help, config, hand_in, harness, notify, plan, record, staffing, transitions,
-               worker)
+               usage, worker)
 
 ASK = """\
 # Does seat {name}'s work hold everything its owner asked of it?
@@ -305,10 +305,13 @@ def gaps(cfg, name):
             try:
                 # an existing role, which Go's rules already hold: the reviewer's of a
                 # workspace, whose hand-in takes findings and refuses a quote its file does
-                # not hold
+                # not hold.  On the account a run's turn takes: its provider's usual login may
+                # be signed out or spent while another of its accounts has room
+                account = usage.account(cfg, config.model(cfg, model)["provider"], model=model)[0]
                 worker.turn(cfg, model, ASK.format(name=name, workspace=workspace,
                                                    pictures="\n".join(shown) or "  none kept"),
-                            workspace, out, role="reviewer-scratch")
+                            workspace, out, role="reviewer-scratch",
+                            env=None if account is None else config.account_env(account))
             except worker.LoginExpired as expired:
                 raise config.Error(str(expired)) from None
             review = hand_in.read(out / hand_in.FILE)

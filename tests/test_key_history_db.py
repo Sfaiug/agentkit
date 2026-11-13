@@ -32,13 +32,13 @@ ORIGINAL = (("run_id", "TEXT PRIMARY KEY"), ("repo", "TEXT"), ("executor", "TEXT
             ("reviewer_seconds", "REAL"), ("merge_seconds", "REAL"), ("total_seconds", "REAL"),
             ("executor_tokens", "INTEGER"), ("reviewer_tokens", "INTEGER"),
             ("peak_rss_mb", "REAL"), ("session", "TEXT"))
-# A reading as the first ak to keep them kept it, before each named its login's plan.
+# A reading as the first ak to keep them kept it, before each named its login's plan and scope.
 READING = {"provider": "anthropic", "account": "default", "meter": "weekly_all", "used": 30.0,
            "resets_at": None, "window_secs": 604800.0, "at": 1793000000.0, "source": "probe"}
 GAINED = {"runs": {"task_words", "orchestrator", "change", "merge_sha", "landing_breaks", "landing_flakes",
                    "broke_after_merge", "executor_effort", "own_orchestrator_effort", "check_rewritten_at"},
           "phases": {"wait_kind"}, "reviews": {"round", "verdict", "effort"}, "dones": {"work"},
-          "meter_readings": {"plan"}}
+          "meter_readings": {"plan", "scope"}}
 # The Home's notify sink marks every run a test suite's, which ak never records: these runs go
 # without it, as the owner's, and with no webhook configured nothing is posted anywhere.
 OWNERS = {"AK_NOTIFY_SINK": None}
@@ -101,9 +101,9 @@ class AnOlderDatabase(unittest.TestCase):
         self.assertEqual(len(sized), 1, self.done.out)
         self.assertIn("median 2 rounds", sized[0])
 
-    def test_its_readings_keep_no_plan(self):
+    def test_its_readings_keep_no_plan_and_no_scope(self):
         self.assertEqual(read(self.home, "SELECT * FROM meter_readings"),
-                         [{**READING, "plan": None}])
+                         [{**READING, "plan": None, "scope": None}])
 
     def test_it_says_dones_were_kept_only_from_the_moment_it_was_brought_up(self):
         kept = read(self.home, "SELECT since FROM kept")

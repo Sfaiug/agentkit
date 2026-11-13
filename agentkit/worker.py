@@ -660,8 +660,8 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
     return (TIMEOUT if killed else proc.returncode), out or "", killed
 
 
-def boxed(cmd, limit, *, env, cwd, cpu=None, used=None, only=None, failed=None, ran=None,
-          flaky=None, absent=None, **kwargs):
+def boxed(cmd, limit, *, env, cwd, cpu=None, used=None, times=None, only=None, failed=None,
+          ran=None, flaky=None, absent=None, **kwargs):
     """The check watchdog and status, with worker walls and throwaway HOME writes.
 
     `cpu`, a list, gets the CPU seconds the command's processes needed, where the box says, and
@@ -671,7 +671,9 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, used=None, only=None, failed=None, 
     line in the file `AK_FAILED` names, `ran` those it named as run, in `AK_RAN`'s, `flaky`
     those it named as failing, then passing on a re-run, in `AK_FLAKY`'s, and `absent` those it
     named as not there, in `AK_NOT_THERE`'s; `only`, test names, go one per line into the file
-    `AK_ONLY` names, for a command that runs just those."""
+    `AK_ONLY` names, for a command that runs just those, and `times`, the test-times record a
+    suite cuts its shares from, into the file `AK_TIMES` names: a variable holds no more than
+    131,072 bytes."""
     with record.scratch(Path(kwargs["activity"]).parent) as out_dir:
         named = {key: (Path(out_dir) / key, into)
                  for key, into in (("AK_FAILED", failed), ("AK_RAN", ran), ("AK_FLAKY", flaky),
@@ -682,6 +684,10 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, used=None, only=None, failed=None, 
         if only is not None:
             listed.write_text("".join(f"{test}\n" for test in only))
             env = {**env, "AK_ONLY": str(listed)}
+        if times is not None:
+            timed = Path(out_dir) / "AK_TIMES"
+            timed.write_text(times)
+            env = {**env, "AK_TIMES": str(timed)}
         with box.command(cmd, env, out_dir, cwd=cwd,
                          home_overlay=True, drain=True) as (cmd, env, spawn):
             began = time.monotonic()

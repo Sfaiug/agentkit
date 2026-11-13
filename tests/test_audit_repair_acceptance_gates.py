@@ -159,8 +159,10 @@ finish
         prompt = re.search(r"^PROMPT='(.*)'$", FRESH, re.M).group(1)
         menu_pattern = re.search(r"^MENU='(.*)'$", FRESH, re.M).group(1)
         self.assertRegex(menu.KEYS, menu_pattern)
-        muse_footer = next(line.strip() for line in (REPO / 'tests/fixtures/muse-stall-pane.txt')
-                           .read_text().splitlines() if line.strip().endswith(' · YOLO'))
+        # a seat's footer, as adapters/muse.sh launches one, its colours off
+        muse_footer = next(line.strip() for line in re.sub(r'\x1b\[[0-9;]*m', '', (
+            REPO / 'tests/fixtures/muse-overrides-idle-pane.txt').read_text()).splitlines()
+                           if line.endswith(' · Launch overrides'))
         for harness, pane in (("claude", "bypass permissions on"),
                               ("codex", '› Ask Codex to do anything'), ("muse", muse_footer)):
             with self.subTest(harness=harness):

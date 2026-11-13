@@ -55,6 +55,16 @@ def plan_check(command, root=None):
             and not (root and str(root) in command))
 
 
+def unbounded(evidence):
+    """`evidence`'s command as a follow-up's check, without the `timeout N` its reviewer began it
+    with: a plan line and a fix run's done-when each bound it themselves, and on a loaded host a
+    right fix ran past the reviewer's 120 s (213 s at load 240, 4 s idle; 12 Nov 2026), which
+    ended its fix run blocked.  A proof that ended in 124 keeps its bound: there the bound is
+    what fails."""
+    bound = re.match(r"timeout\s+\d+(?:\.\d+)?[smhd]?\s+(?=\S)", evidence["run"])
+    return evidence["run"][bound.end():] if bound and evidence["returncode"] != 124 else evidence["run"]
+
+
 def exit_guard(command):
     """The exit-0 guard in `command`'s shell words, if any: `true` or `:` run right after `||`,
     `exit 0` or `set +e`, each a path to success whatever the code does.  A command's word is
@@ -159,10 +169,11 @@ class Review:
 
     @property
     def followup_checks(self):
-        """Each follow-up's failing command by its text: the check of its seat's plan line.  A
-        finding ak made a follow-up, its defect older than the task, may carry a proof that
-        cannot be one (`plan_check`): its fix run writes a regression test of its own instead."""
-        return {item_text(row): row["evidence"]["run"] for row in self.records
+        """Each follow-up's failing command by its text, without its reviewer's bound
+        (`unbounded`): the check of its seat's plan line.  A finding ak made a follow-up, its
+        defect older than the task, may carry a proof that cannot be one (`plan_check`): its fix
+        run writes a regression test of its own instead."""
+        return {item_text(row): unbounded(row["evidence"]) for row in self.records
                 if row["kind"] == "follow-up" and "run" in row["evidence"]
                 and plan_check(row["evidence"]["run"])}
 

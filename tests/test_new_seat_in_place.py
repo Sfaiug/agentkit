@@ -40,7 +40,7 @@ orch.checkout_of = lambda repo, stands=None: Path(repo) if repo else None
 
 def seat(name, number, repo=None):
     return {"number": str(number), "name": name, "orchestrator": "opus", "count": "working",
-            "word": "working", "crew": ([], []), "tasks": [], "sentence": "", "repo": repo}
+            "word": "working", "crew": ("opus", [], []), "tasks": [], "sentence": "", "repo": repo}
 
 
 @patch.object(test_close_and_info, "CHILD", CHILD)
@@ -160,6 +160,13 @@ class Row(unittest.TestCase):
                              terminal.styled("acme", "bold"))
             self.assertEqual(menu.v5o_header({"name": menu.UNFILED, "checkout": None}, 100),
                              terminal.styled("not assigned yet", "dim"))
+
+    def test_on_a_phone_its_crew_is_one_dim_line_cut_to_its_room(self):
+        info = {"born": {}, "crew": ("opus", ["astra"], ["fable"])}
+        with patch.object(menu, "born_refusal", lambda born: ""), \
+                patch.object(terminal, "colour_depth", lambda: 256):
+            self.assertEqual(menu.born_lines(info, 35),
+                             [terminal.styled("opus orchestrates   astra builds…", "dim")])
 
     def test_a_seat_left_unnamed_is_named_off_the_names_taken_now(self):
         born = {"cfg": {}, "typed": "", "taken": set(), "name": "new",

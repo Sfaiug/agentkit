@@ -1431,23 +1431,26 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
         yield
         return
     _GATE_HELD.away, _GATE_HELD.here, elsewhere = None, None, None
-    if command and cwd and names_shard(command):
-        cost = suite_cost(command, cwd, run_dir)[1:]
-        def ask(say):
-            _GATE_HELD.away, _GATE_HELD.here = helper.start(
-                *cost, cwd, say, pinned(command, suite_times.handed(cwd)))
-            return _GATE_HELD.away
-        if not ask(log or (lambda line: None)):
-            def elsewhere():
-                # Asked each poll: what it says shows once the suite goes, not each look's warning.
-                said = []
-                if ask(said.append) and log is not None:
-                    for line in said:
-                        log(line)
-                return _GATE_HELD.away
-        if _GATE_HELD.here and log is not None:
-            log(f"suite runs here: {_GATE_HELD.here}")
+    record = ExitStack()
     try:
+        if command and cwd and names_shard(command):
+            cost = suite_cost(command, cwd, run_dir)[1:]
+            line, files = pinned(command, record.enter_context(_record(cwd)))
+            def ask(say):
+                _GATE_HELD.away, _GATE_HELD.here = helper.start(*cost, cwd, say, line,
+                                                                files=files)
+                return _GATE_HELD.away
+            if not ask(log or (lambda line: None)):
+                def elsewhere():
+                    # Asked each poll: what it says shows once the suite goes, not each look's
+                    # warning.
+                    said = []
+                    if ask(said.append) and log is not None:
+                        for line in said:
+                            log(line)
+                    return _GATE_HELD.away
+            if _GATE_HELD.here and log is not None:
+                log(f"suite runs here: {_GATE_HELD.here}")
         _GATE_HELD.home = lambda elsewhere: _acquire_gate_turn(
             run_dir, log_path, log, command, cwd, context=context, elsewhere=elsewhere)
         # A suite gone to a helper takes no turn here: those are for what cannot leave this host.
@@ -1455,6 +1458,7 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
             run_dir, log_path, log, command, cwd, context=context, elsewhere=elsewhere)
         yield
     finally:
+        record.close()
         current, _GATE_HELD.hold = getattr(_GATE_HELD, "hold", None), None
         away = _GATE_HELD.away
         _GATE_HELD.away = _GATE_HELD.home = _GATE_HELD.here = None
@@ -1464,14 +1468,28 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
             helper.finish(away)
 
 
-def suite_env(times=None):
-    """A done-when command's environment, `AK_HEAVY_TURN=1` only while this thread holds a turn,
-    and `AK_TIMES` holding `times` when given.
+@contextmanager
+def _record(cwd):
+    """The test-times record (`suite_times`) every piece of this thread's suite cuts its share
+    from, here and on the suite helper: read once, as the suite starts. A suite run inside
+    another's turn (`gate_turn`) reads that one's, which the parcel of a helper it took holds."""
+    if getattr(_GATE_HELD, "times", None) is not None:
+        yield _GATE_HELD.times
+        return
+    _GATE_HELD.times = suite_times.handed(cwd)
+    try:
+        yield _GATE_HELD.times
+    finally:
+        _GATE_HELD.times = None
+
+
+def suite_env():
+    """A done-when command's environment, `AK_HEAVY_TURN=1` only while this thread holds a turn.
 
     A suite that queues behind a host-wide lock of its own would hold the turn for as long as
     another copy holds that lock; told it holds one, it says busy at once instead, exit
     `SUITE_BUSY`, and `busy_turn` gives the turn back.  Never inherited: a loop started below
-    a suite holds none of that suite's turn, nor its share or test lists.
+    a suite holds none of that suite's turn, nor its share, record or test lists.
     """
     env = gitcall.run_child_env()
     for key in ("AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_NOT_THERE",
@@ -1479,30 +1497,28 @@ def suite_env(times=None):
         env.pop(key, None)
     if getattr(_GATE_HELD, "hold", None) is not None:
         env["AK_HEAVY_TURN"] = "1"
-    if times is not None:
-        env["AK_TIMES"] = times
     return env
 
 
 def pinned(command, times, only=None):
-    """`command` as a piece runs it on the suite helper, which hands it no environment: AK_TIMES
-    holds `times` in the command, and AK_ONLY names a file there listing the tests `only` names,
-    for a piece that runs just those (land._probe); the piece's VM or container takes the file
-    with it.
+    """`command` as a piece runs it on the suite helper, which hands it no environment: (its
+    line, the files its parcel takes there, each by the variable piece.sh names it in). AK_TIMES
+    names the record `times`, and AK_ONLY one listing the tests `only` names, for a piece that
+    runs just those (land._probe). Neither is in the line, which one argument must hold
+    (helper.start).
 
     The piece runs in a clone there, which land._check's look at this checkout never sees: it
     checks that clone itself and fails, as land._check does, if it changed, however the command
     exited, dropping the tests it named as not there, which say nothing of the tree it was given.
     """
-    tests = "" if only is None else (
-        f"export AK_ONLY=\"$(mktemp)\" && printf '%s\\n' {shlex.join(only)}"
-        ' >"$AK_ONLY" || exit\n')
-    return (f"export AK_TIMES={shlex.quote(times)}\n{tests}"
-            f"head=$(git rev-parse HEAD) || exit\nbash -c {shlex.quote(command)}\ncode=$?\n"
+    files = {"AK_TIMES": times}
+    if only is not None:
+        files["AK_ONLY"] = "".join(f"{test}\n" for test in only)
+    return (f"head=$(git rev-parse HEAD) || exit\nbash -c {shlex.quote(command)}\ncode=$?\n"
             '[ "$(git rev-parse HEAD)" = "$head" ] && git diff --quiet HEAD ||'
             ' { echo "the piece changed the checkout it tests" >&2;'
             ' : >"${AK_NOT_THERE:-/dev/null}"; [ "$code" != 0 ] || code=1; }\n'
-            'exit "$code"')
+            'exit "$code"'), files
 
 
 def busy_turn(run_dir, log_path, log, command=None, cwd=None):
@@ -1812,7 +1828,9 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwa
     reds = {} if confirmed is not None or checked is not None else None
     flakes = [] if flaky is not None or checked is not None else None
     try:
-        return _run_suite(command, limit, confirmed=reds, flaky=flakes, checked=checked, **kwargs)
+        with _record(kwargs["cwd"]) as times:
+            return _run_suite(command, limit, times=times, confirmed=reds, flaky=flakes,
+                              checked=checked, **kwargs)
     finally:
         if confirmed is not None:
             confirmed.update(reds)
@@ -1821,7 +1839,7 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwa
         history.test_reds(checked, reds, flakes)
 
 
-def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
+def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, flaky=None, named=None, checked=None, asked=None,
               raw=None, absent=None, used=None, **kwargs):
@@ -1854,8 +1872,9 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     `raw` receives each piece's process exits by share, before checking coverage of `only`.
     `absent`, a list, gets with `shard` and `only` the tests the run named as not there where it
     passed what its tree holds (`passes_what_it_holds`), and none otherwise.
-    Every piece gets the file times recorded as the suite starts (`suite_times`): a record
-    another suite changes meanwhile would cut a later piece's share differently.
+    Every piece gets `times`, the file times recorded as the suite starts (`_record`), in the
+    file AK_TIMES names: a record another suite changes meanwhile would cut a later piece's share
+    differently.
     With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, its first
     go asked for at `asked`, a later one as the go before it ended: a turn it waits for is wait.
     `used`, a dict, gets what a command run as one piece used (`worker.boxed`).
@@ -1864,8 +1883,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         if raw is not None and (code != SUITE_BUSY or killed):
             raw.setdefault(share, []).append(None if killed else code)
 
-    times = suite_times.handed(cwd)
-    env = suite_env(times)
+    env = suite_env()
     if shard is not None:
         label, share = ((shard, shard) if only is None else
                         (f"{shard}, its failed tests alone", "1/1"))
@@ -1877,8 +1895,8 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         ran, failed, gone = (None, [], None) if only is None else ([], [], [])
         code, text, killed = worker.boxed(
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
-            env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, absent=gone,
-            flaky=flaky, used=used, **kwargs)
+            env={**env, "AK_SHARD": share}, times=times, only=only, ran=ran, failed=failed,
+            absent=gone, flaky=flaky, used=used, **kwargs)
         observed(shard, code, killed)
         if confirmed is not None and only is not None:
             confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
@@ -1905,7 +1923,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             return aborting() if aborting else False
         failed = []
         result = worker.boxed(["bash", "-c", command], limit, cwd=str(cwd), activity=activity,
-                              output=output, env=env, abort=abort,
+                              output=output, env=env, times=times, abort=abort,
                               cpu=measured.cpu if measured else None,
                               quiet=measured.quiet if measured else None, failed=failed,
                               flaky=flaky, used=used, **kwargs)
@@ -1926,7 +1944,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         path, cpu, mem = suite_cost(command, cwd, run_dir)
         if hold:
             hold.suite((cpu, mem))
-        there_command = pinned(command, times)
+        there_command, there_files = pinned(command, times)
         # Twice the places it starts with, so a faster machine takes more and every place ends
         # near the others; without a turn every piece runs at once.  The helper's count as many
         # as it fits empty: a suite starting on its little room grows into what frees there.
@@ -1934,7 +1952,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         count = 2 * places or derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem,
                                                   unit=True)
         # the piece threads do not inherit this thread's held turn
-        env = suite_env(times)
+        env = suite_env()
         deadline = time.monotonic() + limit
         cancel, writing = threading.Event(), threading.Lock()
         last_shard = None
@@ -2031,8 +2049,8 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     with history.check(checked, f"AK_SHARD={shard} {command}",
                                        asked_at.get(shard, asked), there and there.alias) as ended:
                         here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
-                                                 "only": only, "failed": tests, "flaky": flaky,
-                                                 "used": ended}
+                                                 "times": times, "only": only, "failed": tests,
+                                                 "flaky": flaky, "used": ended}
                         code, _, killed = (worker.limited if there else worker.boxed)(
                             helper.piece(there, shard, there_command)
                             if there else ["bash", "-c", command],
@@ -2143,7 +2161,8 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             run_there(joined)
 
                 def start(said, answer):
-                    joined = helper.start(cpu, mem, cwd, said.append, there_command)[0]
+                    joined = helper.start(cpu, mem, cwd, said.append, there_command,
+                                          files=there_files)[0]
                     with pieces_left.cond:
                         answer.append(joined)
                         pieces_left.cond.notify_all()
@@ -2188,7 +2207,8 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             def elsewhere():    # asked while waiting for a turn here
                 said = []
                 if pieces_left.waiting:
-                    joined[0] = helper.start(cpu, mem, cwd, said.append, there_command)[0]
+                    joined[0] = helper.start(cpu, mem, cwd, said.append, there_command,
+                                             files=there_files)[0]
                 if joined[0]:
                     files.callback(helper.finish, joined[0])
                     for line in said if log else ():
@@ -2204,7 +2224,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 deadline += queued
                 if on_wait is not None:
                     on_wait(queued)
-                env = suite_env(times)
+                env = suite_env()
 
             def wait_busy():
                 nonlocal hold, deadline, env
@@ -2215,7 +2235,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 hold = getattr(_GATE_HELD, "hold", None)
                 if hold is not None:
                     hold.alone()
-                env = suite_env(times)
+                env = suite_env()
 
             # What a machine failed or stopped runs again here, a stopped piece alone, below; what
             # it lost or had no room for, on the first machine with room, this one included. The
@@ -2662,8 +2682,8 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir, chec
         # Each command's header is no record (`$ cmd`, then its exit): those are counted.
         script = "\n".join(f"printf '%s\\n' {shlex.quote(f'--- $ {cmd} ---')} && "
                            f"bash -c {shlex.quote(cmd)} || exit" for cmd in cmds)
-        there_command = pinned(script, suite_times.handed(cwd))
-        away, why = helper.start(*cost, cwd, lambda line: None, there_command)
+        there_command, files = pinned(script, suite_times.handed(cwd))
+        away, why = helper.start(*cost, cwd, lambda line: None, there_command, files=files)
         if away:
             say(f"done-when on the suite helper {away.alias}, as one piece")
             try:

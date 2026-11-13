@@ -21,8 +21,8 @@ func keepProbed(src source, cached, fresh *run.Object) {
 }
 
 // keep is one fresh reading's meters, each a row of history.db's meter_readings measured at that
-// moment by a probe or a turn, with the plan its login is on as state/logins.json names it now,
-// Python's usage._keep.
+// moment by a probe or a turn, with the plan its login is on as state/logins.json names it now and
+// the scope its provider names, Python's usage._keep.
 func keep(src source, meters []*run.Object, at float64, by string) {
 	var plan any
 	if login := logins.Of(src.Name, src.account); login != nil {
@@ -34,10 +34,17 @@ func keep(src source, meters []*run.Object, at float64, by string) {
 		}
 		return nil
 	}
+	text := func(value string) any { // Python's _text: a scope that names nothing is NULL
+		if value == "" {
+			return nil
+		}
+		return value
+	}
 	var rows [][]any
 	for _, meter := range meters {
 		rows = append(rows, []any{src.Name, cmp.Or(src.account, config.DefaultAccount), meter.Get("name"),
-			finite(meter.Get("used")), finite(meter.Get("resets_at")), finite(meter.Get("window_secs")), at, by, plan})
+			finite(meter.Get("used")), finite(meter.Get("resets_at")), finite(meter.Get("window_secs")), at, by, plan,
+			text(meter.Str("scope"))})
 	}
 	history.KeepReadings(rows)
 }

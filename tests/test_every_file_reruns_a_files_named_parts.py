@@ -71,12 +71,13 @@ class EveryFileRerunsAFilesNamedParts(unittest.TestCase):
         """every_file.py's run and output; the stand-in's runs are in ran.log."""
         (self.root / "tests/smoke.sh").write_text("")
         (self.root / "tests/test_acme.py").write_text(STAND_IN)
+        # listed parts share a run
+        (self.root / "times").write_text('{"tests/test_acme.py::acme": 1}')
         env = dict(self.base, HOME=str(self.root), ACME_LOG=str(self.root / "ran.log"),
                    ACME_FAILING_RUNS=str(failing_runs), AK_FAILED=str(self.root / "failed"),
                    AK_FLAKY=str(self.root / "flaky"), AK_RAN=str(self.root / "ran"),
                    AK_NOT_THERE=str(self.root / "not-there"),
-                   AK_CGROUP_FILE=str(self.root / "no-cgroup"),
-                   AK_TIMES='{"tests/test_acme.py::acme": 1}',    # listed parts share a run
+                   AK_CGROUP_FILE=str(self.root / "no-cgroup"), AK_TIMES=str(self.root / "times"),
                    AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}')
         if only is not None:
             (self.root / "only").write_text("".join(f"{test}\n" for test in only))

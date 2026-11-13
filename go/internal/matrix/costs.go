@@ -7,8 +7,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// configRoles is the config's word for each role ak answers, the one ak's runs measure it under.
-var configRoles = map[string]string{"orchestrate": "orchestrator", "execute": "executor", "review": "reviewer"}
+// ConfigRoles is the config's word for each role ak answers, the one ak's runs measure it under.
+var ConfigRoles = map[string]string{"orchestrate": "orchestrator", "execute": "executor", "review": "reviewer"}
 
 // Shares is what ak's own runs measured each offered model's worker roles to take of a week,
 // {model: {effort: {role: share}}}, at the listed prices of the boards as cached (shares).
@@ -77,7 +77,7 @@ func Answer(rows []quality.Row, compared map[string]bool, shares *run.Object) (m
 		measuredShare := func(name, effort string) (float64, bool) {
 			// a row without an effort measured none: ak's runs count only those naming theirs
 			if efforts := shares.Dict(name); effort != "" && efforts != nil && efforts.Dict(effort) != nil {
-				return run.Num(efforts.Dict(effort).Get(configRoles[role]))
+				return run.Num(efforts.Dict(effort).Get(ConfigRoles[role]))
 			}
 			return 0, false
 		}

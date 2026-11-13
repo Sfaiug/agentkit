@@ -37,8 +37,7 @@ Example: `  1  atoll-fix  fable  ● working  ━━━━━╸─────�
 
 Words are plain and explain themselves.
 
-- **Glyphs:** every glyph is followed by its word (`● working`), except ⚒ for builds and ◎ for
-  reviews.
+- **Glyphs:** every glyph is followed by its word (`● working`).
 - **Models:** a model is named in full, its version included: `Opus 5.5`, `gpt-6.1-sol`
   (`config.model_name`).
 - **Subscriptions:** a subscription is named by its provider, with a roman numeral when there

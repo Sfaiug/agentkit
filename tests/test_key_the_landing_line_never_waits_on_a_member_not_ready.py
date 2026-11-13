@@ -68,7 +68,7 @@ class LandingLineNeverWaits(unittest.TestCase):
         done = self.line.land()
         self.assertEqual(done.code, 0, done.out + done.err)
         deadline = time.monotonic() + SETTLE
-        while _strays(self.line.home.path):
+        while _strays(self.line.home.root, self.line.home.tmux_dir):
             self.assertLess(time.monotonic(), deadline, "a woken run is still running")
             time.sleep(0.1)
         return sorted((self.wakes() - before).elements())

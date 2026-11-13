@@ -1,7 +1,6 @@
 package launch
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -13,10 +12,8 @@ import (
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
-	"agentkit/internal/handback"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
-	"agentkit/internal/lock"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -25,11 +22,13 @@ import (
 // jobUndelivered are the task states whose work never landed (job.JOB_UNDELIVERED).
 var jobUndelivered = []string{"failed", "blocked", "stopped"}
 
-// ResumeJob is `ak run resume <job>`, Python's cmd_job_resume, for a job that ends at once: each
-// task still to do is one from a receipt before `after:` went with no run kept, which no fresh run
-// may start, so it goes back to its seat blocked (job_legacy_refusal), and the job's line is handed
-// back to the seat that launched it, woken where it sleeps.  `ak run`'s exit status; any other job
-// is Python's (ErrPython), before anything is written.
+// ResumeJob is `ak run resume <job>`, Python's cmd_job_resume, for the launcher a `--bg` job
+// started apart, which carries it on (adopt) while no task of it started yet, a kept run being
+// Python's to adopt (job_adopt_worker), and for a job that ends at once: each task still to
+// do is one from a receipt before `after:` went with no run kept, which no fresh run may start, so
+// it goes back to its seat blocked (job_legacy_refusal), and the job's line is handed back to the
+// seat that launched it, woken where it sleeps.  `ak run`'s exit status; any other job is Python's
+// (ErrPython), before anything is written.
 func ResumeJob(id string, out io.Writer) (int, error) {
 	dir := filepath.Join(job.Jobs(), id)
 	release, err := run.Hold(dir)
@@ -38,7 +37,13 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 	}
 	receipt, _ := job.Read(dir)
 	release()
-	if !endsAtOnce(receipt) || config.Check() != nil || box.Check() != nil {
+	if receipt == nil || config.Check() != nil || box.Check() != nil {
+		return 0, ErrPython
+	}
+	if ownChild(dir, receipt) && unstarted(receipt) {
+		return adopt(dir, receipt, out)
+	}
+	if !endsAtOnce(receipt) {
 		return 0, ErrPython
 	}
 	say := jobLogger(dir, out)
@@ -61,10 +66,6 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 			}
 		}
 	}
-	if saved == nil {
-		receipt.Set("finished_at", run.Float(seconds()))
-		saved = job.Save(dir, receipt)
-	}
 	if errors.Is(saved, job.ErrStopped) {
 		fmt.Fprintf(out, "%s was stopped; nothing to resume\n", id)
 		return 1, nil
@@ -73,6 +74,16 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 		return 0, saved
 	}
 	return jobEnded(dir, receipt, say)
+}
+
+// unstarted is whether every task of the job is queued and keeps no run, as the job was created.
+func unstarted(receipt *run.Object) bool {
+	for _, each := range receipt.List("tasks") {
+		if task, ok := each.(*run.Object); !ok || task.Str("state") != "queued" || task.Truthy("run_id") {
+			return false
+		}
+	}
+	return true
 }
 
 // jobLogger says a line on out and in the job's log, as Python's job_logger does.
@@ -89,9 +100,10 @@ func jobLogger(dir string, out io.Writer) func(string) {
 	}
 }
 
-// jobEnded is the end of Python's run_job_loop for a job its receipt records finished: what its
-// tasks came to, said and handed back, and `ak run`'s exit status.
+// jobEnded is the end of Python's run_job_loop for a job every task of which settled: the job
+// finished, what its tasks came to said and handed back, and `ak run`'s exit status.
 func jobEnded(dir string, receipt *run.Object, say func(string)) (int, error) {
+	receipt.Set("finished_at", run.Float(seconds()))
 	tasks := receipt.List("tasks")
 	undelivered, stopped, findings, failed := 0, 0, "", []*run.Object{}
 	for _, each := range tasks {
@@ -128,35 +140,14 @@ func jobEnded(dir string, receipt *run.Object, say func(string)) (int, error) {
 		}
 		say("job " + name + ": Done")
 	}
-	if err := handBackJob(dir, receipt, name, text, say); err != nil {
+	accepted, err := handBackJob(dir, receipt, name, text, say)
+	if err != nil {
 		return 0, err
 	}
-	if undelivered > 0 {
+	if undelivered > 0 || !accepted {
 		return 1, nil
 	}
 	return 0, nil
-}
-
-// handBackJob is the end of Python's run_job_loop: the job's line typed into the seat that launched
-// it, under the job's delivery lock, else kept on the receipt for the tick to type at its next
-// quiet prompt.  A seat that went between the look and the line is the tick's to tell the owner of.
-func handBackJob(dir string, receipt *run.Object, name, text string, say func(string)) error {
-	line := text + ". Result: " + filepath.Join(dir, "log.txt") + ". Decide the next step."
-	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
-	if err != nil {
-		return err
-	}
-	defer held.Close()
-	if !receipt.Truthy("seat") {
-		say("no seat launched this job, so nothing is sent; the result is here and in `ak run status`")
-		receipt.Set("card_sent", run.Fields("kind", "needs", "at", receipt.Get("finished_at")))
-		return job.Save(dir, receipt)
-	}
-	if handback.TellJob(dir, receipt, line, say) != handback.Sent {
-		handback.MarkJob(dir, receipt, "handback_pending", line, "handback_card", text)
-		say("job " + name + ": its seat is not at its prompt; the tick hands it back")
-	}
-	return nil
 }
 
 // endsAtOnce is whether the job is one ResumeJob finishes: tasks Go reads, at least one still to

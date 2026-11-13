@@ -635,7 +635,12 @@ def update_agentkit(progress=None, pull=True):
     rule moves through the network wait.  The move goes to `live_target`, and with none
     nothing moves or reinstalls.  `pull=False` only reinstalls what is checked out; a commit
     moves to exactly it, already fetched.
+    Once install.sh passed, a move not final yet is put back (`back.put_back`) where the new
+    version's `ak doctor` fails and the kept one's passes on this home: it is the new program
+    that reads the home wrongly, and its next tick would act on that reading.  A fault both
+    show is the home's.
     """
+    from . import back   # here, before the move: after it, ~/agentkit holds the new version's code
     config.ensure_dirs()
     with (config.TMP / MOVING).open("a") as lock:
         # one at a time, the tick's retry included: otherwise an install.sh that passes clears
@@ -697,6 +702,12 @@ def update_agentkit(progress=None, pull=True):
             if proc.returncode != 0:
                 say(f"update: {shlex.join(cmd)} exited {proc.returncode}")
                 return proc.returncode
+        # while the install is still owed, so no tick ending meanwhile makes the move final
+        doctor = versions.kept() and versions.run([str(directory / "bin" / "ak"), "doctor"],
+                                                  **PINS)[0]
+        if doctor and not versions.run([str(versions.keep_link()), "doctor"], **PINS)[0]:
+            back.put_back(f": its ak doctor exited {doctor} where the kept version's exited 0")
+            return 1
         pending.unlink(missing_ok=True)
         if progress:
             progress(len(steps), len(steps))

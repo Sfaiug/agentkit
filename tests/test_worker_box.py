@@ -539,6 +539,19 @@ class WorkerBox(unittest.TestCase):
         return worker.turn(self.cfg, "w", "fixture task", self.root, self.out,
                            limit=limit, log=self.logs.append)
 
+    def hang(self, term):
+        """A turn that hangs for good, silent for 2 seconds from its hang.  Silence counts from
+        `began` (worker.limited), the box's start; on a busy host the adapter's start, its TERM
+        handler and its child took longer than the limit (12 Nov 2026)."""
+        limited = worker.limited
+
+        def from_hang(*args, began, **kwargs):
+            return limited(*args, began=(self.out / "events.jsonl").exists, **kwargs)
+
+        with patch.dict(os.environ, {"BOX_HANG": "1", "BOX_TERM": term}), \
+                patch.object(worker, "limited", from_hang):
+            return self.turn(limit=2)
+
     def test_credentials_and_unmarked_detached_child(self):
         code, text, _, killed, left = self.turn()
         self.assertEqual((code, killed), (0, False))
@@ -1003,8 +1016,7 @@ class WorkerBox(unittest.TestCase):
                 self.assertNotIn("Traceback", diagnostic)
 
     def test_silence_kills_unmarked_detached_children_too(self):
-        with patch.dict(os.environ, {"BOX_HANG": "1", "BOX_TERM": "exit"}):
-            code, _, session, killed, _ = self.turn(limit=2)
+        code, _, session, killed, _ = self.hang("exit")
         self.assertEqual((code, session, killed), (worker.TIMEOUT, "fixture-session", True))
         self.assertTrue((self.out / "ready").exists())
         self.assertFalse(self.alive())
@@ -1040,9 +1052,8 @@ class WorkerBox(unittest.TestCase):
             self.assertEqual((self.out / "session_id").read_text(), "fixture-session")
 
     def test_term_resistant_turn_is_still_forcibly_destroyed(self):
-        with patch.dict(os.environ, {"BOX_HANG": "1", "BOX_TERM": "ignore"}), \
-                patch.object(worker, "KILL_GRACE", .2):
-            code, _, session, killed, _ = self.turn(limit=2)
+        with patch.object(worker, "KILL_GRACE", .2):
+            code, _, session, killed, _ = self.hang("ignore")
         self.assertEqual((code, session, killed), (worker.TIMEOUT, "fixture-session", True))
         self.assertFalse(self.alive())
 

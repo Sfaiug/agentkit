@@ -316,6 +316,24 @@ class RoleGroups(unittest.TestCase):
                     self.assertIn(f"resumed {directory.name}: reviewer delta eligible again",
                                   self.logs)
 
+    def test_tick_resumes_a_seats_own_pr_on_the_model_that_wrote_it(self):
+        """Its fixer is its writer, a model no worker list holds (`run.review_pr`): refused for
+        usage, the run goes on with it once it has room.  On 12 Nov 2026 seven such reviews
+        waited eleven hours on a refilled window, each tick refusing them as `not a worker`."""
+        directory = config.RUNS / "20260928-0000-own-pr"
+        directory.mkdir()
+        run_record.save_state(directory, {
+            "run_id": directory.name, "state": "exhausted", "quota_dry": True, "step": "executor",
+            "review_pr": "https://github.com/acme/fix-api/pull/7", "own_pr": True,
+            "own_orchestrator": "seat", "executor": "seat", "reviewer": "gamma",
+            "worktree": str(self.root), "workers": ["alpha"], "reviewers": ["gamma", "delta"]})
+        with patch.object(run, "spawn_bg") as spawn:
+            watch.resume_exhausted(self.cfg, self.providers(a=10, c=0), log=self.logs.append,
+                                   now=self.now)
+        spawn.assert_called_once()
+        saved = run_record.read_state(directory)
+        self.assertEqual((saved["executor"], saved["reviewer"]), ("seat", "gamma"))
+
     def test_tick_handover_prefers_a_better_tier_over_a_cheaper_self(self):
         directory = config.RUNS / "20260928-0000-recovery-tier"
         directory.mkdir()

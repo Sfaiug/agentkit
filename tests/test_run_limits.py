@@ -404,7 +404,10 @@ class Limits(unittest.TestCase):
         self.assertTrue([cmd for cmd, _, _ in seen if cmd[0] == "git"])
         for cmd, timeout, env in seen:
             self.assertIsInstance(timeout, (int, float), cmd)
-            self.assertTrue(0 < timeout <= run.TOOL_CAP, (cmd, timeout))
+            if cmd[0] == "gh" or {"fetch", "push", "ls-remote"} & set(cmd):
+                self.assertTrue(0 < timeout <= run.TOOL_CAP, (cmd, timeout))
+            else:   # it asks no remote: longer by the host's load
+                self.assertTrue(0 < timeout <= gitcall.LOCAL_CEILING, (cmd, timeout))
             self.assertEqual(env.get("GIT_TERMINAL_PROMPT"), "0", cmd)
             self.assertEqual(env.get("GH_PROMPT_DISABLED"), "1", cmd)
 
@@ -757,7 +760,7 @@ class Limits(unittest.TestCase):
         slow.mkdir()
         self.script(slow / "git", 'import time\ntime.sleep(60)\n')
         with patch.dict(os.environ, {"PATH": f"{slow}:{os.environ['PATH']}"}), \
-                patch.object(gitcall, "TOOL_CAP", 1):
+                patch.object(gitcall, "local_cap", return_value=1):
             with self.assertRaisesRegex(config.Error, "was killed after 1s"):
                 run.git(self.work, "remote", check=False)
 

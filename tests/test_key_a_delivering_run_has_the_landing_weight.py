@@ -1,5 +1,5 @@
-"""A run delivering a green landing verdict has the landing check's CPU weight on its own unit,
-and a run's again where it rejoins the line.
+"""A run delivering a green landing verdict has the landing check's CPU weight on its own unit;
+tests/test_key_a_run_yields_the_cpu_to_a_line_s_check.py has what it has before and after.
 
 The delivery is the same landing as the line's check, which runs at the top weight; at a run's,
 each delivery crawled beside a check and every member behind it waited (11 Nov 2026).
@@ -49,10 +49,12 @@ def weight(unit, value):
     return ["--user", "set-property", "--runtime", f"{unit}.scope", f"CPUWeight={value}"]
 
 
-class DeliveringRunHasTheLandingWeight(unittest.TestCase):
-    def deliver(self, code=0, moved=False):
+class Delivery:
+    def deliver(self, answers="", moved=False):
         """A task's run, from its start to its end, beside a manager that answers set-property
-        with `code`, its target moving as its first delivery starts where `moved`; its record."""
+        as the shell case arms `answers` say first, `{root}` the test's own folder, and 0 where
+        they say nothing, its target moving as its first delivery starts where `moved`; its
+        record."""
         line = Line({"AGENTS.md": rules("sh suite.sh"), "t/ok.sh": "true\n"})
         self.addCleanup(line.close)
         self.home = home = line.home
@@ -74,7 +76,8 @@ class DeliveringRunHasTheLandingWeight(unittest.TestCase):
                                clone=shlex.quote(str(clone)))
         home.fake("systemctl", LOG.format(python=shlex.quote(sys.executable),
                                           log=shlex.quote(str(home.log("systemctl"))))
-                  + move + f'case " $* " in *" set-property "*) exit {code} ;; esac\nexit 1\n')
+                  + move + 'case " $* " in ' + answers.format(root=shlex.quote(str(home.root)))
+                  + '*" set-property "*) exit 0 ;; esac\nexit 1\n')
         GitHub(home).grant(line.rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude="work", codex="pass")
@@ -90,22 +93,24 @@ class DeliveringRunHasTheLandingWeight(unittest.TestCase):
         return [argv for argv in self.home.calls("systemctl")
                 if argv[:4] == ["--user", "set-property", "--runtime", f"{unit}.scope"]]
 
+    def warned(self):
+        """The run's log lines that say a CPU weight was not set."""
+        lines = (self.run_dir / "log.txt").read_text().splitlines()
+        return [line for line in lines if "WARN" in line and "CPUWeight" in line]
+
+
+class DeliveringRunHasTheLandingWeight(Delivery, unittest.TestCase):
     def test_a_green_member_merges_at_the_checks_weight(self):
         unit = self.deliver()["scope"]
         self.assertTrue(unit.startswith("agentkit-run-"), unit)
-        self.assertEqual(self.asked(unit), [weight(unit, 10000)])
+        idle, top = weight(unit, "idle"), weight(unit, 10000)
+        self.assertEqual(self.asked(unit), [idle, idle, top])
 
-    def test_a_member_whose_target_moved_rejoins_at_a_runs_weight(self):
-        unit = self.deliver(moved=True)["scope"]
-        self.assertEqual(self.asked(unit),
-                         [weight(unit, 10000), weight(unit, 40), weight(unit, 10000)])
-
-    def test_a_refusing_manager_costs_one_warn_line_and_the_run_merges(self):
-        unit = self.deliver(code=1)["scope"]
-        self.assertEqual(self.asked(unit), [weight(unit, 10000)])
-        lines = (self.run_dir / "log.txt").read_text().splitlines()
-        self.assertEqual(len([line for line in lines if "WARN" in line and "CPUWeight" in line]),
-                         1, lines)
+    def test_a_refusing_manager_costs_a_warn_line_a_weight_but_idle_and_the_run_merges(self):
+        unit = self.deliver('*" set-property "*) exit 1 ;; ')["scope"]
+        idle, run, top = weight(unit, "idle"), weight(unit, 40), weight(unit, 10000)
+        self.assertEqual(self.asked(unit), [idle, run, idle, run, top])
+        self.assertEqual(len(self.warned()), 3, self.warned())
 
 
 if __name__ == "__main__":

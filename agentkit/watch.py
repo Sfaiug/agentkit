@@ -81,6 +81,9 @@ KEY_GAP = 0.5           # text and Enter go separately: a return in the same rea
                         # 0.153.4 and Muse 1.2.1, 0.10 s still lost it and 0.15 s did not
 SENT_WAIT = 5.0         # how long a typed line gets to show whole in its composer, and to leave it
 SENT_POLL = 0.5         # ... polling the pane this often for its absence
+MOVE_STANDS = 3 * SENT_WAIT     # a move's lines unchanged this long are the tick's: a harness
+                        # drew what it asks up to 4 s after the line, at a load of 68 on 18 cores
+                        # (11 Nov 2026)
 RESUME_EVERY = 600      # seconds between resume attempts for one exhausted run: a start that
                         # failed -- and a launch already on its way -- is retried at most this often
 DEAD_BACKOFF = 600      # a loop that dies again this soon after its resume waits this long
@@ -730,17 +733,15 @@ def relaunched(name, harness, line, at, boot=None, account=False):
                               **({"account": True} if account else {})})
 
 
-def prompted_since(name, at):
-    """Has a prompt gone into that seat since `at` -- the line, or his own?
+def prompted_at(name):
+    """When the last prompt went into that seat, or 0 with none (`plan.prompted`)."""
+    from . import plan as plan_mod
+    return plan_mod.prompted(name)[0]
 
-    hooks/seat-state.sh stamps each prompt's moment into the seat's stop file, whichever
-    harness it came from, and a turn that has since finished keeps that stamp.
-    """
-    try:
-        turn = json.loads(config.stop_path(name).read_text(encoding="utf-8")).get("turn")
-    except (OSError, ValueError, AttributeError, config.Error):
-        return False
-    return isinstance(turn, (int, float)) and not isinstance(turn, bool) and turn > at
+
+def prompted_since(name, at):
+    """Has a prompt gone into that seat since `at` (`prompted_at`)?"""
+    return prompted_at(name) > at
 
 
 def continue_turns(cfg, log, accounts=False, names=None):
@@ -4496,22 +4497,63 @@ def drafts_back(cfg):
     back, every read and key of the step on that pane, whichever the owner selects: the editor
     hands it back only into an empty composer, however the pass that put ak's line in its place
     ended.  A line still in the composer is the mark's pass to send first, and a line the seat
-    is owed (a `midturn` mark) goes before any text back; text a switch carried (`carry_draft`)
-    goes back at once after it."""
-    seats = [session for session in orch.sessions() if not session.get("legacy")
-             and not any(session.get(key) for key in orch.CLOSED)]
-    for session in seats:
-        if not _editor_kept(session):   # most ticks keep nothing: no seat's send lock waited on
-            continue
-        with notify.session_lock(session["name"]):
-            if seat_read(session["name"]).get("midturn"):
-                continue    # its line goes first: text back in the composer would go with it
-            for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
-                bound = dict(session, pane=pane)
-                where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
-                read = where and _editor_read(bound, where, cfg)
-                if read and composer_draft(read[0], read[1]) == "":
-                    _edit(bound, where, "back")
+    is owed (a `midturn` mark no prompt has gone in since, as `continue_turns` reads it) goes
+    before any text back.  Text a switch carried goes back sooner, by these same rules
+    (`carried_back`); this pass gives back what that could not."""
+    for session in orch.sessions():
+        _draft_back(session, cfg)
+
+
+def _draft_back(session, cfg):
+    """`drafts_back`'s pass on that seat, where it is open: whether it still keeps text set aside
+    after it, as far as tmux can say."""
+    if (not session or session.get("legacy") or any(session.get(key) for key in orch.CLOSED)
+            or not _editor_kept(session)):  # most keep nothing: no seat's send lock waited on
+        return False
+    with notify.session_lock(session["name"]):
+        mark = seat_read(session["name"]).get("midturn")
+        if mark and not prompted_since(session["name"], mark.get("at", math.inf)):
+            return True     # its line goes first: text back in the composer would go with it
+        aside = False
+        for pane, (state, _) in sorted((_editor_kept(session) or {}).items()):
+            bound = dict(session, pane=pane)
+            where = state == aside_editor.ASIDE and seat_editor(bound, cfg)
+            read = where and _editor_read(bound, where, cfg)
+            aside |= state == aside_editor.ASIDE and not (
+                read and composer_draft(read[0], read[1]) == ""
+                and _edit(bound, where, "back") == "sent")
+        return aside
+
+
+CARRY_WAIT = 60     # how long text a switch carried waits for the harness launched to show its
+                    # composer empty, before the tick's pass is what gives it back
+
+
+def carried_back(name):
+    """Text a switch carried (`carry_draft`) given back by `drafts_back`'s rules as soon as the
+    harness launched in that seat shows its composer empty: tried each SENT_POLL for CARRY_WAIT,
+    under the seat's lock, which the switch holds over its respawn and the line it marks."""
+    for _ in range(int(CARRY_WAIT / SENT_POLL)):
+        if not _draft_back(orch.find(name), None):
+            return
+        time.sleep(SENT_POLL)
+
+
+def start_carried_back(name):
+    """`carried_back` for that seat in a process of its own session, started unmarked, which
+    marks itself: the switch returns at once, and the menu or popup it came from ends none of
+    it by ending.  The process, or None where none could start, which leaves the text to the
+    tick's pass."""
+    try:
+        return subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+             "from agentkit import owner, watch; owner.mark('draft return'); "
+             "watch.carried_back(sys.argv[2])",
+             str(Path(__file__).resolve().parents[1]), name],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, env=owner.unmarked())
+    except OSError:
+        return None
 
 
 def _past_text(session, cfg=None):
@@ -4578,14 +4620,15 @@ def carry_draft(session, harness, pane, to, cfg=None):
     harness, on any turn: its composer read empty, through `harness`, else the one its pane
     runs (`orch.pane_harness`), as a seat whose model left the config does; or lifted whole by
     ak's editor (its `line` step with no line) into its pane's kept buffer, which the respawn
-    keeps with the pane and `drafts_back` hands the harness launched there next, or left there,
-    set aside already for a line of ak's.  Not where the editor gives no answer, or finds text
-    typed since that set aside, which no step merges.  Only through ak's editor, which reads a
-    composer whole, and only to a harness (`to`) that opens it too: a screen draws a draft late,
-    wrapped and cropped, and elsewhere the text would go with the old harness.  Not where the
-    editor may not be asked a step now either (`_editor_read`): a question or picker drawn
-    since, or input unread, would take its keys.
-    Under the seat's lock its caller holds over the respawn too, so no tick hands the text back
+    keeps with the pane, or left there, set aside already for a line of ak's -- and either way
+    handed to the harness launched there next as soon as it shows its composer empty
+    (`start_carried_back`).  Not where the editor gives no answer, or finds text typed since
+    that set aside, which no step merges.  Only through ak's editor, which reads a composer
+    whole, and only to a harness (`to`) that opens it too: a screen draws a draft late, wrapped
+    and cropped, and elsewhere the text would go with the old harness.  Not where the editor may
+    not be asked a step now either (`_editor_read`): a question or picker drawn since, or input
+    unread, would take its keys.
+    Under the seat's lock its caller holds over the respawn too, so nothing hands the text back
     to the harness going; the pane is read again under it, as the caller's capture predates a
     paste or picker taken since."""
     pane = pane_text(session)
@@ -4597,8 +4640,11 @@ def carry_draft(session, harness, pane, to, cfg=None):
             pane.strip() and _picker_up(harness, live_state(session, harness, pane=pane, cfg=cfg))):
         return True
     where = screen(to).get("editor") and seat_editor(session, cfg)
-    return bool(where and _editor_read(session, where, cfg)
-                and _edit(session, where, "line") in ("line", "unsent"))
+    if not (where and _editor_read(session, where, cfg)
+            and _edit(session, where, "line") in ("line", "unsent")):
+        return False
+    start_carried_back(session["name"])
+    return True
 
 
 def _mark(session, text):
@@ -5017,6 +5063,42 @@ def tell_owed(name, log, cfg=None):
             tell_owed(name, log, cfg)
 
 
+def tell_moves(name, log, cfg=None):
+    """`tell_owed`'s passes for that seat, SENT_POLL apart, while it is owed a move's line
+    (`switch`): one types the line, the next answers what its harness asks in its composer's
+    place, the next reads that composer back and types the next line, so a move is in within
+    seconds.  Over once its lines stand as they were for MOVE_STANDS: a harness slower than
+    that, or busy in a turn, is the tick's at its next prompt.  One pass where none is owed."""
+    last = stood = None
+    while True:
+        tell_owed(name, log, cfg)
+        with notify.session_lock(name) as name:     # its name now: a rename takes its lines along
+            lines = seat_read(name).get("owed_lines") or []
+        if lines != last:
+            last, stood = lines, time.monotonic()
+        if (not any(owed.get("switch") for owed in lines)
+                or time.monotonic() - stood >= MOVE_STANDS):
+            return
+        time.sleep(SENT_POLL)
+
+
+def move_behind(name):
+    """`tell_moves` for that seat in a process of its own session, as a look goes
+    (`start_look`), saying what it did in the tick's log (`note`): a move owes its lines and goes
+    on, so no menu waits for a harness to redraw, and seats moved together move side by side.
+    It marks itself.  Where it cannot start, the tick types the lines."""
+    try:
+        subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+             "from agentkit import owner, watch; owner.mark('seat move'); "
+             "watch.tell_moves(sys.argv[2], watch.note)",
+             str(Path(__file__).resolve().parents[1]), name],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True, env=owner.unmarked(config.owner_env()))
+    except OSError:
+        pass
+
+
 def seat_subscription(cfg, provider, name):
     """The subscription of that provider the seat is on, or None where it lists none."""
     if not config.accounts(cfg, provider):
@@ -5296,6 +5378,12 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         # Nothing to continue and no wait to suppress: the between-turns move
         # home below still applies, and starts no turn.
     observed = live.get("usage_refusal") or {}
+    if (observed.get("handled") and observed["at"] < prompted_at(name) < (
+            _stamp(live.get("hooked_at")) or 0) and not _turn_in_flight(harness, live)[0]):
+        # A provider refuses every turn of a spent model in the same words, so the words do not
+        # make a refusal the one acted on: a prompt went in since, and its turn is over too --
+        # until then the conversation still ends on the old one, whatever was heard mid-turn.
+        observed = {}
     until = turns.try_again_at(line) if refusal else None
     handled = observed.get("line") == line and observed.get("handled")
     if handled and not waiting and not spent(current):
@@ -6205,11 +6293,6 @@ def _launch_grace(state, now):
     return now - started < handback.QUEUED_GRACE
 
 
-def _dead_parked(state):
-    deaths = state.get("deaths") or []
-    return bool(deaths) and isinstance(deaths[-1], dict) and deaths[-1].get("parked")
-
-
 def _backoff_until(deaths):
     for death in reversed(deaths):
         if not isinstance(death, dict):
@@ -6243,7 +6326,8 @@ def _dead_plan(state, run_dir, now):
     # record itself. Noticing the same dead pid again would launch a second loop.
     if _resume_ordered(state, now):
         return "skip", deaths, ""
-    reaped = last and last.get("pid") == pid and not last.get("parked") and not last.get("resumed_at")
+    ending = transitions.loop_death(state)    # `last`, where it is this loop's ending
+    reaped = bool(ending) and not ending.get("parked") and not ending.get("resumed_at")
     # The hour runs to the death being judged, not to the tick judging it: a tick that gets
     # to a recorded death late must not age the first of three out of the window.
     upto = last.get("at") if reaped else now
@@ -6324,14 +6408,17 @@ def dead_loop(state, run_dir, now):
     status = state.get("state")
     if status not in (*run_record.ACTIVE, "interrupted"):
         return None
-    if status == "interrupted" and not (state.get("deaths") or []):
-        # An interruption with no death recorded on it is not this pass's: a
+    if status == "interrupted" and not transitions.loop_death(state):
+        # An interruption with no death of its loop recorded on it is not this pass's: a
         # failed launch, a worktree that went, an older record a person was told
         # about. Only a loop whose death was noticed -- here, or by the reap that
         # got to it first -- is one the tick carries on.
         return None
-    if (_dead_parked(state) or _launch_grace(state, now) or run_record.process_active(state)
-            or _run_working(run_dir)):
+    holding = state.get("resume_after")
+    if isinstance(holding, (int, float)) and not isinstance(holding, bool) and now < holding:
+        return None     # a death waiting out its backoff: the hold is the record's, as reap reads it
+    if (transitions.dead_parked(state) or _launch_grace(state, now)
+            or run_record.process_active(state) or _run_working(run_dir)):
         return None
     plan = _dead_plan(state, run_dir, now)
     return None if plan[0] in ("skip", "wait-quiet") else plan
@@ -8637,7 +8724,7 @@ def local_passes(state, dry_run, log):
         # run that is over is told so, which ends the wait; a seat ak reopened, what it missed.
         ("job handbacks", lambda: jobs.deliver_job_handbacks(log), False),
         ("ended waits", lambda: wait_over(config.load(), log), False),
-        ("owed lines", lambda: [tell_owed(name, log) for name in config.session_records()], False),
+        ("owed lines", lambda: [tell_moves(name, log) for name in config.session_records()], False),
         # Every feature switch on for everyone for two weeks becomes a line in the plan of a seat
         # on its project, to take out of the code.
         ("switch retirement", lambda: retire.hand(log), False),

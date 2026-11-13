@@ -58,6 +58,16 @@ func TestDraftPickerKeepsAReviewerAndIndependentGroups(t *testing.T) {
 	}
 }
 
+func TestANewSeatsCrewIsOneLineCutToItsRoomOnAPhone(t *testing.T) {
+	d := &Draft{Hint: "fix-api", Orchestrator: "opus", Workers: []string{"astra"}, Reviewers: []string{"fable"},
+		Models: map[string]config.Model{"opus": {ID: "default"}, "astra": {ID: "default"}, "fable": {ID: "default"}}}
+	v, s := (View{New: d}).withNew(), terminal.Screen{}
+	got := d.block(s, v.Seats[0], columns(s, v.Seats, 40))
+	if len(got) != 2 || strings.TrimSpace(got[1].line) != "opus orchestrates   astra builds…" {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestDraftStaysVisibleAcrossPagesAndKeepsTheNameCaret(t *testing.T) {
 	for _, width := range []int{100, 40, 24} {
 		d := draftOf()

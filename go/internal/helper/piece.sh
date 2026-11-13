@@ -20,6 +20,9 @@ done
 # its tree does not hold, which mac.sh's `failed` hands ak.
 export PATH="$PATH:/home/ak/stand-ins" SHELL=/bin/bash LANG=C.UTF-8 AK_SHARD="$shard" \
   AK_FAILED=/out/failed AK_FLAKY=/out/flaky AK_RAN=/out/ran AK_NOT_THERE=/out/not-there
+# Its test times and the tests to run alone, beside heads where ak sent them: a file holds any
+# length, which one argument of the command does not.
+for name in AK_TIMES AK_ONLY; do [ ! -f "/in/$name" ] || export "$name=/in/$name"; done
 offline() {
   unshare --user --map-current-user --net --keep-caps sh -c \
     'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"

@@ -157,7 +157,7 @@ class ABoxSeesTheHostsProcesses(unittest.TestCase):
         with mock.patch.object(shadow, "CAP", 3):
             done = self.boxed("sh", "-c", "sleep 600 &")
         self.assertTrue(done["cut"], done)
-        self.assertEqual(_strays(self.home.path), [])
+        self.assertEqual(_strays(self.home.root, self.home.tmux_dir), [])
 
 
 if __name__ == "__main__":

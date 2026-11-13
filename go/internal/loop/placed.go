@@ -18,28 +18,43 @@ import (
 // kill names after the process that knew it is gone, or none and why.  A run a unit held before,
 // one its lander wakes, goes in a unit no leftover of that one holds.
 func place(dir string, cmd *exec.Cmd, detached bool, record *run.Object) (int, error) {
-	capMB, err := run.MemoryCapMB(host.SliceMemoryMax())
-	if err != nil {
-		return 0, err
-	}
 	unit := "agentkit-run-" + filepath.Base(dir)
 	if !unitless(record) {
+		var err error
 		if unit, err = host.FreeUnit(unit); err != nil {
 			return 0, err
 		}
 	}
-	pid, scope, reason, err := host.Place(cmd, filepath.Join(dir, "log.txt"), unit, host.Limits(capMB, host.RunWeight), detached)
+	pid, err := Place(cmd, filepath.Join(dir, "log.txt"), unit, detached, record)
+	if err != nil {
+		return 0, err
+	}
+	scope := record.Str("scope")
+	if scope == "none" {
+		scope = "none (" + record.Str("scope_reason") + ")"
+	}
+	appendLog(dir, stamped("scope: "+scope))
+	return pid, nil
+}
+
+// Place starts cmd, a run's driver or a job's launcher, in the unit of that name with a run's
+// weight and memory cap, its output appended to that file, and says on the record where it went,
+// Python's start_in_slice and remember_memory_cap: its unit and the cap it holds, or none and why.
+func Place(cmd *exec.Cmd, output, unit string, detached bool, record *run.Object) (int, error) {
+	capMB, err := run.MemoryCapMB(host.SliceMemoryMax())
+	if err != nil {
+		return 0, err
+	}
+	pid, scope, reason, err := host.Place(cmd, output, unit, host.Limits(capMB, host.RunWeight), detached)
 	if err != nil {
 		return 0, err
 	}
 	if scope == "none" {
 		run.SetAll(record, "scope", scope, "scope_reason", reason)
 		record.Delete("memory_cap_mb")
-		scope = "none (" + reason + ")"
 	} else {
 		run.SetAll(record, "scope", scope, "scope_reason", nil, "memory_cap_mb", capMB)
 	}
-	appendLog(dir, stamped("scope: "+scope))
 	return pid, nil
 }
 

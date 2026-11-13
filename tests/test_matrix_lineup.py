@@ -125,7 +125,7 @@ class Answer(unittest.TestCase):
         self.assertEqual(matrix.answer(self.lineup)["orchestrate"],
                          {"cost_unit": "board_dollars", "rated": [], "best": None,
                           "pick": None, "front": [], "take": None, "choices": [],
-                          "others": []})
+                          "others": [], "whys": {}})
 
     def test_a_take_is_picked_even_when_yours_is_measurably_worse(self):
         lineup = [dict(row, yours=row["yours"] if row["release"] == "crux-1" else [])

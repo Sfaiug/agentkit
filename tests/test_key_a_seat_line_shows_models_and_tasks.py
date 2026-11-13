@@ -1,9 +1,10 @@
 """A seat's line shows who builds, who reviews and each task in flight, never what it said.
 
 The owner, 9 Nov 2026: "I think only models and the current runs should be shown."  So a seat
-that needs the owner opens each model building ⚒ and reviewing ◎ its work, then each task in
-flight as its squares, never its question.  Black-box: `AK_BIN` from a pipe, where every row
-opens, beside an akseat.py seat, its question and `ak run`'s records; fails on `/bin/false`.
+that needs the owner opens its orchestrator and each model building and reviewing its work,
+then each task in flight as its squares, never its question.  Black-box: `AK_BIN` from a pipe,
+where every row opens, beside an akseat.py seat, its question and `ak run`'s records; fails on
+`/bin/false`.
 """
 
 import re
@@ -41,9 +42,10 @@ class ASeatThatNeedsYou(unittest.TestCase):
         at = next((n for n, line in enumerate(lines) if re.match(r"[› ] 1  fix-api ", line)), None)
         self.assertIsNotNone(at, done.out)
         self.assertIn("! needs you", lines[at])
-        # under the name: the builder, the reviewer, then one building and one in review
-        self.assertEqual(lines[at + 1], "     Spark 1.3 Contributor xhigh ⚒   "
-                                        "Opus 5.5 xhigh ◎   ■□□  ■■□")
+        # under the name: the orchestrator reviewing, the builder, then one building and one in
+        # review
+        self.assertEqual(lines[at + 1], "     Opus 5.5 xhigh orchestrates, reviews   "
+                                        "Spark 1.3 Contributor xhigh builds   ■□□  ■■□")
         self.assertNotIn("Which branch", done.out)
 
 

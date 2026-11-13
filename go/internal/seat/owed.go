@@ -134,7 +134,7 @@ func TellOwed(name string, log func(string)) (bool, error) {
 		receiptErr = replace(name, next)
 		read = next
 		return receiptErr
-	}, log, stale)
+	}, log, stale, true)
 	if !sent {
 		return true, receiptErr
 	}

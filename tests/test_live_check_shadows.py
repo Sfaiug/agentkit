@@ -27,12 +27,13 @@ from test_shadow import OUTER
 # What the check needs of the commit's tests/ but its suite: the shadow, and what it imports.
 CARRIED = ("live.sh", "shadow.py", "fixtures/akbin.py", "test_go.py", "suite_shares.py")
 # The stand-in `go`: `go build -o <path> ...` writes there a fake Go running the commit's bin/ak,
-# two folders up from its go/bin/ak, then `{more}`, and exiting as Python did.
+# two folders up from its go/bin/ak, writing no bytecode, as no Go does, then `{more}`, and
+# exiting as Python did.
 BUILD = """for arg do [ "$was" != -o ] || out=$arg; was=$arg; done
 mkdir -p "$(dirname "$out")"
 cat >"$out" <<'EOF'
 #!/bin/sh
-"$(dirname "$0")/../../bin/ak" "$@"
+PYTHONDONTWRITEBYTECODE=1 "$(dirname "$0")/../../bin/ak" "$@"
 code=$?
 {more}
 exit $code
@@ -66,8 +67,11 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
         logged = LOG.format(python=shlex.quote(sys.executable),
                             log=shlex.quote(str(self.home.log("go"))))
         self.home.fake("go", logged + ("exit 1\n" if more is None else BUILD.format(more=more)))
+        # As the tick starts it, nothing in its environment keeps Python's bytecode out of the
+        # check's tree under HOME.
         done = self.home.run(*self.home.box(OUTER), "bash", "tests/live.sh", cwd=check / "tree",
-                             env={"AK_LIVE_FAILED": str(check / failed)},
+                             env={"AK_LIVE_FAILED": str(check / failed),
+                                  "PYTHONDONTWRITEBYTECODE": None, "PYTHONPYCACHEPREFIX": None},
                              timeout=900)
         return done, check
 

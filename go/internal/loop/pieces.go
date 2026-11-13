@@ -52,13 +52,13 @@ type piece struct {
 // there first, which decides (helperReds).  A red piece here goes once more alone after the others,
 // which decides it, a pass then said by a `flaky:` record unless the kernel killed it for memory
 // (starved.go); one stopped at its limit stops the rest.  A whole go after the others runs on a turn
-// here, taken first where the suite holds none, and a go told it holds one that answers busy never
-// ran: its first beside the others or any go after, it goes again alone once its turn was given
-// back for a poll (again).  Each go leaves its row in history under rows where it ran, those on the
-// helper dropped where it hands the suite on.  Once the pieces ended, before any go after them, the
-// pass keeps what it held here as the suite's cost (measure).  The suite ends as the red piece
-// redRank ranks first did, and hands on what handedOn says, its cost raised where it ran out of
-// memory, however it ended, but where it is handed on (overflowed).
+// here, taken first where the suite holds none, and a go here that answers busy never ran: its
+// first beside the others or any go after, it goes again alone after a poll, its turn given back
+// meanwhile where it held one (again).  Each go leaves its row in history under rows where it ran,
+// those on the helper dropped where it hands the suite on.  Once the pieces ended, before any go
+// after them, the pass keeps what it held here as the suite's cost (measure).  The suite ends as
+// the red piece redRank ranks first did, and hands on what handedOn says, its cost raised where it
+// ran out of memory, however it ended, but where it is handed on (overflowed).
 //
 // What Python does beyond that is not Go's yet and differs here: the suite's pace.
 func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
@@ -266,8 +266,8 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 	if err := measured.kept(l.ctx, suitePath(l.dir, cwd, cmd), all, on); err != nil {
 		return ran{}, "", err
 	}
-	// a go that answered busy never ran: alone, it goes again each time once its turn was given back
-	// for a poll (again); one on the suite helper held none here
+	// a go that answered busy never ran: alone, it goes again each time after a poll (again); one on
+	// the suite helper runs here next, as any red there
 	settle := func(at *piece, why string, only []string) error {
 		for at.there == nil && ctx.Err() == nil {
 			if busy, err := l.again(on, cmd, at.ended, deadline); err != nil || !busy {

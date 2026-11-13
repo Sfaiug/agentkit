@@ -40,6 +40,11 @@ func Cells(text string) int {
 
 // Plain is text with no escape or other control character, on one line, one space between its words.
 func Plain(text string) string {
+	return strings.Join(strings.FieldsFunc(printable(text), config.Space), " ")
+}
+
+// printable is text with no escape or control character other than a space character.
+func printable(text string) string {
 	var kept strings.Builder
 	text = ansi.ReplaceAllString(text, "")
 	for i, r := range text {
@@ -49,13 +54,27 @@ func Plain(text string) string {
 			kept.WriteRune(r)
 		}
 	}
-	return strings.Join(strings.FieldsFunc(kept.String(), config.Space), " ")
+	return kept.String()
 }
 
 // Cut fits text in room with one ellipsis, preferring a word boundary at most four
 // columns before the cut.
 func Cut(text string, room int) string {
-	text = Plain(text)
+	return cut(Plain(text), room)
+}
+
+// CutSpaced is Cut keeping text's own spacing, each space character one space (terminal.cut's
+// spaced).
+func CutSpaced(text string, room int) string {
+	return cut(strings.Map(func(r rune) rune {
+		if config.Space(r) {
+			return ' '
+		}
+		return r
+	}, printable(text)), room)
+}
+
+func cut(text string, room int) string {
 	if Cells(text) <= room {
 		return text
 	}
