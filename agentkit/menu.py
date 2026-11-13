@@ -5232,10 +5232,10 @@ def models_page(cfg, keyboard):
             cfg["providers"].setdefault(entry["provider"], copy.deepcopy(tables[entry["provider"]]))
         return _saved(cfg, cfg, before)
 
-    # each harness's models as the page opened, {id: name}: one its catalog does not list keeps
-    # a row of its own, taken out here or not
-    ran = {harness: {cfg["models"][name]["model"]: config.model_name(cfg, name)
-                     for name in on(harness)} for harness in harnesses}
+    # harness: {id: name} each model it ran as its list was read here: one its catalog does not
+    # list keeps a row of its own while the page is open, taken out here or not, and one taken
+    # in here that a login leaves out of the listing read again
+    ran = {}
 
     def listing(harness):     # what a harness's row opens onto: (model, the provider it is
         if harness not in config.provider_hosts():      # listed under) each, (None, one to log in)
@@ -5247,6 +5247,8 @@ def models_page(cfg, keyboard):
             rows = [(model, by[provider]) for (((_, provider), model), _)
                     in _through_choices(cfg, harness, listed, ("config · models",))
                     if model or provider in cfg["providers"]]
+        ran.setdefault(harness, {}).update((cfg["models"][name]["model"],
+                                            config.model_name(cfg, name)) for name in on(harness))
         ids = {model["id"] for model, _ in rows if model}
         return rows + [({"id": model, "label": label}, None)
                        for model, label in ran[harness].items() if model not in ids]
