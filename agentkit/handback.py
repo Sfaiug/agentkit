@@ -39,13 +39,12 @@ STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is o
 
 
 def followup_place(text):
-    """The review's site, independent of its wording or Markdown decoration: the whole path a
-    follow-up begins with (`hand_in.item_text`), past the backticks or stars that open it, its
-    own spaces and stars and all, so `beta app/api.py:1` is not `alpha app/api.py:1` nor
-    `beta*/api.py:1` `alpha*/api.py:1`, and its line."""
-    site = re.match(r"[`*\s]*(?:\./)?(.+?):(\d+)\b", text)
+    """The review's site, independent of its wording: the path a follow-up begins with
+    (`hand_in.item_text`, relative to the checkout), every character of it, and its line, so
+    `beta app/api.py:1`, `beta*/api.py:1` and `*alpha/api.py:1` are not `alpha...`'s."""
+    site = re.match(r".+?:\d+\b", text)
     if site:
-        return f"{site[1]}:{int(site[2])}"
+        return site[0]
     return text.splitlines()[0].strip()
 
 
