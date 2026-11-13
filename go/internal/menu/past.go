@@ -13,6 +13,7 @@ import (
 // PastSeat is a stopped seat's row, dated by the owner's close rather than its launch.
 type PastSeat struct {
 	Seat
+	Said    string // what opens under its row: the first sentence of its plan's first done line
 	Closed  float64
 	Restart string
 }
