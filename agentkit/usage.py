@@ -1203,14 +1203,27 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     return True
 
 
-def _worker_rank(account, reading, low=False):
+def _worker_rank(account, reading, cfg=None, model=None):
     """Where an account stands for a worker turn, lowest first: one on credits after every one
-    with a window left, the usual login too, and one running `low` after every one that is not."""
-    spent = reading["exhausted"]
-    unknown = reading["budget_reason"] is not None
+    with a window left, the usual login too, and one whose budget is unknown with the usual
+    login and after it.
+
+    For a `model`, on what that model reads there alone, so another model's spent cap leaves the
+    login room, and one running low on it after every one that is not.  Unknown is then only a
+    reading ak cannot read, which may be logged out and is no safer than one running low; one
+    giving the model no budget still says what its 5h window has left.
+    """
+    if model is None:
+        spent, credits, low = reading["exhausted"], reading["on_credits"], False
+        unknown, budget = reading["budget_reason"] is not None, reading["budget"]
+    else:
+        read = {config.model(cfg, model)["provider"]: reading}
+        spent, credits = model_exhausted(cfg, model, read)[0], on_credits(cfg, model, read)
+        unknown = bool(reading.get("error")) or _stale(reading, time.time())
+        low, budget = unknown or model_low(cfg, model, read), model_budget(cfg, model, read)[0]
     usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
     group = 1 if usual else (0 if not spent else 2)
-    return (spent, reading["on_credits"], low, group, unknown, -reading["budget"])
+    return (spent, credits, low, group, unknown, -budget)
 
 
 def account(cfg, provider, model=None):
@@ -1218,9 +1231,9 @@ def account(cfg, provider, model=None):
 
     The one `_gate_flags` put first: another account with room before the usual login,
     the usual one only when none of them has any, then the most budget, then the order
-    the config lists them in; for a `model`, one running low on the meters gating it
-    (`model_low`), or unread, after every one that is not.  (None, None) for a provider that
-    lists no accounts, which is asked nothing: it is one login, exactly as it always was.
+    the config lists them in; for a `model`, each on what that model reads there
+    (`_worker_rank`).  (None, None) for a provider that lists no accounts, which is asked
+    nothing: it is one login, exactly as it always was.
     For a model launched from a seat on this provider, spend the seat's account only once
     the others are spent or cannot authenticate; the model pick still reads the same meters.
     """
@@ -1236,10 +1249,7 @@ def account(cfg, provider, model=None):
         def spent(account):
             return model_exhausted(cfg, model, {provider: readings[account]})[0]
 
-        # One whose meters ak cannot read may be logged out: it is no safer than one running low.
-        order = sorted(readings, key=lambda a: _worker_rank(
-            a, readings[a], readings[a]["budget_reason"] is not None
-            or model_low(cfg, model, {provider: readings[a]})))
+        order = sorted(readings, key=lambda a: _worker_rank(a, readings[a], cfg, model))
         best = order[0]
         state = getattr(gitcall._RUN_CONTEXT, "state", {})
         if "launched_session" in state or "session" in state:
