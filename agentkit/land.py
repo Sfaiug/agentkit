@@ -1019,65 +1019,79 @@ def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
                     **red}} if red.get("tests") else {}
 
 
-def _probe(directory, state, scratch, tree, command, tests, cost):
-    """Whether just `tests` of `command` pass on the stack `scratch` holds, run once on a suite
-    helper as a piece of `cost` (CPUs, MiB): True where each was named as run (`AK_RAN`) or as
-    not there (`gate.passes_what_it_holds`), False where the run failed naming one of them both
-    as run and as failed (`AK_FAILED`), and None where it proved neither -- no helper took it,
-    it hung, the helper lost it, had no room or handed back no names, a test was not named as
-    run.  It leaves its `checks` row and records nothing else, no flaky sighting either: a red
-    only a helper shows is no evidence (`_check_tests` decides)."""
+def _probe(directory, state, scratch, tree, command, tests, cost, here=False):
+    """Whether just `tests` of `command` pass on the stack `scratch` holds, run once as a suite
+    helper's piece of `cost` (CPUs, MiB) runs them (`gate.pinned`), on a helper or `here` in a
+    box as the single step runs them: True where each was named as run (`AK_RAN`) or as not
+    there (`gate.passes_what_it_holds`), False where the run failed naming one of them both as
+    run and as failed (`AK_FAILED`), and None where it proved neither -- no helper took it, it
+    hung, the helper lost it, had no room or handed back no names, a test was not named as run.
+    It takes no turn, leaves its `checks` row and records nothing else, no flaky sighting
+    either: a red only a probe shows is no evidence (`_check_tests` decides)."""
     from . import gate, helper, history, run, worker
     asked, head = time.time(), run.git(scratch, "rev-parse", "HEAD")
-    there, files = gate.pinned(command, suite_times.handed(scratch), only=tests)
-    away = helper.start(*cost, scratch, lambda _: None, there, one=True, files=files)[0]
-    if not away:
+    times = suite_times.handed(scratch)
+    there, files = gate.pinned(command, times, only=tests)
+    away = None if here else helper.start(*cost, scratch, lambda _: None, there, one=True,
+                                          files=files)[0]
+    if not (here or away):
         return None
     log_path = directory / f"lander-{tree}-probe.log"
     silence = 60 * state.get("silence_minutes", record.SILENCE_MINUTES)
+    named = {"ran": [], "failed": [], "absent": []}     # what a run here names
     try:
         with log_path.open("wb") as output, history.check(
-                (directory, None, "landing", head), command, asked, away.alias) as ended:
+                (directory, None, "landing", head), command, asked, away and away.alias) as ended:
             # A hang ends as a suite piece's first go does, at its suite's pace: its round
             # waits for it.
-            code, _, killed = worker.limited(
-                helper.piece(away, "1/1", there),
-                3600 * state.get("ceiling_hours", record.CEILING_HOURS), cwd=str(scratch),
-                activity=log_path, output=output, env=gate.suite_env(),
-                silence=gate.quiet_window(command, scratch, None, silence) or silence,
-                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            how = {"cwd": str(scratch), "activity": log_path, "output": output,
+                   "silence": gate.quiet_window(command, scratch, None, silence) or silence,
+                   "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL}
+            limit = 3600 * state.get("ceiling_hours", record.CEILING_HOURS)
+            code, _, killed = (
+                worker.limited(helper.piece(away, "1/1", there), limit, env=gate.suite_env(),
+                               **how) if away else
+                worker.boxed(["bash", "-c", there], limit, used=ended, times=times, only=tests,
+                             env={**gate.suite_env(), "AK_SHARD": "1/1"}, **named, **how))
             ended["exit"] = None if killed else code
-        if killed or code < 0 or code in (*helper.GONE, helper.FULL):
+        if killed or code < 0 or away and code in (*helper.GONE, helper.FULL):
             return None
-        ran, failed, absent = (helper.failed(away, "1/1", named)
-                               for named in ("ran", "failed", "not-there"))
+        ran, failed, absent = ([helper.failed(away, "1/1", which)
+                                for which in ("ran", "failed", "not-there")] if away else
+                               named.values())
         if None in (ran, failed, absent):
             return None
         if code and set(tests) & set(ran) & set(failed):
             return False
         return gate.passes_what_it_holds(code, tests, ran, failed, absent) or None
     finally:
-        helper.finish(away)
+        if away:
+            helper.finish(away)
+        else:
+            _put_back(scratch, head)
 
 
 def _round(stacks, floor, high, command, tests, log):
     """One round of a red stack's narrowing: probes (`_probe`) of the stacks between `floor` and
-    `high`, as many as the suite helpers have places for, spread evenly and all at once, and
-    each probed stack's answer once the last has ended; {} where the helpers have no place.
-    Probes running the same tests end about together, so waiting for the last costs little,
-    and none outlives its round: nothing is ever called off on a helper."""
+    `high`, as many as the suite helpers have places for, or where they have none as this host
+    fits (`gate.places`), spread evenly and all at once, and each probed stack's answer once
+    the last has ended; {} where neither has a place.  Probes running the same tests end about
+    together, so waiting for the last costs little, and none outlives its round: nothing is
+    ever called off on a helper."""
     from . import gate, helper
     cost = gate.suite_cost(command, stacks[high][2], None)[1:]
-    count = min(helper.places(*cost, stacks[high][2]), high - floor - 1)
+    away = helper.places(*cost, stacks[high][2])
+    count = min(away or gate.places(*cost), high - floor - 1)
     picked = [floor + (n + 1) * (high - floor) // (count + 1) for n in range(count)]
     with ThreadPoolExecutor(max_workers=max(1, count)) as pool:
-        probes = {index: pool.submit(_probe, *stacks[index][:4], command, tests, cost)
+        probes = {index: pool.submit(_probe, *stacks[index][:4], command, tests, cost, not away)
                   for index in picked}
     answers = {index: probe.result() for index, probe in probes.items()}
     if answers:
         said = {True: "passes", False: "fails", None: "proves nothing"}
-        log(f"{' '.join(tests)} on the suite helpers: " + ", ".join(
-            f"{said[answer]} up to {stacks[index][0].name}" for index, answer in answers.items()))
+        log(f"{' '.join(tests)} {'on the suite helpers' if away else 'on this host'}: " +
+            ", ".join(f"{said[answer]} up to {stacks[index][0].name}"
+                      for index, answer in answers.items()))
     return answers
 
 
@@ -1401,9 +1415,9 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             # just ahead of that one, and it reaches lower only on evidence.
                             floor = max(low, owner - 1)
                             if narrowing and floor + 1 < high:
-                                # The stacks between go to the suite helpers, many at once, a
-                                # round at a time: here each step took minutes, one after the
-                                # other (127 of a pass's 370, 5 Nov 2026).  A round that proves
+                                # The stacks between go many at once, a round at a time, to
+                                # the suite helpers or else this host: one step at a time took
+                                # 127 of a pass's 370 minutes (5 Nov 2026).  A round that proves
                                 # nothing leaves the step to this host.
                                 probed = _round(stacks, floor, high, command, tests, log)
                                 passed_alone.update(((index, narrowing), True)

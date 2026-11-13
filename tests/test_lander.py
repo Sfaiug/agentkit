@@ -60,6 +60,9 @@ class LanderFixture:
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
         self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=os.getpid()))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
+        # This host fits no probe of a red stack's narrowing round (land._round): each step runs
+        # alone, in the order these tests check.
+        self.stack.enter_context(patch.object(gate, "places", return_value=0))
         for module, name in ((worker, "turn"), (worker, "call"), (roundloop, "resolve_conflicts"),
                              (run, "do_merge"), (run, "stop_run_tree")):
             self.stack.enter_context(patch.object(module, name, side_effect=AssertionError(name)))

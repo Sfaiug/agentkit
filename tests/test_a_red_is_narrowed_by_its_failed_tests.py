@@ -172,9 +172,9 @@ class AProbePassesOnlyOnWhatItsHelperHandsBack(test_lander.LanderFixture, unitte
                 self.state["review"]["head_sha"])
         self.addCleanup(run.git, self.repo, "worktree", "remove", "--force", str(self.scratch))
 
-    def probe(self, command, tests=("test_new.sh",), unread=()):
+    def probe(self, command, tests=("test_new.sh",), unread=(), here=False):
         """land._probe's answer for `tests`, its piece `command` run here naming into files, as
-        piece.sh's do, the lists `unread` never handed back."""
+        piece.sh's do, the lists `unread` never handed back; `here`, with no helper at all."""
         names = {name: self.root / name for name in ("ran", "failed", "not-there")}
         for path in names.values():
             path.unlink(missing_ok=True)
@@ -192,7 +192,7 @@ class AProbePassesOnlyOnWhatItsHelperHandsBack(test_lander.LanderFixture, unitte
                 patch.object(helper, "_remote", side_effect=remote), \
                 patch.object(helper, "finish"):
             return land._probe(self.directory, self.state, self.scratch, "tree", command,
-                               list(tests), (1, 100))
+                               list(tests), (1, 100), here)
 
     def test_a_test_its_piece_names_not_there_passes(self):
         self.assertIs(self.probe(GONE + "exit 1"), True)
@@ -204,6 +204,13 @@ class AProbePassesOnlyOnWhatItsHelperHandsBack(test_lander.LanderFixture, unitte
 
     def test_a_test_not_there_on_a_clone_its_piece_moved_proves_nothing(self):
         self.assertIsNone(self.probe(f"git checkout -q --detach {self.base}; {GONE}exit 1"))
+
+    def test_a_probe_here_that_moved_its_checkout_proves_nothing_and_puts_it_back(self):
+        head = run.git(self.scratch, "rev-parse", "HEAD")
+        self.assertIsNone(self.probe(f"git checkout -q --detach {self.base}; {GONE}exit 1",
+                                     here=True))
+        self.assertEqual(run.git(self.scratch, "rev-parse", "HEAD"), head)
+        self.assertIs(self.probe(GONE + "exit 1", here=True), True)
 
 
 if __name__ == "__main__":
