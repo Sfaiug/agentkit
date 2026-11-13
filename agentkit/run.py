@@ -808,17 +808,42 @@ def _give_way_tasks(log):
 
 
 def set_property(unit, name, value, log):
-    """Set one property of `unit` for this boot only; a failure is one WARN line."""
+    """Set one property of `unit` for this boot only; whether it was.  A failure is one WARN
+    line."""
     try:
         done = gc.systemctl("set-property", "--runtime", unit, f"{name}={value}")
     except subprocess.TimeoutExpired:
         log(f"WARN {name} on {unit} was not set: systemctl did not answer")
-        return
+        return False
     if done.returncode:
         log(f"WARN {name} on {unit} was not set: systemctl exited {done.returncode}")
+    return not done.returncode
 
 
 RUN_CPU_WEIGHT = 40
+
+
+def own_unit(state):
+    """The unit this process runs in where the record `state` names it the run's own, else None.
+    The record names the unit bare, scope or service alike; the cgroup says which it is."""
+    unit = Path(host.process_cgroup() or "").name
+    return unit if unit in _scope_units(state.get("scope")) else None
+
+
+def yield_cpu(unit, log):
+    """Put a run's own `unit` in the kernel's idle class: it runs on what a line's check and a
+    delivery leave, and a thread of theirs that wakes takes its core at once.
+
+    A weight shares CPU over time; it does not decide who runs next.  A check's tests wake
+    thousands of times a second, and beside runs at RUN_CPU_WEIGHT each wake stood behind a run
+    thread until its time slice ended: a check took 84 minutes beside busy runs, 43 beside none
+    (13 Nov 2026).  Idle is read against the unit's siblings: runs share alike, and the runs'
+    slice keeps its weight beside the seats'.  Asked of a running unit, not among its start's
+    properties: a manager that does not know the word (systemd before 252) refuses a whole
+    start, and here only the word, at no WARN line, as the unit then has a run's weight.
+    """
+    if not set_property(unit, "CPUWeight", "idle", lambda _: None):
+        set_property(unit, "CPUWeight", RUN_CPU_WEIGHT, log)
 
 
 def run_scope_limits(ceiling_mb=None, *, cap_mb=None, cpu_weight=RUN_CPU_WEIGHT):
@@ -2027,6 +2052,8 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
     existing = run_record.read_state(run_dir)
     if existing is not None and existing.get("state") == "stopped":
         return 1  # a stop landed before this attempt started; the record stands as left
+    if unit := own_unit(existing or {}):
+        yield_cpu(unit, log)
     sampler = history.Sampler(run_dir.name, log=log)
     stop_after_finally = False
     sampler.start()
