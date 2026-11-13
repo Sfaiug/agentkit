@@ -44,7 +44,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, motion, orch, terminal
 
-DIM = f"fg=#{terminal.tmux_colour('dim')}"
+DIM = f"fg=#{terminal.colour('dim', tmux=True)}"
 OWN = "fg=red,bg=blue,bold"         # a style a pane may have of its own
 STYLES = ("window-style", "window-active-style")   # the active pane draws in the second's colour
 # a pane's own styles: none, one or the other, both empty
@@ -206,10 +206,9 @@ def header_tones(text):
 
 
 def tone(seconds):
-    """That colour `seconds` into the fade: the black theme's text eased up out of its
-    background."""
+    """That colour `seconds` into the fade: black's text eased up out of its background."""
     return tuple(round(channel * motion.eased(seconds / motion.FADE))
-                 for channel in terminal.channels(terminal.colour("text", terminal.BLACK)))
+                 for channel in bytes.fromhex(terminal.colour("text")))
 
 
 def tmux_words(text):

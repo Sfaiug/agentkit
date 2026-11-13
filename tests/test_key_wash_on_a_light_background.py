@@ -86,8 +86,8 @@ class WashOnALightBackground(unittest.TestCase):
         Terminal(self.home, "--help").exit_code()
         done = self.home.tmux("set-option", "-g", "window-style", "bg=#ffffff", server=SERVER)
         self.assertEqual(done.code, 0, done.err)
-        # The menu reads the background once as it starts, from an answer within a second; on
-        # a loaded host tmux answers later, which reads dark: start it again.
+        # The menu reads the background once as it starts, from an answer within a
+        # second; on a loaded host tmux answers later, which reads dark: start it again.
         for attempt in range(5):
             self.raw = self.home.root / f"raw{attempt}"
             if self.opened() == AMBER:

@@ -28,8 +28,8 @@ STATE_STYLES = {
     "done": ("✓", "v", "success", "32", ""),
     # nothing running, asked or owed: quiet, as the eye should pass over it
     "idle": ("○", "o", "dim", "37", "2"),
-    # its subscriptions are spent: an error, as nothing moves until usage comes back or the
-    # owner moves it, and idle's open circle says it comes back by itself
+    # its subscriptions are spent: an error, as nothing moves until usage comes back or the owner
+    # moves it, and idle's open circle says it comes back by itself
     "out of usage": ("○", "o", "error", "31", ""),
     "FAIL": ("×", "x", "error", "31", ""),
     "dim": ("·", ".", "dim", "37", "2"),
@@ -73,18 +73,13 @@ def style_of(word):
     return STATE_STYLES.get(word) or STATE_STYLES.get(str(word).split(" ")[0])
 
 
-def colour(word, theme=None):
-    """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in `theme`,
-    else the theme in force."""
-    role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
-    return ROLES[role][THEME if theme is None else theme]
-
-
-def tmux_colour(word):
-    """`word`'s colour in a tmux format -- a seat's bar, a popup's border -- black's whichever
+def colour(word, tmux=False):
+    """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
+    force; with `tmux`, in a tmux format (a seat's bar, a popup's border), black's whichever
     process writes it: tmux shows it on a terminal ak never asks, and the menu's writes and the
     tick's never disagree."""
-    return colour(word, BLACK)
+    role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
+    return ROLES[role][BLACK if tmux else THEME]
 
 
 def glyph(word):
@@ -155,30 +150,25 @@ def basic_colour(rgb):
     return str(30 + sum(1 << i for i in range(3) if int(rgb[2 * i:2 * i + 2], 16) >= 128))
 
 
-def channels(rgb):
-    return [int(rgb[i:i + 2], 16) for i in (0, 2, 4)]
-
-
 def faded(word, amount):
     """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
-    theme's background, or with a negative one that far toward its text, where it is lit; as
+    background, or with a negative one that far toward the foreground, where it is lit; as
     `#RRGGBB` for `styled`."""
     rgb = word[1:] if word.startswith("#") else colour(word)
-    to, amount = channels(colour("background" if amount >= 0 else "text")), abs(amount)
+    to, amount = bytes.fromhex(colour("background" if amount >= 0 else "text")), abs(amount)
     return "#" + "".join(f"{round(c * (1 - amount) + t * amount):02x}"
-                         for c, t in zip(channels(rgb), to))
+                         for c, t in zip(bytes.fromhex(rgb), to))
 
 
 def fade(text, amount):
     """`text` as a draw wrote it, every colour in it -- and the foreground its plain cells take,
-    the theme's text, which `faded` lights toward -- `amount` (0 to 1) of the way to the theme's
-    background: a popup's content coming up out of it (`motion.Clock.rise`).  Where colour
-    cannot move it is as it is.
+    the one `faded` lights toward -- `amount` (0 to 1) of the way to the background: a popup's
+    content coming up out of it (`motion.Clock.rise`).  Where colour cannot move it is as it is.
     """
     depth = colour_depth()
     if amount <= 0 or depth <= 8:
         return text
-    back, fore = channels(colour("background")), channels(colour("text"))
+    back, fore = bytes.fromhex(colour("background")), bytes.fromhex(colour("text"))
 
     def tone(rgb):
         mixed = [round(c * (1 - amount) + b * amount) for c, b in zip(rgb or fore, back)]
@@ -588,10 +578,10 @@ def share_parts(share, size):
 
 def share_line(share, size, word="working", tmux=False):
     """The bar (`share_parts`) its full part in `word`'s colour, the rest dim.  `tmux` draws it
-    as a tmux format, a seat's bar's (`tmux_colour`)."""
+    as a tmux format, a seat's bar's (`colour`)."""
     cells, rest = share_parts(share, size)
     if tmux:
-        return "".join(f"#[fg=#{tmux_colour(kind)}]{text}"
+        return "".join(f"#[fg=#{colour(kind, tmux)}]{text}"
                        for kind, text in ((word, cells), ("dim", rest)) if text) + "#[default]"
     if colour_depth() <= 8:   # nothing breathes there
         return styled(cells, word) + styled(rest, "dim")
@@ -992,11 +982,10 @@ def sense():
     True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
     (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in -- as the popup was
     handed them (FEATURES_ENV), else as tmux says, which takes a process.  And whether the
-    background is light, from the terminal's answer to OSC 11 within a second, as a busy host
-    can take most of one to pass it on; no answer by then is a dark one.  Its attributes are
-    asked for after it (DA1), which every terminal answers, and answers in turn: once they are
-    in, an OSC 11 answer not in before them is none, so the wait ends with the answers, and a
-    terminal that never answers OSC 11 -- tmux, in a popup -- costs none of it.  The
+    background is light, from the terminal's answer to OSC 11 within a second; no
+    answer by then is a dark one.  Its attributes are asked for after it (DA1), which every
+    terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
+    is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
     answers are read here and never as keys: anything typed while they were awaited is kept for
     `read_key`, and one that comes later is `_sequence`'s.
     """
@@ -1013,7 +1002,7 @@ def sense():
     _RGB = bool({"RGB", "Tc"} & set((features or "").strip().split(",")))
     fd = sys.stdin.fileno()
     os.write(sys.stdout.fileno(), b"\033]11;?\033\\\033[c")
-    heard, until = b"", time.monotonic() + 1
+    heard, until = b"", time.monotonic() + 1     # a busy host takes most of one to pass it on
     while not _ATTRIBUTES.search(heard):
         left = until - time.monotonic()
         if left <= 0 or not select.select([fd], [], [], left)[0]:

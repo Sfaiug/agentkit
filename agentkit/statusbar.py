@@ -54,7 +54,7 @@ CLICK = ("bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + H
 CELLS = 36                         # a working seat's progress line and its count
 BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one is short of room
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
-DIM = terminal.tmux_colour("dim")
+DIM = terminal.colour("dim", tmux=True)
 # Line two: who builds and reviews and every task's squares, then the squares cut to six, then
 # the squares alone, then cut to six, then to one (`whys`).
 WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 5)))
@@ -107,9 +107,9 @@ LAYOUT = (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
 
 
 def chip(word):
-    """The state as its bar opens with it: its glyph and word on its colour in the theme's
-    on-accent, bold where the word is -- `! needs you`, the one loud thing on the bar."""
-    ink, rgb = terminal.tmux_colour("on-accent"), terminal.tmux_colour(word)
+    """The state as its bar opens with it: its glyph and word on its colour in the text that
+    reads on it, bold where the word is -- `! needs you`, the one loud thing on the bar."""
+    ink, rgb = terminal.colour("on-accent", tmux=True), terminal.colour(word, tmux=True)
     bold = ",bold" * (terminal.STATE_STYLES[word][4] == "1")
     return f"#[fg=#{ink},bg=#{rgb}{bold}] {orch.tmux_text(terminal.state_text(word))} #[default]"
 
@@ -203,7 +203,7 @@ def others(found, name):
     short = f"{mark} {many} {'needs' if many == 1 else 'need'} you"
     edge = terminal.cells(said) + 1     # the space after it, at the client's edge
     hit = f"#{{?#{{&&:#{{e|>:{AT},1}},#{{e|<=:{AT},{edge}}}}},{needs[0]},}}"
-    return tuple(f"#[range=right]#[fg=#{terminal.tmux_colour('needs you')},bold]"
+    return tuple(f"#[range=right]#[fg=#{terminal.colour('needs you', tmux=True)},bold]"
                  f"{orch.tmux_text(text)}#[default]#[norange] " for text in (said, short)) + (hit,)
 
 

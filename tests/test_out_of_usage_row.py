@@ -110,7 +110,7 @@ class OutOfUsageRow(Sandbox):
 
     def test_its_row_and_its_bar_say_when_it_comes_back_in_red(self):
         self.assertEqual(terminal.state_text("out of usage"), "○ out of usage")
-        self.assertEqual(terminal.tmux_colour("out of usage"), RED)
+        self.assertEqual(terminal.colour("out of usage", tmux=True), RED)
         back = today_at(19, 20)
         self.assertEqual(terminal.plain(menu.last_column("out of usage", 3, 8, back=back)),
                          "back 19:20")

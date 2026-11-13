@@ -7,7 +7,6 @@ next theme is a column of this table.
 
 WHITE, BLACK = 0, 1     # each theme's column
 ROLES = {
-    #              white     black
     "background": ("ffffff", "000000"),
     "surface": ("f4f6fa", "111519"),
     "selection": ("dcecff", "08305d"),

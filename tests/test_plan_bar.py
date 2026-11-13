@@ -21,7 +21,7 @@ from agentkit import config, history, menu, terminal
 from agentkit import record
 
 NOW = 1_800_000_000
-WORKING, AMBER, DIM = (terminal.tmux_colour(word) for word in ("working", "needs you", "dim"))
+WORKING, AMBER, DIM = (terminal.colour(word, tmux=True) for word in ("working", "needs you", "dim"))
 
 
 def cells(bar):

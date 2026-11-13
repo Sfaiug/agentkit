@@ -957,7 +957,7 @@ def _paint(text, kind, tmux=False):
     """`text` in `kind`'s colour, as `terminal.styled` draws it, or as tmux text."""
     if not tmux:
         return terminal.styled(text, kind)
-    return f"#[fg=#{terminal.tmux_colour(kind)}]{orch.tmux_text(text)}#[default]" if text else ""
+    return f"#[fg=#{terminal.colour(kind, tmux)}]{orch.tmux_text(text)}#[default]" if text else ""
 
 
 def grow_line(clock, row, line, span, moving, counted=None):
