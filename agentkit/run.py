@@ -985,6 +985,9 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
                  "queued_at": (previous.get("queued_at") if claimed or previous.get("state") == "queued"
                                else None) or time.time(),
                  "slot_waiting": not claimed, "launch_pending": True, **run_record.process_owner()}
+        # a new loop, held by no backoff of the last one's: a child that dies before adopting
+        # this record dies a death of its own (`watch.dead_loop`)
+        state.pop("resume_after", None)
         state.setdefault("scope", None)
         state.setdefault("run_depth", run_depth())
         if previous.get("state") != "queued":

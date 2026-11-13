@@ -179,11 +179,11 @@ class ResumeMidturn(unittest.TestCase):
         self.assertEqual(self.cards, [])
 
     def died_again(self, directory, pid):
-        """The resume ran and then died: the child had adopted the record, so the order
-        stamp is gone and the pid on it is the one that has just exited."""
+        """The resume ran and then died: the child had adopted the record, so it reads
+        running, the order stamp is gone and the pid on it is the one that has just exited."""
         state = record.read_state(directory)
         state.pop("stall_resume_at", None)
-        state["pid"] = pid
+        state.update(state="running", pid=pid)
         record.save_state(directory, state)
 
     def test_backoff_waits_and_a_third_death_parks_with_one_notice(self):
@@ -234,6 +234,25 @@ class ResumeMidturn(unittest.TestCase):
         self.assertEqual(state["state"], "running")
         self.assertNotIn("interrupted_at", state)
         self.assertEqual(self.cards, [])
+
+    def test_a_background_resume_starts_a_loop_no_earlier_backoff_holds(self):
+        # The tick holds a second death for its ten minutes when a seat resumes the run in the
+        # background, and the child dies before it adopts the record: the third death in the
+        # hour, which parks at once.
+        directory = self.receipt("20260922-1302-background", resume_after=self.now + 300, deaths=[
+            {"at": self.now - 900, "pid": 2 ** 30 - 1, "resumed_at": self.now - 900},
+            {"at": self.now - 300, "pid": 2 ** 30}])
+        child = {"boot": "acme-boot", "ticks": 1, "started_at": self.now}
+        with patch.object(record, "process_owner",
+                          side_effect=lambda pid=None: {"pid": pid, "process_identity": child}), \
+                patch.object(run, "run_placement", return_value=("acme", None, {})), \
+                patch.object(run.orch, "start_in_slice", return_value=2 ** 30 + 1), \
+                patch.object(run, "update_scope_line"), redirect_stdout(io.StringIO()):
+            run.spawn_bg(directory, ["resume", directory.name])
+        state = record.read_state(directory)
+        self.assertEqual(state["pid"], 2 ** 30 + 1)
+        self.assertNotIn("resume_after", state)
+        self.assertEqual((watch.dead_loop(state, directory, self.now) or [None])[0], "park")
 
     def test_a_scope_the_memory_cap_ended_is_not_resumed(self):
         directory = self.receipt("20260922-1313-capped", memory_cap_mb=4096,
