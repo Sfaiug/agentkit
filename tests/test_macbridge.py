@@ -20,6 +20,7 @@ from unittest.mock import Mock, patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, macbridge, menu
+from fixtures.clock import Clock
 
 
 class Sandbox(unittest.TestCase):
@@ -32,6 +33,8 @@ class Sandbox(unittest.TestCase):
         self.stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), "TMPDIR": str(self.root),
         }))
+        # A fetch waits its own default, which outlasts any test that answers it on a loaded host.
+        os.environ.pop("AK_FETCH_TIMEOUT", None)
         # The bridge reaches the recorded server, never a literal alias: a fixture value
         # here proves every ssh/scp call site reads it.
         self.stack.enter_context(patch.object(config, "server_alias", return_value="myserver"))
@@ -224,17 +227,18 @@ class Fetch(Sandbox):
         self.assertFalse(self.bridge.exists())
 
     def test_timeout_enqueues_normalized_request_then_cleans_up(self):
-        # The queue is read at each of the fetch's own waits: a reader beside it can be kept
-        # off the CPU for all of its 0.3s on a loaded host.
-        queued, sleep, out, err = {}, time.sleep, io.StringIO(), io.StringIO()
+        # The fetch's 0.3s pass only in its own waits, and the queue is read at each of them:
+        # a loaded host can spend all of them before the fetch or a reader beside it looks.
+        queued, now, out, err = {}, [0.0], io.StringIO(), io.StringIO()
 
         def wait(seconds):
             queued.update((path.name, json.loads(path.read_text()))
                           for path in (self.bridge / "requests").glob("[a-f0-9]*"))
-            sleep(seconds)
+            now[0] += seconds
+        clock = Clock(wait)
+        clock.monotonic = lambda: now[0]
         with patch.dict(os.environ, {"AK_FETCH_TIMEOUT": "0.3"}), \
-                patch.object(macbridge.time, "sleep", wait), redirect_stdout(out), \
-                redirect_stderr(err):
+                patch.object(macbridge, "time", clock), redirect_stdout(out), redirect_stderr(err):
             code = macbridge.fetch_main(["'/Users/me/Desktop/screen\\ shot.png'"])
         (request, asked), = queued.items()
         self.assertEqual(asked, {
