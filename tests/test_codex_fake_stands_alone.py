@@ -63,7 +63,8 @@ class StandsAlone(unittest.TestCase):
                                env={**self.env, "FAKE_HOLD": "1", "FAKE_SCREEN": os.devnull})
         self.addCleanup(tui.wait)
         self.addCleanup(tui.kill)
-        typed = ["fix the api", "/new", "add a test", "/resume acme-thread", "ship it"]
+        # its first prompt longer than one read of what is typed
+        typed = ["fix the api " * 400, "/new", "add a test", "/resume acme-thread", "ship it"]
         tui.stdin.write("".join(line + "\n" for line in typed).encode())
         tui.stdin.close()
         heard = self.root / ".codex/fake-heard.jsonl"
@@ -74,7 +75,7 @@ class StandsAlone(unittest.TestCase):
         self.assertNotEqual(second, first)
         self.assertEqual(lines, [[line, thread] for line, thread in
                                  zip(typed, (first, second, second, first, first))])
-        for thread, words in ((first, ["fix the api", "ship it"]), (second, ["add a test"])):
+        for thread, words in ((first, [typed[0], "ship it"]), (second, ["add a test"])):
             with self.subTest(thread=thread):
                 meta, *said = (self.root / f".codex/sessions/rollout-{thread}.jsonl").read_text(
                     ).splitlines()

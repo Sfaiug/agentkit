@@ -60,17 +60,20 @@ if os.environ.get('FAKE_UNSUPPORTED') and args != ['--help']:
     assert '--remote' not in args and 'app-server' not in args
     (home / 'last-command.json').write_text(json.dumps(args))
     sys.exit(0)
-if args[:1] == ['app-server'] and not os.environ.pop('FAKE_NATIVE', None):
+if args[:1] == ['app-server'] and 'FAKE_NATIVE' not in os.environ:
     # npm's entry point, its child the native app server: two `codex` above each hook (0.167).
     # Like npm's, it hands on a signal that would stop it and ends with its child, so a server
     # still stopping (FAKE_STOP_GATE) holds its launch's cleanup.
-    native = subprocess.Popen([sys.executable, *sys.argv], env={**os.environ, 'FAKE_NATIVE': '1'})
+    native = subprocess.Popen([sys.executable, *sys.argv],
+                              env={**os.environ, 'FAKE_NATIVE': str(os.getpid())})
     for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda signum, frame: native.send_signal(signum))
     sys.exit(native.wait())
 if args[:1] == ['app-server']:
     assert '--remote-control' in args
-    def orphaned(parent=os.getppid()):     # its entry point killed, it never outlives the test
+    # Its entry point killed, it never outlives the test. The entry point names itself: one killed
+    # before this runs has already left the child to another parent.
+    def orphaned(parent=int(os.environ.pop('FAKE_NATIVE'))):
         while os.getppid() == parent:
             time.sleep(.1)
         os._exit(1)
@@ -274,13 +277,16 @@ else:
         if os.environ.get('FAKE_SCREEN'):       # the screen a TUI at its prompt draws
             print(Path(os.environ['FAKE_SCREEN']).read_text(), end='', flush=True)
         publish('fake-tui', {'argv': args, 'pid': os.getpid()})
+        typed = b''
         while os.environ.get('FAKE_HOLD'):
             time.sleep(.05)
             # a TUI at its prompt takes each line typed into it, into fake-heard.jsonl with the
             # thread it went to: it names its thread on /rename where Codex keeps the names
-            # (tests/fixtures/codex-title-index.jsonl), and its server takes the rest
+            # (tests/fixtures/codex-title-index.jsonl), and its server takes the rest; a line
+            # longer than one read waits for its end
             if os.environ.get('FAKE_SCREEN') and select.select([0], [], [], 0)[0]:
-                for line in filter(str.strip, os.read(0, 4096).decode(errors='replace').splitlines()):
+                *lines, typed = (typed + os.read(0, 4096)).split(b'\n')
+                for line in filter(str.strip, (line.decode(errors='replace') for line in lines)):
                     command, _, rest = line.partition(' ')
                     if command == '/rename':
                         with (ch / 'session_index.jsonl').open('a') as index:
