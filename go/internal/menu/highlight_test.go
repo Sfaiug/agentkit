@@ -90,7 +90,7 @@ func TestEveryWordOpensItsCrewAndNoSentence(t *testing.T) {
 		}
 		return opened
 	}
-	crew := []string{"     Fable 5.1 xhigh ⚒◎"}
+	crew := []string{"     Fable 5.1 xhigh orchestrates, builds, reviews"}
 	for _, lit := range view.Seats {
 		view.Highlight = Highlight{Cursor: lit.Name, Open: true}
 		opened := under(30)
