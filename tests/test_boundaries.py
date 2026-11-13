@@ -300,13 +300,17 @@ def outside(rule):
     return found
 
 
-def where_change_left_main(test, path):
-    """`path`'s text where this change left origin/main; an unreadable one skips `test`."""
+def left_main():
+    """The commit where this change left origin/main."""
     # against where this change started: a commit main has since moved past (as the host's
     # live check tests) is not held to what main changed after it
-    base = subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
+    return subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
                           capture_output=True, text=True).stdout.strip() or "origin/main"
-    proc = subprocess.run(["git", "-C", str(REPO), "show", f"{base}:{path}"],
+
+
+def where_change_left_main(test, path):
+    """`path`'s text where this change left origin/main; an unreadable one skips `test`."""
+    proc = subprocess.run(["git", "-C", str(REPO), "show", f"{left_main()}:{path}"],
                           capture_output=True, text=True)
     if proc.returncode:
         print(f"origin/main:{path} is not readable; skipping the comparison")

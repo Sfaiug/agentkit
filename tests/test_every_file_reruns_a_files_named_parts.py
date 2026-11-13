@@ -19,6 +19,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import suite_times
+from test_go_keys import SWITCHED
 
 # Notes the parts each run runs, all three without arguments; fix_api fails on the first
 # ACME_FAILING_RUNS runs and is named in the file FAILED_PARTS names, the others timed; a part it
@@ -124,7 +125,10 @@ class EveryFileRerunsAFilesNamedParts(unittest.TestCase):
     def test_the_go_keys_check_given_a_claims_name_runs_that_claim_alone(self):
         for name in ("test_go_keys.py", "test_go.py", "suite_shares.py"):
             shutil.copy(REPO / "tests" / name, self.root / "tests")
-        (self.root / "go").mkdir()
+        # what the copy switched as each claim's is takes from go/
+        for part in SWITCHED:
+            shutil.copytree(REPO / "go" / part, self.root / "go" / part, symlinks=True)
+        shutil.copy(REPO / "go/install.sh", self.root / "go")
         keys = ("test_key_acme", "test_key_fix_api", "test_key_widget")
         (self.root / "go/keys.txt").write_text("".join(f"{key} Acme\n" for key in keys))
         for key in keys:

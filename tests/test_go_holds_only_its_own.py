@@ -10,7 +10,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 OWN = {".gitignore", "adapters", "cmd", "config.default.toml", "go.mod", "go.sum", "hooks",
-       "install.sh", "internal", "keys.txt", "toolchain.sha256", "tools", "vendor"}
+       "install.sh", "internal", "keys.txt", "leans", "toolchain.sha256", "tools", "vendor"}
 
 
 class GoHoldsOnlyItsOwn(unittest.TestCase):
