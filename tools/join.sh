@@ -40,8 +40,8 @@ join() {
   done
   printf %s "$known" >/etc/ssh/sshd_config.d/ak.conf
   sshd -t
-  # Ubuntu's socket starts ssh at its first connection, which reads the settings then.
-  ! systemctl is-active -q ssh || systemctl reload ssh
+  # One not running starts now: Ubuntu's socket would start it only at the first connection.
+  if systemctl is-active -q ssh; then systemctl reload ssh; else systemctl start ssh; fi
   if [ "$2" = tailscale ] && ! tailscale status >/dev/null 2>&1; then
     type -P tailscale >/dev/null ||
       curl -fsSL https://tailscale.com/install.sh | DEBIAN_FRONTEND=noninteractive sh

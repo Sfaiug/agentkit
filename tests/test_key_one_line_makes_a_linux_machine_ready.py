@@ -101,8 +101,11 @@ elif name == "sshd":        # -t [-o SETTING]
     sys.exit(sshd_test(words[2:]))
 elif name == "systemctl" and words[0] == "is-active":     # -q ssh
     sys.exit(0 if world["ssh_active"] else 3)
-elif name == "systemctl":   # reload ssh: Debian's unit runs sshd -t first; one not running fails
-    sys.exit(1 if not world["ssh_active"] or sshd_test([]) else 0)
+elif name == "systemctl":   # reload or start ssh: Debian's unit runs sshd -t first
+    if sshd_test([]) or words[0] == "reload" and not world["ssh_active"]:
+        sys.exit(1)
+    world["ssh_active"] = True
+    (root / "world.json").write_text(json.dumps(world))
 elif name == "curl":        # Tailscale's installer
     print(f"PATH={{HOST}} ln -s {{me.resolve()}} {{root}}/bin/tailscale")
 elif name == "tailscale":
@@ -213,12 +216,14 @@ class OneLineMakesALinuxMachineReady(unittest.TestCase):
         self.assertEqual(self.address(ran), "ak@box-1")
         self.assertIn("docker.io", (root / "installed").read_text().split())
 
-    def test_a_machine_without_sshd_gets_it_and_its_settings_for_its_first_start(self):
-        root = self.machine(sshd=False, ssh_active=False)    # as Ubuntu's socket starts it
+    def test_a_machine_without_sshd_gets_it_running_with_its_settings(self):
+        root = self.machine(sshd=False, ssh_active=False)    # as Ubuntu's socket leaves it
         ran, log = self.run_on(root, JOIN, KEY)
         self.assertEqual(self.address(ran), "ak@box-1")
         self.assertIn("openssh-server", (root / "installed").read_text().split())
-        self.assertEqual((root / "ssh/sshd_config.d/ak.conf").read_text(), SSHD)
+        started = next(one for one in log if one["run"] == ["systemctl", "start", "ssh"])
+        self.assertEqual(started["sshd"], SSHD)
+        self.assertTrue(json.loads((root / "world.json").read_text())["ssh_active"])
 
     def test_a_key_file_whose_last_line_lacks_its_newline_keeps_it_and_gets_the_key(self):
         root = self.machine()
