@@ -4668,7 +4668,7 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     chosen = {"orchestrator": model, "account": account, **homed,
               **({"left": notify.left(record, old_harness, owned)} if owned and not kept else {})}
     # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
-    # of the seat's lock, so no tick hands the text back to the harness going or before that line
+    # of the seat's lock, so nothing hands the text back to the harness going or before that line
     with notify.session_lock(name):
         if pane and not watch.carry_draft(session, old_harness, pane, new_harness, cfg):
             unhanded(handed, before)
@@ -4692,6 +4692,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
                 given_back()
         if line and not failed:
             watch.relaunched(name, new_harness, line, at)
+        if not (kept or failed):    # the old conversation's notice, while the lock is the
+            notify.clear(name)      # switch's: past it the text's return may hold it a while
     if failed:
         try:
             config.update_session(name, **{key: record.get(key) for key in chosen})
@@ -4704,7 +4706,7 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     if not kept:
         if old_harness:
             harness_plugin(old_harness).forget(record)
-        watch.forget(name)    # a new conversation: no latch of the old one's survives it
+        watch.forget(name, acknowledge=False)    # no latch of the old conversation survives it
     return ""
 
 
