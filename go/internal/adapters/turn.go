@@ -122,10 +122,16 @@ func start(words []string, workspace string, env []string, stdin io.Reader, out 
 		fmt.Fprintf(log, "ak adapter: %s: %s\n", words[0], err)
 		return 126
 	}
-	if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+	return exitCode(cmd.ProcessState)
+}
+
+// exitCode is how the program ended as a shell gives it: 128 and the signal's number for one a
+// signal ended.
+func exitCode(state *os.ProcessState) int {
+	if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
 		return 128 + int(status.Signal())
 	}
-	return cmd.ProcessState.ExitCode()
+	return state.ExitCode()
 }
 
 // summarize writes final.md and session_id from the turn's events as the Python adapters' jq
