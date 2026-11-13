@@ -14,7 +14,7 @@ func exhaustedPickup(dir string, record *run.Object) bool {
 	if !windowed(record) || !cutOff(dir, record) {
 		return false
 	}
-	rules, room, ok := picking(record)
+	rules, room, ok := picking(record, false)
 	if !ok {
 		return false
 	}
@@ -29,12 +29,13 @@ func windowed(record *run.Object) bool {
 }
 
 // ResumeModels is the pair a resume of a run waiting on a provider's window goes on with
-// (resumeModels), or why none can run it yet; false where that pick is not Go's.
-func ResumeModels(record *run.Object) (executor, reviewer, dry string, ok bool) {
+// (resumeModels), or why none can run it yet; false where that pick is not Go's.  dryTick is whether
+// one asks, whose pick probes nothing (picking).
+func ResumeModels(record *run.Object, dryTick bool) (executor, reviewer, dry string, ok bool) {
 	if !windowed(record) {
 		return "", "", "", false
 	}
-	rules, room, read := picking(record)
+	rules, room, read := picking(record, dryTick)
 	if !read {
 		return "", "", "", false
 	}
@@ -45,7 +46,7 @@ func ResumeModels(record *run.Object) (executor, reviewer, dry string, ok bool) 
 // Dry is why nothing can run the resume of a run waiting on a provider's window yet, Python's
 // QuotaDry on a resume: "" once something can, and for any other run.
 func Dry(record *run.Object) string {
-	_, _, dry, _ := ResumeModels(record)
+	_, _, dry, _ := ResumeModels(record, false)
 	return dry
 }
 
