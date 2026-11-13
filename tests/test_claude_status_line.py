@@ -121,19 +121,22 @@ class ClaudeStatusLine(Sandbox):
     def test_renders_are_judged_in_the_order_they_were_rendered(self):
         config.save_session(self.cfg, "acme", "opus", ["opus"], {"conversation": "conv-acme"})
         hand_in = partial(watch.hook_meters, "acme", "conv-acme", "")
+        usage.record_turn_meters(self.cfg, "anthropic", [{"name": "session", "used": 10},
+                                                         {"name": "weekly_all", "used": 10}], now=500)
         hand_in("1000", "five_hour 20 30000", "seven_day 20 900000")
         # a later render's hand-in arrives before an earlier one's; then a worker's turn, at 10000
         hand_in("3000", "seven_day 40 900000")
         hand_in("2000", "five_hour 30 30000", "seven_day 20 900000")
-        usage.record_turn_meters(self.cfg, "anthropic", [{"name": "session", "used": 50}])
+        usage.record_turn_meters(self.cfg, "anthropic", [{"name": "weekly_all", "used": 50}])
         note = (config.STATE / "limits-conv-acme.json").read_text()
-        limits = {"five_hour": {"used_percentage": 30, "resets_at": 30000},
-                  "seven_day": {"used_percentage": 40, "resets_at": 900000}}
+        # the same numbers, however the JSON spells them
+        limits = {"five_hour": {"used_percentage": 30.0, "resets_at": 30000},
+                  "seven_day": {"used_percentage": 40, "resets_at": 900000.0}}
         self.render(limits)
         self.assertEqual((config.STATE / "limits-conv-acme.json").read_text(), note)
         self.assertEqual({meter["name"]: meter["used"]
                           for meter in usage._cached_provider("anthropic")["meters"]},
-                         {"session": 50, "weekly_all": 40})
+                         {"session": 30, "weekly_all": 50})
 
     def test_a_bash_without_a_clock_hands_in_no_limits(self):
         config.save_session(self.cfg, "acme", "opus", ["opus"], {"conversation": "conv-acme"})

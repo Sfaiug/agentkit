@@ -14,13 +14,14 @@ trap '' PIPE
 printf '%s' "$payload" 2>/dev/null
 [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || exit 0
 # Every render runs this one jq: its conversation, its model, and each window of its login's
-# limits the API has reported (2.1.322's `rate_limits`) as `<window> <used%> <resets_at>`.
+# limits the API has reported (2.1.322's `rate_limits`) as `<window> <used%> <resets_at>`, in
+# arithmetic's one spelling of a number (jq 1.7 keeps a literal's own: 20.0 is no change from 20).
 IFS=$'\n' read -r -d '' -a said < <(jq -r '
     select(.session_id | strings | test("^[A-Za-z0-9_-]+$")) | select(.model.id | strings | length > 0)
     | .session_id, ({model: .model.id, effort: (.model.effort // .effort.level // null)} | tojson),
       (.rate_limits | objects | {five_hour, seven_day} | to_entries[]
        | select(.value | objects | [.used_percentage, .resets_at] | all(type == "number"))
-       | "\(.key) \(.value.used_percentage) \(.value.resets_at)")' <<<"$payload" 2>/dev/null)
+       | "\(.key) \(.value.used_percentage + 0) \(.value.resets_at + 0)")' <<<"$payload" 2>/dev/null)
 # Its lines as "$@": macOS's bash 3.2 takes an empty array or slice for unset under `set -u`.
 [[ -n ${said[1]:-} ]] && set -- "${said[@]}" || exit 0
 conversation=$1 report=$2

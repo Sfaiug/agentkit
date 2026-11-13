@@ -29,25 +29,6 @@ LOGIN = "second"
 WEEK = 604800
 
 
-def seat_env(words):
-    """The environment a command line's leading `env` words set, as `{name: value}`, a name
-    they unset None."""
-    told = {}
-    while words and words[0] == "env":
-        words = words[1:]
-        while words:
-            if words[0] == "-u":
-                told[words[1]] = None
-                words = words[2:]
-            elif "=" in words[0] and not words[0].startswith("-"):
-                name, _, value = words[0].partition("=")
-                told[name] = value
-                words = words[1:]
-            else:
-                break
-    return told
-
-
 class ClaudeSeatReportsItsLoginsUsage(unittest.TestCase):
     def setUp(self):
         self.home = Home()
@@ -82,9 +63,11 @@ class ClaudeSeatReportsItsLoginsUsage(unittest.TestCase):
         done = self.home.ak("orch", seat.name, "--dry-run", cwd=self.home.path)
         self.assertEqual(done.code, 0, done.out + done.err)
         words = shlex.split(done.out.splitlines()[-1])
-        command = json.loads(words[words.index("--settings") + 1])["statusLine"]["command"]
-        env = {**seat_env(words), "AGENTKIT_SESSION": seat.name}
-        self.assertEqual(env.get("AGENTKIT_ACCOUNT"), LOGIN, words)
+        # its leading `env` words, which set the seat's environment, then its status command
+        start = next(at for at, word in enumerate(words) if word not in ("env", "-u")
+                     and "=" not in word and words[at - 1] != "-u")
+        argv = (*words[:start], "sh", "-c",
+                json.loads(words[words.index("--settings") + 1])["statusLine"]["command"])
         now = int(time.time())
 
         def render(week, session=None):
@@ -95,8 +78,8 @@ class ClaudeSeatReportsItsLoginsUsage(unittest.TestCase):
                        "model": {"id": "claude-opus-5-5"}, "rate_limits": limits}
             end, held = os.pipe()
             try:
-                done = self.home.run("sh", "-c", command, input=json.dumps(payload), env=env,
-                                     cwd=seat.cwd, keep=(held,))
+                done = self.home.run(*argv, input=json.dumps(payload),
+                                     env={"AGENTKIT_SESSION": seat.name}, cwd=seat.cwd, keep=(held,))
             finally:
                 os.close(held)
             with os.fdopen(end, "rb") as drained:

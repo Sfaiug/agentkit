@@ -1158,17 +1158,21 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     stood = _number(cached.get("fetched_at"))
     if stood is None:
         stood = _number(cached.get("probed_at"))
-    if stood is not None and measured <= stood:
+    # Each meter is as old as the turn that wrote it, else as the reading: a turn newer on one
+    # window leaves another open to an older turn's reading of it.
+    old = [{**m, "measured_at": _number(m.get("measured_at")) or stood}
+           for m in (cached.get("meters") if isinstance(cached.get("meters"), list) else [])
+           if isinstance(m, dict) and isinstance(m.get("name"), str)]
+    held = {m["name"]: m["measured_at"] for m in old}
+    fresh = [m for m in fresh if (at := held.get(m["name"], stood)) is None or measured > at]
+    if not fresh:
         return False
     _keep(provider, account, fresh, measured, "turn")
-    old = cached.get("meters") if isinstance(cached.get("meters"), list) else []
     # Normalized as a probed meter is, because every reader of the snapshot reads one.
-    new = {m["name"]: _normalized(m, measured) for m in fresh}
+    new = {m["name"]: {**_normalized(m, measured), "measured_at": measured} for m in fresh}
     asked = {name: at for name, at in _meter_asked(cached).items() if name not in new}
-    merged = [new[m["name"]] if isinstance(m, dict) and m.get("name") in new else m
-              for m in old if isinstance(m, dict) and isinstance(m.get("name"), str)]
-    merged += [meter for name, meter in new.items()
-               if name not in {m.get("name") for m in merged if isinstance(m, dict)}]
+    merged = [new.get(m["name"], m) for m in old]
+    merged += [meter for name, meter in new.items() if name not in held]
     prov = dict(cached)
     prov.setdefault("provider", provider)
     if "harness" not in prov or "via" not in prov:
@@ -1178,10 +1182,9 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
             prov.setdefault("via", via)
         except config.Error:
             pass
-    prov.update(meters=merged, probed_at=measured, probed_meters=asked, error=None,
-                pace=max((m["pace"] for m in merged
-                            if isinstance(m, dict) and m.get("pace") is not None),
-                           default=None))
+    prov.update(meters=merged, probed_at=max(measured, stood or 0), probed_meters=asked,
+                error=None, pace=max((m["pace"] for m in merged if m.get("pace") is not None),
+                                     default=None))
     for key in ("fetched_at", "probe_error", "probe_failed_at", "stale_since"):
         prov.pop(key, None)
     _patch(provider, prov, account)
