@@ -4640,8 +4640,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     session = find(name)
     if session:
         session = dict(session, pane=harness_pane(name, seat_socket(session)))
-    pane = (watch.pane_text(session)
-            if session and not any(session.get(key) for key in CLOSED) else None)
+    pane = (watch.pane_capture(session)
+            if session and not any(session.get(key) for key in CLOSED) else "")
     live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
     waited = watch.seat_read(name).get("usage_wait")   # a turn its usage cut off goes on
     going = (watch._turn_in_flight(old_harness or new_harness, live)[0]
@@ -4679,7 +4679,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
     # of the seat's lock, so nothing hands the text back to the harness going or before that line
     with notify.session_lock(name):
-        if pane and not watch.carry_draft(session, old_harness, pane, new_harness, cfg):
+        # a seat showing nothing holds no text to keep; one tmux gave no capture of may
+        if pane != "" and not watch.carry_draft(session, old_harness, pane, new_harness, cfg):
             unhanded(handed, before)
             return f"{name} stays on {old_model}: the text in its input field could not be kept"
         # Under what every redress and look reads the record under, till the new harness is up: a

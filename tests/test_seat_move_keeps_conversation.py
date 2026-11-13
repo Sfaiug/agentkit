@@ -295,7 +295,7 @@ class SeatMove(Sandbox):
             self.assertEqual(self.move("astra"), "")
             self.assertEqual(carried, [("claude", self.pane, "codex", [], True)])   # before it
             self.assertEqual(len(self.respawned), 1)
-            self.pane = ""                       # a capture that failed moves it as well
+            self.pane = ""                       # a pane showing nothing has no text to keep
             self.assertEqual(self.move("opus"), "")
             self.pane = capture("claude-draft-while-working-pane.txt")    # typed mid-turn
             self.assertEqual(self.move("astra"), "")
