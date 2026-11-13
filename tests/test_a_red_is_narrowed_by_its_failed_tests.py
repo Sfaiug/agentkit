@@ -83,7 +83,7 @@ class NarrowFixture(test_lander.LanderFixture):
         ahead = {m.name: self.wait(m)["land"] for m in members[:culprit - 1]}
         self.assertEqual(self.wait(members[culprit - 1])["after"], ahead)
         self.assertEqual(sorted(call.args[0] for call in self.wake.call_args_list),
-                         sorted(m.name for m in members if m in good or not ahead))
+                         sorted(m.name for m in members if m == good[0] or m not in good and not ahead))
         self.assert_members_deliver_in_order(good)
         self.assert_cleaned()
         checked = [({f for f in files if f.startswith("member-")}, kw.get("only"))
