@@ -255,7 +255,7 @@ def check_fix_on_tip(lp):
         lp.log(f"--- fix check on {lp.upstream} ({tip}) before the first turn")
         lp.step("done-when")
         # A continued branch or --no-worktree may hold other work; the target alone decides.
-        with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
+        with run_record.scratch(lp.run_dir) as tmp:
             checkout = Path(tmp) / "checkout"
             # Keep fetched target refs without copying local object replacements.
             gitcall.clone_borrowing(lp.wt, checkout, "--no-checkout")
@@ -389,7 +389,7 @@ def replay_checkout(lp, head, paths):
     date, one message, no hooks or signature, no git author of the host's needed).  It has
     its own config and refs, nothing the run's checkout holds outside git reaches it, and
     nothing its checks write there reaches another replay or the run's checkout."""
-    with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
+    with run_record.scratch(lp.run_dir) as tmp:
         checkout = Path(tmp) / "checkout"
         gitcall.clone_borrowing(lp.wt, checkout, "--no-checkout")
         try:

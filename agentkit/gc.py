@@ -4,7 +4,7 @@ Retention supplies the ownership proofs and deletion primitives; harness plugins
 supply their temporary-folder rules.
 """
 
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 import fcntl
 import functools
@@ -634,6 +634,58 @@ def submodule_set_up(wt, private):
         for entry in staged.split(b"\0") if entry.startswith(b"160000 "))
 
 
+def left_scratch():
+    """Each folder `record.scratch` made in a run's folder whose maker is gone, the run in any
+    state: a killed one removes none of its own, and a run's folder stays 30 days (645 in 226
+    runs, 27 GiB, 12 Nov 2026).  Its mark alone decides: a box's processes see the folder
+    under another path, so no look at who holds it proves anything."""
+    for directory in retention.children(config.RUNS):
+        for folder in retention.children(directory):
+            maker = retention.read_json(folder / record.SCRATCH)
+            if maker is not None and not retention.writer_active(maker):
+                yield {"action": "remove", "kind": "run-scratch", "path": str(folder)}
+
+
+def clear_scratch(folder):
+    """Remove `folder`, one `left_scratch` named, its mark last: one a removal cannot finish
+    keeps it, and the next collection tries again.  Each folder is opened through the one
+    holding it, never through a link, and opened to its owner, as `TemporaryDirectory`'s own
+    removal opens what its command closed: a name a link took meanwhile fails the removal."""
+    with retention.reading(folder.parent, directory=True) as parent:
+        with _opened(folder.name, parent) as fd:
+            for name in os.listdir(fd):
+                if name != record.SCRATCH:
+                    _remove(name, fd)
+            os.unlink(record.SCRATCH, dir_fd=fd)
+        os.rmdir(folder.name, dir_fd=parent)
+
+
+def _remove(name, parent):
+    try:
+        os.unlink(name, dir_fd=parent)
+    except IsADirectoryError:
+        with _opened(name, parent) as fd:
+            for child in os.listdir(fd):
+                _remove(child, fd)
+        os.rmdir(name, dir_fd=parent)
+
+
+@contextmanager
+def _opened(name, parent):
+    """The folder `name` in the one open as `parent`, open to its owner: its mode is set
+    through a handle that reads nothing (`O_PATH`), as one closed to reading opens no other."""
+    held = os.open(name, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+    try:
+        os.chmod(f"/proc/self/fd/{held}", 0o700)
+        fd = os.open(".", os.O_RDONLY | os.O_DIRECTORY, dir_fd=held)
+    finally:
+        os.close(held)
+    try:
+        yield fd
+    finally:
+        os.close(fd)
+
+
 def stale_worktrees(now, paths):
     if not retention.safe(config.WT):
         return []
@@ -853,6 +905,7 @@ def gc_candidates(now=None):
                    "job": str(directory),
                    "state_identity": jobs.job_fingerprint(directory)}
     yield from retention.ephemeral_plan(now, pressure, paths)
+    yield from left_scratch()
     yield from stale_worktrees(now, paths)
     yield from stale_seat_files(now)
     yield from stale_model_reports()
@@ -1222,6 +1275,9 @@ def gc(report, automatic=False):
                             else:
                                 clear_tree(path, report)
                                 done = not left_behind(path, report)
+                    elif item["kind"] == "run-scratch":
+                        clear_scratch(path)    # a maker gone stays gone: nothing to judge again
+                        done = True
                     elif item["kind"] == "harness-entries":
                         done = retention.prune_harness(path)
                     elif item["kind"] in ("tmp-entry", "home-entry") or item.get("tmp"):

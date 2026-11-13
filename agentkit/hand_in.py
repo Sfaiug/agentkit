@@ -401,8 +401,10 @@ def failed_checks(turn, commands):
         left = deadline - time.monotonic()
         if left <= 0:
             break
-        # The worker already has its checkout and sandbox; never reset its uncommitted fix.
-        with tempfile.TemporaryDirectory(dir=Path(os.environ[ENV]).parent) as cache, \
+        # The worker already has its checkout and sandbox; never reset its uncommitted fix.  The
+        # box's temporary folder, not the run's (`record.scratch`): in the box's own pid
+        # namespace this process's pid names another one outside it.
+        with tempfile.TemporaryDirectory() as cache, \
                 tempfile.NamedTemporaryFile(dir=cache) as output:
             env["PYTHONPYCACHEPREFIX"] = cache
             try:
