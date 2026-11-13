@@ -39,17 +39,17 @@ class SeatFollows(Sandbox):
         self.path = claude.transcript_path(config.session_records()[NAME], THREAD)
         self.path.parent.mkdir(parents=True)
 
-    def looked(self, *said):
-        """The seat's orchestrator once a look has read its transcript ending on what was
-        `said`, each (the entry's or a bare model id, seconds after the launch, its effort,
-        and more of the entry); a model id is what Claude Code records."""
+    def looked(self, *said, ask=False):
+        """The seat's orchestrator once a look, or the watch's pass where `ask`, has read its
+        transcript ending on what was `said`, each (the entry's or a bare model id, seconds after
+        the launch, its effort, and more of the entry); a model id is what Claude Code records."""
         ids = {name: entry["model"] for name, entry in self.cfg["models"].items()}
         with self.path.open("a", encoding="utf-8") as fh:
             for model, late, effort, *more in said:
                 fh.write(json.dumps({"type": "assistant", "timestamp": stamp(late),
                                      "effort": effort, **(more[0] if more else {}),
                                      "message": {"model": ids.get(model, model)}}) + "\n")
-        watch.follow_model(self.cfg, NAME)
+        watch.follow_model(self.cfg, NAME, ask=ask)
         return config.session_records()[NAME]["orchestrator"]
 
     def test_an_answer_since_the_launch_on_another_model_moves_the_seat(self):
@@ -99,6 +99,12 @@ class SeatFollows(Sandbox):
         # Haiku 5.5 is in Claude's picker and was in no row until 13 Nov 2026
         self.assertEqual(self.looked(("claude-haiku-5-5", 30, "high")), "haiku")
         self.assertEqual(config.load()["models"]["haiku"]["effort"], "high")
+
+    def test_an_id_only_the_table_names_is_added_by_a_pass_that_asks_no_listing(self):
+        held = [{"id": "claude-opus-5-5", "label": "Opus 5.5", "efforts": ["high"]}]  # no Sonnet
+        with patch.object(config, "catalog_held", return_value=held), \
+                patch.object(config, "catalog", side_effect=AssertionError("asked")):
+            self.assertEqual(self.looked(("claude-sonnet-5-5", 30, "high"), ask=True), "sonnet")
 
     def test_a_model_another_look_added_moves_the_seat_there_and_adds_none(self):
         disk = config.load()
