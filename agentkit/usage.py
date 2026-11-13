@@ -902,6 +902,22 @@ def collect(cfg, *, refresh=False):
     return Readings(_gate_flags(providers, now, cfg))
 
 
+def held(cfg):
+    """What `collect` answers from the snapshot, however old, asking no adapter and waiting on
+    none, so a screen is up at once: a provider the config no longer has left out, a meter past
+    its reset dropped, each account's too, and the flags derived again.  {} with none held; the
+    menu's probe and the tick keep it current."""
+    now, providers = time.time(), {}
+    for name, prov in staffing._cached_providers().items():
+        if name in cfg["providers"] and isinstance(prov, dict):
+            providers[name] = _without_past(prov, now, "the cache")
+            if _record(prov.get("accounts")):
+                providers[name]["accounts"] = {
+                    account: _without_past(_record(record), now, "the cache")
+                    for account, record in prov["accounts"].items()}
+    return Readings(_gate_flags(providers, now, cfg))
+
+
 class Readings(dict):
     """A usage read this module made, and beside it `harnesses`: why each harness cannot run.
 
@@ -1187,14 +1203,27 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     return True
 
 
-def _worker_rank(account, reading, low=False):
+def _worker_rank(account, reading, cfg=None, model=None):
     """Where an account stands for a worker turn, lowest first: one on credits after every one
-    with a window left, the usual login too, and one running `low` after every one that is not."""
-    spent = reading["exhausted"]
-    unknown = reading["budget_reason"] is not None
+    with a window left, the usual login too, and one whose budget is unknown with the usual
+    login and after it.
+
+    For a `model`, on what that model reads there alone, so another model's spent cap leaves the
+    login room, and one running low on it after every one that is not.  Unknown is then only a
+    reading ak cannot read, which may be logged out and is no safer than one running low; one
+    giving the model no budget still says what its 5h window has left.
+    """
+    if model is None:
+        spent, credits, low = reading["exhausted"], reading["on_credits"], False
+        unknown, budget = reading["budget_reason"] is not None, reading["budget"]
+    else:
+        read = {config.model(cfg, model)["provider"]: reading}
+        spent, credits = model_exhausted(cfg, model, read)[0], on_credits(cfg, model, read)
+        unknown = bool(reading.get("error")) or _stale(reading, time.time())
+        low, budget = unknown or model_low(cfg, model, read), model_budget(cfg, model, read)[0]
     usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
     group = 1 if usual else (0 if not spent else 2)
-    return (spent, reading["on_credits"], low, group, unknown, -reading["budget"])
+    return (spent, credits, low, group, unknown, -budget)
 
 
 def account(cfg, provider, model=None):
@@ -1202,9 +1231,9 @@ def account(cfg, provider, model=None):
 
     The one `_gate_flags` put first: another account with room before the usual login,
     the usual one only when none of them has any, then the most budget, then the order
-    the config lists them in; for a `model`, one running low on the meters gating it
-    (`model_low`), or unread, after every one that is not.  (None, None) for a provider that
-    lists no accounts, which is asked nothing: it is one login, exactly as it always was.
+    the config lists them in; for a `model`, each on what that model reads there
+    (`_worker_rank`).  (None, None) for a provider that lists no accounts, which is asked
+    nothing: it is one login, exactly as it always was.
     For a model launched from a seat on this provider, spend the seat's account only once
     the others are spent or cannot authenticate; the model pick still reads the same meters.
     """
@@ -1220,10 +1249,7 @@ def account(cfg, provider, model=None):
         def spent(account):
             return model_exhausted(cfg, model, {provider: readings[account]})[0]
 
-        # One whose meters ak cannot read may be logged out: it is no safer than one running low.
-        order = sorted(readings, key=lambda a: _worker_rank(
-            a, readings[a], readings[a]["budget_reason"] is not None
-            or model_low(cfg, model, {provider: readings[a]})))
+        order = sorted(readings, key=lambda a: _worker_rank(a, readings[a], cfg, model))
         best = order[0]
         state = getattr(gitcall._RUN_CONTEXT, "state", {})
         if "launched_session" in state or "session" in state:
@@ -1425,14 +1451,14 @@ def credits_note(prov):
 
 
 def on_credits(cfg, name, providers):
-    """Whether this model runs on its provider's credits: a meter it watches is spent.
+    """Whether this model runs on its provider's credits: a meter gating it is spent.
 
     Credits cost money and the subscription is already paid, so every pick puts such a model
     after every model with a window left; it is spent only once the credits are gone too.
     """
     prov = providers.get(config.model(cfg, name)["provider"])
     return bool(credits_left(prov)) and any(m.get("used", 0) >= 100
-                                            for m in _watched(cfg, name, providers)[0])
+                                            for m in _gating_meters(cfg, name, providers)[0])
 
 
 def provider_budget(prov, now=None):
@@ -1492,22 +1518,13 @@ def model_low(cfg, name, providers):
     return running_low(meters, _probe_every(cfg, config.model(cfg, name)["provider"]))
 
 
-def _watched(cfg, name, providers):
-    """The meters gating the model plus its provider's 5h session meter, and their label."""
-    entry = config.model(cfg, name)
-    meters, label = _gating_meters(cfg, name, providers)
-    named = {m["name"] for m in meters}
-    return meters + [m for m in providers.get(entry["provider"], {}).get("meters") or []
-                     if m.get("window_secs") == SESSION_SECS and m["name"] not in named], label
-
-
 def spent_meter(cfg, name, providers):
-    """The worst meter this model watches that reads 100% used, or None: what the new-session
+    """The worst meter gating this model that reads 100% used, or None: what the new-session
     screen calls spent.  Unlike `model_spent`, a meter whose reset nobody knows counts too --
     the screen only declines to choose the model for him, and says when it resets if it can."""
     if on_credits(cfg, name, providers):
         return None
-    spent = [m for m in _watched(cfg, name, providers)[0] if m.get("used", 0) >= 100]
+    spent = [m for m in _gating_meters(cfg, name, providers)[0] if m.get("used", 0) >= 100]
     return max(spent, key=lambda m: m["used"]) if spent else None
 
 
@@ -1527,12 +1544,10 @@ def unready(cfg, name, providers):
 def model_spent(cfg, name, providers):
     """(spent, why) for the orchestrator choice: this model has nothing left to spend at all.
 
-    The meters gating the model plus its provider's 5h session meter, which a model naming a
-    weekly `meter =` runs inside without its own gate ever seeing it.  The used side only --
-    that choice does not read pace, because being ahead of pace is not a reason to refuse the seat
-    the user works from.
+    The meters gating the model, the used side only -- that choice does not read pace, because
+    being ahead of pace is not a reason to refuse the seat the user works from.
     """
-    watched, label = _watched(cfg, name, providers)
+    watched, label = _gating_meters(cfg, name, providers)
     spent = [m for m in watched if m.get("tier_a_exhausted", m.get("exhausted"))]
     left = credits_note(providers.get(config.model(cfg, name)["provider"]))
     if spent:

@@ -178,12 +178,12 @@ func saveWork(record *run.Object) error {
 	if err != nil {
 		return err
 	}
-	stopped, err := gitcall.InProgress(g, "rebase", "merge")
+	stopped, err := gitcall.InProgress(g)
 	if err != nil {
 		return err
 	}
 	if on != "refs/heads/"+branch || stopped {
-		return fmt.Errorf("the checkout is off %s or a rebase or merge is unfinished", branch)
+		return fmt.Errorf("the checkout is off %s or a rebase, merge or cherry-pick is unfinished", branch)
 	}
 	real, _, err := uncommitted.Committable(g, artifacts)
 	if err != nil {

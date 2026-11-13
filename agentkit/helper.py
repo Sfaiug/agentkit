@@ -156,10 +156,11 @@ def _known(alias, repo):
     return None if reply.returncode else reply.stdout.split()
 
 
-def _parcel(cwd, default, known, recipe, parcel, turn=None):
-    """Writes to the file `parcel` the recipe's files, the piece's script, `heads` (HEAD, then the
-    origin branch the suite compares against) and a bundle of their history the helper lacks:
-    the whole history the first time, which can outgrow memory; `turn(tar)` adds a turn's own."""
+def _parcel(cwd, default, known, files, parcel, turn=None):
+    """Writes to the file `parcel` `files`, {name: (mode, bytes)}, the recipe's and those each
+    piece reads (`start`), the piece's script, `heads` (HEAD, then the origin branch the suite
+    compares against) and a bundle of their history the helper lacks: the whole history the first
+    time, which can outgrow memory; `turn(tar)` adds a turn's own."""
     revs = ["HEAD", *([f"refs/remotes/origin/{default}"] if default else [])]
     heads = subprocess.run(["git", "-C", str(cwd), "rev-parse", *revs], capture_output=True,
                            text=True, check=True).stdout.split()
@@ -167,7 +168,7 @@ def _parcel(cwd, default, known, recipe, parcel, turn=None):
             if not gitcall.git_out(cwd, "cat-file", "-e", sha + "^{commit}")[0]]
     with tarfile.open(fileobj=parcel, mode="w") as tar, tempfile.TemporaryFile() as bundle:
         tar.add(TOOLS / "piece.sh", "piece.sh")
-        for name, (mode, data) in [*recipe.items(),
+        for name, (mode, data) in [*files.items(),
                                    ("heads", (0o644, (" ".join(heads) + "\n").encode()))]:
             info = tarfile.TarInfo(name)
             info.size, info.mode = len(data), mode
@@ -181,17 +182,20 @@ def _parcel(cwd, default, known, recipe, parcel, turn=None):
             tar.addfile(tar.gettarinfo(arcname="repo.bundle", fileobj=bundle), bundle)
 
 
-def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one=False):
+def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one=False,
+          files=None):
     """(the suite sent to a helper that takes it, reason): an Away, or (None, why it runs here).
     `command` is what each of its pieces runs there (`piece`): one whose line is longer than one
-    argument holds keeps the suite here. With `turn`, a model turn's (agentkit/machine_turn.py),
-    it goes to a machine that takes turns, holding `piece_cpus` of it until it starts, not half,
-    `turn(tar)` adding its own files to the parcel. With `one`, a probe of a red stack's
-    narrowing (land._probe), it holds only the CPUs its one piece gets, so the probes of its round
-    started beside it find the rest (`places`). None goes to a machine Google ends within
-    `lasting` seconds of when it would start there, and one placed where no machine with room
-    lasts a rent and a pass more (google_cloud.READY, PASS) asks for a machine, as none does:
-    the next is ready as the chosen one stops taking that work, not turns run here meanwhile."""
+    argument holds keeps the suite here; `files`, {variable: text}, go in the parcel, of any
+    length, each piece reading one from the file piece.sh names in its variable. With `turn`, a
+    model turn's (agentkit/machine_turn.py), it goes to a machine that takes turns, holding
+    `piece_cpus` of it until it starts, not half, `turn(tar)` adding its own files to the parcel.
+    With `one`, a probe of a red stack's narrowing (land._probe), it holds only the CPUs its one
+    piece gets, so the probes of its round started beside it find the rest (`places`). None goes
+    to a machine Google ends within `lasting` seconds of when it would start there, and one
+    placed where no machine with room lasts a rent and a pass more (google_cloud.READY, PASS)
+    asks for a machine, as none does: the next is ready as the chosen one stops taking that
+    work, not turns run here meanwhile."""
     work = "turns" if turn else "tests"
     try:
         aliases = _takers(work)
@@ -230,6 +234,7 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one
                       f"one argument holds ({MAX_ARG_STRLEN}, Linux's MAX_ARG_STRLEN)")
     rooms = {alias: room(alias, piece_cpus, piece_mem_mb, _least(repo), bool(turn))
              for alias in aliases}
+    handed = {name: (0o644, text.encode()) for name, text in (files or {}).items()}
 
     def need():
         """Asks the tick for a machine, the MiB read now: `short` may raise them meanwhile."""
@@ -248,7 +253,7 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one
         try:
             while known is not None:
                 with tempfile.TemporaryFile() as parcel:
-                    _parcel(cwd, away.default, known, recipe, parcel, turn)
+                    _parcel(cwd, away.default, known, {**recipe, **handed}, parcel, turn)
                     parcel.seek(0)
                     # a new recipe's build fetches packages, a first suite sends the whole history
                     sent = _remote(alias, "prepare", away.key, image, repo,

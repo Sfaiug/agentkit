@@ -180,5 +180,20 @@ class AnotherWorker(unittest.TestCase):
         self.assertIn("✓ done", self.settled)
 
 
+class OwnPrParked(unittest.TestCase):
+    """A seat's own PR parked for usage: its fixer is the model that wrote it, no worker of the
+    run (`run.review_pr`), and the tick resumes the run on it all the same."""
+
+    def test_a_dry_tick_would_resume_it_on_its_writer_once_that_has_room(self):
+        home, run = staged(self, ["astra"], claude="pass", codex="pass"), "20260928-0000-own-pr"
+        home.write(f".agentkit/runs/{run}/run.json", {
+            "run_id": run, "state": "exhausted", "quota_dry": True, "step": "executor",
+            "review_pr": "https://github.com/acme/widgets/pull/1", "own_pr": True,
+            "own_orchestrator": "opus", "executor": "opus", "reviewer": "astra",
+            "worktree": str(home.path), "workers": ["astra"]})
+        self.assertIn(f"would resume {run}: anthropic window refilled",
+                      home.ak("watch", "--dry-run").out.splitlines())
+
+
 if __name__ == "__main__":
     unittest.main()

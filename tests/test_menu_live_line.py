@@ -18,6 +18,7 @@ from fixtures.sandbox import Sandbox
 from agentkit import config, menu, record, statusbar, terminal
 
 NOW = 1_800_000_000
+CREW = "Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews"   # each seat's
 
 
 def screen(text):
@@ -68,11 +69,11 @@ class MenuLiveLine(Sandbox):
     def test_a_the_highlighted_seat_opens_its_line_and_no_other_row_grows(self):
         lines, _ = self.draw("fix-api")
         indent = " " * (2 + 1 + 2)                     # under the name
-        self.assertEqual(self.under(lines, "fix-api"), indent + "Opus 5.5 xhigh ⚒◎   ■□□")
-        self.assertEqual(sum("⚒" in line for line in lines), 1)   # web is not highlighted
+        self.assertEqual(self.under(lines, "fix-api"), indent + CREW + "   ■□□")
+        self.assertEqual(sum(CREW in line for line in lines), 1)   # web is not highlighted
         lines, _ = self.draw("web")
-        self.assertEqual(self.under(lines, "web"), indent + "Opus 5.5 xhigh ⚒◎   ■■□")
-        self.assertEqual(sum("⚒" in line for line in lines), 1)
+        self.assertEqual(self.under(lines, "web"), indent + CREW + "   ■■□")
+        self.assertEqual(sum(CREW in line for line in lines), 1)
         # no screen names a task
         self.assertNotIn("gh2", "\n".join(lines))
         self.assertNotIn("lg1", "\n".join(lines))
@@ -100,7 +101,7 @@ class MenuLiveLine(Sandbox):
                 patch.object(menu, "switches", return_value=[]):
             lines, _ = self.draw(config.CODE / "acme")
         self.assertTrue(any(line.startswith("›") and "acme" in line for line in lines), lines)
-        self.assertFalse(any("⚒" in line for line in lines), lines)
+        self.assertFalse(any(CREW in line for line in lines), lines)
 
     def test_e_a_model_is_drawn_on_one_line_as_text(self):
         # it may be named anything, a control character or an escape among it, and so may the
@@ -116,7 +117,7 @@ class MenuLiveLine(Sandbox):
         self.assertNotIn("\x1b[2J", out.getvalue())
         lines = screen(out.getvalue())
         self.assertEqual(self.under(lines, "fix-api").strip(),
-                         "opus Fast xhigh ⚒◎   ■□□")
+                         "Fable 5.1 xhigh orchestrates   opus Fast xhigh builds, reviews   ■□□")
 
 
 if __name__ == "__main__":

@@ -9,15 +9,14 @@ import (
 // nothing outliving that run carries.
 const RunCode = "AK_RUN_CODE"
 
-// Running is this program, its links resolved, and ~/agentkit's build of it, the two paths
-// Python's update_first compares: a worktree nested inside ~/agentkit is not on it.
+// Running is this program, its links resolved, and ~/agentkit's build, go/bin/ak whatever this
+// program is called: a copy named otherwise still hands its seats the installed ak.
 func Running() (self, live string, err error) {
 	self, err = os.Executable()
 	if err != nil {
 		return "", "", err
 	}
-	self = Resolve(self)
-	return self, filepath.Join(Resolve(filepath.Join(UserHome(), "agentkit")), "go", "bin", filepath.Base(self)), nil
+	return Resolve(self), filepath.Join(Resolve(filepath.Join(UserHome(), "agentkit")), "go", "bin", "ak"), nil
 }
 
 // Live is the program a seat runs, and its server runs for it, as Python's versions.live names

@@ -8,7 +8,8 @@ read back -- and every pass after a move's own first was the tick's, three minut
 move's lines get their passes at once, behind the menu: from a seat's `c`, and from `a apply to
 all sessions` over several seats, with no tick.  A harness that takes the line and draws no
 composer after it keeps the line owed with its mark, nothing of ak's left on it, and the next
-tick to find its composer back delivers it.
+tick to find its composer back delivers it; one whose seat is renamed meanwhile, the move's own
+passes deliver under its new name.
 
 Black-box: `AK_BIN`, as the popup over a seat and the menu (tests/fixtures/akterm.py) and as
 `ak watch` ticks (tests/fixtures/akbin.py), the seat's pane tests/fixtures/akpane.py drawing what
@@ -27,7 +28,7 @@ from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
-SEAT = "acme-fix"
+SEAT, RENAMED = "acme-fix", "acme-renamed"
 MODEL, EFFORT = "/model claude-fable-5-1", "/effort xhigh"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
@@ -133,6 +134,17 @@ class AMoveIsInWithoutATick(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual(seat.lines(), [MODEL, EFFORT])
         self.assertFalse(self.owed(SEAT))
+
+    def test_a_seat_renamed_while_its_move_waits_takes_it_under_its_new_name(self):
+        seat = self.move_from_c({"/model ": TAKING})
+        self.until(lambda: (self.owed(SEAT) or [{}])[0].get("typed"), "never typed: {}",
+                   lambda: self.owed(SEAT))
+        done = self.home.ak("orch", "rename", SEAT, RENAMED)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.home.tmux("send-keys", "-t", seat.pane, "1")     # its composer comes back
+        self.assertEqual(seat.wait_lines(2), [MODEL, EFFORT])
+        self.until(lambda: not self.owed(RENAMED), f"{RENAMED} still owes {{}}",
+                   lambda: self.owed(RENAMED))
 
 
 if __name__ == "__main__":

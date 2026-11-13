@@ -3,8 +3,8 @@ file timed it (`<file>::<part>`, tests/every_file.py).
 
 A suite's box throws its HOME writes away, so the times live in ak's state instead: every check,
 the lander's among them, keeps those its pieces printed (`passed`, wherever each piece ran), and
-every piece of a suite gets one copy, AK_TIMES, taken as the suite starts, so all of them cut
-the same shares (tests/every_file.py)."""
+every piece of a suite gets one copy, taken as the suite starts, in the file AK_TIMES names, so
+all of them cut the same shares (tests/every_file.py)."""
 
 import json
 from pathlib import Path
@@ -28,7 +28,8 @@ def _path(cwd):
 
 
 def handed(cwd):
-    """The record of the repository `cwd` checks out, as AK_TIMES hands it: "" before any."""
+    """The record of the repository `cwd` checks out, as the file AK_TIMES names holds it: ""
+    before any."""
     try:
         return _path(cwd).read_text()
     except OSError:
@@ -36,7 +37,7 @@ def handed(cwd):
 
 
 def read(text):
-    """{test ID: seconds} from AK_TIMES' `text`; {} from anything else."""
+    """{test ID: seconds} from a record's `text`; {} from anything else."""
     try:
         times = json.loads(text)
     except ValueError:

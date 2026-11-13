@@ -582,7 +582,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         land.check_line(self.turn)
         for change in ({"state": "queued", "slot_waiting": True},
                        {"state": "running", "slot_waiting": False},
-                       {"state": "interrupted", "deaths": [{"pid": 5678}]}):
+                       {"state": "interrupted", "pid": 5678, "deaths": [{"pid": 5678}]}):
             with self.subTest(change=change):
                 with record.record(members[0]) as current:
                     current.update(**change)

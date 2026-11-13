@@ -56,6 +56,7 @@ menu.Live.probe = lambda self, now=None: False
 down = usage.Readings({})           # the harnesses ONE_DOWN names are not logged in
 down.harnesses = {name: f"{name} is not logged in" for name in os.environ["ONE_DOWN"].split()}
 usage.collect = lambda cfg, **kwargs: down
+usage.held = lambda cfg: down       # what `c` reads
 orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: (
     config.update_session(name, orchestrator=model), "")[1]
 orch.fresh_command = lambda cfg, name, seat=None, account=None, **_kw: (["harness"], None)
