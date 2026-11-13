@@ -1116,9 +1116,10 @@ console.log(JSON.stringify(refused));
         ])
         self.assertIn(["opencode/nemotron-3.5-super-vl-free", "Nemotron 3.5 Super VL Free",
                        "none minimal low medium high xhigh"], rows)
-        # a list OpenCode printed and then failed is no list
-        self.assertEqual(self.models(STUB_MODEL_LIST=listing, STUB_LIST_RC="1"),
-                         self.models())
+        # a list OpenCode printed and then failed is no list, and neither is none
+        for env in ({"STUB_MODEL_LIST": listing, "STUB_LIST_RC": "1"}, {}):
+            proc = self.adapter("models", env=env)
+            self.assertEqual((proc.returncode, proc.stdout), (1, ""), env)
 
     def test_a_model_s_own_variants_outrank_the_table(self):
         listing = json.loads((FIXTURES / "opencode-model-list.json").read_text())
@@ -1129,18 +1130,17 @@ console.log(JSON.stringify(refused));
         self.assertIn(["opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash Free",
                        "low high"], self.models(STUB_MODEL_LIST=str(self.root / "models.json")))
 
-    def test_a_failed_listing_gives_the_table_the_same_answer(self):
-        self.assertEqual(self.models(), [
-            ["mimo/mimo-v2.6-pro", "MiMo V2.6 Pro", "none high"],
-            ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none high"],
-            ["opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash Free", "low high max"],
-            ["opencode/glm-5.3-flash-free", "GLM-5.3-Flash Free", "low high max"],
-        ])
-
-    def test_mimo_takes_thinking_off_or_on(self):
-        with patch.dict(os.environ, self.env), patch.dict(config._CATALOGS, clear=True):
+    def test_a_failed_listing_gives_the_table_the_same_answer_mimo_thinking_off_or_on(self):
+        with patch.dict(os.environ, self.env), patch.dict(config._ASKED, clear=True), \
+                patch.object(config, "STATE", self.home / "state"):
             os.environ.pop(config.ADAPTER_DIR_ENV, None)
-            self.assertEqual(config.efforts("opencode", "mimo/mimo-v2.6-pro"), ["none", "high"])
+            self.assertEqual([[model["id"], model["label"], " ".join(model["efforts"])]
+                              for model in config.catalog("opencode")], [
+                ["mimo/mimo-v2.6-pro", "MiMo V2.6 Pro", "none high"],
+                ["mimo/mimo-v2.6-flash", "MiMo V2.6 Flash", "none high"],
+                ["opencode/deepseek-v4.1-flash-free", "DeepSeek V4.1 Flash Free", "low high max"],
+                ["opencode/glm-5.3-flash-free", "GLM-5.3-Flash Free", "low high max"],
+            ])
 
     # --- config ------------------------------------------------------------------
     def test_config_offers_mimo_last(self):
