@@ -49,7 +49,8 @@ class FullNames(Sandbox):
 
     def test_a_seat_row_its_crew_and_its_bar_say_the_full_names(self):
         selection = {"orchestrator": "opus", "workers": ["gpt-sol"], "reviewers": ["opus"]}
-        self.assertEqual(menu.seat_crew(self.cfg, selection), (["GPT-6.1-Sol"], ["Opus 5.5"]))
+        self.assertEqual(menu.seat_crew(self.cfg, selection),
+                         ("Opus 5.5", ["GPT-6.1-Sol"], ["Opus 5.5"]))
         written = []
         with patch.object(statusbar, "_tell", lambda _target, options: written.extend(options)):
             statusbar._write("fix-api", "opus", "working", cfg=self.cfg)
