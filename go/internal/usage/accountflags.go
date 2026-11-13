@@ -24,9 +24,14 @@ func flagAccounts(name string, prov *run.Object, now float64, models map[string]
 		}
 	}
 	gateFlags(flagged, now, models)
+	rank := func(account string) []float64 {
+		reading := flagged.Dict(account)
+		budget, _ := number(reading.Get("budget"))
+		return workerRank(account, reading.Truthy("exhausted"), reading.Truthy("on_credits"), false, reading.Get("budget_reason") != nil, budget)
+	}
 	best := ""
 	for _, account := range flagged.Keys() {
-		if best == "" || slices.Compare(workerRank(account, flagged.Dict(account), false), workerRank(best, flagged.Dict(best), false)) < 0 {
+		if best == "" || slices.Compare(rank(account), rank(best)) < 0 {
 			best = account
 		}
 	}
@@ -43,12 +48,11 @@ func flagAccounts(name string, prov *run.Object, now float64, models map[string]
 	prov.Set("account", best)
 }
 
-// workerRank is where a flagged account stands for a worker turn, lowest first (usage._worker_rank):
-// spent last, then on credits, then one running low, then the usual login and any unread one after
-// the others with room, then the most budget.  An unread account ranks with the usual login: its
+// workerRank is where an account stands for a worker turn, lowest first (usage._worker_rank):
+// spent last, then on credits, then one running low, then the usual login and any unknown one after
+// the others with room, then the most budget.  An unknown account ranks with the usual login: its
 // login may be what failed.
-func workerRank(account string, reading *run.Object, low bool) []float64 {
-	spent, unknown := reading.Truthy("exhausted"), reading.Get("budget_reason") != nil
+func workerRank(account string, spent, credits, low, unknown bool, budget float64) []float64 {
 	group := 0.0
 	switch {
 	case account == config.DefaultAccount || unknown && !spent:
@@ -56,7 +60,6 @@ func workerRank(account string, reading *run.Object, low bool) []float64 {
 	case spent:
 		group = 2
 	}
-	budget, _ := number(reading.Get("budget"))
 	yes := map[bool]float64{true: 1}
-	return []float64{yes[spent], yes[reading.Truthy("on_credits")], yes[low], group, yes[unknown], -budget}
+	return []float64{yes[spent], yes[credits], yes[low], group, yes[unknown], -budget}
 }

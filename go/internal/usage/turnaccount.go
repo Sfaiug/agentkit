@@ -11,10 +11,10 @@ import (
 
 // TurnAccount is the login a worker turn of that model runs on, and whether it has room, Python's
 // usage.account, which each turn of the run at dir asks: "" for a provider listing none.  Its
-// logins rank as workerRank ranks them for this model, and where the seat the run was launched
-// from has its orchestrator on that provider, the seat's own login goes last: it is used only once
-// every other is spent for the model or its `auth` says it cannot run.  With none of them read
-// yet, it is the first listed but the usual one.
+// logins rank as workerRank ranks them on what this model reads at each, and where the seat the
+// run was launched from has its orchestrator on that provider, the seat's own login goes last: it
+// is used only once every other is spent for the model or its `auth` says it cannot run.  With
+// none of them read yet, it is the first listed but the usual one.
 func TurnAccount(name, dir string) (string, bool, error) {
 	model, err := config.ModelNamed(name)
 	if err != nil {
@@ -43,9 +43,12 @@ func TurnAccount(name, dir string) (string, bool, error) {
 	spent := func(account string) bool { return alone(account).Spent(name) != "" }
 	ranks, order := map[string][]float64{}, accounts.Keys()
 	for _, account := range order {
-		reading := accounts.Dict(account)
-		// one whose meters ak cannot read may be logged out: it is no safer than one running low
-		ranks[account] = workerRank(account, reading, reading.Get("budget_reason") != nil || alone(account).low(name))
+		// on what this model reads there alone, so another model's spent cap leaves the login room;
+		// one ak cannot read may be logged out, no safer than one running low
+		reading, own := accounts.Dict(account), alone(account)
+		unknown := reading.Truthy("error") || stale(reading, readings.now)
+		budget, _ := own.Budget(name)
+		ranks[account] = workerRank(account, own.Spent(name) != "", own.OnCredits(name), unknown || own.low(name), unknown, budget)
 	}
 	slices.SortStableFunc(order, func(a, b string) int { return slices.Compare(ranks[a], ranks[b]) })
 	seat, err := launching(dir)
