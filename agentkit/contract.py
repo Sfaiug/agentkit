@@ -29,7 +29,7 @@ from . import config, hand_in, run, turns, usage, worker
 def login(cfg, provider):
     """The login the check runs on that provider: the account its config lists, which smoke_home
     lists only for a subscription it lent by name, else None, the usual one.  SMOKE_LOGIN=usual
-    names the usual one: 31d and 31e run `claude -p` and `codex exec` themselves, on it."""
+    names the usual one: 31d and 31e run their harnesses' own headless commands, on it."""
     if os.environ.get("SMOKE_LOGIN") == "usual":
         return None
     return next(iter(config.accounts(cfg, provider)), None)
@@ -121,8 +121,8 @@ def refused(cfg, model, code, out, snapshot):
     word = turns.ran_dry(code, said, entry["harness"])
     if not word:
         # The provider down, in the harness's own words: this turn proves nothing about ak, and
-        # no window is spent, so the snapshot keeps nothing.  xAI's 500s for six minutes held
-        # the install on 5 Nov 2026.
+        # no window is spent, so the snapshot keeps nothing.  A provider's 500s for six minutes
+        # held the install on 5 Nov 2026.
         down = turns.harness_plugin(entry["harness"]).outage(said)
         return f"the provider was down ({down})" if down else ""
     read = providers(cfg, snapshot)
