@@ -1822,7 +1822,7 @@ def _taken_in(cfg, left, ran, ask):
              "effort": ran[1] if ran[1] in levels else levels[-1],
              **{key: left[key] for key in ("mode",) if key in left}}
     try:
-        return [config.add_model(cfg, entry,
+        return [config.add_model(cfg, entry,     # a table row's label as every screen's
                                  config.model_label(harness, ran[0], listed["label"]))]
     except (config.Error, OSError):
         return []
