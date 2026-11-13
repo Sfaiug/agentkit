@@ -116,7 +116,7 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
                 and (repair.get("revert") or repair_open(other, tip) if repair else
                      transitions.launched_session(other) == transitions.launched_session(state)
                      and ((other["followup"].get("check") or "").strip() == check.strip() if check
-                          else other["followup"]["place"] == followup_place(text)
+                          else followup_place(other["followup"]["text"]) == followup_place(text)
                           and other["followup"].get("run") != state.get("run_id"))
                      and (going(other) or held is not None and transitions.delivered(other)
                           and (other.get("finished_at") or 0) >= held))):
@@ -1424,7 +1424,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 if split:
                     gate.write_suite_cost(Path(split["cost"]), {"split_run": directory.name})
                 run.launch_for_seat(directory, state, {
-                    "followup": {"run": run_dir.name, "text": item, "place": followup_place(item),
+                    "followup": {"run": run_dir.name, "text": item,
                                  **({"check": checks[item]} if item in checks else {})},
                     # a repair's only check is the target's own, run at landing: its
                     # before is the lander's run of it on the target tip, where it did

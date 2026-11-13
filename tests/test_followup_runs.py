@@ -739,9 +739,9 @@ class FollowupRuns(unittest.TestCase):
         child_dir.mkdir()
         wt = self.root / "wt-fix"
         wt.mkdir()
-        # an earlier merge's fix at this site: one of the parent's own would be another defect
-        base = {"run_id": "fix", "followup": {"run": "earlier", "text": DEFECT,
-                                              "place": handback.followup_place(DEFECT)},
+        # an earlier merge's fix at this site: one of the parent's own would be another defect;
+        # its site is read from its text, whatever an older ak recorded beside it
+        base = {"run_id": "fix", "followup": {"run": "earlier", "text": DEFECT, "place": "/stale:1"},
                 "launched_session": "seat", "repo": str(self.repo)}
         blocking = [
             {"state": "running", "pid": "dead"},
