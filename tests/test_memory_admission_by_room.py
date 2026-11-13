@@ -40,7 +40,6 @@ class MemoryAdmissionByRoom(unittest.TestCase):
         os.environ.pop("AK_MAX_LOAD", None)
         self.stack.enter_context(patch.object(history.time, "time", return_value=NOW))
         self.stack.enter_context(patch.object(gate, "slot_counts", return_value=(7, 0, [])))
-        self.stack.enter_context(patch.object(gate, "landing_waits", return_value=False))
         self.stack.enter_context(patch.object(record, "process_owner", return_value={"pid": 1}))
         # room, not pace: no poll's pause after each start, on a clock that stands still
         self.stack.enter_context(patch.object(gate, "SLOT_POLL", 0))

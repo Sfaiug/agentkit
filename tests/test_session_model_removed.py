@@ -86,7 +86,7 @@ class RemovedModel(Sandbox):
 
     def test_the_next_flip_on_c_saves_the_record_without_the_gone_model(self):
         self.save()
-        config.remove_model(self.cfg, "astra")
+        config.save(config.remove_model(self.cfg, "astra"))     # as the screens do (menu._saved)
         record = config.load_session(self.cfg, "fix-api")
         selected = {"orchestrator": record["orchestrator"], "workers": list(record["workers"]),
                     "reviewers": list(record["reviewers"])}

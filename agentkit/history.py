@@ -35,7 +35,8 @@ STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds"
 # A landing check's wait for a heavy-suite turn is the lander's, inside the run's line wait.
 # Each counted in its `<wait>_wait_seconds` column (`waiter.add_wait`).
 WAITS = ("slot", "suite", "merge", "lander")
-SLOT_GATES = {"count": "admission", "load": "admission", "memory": "memory", "unit memory": "memory"}
+SLOT_GATES = {"count": "admission", "load": "admission", "cpu": "admission", "memory": "memory",
+              "unit memory": "memory"}
 _OPEN = {}     # run_id -> [step, since, opened]: the step this process runs, counted up to
                # `since`, and its phase row's start
 _OPEN_LOCK = threading.Lock()
@@ -83,7 +84,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
               ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
               ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"), ("plan_line", "TEXT"),
-              ("no_review", "INTEGER"))
+              ("no_review", "INTEGER"), ("check_rewritten_at", "REAL"))
+REWRITE_WINDOW = 14 * 86400     # how long after going live `ak plan check` counts as a rewrite
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
@@ -523,6 +525,23 @@ def blame_merge(sha, source, *, log=None):
                                "AND COALESCE(broke_after_merge,'')=''", (source, row[0]))
             return row[0]
     return _write(blame, log)
+
+
+def rewrote(seats, plan_line, *, log=None):
+    """Stamp `check_rewritten_at`, once, on each run `seats` launched for `plan_line` (`plan.link`)
+    that went live within `REWRITE_WINDOW` before now.  Where no history stands no run went live,
+    and none is made."""
+    try:
+        if not path().exists():
+            return
+    except OSError:
+        return
+    now = time.time()
+    _write(lambda connection: connection.execute(
+        "UPDATE runs SET check_rewritten_at = ? WHERE check_rewritten_at IS NULL "
+        "AND live_at BETWEEN ? AND ? AND plan_line = ? "
+        f"AND session IN ({','.join('?' * len(seats))})",
+        (now, now - REWRITE_WINDOW, now, plan_line, *seats)), log)
 
 
 def first_review(run_id, lines, *, log=None):
@@ -986,6 +1005,31 @@ def dones(since, until):
                            else "NULL")
                 return connection.execute(f"SELECT at, began, {live}, {answers} FROM dones WHERE at >= ? AND at <= ?",
                                           (since, until)).fetchall()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return None
+
+
+def rewrites(since, until):
+    """Each real run that took a plan line live in the inclusive range,
+    `(session, plan_line, live_at, rewritten)`: whether `ak plan check` replaced its check within
+    `REWRITE_WINDOW` of its going live (`rewrote`).  None where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                # a read connection adds no column: a history no write has met since
+                # check_rewritten_at came holds no stamp yet
+                rewritten = ("check_rewritten_at IS NOT NULL"
+                             if "check_rewritten_at" in {row[1] for row in
+                                                         connection.execute("PRAGMA table_info(runs)")}
+                             else "0")
+                return connection.execute(
+                    f"SELECT session, plan_line, live_at, {rewritten} FROM runs "
+                    f"WHERE session IS NOT NULL AND plan_line IS NOT NULL "
+                    f"AND live_at >= ? AND live_at <= ? AND {REAL_WORK}",
+                    (since, until)).fetchall()
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

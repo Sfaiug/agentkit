@@ -47,7 +47,7 @@ func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard 
 		}
 		view.Rows, view.At = rows, max(0, min(view.At, len(rows)-1))
 		screen := keyboard.Screen()
-		clock.Draw(time.Now())
+		clock.Draw(motion.Now())
 		view.Motion, view.Clock = clock, time.Now().Format("15:04")
 		if !screen.Moves() {
 			view.Motion = nil

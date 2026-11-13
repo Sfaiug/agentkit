@@ -10,10 +10,15 @@ type Plan struct {
 	Points, Dollars float64
 }
 
+// fewestPoints is Python's spend.FEWEST_POINTS: a week read from fewer points of its meter names
+// nothing, as the meters read whole points and trail what bought them, which a few points cannot
+// outweigh.
+const fewestPoints = 10
+
 // Week is what a week of the plan holds in listed dollars, 100 times its dollars over its points;
-// false where either is 0.
+// false where its points are under fewestPoints or its dollars 0.
 func (p Plan) Week() (float64, bool) {
-	if p.Points == 0 || p.Dollars == 0 {
+	if p.Points < fewestPoints || p.Dollars == 0 {
 		return 0, false
 	}
 	return 100 * p.Dollars / p.Points, true

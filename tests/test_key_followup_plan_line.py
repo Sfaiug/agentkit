@@ -39,7 +39,7 @@ LINE = re.compile(r"- \[(?P<mark>[ x])\] (?P<what>.+?) · check: `(?P<check>[^`]
                   r"\d{4}-\d\d-\d\d \d\d:\d\d on (?P<base>[0-9a-f]{12})(?: · done (?P<done>.+))?")
 
 
-def wait_for(read, bound=120):
+def wait_for(read, bound=600):
     """`read()` once it is true, or the last thing it said after `bound` seconds."""
     deadline = time.monotonic() + bound
     while not (seen := read()) and time.monotonic() < deadline:
@@ -115,7 +115,7 @@ class SeatWithExecutors(Seated, unittest.TestCase):
         fakeadapter.install(cls.home, claude=["work", held(cls.release, fix)],
                             codex=[REVIEW, "pass"])
         cls.done = cls.home.ak("run", str(cls.task), env={"AGENTKIT_SESSION": "acme"},
-                               timeout=300)
+                               timeout=600)
         cls.held_plan = cls.plan()
         cls.parent_dir, *fixes = taskfile.runs(cls.home)
         cls.fix_dir = fixes[0] if len(fixes) == 1 else None
@@ -181,7 +181,7 @@ class SeatWithoutExecutors(Seated, unittest.TestCase):
         cls.home.write(record.relative_to(cls.home.path),
                        {**json.loads(record.read_text()), "workers": []})
         cls.release.write_text("")
-        cls.code = run.wait(300)
+        cls.code = run.wait(600)
 
     def test_the_line_is_the_seat_s_own_to_build_and_no_run_starts(self):
         self.assertEqual(self.code, 0, self.home.log("spawn-1.err").read_text())

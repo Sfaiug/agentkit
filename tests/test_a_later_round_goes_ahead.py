@@ -38,7 +38,6 @@ class LaterRoundGoesAhead(unittest.TestCase):
         os.environ.pop("AK_MAX_LOAD", None)
         stack.enter_context(patch.object(record, "process_owner", return_value=OWNER))
         stack.enter_context(patch.object(record, "process_active", return_value=True))
-        stack.enter_context(patch.object(gate, "landing_waits", return_value=False))
         # order, not pace: no poll's pause after each start
         stack.enter_context(patch.object(gate, "SLOT_POLL", 0))
 

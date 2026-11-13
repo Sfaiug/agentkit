@@ -116,6 +116,17 @@ class NoteScreen(unittest.TestCase):
         self.assertEqual(list((screen.seats.parent / ".agentkit/state").glob("session-*.json")), [])
         screen.leave()
 
+    def test_one_enter_takes_a_note_down_after_the_pointer_moved_over_it(self):
+        screen = Screen(self)
+        before = screen.frame()
+        mark = len(screen.text())
+        screen.send(b"n")
+        lines = self.note(screen, f"new session: {FETCH_ERROR}", mark)
+        row, keys = next((row, line) for row, line in enumerate(lines, 1) if "esc back" in line)
+        screen.send(f"\x1b[<35;{keys.index('esc back') + 1};{row}M".encode())   # a move, no click
+        self.back(screen, ENTER, before)
+        screen.leave()
+
     def test_a_failed_write_is_said_on_its_page_and_esc_returns_to_the_whole_config_screen(self):
         screen = Screen(self)
         screen.frame()

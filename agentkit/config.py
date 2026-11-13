@@ -216,7 +216,7 @@ def max_load_is_set():
     """True when the owner pinned the host load gate, in the config or the environment.
 
     Pinned, the old load check still decides admission, with its old meaning;
-    unset, nothing gates CPU and the default above goes unread. A corrupt config answers False here and raises where the
+    unset, the default above goes unread. A corrupt config answers False here and raises where the
     gate itself reads it, as before.
     """
     if os.environ.get("AK_MAX_LOAD") is not None:
@@ -420,6 +420,19 @@ def rename_policy(data):
     return data
 
 
+@contextmanager
+def _config_lock():
+    """One writer at a time of the config file that reads it again first.  It locks the
+    directory, which survives replacing the file and which no collector removes, as it would a
+    lock file of its own."""
+    directory = os.open(HOME, os.O_RDONLY)
+    try:
+        fcntl.flock(directory, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(directory)
+
+
 def migrate_policy():
     """The first command replaces old keys in ak's own file; project files stay theirs."""
     path = HOME / CONFIG_NAME
@@ -429,11 +442,8 @@ def migrate_policy():
         return      # commands reading the config report it; help still opens
     if not data or not POLICY_RENAMES.keys() & data.keys():
         return
-    # Lock the directory, which survives replacing the file, then read again: another first
-    # command may already have migrated it. No lock file or general config save is needed.
-    directory = os.open(HOME, os.O_RDONLY)
-    try:
-        fcntl.flock(directory, fcntl.LOCK_EX)
+    # read again under the lock: another first command may already have migrated it
+    with _config_lock():
         data = _read_toml(path) or {}
         if not POLICY_RENAMES.keys() & data.keys():
             return
@@ -459,8 +469,6 @@ def migrate_policy():
         tmp.write_text("".join(chunks) + statement, encoding="utf-8")
         os.chmod(tmp, 0o600)
         tmp.replace(path)
-    finally:
-        os.close(directory)
 
 
 def policy(checkout=None):
@@ -717,6 +725,52 @@ def remove_model(cfg, name):
     return cfg
 
 
+def short_name(cfg, label):
+    """`sonnet` for `Sonnet 5`, `gemini-pro` for `Gemini 3 Pro`: a label's words without their
+    versions, then `-2`, `-3` and on until it names no model the config has."""
+    words = [word for word in re.findall(r"[a-z0-9]+", label.lower().replace("'", ""))
+             if not any(char.isdigit() for char in word)]
+    base = "-".join(dict.fromkeys(words)) or "model"
+    name, number = base, 1
+    while name in cfg["models"]:
+        number += 1
+        name = f"{base}-{number}"
+    return name
+
+
+def running(cfg, harness, model_id):
+    """The names `cfg` runs that harness's `model_id` under: each entry it offers that can run
+    (model)."""
+    def runs(name):
+        try:
+            entry = model(cfg, name)
+        except Error:
+            return False
+        return (entry["harness"], entry["model"]) == (harness, model_id)
+    return [name for name in offered(cfg) if runs(name)]
+
+
+def add_model(cfg, entry, label):
+    """`entry` in the config file as it is now, named from its model's `label` (short_name),
+    and in `cfg`, its provider's table with it, for its holder to go on with: read, added and
+    saved under one lock, so two added at once are both kept.  Where the file runs that model
+    on that harness by then (running), that entry, nothing added.  Its name; Error or OSError
+    where the file will not read or save, or could not run it (model), its provider gone from
+    it since `cfg` was read."""
+    with _config_lock():
+        now = load()
+        name = next(iter(running(now, entry["harness"], entry["model"])), None)
+        if name is None:
+            name = short_name(now, label)
+            now["models"][name] = entry
+            model(now, name)
+            save(now)
+    cfg["models"][name] = now["models"][name]
+    provider = cfg["models"][name]["provider"]
+    cfg["providers"].setdefault(provider, now["providers"][provider])
+    return name
+
+
 def passed_over(defaults, cfg):
     """`defaults` as load() reads them over `cfg`'s models, the first model left taking a place
     one gone empties; as given while every model they name is there.  save writes them so: a
@@ -785,8 +839,9 @@ def signs_in_again(harness, account):
 
 def listed_providers(harness):
     """Every provider that harness can log in to, as its adapter's `providers` verb lists them:
-    (id, name, mode), the logged-in ones first with their mode, `subscription`, `free` or
-    `payg`, and the rest with none.  The one with the harness's own id is the harness's own, named as `+
+    (id, name, mode, takes), the logged-in ones first with their mode, `subscription`, `free` or
+    `payg`, and the rest with none, each with what a login to it takes, `sign-in` or `key`,
+    where the harness says, else "".  The one with the harness's own id is the harness's own, named as `+
     add` offers the harness (provider_hosts): OpenCode's is OpenCode, whatever OpenCode calls
     it.  Error, in the adapter's own last words, when it lists none."""
     try:
@@ -794,9 +849,10 @@ def listed_providers(harness):
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Error(f"{harness} providers: {exc}") from exc
     own = provider_hosts().get(harness)
-    rows = [(fields[0], own if own and fields[0] == harness else fields[1], fields[2])
+    rows = [(fields[0], own if own and fields[0] == harness else fields[1], fields[2],
+             fields[3] if len(fields) == 4 else "")
             for fields in (line.split("\t") for line in proc.stdout.splitlines())
-            if len(fields) == 3 and fields[0]]
+            if len(fields) in (3, 4) and fields[0]]
     if proc.returncode or not rows:
         raise Error((proc.stderr.strip().splitlines() or [f"{harness} lists no provider"])[-1])
     return rows
@@ -1613,6 +1669,25 @@ def change_efforts(name, change):
     return data
 
 
+def change_session(name, change):
+    """Seat `name`'s record as `change` makes it of the record and the config as they stand, the
+    record as load_session reads it: read, changed and written under the record's lock, so no
+    other window's step on either since is lost or undone, and a model the config no longer has
+    falls back in the file as it does in a read.  `change` raises Error to leave the record as
+    it was; a model it takes on runs at its entry's efforts as of now (own_efforts).  The record
+    as written, or None for a seat with no record."""
+    path = session_path(name)
+    with _record_lock(path):
+        data = _read_json(path)
+        if not isinstance(data, dict) or "renamed" in data:
+            return None
+        cfg = load()
+        changed = own_efforts(cfg["models"], name, change(_as_read(cfg, name, data), cfg))
+        if changed != data:
+            _write_json(path, changed, prepare=False)
+    return changed
+
+
 def own_efforts(models, name, data):
     """Seat `name`'s record `data` holding the efforts of each model it runs: one it holds none
     for takes its entry's in `models`, the defaults, once -- at the seat's creation, a model
@@ -1635,8 +1710,7 @@ def keep_efforts(cfg, name):
     while that lock was waited for."""
     def kept(data):
         try:
-            return own_efforts(cfg["models"], name, _validate_session(
-                cfg, name, data, prune=True)).get("efforts")
+            return _as_read(cfg, name, data).get("efforts")
         except Error:
             return data.get("efforts")      # a record that will not read is left as it is
     if change_efforts(name, kept) is None:
@@ -1739,6 +1813,11 @@ def load_session(cfg, name, required=True):
         if not required:
             return None
         raise Error(f"{SESSION_ENV}={name!r}, but {path} does not exist")
+    return _as_read(cfg, name, data)
+
+
+def _as_read(cfg, name, data):
+    """Seat `name`'s record `data` as load_session reads it over `cfg`."""
     return own_efforts(cfg["models"], name, _validate_session(cfg, name, data, prune=True))
 
 

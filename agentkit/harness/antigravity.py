@@ -23,7 +23,7 @@ import shutil
 import sqlite3
 import uuid
 
-from .. import config
+from .. import config, look
 from . import LAUNCHER, issued
 
 # `steps.step_type`, and where each keeps its words in its payload: a user input's text, and
@@ -60,6 +60,9 @@ def conversation(record, cwd=None):
         except OSError as exc:
             unread(exc)
             return None
+        # on the disk now: a menu's pass asks this with the records it first read, from before
+        # a claim another seat made since, and would take that seat's conversation beside it
+        held.enter_context(look.aside())
         records = config.session_records()
         name = next((name for name, kept in records.items()
                      if kept.get("antigravity_launch") == token), None)

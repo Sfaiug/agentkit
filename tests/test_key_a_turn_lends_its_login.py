@@ -3,9 +3,10 @@ from the machine before `collect` can send anything; a login lapsing too soon or
 be lent keeps the turn here; and a turn starting holds two of the machine's CPUs, not half of it.
 
 Black-box, as tests/test_key_a_turn_runs_on_a_machine.py, on its machine, with its fake adapters,
-whose `lend` is the real tools/lend.py. ssh and docker log their arguments, and ssh what the HOME
-of any parcel on the machine holds at each `collect` and `finish`, while the turn's stand-in harness
-says where it ran, which account's login it read and its environment, and leaves a file of its own.
+whose `lend` places a login as a shipped one's does. ssh and docker log their arguments, and ssh
+what the HOME of any parcel on the machine holds at each `collect` and `finish`, while the turn's
+stand-in harness says where it ran, which account's login it read and its environment, and
+leaves a file of its own.
 """
 
 import json

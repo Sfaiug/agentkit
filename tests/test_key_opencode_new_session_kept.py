@@ -4,14 +4,14 @@ email; the plan holds the button alone, every line done.  They prompt B, saying 
 The seat does not read done, `ak orch check` names the email from a workspace holding A and B,
 and a reopen resumes B.  A prompt in A again leaves the check reading each once; a prompt into a
 subagent's session, or into one another seat's record names, leaves the seat where it was, its
-first session too.  A seat reopened on A, its receipt naming A and its record none, that goes to
-B before any prompt in A keeps A just the same, and stays on A through a prompt into beta's; a
-seat whose OpenCode's session API never answers follows all the same.  Black-box on `AK_BIN`, a
-fake model (fakeadapter.py), and in the seat's pane a fake `opencode`, one process as 2.2.6's
-TUI: it runs the plugin under Node as OpenCode loads it and hands it a `session.inbox.enqueued`
-for each prompt, its record of every session an opencode.db -- each session's row in session_v2,
-a subagent's naming its parent, and each prompt and its answer in session_message, shaped as
-tests/test_key_card_answers_opencode.py's.
+first session too, or in none though that seat is forgotten.  A seat reopened on A, its receipt
+naming A and its record none, that goes to B before any prompt in A keeps A just the same, and
+stays on A through a prompt into beta's; a seat whose OpenCode's session API never answers
+follows all the same.  Black-box on `AK_BIN`, a fake model (fakeadapter.py), and in the seat's
+pane a fake `opencode`, one process as 2.2.6's TUI: it runs the plugin under Node as OpenCode
+loads it and hands it a `session.inbox.enqueued` for each prompt, its record of every session an
+opencode.db -- each session's row in session_v2, a subagent's naming its parent, and each prompt
+and its answer in session_message, shaped as tests/test_key_card_answers_opencode.py's.
 """
 
 import json
@@ -87,6 +87,15 @@ import(pathToFileURL(plugin).href).then((loaded) => loaded.default.setup(ctx));
 '''
 
 
+def arguments():
+    """Each running process's arguments."""
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            yield (proc / "cmdline").read_bytes().split(b"\0")[:-1]
+        except OSError:
+            pass        # gone meanwhile
+
+
 class Rig:
     """The seat acme, its OpenCode in its pane and taking no prompt yet, beside beta."""
     API = "answers"
@@ -96,6 +105,7 @@ class Rig:
         self.addCleanup(home.close)
         fakes = fakeadapter.install(home, opencode="pass", claude="pass")
         self.fake, self.opencode = fakes["claude"], fakes["opencode"]
+        self.opencode.answer("interactive", "", 3, given=["new"])   # OpenCode takes no id of ours
         akconfig.write(home, ["mimo", "opus"], extra='[done_check]\nmodel = "opus"')
         # a launch whose OpenCode has taken no prompt yet: its receipt names no session
         receipt = home.path / f".agentkit/state/opencode-launch-{TOKEN}"
@@ -143,16 +153,23 @@ class Rig:
                          str(PANE),
                          str(seat.screen_file), str(seat.typed_file), seat.composer)
         self.assertEqual(done.code, 0, done.err)
+        self.pid = home.tmux("display-message", "-p", "-t", seat.pane, "#{pane_pid}").out.strip()
         seat.show("opencode-prompt-pane.txt")
 
     def prompt(self, session, text):
-        """The owner sends `text` into `session` in the seat's OpenCode, and it is reported."""
+        """The owner sends `text` into `session` in the seat's OpenCode, it is reported, and ak
+        has followed it: on a loaded host the hook goes on past the plugin's wait for it, its
+        follow the one process naming the hook and, last, the TUI's pid (hooks/seat-state.sh)."""
         before = self.heard.read_text().count("\n") if self.heard.exists() else 0
         with self.said.open("a") as out:
             out.write(json.dumps([session, text]) + "\n")
         until = time.monotonic() + 120
         while not self.heard.exists() or self.heard.read_text().count("\n") <= before:
             self.assertLess(time.monotonic(), until, "the seat's OpenCode never reported it")
+            time.sleep(0.05)
+        hook, pid = str(REPO / "hooks/seat-state.sh").encode(), self.pid.encode()
+        while any(argv[-1:] == [pid] and hook in argv for argv in arguments()):
+            self.assertLess(time.monotonic(), until, "ak never ended following it")
             time.sleep(0.05)
 
     def resumed(self):
@@ -210,6 +227,19 @@ class OpencodeFirstSessionKept(Rig, unittest.TestCase):
         for session in (OWN, LEFT):
             self.prompt(session, "hello")
         self.assertEqual(self.resumed(), [A])
+
+    def test_a_first_prompt_in_another_seat_s_session_leaves_the_seat_on_none(self):
+        self.assert_on_none_once_its_owner_is_gone(OWN)
+
+    def test_a_first_prompt_in_a_session_another_seat_left_leaves_the_seat_on_none(self):
+        self.assert_on_none_once_its_owner_is_gone(LEFT)
+
+    def assert_on_none_once_its_owner_is_gone(self, session):
+        self.prompt(session, "hello")
+        for _ in range(2):      # beta stopped, then forgotten
+            done = self.home.ak("orch", "stop", "beta")
+            self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual(self.resumed(), [])
 
 
 @unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")

@@ -499,11 +499,15 @@ cat "$dir/bridge-eval"
         self.cfgdir.mkdir(parents=True, exist_ok=True)
         (self.cfgdir / "opencode.json").write_text(json.dumps({"provider": {
             "acme": {"options": {"apiKey": "acme-dummy"}}, "nova": {"options": {}}}}))
-        # and OpenCode runs its own free one, enabled with no entry in its config, with none
+        # and OpenCode runs its own free one, enabled with no entry in its config, with none;
+        # nova takes an account's sign-in beside a key, and coda a key alone
+        key, env_key = {"type": "key", "label": "API key"}, {"type": "env", "names": ["KEY"]}
+        methods = {"nova": [key, {"id": "nova-account", "type": "oauth", "label": "Sign in"}],
+                   "coda": [key, env_key]}
         env = {"STUB_AUTH_LIST": listed("zeta", "vega"), "STUB_MODEL_LIST": str(models),
                "STUB_INTEGRATION_LIST": json.dumps({"data": [
-                   {"id": name, "name": name.title()}
-                   for name in ("vega", "nova", "zeta", "opencode", "acme")]}),
+                   {"id": name, "name": name.title(), "methods": methods.get(name, [key])}
+                   for name in ("vega", "nova", "zeta", "opencode", "acme", "coda")]}),
                "STUB_PROVIDER_LIST": json.dumps({"data": [
                    {"id": name, "activation": "enabled"} for name in ("acme", "nova", "opencode")]}),
                "STUB_CONFIG_GET": json.dumps([{"type": "document", "info": json.loads(
@@ -512,10 +516,11 @@ cat "$dir/bridge-eval"
         self.assertEqual(proc.returncode, 0, proc.stderr)
         # a plan prices every model at nothing behind a login, and OpenCode's own free provider
         # with none; one priced, or not priced at all (MiMo's), is pay as you go; the rest have
-        # no login, so no mode
+        # no login, so no mode, and each says what a login to it takes
         self.assertEqual([line.split("\t") for line in proc.stdout.splitlines()], [
-            ["acme", "Acme", "subscription"], ["zeta", "Zeta", "payg"], ["vega", "Vega", "payg"],
-            ["opencode", "Opencode", "free"], ["nova", "Nova", ""]])
+            ["acme", "Acme", "subscription", ""], ["zeta", "Zeta", "payg", ""],
+            ["vega", "Vega", "payg", ""], ["opencode", "Opencode", "free", ""],
+            ["nova", "Nova", "", "sign-in"], ["coda", "Coda", "", "key"]])
         self.assertNotIn("dummy", proc.stdout + proc.stderr)
         proc = self.adapter("providers", env={**env, "STUB_INTEGRATION_LIST": ""})
         self.assertEqual((proc.returncode, proc.stdout), (1, ""))
@@ -786,6 +791,31 @@ cat "$dir/bridge-eval"
         self.assertEqual(proc.returncode, 0)
         self.assertIn("nothing to write", proc.stdout)
 
+    def test_login_starts_the_sign_in_its_provider_offers_and_none_unlisted(self):
+        # MiMo, as setUp names it, taking a key or an account's sign-in; a terminal on stdin
+        env = {"STUB_ARGV_LOG": str(self.argv_log), "STUB_INTEGRATION_LIST": json.dumps(
+            {"data": [{"id": "mimo", "name": "MiMo", "methods": [
+                {"type": "key"}, {"id": "mimo-account", "type": "oauth", "label": "Sign in"}]}]})}
+
+        def login(**more):
+            self.argv_log.unlink(missing_ok=True)
+            typist, terminal = os.openpty()
+            try:
+                proc = self.adapter("login", stdin=terminal, env={**env, **more})
+            finally:
+                os.close(typist)
+                os.close(terminal)
+            return proc, [line.split() for line in self.argv_log.read_text().splitlines()
+                          if line.startswith("auth login")]
+
+        proc, logins = login()
+        self.assertEqual((proc.returncode, logins),
+                         (0, [["auth", "login", "--method", "mimo-account", "mimo"]]), proc.stderr)
+        # a list that does not answer starts no login, never the key prompt in its place
+        proc, logins = login(STUB_API_RC="7")
+        self.assertEqual((proc.returncode, logins), (1, []))
+        self.assertIn("did not list how mimo signs in", proc.stderr)
+
     # --- accounts ------------------------------------------------------------
     def test_a_named_account_is_refused_by_every_verb(self):
         # A login of its own would be a database of its own, conversations and all: every verb
@@ -1015,80 +1045,6 @@ console.log(JSON.stringify(refused));
                 self.assertEqual(json.loads(proc.stdout.splitlines()[-1]), refused)
 
     # --- the session a seat comes back to ----------------------------------------
-    def run_plugin(self, receipt, events, parents):
-        """The seat plugin, loaded the way OpenCode loads it, on a stream of these events.
-
-        `parents` is OpenCode's own record of each session: its parent, None for none, and a
-        session it does not name is one whose record cannot be read.
-        """
-        node = shutil.which("node")
-        self.assertIsNotNone(node, "node is required to load the OpenCode plugin")
-        driver = r"""
-import { pathToFileURL } from "node:url";
-const plugin = (await import(pathToFileURL(process.argv[1]).href)).default;
-const events = JSON.parse(process.argv[2]);
-const parents = JSON.parse(process.argv[3]);
-let done;
-const drained = new Promise((resolve) => { done = resolve; });
-const session = { get: async ({ sessionID }) => {
-  if (!(sessionID in parents)) throw new Error(`no session ${sessionID}`);
-  return { id: sessionID, ...(parents[sessionID] ? { parentID: parents[sessionID] } : {}) };
-} };
-const ctx = { session, event: { subscribe: async function* () { yield* events; done(); } } };
-const stop = await plugin.setup(ctx);
-await drained;
-stop();
-"""
-        env = dict(self.env, AGENTKIT_SESSION="",
-                   AGENTKIT_OPENCODE_RECEIPT=str(receipt))
-        proc = subprocess.run(
-            [node, "--input-type=module", "-e", driver,
-             str(REPO / "hooks/opencode-seat/index.js"), json.dumps(events), json.dumps(parents)],
-            capture_output=True, text=True, env=env)
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-
-    @staticmethod
-    def event(kind, sid):
-        """One OpenCode 2.0.14 event, shaped the way a seat's plugin is handed it."""
-        data = {"sessionID": sid}
-        if kind == "session.inbox.enqueued":
-            data.update(inboxID="msg_1", item={"type": "user", "payload": {"text": "go"}})
-        return {"type": kind, "data": data}
-
-    def turn(self, sid):
-        return [self.event(kind, sid) for kind in ("session.inbox.enqueued",
-                                                   "session.execution.started",
-                                                   "session.execution.succeeded")]
-
-    def test_plugin_keeps_the_seat_s_own_session_in_its_receipt(self):
-        receipt = self.root / "receipt"
-        receipt.mkdir()
-        kept = receipt / "session"
-        parents = {"ses_seat": None, "ses_sub": "ses_seat", "ses_new": None}
-        seat, sub = self.turn("ses_seat"), self.turn("ses_sub")
-        # a subagent the seat starts, ending before its turn, after it, or started while the
-        # seat is idle: OpenCode's own record names its parent, and it is never written
-        for order in ([*seat[:2], *sub, seat[2]], [*seat[:2], *sub[:2], seat[2], sub[2]],
-                      [*seat, *sub]):
-            with self.subTest(order=[event["data"]["sessionID"] for event in order]):
-                kept.unlink(missing_ok=True)
-                self.run_plugin(receipt, order, parents)
-                self.assertEqual(kept.read_text(), "ses_seat")
-        # a session of the seat's own, prompted while another turn still runs, is the one it
-        # comes back to from that prompt on, however the older turn ends meanwhile
-        self.run_plugin(receipt, [*seat[:2], *self.turn("ses_new")[:2], seat[2]], parents)
-        self.assertEqual(kept.read_text(), "ses_new")
-        # a write that fails, and a session whose record cannot be read, leave the last good id
-        (receipt / "session.next").mkdir()
-        self.run_plugin(receipt, seat, parents)
-        (receipt / "session.next").rmdir()
-        self.run_plugin(receipt, self.turn("ses_unknown"), parents)
-        self.assertEqual(kept.read_text(), "ses_new")
-        # a receipt the seat's stop removed is never made again by a late fact
-        gone = self.root / "gone"
-        self.run_plugin(gone, seat, parents)
-        self.assertFalse(gone.exists())
-
     def test_a_dead_seat_comes_back_on_its_own_session(self):
         stack = ExitStack()
         self.addCleanup(stack.close)
@@ -1116,7 +1072,7 @@ stop();
             receipt = Path(cmd[1].split("=", 1)[1])
             self.assertTrue(cmd[1].startswith("AGENTKIT_OPENCODE_RECEIPT="))
             self.assertEqual(json.loads((receipt / "title-request.json").read_text())["title"], name)
-            self.run_plugin(receipt, self.turn(sid), {sid: None})
+            (receipt / "session").write_text(sid)        # as ak follows its first prompt
         for name, sid, other in (("alpha", "ses_alpha", "ses_beta"),
                                  ("beta", "ses_beta", "ses_alpha")):
             with self.subTest(seat=name):

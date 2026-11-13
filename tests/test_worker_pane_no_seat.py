@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, notify, orch
+from agentkit import config, guard, notify, orch
 
 
 class WorkerPaneNoSeat(unittest.TestCase):
@@ -76,15 +76,18 @@ class WorkerPaneNoSeat(unittest.TestCase):
             return 1, "no server running"
         self.assertIsNone(socket)
         if args[0] == "list-sessions":
-            return 0, f"{self.name}\t{self.root}\t100\t0\t{self.mark}"
+            return 0, f"{self.name}\t{self.root}\t100\t0\t{self.mark}\t$0"
         if args[0] == "list-panes":
             self.assertEqual(args[:3], ("list-panes", "-a", "-F"))
             if args[3] == "#{session_name}\t#{pane_pid}\t#{pane_dead}":
                 return 0, "\n".join(f"{self.name}\t{pid}\t0" for pid in self.panes)
             self.assertEqual(args[3], "#{session_name}\t#{pane_dead}")
             return 0, f"{self.name}\t0"
-        self.assertEqual(args, ("has-session", "-t", f"={self.name}"))
-        return 0, ""
+        if args == ("source-file", "-"):     # whose tag the session holds: none of its own
+            return 1, f"unknown variable: {guard.TMUX_OWNER}"
+        self.assertEqual(args, ("display-message", "-p", "-t", f"={self.name}:",
+                                f"#{{session_id}}\t#{{{orch.MARK}}}"))
+        return 0, f"$0\t{self.mark}"
 
     def listed(self):
         return [seat["name"] for seat in orch.listing(reconcile=False)]

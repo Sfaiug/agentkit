@@ -837,9 +837,9 @@ class WorkerBox(unittest.TestCase):
         for home_overlay in (False, True):
             with self.subTest(home_overlay=home_overlay), patch.dict(os.environ, {"HOME": "home"}):
                 with box.command([sys.executable, "-c", read], dict(os.environ), cwd=self.root,
-                                 home_overlay=home_overlay) as (cmd, env, _):
+                                 home_overlay=home_overlay) as (cmd, env, spawn):
                     result = subprocess.run(cmd, env=env, cwd=self.root, capture_output=True,
-                                            text=True, timeout=10)
+                                            text=True, timeout=10, **spawn)
                 self.assertEqual((result.returncode, result.stdout.strip()), (0, ""), result.stderr)
         self.assertEqual(key.read_text(), "fixture-key")
 
@@ -927,9 +927,9 @@ class WorkerBox(unittest.TestCase):
             for home_overlay in (False, True):
                 with self.subTest(home_overlay=home_overlay):
                     with box.command([sys.executable, "-c", read], dict(os.environ), cwd=self.root,
-                                     home_overlay=home_overlay) as (cmd, env, _):
+                                     home_overlay=home_overlay) as (cmd, env, spawn):
                         result = subprocess.run(cmd, env=env, cwd=self.root, capture_output=True,
-                                                text=True, timeout=10)
+                                                text=True, timeout=10, **spawn)
                     self.assertEqual((result.returncode, result.stdout.strip()), (0, ""),
                                      result.stderr)
         # With no Git of ak's own the box refuses; it asks neither of the project's.
@@ -951,7 +951,9 @@ class WorkerBox(unittest.TestCase):
 
     def test_turns_can_run_inside_a_turn(self):
         with patch.dict(os.environ, {"BOX_NEST": "1", "BOX_REPO": str(REPO)}):
-            code, text, _, killed, left = self.turn()
+            # The outer turn says nothing while the whole nested one runs, its box built and torn
+            # down: on a loaded host far longer than an ordinary turn's silence (12 Nov 2026).
+            code, text, _, killed, left = self.turn(limit=120)
         nested = json.loads(text)["nested"]
         self.assertEqual((code, killed, left), (0, False, True))
         self.assertEqual((nested["code"], nested["killed"], nested["left"]), (0, False, True))

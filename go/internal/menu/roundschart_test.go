@@ -9,7 +9,8 @@ import (
 )
 
 // Each round from the lowest merge to the last is a bar, then the failed runs', each with its count,
-// share and median hours, folded under its ending below 60 columns: Python's rounds_chart's lines.
+// share and median hours, folded under its ending where its bar would be short: Python's
+// rounds_chart's lines.
 func TestRoundsChartDrawsEachEndingAsPythonDoes(t *testing.T) {
 	local := time.Local
 	time.Local = time.UTC

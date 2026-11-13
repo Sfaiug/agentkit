@@ -15,7 +15,8 @@ runs, as the suite's pieces of it name theirs (every_file.py).  With AK_BIN set 
 program, a relative name read from the checkout, instead of building; it builds nothing where no
 claim runs.  With AK_GO_ALONE=1 the copy is shaped like the commit switching ak to Go, so a claim
 passing only by what that commit drops fails: its hooks/, adapters/, tools/ and install.sh are
-go/'s, its bin/ holds only the program judged, and tests/fixtures/akbin.py's Home refuses Python.
+go/'s but for the shell KEPT names, its bin/ holds only the program judged, and
+tests/fixtures/akbin.py's Home refuses Python.
 Each failing claim is named by its key file's name in the file FAILED_PARTS names: a piece
 takes minutes, so every_file.py's re-run, and a narrowing step on that claim, run it alone.
 Each passing one's seconds are in the file PART_TIMES names: they cut the next suite's pieces.
@@ -43,6 +44,9 @@ LEFT_OUT = shutil.ignore_patterns("agentkit", ".git", "__pycache__", ".ak-test-*
 PASSED = re.compile(r"^Ran [1-9]\d* tests? in .*\n\nOK\n\Z", re.MULTILINE)
 # The folders the commit switching ak to Go takes from go/, as it takes install.sh (AK_GO_ALONE).
 SWITCHED = ("hooks", "adapters", "tools")
+# What that commit keeps of Python's tools/: shell run on another machine, or by git as its merge
+# driver, that Go does not replace.  A key playing such a machine reads the helper's from here.
+KEPT = ("tools/helper", "tools/machine.sh", "tools/linux-machine.sh", "tools/merge")
 
 
 @contextmanager
@@ -78,17 +82,19 @@ def checkout(build):
 
 def switch(tree):
     """Shape the copy at `tree` like the commit switching ak to Go: each folder SWITCHED and
-    install.sh go/'s, and bin/ empty for the program."""
+    install.sh go/'s, what KEPT names left as it is, and bin/ empty for the program."""
     go = tree / "go"
     shutil.copy2(go / "install.sh", tree)
     shutil.rmtree(tree / "bin", ignore_errors=True)
     (tree / "bin").mkdir()
     for part in SWITCHED:
-        shutil.rmtree(tree / part, ignore_errors=True)
-        shutil.copytree(go / part, tree / part, symlinks=True)
+        for old in (tree / part).glob("*"):
+            if f"{part}/{old.name}" not in KEPT:
+                shutil.rmtree(old) if old.is_dir() and not old.is_symlink() else old.unlink()
+        shutil.copytree(go / part, tree / part, symlinks=True, dirs_exist_ok=True)
         # A link leads where it led in go/, go/bin being bin/ now: tools/ak to the program, and a
         # shim and an adapter's manifest into go/internal, which stays.
-        for link in filter(Path.is_symlink, (tree / part).iterdir()):
+        for link in (tree / part / new.name for new in (go / part).iterdir() if new.is_symlink()):
             led = Path(os.path.normpath(go / part / os.readlink(link))).relative_to(go)
             led = (tree if led.parts[0] in (*SWITCHED, "bin") else go) / led
             link.unlink()

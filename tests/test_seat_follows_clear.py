@@ -475,7 +475,7 @@ class SeatFollowsClear(Sandbox):
         fake_tmux.write_text('''#!/bin/bash
 if [[ $1 = -L && $2 = agentkit-test ]]; then shift 2; else exit 1; fi
 case $1 in
-  list-sessions) printf 'lagoon\\t%s\\t100\\t1\\t1\\n' "$HOME" ;;
+  list-sessions) printf 'lagoon\\t%s\\t100\\t1\\t1\\t$0\\n' "$HOME" ;;
   list-panes) printf 'lagoon\\t0\\n' ;;
   display-message) printf '/fake/agentkit-test\\tlagoon\\t101\\t%%7\\n' ;;
   *) exit 1 ;;

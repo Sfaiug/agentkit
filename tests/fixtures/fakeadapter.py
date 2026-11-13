@@ -5,8 +5,8 @@ in the Home's AGENTKIT_ADAPTER_DIR, so every ak the test runs from then on calls
 real harness.  The toml is the shipped manifest with the directory, and the one holding the ak
 under test, as its `[worker] state`, the places a worker's box lets a turn reach beside its
 workspace, and of the shipped `[worker]` only its `sessions` and `lent_for`.  The script runs a
-copy of this file there, beside one of tools/lend.py: a worker's box empties the temporary
-directories, where a test's copy of the checkout, and the ak it holds, may sit.
+copy of this file there: a worker's box empties the temporary directories, where a test's copy
+of the checkout, and the ak it holds, may sit.
 
 A harness's script is a list of steps, one per `run` call in order, the last repeated.  A step
 is a word, which acts by the turn's role as its prompt's first line names it:
@@ -34,9 +34,9 @@ the one resumed, else `sid-<harness>-<n>`), `stderr` (what the harness says on i
 diagnostics, such as its logout words), `events` (what it streams), `exit` (0; negative, as a
 returncode says it, the turn dies of that signal with nothing of it left).  A hand-in goes
 through the ak build under test, the one AK_BIN names.  Every other verb answers as `answer` set
-it, or as a harness that is logged in with no meter to read, its `lend` the real tools/lend.py
-fed a login of the call's account lasting a day or `lasts(seconds)`: `lent(account)` at LENT
-under the home named.
+it, or as a harness that is logged in with no meter to read, its `lend` placing a login of the
+call's account lasting a day or `lasts(seconds)` (`place`): `lent(account)` at LENT under the
+home named.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
 `behave(*steps)` scripts its next turns, `answer(verb, out, code, given)` sets what another verb
@@ -82,6 +82,27 @@ LENT = ".fake/login.json"
 
 def lent(account):
     return {"token": f"fixture-token-for-{account or 'usual'}"}
+
+
+def place(home, path, ends, login):
+    """An adapter's `lend`, as every shipped one does it: the login at <home>/<path>, 0600, and
+    the second it lapses printed.  2, writing nothing, where <home> is this HOME, whose own login
+    the copy would stand in for, or anything is at <path> already.  Its own, not the checkout's
+    tools/lend.py: the commit switching ak to Go drops that, and a key still installs its fakes."""
+    dest = Path(home, path)
+    if Path(home).resolve() == Path(os.environ["HOME"]).resolve():
+        print(f"lend: {home} is this HOME; lend into another", file=sys.stderr)
+        return 2
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        print(f"lend: {dest} is there already; lend into a HOME holding no login", file=sys.stderr)
+        return 2
+    with os.fdopen(fd, "w") as out:
+        json.dump(login, out)
+    print(ends, flush=True)
+    return 0
 
 
 def _every(step):
@@ -165,8 +186,7 @@ def install(home, **harnesses):
     directory = home.root / "adapters"
     directory.mkdir(exist_ok=True)
     home.env["AGENTKIT_ADAPTER_DIR"] = str(directory)
-    for tool in (Path(__file__), REPO / "tools/lend.py"):
-        shutil.copy(tool, directory)
+    shutil.copy(Path(__file__), directory)
     fakes = {}
     for harness, steps in harnesses.items():
         fake = fakes[harness] = Adapter(directory, harness)
@@ -191,10 +211,8 @@ def main(directory, harness, ak, verb="", *args):
     call = {"verb": verb, "argv": list(args), "cwd": os.getcwd(),
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
     if verb == "lend" and "lend" not in (fake._json("answers") or {}):
-        code = subprocess.run(
-            [sys.executable, "-I", Path(__file__).with_name("lend.py"), *args, LENT], text=True,
-            input=json.dumps({"ends": int(time.time()) + (fake._json("lasts") or 86400),
-                              "login": lent(os.environ.get("AGENTKIT_ACCOUNT"))})).returncode
+        code = place(*(*args, LENT)[:2], int(time.time()) + (fake._json("lasts") or 86400),
+                     lent(os.environ.get("AGENTKIT_ACCOUNT")))
     elif verb != "run":
         # the answer set for the most of the arguments this call ends in
         answers = fake._json("answers") or {}

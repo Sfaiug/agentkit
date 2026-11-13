@@ -111,7 +111,11 @@ class Babysitter(unittest.TestCase):
         self.typed.assert_not_called()
         self.tick(1)
         self.typed.assert_called_once()
-        self.tail += "\n›"  # even a prompt repaint gets a new quiet period
+        before = self.data["stalls"]["seat"]["changed_at"]
+        self.tail += "\n›"  # chrome drawn around the conversation does not restart the stand
+        self.tick(1)
+        self.assertEqual(self.data["stalls"]["seat"]["changed_at"], before)
+        self.tail = "Still trying\n" + self.tail
         self.tick(180)
         self.assertEqual(self.typed.call_count, 1)
         self.assertEqual(self.data["stalls"]["seat"]["changed_at"], self.now)
@@ -562,7 +566,7 @@ sleep() { :; }
             fake = root / "tmux"
             fake.write_text('''#!/bin/sh
 case "$*" in
-  *list-sessions*) printf 'smoke-shape\\t/tmp\\t10000\\t0\\t1\\n' ;;
+  *list-sessions*) printf 'smoke-shape\\t/tmp\\t10000\\t0\\t1\\t$0\\n' ;;
   *list-panes*) printf 'smoke-shape\\t0\\n' ;;
   *) exit 1 ;;
 esac

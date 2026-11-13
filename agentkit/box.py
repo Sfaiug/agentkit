@@ -372,7 +372,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     as it does the credentials. With an out dir, /run is copied without services or /run/user, and
     temporary and runtime directories are the box's own, empty. Everything
     else is read-only; `home_overlay` gives checks throwaway writes in the account's home and
-    HOME without child mounts, beneath the writable places and credential masks.
+    HOME without child mounts, beneath the writable places and credential masks. A sync to disk
+    returns at once (`syncs`), so spawn with the `pass_fds` yielded.
     """
     clean = {key: value for key, value in env.items() if key not in TOKENS}
     # The network stays the host's, as a harness reaches its model's API from here: /run copied
@@ -415,9 +416,11 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             continue
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
+    from . import syncs
     if out_dir is None:
         cmd[at:at] = _bind({}, writable, homes)[0]
-        yield [*cmd, "--", *argv], clean, {}
+        with syncs.ignored() as (filtered, fds):
+            yield [*cmd, *filtered, "--", *argv], clean, {"pass_fds": fds}
         return
     report = Path(out_dir).resolve() / PROCESSES
     report.unlink(missing_ok=True)
@@ -478,7 +481,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         except OSError:
             return False
 
-    with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
+    with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch, \
+            syncs.ignored() as (filtered, fds):
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
             mounts, overlaid = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
@@ -495,8 +499,8 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 cache = _go_cache(clean)
                 if cache and overlaid(cache) and folders.isdisjoint((cache, *cache.parents)):
                     clean["GOCACHE"] = str(cache)
-            yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
-                "pass_fds": (write,), "stop": stop, "began": report.exists,
+            yield [*cmd, *filtered, "--info-fd", str(write), "--", *argv], clean, {
+                "pass_fds": (write, *fds), "stop": stop, "began": report.exists,
                 "declared": declared}
         finally:
             target = namespace()
@@ -555,9 +559,10 @@ def check():
     if not shutil.which("bwrap"):
         raise config.Error(f"worker box needs bubblewrap; run `{remedy}`")
     try:
-        with command(["true"], os.environ) as (inner, env, _):
-            with command(inner, env) as (outer, env, _):
-                result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10)
+        with command(["true"], os.environ) as (inner, env, held):
+            with command(inner, env) as (outer, env, spawn):
+                result = subprocess.run(outer, env=env, capture_output=True, text=True, timeout=10,
+                                        pass_fds=held["pass_fds"] + spawn["pass_fds"])
         if result.returncode == 0:
             return
         why = result.stderr.strip() or f"exit {result.returncode}"

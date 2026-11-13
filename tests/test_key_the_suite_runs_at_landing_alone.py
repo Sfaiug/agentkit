@@ -8,6 +8,10 @@ each start, and what `AK_CHANGED` held, on the test's socket, as the reviewer no
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, against
 the bare origin of gitrig.py and the GitHub of fakegh.py, with scripted harnesses from
 fakeadapter.py.
+
+Owner, 11 Nov 2026: so the write-up's two rows that ran a suite in a round are not built: the
+whole suite in every review round (row 39), and a tree cache kept a week and keyed by
+environment, to carry a round's suite result to the landing (row 37).
 """
 
 import json

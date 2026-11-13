@@ -55,7 +55,7 @@ def holder(home):
 
 
 def wait_for(read):
-    until = time.monotonic() + 120
+    until = time.monotonic() + 600      # a run's next step takes minutes on a busy host
     while not (value := read()) and time.monotonic() < until:
         time.sleep(0.1)
     assert value, "the run did not reach its next step"

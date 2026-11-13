@@ -192,7 +192,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			return notImplemented(errOut, "attach")
 		}
 		model.Highlight.Cursor = menu.Step(shown.seats, shown.switches, model.Highlight.Cursor, 0)
-		clock.Draw(time.Now())
+		clock.Draw(motion.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
 			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, shown, own), Highlight: model.Highlight, New: model.New, Motion: clock,
 			Switches: shown.switches}, screen.Width(), screen.Height())

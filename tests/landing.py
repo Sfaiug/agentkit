@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 
-from suite_shares import SMOKE, STATIC_CHECKS, listed, name_failed
+from suite_shares import SMOKE, STATIC_CHECKS, listed, name_failed, smoke_share
 
 only = listed()
 if only is not None:
@@ -78,11 +78,13 @@ with tempfile.NamedTemporaryFile() as output, tempfile.NamedTemporaryFile() as c
         sys.stdout.buffer.flush()
 # every_file.py named its own failed files before it ended. smoke.sh's exit alone says it is red,
 # whatever made it so: it is named by each block a check failed in, once; where none did, by each
-# listed block that started, or where none did as itself.
+# listed block that started, or with none listed by each block of its share, so its run alone is
+# that share again, not every share's; or else as itself.
 if smoke:
     started = ran.read_text().splitlines() if ran.exists() else []
     name_failed(dict.fromkeys(Path(blocks.name).read_text().splitlines())
-                or [test for test in started if test.startswith(f"{SMOKE}#")] or [SMOKE])
+                or [test for test in started if test.startswith(f"{SMOKE}#")]
+                or (smoke_share(Path(SMOKE)) if only is None else []) or [SMOKE])
 if contract.returncode:
     name_failed(["tests/gate_contract.py"])
 sys.exit(status(code or smoke or contract.returncode))

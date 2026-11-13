@@ -6,10 +6,8 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/history"
+	"agentkit/internal/run"
 )
-
-// judged are the endings that are a verdict of the work itself, Python's record.JUDGED.
-var judged = []string{"pass", "fail", "blocked"}
 
 // ownNumbers is whether ak's own numbers, which Go does not count yet, count a run of an offered
 // model, as Python's matrix.live reads the history: a real run that ended with a verdict of the
@@ -19,7 +17,7 @@ func ownNumbers(names []string, models map[string]config.Model) bool {
 	defer db.Close()
 	ended, _ := db.EndedRuns(0, float64(time.Now().UnixNano())/1e9)
 	for _, row := range ended {
-		if slices.Contains(judged, row.Text("final_state")) &&
+		if slices.Contains(run.Judged, row.Text("final_state")) &&
 			(slices.Contains(names, row.Text("executor")) || slices.Contains(names, row.Text("own_orchestrator"))) {
 			return true
 		}

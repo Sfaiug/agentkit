@@ -182,7 +182,7 @@ def seats(listed=None):
     from . import watch   # here, not at the top: the watch announces seats, which write this bar
     listed = (sessions() or []) if listed is None else listed
     held = look.once("seated, for the bars", lambda: orch.seated(
-        orch.socket_name(), {name: mark for _, name, mark, *_ in listed}))
+        orch.socket_name(), {name: (sid, mark) for sid, name, mark, *_ in listed}))
     return [(sid, name, watch.seat_read(name).get("word")) for sid, name, *_ in listed
             if sid.startswith("$") and name in held and orch.session_name(name) == name]
 

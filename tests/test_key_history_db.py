@@ -36,7 +36,7 @@ ORIGINAL = (("run_id", "TEXT PRIMARY KEY"), ("repo", "TEXT"), ("executor", "TEXT
 READING = {"provider": "anthropic", "account": "default", "meter": "weekly_all", "used": 30.0,
            "resets_at": None, "window_secs": 604800.0, "at": 1793000000.0, "source": "probe"}
 GAINED = {"runs": {"task_words", "orchestrator", "change", "merge_sha", "landing_breaks", "landing_flakes",
-                   "broke_after_merge", "executor_effort", "own_orchestrator_effort"},
+                   "broke_after_merge", "executor_effort", "own_orchestrator_effort", "check_rewritten_at"},
           "phases": {"wait_kind"}, "reviews": {"round", "verdict", "effort"}, "dones": {"work"},
           "meter_readings": {"plan"}}
 # The Home's notify sink marks every run a test suite's, which ak never records: these runs go

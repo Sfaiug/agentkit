@@ -54,7 +54,6 @@ class SeatsYieldCpu(unittest.TestCase):
             self.stack.enter_context(patch.object(config, name, self.root / name.lower()))
             getattr(config, name).mkdir()
         self.stack.enter_context(patch.object(gate, "slot_counts", return_value=(0, 0, [])))
-        self.stack.enter_context(patch.object(gate, "landing_waits", return_value=False))
         self.stack.enter_context(patch.object(record, "process_owner", return_value={"pid": 42}))
         self.stack.enter_context(patch.object(orch, "scope_oom_policy", return_value=True))
 

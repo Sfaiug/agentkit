@@ -6,7 +6,6 @@ import re
 import signal
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 import uuid
@@ -673,7 +672,7 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, used=None, only=None, failed=None, 
     those it named as failing, then passing on a re-run, in `AK_FLAKY`'s, and `absent` those it
     named as not there, in `AK_NOT_THERE`'s; `only`, test names, go one per line into the file
     `AK_ONLY` names, for a command that runs just those."""
-    with tempfile.TemporaryDirectory(dir=Path(kwargs["activity"]).parent) as out_dir:
+    with record.scratch(Path(kwargs["activity"]).parent) as out_dir:
         named = {key: (Path(out_dir) / key, into)
                  for key, into in (("AK_FAILED", failed), ("AK_RAN", ran), ("AK_FLAKY", flaky),
                                    ("AK_NOT_THERE", absent))

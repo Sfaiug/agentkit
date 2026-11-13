@@ -43,7 +43,9 @@ socket=
 printf '%s\\t' "$socket" "$@" >>"$HOME/tmux-calls"; printf '\\n' >>"$HOME/tmux-calls"
 seats="$HOME/legacy"; [[ $socket = agentkit-test ]] && seats="$HOME/own"
 case $1 in
-  list-sessions) while read -r name; do printf '%s\\t%s\\t1\\t0\\t1\\n' "$name" "$HOME"; done <"$seats" ;;
+  list-sessions) n=0
+                 while read -r name; do printf '%s\\t%s\\t1\\t0\\t1\\t$%d\\n' "$name" "$HOME" $((n++))
+                 done <"$seats" ;;
   list-panes) while read -r name; do printf '%s\\t0\\n' "$name"; done <"$seats" ;;
   run-shell) [[ -e "$HOME/tmux-stall" ]] && exec python3 -c 'import signal; signal.pause()'
              target=${4#=}; target=${target%:}

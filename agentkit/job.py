@@ -25,6 +25,11 @@ JOB_TERMINAL = ("merged", "passed", "failed", "blocked", "skipped", "stopped")
 # A task whose work never landed: the job ends nonzero. A blocked or stopped one keeps its own
 # word on the log and the status block; a skipped one never started.
 JOB_UNDELIVERED = ("failed", "blocked", "stopped", "skipped")
+# A job's line waiting on its record for its seat's next prompt: the line, its card, the mark
+# of its typing, and the tasks a resume has answered of those it tells of (`answer_job_line`).
+# Whatever answers it strikes them as one; `card_sent` says how.
+LINE_STRUCK = dict.fromkeys(("handback_pending", "handback_card", "handback_typed",
+                             "handback_answered"))
 _JOB_MUTE = threading.local()  # per-thread job quiet: announce/notify_recovery read it, never swap it
 
 
@@ -99,9 +104,12 @@ def job_logger(job_dir):
 
 def in_order(state):
     """Whether that run is a task of an ordered job, whose one line says its endings and its
-    going live for it: none of its tasks wakes its seat on its own."""
+    going live for it: none of its tasks wakes its seat on its own.  An ending after the
+    job's own, of a run resumed once the job had ended, is past that line and the run's."""
     job = state.get("job_id") and read_job(config.JOBS / state["job_id"])
-    return bool(job and (job.get("opts") or {}).get("--in-order"))
+    return bool(job and (job.get("opts") or {}).get("--in-order")
+                and not (job.get("finished_at") and
+                         (state.get("finished_at") or 0) > job["finished_at"]))
 
 
 def job_task_by_name(job, name):
@@ -371,6 +379,7 @@ def job_hand_back(seat, line, log, typed=None, receipt=lambda mark: None):
     `typed` and `receipt` are the job record's side of `watch.type_at_prompt`'s: a line in the
     composer is never typed a second time.  A line `watch.too_long` refuses is never typed.
     """
+    seat = config.resolve_session(seat)     # a receipt names the seat as it was launched
     refusal = watch.too_long(line)
     if refusal:
         log(f"WARN {line[:60]}… not handed to {seat}: {refusal}")
@@ -432,18 +441,59 @@ def deliver_job_handbacks(log):
             # the card says what the job's own card says, never the typed line: that one
             # names a path, and a path is the last thing a seat's row or a phone has room for
             card = job.get("handback_card") or line
-            done = {"handback_pending": None, "handback_card": None, "handback_typed": None}
             if answer == "sent":
                 log(f"handed job {job_dir.name} back to the {seat} seat")
                 mark_job_delivery(job_dir, job, card_sent={"kind": "handback",
-                                                           "at": job.get("finished_at")}, **done)
+                                                           "at": job.get("finished_at")},
+                                  **LINE_STRUCK)
             elif notify.shaped("needs", card, session=seat,
                                event_id=f"job:{job.get('job_id')}:{job.get('finished_at')}") == 0:
                 mark_job_delivery(job_dir, job, card_sent={"kind": "needs",
-                                                           "at": job.get("finished_at")}, **done)
+                                                           "at": job.get("finished_at")},
+                                  **LINE_STRUCK)
             else:
                 log(f"WARN job {job_dir.name}: its card was not accepted; retry required")
-                mark_job_delivery(job_dir, job, card_pending=True, **done)
+                mark_job_delivery(job_dir, job, card_pending=True, **LINE_STRUCK)
+
+
+def answer_job_line(state):
+    """A resume of a job's run, or a retry of its delivery, answers the line its job left
+    waiting for its seat, as it answers the run's own (`handback.clear_delivery`): that line
+    speaks of an ending the run no longer has, so it is typed to no seat and carded to no owner,
+    and the seat's wait on the job is told by the run's own ending to come.  A line telling of
+    several tasks stays until each of their runs is resumed.  Under the job's delivery lock,
+    which a tick typing that line holds until it is said."""
+    found = state.get("run_id") and job_for_run(state["run_id"])
+    if not found:
+        return
+    job_dir, _, task = found
+    with handback.delivery_lock(job_dir):
+        job = read_job(job_dir) or {}
+        ender = job_ender(job)
+        told = {each["name"] for each in ([ender] if ender else job_failed(job))}
+        if not job.get("handback_pending") or task["name"] not in told:
+            return
+        answered = sorted({*(job.get("handback_answered") or ()), task["name"]})
+        if told - {*answered}:
+            mark_job_delivery(job_dir, job, handback_answered=answered)
+        else:
+            mark_job_delivery(job_dir, job, card_sent={"kind": "resumed",
+                                                       "at": job.get("finished_at")},
+                              **LINE_STRUCK)
+
+
+def job_ender(job):
+    """An ordered job ends at its first task that did not merge: that task's line is the job's."""
+    if (job.get("opts") or {}).get("--in-order"):
+        return next((task for task in job["tasks"] if task["state"] != "merged"), None)
+    return None
+
+
+def job_failed(job):
+    """Each task that delivered nothing and needs someone: one its owner stopped was ended on
+    purpose, and needs nobody."""
+    return [task for task in job["tasks"]
+            if task["state"] in JOB_UNDELIVERED and task["state"] != "stopped"]
 
 
 def job_block_line(job):
@@ -644,18 +694,22 @@ def job_wait_budget(job_dir, job, task, log, lock, error, where, rounds=None):
 JOB_TRANSPORT_WAITS = 5  # paced outage waits before a transport-exhausted task needs its owner
 
 
-def job_wait_login(job_dir, job, task, log, lock, run_state, where):
-    """Whether this attempt parked on an expired login, and if so, wait beside it.
+def job_wait_parked(job_dir, job, task, log, lock, run_state, where):
+    """Whether this attempt parked on an expired login or spent budget, and if so, wait beside it.
 
-    Nothing in a job can log anybody in, and the tick resumes the run itself the moment that
-    harness's `auth` verb passes: the task waits at the picker's own rate, the way it waits
-    for spent budget, rather than spending its one resume and its one rerun on a wall and
-    then calling work nobody faulted a failure.  Every attempt a task makes asks this.
+    Nothing in a job can log anybody in or refill a meter: the task waits at the picker's
+    rate with its run kept, rather than spending its one rerun on a wall and then calling
+    work nobody faulted a failure.  Every attempt a task makes asks this first, so a pending
+    review parked on spent meters waits too -- the rerun the shortfall rule would spend has
+    nothing to bill to.  True also when a transport outage past its cap failed the task.
     """
-    if run_state.get("state") != "waiting_login":
+    error = run_state.get("error") or ""
+    if run_state.get("state") == "waiting_login":
+        error = error or "a harness login expired"
+    elif run_state.get("state") != "exhausted" or not (
+            job_budget_exhausted(run_state) or job_transport_exhausted(error)):
         return False
-    job_wait_budget(job_dir, job, task, log, lock,
-                    run_state.get("error") or "a harness login expired", where,
+    job_wait_budget(job_dir, job, task, log, lock, error or "no reason was recorded", where,
                     rounds=len(run_state.get("round_summaries") or []))
     return True
 
@@ -882,32 +936,24 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         # so its dependants wait instead of skipping.
         log(f"{task['name']}: parked waiting ({run_state.get('error')}); following it")
     run_state = job_follow_waiting(run_dir, run_state, log)
-    if job_wait_login(job_dir, job, task, log, lock, run_state, "mid-run"):
+    if job_wait_parked(job_dir, job, task, log, lock, run_state, "mid-run"):
         return
     if run_state.get("state") == "stopped":
         # Deliberately ended: no resume, no rerun, no budget wait. The task keeps
         # the run's word.
         job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock)
         return
-    if run_state.get("state") == "exhausted":
+    if run_state.get("state") == "exhausted" and not job_round_shortfall(run_state):
+        # a stopped tool or a structural complaint: no resume can fix it, the owner
+        # is needed
         error = run_state.get("error") or "no reason was recorded"
-        if job_budget_exhausted(run_state) or job_transport_exhausted(error):
-            # the message decides first: a pending review parked on spent meters waits
-            # for budget even with `review_pending` still set -- the resume the shortfall
-            # rule would spend has nothing to bill to
-            job_wait_budget(job_dir, job, task, log, lock, error, "mid-run",
-                            rounds=len(run_state.get("round_summaries") or []))
-            return
-        if not job_round_shortfall(run_state):
-            # a stopped tool or a structural complaint: no resume can fix it, the owner
-            # is needed
-            task.update(state="failed", finished_at=time.time(),
-                        verdict_line=f"{task['name']}: FAIL: needs you ({error[:300]})",
-                        findings=error)
-            with lock:
-                save_job(job_dir, job)
-            log(task["verdict_line"])
-            return
+        task.update(state="failed", finished_at=time.time(),
+                    verdict_line=f"{task['name']}: FAIL: needs you ({error[:300]})",
+                    findings=error)
+        with lock:
+            save_job(job_dir, job)
+        log(task["verdict_line"])
+        return
     outcome = job_classify(run_state, cfg)
     if outcome in ("merged", "passed", "skipped"):
         job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock)
@@ -939,7 +985,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
         task["executor"] = run_state.get("executor") or task.get("executor")
         task["reviewer"] = run_state.get("reviewer") or task.get("reviewer")
         log(job_exit_line(task, run_dir, run_state, mrc))
-        if job_wait_login(job_dir, job, task, log, lock, run_state, "on delivery"):
+        if job_wait_parked(job_dir, job, task, log, lock, run_state, "on delivery"):
             return
         if job_classify(run_state, cfg) in ("merged", "passed"):
             job_settle(cfg, job_dir, job, task, run_dir, run_state, log, lock)
@@ -1020,15 +1066,8 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             task["executor"] = run_state2.get("executor") or nxt
             task["reviewer"] = run_state2.get("reviewer") or task.get("reviewer")
             log(job_exit_line(task, run_dir2, run_state2, box.get("rc", 1)))
-            if job_wait_login(job_dir, job, task, log, lock, run_state2, "on rerun"):
+            if job_wait_parked(job_dir, job, task, log, lock, run_state2, "on rerun"):
                 return
-            if run_state2.get("state") == "exhausted" \
-                    and not job_round_shortfall(run_state2):
-                error2 = run_state2.get("error") or "no reason was recorded"
-                if job_budget_exhausted(run_state2) or job_transport_exhausted(error2):
-                    job_wait_budget(job_dir, job, task, log, lock, error2, "on rerun",
-                                    rounds=len(run_state2.get("round_summaries") or []))
-                    return
             if job_classify(run_state2, cfg) in ("merged", "passed"):
                 job_settle(cfg, job_dir, job, task, run_dir2, run_state2, log, lock)
                 return
@@ -1448,8 +1487,7 @@ def run_job_loop(cfg, job_dir, job):
         return 1 if any(task["state"] in JOB_UNDELIVERED for task in job["tasks"]) else 0
     job["finished_at"] = time.time()
     undelivered = [task for task in job["tasks"] if task["state"] in JOB_UNDELIVERED]
-    # a task the owner stopped was ended on purpose: it delivered nothing, yet needs nobody
-    failed = [task for task in undelivered if task["state"] != "stopped"]
+    failed = job_failed(job)
     stopped = len(undelivered) - len(failed)
     seat = job.get("seat")
     if failed:
@@ -1465,9 +1503,7 @@ def run_job_loop(cfg, job_dir, job):
         text = (f"job {job['job_id']}: {stopped} task(s) stopped, nobody is needed" if stopped
                 else f"job {job['job_id']}: all {len(job['tasks'])} tasks finished")
         log(f"job {job['job_id']}: Done")
-    # an ordered job ends at its first task that did not merge: that task's line is the job's
-    ender = opts.get("--in-order") and next(
-        (task for task in job["tasks"] if task["state"] != "merged"), None)
+    ender = job_ender(job)
     if ender:
         unstarted = ", ".join(task["name"] for task in job["tasks"] if task["state"] == "skipped")
         text = (f"job {job['job_id']}: {ender['verdict_line']}"
@@ -1487,15 +1523,13 @@ def run_job_loop(cfg, job_dir, job):
                                lambda mark: mark_job_delivery(job_dir, job, handback_typed=mark)
                                ) if seat else "gone"
         if answer == "gone":
-            mark_job_delivery(job_dir, job, handback_pending=None, handback_card=None,
-                              handback_typed=None)
+            mark_job_delivery(job_dir, job, **LINE_STRUCK)
         if not seat:
             log("no seat launched this job, so nothing is sent; "
                 "the result is here and in `ak run status`")
         elif answer == "sent":
-            mark_job_delivery(job_dir, job, handback_pending=None, handback_card=None,
-                              handback_typed=None,
-                              card_sent={"kind": "handback", "at": job["finished_at"]})
+            mark_job_delivery(job_dir, job, card_sent={"kind": "handback",
+                                                       "at": job["finished_at"]}, **LINE_STRUCK)
             orch.stop_scope(job.get("scope"), log, wait=False)
             return 1 if undelivered else 0
         elif answer == "busy":

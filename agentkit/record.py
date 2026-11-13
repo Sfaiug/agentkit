@@ -8,6 +8,7 @@ import copy
 import fcntl
 import json
 import os
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -21,6 +22,7 @@ _RECOVERY_HELD = threading.local()   # the recovery locks this thread is already
 _RUN_TEMP = "run.tmp"
 DELIVERY_TEMP = "delivery.tmp"
 RECOVERY_LOCK = "recovery.lock"
+SCRATCH = ".ak-scratch"    # its maker, in a temporary folder of a run's folder (`scratch`)
 # The state word a run's record holds, grouped by what the rest of ak asks of it. A new
 # word joins its groups here; a tuple of state words anywhere else is a second copy.
 ACTIVE = ("queued", "running")              # a loop is working the run, or is about to
@@ -106,6 +108,19 @@ def runs():
 def process_owner(pid=None):
     pid = os.getpid() if pid is None else pid
     return {"pid": pid, "process_identity": host.process_identity(pid)}
+
+
+@contextmanager
+def scratch(near):
+    """A temporary folder, gone when the `with` ends, straight in the folder of the run `near`
+    lies in, else in `near`, naming this process as its maker: one a killed process left there
+    goes at the next collection (`gc.left_scratch`), never one whose maker lives."""
+    near, runs = Path(near).resolve(), config.RUNS.resolve()
+    if near.is_relative_to(runs) and near != runs:
+        near = runs / near.relative_to(runs).parts[0]
+    with tempfile.TemporaryDirectory(dir=near) as folder:
+        Path(folder, SCRATCH).write_text(json.dumps(process_owner()))
+        yield folder
 
 
 def process_active(state):

@@ -53,8 +53,9 @@ func TestATurnKeepsItsMetersOnTheUsualLoginWhateverItIsNowCalled(t *testing.T) {
 			t.Fatal(err)
 		}
 		configured(each.after)
-		Turned("anvil", config.Model{Harness: "claude", Provider: "acme"}, account, "executor", out, nil)
-		if meters := Reading("acme", each.now); len(meters) != 1 || used(object(meters[0])) != 25 {
+		Turned(config.Model{Harness: "claude", Provider: "acme"}, account, out)
+		src := source{Subscription: config.Subscription{Name: "acme"}, account: each.now}
+		if meters := src.cached().List("meters"); len(meters) != 1 || used(object(meters[0])) != 25 {
 			t.Fatal(each, run.Line(meters))
 		}
 	}

@@ -66,7 +66,9 @@ class NamesWhatItTold(Sandbox):
         with patch.object(statusbar.fcntl, "flock") as lock, look.one_look():
             self.look()
         lock.assert_not_called()
-        self.assertEqual([args[0] for args in self.calls], ["list-sessions", "list-panes"])
+        # one ask of whose tag each stranger holds, and one of what its panes run
+        self.assertEqual([args[0] for args in self.calls],
+                         ["list-sessions", "source-file", "list-panes"])
 
     def test_a_recount_writes_only_the_bars_whose_right_end_moved(self):
         watch.seat_write("beta", word="needs you", reason="", word_since=None)

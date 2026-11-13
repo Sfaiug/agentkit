@@ -33,9 +33,9 @@ config.catalog = lambda harness, cfg=None: [{"id": model, "label": label, "effor
 logged = set()
 menu._adapter_verbs = lambda keyboard, harness, verbs, picked, provider=None, **_kw: (
     logged.add(provider) or "")
-config.listed_providers = lambda harness: [("opencode", "OpenCode", "free"),
-                                           ("anthropic", "Anthropic", ""),
-                                           ("acme", "Acme", "payg" if "acme" in logged else "")]
+config.listed_providers = lambda harness: [("opencode", "OpenCode", "free", ""),
+                                           ("anthropic", "Anthropic", "", ""),
+                                           ("acme", "Acme", "payg" if "acme" in logged else "", "")]
 update.version = lambda harness: ""
 update.agentkit_version = lambda: "abc1234"
 usage.collect = lambda cfg, **kwargs: usage.Readings({})

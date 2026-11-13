@@ -56,7 +56,7 @@ class EveryFileOrder(unittest.TestCase):
 
     def test_both_parts_overlap_print_whole_outputs_and_keep_failures(self):
         env = self.landing_env()
-        (self.root / "tests/smoke.sh").write_text('''echo "smoke stdout"
+        (self.root / "tests/smoke.sh").write_text(suite_shares.SETUP + '''echo "smoke stdout"
 echo "smoke stderr" >&2
 touch smoke-started
 for ((n=0; n<500; n++)); do

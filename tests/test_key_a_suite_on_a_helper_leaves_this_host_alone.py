@@ -3,6 +3,11 @@ one it has no room for waits for a turn here, a new run starts all the same.
 
 Black-box: the program `AK_BIN` names checks a landing line from outside through
 tests/fixtures/akline.py; the helper is a fake ssh with room for two VMs, whose pieces pass there.
+
+Owner, 11 Nov 2026: tools/helper's scripts and agentkit/helper.py stay what runs a piece there.
+The Go runner with a client of its own that was to replace them (write-up rows 36, 37) is not
+built: the scripts serve any helper, none was set up that day, and that client would make ak
+need the Go compiler on its host.
 """
 
 import fcntl

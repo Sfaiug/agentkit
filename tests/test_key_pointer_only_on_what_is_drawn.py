@@ -47,6 +47,15 @@ def attached(home):
     return home.tmux("list-clients", "-F", "#{client_session}").out.split()
 
 
+def until(test, what):
+    """Once `test()` holds: tmux's clients come and go in their own time."""
+    deadline = time.monotonic() + 30
+    while not test():
+        if time.monotonic() > deadline:
+            raise AssertionError(what)
+        time.sleep(0.05)
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class OnlyWhatIsDrawn(unittest.TestCase):
     @classmethod
@@ -61,15 +70,17 @@ class OnlyWhatIsDrawn(unittest.TestCase):
     def setUp(self):
         self.term = Terminal(self.home, size=(100, 30), env={"NO_COLOR": "1"})
         self.addCleanup(self.leave)
-        # the menu's own probe redraws each usage row once it is read, a moment after the menu
-        # opens: read the screen after it, so no row a test compares changes under it
+        # read whether or not the menu's probe has landed, whose adapters a busy host keeps for
+        # minutes: it redraws only the other providers' words, which no test reads
         self.shown = lines(self.term.wait(lambda screen: KEYS in lines(screen)
-                                          and "› 1  atoll-fix  " in screen
-                                          and "no reading yet" not in screen))
+                                          and "› 1  atoll-fix  " in screen))
 
     def leave(self):
         for name in attached(self.home):
             self.home.tmux("detach-client", "-s", f"={name}")
+        # tmux reads the terminal for a client until it lists it no more, and drops what it
+        # reads once it is told to detach: an Esc before then never reaches the menu
+        until(lambda: not attached(self.home), "a detached client stayed")
         self.term.keys("Escape")
         self.term.keys("Escape")
         self.term.exit_code()
@@ -85,10 +96,7 @@ class OnlyWhatIsDrawn(unittest.TestCase):
         self.term.wait("› 2  atoll-ask  ")
         self.assertEqual(attached(self.home), [])
         self.term.type(click(name, row + 1))
-        deadline = time.monotonic() + 30
-        while not attached(self.home):
-            self.assertLess(time.monotonic(), deadline, "the click on its name opened nothing")
-            time.sleep(0.05)
+        until(lambda: attached(self.home), "the click on its name opened nothing")
         self.assertEqual(attached(self.home), ["atoll-ask"])
 
     def test_a_meter_is_its_bar_and_words_never_its_padding(self):
@@ -103,7 +111,9 @@ class OnlyWhatIsDrawn(unittest.TestCase):
 
     def test_on_c_the_gap_between_a_label_and_its_marks_is_on_nothing(self):
         self.term.keys("c")
-        shown = lines(self.term.wait(lambda screen: "› Fable 5.1" in screen))
+        # a frame goes up top down, so once its keys' line, its last, is drawn, every row is
+        shown = lines(self.term.wait(lambda screen: "› Fable 5.1" in screen
+                                     and "esc back" in screen))
         config = (self.home.path / ".agentkit" / "config.toml").read_bytes()
         row = next(n for n, line in enumerate(shown) if line.startswith("  GPT-6-Astra "))
         gap = len("  GPT-6-Astra") + 2

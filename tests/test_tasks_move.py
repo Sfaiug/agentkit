@@ -2,8 +2,8 @@
 
 The owner's design (14 Oct 2026): on the line the highlighted row opens, each task in flight is
 three squares (build, review, land).  One that reaches its next stage fills that square through
-its half (`□ ▣ ■`) over 150 ms; one that ended is gone from the line (their word of 19 Oct
-2026).  A task first seen, or one that did not change, stands still.  Offline: a
+its half (`□`, a dim `■`, `■`) over 150 ms; one that ended is gone from the line (their word of
+19 Oct 2026).  A task first seen, or one that did not change, stands still.  Offline: a
 temporary HOME, fake seats and runs, the motion clock read, no terminal.
 """
 
@@ -87,7 +87,8 @@ class TasksMove(Sandbox):
         new = {cell: self.clock.cells[cell] for cell in self.clock.cells if cell not in moved}
         # g1's second square fills: half first, then as drawn, breathing on as it moves
         animation, _ = new[row, first + 1]
-        self.assertEqual(terminal.plain(animation(now)), "▣")
+        self.assertEqual(animation(now),      # its full shape, dim as its empty one, on a lit row
+                         terminal.highlight(terminal.styled("■", "dim"), mark=False))
         self.assertEqual(terminal.plain(animation(now + 60)), "■")
 
     def test_a_task_first_seen_or_unchanged_stands_still(self):

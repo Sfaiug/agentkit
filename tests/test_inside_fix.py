@@ -1,9 +1,10 @@
 """A finding sits inside the fix where its line is one the fix wrote: the new side of git's diff
 from the commit the last review judged, renames followed.  A pure removal writes no line, so its
-surviving neighbours are outside; a renamed file's unchanged lines are outside too.  Offline: a
-real git repository, read by `prompts.inside_fix`.
+surviving neighbours are outside; a renamed file's unchanged lines are outside too, whatever
+bytes its old name holds.  Offline: a real git repository, read by `prompts.inside_fix`.
 """
 
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -54,6 +55,15 @@ class InsideFix(unittest.TestCase):
         self.assertEqual(self.inside("renamed.txt", (1, 2), self.commit("rename")), [0, 0])
         (self.root / "renamed.txt").write_text("alpha\nbeta\nGAMMA\ndelta\n")
         self.assertEqual(self.inside("renamed.txt", (2, 3), self.commit("edit")), [0, 1])
+
+    def test_a_rename_from_a_name_that_is_not_utf_8_is_followed(self):
+        old = os.fsdecode(b"words-\xff.txt")
+        self.git("mv", "words.txt", old)
+        reviewed = self.commit("a name that is not UTF-8")
+        self.git("mv", old, "renamed.txt")
+        (self.root / "renamed.txt").write_text("alpha\nbeta\nGAMMA\ndelta\n")
+        self.assertEqual(self.inside("renamed.txt", (2, 3), self.commit("rename and edit"), reviewed),
+                         [0, 1])
 
     def test_an_added_file_is_inside_and_an_untouched_one_outside(self):
         (self.root / "new.txt").write_text("one\n")

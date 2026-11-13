@@ -138,16 +138,16 @@ linux_xml() { printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
 
 # A Stopped machine starts.  Any other -- Running, or Broken while its host agent does not
 # answer Lima, as while it starts up -- that has not answered for 10 minutes is stopped by force
-# (Lima starts no Broken machine), then starts.  Silence counts from its last answer or start,
-# never from before the Mac started, when Lima's daemon starts it, and with neither on record,
-# as on a machine running before this check came, from now; a boot time that is no number
-# restarts nothing.  One stopped by force is then left as it is, whatever the start after the
-# stop did, until it answers, linux_machine_start starts it or the Mac starts: a second stop
-# mends nothing the first did not, such as this check's own way to the machine (the ssh alias),
-# and ends every session in it.  None of the three may depend on what the clock reads, which is
-# set back at times: the stop goes on record in the answer's place, where the next answer or
-# start writes over it, with the id of the Mac's boot, whose time moves with the clock; a boot
-# id that is empty leaves none as it is.
+# (Lima starts no Broken machine), then starts.  Silence counts from its last answer, start or
+# check that found it Stopped, never from before the Mac started, when Lima's daemon starts it,
+# and with none on record, as on a machine running before this check came, from now; a boot
+# time that is no number restarts nothing.  One stopped by force is then left as it is,
+# whatever the start after the stop did, until it answers, is found Stopped, linux_machine_start
+# starts it or the Mac starts: a second stop mends nothing the first did not, such as this
+# check's own way to the machine (the ssh alias), and ends every session in it.  None of these
+# may depend on what the clock reads, which is set back at times: the stop goes on record in the
+# answer's place, where the next answer, start or Stopped writes over it, with the id of the
+# Mac's boot, whose time moves with the clock; a boot id that is empty leaves none as it is.
 linux_machine_check() {
   local status answered last forced session boot
   status=$(linux_machine_status) answered=$(linux_dir)/answered
@@ -166,6 +166,9 @@ linux_machine_check() {
     limactl start --tty=false "$LINUX_INSTANCE"
     return
   fi
+  # Found stopped, it runs from now whoever starts it: another start may come before the look
+  # at its status linux_machine_start takes, which then leaves the last answer as it is.
+  date +%s >"$answered"
   linux_machine_start
 }
 

@@ -76,7 +76,8 @@ def _slot_seat(state):
     return (*slot_order(state)[:3], seat, "" if seat else state.get("run_id") or "")
 
 
-# Memory is what admission guards: CPU is shared, and a check given less of it only runs
+# Memory is what admission guards, and the CPU only once the runs building stand still for it
+# longer than they run (`_starved_reason`): CPU is shared, and a check given less of it only runs
 # slower, while the heavy-suite turns and the line's CPU weights pace the CPU-heavy work.
 MEMORY_PRESSURE_LIMIT = 10   # runs stalled on memory a tenth of the time
 
@@ -102,7 +103,7 @@ def host_status_line():
     Two lines: the admission gates, then the heavy-suite turns in force and whether
     an explicit `max_gates` pins them or the slice's headroom derives them.  A
     positive `max_runs` is a gate like the others, so the first line names it:
-    `at most 4 runs at once`.  Only a pinned `max_load` gates CPU, so only it shows the load.
+    `at most 4 runs at once`.  Only a pinned `max_load` reads the load, so only it shows it.
     """
     readings = _run_readings()
     minimum, maximum = resource_limits(readings)
@@ -378,6 +379,20 @@ def _memory_pressure_reason(readings):
     return None, None
 
 
+def _starved_reason(readings):
+    """(reason, kind) while the runs building stand still for want of a CPU longer than they run
+    on one (`host._building`), else (None, None): a run let in then adds only waiting (12 Nov
+    2026: 54 building waited 16 to 28 cores' worth for the 5 to 7 they ran on, and a line's check
+    crawled beside them).  Host load and pressure as a percent each need a limit no one number
+    fits (#74, #1775); this sets none.  Unread, or with nothing building, it admits."""
+    used = host._reading(readings, "building_cpu_used")
+    waited = host._reading(readings, "building_cpu_waited")
+    if used is not None and waited is not None and waited > used:
+        return (f"waiting for the runs' CPU · {round(waited, 1):g} cores waiting, "
+                f"{round(used, 1):g} running", "cpu")
+    return None, None
+
+
 def _strain(readings, minimum):
     """(reason, kind) while the host really strains, else (None, None): its available memory or
     the kernel's own stall readings, all that holds a run stalled first in line."""
@@ -471,6 +486,8 @@ def _gates_admit(state, readings, is_first):
         reason, kind = _wait_reason(readings, minimum, maximum, peak, frozen, starting)
     else:
         reason, kind = _wait_reason(readings, minimum, 0, peak, starting=starting)
+    if not (reason or is_first):
+        reason, kind = _starved_reason(readings)
     if reason:
         return _held(state, reason, kind)
     if peak is None and 0 <= time.time() - slot_queue()[6] < SLOT_POLL:
@@ -787,18 +804,15 @@ def mark_gate_wait(run_dir, of, since=None):
 
 @contextmanager
 def landing_wait(landing, since=None, run_id=None, line=False, holds=None):
-    """While a landing suite waits for a heavy turn it holds a file of its own, and a line's
-    check also `.heavy-landing.wait`.
+    """While a landing suite waits for a heavy turn it holds a file of its own.
 
-    Its own file says when its wait began, for which run, whether it is a line's own
-    check and whether its check `holds` a turn already, so landing waits rank among themselves
-    (`_gate_waiter_before`); None says nothing of turns held, as a file from before 12 Nov 2026
-    does.  A wait for a first turn holds none and a suite's for more always holds one, so what
-    the file says stays true for as long as it lives.  The line's checkers
-    mark no member's record.  `.heavy-landing.wait`, shared by every line's check, says one
-    waits: round checks stay behind it (`landing_waits`), as they do behind a waiter on code from
-    before 29 Oct 2026, which holds it for any landing wait.  The kernel lets go with the
-    holder, so a dead waiter holds nobody back.
+    The file says when its wait began, for which run, whether it is a line's own check and
+    whether its check `holds` a turn already, so landing waits rank among themselves and ahead
+    of every round check (`_gate_waiter_before`); None says nothing of turns held, as a file
+    from before 12 Nov 2026 does.  A wait for a first turn holds none and a suite's for more
+    always holds one, so what the file says stays true for as long as it lives.  The line's
+    checkers mark no member's record.  The kernel lets go with the holder, so a dead waiter
+    holds nobody back.
     """
     if not landing:
         yield
@@ -806,10 +820,7 @@ def landing_wait(landing, since=None, run_id=None, line=False, holds=None):
     config.RUNS.mkdir(parents=True, exist_ok=True)
     token = f"{os.getpid()}-{threading.get_ident()}-{time.time_ns()}"
     draft, path = config.RUNS / f".landing-draft-{token}", config.RUNS / f".landing-wait-{token}"
-    with ((config.RUNS / ".heavy-landing.wait").open("a") if line else nullcontext()) as shared, \
-            draft.open("w") as fh:
-        if line:
-            fcntl.flock(shared, fcntl.LOCK_SH)
+    with draft.open("w") as fh:
         # Locked before it takes its name: a file under that name is never an unheld live one.
         fcntl.flock(fh, fcntl.LOCK_EX)
         fh.write(json.dumps({"since": since, "run_id": run_id or "", "line": line,
@@ -856,23 +867,6 @@ def _landing_waiters():
     return found
 
 
-def landing_waits():
-    """Whether a line's own check waits for a heavy turn now (`landing_wait`); unreadable is no.
-
-    Probes take turns on their own file, so one probe never reads another as a waiter.
-    """
-    try:
-        with (config.RUNS / ".heavy-landing.probe").open("a") as turn, \
-                (config.RUNS / ".heavy-landing.wait").open("a") as probe:
-            fcntl.flock(turn, fcntl.LOCK_EX)
-            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        return True
-    except OSError:
-        pass
-    return False
-
-
 def gate_turn_note(state):
     """`waiting for a heavy suite turn` while a run waits in `gate_turn`, else ""."""
     turn = state.get("gate_turn")
@@ -891,9 +885,8 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
     which no line checks), then any round check; within each the longest wait, then the run id,
     but between two waits that do not say whether their checks hold a turn (`holds`), those
     holding none go first and never hold each other back.
-    `--first` plays no part, or loop repairs starve every other suite under load.  A
-    round check stays behind any line's check (`landing_waits`).  A landing wait -- a
-    run's, or the line checker's that marks no record -- ranks by its own file
+    `--first` plays no part, or loop repairs starve every other suite under load.  A landing
+    wait -- a run's, or the line checker's that marks no record -- ranks by its own file
     (`landing_wait`), whose start is the one its waiter ranks itself by: a lander's counts
     from its first landing wait, not from the lap.
     A record's landing mark ranks only a lander with no live file, one still on code
@@ -902,8 +895,6 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
     whose process is gone, or whose pid no longer matches its record -- a kill or
     a resume left it behind -- holds nobody back.
     """
-    if not is_landing and landing_waits():
-        return True
     # Owner, 29 Oct 2026: a line's own check goes first.  The line is where a repository's
     # changes land one at a time, so its wait delays every change behind it, while a run's
     # check before it joins the line only spares the line a red.
@@ -1328,10 +1319,10 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
                     # a checker's wait is its member's, kept beside that member's line time
                     if run_dir or is_landing:
                         counted = count_wait(self_id, "suite" if run_dir else "lander", counted)
-                    # Rank and a line's own check waiting decide this host's turns, never who
-                    # asks the helper (owner, 30 Oct 2026: nothing waits for compute), as the
-                    # first may not ask for long: it waits here to rerun what a machine failed,
-                    # or sets up a new machine, and a suite on one takes nothing from a wait here.
+                    # Rank decides this host's turns, never who asks the helper (owner, 30 Oct
+                    # 2026: nothing waits for compute), as the first may not ask for long: it
+                    # waits here to rerun what a machine failed, or sets up a new machine, and a
+                    # suite on one takes nothing from a wait here.
                     if elsewhere and elsewhere():
                         turnless = True
                         break
@@ -1608,6 +1599,24 @@ def write_suite_cost(path, updates):
     Path(saved.name).replace(path)
 
 
+def inherit_suite_cost(command, source, cwd):
+    """`command` takes each part of `source`'s cost on record (`cpus`, `mem_mb`) it has no
+    measure of its own for, `source` a suite of the same repository: a part `source` has none of
+    stays the initial estimate, and `command`'s first measured pass replaces the rest as any
+    measure.  The lander gives a rewritten `tests:` line the target's, as there ak first meets a
+    suite nobody measured, beside the one it replaces (`land._landing_checks`)."""
+    path = suite_cost(command, cwd, None)[0]
+    try:
+        with watch.state_lock():
+            own, given = read_suite_cost(path), read_suite_cost(suite_cost(source, cwd, None)[0])
+            given = {name: given[name] for name in ("cpus", "mem_mb")
+                     if _a_cost(given.get(name)) and not _a_cost(own.get(name))}
+            if given:
+                write_suite_cost(path, given)
+    except OSError:
+        pass    # a cost not given keeps the initial estimate
+
+
 def check_suite_pieces():
     """The split run checks its branch's declaration, never the target's fallback."""
     command = gitcall.declared(Path.cwd(), "tests")
@@ -1691,18 +1700,20 @@ class _SuiteMeasure:
                 with self.lock:
                     self.peak = max(self.peak, held)
 
-    def save(self, path, pieces, places):
+    def save(self, path, pieces, places, green):
         """`pieces` the ones that ran here, each to its end, on `places` at once, or None where
         one waited for a place: a peak of fewer at once is no piece's memory.  A piece's CPU is
-        what each needed while its box ran, so a place waited for or left empty counts none."""
+        what each needed while its box ran, so a place waited for or left empty counts none.
+        A pass not `green` says how long it took and nothing of what a piece needs: one red in
+        its first seconds ran no whole length, and those seconds set the next pass's pieces."""
         elapsed = time.monotonic() - self.started
         if elapsed <= 0:
             return
         cost = {"wall_seconds": elapsed, "run_id": self.run_id}
         ran = sum(seconds for _, seconds in self.cpu)
-        if len(self.cpu) == pieces and ran > 0:
+        if green and len(self.cpu) == pieces and ran > 0:
             cost["cpus"] = max(HEAVY_CPUS, sum(spent for spent, _ in self.cpu) / ran)
-        if self.baseline is not None and places:
+        if green and self.baseline is not None and places:
             cost["mem_mb"] = self.mem_mb = max(HEAVY_MEM_MB, (self.peak - self.baseline) / places)
         try:
             with watch.state_lock():
@@ -1904,7 +1915,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
         if named is not None and result[0] > 0:
             named.extend(failed)
         if measured and not result[2] and result[0] != SUITE_BUSY:
-            measured.save(path, 1, 1)
+            measured.save(path, 1, 1, not result[0])
             measured.paced(path, 1)
         if measured:
             measured.overflowed(path, planned)
@@ -2164,7 +2175,8 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if ran and not any(
                     result[2] or result[0] == SUITE_BUSY for result in results if result):
                 measure.save(path, len(ran), None if hold and hold.waited else
-                             min(len(ran), hold.pieces if hold else count))
+                             min(len(ran), hold.pieces if hold else count),
+                             not any(result[0] for result in results if result))
             named = {}    # by index, a piece red on a machine: what it printed there, its tests
             if any(where) and log is not None and not pieces_left.lost and all(
                     result and not result[0] and not result[2] for result in results):

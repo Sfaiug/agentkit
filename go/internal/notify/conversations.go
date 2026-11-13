@@ -19,9 +19,9 @@ type Conversation struct {
 
 // Conversations is each conversation that seat had, oldest first (notify.conversations_of): each
 // one it left, as its record keeps them (`left`), then its current one, the owner's messages in
-// each as OwnerMessages reads them; none with no record.  ErrUnread where Go does not read one,
-// and strictly, with none of them read, where Go does not read the owner's words in one as
-// strictly as Python's done check does (harness.Reads); the error where the seat's typing
+// each without the lines ak typed (withoutAk); none with no record.  ErrUnread where Go does not
+// read one, and strictly, with none of them read, where Go does not read the owner's words in one
+// as strictly as Python's done check does (harness.Reads); the error where the seat's typing
 // receipts cannot be read, and strictly where a conversation is there and cannot be read.
 func Conversations(name string, strictly bool) ([]Conversation, error) {
 	current, had, err := Listed(name, strictly)
@@ -80,11 +80,17 @@ func Listed(name string, strictly bool) (string, []Conversation, error) {
 // Read gives each conversation Listed gave for the seat that goes by current its name and the
 // owner's messages in it, as Conversations reads them: the error Conversations gives.
 func Read(current string, had []Conversation, strictly bool) error {
+	whole := make([]bool, len(had)) // each read to its end, where no error stopped it
 	for i := range had {
-		var err error
-		if had[i].Name, had[i].Messages, err = ownerIn(current, had[i].Harness, had[i].Record, had[i].Name, strictly); err != nil {
+		owned, typed, known, err := transcript.Typed(had[i].Harness, had[i].Record, had[i].Name)
+		if !known {
+			return ErrUnread
+		}
+		if strictly && err != nil {
 			return err
 		}
+		had[i].Name, _ = owned.(string)
+		had[i].Messages, whole[i] = typed, err == nil
 	}
-	return nil
+	return withoutAk(current, had, whole)
 }

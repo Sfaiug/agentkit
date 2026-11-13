@@ -110,26 +110,26 @@ class FollowupRule(unittest.TestCase):
         self.assertEqual(self.review(OTHER), "PASS")
         self.assert_followups([DEFECT, OTHER])
 
-    def test_a_re_review_adds_to_the_list_and_an_empty_one_drops_nothing(self):
+    def test_a_re_review_puts_its_words_in_place_and_an_empty_one_drops_nothing(self):
         self.review(DEFECT, OTHER)
         self.assert_followups([DEFECT, OTHER])
-        # the same site in other words is the defect already kept; another site is another,
-        # though its path ends as the kept one's does
+        # the same file and what is the defect kept, in the later words; other words for what is
+        # wrong are another defect, even at the same line
         updated = DEFECT + "; also reproduced on main before the task"
-        later = "lib a.py:1 - negative input crashes - base abc123: `parse([-1])` raises ValueError"
+        later = "a.py:1 - negative input crashes - base abc123: `parse([-1])` raises ValueError"
         self.review(updated, later, record=False)
-        self.assert_followups([DEFECT, OTHER, later])
+        self.assert_followups([updated, OTHER, later])
         self.review(record=False)
-        self.assert_followups([DEFECT, OTHER, later])
+        self.assert_followups([updated, OTHER, later])
         self.assertIn("## Follow-ups", deliver.pr_body(self.lp.state))
 
-    def test_a_follow_up_handed_in_again_on_a_new_head_is_kept_once(self):
+    def test_a_follow_up_handed_in_again_on_a_new_head_is_kept_once_as_last_proven(self):
         def weighed(n):
-            # the fixer's commit moves the head, and with it the proof's exit status and the line
-            # its traceback names; a landing rebase moves the base its text names
-            row = {"kind": "follow-up", "path": "a.py", "line": 1, "what": "empty input crashes",
-                   "why": "callers crash", "before": f"base {n * 40}: the proof fails there too",
-                   "evidence": {"run": "false", "commit": n * 40, "returncode": int(n),
+            # the fixer's commit moves the head, and with it the line, the why and the proof's
+            # command; a landing rebase moves the base its text names
+            row = {"kind": "follow-up", "path": "a.py", "line": int(n), "what": "empty input crashes",
+                   "why": f"callers crash {n}", "before": f"base {n * 40}: the proof fails there too",
+                   "evidence": {"run": f"false {n}", "commit": n * 40, "returncode": int(n),
                                 "output": f'File "cli.py", line {n}'}}
             return lambda *_args, **_kw: hand_in.Review([row, {"kind": "done"}])
         for n in "12":
@@ -137,10 +137,10 @@ class FollowupRule(unittest.TestCase):
                 self.review()
             self.lp.rnd += 1
         [item] = self.lp.state["followups"]
-        self.assertIn("Commit " + "1" * 40, item)
-        self.assertIn('File "cli.py", line 1', item)
-        self.assertEqual(self.lp.state["followup_checks"], {item: "false"})
-        self.assertEqual(self.lp.state["followup_commits"], {item: "1" * 40})
+        self.assertTrue(item.startswith("a.py:2 - empty input crashes - callers crash 2"), item)
+        self.assertIn("Commit " + "2" * 40, item)
+        self.assertEqual(self.lp.state["followup_checks"], {item: "false 2"})
+        self.assertEqual(self.lp.state["followup_commits"], {item: "2" * 40})
         # ... while another defect with the same check is another follow-up, kept beside it
         other = {"kind": "follow-up", "path": "b.py", "line": 2, "what": "zero divisor crashes",
                  "why": "callers crash", "evidence": {"run": "false", "commit": "3" * 40,
@@ -158,8 +158,8 @@ class FollowupRule(unittest.TestCase):
                 self.assertEqual(self.review(DEFECT, ok=ok, code=code), "FAIL")
                 self.assert_followups([OTHER, DEFECT])
 
-    def test_no_number_limit_or_cross_item_deduplication(self):
-        items = [f"{DEFECT}; case {n}" for n in range(30)]
+    def test_no_number_limit_on_distinct_defects(self):
+        items = [DEFECT.replace("empty input", f"input {n}") for n in range(30)]
         self.review(*items)
         self.assert_followups(items)
 

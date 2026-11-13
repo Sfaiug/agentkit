@@ -1,7 +1,8 @@
 """Every mark in ak fills when set and empties when cleared, and a refused one shakes.
 
-On the `c` screen, the `n` screen and a project's feature switches a mark goes `□ ▣ ■` or
-`○ ◉ ●` over two frames, 80 ms, and back the same way, saved at the key; one ak refuses nudges
+On the `c` screen, the `n` screen and a project's feature switches a mark goes `□`, its full
+shape in the colour its open one has, `■` -- under the keys, reversed as it is -- over two
+frames, 80 ms, and back the same way, saved at the key; one ak refuses nudges
 a cell left, right, left and back over 240 ms, the reason under the rows and nothing saved.
 All of it is on the menu's one clock, beside the rule gliding while a project's
 switches are asked, and the cell a click lit stays lit through it; a key during it ends it on
@@ -30,7 +31,7 @@ from test_config_matrix import CHILD, RIGHT, SPACE, Screen, highlighted, row
 from agentkit import motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
-MARKS = "●○■□◉▣—"
+MARKS = "●○■□—"
 # the background the pointer lights a cell on, at 256 colours, on the dark one a pty answers with
 LIT = f"48;5;{terminal.xterm_colour(terminal.POINTED[False])}m"
 
@@ -153,15 +154,19 @@ class Frames(unittest.TestCase):
         return at, until - since, since
 
     def test_a_mark_fills_and_empties_over_two_frames_in_80_ms(self):
-        for before, after, half in (("□", "■", "▣"), ("■", "□", "▣"), ("○", "●", "◉"),
-                                    ("●", "○", "◉")):
-            with self.subTest(before=before, after=after):
-                at, lasts, since = self.animation(motion.toggled(after, 4, None, False, 10),
+        for before, after, kind, half in (
+                ("□", "■", "accent", terminal.toggle("■", 4, "dim")),
+                ("■", "□", "dim", terminal.toggle("■", 4, "dim")),
+                ("○", "●", None, terminal.toggle("●", 4, "dim")),
+                ("●", "○", "dim", terminal.toggle("●", 4, "dim")),
+                ("□", "■", "reverse", terminal.toggle("■", 4, "reverse"))):     # the keys' cell
+            with self.subTest(before=before, after=after, kind=kind):
+                at, lasts, since = self.animation(motion.toggled(after, 4, kind, False, 10),
                                                   before, (5, 10))
                 self.assertAlmostEqual(lasts, 0.08)
                 # the frame the draw writes, and the one a frame later, each its whole column
                 self.assertEqual([at(since + t) for t in (0, motion.FRAME)],
-                                 [f" {half}  ", f" {after}  "])
+                                 [half, terminal.toggle(after, 4, kind)])
 
     def test_a_refused_mark_nudges_left_right_left_and_back_in_240_ms(self):
         at, lasts, since = self.animation(motion.toggled("■", 4, None, False, 10), "■", (5, 9))
@@ -182,11 +187,11 @@ class ConfigScreen(Screens):
         number, line = row(screen.press(RIGHT), "fable")  # fable's exec, not the seat's
         column = mark_column(line, 1)
         cells = moved(screen, SPACE)
-        landed(self, glyphs(cells, number), ["▣", "■"])
+        landed(self, glyphs(cells, number), ["■", "■"])
         self.assertLessEqual({at for at, _, _, _ in cells}, {number})
         self.assertEqual(screen.record()["workers"], ["opus", "astra", "fable"])
         cells = moved(screen, click(column, number))
-        landed(self, glyphs(cells, number), ["▣", "□"])
+        landed(self, glyphs(cells, number), ["■", "□"])
         landed(self, shifts(cells, number, column), [0, 0])     # in place, no nudge
         lit_through(self, cells, number)
         self.assertEqual(screen.record()["workers"], ["opus", "astra"])
@@ -236,9 +241,9 @@ class NewSessionScreen(Screens):
         screen, lines = self.picker()
         number, line = numbered(lines, new_session.full("opus"))
         cells = moved(screen, new_session.SPACE)
-        landed(self, glyphs(cells, number), ["▣", "□"])
+        landed(self, glyphs(cells, number), ["■", "□"])
         cells = moved(screen, click(mark_column(line, 1), number))
-        landed(self, glyphs(cells, number), ["▣", "■"])
+        landed(self, glyphs(cells, number), ["■", "■"])
         lit_through(self, cells, number)
         screen.start()
         screen.saw("<created new opus astra,opus opus,astra>")
@@ -264,9 +269,9 @@ class FeaturesScreen(Screens):
         menu = features.Menu(self)
         number, _ = numbered(menu.opened(), "Dark mode")
         cells = moved(menu, SPACE)                    # the project's `set` answers first
-        landed(self, glyphs(cells, number), ["◉", "●"])
+        landed(self, glyphs(cells, number), ["●", "●"])
         cells = moved(menu, SPACE)
-        landed(self, glyphs(cells, number), ["◉", "○"])
+        landed(self, glyphs(cells, number), ["●", "○"])
         self.assertEqual(menu.calls().count("set dark you on"), 1)
         self.assertIn("set dark you off", menu.calls())
         menu.leave(screen=True)
@@ -297,7 +302,7 @@ class FeaturesScreen(Screens):
         started = menu.calls().count("list")
         menu.until(lambda: menu.calls().count("list") > started, "a list asked")
         cells = moved(menu, SPACE)
-        landed(self, glyphs(cells, number), ["◉", "●"])
+        landed(self, glyphs(cells, number), ["●", "●"])
         (menu.fake / "refuse").write_text("only the owner may switch dark\n")
         cells = moved(menu, SPACE)
         landed(self, shifts(cells, number, mark_column(line, 0)), [-1, 1, -1, 0])

@@ -10,7 +10,7 @@ model its results report, `codex.py` the launch receipt its thread is proven by,
 upgrade is put back from, its own usage probe, the receipt its SessionStart hook writes its
 session into and its registry moves on `/new`,
 the session store its tokens and messages are in and the sessions gc ends,
-`opencode.py` the receipt its seat plugin writes its session into, the endpoint that says
+`opencode.py` the receipt it keeps its seat's session in, the endpoint that says
 how a model is paid and the sessions gc ends,
 `antigravity.py` the database each of its conversations is, and which one a seat's agy holds
 open.  A script its adapter runs on its own sits beside its module, named for it:

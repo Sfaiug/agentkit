@@ -87,7 +87,7 @@ class Switch(Sandbox):
             path.chmod(0o755)
         self.stack.enter_context(patch.dict(
             os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
-        self.calls, self.fail = [], set()
+        self.calls, self.fail, self.pid = [], set(), None    # `pid`: the pane's process, named
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.seat = {"name": "fix-api", "path": str(self.root), "created": 100,
                      "attached": False, "exited": False, "legacy": False}
@@ -120,6 +120,8 @@ class Switch(Sandbox):
         self.calls.append(pane.resolved(args))
         if args[0] in self.fail:
             return 1, "boom"
+        if self.pid and args[-1] == "#{pane_id}\t#{pane_pid}":
+            return 0, f"%7\t{self.pid}"
         return 0, PROMPT if args[0] == "capture-pane" else ""
 
     def rulebook(self, name="fix-api"):
@@ -177,7 +179,10 @@ class Switch(Sandbox):
         config.remove_model(self.cfg, "opus")     # fix-api is still open on it
         selected = self.selected()                # its record reads, on the models left
         self.assertEqual(selected["orchestrator"], "opus")
-        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}), "")
+        self.pid = 4207     # its pane runs claude, through which its empty field is read
+        with patch.object(orch, "processes", return_value={self.pid: (1, ["claude"])}):
+            self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
+                             "")
         self.assertEqual(config.load_session(self.cfg, "fix-api")["orchestrator"], "astra")
         respawns = [args for args in self.calls if args[0] == "respawn-pane"]
         self.assertEqual(len(respawns), 1)

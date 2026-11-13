@@ -1,7 +1,8 @@
 """With AK_GO_ALONE=1 the answer keys judge Go as the commit switching ak to Go holds it: the copy
 tests/test_go_keys.py's checkout() makes has no agentkit/, its bin/, hooks/, adapters/, tools/
-and install.sh are go/'s, its bin/ak the program judged, and in tests/fixtures/akbin.py's Home
-the program can run no python3.  Without it the copy and the Home are as before."""
+and install.sh are go/'s, tools/ keeping the shell that commit keeps, its bin/ak the program
+judged, and in tests/fixtures/akbin.py's Home the program can run no python3.  Without it the copy
+and the Home are as before."""
 
 import json
 import os
@@ -12,7 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from test_go_keys import REPO, checkout
+from test_go_keys import KEPT, REPO, checkout
 
 PARTS = ("bin", "hooks", "adapters", "tools", "install.sh")
 # A program leaning on Python, as one handing work to Python's ak would; it exits as python3 does.
@@ -60,6 +61,8 @@ class Alone(unittest.TestCase):
         want["bin"] = {"ak": STAND_IN.encode()}
         # go/tools/ak leads to its checkout's program
         want["tools"]["ak"] = STAND_IN.encode()
+        # and Python's tools/ leaves it the shell the switch keeps, a helper's scripts among it
+        want["tools"].update({Path(name).name: held(REPO / name) for name in KEPT})
         self.assertEqual({part: held(tree / part) for part in PARTS}, want)
 
     def test_without_the_switch_the_copy_is_as_before(self):

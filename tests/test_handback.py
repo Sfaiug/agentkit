@@ -1423,6 +1423,12 @@ class HandBack(Sandbox):
         self.assertEqual(jobs.job_hand_back(SEAT, line, self.logs.append), "gone")
         self.assertEqual(len(self.typed), 1)
 
+    def test_a_job_goes_back_to_its_seat_by_the_name_it_has_now(self):
+        config.rename_session(SEAT, "beta")
+        self.rows = [{**self.live(), "name": "beta"}]
+        self.assertEqual(jobs.job_hand_back(SEAT, "job j1: done", self.logs.append), "sent")
+        self.assertEqual(self.typed, [("beta", "job j1: done")])
+
     def test_a_job_whose_seat_was_busy_is_handed_back_by_the_tick(self):
         job_dir = config.JOBS / "job-1"
         job_dir.mkdir(parents=True)

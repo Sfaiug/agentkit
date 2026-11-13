@@ -40,7 +40,7 @@ class AMachineEndingOncePreparedTakesNoTurn(unittest.TestCase):
                 patch.object(helper, "_remote", side_effect=remote), \
                 patch.object(helper, "_recipe", return_value=("ak-helper-acme:1", {})), \
                 patch.object(helper, "_parcel"), \
-                patch.object(helper.orch, "agent_programs", return_value=[]):
+                patch.object(helper.orch, "agent_programs", return_value={}):
             subprocess.run(["git", "init", "-q", tmp], check=True)
             away = helper.start(2, 2048, tmp, lambda line: None, "true", lambda tar: None,
                                 lasting=3600)[0]

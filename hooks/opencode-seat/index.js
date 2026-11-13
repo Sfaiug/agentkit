@@ -27,10 +27,9 @@
 // whether a finished seat's question is refused (`stop.question_refused`), as a PreToolUse hook
 // asks it: the reason it gives is thrown, which 2.1.1 hands the model as the tool's error.
 //
-// And the session the seat is talking in, for the seat to come back to: where a prompt goes in,
-// its id is written into this launch's receipt, the directory agentkit/harness/opencode.py
-// named in $AGENTKIT_OPENCODE_RECEIPT.  A subagent's session is never the seat's: OpenCode's
-// own record of it names its parent, and nothing of it is written.
+// And ak's title, on the session this launch's receipt names: the directory
+// agentkit/harness/opencode.py named in $AGENTKIT_OPENCODE_RECEIPT, into which ak alone writes
+// the session the seat is in (`follow`), never one another seat holds.
 //
 // And `/ak-model <provider/model[#variant]> <effort>`, the line the adapter's [switch] types to
 // move the seat: its session switches to that model at the id's own variant, else the effort,
@@ -79,21 +78,6 @@ export function refusal() {
       ? answer.permissionDecisionReason : null;
   } catch {
     return null;
-  }
-}
-
-function keep(sessionID) {
-  // Whole or not at all: the id is written beside the last one and renamed over it, so a seat
-  // killed or refused mid-write still holds its last good id.  Only into the launcher's own
-  // directory, never a new one: a seat stopped since has had it removed, and a late fact must
-  // not bring it back.
-  if (!RECEIPT) return;
-  const next = join(RECEIPT, "session.next");
-  try {
-    writeFileSync(next, sessionID);
-    renameSync(next, join(RECEIPT, "session"));
-  } catch {
-    // Nothing written: the receipt says what it said before.
   }
 }
 
@@ -203,31 +187,6 @@ function recorded(stop) {
   }
 }
 
-// The session that event shows a prompt going into, or null.  Only a prompt says which
-// conversation the seat is in: an older turn still running ends whenever it ends, and its end
-// must not take the seat back from the session prompted since.
-function promptedSession(event) {
-  if (event === null || typeof event !== "object") return null;
-  const data = event.data;
-  if (data === null || typeof data !== "object" || typeof data.sessionID !== "string") return null;
-  return event.type === "session.inbox.enqueued"
-    && data.item !== null && typeof data.item === "object" && data.item.type === "user"
-    ? data.sessionID : null;
-}
-
-// Whether the harness's own record of that session says it is the seat's conversation: a
-// subagent's names the session that started it as its parent, whenever and however it was
-// started.  A record that cannot be read is not the seat's, and the last good id stands.
-async function own(ctx, sessionID) {
-  try {
-    const info = await ctx.session.get({ sessionID });
-    return info !== null && typeof info === "object" && info.id === sessionID
-      && (info.parentID === undefined || info.parentID === null);
-  } catch {
-    return false;
-  }
-}
-
 // The fact one harness event becomes, or null when the seat does not report it.
 export function seatFact(event) {
   if (event === null || typeof event !== "object") return null;
@@ -294,26 +253,10 @@ export default {
     const timer = setInterval(syncTitle, 1000);
     timer.unref();
     void syncTitle();
-    // Prompt session ids, kept in event order, never holding a fact: a stuck session call
-    // delays only the keeps behind it, while each fact is sent below without waiting.
-    let keeping = Promise.resolve();
     void (async () => {
       try {
         for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
           try {
-            const sid = promptedSession(event);
-            if (sid) {
-              keeping = keeping.then(async () => {
-                try {
-                  if (await own(ctx, sid)) {
-                    keep(sid);
-                    void syncTitle();
-                  }
-                } catch {
-                  // One session that cannot be kept costs that keep, never the chain.
-                }
-              });
-            }
             // Generated and owner titles use this same event in 2.0.14. Both give way
             // to ak's name; neither is evidence that the owner renamed the seat.
             if (event.type === "session.renamed") void syncTitle(true);

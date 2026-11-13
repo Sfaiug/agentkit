@@ -93,7 +93,9 @@ class SwitchCarriesDraft(EditorSeat):
 
     def test_no_keys_go_to_a_question_or_for_a_harness_that_opens_no_editor_of_ak_s(self):
         with patch.object(watch, "asking", return_value=True):
-            self.assertTrue(self.switched())
+            self.assertFalse(self.switched())   # the text stays with the harness asking
+            self.show("")
+            self.assertTrue(self.switched())    # a composer read empty under it keeps nothing
         self.show(DRAFT)
         self.assertFalse(self.switched(to="acme"))    # a harness with no manifest: refused
         self.assertEqual((self.keys, self.buffers), ([], {}))

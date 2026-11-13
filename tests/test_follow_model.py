@@ -76,11 +76,54 @@ class SeatFollows(Sandbox):
         config.update_session(NAME, launched=None)
         self.assertEqual(self.looked(("fable", -30, None)), "fable")
 
-    def test_what_no_entry_runs_a_subagent_or_a_transcript_it_cannot_read_moves_nothing(self):
+    def test_what_no_table_names_a_subagent_or_a_transcript_it_cannot_read_moves_nothing(self):
         self.assertEqual(self.looked(("claude-haiku-9", 30, None)), "opus")
         self.assertEqual(self.looked(("fable", 60, None, {"isSidechain": True})), "opus")
         with patch.object(claude, "running", side_effect=PermissionError("denied")):
             self.assertEqual(self.looked(("fable", 90, None)), "opus")
+
+    def test_a_model_no_entry_runs_is_added_to_the_file_as_it_is_and_becomes_the_seat_s(self):
+        disk = config.load()
+        disk["models"]["kept"] = dict(disk["models"]["opus"], effort="low")    # another's since
+        config.save(disk)
+        home = sorted(config.HOME.iterdir())
+        self.assertEqual(self.looked(("claude-sonnet-5-5", 30, "turbo")), "sonnet")
+        self.assertEqual(sorted(config.HOME.iterdir()), home)    # no lock file to collect
+        sonnet = {"harness": "claude", "model": "claude-sonnet-5-5", "effort": "max",
+                  "provider": "anthropic"}          # no effort Sonnet takes: the last it does
+        self.assertEqual(config.load()["models"]["sonnet"], sonnet)
+        self.assertIn("kept", config.load()["models"])
+        self.assertEqual(self.cfg["models"]["sonnet"], sonnet)      # what the tick reads next
+
+    def test_a_model_another_look_added_moves_the_seat_there_and_adds_none(self):
+        disk = config.load()
+        disk["providers"]["acme-login"] = {"mode": "subscription"}      # added with it
+        disk["models"]["sonnet-low"] = {"harness": "claude", "model": "claude-sonnet-5-5",
+                                        "effort": "low", "provider": "acme-login"}
+        config.save(disk)
+        self.assertEqual(self.looked(("claude-sonnet-5-5", 30, "high")), "sonnet-low")
+        self.assertEqual(config.model(self.cfg, "sonnet-low")["provider"], "acme-login")
+        self.assertEqual(config.running(config.load(), "claude", "claude-sonnet-5-5"),
+                         ["sonnet-low"])
+        self.assertEqual(config.session_records()[NAME]["efforts"]["sonnet-low"]["effort"],
+                         "high")
+
+    def test_a_provider_the_file_lost_since_the_config_was_read_adds_nothing(self):
+        disk = config.load()
+        config.remove_provider(disk, "anthropic")
+        config.save(disk)
+        self.assertEqual(self.looked(("claude-sonnet-5-5", 30, "high")), "opus")
+        self.assertEqual(config.load()["models"], disk["models"])
+
+    def test_an_entry_it_cannot_run_any_provider_s_harness_or_a_failed_save_adds_nothing(self):
+        self.cfg["models"]["broken"] = {"harness": "claude", "model": "claude-sonnet-5",
+                                        "provider": "anthropic"}            # no effort
+        with patch.object(config, "provider_hosts", return_value={"claude": "Claude"}):
+            self.assertEqual(self.looked(("claude-sonnet-5", 30, "high")), "opus")
+        with patch.object(config, "save", side_effect=OSError("read-only")):
+            self.assertEqual(self.looked(("claude-sonnet-5", 60, "high")), "opus")
+        self.assertNotIn("sonnet", self.cfg["models"])
+        self.assertEqual(self.looked(("claude-sonnet-5", 90, "high")), "sonnet")
 
     def test_codex_reads_the_model_effort_and_time_of_its_latest_answer(self):
         rollout = self.root / "rollout.jsonl"

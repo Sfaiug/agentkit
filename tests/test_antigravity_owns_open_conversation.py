@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox
-from agentkit import config, notify, orch
+from agentkit import config, look, notify, orch
 from agentkit.harness import antigravity
 
 
@@ -91,6 +91,15 @@ class OwnsOpenConversation(Sandbox):
         for named in ("c-named", "c-left"):
             self.agy(self.seat("acme"), named)
             self.assertIsNone(self.owns("acme"), named)
+
+    def test_a_launch_learning_in_a_pass_sees_what_another_seat_took_since_its_look(self):
+        self.agy(self.seat("acme"), "c-new")
+        self.seat("beta")
+        with look.one_look():
+            before = config.session_records()["acme"]     # the pass's look, before beta's claim
+            config.update_session("beta", conversation="c-new")
+            self.assertIsNone(antigravity.conversation(before))
+        self.assertIsNone(config.session_records()["acme"].get("antigravity_open"))
 
     def test_a_prompts_claim_and_a_launch_learning_the_same_one_never_both_take_it(self):
         self.agy(self.seat("acme"), "c-acme")

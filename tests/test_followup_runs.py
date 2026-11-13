@@ -580,6 +580,13 @@ class FollowupRuns(unittest.TestCase):
         fourth, other = self.source("other-seat-source", launched_session="other-seat")
         self.assertEqual(len(self.start(fourth, other)), 1)
 
+    def test_a_runs_own_follow_ups_at_one_site_each_start_a_fix_run(self):
+        # the run kept them as other defects (`roundloop`); a site joins only another run's fix
+        again = "broken.py:1 - None input crashes - base abc123: `first(None)` raises TypeError"
+        directory, state = self.source(followups=[DEFECT, again])
+        self.assertEqual(len(self.start(directory, state)), 2)
+        self.assertEqual(len(self.spawns), 2)
+
     def test_simultaneous_merges_do_not_launch_the_same_fix_twice(self):
         first = self.source("first")
         second = self.source("second")
@@ -732,7 +739,8 @@ class FollowupRuns(unittest.TestCase):
         child_dir.mkdir()
         wt = self.root / "wt-fix"
         wt.mkdir()
-        base = {"run_id": "fix", "followup": {"run": "parent", "text": DEFECT,
+        # an earlier merge's fix at this site: one of the parent's own would be another defect
+        base = {"run_id": "fix", "followup": {"run": "earlier", "text": DEFECT,
                                               "place": handback.followup_place(DEFECT)},
                 "launched_session": "seat", "repo": str(self.repo)}
         blocking = [

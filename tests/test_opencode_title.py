@@ -92,8 +92,8 @@ let done;
 const drained = new Promise((resolve) => { done = resolve; });
 const stop = await plugin.setup(ctx);
 await drained;
-// Facts are sent without waiting on keeps or syncs, so the queued keeps and the
-// setup's read-back still settle below; a hanging session call settles never.
+// Facts are sent without waiting on syncs, so the setup's read-back still settles
+// below; a hanging session call settles never.
 const settle = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 if (mode !== "hang") await settle(300);
 if (mode !== "changed-request" && mode !== "hang") {
@@ -124,7 +124,18 @@ console.log(JSON.stringify({updates, gets}));
         # 2.0.14 uses this shape for both owner and generated titles (source fixture).
         return dict(self.fixture["events"][0], data={"sessionID": sid or self.sid, "title": title})
 
+    def follow(self, sid, claimed=True):
+        """ak's hook on the owner's prompt into `sid`, which `claim` takes or refuses."""
+        def claim(launched, harness, conversation, *_a, **_kw):
+            if claimed:
+                config.update_session(launched, conversation=conversation)
+        with patch("agentkit.harness.claim", claim), \
+                patch("agentkit.harness.rows", return_value=[(1,)]):
+            opencode.follow("lagoon", {"hook_event_name": "UserPromptSubmit",
+                                       "session_id": sid}, 0)
+
     def bind(self):
+        self.follow(self.sid)
         self.plugin([self.prompt()])
         orch.records()
         self.assertTrue(watch.sync_title(self.seat))
@@ -133,7 +144,9 @@ console.log(JSON.stringify({updates, gets}));
         self.assertFalse(watch.sync_title(self.seat))
         self.assertEqual(self.plugin(), [])
         self.assertNotIn("session_title", self.record())
-        updates = self.plugin([self.prompt()])
+        self.assertEqual(self.plugin([self.prompt()]), [])     # until ak follows it there
+        self.follow(self.sid)
+        updates = self.plugin()
         self.assertEqual(updates, [{"sessionID": self.sid, "title": "lagoon"}])
         self.assertNotIn("session_title", self.record())
         self.assertTrue(watch.sync_title(self.seat))
@@ -237,6 +250,21 @@ console.log(JSON.stringify({updates, gets}));
         self.assertNotIn("session_title", self.record())
         self.plugin()
         self.assertTrue(watch.sync_title(self.seat))
+
+    def test_only_the_session_the_seat_claimed_is_kept_and_titled(self):
+        self.follow("ses_beta", claimed=False)      # another seat's: `claim` refuses it
+        self.assertEqual(self.plugin([self.prompt("ses_beta")]), [])
+        self.assertIsNone(opencode.conversation(self.record()))
+        self.follow(self.sid)
+        receipt = {"opencode_launch": self.record()["opencode_launch"]}
+        self.assertEqual(opencode.conversation(receipt), self.sid)
+        # a write that fails leaves the last good id, and a stopped seat's receipt stays gone
+        (self.receipt / "session.next").mkdir()
+        self.follow("ses_beta")
+        self.assertEqual(opencode.conversation(receipt), self.sid)
+        opencode.forget(self.record())
+        self.follow(self.sid)
+        self.assertFalse(self.receipt.exists())
 
     def test_removed_launch_is_never_recreated(self):
         self.bind()

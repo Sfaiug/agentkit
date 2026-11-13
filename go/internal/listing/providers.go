@@ -18,9 +18,9 @@ const providersCap = 75 * time.Second
 type Provider = config.Listed
 
 // Providers is every provider that harness can log in to, as its adapter's `providers` verb lists
-// them, the logged-in ones first (config.listed_providers).  The one with the harness's own id is the
-// harness's own, named by its label (config.ProviderHosts).  An error in the adapter's own last words
-// where it lists none.
+// them, the logged-in ones first (config.listed_providers), a fourth field, what one takes, not read
+// yet.  The one with the harness's own id is the harness's own, named by its label
+// (config.ProviderHosts).  An error in the adapter's own last words where it lists none.
 func Providers(ctx context.Context, harness string) ([]Provider, error) {
 	ctx, cancel := context.WithTimeout(ctx, providersCap)
 	defer cancel()
@@ -42,7 +42,7 @@ func Providers(ctx context.Context, harness string) ([]Provider, error) {
 	_, labels := config.ProviderHosts()
 	var rows []Provider
 	for _, line := range config.SplitLines(string(out)) {
-		if fields := strings.Split(line, "\t"); len(fields) == 3 && fields[0] != "" {
+		if fields := strings.Split(line, "\t"); (len(fields) == 3 || len(fields) == 4) && fields[0] != "" {
 			if fields[0] == harness && labels[harness] != "" {
 				fields[1] = labels[harness]
 			}

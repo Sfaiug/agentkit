@@ -270,6 +270,17 @@ class KeptUp(unittest.TestCase):
         self.assertEqual(self.minutes(61, 69), [[]] * 9)
         self.assertEqual(self.minutes(70, 70), [["stop", "start"]])
 
+    def test_silence_before_a_check_found_it_stopped_does_not_count_whoever_starts_it(self):
+        """Another start may come right after the check's look at its status."""
+        self.minutes(0, 0)
+        self.mac.hangs()
+        self.mac.stops()
+        root = self.mac.home.root
+        self.mac.home.fake("limactl", f'#!/bin/sh\n{shlex.quote(str(root / "limactl"))} "$@" &&'
+                                      f' printf Running >{shlex.quote(str(root / "machine"))}\n')
+        self.assertEqual(self.minutes(9, 9), [[]])
+        shutil.copy(root / "limactl", self.mac.home.bin / "limactl")
+        self.assertEqual(self.minutes(10, 19), [[]] * 9 + [["stop", "start"]])
 
 class RunningBefore(unittest.TestCase):
     """A Mac whose machine Lima started with it before ak's check came: the check has no answer

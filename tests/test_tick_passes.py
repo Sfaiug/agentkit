@@ -34,6 +34,7 @@ PASSES = (
     (watch, "recover_runs", "stall recovery", True),
     (watch, "save_state", "state save", False),
     (usage, "collect", "usage refresh", False),
+    (watch, "usage_waits", "usage waits", False),
     (logins, "remind", "login reminder", False),
     (watch, "remind_worker_tokens", "token reminder", False),
     (staffing, "_cached_providers", "usage refresh", True),

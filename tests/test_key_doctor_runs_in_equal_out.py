@@ -78,12 +78,12 @@ class DoctorRunsInEqualOut(unittest.TestCase):
             proc.wait()
         return recorded
 
-    def resume(self, name):
-        """A real `ak run resume <name>`, held still at its first bwrap, the check of its box,
-        which comes before it records its pid; its command line, as `ps` shows it."""
+    def resume(self, name, *options):
+        """A real `ak run resume <name> [options]`, held still at its first bwrap, the check of
+        its box, which comes before it records its pid; its command line, as `ps` shows it."""
         called = self.home.root / "tmp" / "bwrap-called"
         self.home.fake("bwrap", f"#!/bin/sh\n: > {shlex.quote(str(called))}\nexec sleep 600\n")
-        proc = self.home.spawn("run", "resume", name)
+        proc = self.home.spawn("run", "resume", name, *options)
         deadline = time.monotonic() + 60
         while not called.exists():
             self.assertIsNone(proc.poll(), f"ak run resume {name} ended before calling bwrap")
@@ -164,7 +164,7 @@ class DoctorRunsInEqualOut(unittest.TestCase):
 
     def test_a_resume_keeps_its_run_going_before_it_records_itself(self):
         self.run_record("moving")
-        self.resume("moving")
+        self.resume("moving", "--rounds", "3")
         self.doctor(0, "1 started in the last day · 0 ended · 1 going · 0 endings owed")
 
     def test_unrelated_commands_zombies_and_other_runs_do_not_hide_a_lost_run(self):
@@ -174,8 +174,10 @@ class DoctorRunsInEqualOut(unittest.TestCase):
         self.start("sleep", "600", run=f"{directory}-other")
         self.start("tail", "-F", str(directory / "log.txt"))
         self.start("tail", "-F", *resume)
-        # one reading as its resume with a word more: xargs, waiting on its input to run it
+        # ones reading as its resume with a word more, or a count only isdigit takes for one:
+        # xargs, waiting on its input to run it
         self.start(*resume, "--extra", executable="xargs")
+        self.start(*resume, "--rounds", "²", executable="xargs")
         self.doctor(1, "2 started in the last day · 0 ended · 1 going · 0 endings owed · "
                        "lost: lost (4m since last write)")
 

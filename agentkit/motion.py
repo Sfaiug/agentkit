@@ -24,6 +24,8 @@ alike are in one phase because each reads one clock.
 """
 
 import math
+import os
+from pathlib import Path
 import re
 import time
 
@@ -48,14 +50,14 @@ STAGGER = 0.04      # ... and each row after the one above it
 GLIDE = 0.7         # ... and to glide to a new length as its plan moves, a light at its head
 ROUND = 2.0         # ... a light takes along a working seat's line with no plan yet, and again
 STEP = 0.15         # ... a task's next square takes to fill, through its half
-HALF = {"□": "▣", "■": "▣", "○": "◉", "●": "◉"}     # a mark half way between empty and full
+HALF = {"□": "■", "■": "■", "○": "●", "●": "●"}     # a mark half way: full, in its open one's colour
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
 WAIT = 0.15         # ... a screen's content is fetched for before its rule says so
 LAP = 1.2           # ... the segment on that rule takes along it, and again, until it lands
 SEGMENT = 8         # cells that segment is long
 SPIN = 2 * FRAME    # seconds each of the spinner's glyphs shows beside what ak waits on
-SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"   # cli-spinners' dots, and `|/-\` without UTF-8
+SPINNER = "▖▘▝▗"     # quadrants, which a terminal draws itself, and `|/-\` without UTF-8
 WASH = 0.3          # seconds a subscription's colour takes to wash in under the pointer
 DRAIN = 0.2         # ... and to drain once the pointer leaves it
 EDGE = 0.4          # how lit the edge of that wash is: that far toward the foreground
@@ -143,7 +145,7 @@ def shimmering(word, began, kind=None, bright=False):
 def toggled(mark, width, kind, bright, column):
     """How a mark drawn `mark` -- terminal.toggle's, `width` cells from the screen's `column`, in
     `kind` -- moves on a screen's clock once it is news: one set or cleared fills or empties
-    through its half (`□ ▣ ■`, `○ ◉ ●`) in TOGGLE seconds, two frames; one whose change was
+    through its half (`□`, a dim `■`, `■`) in TOGGLE seconds, two frames; one whose change was
     refused, news that changed nothing (`Clock.touch`), nudges a cell left, right, left and back
     in SHAKE seconds.  `bright` is the highlighted row, and the pointer's cell is lit as the draw
     lit it (terminal.pointed).  A function of the clock, the screen row, when the news came and
@@ -155,7 +157,9 @@ def toggled(mark, width, kind, bright, column):
         if before == mark:
             drawn(column - 1, *nudging(shown, since, bright))
         elif before in HALF and mark in HALF:
-            drawn(column, *halving(shown, since, TOGGLE, bright))
+            # its open one is dim, or reversed where the keys are (terminal.toggle)
+            half = terminal.toggle(HALF[mark], width, kind if kind == "reverse" else "dim")
+            drawn(column, *halving(shown, half, since, TOGGLE, bright))
     return start
 
 
@@ -282,12 +286,11 @@ def counting(cells, before, began, took=GROW):
     return [cell(n, text) for n, text in enumerate(cells)], began + took
 
 
-def halving(text, began, took, bright=False):
+def halving(text, half, began, took, bright=False):
     """A mark, `text` as drawn, that just filled or emptied -- a toggle set or cleared, a task's
-    next square: through its half (`□ ▣ ■`, `○ ◉ ●`) for the first half of `took` seconds from
-    `began`, then as drawn; and when it is still.  `bright` on the highlighted row."""
-    half = "".join(HALF.get(char, char) for char in text)
-
+    next square: `half`, its full shape in the colour its open one has (`□`, a dim `■`, `■`), for
+    the first half of `took` seconds from `began`, then as drawn; and when it is still.  `bright`
+    on the highlighted row."""
     def at(now):
         shown = half if now - began < took / 2 else text
         return terminal.highlight(shown, mark=False) if bright else shown
@@ -386,6 +389,15 @@ def fetching(clock, began):
     return clock
 
 
+def moment():
+    """The time every motion is drawn at, in seconds.  An answer key names its clock in
+    `AK_MOTION_CLOCK`, a file of seconds read anew each time, so it reaches the program the key
+    runs and moves only as the key moves it; unset, the monotonic clock.  Frames still come on
+    real time (`Clock.wait`), each showing the moment it reads."""
+    clock = os.environ.get("AK_MOTION_CLOCK")
+    return float(Path(clock).read_text()) if clock else time.monotonic()
+
+
 def spinning(began):
     """The spinner beside what one of ak's own waits from `began` is for -- a catalog, a
     login, a reset spent -- in the accent, a glyph each SPIN seconds: an animation, for as long
@@ -422,7 +434,7 @@ class Clock:
         is, and so is one no draw before showed: only a change seen while the menu is up moves.
         A key touched is news since then, what it showed before being what it shows.
         """
-        now, seen, self.seen = time.monotonic(), self.seen or {}, {}
+        now, seen, self.seen = moment(), self.seen or {}, {}
         for key, value in values.items():
             was = seen.get(key)
             self.seen[key] = ((value, None, None) if was is None else was if was[0] == value
@@ -435,7 +447,7 @@ class Clock:
 
     def touch(self, key):
         """News at `key` from now that changed nothing: a mark whose change was refused."""
-        self.touched[key] = time.monotonic()
+        self.touched[key] = moment()
 
     def settle(self):
         """A key: whatever moves ends on its last frame, the next draw showing it still, and
@@ -466,7 +478,7 @@ class Clock:
         Nothing moves where colour cannot: off a terminal, under NO_COLOR, at eight colours;
         and news whose time is over does not move again.
         """
-        if terminal.colour_depth() > 8 and (until is None or until > time.monotonic()):
+        if terminal.colour_depth() > 8 and (until is None or until > moment()):
             for cell in cells:
                 self.cells[cell] = animation, until
                 self.effects[cell] = effect
@@ -482,7 +494,7 @@ class Clock:
         `page`'s, where colour can move, whatever is drawn in the FADE seconds from its first
         frame -- a key's draw at once, and news -- each from where the fade has got to.
         """
-        now = time.monotonic()
+        now = moment()
         opened = now if self.opened is None else self.opened    # not yet: by this draw's frame
         if (self.fade or self.page) and terminal.colour_depth() > 8 and now < opened + FADE:
             self.rising = lines
@@ -508,7 +520,7 @@ class Clock:
         """What to write now: the lines still rising and every cell that moves, faded with them,
         or each cell whose text moved since it was last written, no other, with the pointer's
         light where it is (`terminal.pointed`)."""
-        now = self.last = time.monotonic()
+        now, self.last = moment(), time.monotonic()
         out, amount, first = "", 0, 3 if self.page else 1     # where what comes up starts
         if self.rising:
             # from its first frame, not from the draw making it: however long that draw took,
