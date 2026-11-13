@@ -24,7 +24,7 @@ func TestAProjectsNumbersHoldOverTheHostsAndABadOneIsRefusedNamingItsFile(t *tes
 	if numbers, err := ProjectNumbers("/acme", declaring(nil)); err != nil || numbers != defaults {
 		t.Fatalf("%v %v", numbers, err)
 	}
-	// review off, no limit and an orchestrator over its executors are all Python's to take
+	// review off, no limit and an orchestrator over its executors read as they are said
 	numbers, err = ProjectNumbers("/acme", declaring(map[string]string{"review_rounds": "0", "executor_lines": "10", "orchestrator_lines": "no limit"}))
 	if err != nil || numbers != (Numbers{0, AtMost(10), NoLimit}) {
 		t.Fatalf("%v %v", numbers, err)

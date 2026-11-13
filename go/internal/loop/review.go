@@ -28,6 +28,9 @@ var flakyRecord = regexp.MustCompile(`(?m)^flaky: `)
 // review: whether it passed.  The author's summary is recorded, never handed to the reviewer, whom
 // it would prime.
 func (l *loop) review(summary string, ok bool, checked, preface string) (bool, error) {
+	if l.alone {
+		return l.judgeOnChecks(ok, checked)
+	}
 	var j *judging
 	since := ""
 	if err := l.save(func(record *run.Object) {

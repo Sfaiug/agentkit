@@ -39,6 +39,7 @@ type Rules struct {
 	models               map[string]config.Model
 	payg                 map[string]bool // paying's
 	margin               float64         // pace_margin, how far ahead of pace lets a payg model in
+	alone                bool            // review off: no reviewer is picked (Alone)
 }
 
 // Load is the Rules of the home's groups as they stand.
@@ -88,6 +89,9 @@ func Within(executors, reviewers []string) (*Rules, bool) {
 // budget first, else the order config.toml lists them in.  told, unless nil, hears each model
 // left out and why, then each whose budget is unknown.
 func (r *Rules) Order(room Room, review bool, told io.Writer) []string {
+	if review && r.alone {
+		return nil
+	}
 	names, role := r.executors, "executor"
 	if review {
 		names, role = r.reviewers, "reviewer"
@@ -148,6 +152,9 @@ func (r *Rules) PairFor(room Room, executor string) (reviewer string, ok bool) {
 // pair is the pair of the best tier of these executors, in their order, and every reviewer with
 // room, Python's best_pair.
 func (r *Rules) pair(room Room, executors []string) (executor, reviewer string, ok bool) {
+	if r.alone {
+		return first(executors)
+	}
 	best, reviewers := 3, r.Order(room, true, nil) // 3: past every tier
 	// pairs come executor by executor, so the first of the best tier is the one taken
 	for _, each := range executors {

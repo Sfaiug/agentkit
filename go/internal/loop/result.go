@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -69,8 +68,8 @@ func save(dir, text string, record *run.Object, outcome string) error {
 // report is result.md's body, Python's handback.write_result, its opening added under the delivery lock.
 func report(dir string, record *run.Object, cmds []string) string {
 	spent := record.List("round_summaries")
-	parts := append([]string{"", "", "VERDICT: " + run.Field(record, "verdict", "None"),
-		"rounds: " + strconv.Itoa(len(spent)) + " of " + run.Field(record, "rounds", "None")}, placeOf(record).head(dir, record)...)
+	parts := append([]string{"", "", "VERDICT: " + run.Field(record, "verdict", "None"), roundsLine(record)},
+		placeOf(record).head(dir, record)...)
 	if record.Truthy("blocked") {
 		parts = append(parts, "", record.Str("blocked"), "")
 	}
