@@ -35,7 +35,7 @@ type Live struct {
 	Bound        bool     // its session names the pane its launch created (orch.bind_pane has done its work)
 	Attached     bool     // a client is in it
 	Path         string   // where tmux says its session works
-	Pane         string   // the capture itself, whose changes age a stall (watch.observe)
+	Pane         string   // the capture itself, whose conversation's changes age a stall (watch.observe)
 	Draft        string   // what its composer holds, whitespace aside: "" for nothing, or no composer found
 	Typed        []string // the lines ak typed there last, whitespace aside, that its draft is all of
 	Title        any      // its conversation's custom title: "" for none, nil where none is read

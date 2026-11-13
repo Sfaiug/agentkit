@@ -34,7 +34,8 @@
 #     fetch), it issues GET /muse-code/models with `Authorization: Bearer <key>` before it does
 #     anything else, and exits on its own with no tty.  The key is held in memory only.
 #
-# The model and reasoning effort come from config.toml. The Python supervisor enforces
+# The model and reasoning effort come from config.toml, then, for a model Meta no longer
+# serves, from adapters/muse.toml's [check]. The Python supervisor enforces
 # one 45s total budget (including cleanup); AGENTKIT_MUSE_USAGE_TIMEOUT may shorten it.
 set -uo pipefail
 case ${XDG_CONFIG_HOME:-} in "$HOME"/.muse-*) unset XDG_CONFIG_HOME ;; esac

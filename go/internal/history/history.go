@@ -196,13 +196,14 @@ var migrations = []struct{ table, columns string }{
 		"first_review_lines INTEGER, landing_breaks INTEGER, broke_after_merge TEXT, " +
 		"own_orchestrator TEXT, executor_effort TEXT, own_orchestrator_effort TEXT, kind TEXT, " +
 		"counted_turns TEXT, review_pair TEXT, landing_flakes INTEGER, plan_line TEXT, " +
-		"no_review INTEGER"},
+		"no_review INTEGER, check_rewritten_at REAL"},
 	{"phases", "wait_kind TEXT"},
 	{"reviews", "round INTEGER, verdict TEXT, effort TEXT"},
 	{"findings", "inside_fix INTEGER"},
 	{"owner", "conversation TEXT"},
 	{"dones", "work TEXT"},
 	{"meter_readings", "plan TEXT"},
+	{"meter_readings", "scope TEXT"},
 }
 
 // dropped are the columns of runs an older ak made and nothing reads or writes.

@@ -152,7 +152,6 @@ func (c *call) attempt(body, target string) (*try, error) {
 	if c.session != "" && c.session == c.lastSession {
 		previous = c.previous
 	}
-	before := usage.Reading(c.model.Provider, account)
 	t := &try{out: target, resumed: c.session, asked: c.calls == 0}
 	turn := func(cwd string) (failed error) {
 		told, at := body, l.workspace
@@ -164,7 +163,7 @@ func (c *call) attempt(body, target string) (*try, error) {
 			Env: []string{"AK_RUN_ROLE=worker", "AK_RUN_LOG=" + filepath.Join(l.dir, "log.txt")},
 		}, stampedLog{l.dir})
 		if failed == nil || errors.Is(failed, worker.ErrSilent) { // a turn that ran
-			usage.Turned(c.name, c.model, account, c.role, target, before)
+			usage.Turned(c.model, account, target)
 		}
 		return failed
 	}

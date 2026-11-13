@@ -7,6 +7,7 @@ line saying which one.  Nothing here starts a session, a tmux server or a probe;
 process signalled is the test's own child.
 """
 
+import compileall
 from contextlib import redirect_stdout
 import fcntl
 import io
@@ -28,6 +29,10 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from tests.fixtures.draws import draws
 from agentkit import terminal
+
+# Compiled here, outside any wait: where no bytecode is cached (a hand-in's checks run on a fresh
+# PYTHONPYCACHEPREFIX) each child would compile all it imports inside its first draw's 15 s.
+compileall.compile_dir(REPO / "agentkit", quiet=2)
 
 # The child: the real loop, draw and key reader; fakes for what a seat is and what opening does.
 CHILD = r"""

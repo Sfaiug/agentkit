@@ -59,10 +59,14 @@ def account_home(home, *, places=()):
 
 def in_account_home(argv, home, **kwargs):
     """Subprocesses need the same temporary account home, through their own passwd file."""
+    # Their temporary files go where the caller's do: were the checkout the only place they may
+    # write, Python's tempfile would fall back to the working directory, the checkout, and a file
+    # copying it beside them (test_go_keys.py) would lose what they removed meanwhile.
+    temp = tempfile.gettempdir()
     with _passwd(home) as passwd:
         return subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/",
                                "--dev", "/dev", "--proc", "/proc",
-                               "--bind", str(REPO), str(REPO),
+                               "--bind", str(REPO), str(REPO), "--bind", temp, temp,
                                "--ro-bind", passwd, "/etc/passwd", "--", *argv], **kwargs)
 
 

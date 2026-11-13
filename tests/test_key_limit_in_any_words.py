@@ -36,6 +36,12 @@ ANSWER = entry("Shipped it.")
 TYPED = entry("Back after a little rest", isApiErrorMessage=True, apiError="usage_limit_reached")
 WORDED = entry("You've hit your 5-hour limit · resets 4:10am (Europe/Berlin)",
                isApiErrorMessage=True)
+# One model's own cap, spent in a week with room (2.1.322, 12 Nov 2026): a kind and an opening of
+# its own, and no time.  In no list, its seats sat at their prompts until the owner typed.
+CAPPED = entry("That model is resting", isApiErrorMessage=True,
+               apiError="model_requires_usage_credits")
+CAP_WORDED = entry("You've reached your Fable limit. Run /usage-credits to continue or switch "
+                   "models with /model.", isApiErrorMessage=True)
 FINISHED, OWING = "- [x] Shipped it\n", "- [x] Shipped it\n- [ ] Ship the rest\n"
 
 
@@ -93,7 +99,7 @@ class LimitInAnyWords(unittest.TestCase):
 
     def test_a_refusal_reads_out_of_usage_in_any_words(self):
         # A home each: one refusal spends the subscription for every seat after it.
-        for end in (TYPED, WORDED):
+        for end in (TYPED, WORDED, CAPPED, CAP_WORDED):
             with self.subTest(end["message"]["content"][0]["text"]):
                 self.assertEqual(self.words({"refused": (end, FINISHED)}),
                                  {"refused": "out of usage"})
