@@ -84,6 +84,14 @@ class Preservation(Seats):
         self.assertEqual(self.switch(), "")
         self.assertEqual((self.respawned, self.screens[SELECTED]), ([HARNESS], TYPED))
 
+    def test_with_no_pane_named_the_switch_reads_and_restarts_none(self):
+        self.recorded, self.screens[SELECTED] = "", TYPED
+        named = orch.tmux_out.side_effect
+        orch.tmux_out.side_effect = lambda *args, **kw: (
+            (124, "tmux did not answer") if args[-1] == "#{pane_id}" else named(*args, **kw))
+        self.assertEqual(self.switch(), f"{SEAT} stays on opus: tmux named no pane of it")
+        self.assertEqual((self.respawned, self.screens[SELECTED]), ([], TYPED))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

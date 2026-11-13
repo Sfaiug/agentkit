@@ -2774,12 +2774,12 @@ def launch_pane(name, server):
 def harness_pane(name, server):
     """The pane our launch created (`launch_pane`); if it was removed, the session's current
     pane, as older launches used, by id: what is read there is what a respawn replaces,
-    whichever window the owner selects meanwhile.  `=name:` where tmux cannot say."""
+    whichever window the owner selects meanwhile.  None where tmux names none."""
     pane = launch_pane(name, server)
     if pane:
         return pane
     rc, pane = tmux_out("display-message", "-p", "-t", f"={name}:", "#{pane_id}", socket=server)
-    return pane if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else f"={name}:"
+    return pane if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else None
 
 
 def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=None):
@@ -2793,6 +2793,8 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
     if session:
         server = seat_socket(session)
         target = session.get("pane") or harness_pane(name, server)
+        if not target:
+            raise config.Error(f"cannot resume the session {name}: tmux named no pane of it")
         values = seat_env(name, server)
         command, launch = seat_command(name, cmd, server)
         thaw = ("set-option", "-pu", "-t", target, FROZEN_OPTION, ";",
@@ -4669,6 +4671,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     session = find(name)
     if session:
         session = dict(session, pane=harness_pane(name, seat_socket(session)))
+        if not session["pane"]:
+            return f"{name} stays on {old_model}: tmux named no pane of it"
     pane = (watch.pane_capture(session)
             if session and not any(session.get(key) for key in CLOSED) else "")
     live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}
