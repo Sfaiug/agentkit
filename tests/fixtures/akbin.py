@@ -161,10 +161,12 @@ class Home:
     """A throwaway HOME the program runs in; `close` (or leaving `with`), or else the death of
     the process that made it, ends every process it left and removes it.  `tmux_log=False` keeps
     no log of the program's tmux calls (`calls`): each would start a Python, which a test counting
-    what the program reads would count."""
+    what the program reads would count.  `at` is where its commands find its root, if not where
+    it is: on a machine of tests/fixtures/twohomes.py, at the path every machine's is at."""
 
-    def __init__(self, tmux_log=True):
+    def __init__(self, tmux_log=True, at=None):
         self.root = Path(tempfile.mkdtemp(prefix="akbin-")).resolve()
+        self.at = Path(at or self.root)
         self.path = self.root / "home"
         self.bin = self.root / "bin"
         # A socket's path must fit in 104 bytes, and TMPDIR may be deep inside a checkout.
@@ -180,7 +182,7 @@ class Home:
         try:
             self._reaper = subprocess.Popen(
                 ["/bin/sh", "-c", 'read _ || exec "$@"', "sh", sys.executable, "-I",
-                 f"/dev/fd/{script}", "reap", self.root, self.tmux_dir],
+                 f"/dev/fd/{script}", "reap", self.root, self.tmux_dir, self.at / "home"],
                 stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True, pass_fds=[script])
         finally:
@@ -195,28 +197,30 @@ class Home:
         self.write(".gitconfig", "[user]\n\tname = acme\n\temail = acme@example.com\n"
                                  "[init]\n\tdefaultBranch = main\n")
         python = shlex.quote(sys.executable)
+        # each fake's log, where the commands that call it find it
+        logs = {name: shlex.quote(str(self.at / self.log(name).relative_to(self.root)))
+                for name in (*REFUSED, "tmux")}
         for name in REFUSED:
-            self.fake(name, REFUSE.format(python=python, name=name,
-                                          log=shlex.quote(str(self.log(name)))))
+            self.fake(name, REFUSE.format(python=python, name=name, log=logs[name]))
         tmux = TMUX if tmux_log else "#!/bin/sh\n" + TMUX.removeprefix(LOG)
-        self.fake("tmux", tmux.format(python=python, log=shlex.quote(str(self.log("tmux"))),
+        self.fake("tmux", tmux.format(python=python, log=logs["tmux"],
                                       tmpdir=shlex.quote(str(self.tmux_dir)),
                                       own=shlex.quote(str(self.tmux_dir / f"tmux-{os.getuid()}"
                                                           / SOCKET)),
                                       real=shlex.quote(REAL_TMUX)) if REAL_TMUX else
-                  REFUSE.format(python=python, name="tmux",
-                                log=shlex.quote(str(self.log("tmux")))))
+                  REFUSE.format(python=python, name="tmux", log=logs["tmux"]))
         self.env = {
-            "HOME": str(self.path),
-            "PATH": os.pathsep.join([str(self.bin), str(Path(sys.executable).parent), *SYSTEM]),
+            "HOME": str(self.at / "home"),
+            "PATH": os.pathsep.join([str(self.at / "bin"), str(Path(sys.executable).parent),
+                                     *SYSTEM]),
             "USER": os.environ.get("USER", "acme"), "LOGNAME": os.environ.get("LOGNAME", "acme"),
             "SHELL": "/bin/sh", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": "UTC",
-            "TERM": "dumb", "NO_COLOR": "1", "TMPDIR": str(self.root / "tmp"),
+            "TERM": "dumb", "NO_COLOR": "1", "TMPDIR": str(self.at / "tmp"),
             "TMUX_TMPDIR": str(self.tmux_dir), "AGENTKIT_TMUX_SOCKET": SOCKET,
             # an empty runtime directory: no user systemd manager or session bus to find
-            "XDG_RUNTIME_DIR": str(self.root / "run"),
+            "XDG_RUNTIME_DIR": str(self.at / "run"),
             "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0",
-            "GIT_CEILING_DIRECTORIES": str(self.root),
+            "GIT_CEILING_DIRECTORIES": str(self.at),
             "AK_NOTIFY_SINK": "dry-run",
             # nobody's nested run, and no slot gate parking a launch behind the host's load
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
@@ -233,7 +237,7 @@ class Home:
     def close(self):
         for proc in self._spawned:
             _end(proc)
-        _clear(self.root, self.tmux_dir)
+        _clear(self.root, self.tmux_dir, self.at / "home")
         _end(self._reaper)      # last: a close cut short leaves the rest to it
 
     def log(self, name):
@@ -291,10 +295,9 @@ class Home:
             os.write(typist, (input or "").encode())
             input = None
         try:
-            proc = subprocess.Popen(argv, stdin=terminal if tty else subprocess.PIPE,
-                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                    cwd=cwd or self.path, env=self._env(env),
-                                    start_new_session=True, pass_fds=keep)
+            proc = self._popen(argv, env, cwd, stdin=terminal if tty else subprocess.PIPE,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                               pass_fds=keep)
             try:
                 out, err = proc.communicate(input, timeout=timeout)
             except subprocess.TimeoutExpired:
@@ -342,10 +345,8 @@ class Home:
         it.  `boxed` gives it the /tmp of `box`."""
         name = f"spawn-{len(self._spawned) + 1}"
         with self.log(f"{name}.out").open("w") as out, self.log(f"{name}.err").open("w") as err:
-            proc = subprocess.Popen([*(self.box() if boxed else ()), AK, *args],
-                                    stdin=subprocess.DEVNULL, stdout=out, stderr=err,
-                                    cwd=cwd or self.path, env=self._env(env),
-                                    start_new_session=True)
+            proc = self._popen([*(self.box() if boxed else ()), AK, *args], env, cwd,
+                               stdin=subprocess.DEVNULL, stdout=out, stderr=err)
         self._spawned.append(proc)
         return proc
 
@@ -354,6 +355,12 @@ class Home:
         proc = subprocess.run([REAL_TMUX, "-L", server, *args], capture_output=True, text=True,
                               env=self._env(None), timeout=30)
         return Done(proc.returncode, proc.stdout, proc.stderr)
+
+    def _popen(self, argv, env, cwd, **kwargs):
+        """Start `argv` in a session of its own: in `cwd`, by default HOME, with this Home's
+        environment and `env` over it.  Every command a Home runs starts here."""
+        return subprocess.Popen(argv, cwd=cwd or self.path, env=self._env(env),
+                                start_new_session=True, **kwargs)
 
     def _env(self, extra):
         """This Home's environment with `extra` over it; a None value removes the variable."""
@@ -392,8 +399,9 @@ class Manager:
 STUCK = 30
 
 
-def _clear(root, tmux_dir):
-    """End the tmux servers the Home at `root` started, and its strays, and remove it."""
+def _clear(root, tmux_dir, home):
+    """End the tmux servers the Home at `root` started, and its strays, whose HOME is `home`,
+    and remove it, and the folder its commands found it at once that is empty."""
     servers = Path(tmux_dir, f"tmux-{os.getuid()}")
     for socket in servers.iterdir() if servers.is_dir() else ():
         ask = [REAL_TMUX, "-S", str(socket)]
@@ -402,7 +410,7 @@ def _clear(root, tmux_dir):
         subprocess.run([*ask, "kill-server"], capture_output=True, timeout=30)
         _wait_gone(int(pid) if pid.isdigit() else None)
     # what the program detached from them: a stray still writing would put the Home back
-    for pid in _strays(Path(root, "home")):
+    for pid in _strays(home):
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
@@ -410,6 +418,10 @@ def _clear(root, tmux_dir):
         _wait_gone(pid)
     shutil.rmtree(root, ignore_errors=True)
     shutil.rmtree(tmux_dir, ignore_errors=True)
+    try:
+        Path(home).parent.rmdir()
+    except OSError:     # its root, gone already
+        pass
 
 
 def _strays(home):
