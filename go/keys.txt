@@ -301,6 +301,7 @@ test_key_merge_body_query
 test_key_merge_delivery
 test_key_merge_retry
 test_key_merge_trailer
+test_key_merge_wakes_only_when_owed
 test_key_meter_readings_kept
 test_key_meter_readings_plan
 test_key_model_followed_antigravity
