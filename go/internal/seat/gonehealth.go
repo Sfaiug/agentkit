@@ -9,7 +9,7 @@ import (
 	"agentkit/internal/run"
 )
 
-// These remain after a harness dies or its seat sleeps; none is a screen to read for its word, and
+// These remain after a harness dies or its seat is gone; none is a screen to read for its word, and
 // its last turn's start (`stop`) is read only of a seat its panes run on.
 func goneKind(kind, suffix string) bool {
 	return suffix == "json" && slices.Contains([]string{"hook", "title", "card", "stop"}, kind) ||

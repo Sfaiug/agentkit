@@ -28,15 +28,13 @@ type climbing struct {
 
 // An answer is a rung's: the seat's word, why and since when, whether that why is the question
 // the seat's screen or notice asks, which its bar does not repeat, when one out of usage comes
-// back (`resumes_at`), which its bar says, whether only what the seat waits on gives it, whether
-// its since begins the word again where it stood since before then, and whether it is the tick's
-// news of a login.
+// back (`resumes_at`), which its bar says, whether its since begins the word again where it stood
+// since before then, and whether it is the tick's news of a login.
 type answer struct {
 	word, reason string
 	since        any
 	question     bool
 	back         any
-	waits        bool
 	anew         bool
 	login        bool
 }
@@ -148,8 +146,8 @@ func aRunOfItsOwn(facts climbing) (*answer, error) {
 }
 
 func runOnALogin(facts climbing) (*answer, error) { return aRunOfItsOwn(facts) }
-func runsGoing(facts climbing) (*answer, error)   { return facts.besideUsage(waitedOn(goneRuns(facts))) }
-func liveCheck(facts climbing) (*answer, error)   { return waitedOn(runsAwaitingLive(facts)) }
+func runsGoing(facts climbing) (*answer, error)   { return facts.besideUsage(goneRuns(facts)) }
+func liveCheck(facts climbing) (*answer, error)   { return runsAwaitingLive(facts) }
 
 // onItsScreen: a question on its screen is the owner's even during a turn.
 func onItsScreen(facts climbing) (*answer, error) {
@@ -230,7 +228,7 @@ func waitGoing(facts climbing) (*answer, error) {
 	if _, dated := wait.Num("at"); dated {
 		since = wait.Get("at")
 	}
-	return facts.besideUsage(waitedOn(&answer{word: "working", reason: "waiting on " + on, since: since}, nil))
+	return facts.besideUsage(&answer{word: "working", reason: "waiting on " + on, since: since}, nil)
 }
 
 // turnRunning: a turn in flight, past three hours saying so and keeping the word.
