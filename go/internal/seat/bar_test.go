@@ -23,23 +23,23 @@ func TestTheBarsFormatsAreStatusbarsOwn(t *testing.T) {
 func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
 	screen := terminal.For(nil)
-	needs := " #[fg=#3d2e00,bg=#f6c400,bold] ! needs you #[default]   #[bold]acme#[nobold]   #[fg=#6c7086]Opus 5.5#[default]   "
-	done := " #[fg=#ffffff,bg=#007e46] ✓ done #[default]   #[bold]acme#[nobold]   #[fg=#6c7086]Opus 5.5#[default]   "
-	idle := " #[fg=#ffffff,bg=#6c7086] ○ idle #[default]   #[bold]acme#[nobold]   #[fg=#6c7086]Opus 5.5#[default]"
-	crew := "  #[fg=#6c7086]Opus 5.5 ⚒◎   Astra ⚒   Spark ◎#[default]"
+	needs := " #[fg=#000000,bg=#d79200,bold] ! needs you #[default]   #[bold]acme#[nobold]   #[fg=#868d97]Opus 5.5#[default]   "
+	done := " #[fg=#000000,bg=#33b65f] ✓ done #[default]   #[bold]acme#[nobold]   #[fg=#868d97]Opus 5.5#[default]   "
+	idle := " #[fg=#000000,bg=#868d97] ○ idle #[default]   #[bold]acme#[nobold]   #[fg=#868d97]Opus 5.5#[default]"
+	crew := "  #[fg=#868d97]Opus 5.5 ⚒◎   Astra ⚒   Spark ◎#[default]"
 	for _, each := range []struct {
 		word, reason, why string
 		done, total       int
 		tops              [3]string
 	}{
 		{"needs you", "session #1 closed", "  session ##1 closed", 1, 3, [3]string{
-			needs + "#[fg=#f6c400]━━━━━━━━━╸#[fg=#6c7086]───────────────────#[default] 1 of 3",
-			needs + "#[fg=#f6c400]━━━━━╸#[fg=#6c7086]───────────#[default] 1 of 3",
-			needs + "#[fg=#f6c400]━╸#[fg=#6c7086]───#[default] 1 of 3"}},
+			needs + "#[fg=#d79200]━━━━━━━━━╸#[fg=#868d97]───────────────────#[default] 1 of 3",
+			needs + "#[fg=#d79200]━━━━━╸#[fg=#868d97]───────────#[default] 1 of 3",
+			needs + "#[fg=#d79200]━╸#[fg=#868d97]───#[default] 1 of 3"}},
 		{"done", "it shipped", crew, 3, 3, [3]string{
-			done + "#[fg=#007e46]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━#[default] 3 of 3",
-			done + "#[fg=#007e46]━━━━━━━━━━━━━━━━━#[default] 3 of 3",
-			done + "#[fg=#007e46]━━━━━#[default] 3 of 3"}},
+			done + "#[fg=#33b65f]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━#[default] 3 of 3",
+			done + "#[fg=#33b65f]━━━━━━━━━━━━━━━━━#[default] 3 of 3",
+			done + "#[fg=#33b65f]━━━━━#[default] 3 of 3"}},
 		{"idle", "session closed: press 1 to reopen", crew, 1, 3, [3]string{idle, idle, idle}},
 	} {
 		seat := Seat{Name: "acme", Word: each.word, reason: each.reason}
@@ -60,7 +60,7 @@ func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 				t.Errorf("%s %s: %q", each.word, option, told[option])
 			}
 		}
-		if told[barKey] != "Ctrl-b m#[fg=#6c7086]  menu #[default]" || told["set-titles-string"] != "acme · "+each.word {
+		if told[barKey] != "Ctrl-b m#[fg=#868d97]  menu #[default]" || told["set-titles-string"] != "acme · "+each.word {
 			t.Errorf("%s: key %q, title %q", each.word, told[barKey], told["set-titles-string"])
 		}
 	}
@@ -75,13 +75,13 @@ func TestTheRightEndCountsTheOtherSeatsThatNeedYou(t *testing.T) {
 	hit := "#{?#{&&:#{e|>:#{e|-:#{client_width},#{mouse_x}},1},#{e|<=:#{e|-:#{client_width},#{mouse_x}},25}},$1,}"
 	one := []barRow{{id: "$1", name: "a", word: "needs you"}, {id: "$2", name: "b", word: "idle"}}
 	said, short, found := barOthers(one, "b")
-	if said != "#[range=right]#[fg=#f6c400,bold]! 1 other seat needs you#[default]#[norange] " ||
-		short != "#[range=right]#[fg=#f6c400,bold]! 1 needs you#[default]#[norange] " || found != hit {
+	if said != "#[range=right]#[fg=#d79200,bold]! 1 other seat needs you#[default]#[norange] " ||
+		short != "#[range=right]#[fg=#d79200,bold]! 1 needs you#[default]#[norange] " || found != hit {
 		t.Errorf("%q %q %q", said, short, found)
 	}
 	said, short, found = barOthers(append(one, barRow{id: "$3", name: "c", word: "needs you"}), "b")
-	if said != "#[range=right]#[fg=#f6c400,bold]! 2 other seats need you#[default]#[norange] " ||
-		short != "#[range=right]#[fg=#f6c400,bold]! 2 need you#[default]#[norange] " || found != hit {
+	if said != "#[range=right]#[fg=#d79200,bold]! 2 other seats need you#[default]#[norange] " ||
+		short != "#[range=right]#[fg=#d79200,bold]! 2 need you#[default]#[norange] " || found != hit {
 		t.Errorf("%q %q %q", said, short, found)
 	}
 	if said, short, found := barOthers(one, "a"); said != "" || short != "" || found != "" {

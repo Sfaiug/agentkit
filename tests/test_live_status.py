@@ -576,7 +576,7 @@ class LiveStatus(unittest.TestCase):
         model = "#1 漢字" * 40
         why = statusbar.whys({"crew": ([model], []), "tasks": []})[0]
         self.assertEqual(statusbar.lines("herdr", "opus", "needs you", "", why)[1],
-                         "  #[fg=#6c7086]" + model.replace("#", "##") + " ⚒#[default]")
+                         "  #[fg=#868d97]" + model.replace("#", "##") + " ⚒#[default]")
         self.assertIn("/…:" + statusbar.WHY, statusbar.FORMATS[1])
         statusbar.dress("herdr", "opus")
         self.assertNotIn("status-left-length", self.options)

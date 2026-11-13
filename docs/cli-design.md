@@ -87,16 +87,14 @@ Example: `↑↓←→ move   ⏎ open   n new   c config   esc leave`.
 
 ## Colour
 
-Colour says where a thing stands. A screen asks for a colour by its role, never by RGB:
+Colour says where a thing stands. Screens ask for roles, never RGB: `working` is accent,
+`needs you` warning, `done` success, `FAIL` and `out of usage` error, `dim`, `idle` and `waiting`
+dim; the pointer lights on selection; a bar's chip is on-accent on its state's. A fade nears the
+background; lit, the text.
 
-- the accent and `working`, in blue;
-- `needs you`, in yellow (orange on light);
-- `done`, in green;
-- `FAIL` and `out of usage`, in red;
-- `dim`, `idle`, `waiting`, in grey.
-
-Each is a colour of `palette.PALETTE` with the text that reads on it. `terminal.sense` picks
-the background and colour depth once per start. Under `NO_COLOR` nothing is coloured.
+`themes.ROLES` (Go: `terminal/themes.go`) holds both themes; `terminal.sense` picks white on a
+light background, else black, and the colour depth, once per start. Under `NO_COLOR` nothing is
+coloured.
 
 A company's colour, its provider's `colour` in config.toml else `menu.COLOURS`, colours its
 name on `c`; a harness's, from its manifest, its name over its models. Elsewhere it shows only

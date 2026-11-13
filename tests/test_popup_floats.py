@@ -44,7 +44,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, motion, orch, terminal
 
-DIM = f"fg=#{terminal.colour('dim').rgb}"
+DIM = f"fg=#{terminal.tmux_colour('dim')}"
 OWN = "fg=red,bg=blue,bold"         # a style a pane may have of its own
 STYLES = ("window-style", "window-active-style")   # the active pane draws in the second's colour
 # a pane's own styles: none, one or the other, both empty
@@ -200,13 +200,16 @@ FEATURES = "256,RGB,bpaste,clipboard,title"   # ... and the client's terminal fe
 
 
 def header_tones(text):
-    """The grey each frame in `text` fading the header writes it in."""
-    return [int(m[1]) for m in re.finditer(r"\x1b\[1;1H\x1b\[38;2;(\d+);\1;\1m", text)]
+    """The colour each frame in `text` fading the header writes it in."""
+    return [tuple(map(int, m.groups()))
+            for m in re.finditer(r"\x1b\[1;1H\x1b\[38;2;(\d+);(\d+);(\d+)m", text)]
 
 
 def tone(seconds):
-    """That grey `seconds` into the fade: its white eased up out of the dark background."""
-    return round(255 * motion.eased(seconds / motion.FADE))
+    """That colour `seconds` into the fade: the black theme's text eased up out of its
+    background."""
+    return tuple(round(channel * motion.eased(seconds / motion.FADE))
+                 for channel in terminal.channels(terminal.colour("text", terminal.BLACK)))
 
 
 def tmux_words(text):

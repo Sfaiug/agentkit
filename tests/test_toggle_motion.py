@@ -32,8 +32,9 @@ from agentkit import motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
 MARKS = "●○■□—"
-# the background the pointer lights a cell on, at 256 colours, on the dark one a pty answers with
-LIT = f"48;5;{terminal.xterm_colour(terminal.POINTED[False])}m"
+# the background the pointer lights a cell on, at 256 colours, in the black theme a pty that
+# answers no background gets
+LIT = f"48;5;{terminal.xterm_colour(terminal.colour('selection', terminal.BLACK))}m"
 
 # Completion is observed after the real clock's last frame, including a skipped animation.
 OBSERVE = r'''

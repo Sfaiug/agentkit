@@ -22,7 +22,8 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 
 COMPANY = (208, 248, 248)       # #D0F8F8: pale, but a hue, so drawn as it is on white
-AMBER = (222, 104, 0)           # a meter whose login ends, on a light background
+AMBER = (142, 94, 0)            # a meter whose login ends: the white theme's warning
+TEXT = (24, 28, 34)             # ... and its text, the foreground the wash's edge lights toward
 POINT = "\x1b[<35;8;{row}M"     # the pointer moved, no button down, at column 8 of a row
 SGR = re.compile(r"\x1b\[([\d;]*)m")
 FULL = "━╸"                     # a meter's full cells (terminal.share_parts)
@@ -51,17 +52,18 @@ def meters(out, row):
 
 
 def off_the_mix(rgb):
-    """How far a tone is from the nearest a * AMBER + b * COMPANY, the rest black (a, b >= 0):
+    """How far a tone is from the nearest a * AMBER + b * COMPANY, the rest TEXT (a, b >= 0):
     least squares for a and b, then the largest channel's miss."""
-    aa, cc = (sum(c * c for c in ink) for ink in (AMBER, COMPANY))
-    ac = sum(p * q for p, q in zip(AMBER, COMPANY))
-    ax, cx = (sum(p * v for p, v in zip(ink, rgb)) for ink in (AMBER, COMPANY))
+    amber, company, rgb = ([c - t for c, t in zip(ink, TEXT)] for ink in (AMBER, COMPANY, rgb))
+    aa, cc = (sum(c * c for c in ink) for ink in (amber, company))
+    ac = sum(p * q for p, q in zip(amber, company))
+    ax, cx = (sum(p * v for p, v in zip(ink, rgb)) for ink in (amber, company))
     a, b = (ax * cc - cx * ac) / (aa * cc - ac * ac), (cx * aa - ax * ac) / (aa * cc - ac * ac)
     if a < 0:
         a, b = 0, max(0, cx / cc)
     elif b < 0:
         a, b = max(0, ax / aa), 0
-    return max(abs(v - (a * p + b * q)) for v, p, q in zip(rgb, AMBER, COMPANY))
+    return max(abs(v - (a * p + b * q)) for v, p, q in zip(rgb, amber, company))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -84,8 +86,8 @@ class WashOnALightBackground(unittest.TestCase):
         Terminal(self.home, "--help").exit_code()
         done = self.home.tmux("set-option", "-g", "window-style", "bg=#ffffff", server=SERVER)
         self.assertEqual(done.code, 0, done.err)
-        # The menu reads the background once as it starts, from an answer within a tenth of a
-        # second; on a loaded host tmux answers later, which reads dark: start it again.
+        # The menu reads the background once as it starts, from an answer within a second; on
+        # a loaded host tmux answers later, which reads dark: start it again.
         for attempt in range(5):
             self.raw = self.home.root / f"raw{attempt}"
             if self.opened() == AMBER:

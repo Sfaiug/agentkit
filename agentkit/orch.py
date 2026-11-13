@@ -90,7 +90,7 @@ POPUP_SIZE = "-w 80% -h 70%"          # the popup on a screen with room to spare
 POPUP_FULL = "-w 100% -h 100%"        # ... and on a phone, where the border is all it spares
 POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
-DIM = f"fg=#{terminal.colour('dim').rgb}"   # its border, and the session behind it
+DIM = f"fg=#{terminal.tmux_colour('dim')}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
 # The tmux client a popup opened on, by name, handed to that popup alone: the window a seat
 # picked in it opens in (`attach`).  Nothing outside it holds the name (`tmux_env`, `warm.serve`).
