@@ -512,13 +512,13 @@ def require_review_pass(lp):
                         "resume the run to obtain review")
 
 
-def gh_json(cwd, *args, timeout=None):
+def gh_json(cwd, *args, timeout=None, once=False):
     """The parsed JSON a gh command prints, or None with the reason why not.
 
     A stop is never an empty answer: a timeout, or a prompt it was refused, raises Stopped,
     so no caller can deliver on the strength of a gh that said nothing at all.
     """
-    rc, out = gitcall.gh(cwd, *args, timeout=timeout)
+    rc, out = gitcall.gh(cwd, *args, timeout=timeout, once=once)
     if gitcall.stopped(rc, out):
         raise gitcall.Stopped(out)
     if rc != 0:
@@ -572,12 +572,13 @@ def say_how_to_revert(lp, url, method):
     """Append `## How to revert` to the description of the PR this run's own merge call just
     merged: the command undoing the one commit that merge made on the target.  Only that call
     knows how the PR landed, so a merge found done any other way gets none, nor does a rebase,
-    which lands a commit per commit.  A failure is logged and never retried: the merge stands."""
+    which lands a commit per commit.  Each call is tried `once`: a failure is logged, never
+    waited out or retried, as the merge stands whatever they answer."""
     if method == "rebase":
         return
     try:
         api, owner, repo, number = pr_parts(url)
-        current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
+        current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}", once=True)
         sha = isinstance(current, dict) and current.get("merged") and current.get("merge_commit_sha")
         if not sha:
             raise config.Error(why or "GitHub does not call it merged")
@@ -585,7 +586,7 @@ def say_how_to_revert(lp, url, method):
         body = github_body((current.get("body") or "").rstrip(), lp.run_dir.name,
                            f"\n\n## How to revert\n\n```bash\n{revert}\n```\n")
         rc, out = gitcall.gh(lp.run_dir, *api, "-X", "PATCH", f"repos/{owner}/{repo}/pulls/{number}",
-                             "-f", f"body={body}")
+                             "-f", f"body={body}", once=True)
         if rc != 0:
             raise config.Error(out[-400:] or "gh timed out")
     except config.Error as exc:     # a stopped gh too: the merge is done whatever it answers

@@ -9,6 +9,7 @@ to a merge to the target.
 from contextlib import ExitStack, nullcontext
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -950,6 +951,46 @@ class MergeStep(unittest.TestCase):
                 self.assertEqual(bool(state.get("merged")), merged)
                 if not merged:
                     self.assertIn("PR head or target changed since PASS", state["merge_note"])
+
+    def test_the_revert_line_is_asked_for_once_whatever_github_answers(self):
+        # the merge is done: a read or update after it that times out, or fails while the
+        # allowance is spent, is logged, never asked again or waited out
+        real = gitcall.run_capped
+        spent = json.dumps({"resources": {name: {"remaining": 0, "reset": 2_000_000_000}
+                                          for name in ("core", "graphql")}})
+        for failing in ("read", "update"):
+            for answer in ("timeout", "spent"):
+                with self.subTest(failing=failing, answer=answer):
+                    root = self.root / f"{failing}-{answer}"
+                    root.mkdir()
+                    _, _, wt = make_repos(root)
+                    lp, run_dir, _ = make_loop(root, wt)
+                    asked = []
+
+                    def run_capped(cmd, **kwargs):
+                        if cmd[0] != "gh":
+                            return real(cmd, **kwargs)
+                        asked.append(cmd[1:3])
+                        if cmd[1:3] == ["pr", "merge"]:
+                            return subprocess.CompletedProcess(cmd, 0, "", "")
+                        if cmd[1:] == ["api", "rate_limit"]:
+                            return subprocess.CompletedProcess(cmd, 0, spent, "")
+                        if ("PATCH" in cmd) == (failing == "update"):
+                            if answer == "timeout":
+                                raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+                            return subprocess.CompletedProcess(cmd, 1, "", "API rate limit exceeded")
+                        return subprocess.CompletedProcess(cmd, 0, json.dumps(
+                            {"merged": True, "merge_commit_sha": "a" * 40, "body": "b"}), "")
+
+                    with patch.object(gitcall, "run_capped", side_effect=run_capped), \
+                            patch.object(gitcall._RUN_CONTEXT, "state", {"run_id": run_dir.name},
+                                         create=True), \
+                            patch.object(model_turns, "run_wait", side_effect=AssertionError("waited")):
+                        self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
+                    self.assertEqual(asked, [["pr", "merge"], ["api", "repos/fixture/repo/pulls/7"],
+                                             *([["api", "-X"]] if failing == "update" else [])])
+                    self.assertTrue(record.read_state(run_dir)["merged"])
+                    self.assertIn(f"WARN could not add how to revert it to {URL}", self.log_text(run_dir))
 
     def test_an_own_pr_merge_asks_again_after_a_github_5xx(self):
         _, _, wt = make_repos(self.root)
