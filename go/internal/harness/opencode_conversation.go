@@ -80,6 +80,9 @@ func ending(argv, env []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	if errors.Is(command.Err, exec.ErrDot) {
+		command.Err = nil // Python's subprocess runs what a relative PATH entry finds
+	}
 	command.Env = env
 	err := command.Run()
 	if err == nil {

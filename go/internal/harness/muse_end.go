@@ -52,7 +52,8 @@ func museUnindexed(folder string, ends func(...string) bool) ([]string, bool, er
 	}
 	var views []string
 	for _, cached := range config.Glob(sessions, ".msp-view-*") {
-		if view := filepath.Join(cached, filepath.Base(folder)); exists(view) {
+		view := filepath.Join(cached, filepath.Base(folder))
+		if held, _ := there(view); held { // a link too, gone or not, for ends to refuse
 			views = append(views, view)
 		}
 	}
