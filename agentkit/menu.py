@@ -5504,7 +5504,8 @@ def work_words(name, cfg):
 def config_machines(cfg):
     """Recorded machines; Enter opens their work marks, and the cloud's monthly cap.  Last,
     `+ add a machine` takes an ssh address and writes it to config.toml once it answers
-    (machines.add), else says why not."""
+    (machines.add), else says why not, the line making a new machine one it adds under its
+    field (machines.join_line)."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def save(key, value):
@@ -5522,8 +5523,15 @@ def config_machines(cfg):
         return save("max_month", int(value))
 
     def add_field(draw):
+        join = machines.join_line()
+
+        def around(line):             # under the field, the line a new machine is added by
+            said = terminal.wrap("Run this on a new Linux machine, then type above the address "
+                                 "it prints:", terminal.layout_width() - 4)
+            return draw([line, "", *(terminal.styled(f"    {part}", "dim") for part in said),
+                         *terminal.unbroken(f"    {join}")])
         name = terminal.field("    ", "its ssh address: a Host of ~/.ssh/config, a host name or "
-                              "user@host", around=lambda line: draw([line]))
+                              "user@host", around=around)
         name = "" if name is None or terminal.is_esc(name) else name.strip()
         if not name:
             return ""

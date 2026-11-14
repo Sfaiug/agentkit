@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import helper
+from agentkit import helper, machines
 from test_suite_helper import MAC_TOOLS
 
 
@@ -28,7 +28,8 @@ class TwoSuitesPrepare(unittest.TestCase):
         self.mirrors = self.fake / ".agentkit-helper" / "mirrors"
         self.repo = self.fake / "repo"
         self.git("init", "-q", "-b", "main", str(self.repo))
-        for context in (patch.object(helper, "SSH", (str(self.fake / "ssh"),)), patch.dict(
+        for context in (patch.object(machines, "ssh",
+                                     lambda name: [str(self.fake / "ssh"), name]), patch.dict(
                 os.environ, {"PATH": f"{self.fake}:{os.environ['PATH']}", "HOME": str(self.fake),
                              "FAKE": str(self.fake), "FAKE_AC_CALLS": "99"})):
             context.start()

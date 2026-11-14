@@ -1,8 +1,7 @@
 #!/bin/bash
 # Makes a Debian or Ubuntu machine ready for ak, as root, and prints the address the home reaches
-# it by:
-#   curl -fsSL https://raw.githubusercontent.com/Sfaiug/agentkit/main/tools/join.sh |
-#     sudo bash -s -- '<the home's public ssh key>' [tailscale]
+# it by, from the line `+ add a machine` shows on `c` (agentkit/machines.py's join_line):
+#   curl -fsSL <this file's raw URL> | sudo bash -s -- '<the home's public ssh key>' [tailscale]
 # A machine ak rents runs these same lines after its own mounts (agentkit/google_cloud.py's
 # STARTUP).  Run again, it changes nothing that is already right.  The work is one function that
 # the last line calls in braces, so a download cut short anywhere runs nothing.

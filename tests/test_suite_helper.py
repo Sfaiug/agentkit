@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.clock import Clock
 from fixtures.sandbox import account_home
-from agentkit import config, gate, google_cloud, helper, worker
+from agentkit import config, gate, google_cloud, helper, machines, worker
 
 SUITE = 'printf "piece %s\\n" "${AK_SHARD:-all}"'
 
@@ -117,7 +117,8 @@ class SuiteHelper(unittest.TestCase):
         self.fake.mkdir()
         (self.fake / "ssh").write_text(FAKE_SSH)
         (self.fake / "ssh").chmod(0o755)
-        self.stack.enter_context(patch.object(helper, "SSH", (str(self.fake / "ssh"),)))
+        self.stack.enter_context(patch.object(machines, "ssh",
+                                              lambda name: [str(self.fake / "ssh"), name]))
         self.turns, self.waited = [], 0.0
         clock = Clock(time.sleep)
         clock.monotonic = lambda: time.monotonic() + self.waited
@@ -331,7 +332,8 @@ class HelperMac(unittest.TestCase):
         self.git("init", "-q", "-b", "main", str(self.repo))
         self.git("-C", str(self.repo), "commit", "-q", "--allow-empty", "-m", "start")
         self.git("-C", str(self.repo), "update-ref", "refs/remotes/origin/main", "HEAD")
-        for context in (patch.object(helper, "SSH", (str(self.fake / "ssh"),)), patch.dict(
+        for context in (patch.object(machines, "ssh",
+                                     lambda name: [str(self.fake / "ssh"), name]), patch.dict(
                 os.environ, {"PATH": f"{self.fake}:{os.environ['PATH']}", "HOME": str(self.fake),
                              "FAKE": str(self.fake), "FAKE_AC_CALLS": "99"})):
             context.start()
