@@ -1,11 +1,6 @@
 package harness
 
-import (
-	"maps"
-	"slices"
-
-	"agentkit/internal/run"
-)
+import "agentkit/internal/run"
 
 // A Reader keeps a harness's evidence at the start of one listing, apart from Python's record.
 type Reader struct {
@@ -41,10 +36,3 @@ func RecordKeys(name string) []string { return plugins[name].keys }
 // the title that launch takes (harness.LAUNCH_KEYS).
 var LaunchKeys = []string{"conversation", "resumable", "id_source", "before", "codex_launch", "codex_history",
 	"opencode_launch", "muse_launch", "antigravity_launch", "antigravity_open", "session_title", "title_sync"}
-
-// KeptInState is whether some harness keeps that state/ entry beside its seats' records.
-func KeptInState(entry string) bool {
-	return slices.ContainsFunc(slices.Collect(maps.Values(plugins)), func(own plugin) bool {
-		return own.kept != nil && own.kept.MatchString(entry) || own.report != nil && reportFile.MatchString(entry)
-	})
-}

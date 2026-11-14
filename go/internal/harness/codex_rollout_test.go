@@ -127,12 +127,6 @@ func TestCodexReadsTheThreadOnlyOnceAReconcileBindsItsReceipt(t *testing.T) {
 	if _, ready := For("codex").Reconciled("acme", record); !ready || !RecordReadOnly("codex") {
 		t.Error("a record with no proven thread cannot be read without reconciling it")
 	}
-	for entry, kept := range map[string]bool{"codex-launch-" + token + ".json": true, "codex-remote-" + token: true,
-		"codex-remote-" + token + ".forgotten": true, "codex-launch-x.json": false, "session-acme.json": false} {
-		if KeptInState(entry) != kept {
-			t.Errorf("%s kept: %v", entry, !kept)
-		}
-	}
 }
 
 func TestCodexListingKeepsItsReceiptButReadsTheRolloutOn(t *testing.T) {

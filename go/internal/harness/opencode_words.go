@@ -1,12 +1,6 @@
 package harness
 
-import (
-	"regexp"
-
-	"agentkit/internal/run"
-)
-
-var opencodeKept = regexp.MustCompile(`^opencode-launch-[0-9a-f]{32}(?:\.gone)?$`)
+import "agentkit/internal/run"
 
 // opencodeRecord reads what opencode.db says of the session this record followed to, else the one
 // its launch reported (opencode.py `conversation`), the seat's own and resumable, once for the
