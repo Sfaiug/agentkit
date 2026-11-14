@@ -276,7 +276,7 @@ class Switch(Sandbox):
         self.assertIn("not installed", refused[0])
         (self.fixture / "logged-out-codex").write_text("yes\n")
         refused.append(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}))
-        self.assertEqual(refused[1], "GPT-6-Astra: ChatGPT is signed out")
+        self.assertEqual(refused[1], "6 Astra: ChatGPT is signed out")
         for note in refused:
             self.assertTrue(note)
             self.assertNotIn("\n", note)

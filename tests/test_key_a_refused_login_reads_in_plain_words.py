@@ -72,7 +72,7 @@ class ARefusedLoginReadsInPlainWords(unittest.TestCase):
         line = self.said_no("codex")
         akconfig.write(self.home, ["opus", "astra"], workers=["opus"])
         Seat(self.home, SEAT, model="opus", record={"reviewers": ["astra"]})
-        self.refused(line, "GPT-6-Astra: ChatGPT is signed out")     # another provider's
+        self.refused(line, "6 Astra: ChatGPT is signed out")     # another provider's
 
     def test_a_login_its_provider_lists_no_more_is_named_as_its_one_subscription(self):
         line = self.said_no("claude")
