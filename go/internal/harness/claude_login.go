@@ -66,10 +66,8 @@ func claudeAuth(login config.Login, seat bool) Answer {
 // login's Keychain entry first, and its `claudeAiOauth` object, empty where it holds none.
 func claudeLogin(login config.Login) (file string, blob []byte, oauth *run.Object) {
 	file = config.LoginPath("claude", "credentials", login)
-	table, _ := config.Section("claude", "login")
-	keychain, _ := table["keychain"].(string)
 	var err error = os.ErrNotExist
-	if runtime.GOOS == "darwin" && keychain != "" && getenv(login, login.Env) == "" {
+	if keychain := claudeKeychain(login); keychain != "" {
 		blob, err = exec.Command("security", "find-generic-password", "-s", keychain, "-w").Output()
 		blob = []byte(strings.TrimRight(string(blob), "\n"))
 	}
@@ -84,6 +82,17 @@ func claudeLogin(login config.Login) (file string, blob []byte, oauth *run.Objec
 		oauth = run.NewObject()
 	}
 	return file, blob, oauth
+}
+
+// claudeKeychain is the Keychain entry that holds the login, on a Mac the usual login's alone and
+// only in the usual directory; "" where none does.
+func claudeKeychain(login config.Login) string {
+	table, _ := config.Section("claude", "login")
+	keychain, _ := table["keychain"].(string)
+	if runtime.GOOS != "darwin" || getenv(login, login.Env) != "" {
+		return ""
+	}
+	return keychain
 }
 
 // digits is what claude.sh takes for an epoch: nothing but decimal digits.
