@@ -182,7 +182,7 @@ menu.usage_lines = lambda cfg, width, **_kw: []
 menu.Live.probe = lambda self, now=None: False
 menu.usage.collect = lambda cfg, **kwargs: {}
 menu.open_session = lambda cfg, session, dry_run: print(f"<opened {session['name']}>", flush=True)
-terminal.inset()                  # what `ak attach --overlay` does first
+terminal.screens(popup=True)      # what `ak attach --overlay` does first
 sys.exit(menu.loop(config.load(), dry_run=True, overlay=True))
 """
 # A line read inside the popup, the way `r` and `n` read one, and what is written after it.
@@ -191,10 +191,11 @@ import os, sys
 sys.path.insert(0, os.environ["FLOATS_REPO"])
 from agentkit import terminal
 
-terminal.inset()
+terminal.screens(popup=True)
 print(f"<answered {terminal.readline('Name: ')!r}>", flush=True)
 """
 TAKEN, DOWN = "\x1b[?1049h", b"\x1b[B"
+PAINT = r"(?:\x1b\[[0-9;]*[mJK])*"   # what colours or clears the cells from a place, the padding's
 PANE, CLIENT = "%1", "/dev/pts/7"   # what the binding's formats come to in this test's tmux
 FEATURES = "256,RGB,bpaste,clipboard,title"   # ... and the client's terminal features
 
@@ -499,7 +500,7 @@ class TheContent(unittest.TestCase):
     def test_padded_it_draws_a_row_and_a_column_in_and_reads_a_click_back(self):
         rows, cols = 30, 90
         popup = Popup(self, padding=1, rows=rows, cols=cols)
-        up = popup.until(r"\x1b\[2;2Hagentkit", "the header as drawn, a cell in")
+        up = popup.until(rf"\x1b\[2;2H{PAINT}agentkit", "the header as drawn, a cell in")
         drawn = popup.text()[popup.text().index(TAKEN):up.end()]
         self.assertNotRegex(drawn, r"\x1b\[1;\d+H|\x1b\[\d+;1H")   # nothing on the padding
         seat = popup.until(r"\x1b\[(\d+);2H((?:(?!\x1b\[\d+;\d+H).)*seat-b)", "seat-b's row",
@@ -512,10 +513,11 @@ class TheContent(unittest.TestCase):
 
     def test_padded_what_follows_a_typed_line_starts_a_column_in(self):
         popup = Popup(self, padding=1, child=LINE_CHILD)
-        popup.until(r"\x1b\[2;2HName: ", "the question, a cell in")
+        popup.until(rf"\x1b\[2;2H{PAINT}Name: ", "the question, a cell in")
         os.write(popup.master, b"taken\r")
         # the terminal echoes the Enter back to column 1; what is written next is in again
-        popup.until(r"taken\r\n\r\x1b\[2G<answered 'taken'>", "the answer, a column in")
+        popup.until(rf"taken\r\n{PAINT}\r\x1b\[2G{PAINT}<answered 'taken'>",
+                    "the answer, a column in")
         self.assertEqual(popup.proc.wait(15), 0, popup.text()[-2000:])
 
 
