@@ -68,7 +68,7 @@ func (t *ticking) alive() error {
 			return errLeft
 		}
 		now := epoch(t.clock()) // when this read starts: earlier checks may have taken minutes
-		up, said := healthCommand(repo, commit, command, aliveCeiling, nil)
+		up, said, _ := healthCommand(repo, commit, command, aliveCeiling)
 		name := filepath.Base(repo)
 		if !up {
 			if since == nil || at(back) != 0 {
