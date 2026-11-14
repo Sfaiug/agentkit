@@ -233,6 +233,8 @@ sys.exit(0 if ok else 1)
             if self.merge_mode == "blocked":
                 return 1, "approvals missing"
             return 0, "merged"
+        if args[:4] == ("api", "-X", "PATCH", "repos/fixture/repo/pulls/1"):
+            return 0, ""        # a retry's new final check names its commit in the description
         if args[:2] == ("api", "graphql"):
             return 0, json.dumps({"data": {"repository": {"ref": {"branchProtectionRule": None}}}})
         if args[:2] == ("api", "--paginate"):
