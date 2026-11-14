@@ -20,7 +20,7 @@ import (
 
 // Where a run's driver and a lander go, as Python's orch.start_in_slice places them: each in a
 // unit of its own in the runs slice under the user manager, capped, and started plainly where the
-// manager will not take it.
+// manager will not take it.  agentkit's live check goes in ak's own slice (PlaceIn).
 
 const (
 	RunWeight    = 40           // a run's CPU weight, above the seats'
@@ -148,8 +148,13 @@ func SliceMemoryMax() int {
 	return ceiling
 }
 
-// Place starts cmd, this program, its output appended to log and in a session of its own where
-// detached, in unit, a unit of the runs slice under the user manager with those `systemd-run -p`
+// Place is PlaceIn the runs slice, where a run's driver and a lander go.
+func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) (pid int, scope, reason string, err error) {
+	return PlaceIn(filepath.Base(RunsCgroup()), cmd, log, unit, properties, detached)
+}
+
+// PlaceIn starts cmd, this program, its output appended to log and in a session of its own where
+// detached, in unit, a unit of slice under the user manager with those `systemd-run -p`
 // properties: a scope where this process is in the manager's own subtree, since the kernel lets an
 // unprivileged manager move only what it was delegated, else a service the manager starts there
 // itself.  A foreground cmd goes only into a scope, which keeps its terminal: a service is the
@@ -166,7 +171,7 @@ func SliceMemoryMax() int {
 // earlier attempt claims is loaded, or the manager cannot say, nothing starts, and where a
 // placement can be neither confirmed nor ended neither does the plain start, as a second start of
 // the work is worse than none.
-func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) (pid int, scope, reason string, err error) {
+func PlaceIn(slice string, cmd *exec.Cmd, log, unit string, properties []string, detached bool) (pid int, scope, reason string, err error) {
 	out, err := os.OpenFile(log, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return 0, "", "", err
@@ -201,10 +206,9 @@ func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) 
 	}
 	os.Remove(marker)
 	defer os.Remove(marker)
-	runs := filepath.Base(RunsCgroup())
 	env := cmd.Environ()
 	command := append([]string{cmd.Path}, cmd.Args[1:]...)
-	words, kind := []string{"--user", "--slice=" + runs, "--quiet", "--unit=" + unit}, "scope"
+	words, kind := []string{"--user", "--slice=" + slice, "--quiet", "--unit=" + unit}, "scope"
 	if scoped {
 		words = append(append(words, "--scope"), literal(command)...)
 		words = append(append(append(words, properties...), "--"), command...)
@@ -276,7 +280,7 @@ func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) 
 		}
 	}
 	os.Remove(claim)
-	fmt.Fprintf(out, "%sWARN %s did not go into %s (%s); started plainly\n", time.Now().Format("[15:04:05] "), unit, runs, note)
+	fmt.Fprintf(out, "%sWARN %s did not go into %s (%s); started plainly\n", time.Now().Format("[15:04:05] "), unit, slice, note)
 	return plain(cmd, "systemd-run failed ("+note+")")
 }
 

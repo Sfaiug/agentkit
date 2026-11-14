@@ -1651,8 +1651,9 @@ def remember_defaults(record, models=None):
     return ""
 
 
-def update_session(name, **fields):
-    """Merge fields into an existing session record; a session with no record is left alone.
+def update_session(name, change=None, /, **fields):
+    """Merge fields into an existing session record, or those `change` makes of it as it stands
+    under its lock; a session with no record is left alone.
 
     A seat somebody made by hand (`tmux new`) has no record and gets none here: it is listed
     from tmux, not from this directory, and inventing a file for it would only claim to know
@@ -1669,6 +1670,7 @@ def update_session(name, **fields):
         data = _read_json(path)
         if not isinstance(data, dict) or "renamed" in data:
             return None
+        fields = change(data) if change else fields
         if all(data.get(key) == value and (key != "repo" or key in data)
                for key, value in fields.items()):
             return data
@@ -2465,6 +2467,14 @@ def accounts(cfg, provider):
     entry = cfg["providers"].get(provider)
     listed = entry.get("accounts") if isinstance(entry, dict) else None
     return list(listed) if isinstance(listed, list) else []
+
+
+def lists(cfg, provider, account):
+    """Whether `provider` still lists `account`, a login a seat's record names (None its usual
+    one): a subscription removed is signed out (menu.config_remove_provider), so nothing is
+    asked of it.  A provider listing no `accounts` has its one login."""
+    listed = accounts(cfg, provider)
+    return not listed or (account or DEFAULT_ACCOUNT) in listed
 
 
 def account_label(cfg, provider, account, name):

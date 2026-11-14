@@ -1627,12 +1627,16 @@ def conversation_of(name, proof=None):
 
 def left(record, harness, conversation):
     """That seat record's `left` with `conversation`, of `harness`, added last, beside the account
-    and directory it was written under: its harness reads it by those, and the record's own go
-    on to name the seat's next ones.  An entry kept without them, as /clear once kept its, takes
-    the record's, the ones it was read under until now."""
+    and directory it was written under and the file its harness reads it from, where it names
+    one: its harness reads it by those, and the record's own go on to name the seat's next ones.
+    An entry kept without an account and directory, as /clear once kept its, takes the record's,
+    the ones it was read under until now."""
+    from . import orch
     then = {"account": record.get("account"), "cwd": record.get("cwd")}
+    kept = orch.harness_plugin(harness).transcript(record, record.get("cwd"), conversation)
     return [*({**then, **was} for was in record.get("left", [])),
-            {"harness": harness, "conversation": conversation, **then}]
+            {"harness": harness, "conversation": conversation, **then,
+             **({"transcript": kept} if kept else {})}]
 
 
 def conversations_of(name, proof=None):

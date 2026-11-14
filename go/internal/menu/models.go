@@ -67,7 +67,7 @@ func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup 
 				Cost:    found.CostText(row)}
 			switch row {
 			case found.Pick:
-				line.Mark = screen.Styled("★ pick", "working")
+				line.Mark = screen.Styled("pick", "working")
 			case found.Take:
 				line.Mark = "r takes"
 			}

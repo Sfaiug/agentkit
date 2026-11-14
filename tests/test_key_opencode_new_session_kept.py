@@ -6,7 +6,8 @@ and a reopen resumes B.  A prompt in A again leaves the check reading each once;
 subagent's session, or into one another seat's record names, leaves the seat where it was, its
 first session too, or in none though that seat is forgotten.  A seat reopened on A, its receipt
 naming A and its record none, that goes to B before any prompt in A keeps A just the same, and
-stays on A through a prompt into beta's; a seat whose OpenCode's session API never answers
+stays on A through a prompt into beta's; one whose receipt an earlier plugin wrote naming
+beta's or one beta left reopens on none; a seat whose OpenCode's session API never answers
 follows all the same; a prompt in a further server, one a tool's shell or the seat's own server
 started, moves nothing.
 Black-box on `AK_BIN`, a fake model (fakeadapter.py), and in the seat's pane a fake `opencode`,
@@ -264,6 +265,19 @@ class OpencodeFirstSessionKept(Rig, unittest.TestCase):
         for _ in range(2):      # beta stopped, then forgotten
             done = self.home.ak("orch", "stop", "beta")
             self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual(self.resumed(), [])
+
+
+@unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")
+class OpencodeEarlierPluginsReceipt(Rig, unittest.TestCase):
+    """The plugin before wrote into the receipt each session a prompt went into, refused too."""
+
+    def test_a_receipt_naming_another_seat_s_session_reopens_on_none(self):
+        (self.receipt / "session").write_text(OWN)
+        self.assertEqual(self.resumed(), [])
+
+    def test_a_receipt_naming_a_session_another_seat_left_reopens_on_none(self):
+        (self.receipt / "session").write_text(LEFT)
         self.assertEqual(self.resumed(), [])
 
 

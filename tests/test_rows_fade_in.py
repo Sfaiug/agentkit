@@ -85,7 +85,7 @@ class FadeIn(Sandbox):
         for page, took in ((0, motion.OPEN), (1, motion.TURN)):
             for light in (False, True):
                 with self.subTest(page=page, light=light), \
-                        patch.object(terminal, "_LIGHT", light), \
+                        patch.object(terminal, "THEME", terminal.WHITE if light else terminal.BLACK), \
                         patch.object(motion.time, "monotonic", return_value=10.0) as now:
                     self.clock = motion.Clock()
                     _, drawn = self.draw("acme-01", height=14)

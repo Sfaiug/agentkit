@@ -17,7 +17,7 @@ import time
 from itertools import accumulate
 from pathlib import Path
 
-from . import config, gitcall, history, record as run_record, task as taskfile, turns
+from . import config, gitcall, history, host, record as run_record, task as taskfile, turns
 
 
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -827,6 +827,24 @@ def loop_death(state):
     if all(isinstance(t, (int, float)) and not isinstance(t, bool) for t in (at, start)) and at < start:
         return None
     return death
+
+
+def restart_ended(state):
+    """Whether a restart of the host, not a death of its own, ended the loop the record names
+    now: it was started under another boot (`process_identity`), so a restart came between its
+    start and its ending, however many and however close.  Its entry in `deaths` says so
+    (`restart`), and no such ending counts towards the third death in an hour that parks a run
+    or the ten minutes after a resume.  Once: an ending the tick has resumed (`resumed_at`) and
+    is asked about again is of a resume that never took the record over, a death like any
+    other, so a run that cannot be resumed is parked in the end.
+    """
+    ending = loop_death(state)
+    if ending is not None:
+        return bool(ending.get("restart")) and not ending.get("resumed_at")
+    identity = state.get("process_identity")
+    boot = identity.get("boot") if isinstance(identity, dict) else None
+    now = host.boot_id()
+    return bool(boot and now) and boot != now
 
 
 def dead_parked(state):

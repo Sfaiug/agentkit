@@ -75,7 +75,7 @@ func TestAnUnpricedBestIsSaidInTheHead(t *testing.T) {
 	rows := []quality.Row{best, modelRow("far", "low", true, 0.2)}
 	screen := screenAt(t, "100")
 	joined := strings.Join(ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), map[string]bool{"best": true, "far": true}, 2, 0), "\n")
-	for _, want := range []string{"builds · best 100.0", "★ pick"} {
+	for _, want := range []string{"builds · best 100.0", "  pick"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("%q not in\n%s", want, joined)
 		}

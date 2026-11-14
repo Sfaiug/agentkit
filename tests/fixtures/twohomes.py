@@ -33,7 +33,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from .akbin import _FILES, AK, REPO, Home, _binds, _end, _wait_gone
+from .akbin import _FILES, AK, REPO, Home, _binds, _end, _strays, _wait_gone
 
 # ssh [-o OPTION | -FLAG]... NAME [COMMAND]...: NAME and COMMAND, a line however long, to the
 # sshd on $1, with this ssh's own input and outputs, and its answer, the exit of COMMAND or 255,
@@ -100,7 +100,8 @@ class Machine(Home):
                 if proc.returncode is None:     # not yet reaped: its group is its own still
                     with contextlib.suppress(ProcessLookupError):
                         os.killpg(proc.pid, signal.SIGKILL)
-            while running := self._running():     # what detached, and forked meanwhile
+            # what detached, and forked meanwhile: what its close would end
+            while running := _strays(self.root, self.tmux_dir, self.at):
                 for pid in running:
                     with contextlib.suppress(ProcessLookupError):
                         os.kill(pid, signal.SIGKILL)
@@ -116,16 +117,6 @@ class Machine(Home):
     def answer(self):
         """Have this machine answer ssh again."""
         self.down = None
-
-    def _running(self):
-        """The processes on this machine: those that find its root where every machine's is,
-        however they detached."""
-        own, found = os.stat(self.root), []
-        for entry in Path("/proc").glob("[0-9]*"):
-            with contextlib.suppress(OSError):     # gone meanwhile, or not ours to read
-                if os.path.samestat(os.stat(f"{entry}/root{self.at}"), own):
-                    found.append(int(entry.name))
-        return found
 
     def box(self, box=_FILES):
         """`box` past the /tmp of its own it would make: a machine's is its own already."""

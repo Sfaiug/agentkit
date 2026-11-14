@@ -328,5 +328,20 @@ class RunningBefore(unittest.TestCase):
                  for minute in range(11)]
         self.assertEqual(calls, [[]] * 10 + [["stop", "start"]])
 
+class ItsOwnStore(unittest.TestCase):
+    """A Mac whose Lima keeps its machines where LIMA_HOME names, which launchd passes on to
+    no daemon."""
+
+    def test_its_check_watches_the_machine_in_the_store_the_install_used(self):
+        mac = Watched()
+        self.addCleanup(mac.close)
+        mac.home.env["LIMA_HOME"] = str(mac.home.root / "store")
+        mac.install()
+        self.assertEqual(mac.check(BOOT + 3600), [])    # it answers through the store's ssh file
+        mac.hangs()
+        calls = [[call[0] for call in mac.check(BOOT + 3600 + minute * 60)]
+                 for minute in range(1, 11)]
+        self.assertEqual(calls, [[]] * 9 + [["stop", "start"]])
+
 if __name__ == "__main__":
     unittest.main()

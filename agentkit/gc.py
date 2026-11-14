@@ -116,7 +116,7 @@ def stale_seat_files(now):
 def model_report_stale(path):
     # a report's name may carry its call's moment after its conversation, whose id has no dot
     return (retention.safe(path) and path.is_file()
-            and path.name.removeprefix("model-").split(".")[0] not in {
+            and path.name.partition("-")[2].split(".")[0] not in {
                 conversation
                 for _, seat in config.seat_files("session", retention.children(config.STATE))
                 for conversation in recorded_conversations(retention.read_json(seat) or {})})
@@ -124,7 +124,8 @@ def model_report_stale(path):
 
 def stale_model_reports():
     for path in retention.children(config.STATE):
-        if path.match("model-*.json") and model_report_stale(path):
+        # what a status render reports of its conversation: its model and its limits
+        if (path.match("model-*.json") or path.match("limits-*.json")) and model_report_stale(path):
             yield {"action": "remove", "kind": "model-report", "path": str(path),
                    "why": "no seat names this conversation"}
 

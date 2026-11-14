@@ -357,11 +357,11 @@ class Bar(Sandbox):
         # Smoke compares the installed tmux options with these same literal expectations.
         env = {**os.environ, "TERM": "xterm-256color", "LC_ALL": "C.UTF-8"}
         env.pop("NO_COLOR", None)
-        key = "Ctrl-b m#[fg=#6c7086]  menu #[default]"
-        fable = "#[bold]herdr#[nobold]   #[fg=#6c7086]fable#[default]"
+        key = "Ctrl-b m#[fg=#868d97]  menu #[default]"
+        fable = "#[bold]herdr#[nobold]   #[fg=#868d97]fable#[default]"
         with patch.dict(os.environ, env, clear=True):
             self.assertEqual(statusbar.lines("herdr", "fable", "working", "tasks x 2/5"),
-                             (f" #[fg=#ffffff,bg=#0067c6] ● working #[default]   {fable}   tasks x 2/5",
+                             (f" #[fg=#000000,bg=#4da3ff] ● working #[default]   {fable}   tasks x 2/5",
                               "", key, "herdr · working"))
             self.assertEqual(statusbar.lines("herdr", "fable"),
                              (f" {fable}", "", key, "herdr"))
