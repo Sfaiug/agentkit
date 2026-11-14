@@ -1117,11 +1117,18 @@ def _round(stacks, floor, high, command, tests, log):
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
     """The stack's answer from its whole check, a red one with the `parts` it confirmed
-    (`red_part`), or {} where it ran out of memory again."""
+    (`red_part`) where they cost less than it took, or {} where it ran out of memory again."""
     log_path = directory / f"lander-{tree}.log"
-    parts = []
+    parts, started = [], time.monotonic()
     ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite,
                            parts=parts)
+    took = time.monotonic() - started
+    # Parts run alone one after another, at what the record holds for their tests, where the
+    # whole check runs its pieces at once: a change that broke every piece left 22 parts, close
+    # to two hours, ahead of a whole check that took one (14 Nov 2026).
+    times = suite_times.read(suite_times.handed(scratch))
+    if sum(times.get(test, 0) for part in parts for test in part["tests"]) > took:
+        parts.clear()
     if red.get("short"):
         log(f"AK_SHARD={red['piece']} of {directory.name}'s tree ran out of memory again, run "
             "alone: nobody is blamed; the next pass checks it again")
@@ -1365,10 +1372,11 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                 running = {}
                 try:
                     decide()
-                    # The parts the pass's last red whole check confirmed run alone on the top
-                    # rebuilt without the culprit, before any whole check: checked whole, it
-                    # failed again on those known red since, two more whole checks a culprit (a
-                    # stack of 61 holding five landed nothing in 14 hours, 11 Nov 2026).
+                    # The parts the pass's last red whole check confirmed, where quicker than it
+                    # (`_check_tree`), run alone on the top rebuilt without the culprit, before
+                    # any whole check: checked whole, it failed again on those known red since,
+                    # two more whole checks a culprit (a stack of 61 holding five landed nothing
+                    # in 14 hours, 11 Nov 2026).
                     # Failing, a part is that top's red, narrowed as a batch's however many whole
                     # checks fit, and tried again on the next top, as another member may break
                     # it too; passing, proving nothing or its command run there no more, it is
