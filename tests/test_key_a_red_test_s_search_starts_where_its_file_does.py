@@ -5,8 +5,9 @@ rebuilt without that member.
 
 Black-box: the program `AK_BIN` names checks a landing line from outside through
 tests/fixtures/akline.py, with a `suite.sh` of its own: its tests are named by their paths in
-the tree (`t/new.sh`), and a listed test whose file is missing is named nowhere, the run failing
-as one that ran no test does.  Of six members the fourth adds a test file that fails.
+the tree (`t/new.sh`), or by a spelling naming the same file on disk (`t//new.sh`), and a listed
+test whose file is missing is named nowhere, the run failing as one that ran no test does.  Of
+six members the fourth adds a test file that fails.
 """
 
 from pathlib import Path
@@ -33,19 +34,22 @@ exit $code
 
 class ARedTestSSearchStartsWhereItsFileDoes(unittest.TestCase):
     def test_no_stack_below_the_file_is_checked_whole(self):
-        line = Line({"suite.sh": SUITE, "t/ok.sh": "true\n"})
-        self.addCleanup(line.close)
-        for n in range(1, 7):
-            line.member({f"member-{n}.txt": f"{n}\n",
-                         **({"t/new.sh": "false\n"} if n == 4 else {})})
-        done = line.land()
-        self.assertEqual(done.code, 0, done.out + done.err)
-        for n in range(1, 7):
-            self.assertEqual([key for key in ("land", "fix") if key in line.verdict(n)],
-                             ["fix"] if n == 4 else ["land"], (n, line.runs()))
-        self.assertEqual(line.verdict(4)["fix"]["tests"], ["t/new.sh"], line.runs())
-        # the top, red; the top rebuilt without the fourth, green
-        self.assertEqual(line.whole(), 2, line.runs())
+        for listed in ("t/", "t//"):
+            with self.subTest(listed=listed):
+                line = Line({"suite.sh": SUITE.replace("t/*", f"{listed}*"), "t/ok.sh": "true\n"})
+                self.addCleanup(line.close)
+                for n in range(1, 7):
+                    line.member({f"member-{n}.txt": f"{n}\n",
+                                 **({"t/new.sh": "false\n"} if n == 4 else {})})
+                done = line.land()
+                self.assertEqual(done.code, 0, done.out + done.err)
+                for n in range(1, 7):
+                    self.assertEqual([key for key in ("land", "fix") if key in line.verdict(n)],
+                                     ["fix"] if n == 4 else ["land"], (n, line.runs()))
+                self.assertEqual(line.verdict(4)["fix"]["tests"], [f"{listed}new.sh"],
+                                 line.runs())
+                # the top, red; the top rebuilt without the fourth, green
+                self.assertEqual(line.whole(), 2, line.runs())
 
 
 if __name__ == "__main__":
