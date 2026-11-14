@@ -5624,7 +5624,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
             return True
         if parks:
             until = usage.mark_exhausted(cfg, provider, until=until,
-                                         account=current if accounts else None)
+                                         account=current if accounts else None, model=model)
             readings[current] = {**readings.get(current, {}), "exhausted_until": until}
         if refusal:
             observed = {"line": line, "at": now, "handled": True}
