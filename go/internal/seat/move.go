@@ -24,12 +24,14 @@ const screenChanged = Refusal("the seat's screen changed; keep its input before 
 const movedLine = "This seat moved to you in the middle of a turn. Continue that turn from where the conversation your instructions point you to leaves it; do not start over."
 
 // A seatMove is what a move writes in the seat's record: from the orchestrator it held (`was`,
-// run by `own`), the fields it takes (`chosen`), and its orchestrator's effort where one is given
-// (`effort` on `model`, its entry among `models`); when a restart began.
+// run by `own`), the fields it takes (`chosen`), with the `left` it makes where it leaves a
+// conversation (`leaving`), and its orchestrator's effort where one is given (`effort` on `model`,
+// its entry among `models`); when a restart began.
 type seatMove struct {
 	was, own, model, effort string
 	models                  map[string]config.Model
 	chosen                  []field
+	leaving                 bool
 	at                      float64
 }
 
@@ -131,7 +133,8 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 		return plan, true
 	}
 	conversation, opened, known := keptConversation(was, entry, record)
-	if !known || conversation == "" && !harness.CanHandOver(was.Harness) || !harness.CanLaunch(entry.Harness) {
+	if !known || conversation == "" && !harness.CanHandOver(was.Harness) || !harness.CanLaunch(entry.Harness) ||
+		!moving.leaves(record, selected, conversation) {
 		return nil, false
 	}
 	plan.back.conversation, plan.back.opened = conversation, opened
@@ -188,7 +191,7 @@ func (plan *plannedMove) carry(asked func(bool) (bool, bool)) (bool, error) {
 	text := ""
 	if !kept {
 		if text, known = harness.Handover(was.Harness, record); !known {
-			return true, Refusal("the seat's conversation changed before it could move")
+			return true, conversationChanged
 		}
 	}
 	handed := ownFile("handover", name)
@@ -248,27 +251,34 @@ func (moving *seatMove) sight(name string, held bool) (sight, bool) {
 func (moving *seatMove) launch(state, name string, launch func() error) error {
 	return announcing(state, name, func() error {
 		var before *run.Object
+		var chosen []field
+		refused := Refusal("the seat's orchestrator changed before it could move")
 		err := update(state, name, func(data *run.Object) bool {
 			if data.Str("orchestrator") != moving.was {
+				return false
+			}
+			made := false
+			if chosen, made = moving.fields(data); !made {
+				refused = conversationChanged
 				return false
 			}
 			before = data.Copy()
 			if moving.effort != "" {
 				data.Set("efforts", orchestratingAt(data, moving.model, moving.effort, moving.models))
 			}
-			fill(data, moving.chosen)
+			fill(data, chosen)
 			return true
 		})
 		if err != nil {
 			return err
 		}
 		if before == nil {
-			return Refusal("the seat's orchestrator changed before it could move")
+			return refused
 		}
 		if err = launch(); err != nil {
 			update(state, name, func(data *run.Object) bool {
-				for _, chosen := range moving.chosen {
-					fill(data, []field{{chosen.key, before.Get(chosen.key)}})
+				for _, each := range chosen {
+					fill(data, []field{{each.key, before.Get(each.key)}})
 				}
 				moving.effortBack(data, before)
 				return true
