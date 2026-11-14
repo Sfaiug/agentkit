@@ -37,20 +37,28 @@ func newsSeat(t *testing.T, current string) (hooks.Rulebooks, string) {
 	return hooks.Rulebooks{Current: func(string) (string, error) { return current, nil }, Update: seat.Update}, state
 }
 
+// told is what a prompt Go tells carries.
+func told(tell func() string, known bool) string {
+	if !known {
+		return "left to Python"
+	}
+	return tell()
+}
+
 func TestFailedHandoverIsRetried(t *testing.T) {
 	books, state := newsSeat(t, "Rule two.\n")
 	books.Update = func(string, func(*run.Object) bool) error { return errors.New("cannot record") }
-	if news := books.PromptNews("acme", conversation, nil); news != "" {
+	if news := told(books.PromptNews("acme", conversation, nil)); news != "" {
 		t.Fatalf("unrecorded handover: %q", news)
 	}
 	if _, err := os.Stat(filepath.Join(state, "held-acme.md")); !os.IsNotExist(err) {
 		t.Fatalf("unrecorded rules held: %v", err)
 	}
 	books.Update = seat.Update
-	if news := books.PromptNews("acme", conversation, nil); !strings.Contains(news, "\n-Rule one.\n+Rule two.\n") {
+	if news := told(books.PromptNews("acme", conversation, nil)); !strings.Contains(news, "\n-Rule one.\n+Rule two.\n") {
 		t.Fatalf("retry lost the diff: %q", news)
 	}
-	if news := books.PromptNews("acme", conversation, nil); news != "" {
+	if news := told(books.PromptNews("acme", conversation, nil)); news != "" {
 		t.Fatalf("already held: %q", news)
 	}
 }
@@ -61,7 +69,7 @@ func TestFailedChangeFileKeepsItsCodeUntilAcknowledged(t *testing.T) {
 	if err := os.Mkdir(change, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if news := books.PromptNews("acme", conversation, nil); news != "" {
+	if news := told(books.PromptNews("acme", conversation, nil)); news != "" {
 		t.Fatalf("unwritten file named: %q", news)
 	}
 	record, err := run.ReadJSON(filepath.Join(state, "session-acme.json"))
@@ -72,7 +80,7 @@ func TestFailedChangeFileKeepsItsCodeUntilAcknowledged(t *testing.T) {
 	if err := os.Remove(change); err != nil {
 		t.Fatal(err)
 	}
-	if news := books.PromptNews("acme", conversation, nil); !strings.Contains(news, change) {
+	if news := told(books.PromptNews("acme", conversation, nil)); !strings.Contains(news, change) {
 		t.Fatalf("retry did not name its file: %q", news)
 	}
 	data, err := os.ReadFile(change)
@@ -85,7 +93,7 @@ func TestFailedChangeFileKeepsItsCodeUntilAcknowledged(t *testing.T) {
 	if known, err := books.RulebookRead("acme", code); !known || err != nil {
 		t.Fatalf("acknowledgement: %v, %v", known, err)
 	}
-	if news := books.PromptNews("acme", conversation, nil); news != "" {
+	if news := told(books.PromptNews("acme", conversation, nil)); news != "" {
 		t.Fatalf("acknowledged file still named: %q", news)
 	}
 }
