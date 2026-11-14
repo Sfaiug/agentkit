@@ -242,7 +242,7 @@ var entries = map[string]entry{
 	},
 	"standby": {
 		"usage: ak standby ALIAS",
-		"On a client of ALIAS, copy from that home to the same paths here each harness's logins,\nevery account's, and the folders its conversations are in, then ak's folder but its runs\nand checkouts.  It sends what changed, compressed, and what the home deleted in those\nfolders goes here too; a login or folder the home lacks stays here.  This machine keeps\nthe rest of each harness's folders, and its own record of its server, ak's tmp folder,\nak's repository and its versions.  Refused on any other machine, or if a link here is\nat one of those kept or left out, at a folder between it and ak's folder, or at a\nfolder between HOME and a harness's login or conversations, as ~/.claude.",
+		"On a client of ALIAS, copy from that home to the same paths here each harness's logins,\nevery account's, and the folders its conversations are in, then ak's folder but its runs\nand checkouts.  It sends what changed, compressed, and what the home deleted in those\nfolders goes here too; a login or folder the home lacks stays here.  This machine keeps\nthe rest of each harness's folders, and its own record of its server, ak's tmp folder,\nak's repository and its versions.  Refused on any other machine, or if a link here is\nat one of those kept or left out, at a folder between it and ak's folder, or at a\nfolder between HOME and a harness's login or conversations.",
 		"ak standby acme-mini",
 	},
 }

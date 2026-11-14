@@ -237,7 +237,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                 "the rest of each harness's folders, and its own record of its server, ak's tmp folder,\n"
                 "ak's repository and its versions.  Refused on any other machine, or if a link here is\n"
                 "at one of those kept or left out, at a folder between it and ak's folder, or at a\n"
-                "folder between HOME and a harness's login or conversations, as ~/.claude.",
+                "folder between HOME and a harness's login or conversations.",
                 "ak standby acme-mini"),
 }
 
