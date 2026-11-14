@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_a_red_is_narrowed_by_its_failed_tests import NAMED, NarrowFixture, on
 from agentkit import worker
 
-# Affect only a halfway tests-alone check, after the deepest stack confirmed t_tax red.
+# Affect only a tests-alone check after the deepest stack confirmed t_tax red: halfway, and on
+# the target's tip with the second member alone.
 HALFWAY = '[ -n "$AK_RAN" ] && [ -f member-2.txt ] && [ ! -f member-4.txt ]'
 
 
@@ -23,6 +24,7 @@ class RedNarrowedBothWays(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4), None),
             (on(1, 2), ["t_tax"]),              # red: move earlier without a whole check
             (on(1), ["t_tax"]),                # green: the second member turned it red
+            (on(2), ["t_tax"]),                # on the tip with it alone: red, its own
             (on(1, 3, 4), ["t_tax"]),           # rebuilt: green, so whole checks go on
             (on(1, 3, 4), None)])
         self.assertEqual(fix["tests"], ["t_tax"])
@@ -40,12 +42,13 @@ class RedNarrowedBothWays(NarrowFixture, unittest.TestCase):
         self.assertEqual(fix["tests"], ["t_tax"])
 
     def inconclusive(self, suite):
-        checked, fix = self.narrow(suite, {}, 4, 2, {"broken.txt": "broken\n"})
+        checked, fix = self.narrow(suite, {}, 4, 2, {"broken.txt": "broken\n"}, waits=True)
         self.assertEqual(checked, [
             (on(1, 2, 3, 4), None),
             (on(1, 2), ["t_tax"]),              # inconclusive: its whole check decides
             (on(1, 2), None),
             (on(1), ["t_tax"]),
+            (on(2), ["t_tax"]),                # inconclusive too: it waits for the first
             (on(1, 3, 4), ["t_tax"]),
             (on(1, 3, 4), None)])
         self.assertEqual(fix["tests"], ["t_tax"])
