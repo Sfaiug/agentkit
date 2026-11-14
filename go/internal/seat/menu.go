@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/plan"
 )
 
 // Menu is MenuRead with each seat whose panes run on looked at once, writing nothing: the ak
@@ -35,8 +36,8 @@ func MenuRead(now time.Time) (Home, bool) {
 	if !known {
 		return Home{}, false
 	}
-	kept := judging(held)
-	read := func() (Home, bool) { return reading(now, true, func([]string) judges { return kept }, nil) }
+	kept, plans := judging(held), plan.OneLook()
+	read := func() (Home, bool) { return reading(now, true, func([]string) judges { return kept }, nil, plans) }
 	home, known := read()
 	if !known || home.outOfUsage(runs, now) {
 		return Home{}, false

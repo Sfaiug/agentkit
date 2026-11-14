@@ -43,7 +43,7 @@ func mayRestDone(name string) bool {
 // has read the screen, and the look writes what it read: before it, a wait news would keep
 // standing is Python's, as nothing yet says whether it stands.
 func keepsOwnWord(facts climbing, wait *run.Object) (bool, error) {
-	finished, err := plan.Finished(facts.name)
+	finished, err := facts.plans.Finished(facts.name)
 	if !wait.Truthy("until") || wait.Truthy("continue") || err != nil || !finished ||
 		slices.ContainsFunc(facts.file.List("owed_lines"), func(line any) bool {
 			owed, ok := line.(*run.Object)

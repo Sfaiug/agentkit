@@ -22,6 +22,7 @@ type climbing struct {
 	now              float64
 	gone             *Seat
 	place            int
+	plans            plan.Look // as the seat's reading looks its plan up
 }
 
 // An answer is a rung's: the seat's word, why and since when, whether that why is the question
@@ -76,7 +77,7 @@ func climbingOf(state string, seat Seat, found sight, now float64) climbing {
 		file = run.NewObject()
 	}
 	return climbing{state: state, name: seat.Name, own: seat.own, mine: seat.mine, file: file,
-		notice: notify.Last(seat.Name), tick: tickFound(state), found: found, now: now}
+		notice: notify.Last(seat.Name), tick: tickFound(state), found: found, now: now, plans: seat.plans}
 }
 
 // readable follows the same ladder as the word: a going run already decides the seat
@@ -279,7 +280,7 @@ func stillOwed(facts climbing) (*answer, error) {
 	line, owes := "", false
 	if !facts.found.interrupted {
 		var err error
-		if line, owes, err = plan.OwedLine(facts.name); err != nil {
+		if line, owes, err = facts.plans.OwedLine(facts.name); err != nil {
 			return nil, ErrUnread
 		}
 	}
@@ -300,12 +301,12 @@ func stillOwed(facts climbing) (*answer, error) {
 // says what it did last, until the owner gives it new work: a visit ends nothing
 // (watch._session_state).  A run of its own still waiting on the owner, runUndecided reads.
 func planFinished(facts climbing) (*answer, error) {
-	finished, err := plan.Finished(facts.name)
+	finished, err := facts.plans.Finished(facts.name)
 	if err != nil {
 		return nil, ErrUnread
 	}
 	if !finished {
 		return nil, nil
 	}
-	return &answer{word: "done", reason: config.Fold(plan.LastDone(facts.name)), since: facts.found.began}, nil
+	return &answer{word: "done", reason: config.Fold(facts.plans.LastDone(facts.name)), since: facts.found.began}, nil
 }

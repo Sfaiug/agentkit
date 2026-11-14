@@ -4,7 +4,7 @@ package plan
 // one Go cannot weigh as Python does, nil where it weighs every one: then neither Owes nor
 // Unserved leaves the seat's work unread.
 func Readable(name string) error {
-	for _, err := range owed(name, true) {
+	for _, err := range (Look{}).owed(name, true) {
 		if err != nil {
 			return err
 		}
