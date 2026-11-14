@@ -56,7 +56,7 @@ func TestAJobsUndeliveredTasksEndItNeedingYou(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		settled, err := j.settle(ending{task, filepath.Join(run.Runs(), "run-"+task.Str("name")), record.(*run.Object), each.workers, false})
+		settled, err := j.settle(ending{task, filepath.Join(run.Runs(), "run-"+task.Str("name")), record.(*run.Object), each.workers, nil})
 		if err != nil || settled != each.settles || !settled && (task.Str("state") != "running" || task.Has("verdict_line")) {
 			t.Fatalf("%s settled %v (%v) on %s: %v", task.Str("name"), settled, err, each.record, task)
 		}
@@ -126,7 +126,7 @@ func TestAJobsUndeliveredTasksEndItNeedingYou(t *testing.T) {
 	for i, record := range []string{`{"state": "pass", "merged": true, "round_summaries": [{}]}`, `{"state": "stopped"}`} {
 		task := done.receipt.List("tasks")[i].(*run.Object)
 		value, _ := run.Decode([]byte(record))
-		if settled, err := done.settle(ending{task, filepath.Join(run.Runs(), "run-"+task.Str("name")), value.(*run.Object), one, false}); !settled || err != nil {
+		if settled, err := done.settle(ending{task, filepath.Join(run.Runs(), "run-"+task.Str("name")), value.(*run.Object), one, nil}); !settled || err != nil {
 			t.Fatalf("%s settled %v: %v", task.Str("name"), settled, err)
 		}
 	}

@@ -10,7 +10,7 @@ func waitingPickup(dir string, record *run.Object) bool {
 		return false
 	}
 	for _, key := range pythonRoads {
-		if key != "waiting_on" && record.Truthy(key) {
+		if key != "waiting_on" && onRoad(record, key) {
 			return false
 		}
 	}

@@ -60,84 +60,162 @@ func holds(receipt *run.Object) bool {
 	return held
 }
 
+// raced is what ResumeJob decides, before anything is written, of each run its job holds whose
+// resume Go leaves to Python (ErrPython): Python's resume refuses one changed by its slot lock
+// (still), which the job's scheduler then takes up as that refusal (takeUp), so only a job holding
+// one unchanged there is Python's, whole.  The runs that changed, by task, as they read before.
+func raced(receipt *run.Object) (map[*run.Object]*run.Object, error) {
+	changed := map[*run.Object]*run.Object{}
+	for _, each := range receipt.List("tasks") {
+		task := each.(*run.Object)
+		if slices.Contains(job.Terminal, task.Str("state")) || !task.Truthy("run_id") {
+			continue
+		}
+		dir := filepath.Join(run.Runs(), task.Str("run_id"))
+		if read, _ := run.Read(dir); read != nil && !(run.Active(read) && run.ProcessActive(read)) && unfinished(read) {
+			if _, _, _, err := take(task.Str("run_id"), nil, nil, false); !errors.Is(err, ErrPython) {
+				continue
+			}
+			if same, err := still(dir, read); err != nil || same {
+				return nil, cmp.Or(err, ErrPython)
+			}
+			changed[task] = read
+		}
+	}
+	return changed, nil
+}
+
 // takeUp begins the task on the run it holds from before, as Python's run_job_loop adopts it
 // (job_adopt_worker), never starting it over while that run may still deliver: a run alive
 // under another process, or a dead one its reap leaves inside a grace, is looked at again later;
-// an unfinished one is resumed by its own resume, which Go's driver carries on, and its ending,
-// as the ending of a run that ended, goes to the job's ladder through ended.  A record that is
-// gone queues the task with no run, to start over, as a refusal of the run's own does (refused).
-// A run whose resume Go leaves to Python, the same at the slot lock as read, is handed over
-// (ErrPython) with nothing written for it, as is a record Go cannot read.  Whether it began.
+// an unfinished one is resumed by its own resume, which Go's driver carries on, apart from the
+// scheduler (resumed), and its ending, as the ending of a run that ended, goes to the job's ladder
+// through ended.  A record that is gone queues the task with no run, to start over; one Go cannot
+// read leaves the job, Python's to relaunch (holds).  A run ResumeJob saw change at the slot lock
+// is taken up as its resume's refusal (raced).  Whether it began.
 func (j *jobRun) takeUp(task *run.Object, ended chan<- ending) (bool, error) {
-	id := task.Str("run_id")
-	dir := filepath.Join(run.Runs(), id)
+	dir := filepath.Join(run.Runs(), task.Str("run_id"))
+	if read := j.changed[task]; read != nil {
+		delete(j.changed, task)
+		go func() { ended <- j.refused(task, dir, read, loop.ErrChanged.Error()) }()
+		return true, nil
+	}
 	read, err := run.Read(dir)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		run.SetAll(task, "state", "queued", "run_id", nil)
 		return false, job.Save(j.dir, j.receipt)
 	case read == nil:
-		return false, ErrPython
+		return false, nil
 	case run.Active(read) && run.ProcessActive(read):
 		return false, j.later(task, task.Str("state"))
 	case !unfinished(read) && run.Active(read):
 		return false, j.later(task, "queued")
 	case !unfinished(read):
-		toLadder(ended, task, dir, func() *run.Object { return read })
+		go func() { ended <- j.adopted(task, dir, read) }()
 		return true, nil
 	}
-	_, why, err := resume(id, true, nil, nil, nil, io.Discard, io.Discard)
+	go func() { ended <- j.resumed(task, dir, read) }()
+	return true, nil
+}
+
+// resumed is the task's run from before carried on by its own resume, its driver followed until
+// it ends.  Python's resume refuses a record that changed by its slot lock, whatever it holds, so
+// one Go leaves to Python is Python's to carry on only where unchanged there, which leaves the job
+// to `ak run resume <job>`, Python's then (raced).
+func (j *jobRun) resumed(task *run.Object, dir string, read *run.Object) ending {
+	_, why, err := resume(filepath.Base(dir), true, nil, nil, nil, io.Discard, io.Discard)
 	if errors.Is(err, ErrPython) {
-		// Python's resume refuses a record that changed by its slot lock, whatever it holds: only
-		// one unchanged there is Python's to carry on
-		slots, unheld := holdSlots()
-		if unheld != nil {
-			return false, unheld
+		var same bool
+		if same, err = still(dir, read); err == nil && !same {
+			why = loop.ErrChanged.Error()
 		}
-		same := run.Equal(reread(dir), read)
-		slots.Close()
 		if same {
-			return false, ErrPython
+			return ending{task: task, dir: dir, then: func() (bool, error) { return false, nil }}
 		}
-		why, err = loop.ErrChanged.Error(), nil
 	}
 	switch {
 	case err != nil:
-		return false, err
+		return ending{task: task, dir: dir, then: func() (bool, error) { return false, err }}
 	case why != "":
-		return j.refused(task, dir, read, why, ended)
+		return j.refused(task, dir, read, why)
 	}
-	toLadder(ended, task, dir, func() *run.Object { return loop.Await(dir, func() {}) })
-	return true, nil
+	return j.adopted(task, dir, loop.Await(dir, func() {}))
 }
 
 // refused is the task whose run's own resume refused it, read again as Python's job_adopt_worker
 // reads it: an ending another process gave it meanwhile is the task's; a record changed at all,
 // though its state reads as before, keeps the run the task's, looked at again later; only one
 // nobody changed is the run's own refusal, the task then queued with no run, to start over.
-// Whether it began.
-func (j *jobRun) refused(task *run.Object, dir string, read *run.Object, why string, ended chan<- ending) (bool, error) {
-	name, current := task.Str("name"), reread(dir)
+func (j *jobRun) refused(task *run.Object, dir string, read *run.Object, why string) ending {
+	current := reread(dir)
 	state := current.Str("state")
 	moved := !run.Equal(current.Get("state"), read.Get("state")) || !run.Equal(current.Get("merged"), read.Get("merged"))
+	said := func(what string) { j.say(fmt.Sprintf("%s: %s", task.Str("name"), what)) }
 	switch {
 	case moved && !run.Active(current) && state != "waiting" && (current.Truthy("merged") || slices.Contains(endedElsewhere, state)):
-		j.say(fmt.Sprintf("%s: ended elsewhere while adopted: %s", name, run.Text(current.Get("state"))))
-		toLadder(ended, task, dir, func() *run.Object { return current })
-		return true, nil
+		return ending{task: task, dir: dir, then: func() (bool, error) {
+			said("ended elsewhere while adopted: " + run.Text(current.Get("state")))
+			return j.adopted(task, dir, current).then()
+		}}
 	case !run.Equal(current, read):
-		j.say(fmt.Sprintf("%s: taken on elsewhere while adopted: %s", name, run.Text(current.Get("state"))))
-		return false, j.later(task, "queued")
+		return ending{task: task, dir: dir, then: func() (bool, error) {
+			said("taken on elsewhere while adopted: " + run.Text(current.Get("state")))
+			return true, j.later(task, "queued")
+		}}
 	}
-	j.say(fmt.Sprintf("%s: resume refused: %s", name, why))
-	run.SetAll(task, "state", "queued", "run_id", nil)
-	return false, job.Save(j.dir, j.receipt)
+	return ending{task: task, dir: dir, then: func() (bool, error) {
+		said("resume refused: " + why)
+		run.SetAll(task, "state", "queued", "run_id", nil)
+		return true, job.Save(j.dir, j.receipt)
+	}}
+}
+
+// adopted is the ending of the task's run from before as record reads it, which goes to the job's
+// ladder (settle) with the executor list the run is bound to, Python's run_workers: its record's,
+// else the config's; one still under way is looked at again later, as job_adopt_worker does.
+func (j *jobRun) adopted(task *run.Object, dir string, record *run.Object) ending {
+	return ending{task: task, dir: dir, then: func() (bool, error) {
+		if record != nil && run.Active(record) {
+			return true, j.later(task, "queued")
+		}
+		e := ending{task: task, dir: dir, record: record}
+		if record != nil && len(record.List("workers")) > 0 {
+			e.workers = names(record.List("workers"))
+		} else if bound, err := config.Bind(); err == nil {
+			e.workers = names(bound.Workers)
+		}
+		return j.settle(e)
+	}}
+}
+
+// still is whether the run's record reads at the slot lock as read: Python's resume, which reads
+// it there, refuses one that changed (loop.ErrChanged).
+func still(dir string, read *run.Object) (bool, error) {
+	slots, err := holdSlots()
+	if err != nil {
+		return false, err
+	}
+	defer slots.Close()
+	return run.Equal(reread(dir), read), nil
 }
 
 // later has the job look at the task again an interval on, in state, its run kept.
 func (j *jobRun) later(task *run.Object, state string) error {
 	run.SetAll(task, "state", state, "retry_after", run.Float(seconds()+jobPickerInterval))
 	return job.Save(j.dir, j.receipt)
+}
+
+// busy is how many of the job's tasks run, those this launcher carries and those running
+// elsewhere, which Python's job counts against --parallel before it starts a queued one.
+func busy(tasks []any, running map[*run.Object]bool) int {
+	count := 0
+	for _, each := range tasks {
+		if task := each.(*run.Object); running[task] || task.Str("state") == "running" {
+			count++
+		}
+	}
+	return count
 }
 
 // paced is whether the task waits out its retry_after.
@@ -160,20 +238,6 @@ func unfinished(record *run.Object) bool {
 		return false
 	}
 	return run.LandingLine(record) == "" && run.NeedsRecovery(record) && !run.Ended(record)
-}
-
-// toLadder sends the task's run's ending, once record reads it, to the job's ladder (settle), with
-// the executor list the run is bound to, Python's run_workers: its record's, else the config's.
-func toLadder(ended chan<- ending, task *run.Object, dir string, record func() *run.Object) {
-	go func() {
-		e := ending{task: task, dir: dir, record: record(), adopted: true}
-		if e.record != nil && len(e.record.List("workers")) > 0 {
-			e.workers = names(e.record.List("workers"))
-		} else if bound, err := config.Bind(); err == nil {
-			e.workers = names(bound.Workers)
-		}
-		ended <- e
-	}()
 }
 
 // reread is the run's record as it reads now, an empty one where none does, as Python reads it.
