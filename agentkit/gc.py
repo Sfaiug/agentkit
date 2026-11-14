@@ -661,10 +661,11 @@ def left_scratch():
 
 
 def clear_scratch(folder):
-    """Remove `folder`, one `left_scratch` named, its mark last: one a removal cannot finish
-    keeps it, and the next collection tries again.  Each folder is opened through the one
-    holding it, never through a link, and opened to its owner, as `TemporaryDirectory`'s own
-    removal opens what its command closed: a name a link took meanwhile fails the removal.
+    """Remove `folder`, one `left_scratch` named, its mark last, and back if `folder` itself
+    cannot go: one a removal cannot finish keeps it, and the next collection tries again.
+    Each folder is opened through the one holding it, never through a link, and opened to its
+    owner, as `TemporaryDirectory`'s own removal opens what its command closed: a name a link
+    took meanwhile fails the removal.
     Only the folder it is in stays open, so no depth meets a limit on open files or recursion:
     it climbs back through `..`, and one moved meanwhile, whose `..` is no longer the folder
     it came down from, fails the removal rather than lose that folder's names elsewhere."""
@@ -689,10 +690,19 @@ def clear_scratch(folder):
                 if not os.path.samestat(os.fstat(fd), came_from):
                     raise OSError(f"{name} moved while it was removed")
                 os.rmdir(name, dir_fd=fd)
+            with os.fdopen(os.open(record.SCRATCH, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd),
+                           "rb") as mark:
+                maker = mark.read()
             os.unlink(record.SCRATCH, dir_fd=fd)
+            try:
+                os.rmdir(folder.name, dir_fd=parent)
+            except OSError:
+                with os.fdopen(os.open(record.SCRATCH, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                                       0o600, dir_fd=fd), "wb") as mark:
+                    mark.write(maker)
+                raise
         finally:
             os.close(fd)
-        os.rmdir(folder.name, dir_fd=parent)
 
 
 def _opened(name, parent):

@@ -843,16 +843,13 @@ def finish_own_lines(cfg, log):
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
         for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
                      key):
-            def alone(held):
-                return composer_holds(held, session, line, cfg, exact=True) == "line"
-
-            if not line or not alone(name):
+            if not line or composer_holds(name, session, line, cfg, exact=True) != "line":
                 continue
             if (type_checked(session, line, log, harness, pending=True,
                              guard=lambda: notify.session_lock(name),
                              veto=lambda held: line != marked
-                             and owner_question(notify.last(held)),
-                             ready=alone) and line == marked):
+                             and owner_question(notify.last(held)))
+                    and line == marked):
                 replace_midturn(name, mark)
             break
 
@@ -3969,8 +3966,7 @@ def kept_asked_first(session, harness=None, held=True):
 
 
 def type_checked(session, text, log, harness=None, guard=nullcontext,
-                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak",
-                 ready=lambda name: True):
+                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak"):
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Delivery is at least once: no mark, receipt or transcript read closes every crash window
@@ -3986,13 +3982,16 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
-    `ready` is asked under the guard right before each Enter, after the gap, and the first
-    Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent. None means the line was deferred before its text went in: keys its terminal
-    has not read yet, or, in a seat of a known harness, a composer `composer_draft` does not
-    read empty. Those checks gate new text, never the Enter completing it:
-    withholding that Enter would leave a draft the caller cannot recover, or let a retry
-    append the same text to itself.
+    The owner can type in the seat: each Enter goes only while `composer_holds`, under the
+    guard right after the gap, reads the composer as the line -- whitespace never compared, and
+    whole where the line is `pending`: no key of this call is proof it is ak's -- and the
+    first waits up to SENT_WAIT for that.  Read as anything else, the line gets no Enter and
+    stays in the composer with what joined it, none of it removed, and this answers False as
+    for any line not sent: only a later pass that knows the line sends it (`finish_own_lines`),
+    and any other is the owner's to send or delete.
+    None means the line was deferred before its text went in: keys its terminal has not read
+    yet, a composer `composer_draft` does not read empty, or a seat whose harness has no
+    composer to read.
     """
     text = terminal_mod.keyed(text)    # a typed escape or newline is a key, not text
     try:
@@ -4009,9 +4008,12 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     # in part, its Enter sends both; under a dialog it answers it; where no composer shows it
     # runs as a command.  A line left pending was read in its composer, whatever chrome is
     # drawn around it.
-    if harness is not None and not pending and composer_draft(harness, pane_text(seat)) != "":
+    if not pending and (harness is None or composer_draft(harness, pane_text(seat)) != ""):
         return None
-    confirm = pending or harness is not None
+
+    def alone(held):
+        return composer_holds(held, seat, text, exact=pending, harness=harness) == "line"
+
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):
@@ -4021,13 +4023,13 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not sent:
                 return sent
             time.sleep(KEY_GAP)
-        if not _wait_ready(ready, held if held is not None else name) or not _send_enter(seat, log):
+        if not _wait_ready(alone, held if held is not None else name) or not _send_enter(seat, log):
             return False
-    if not confirm or _wait_sent(seat, harness, text):
+    if _wait_sent(seat, harness, text):
         return True
     with guard() as held:
         if (veto(held if held is not None else name)
-                or not ready(held if held is not None else name)):
+                or not alone(held if held is not None else name)):
             return False
         if not _send_enter(seat, log):
             return False
@@ -4185,7 +4187,7 @@ def _cropped_composer_rows(harness, pane):
     return _unscrolled(chrome, [_inside_box(row) for row in tail])
 
 
-def composer_holds(name, session, line, cfg=None, *, exact=False):
+def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     """What that seat's composer holds now, off one capture: "line", "empty", or "other" --
     anything else, nothing read, or a question to the owner on the screen, as a dialog that
     keeps the composer drawn is.
@@ -4198,11 +4200,12 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     owner's.  It is also a composer read whole holding that line joined in order with the
     others ak typed there last (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
-    scrolled composer, suffix or paste fold is no proof without a delivery mark.
+    scrolled composer, suffix or paste fold is no proof without a delivery mark.  `harness`,
+    given, is the one a caller read the seat as, and the composer is read as that one's.
     """
     try:
         name = config.resolve_session(name)
-        harness = seat_model(config.load() if cfg is None else cfg, name)[0]
+        harness = harness or seat_model(config.load() if cfg is None else cfg, name)[0]
     except (config.Error, OSError):
         return "other"
     pane = pane_text(session)
@@ -4780,10 +4783,10 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     too, with the name the seat goes by then, before each key and a mark's confirmation: a line
     that has stopped being this seat's to have, or a pane whose process changed since its pin
     (`_respawned`), is typed no further.  Every Enter, the first, its retry and a mark's,
-    goes only while the composer holds the line alone (`composer_holds`): what the owner typed
-    in the gap before it is never sent.  The line is delivered only once its composer reads
-    empty with no unread terminal input, the first pass's as a mark's: one the owner edited
-    while its Enter was confirmed no longer reads whole there, and is still theirs to send.
+    goes only while the composer holds the line alone (`composer_holds`, `type_checked`).  The
+    line is delivered only once its composer reads empty with no unread terminal input, the
+    first pass's as a mark's: one the owner edited while its Enter was confirmed no longer
+    reads whole there, and is still theirs to send.
     Text left standing in a seat launched with ak's editor holds none of it back: the line goes
     in through that editor, which sets the text aside and gives it back (`_past_text`), and a
     mark naming the pane it went into is that editor's to read (`_line_left`).
@@ -4844,8 +4847,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
 
     return (type_checked(session, text, log, None,
                          guard=lambda: notify.session_lock(session["name"]), veto=veto,
-                         typed=lambda: receipt(mark), source=source,
-                         ready=lambda held: composer_holds(held, session, text, cfg) == "line")
+                         typed=lambda: receipt(mark), source=source)
             and composer_holds(session["name"], session, text, cfg) == "empty"
             and not pane_unread(session))
 

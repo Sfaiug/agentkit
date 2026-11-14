@@ -53,17 +53,28 @@ func Current(name string, record map[string]any) string {
 // its launch's own evidence reported, "" while that names none.  A receipt keeps that evidence
 // where the harness had not named the conversation yet, as on a fresh Muse launch.
 func WentInto(name string, sent *run.Object) string {
+	conversation, _ := WentIntoFound(name, sent)
+	return conversation
+}
+
+// WentIntoFound is WentInto, and the error where that evidence is there and cannot be read, as
+// Python's `went_into` raises reading strictly (harness.unread).
+func WentIntoFound(name string, sent *run.Object) (string, error) {
 	launch := sent.Dict("launch")
 	if conversation := sent.Str("conversation"); conversation != "" || launch == nil {
-		return conversation
+		return conversation, nil
 	}
 	var evidence map[string]any // as config.ResolveSession reads a record
 	json.Unmarshal([]byte(run.Line(launch)), &evidence)
-	if reported := plugins[name].reported; reported != nil {
-		return reported(evidence)
+	own := plugins[name]
+	if own.reported != nil {
+		return own.reported(evidence), nil
+	}
+	if own.found != nil {
+		return own.found(evidence)
 	}
 	conversation, _ := Owned(name, evidence)
-	return conversation
+	return conversation, nil
 }
 
 // Opened is whether that harness has written the conversation a seat's record names down yet, as

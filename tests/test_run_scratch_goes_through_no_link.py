@@ -91,6 +91,15 @@ class ScratchGoesThroughNoLink(unittest.TestCase):
             gc.clear_scratch(self.scratch)
         self.assertTrue((self.scratch / record.SCRATCH).is_file())
 
+    def test_one_whose_own_folder_cannot_go_keeps_its_mark(self):
+        (self.scratch / "payload").write_text("scratch\n")
+        with patch("os.rmdir", side_effect=PermissionError(13, "held")), \
+                self.assertRaises(OSError):
+            gc.clear_scratch(self.scratch)
+        self.assertEqual(os.listdir(self.scratch), [record.SCRATCH])
+        self.assertEqual(json.loads((self.scratch / record.SCRATCH).read_text()),
+                         {"pid": 99999999})
+
 
 if __name__ == "__main__":
     unittest.main()

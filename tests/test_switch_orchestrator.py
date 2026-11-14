@@ -87,7 +87,8 @@ class Switch(Sandbox):
             path.chmod(0o755)
         self.stack.enter_context(patch.dict(
             os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
-        self.calls, self.fail, self.pid = [], set(), None    # `pid`: the pane's process, named
+        self.calls, self.fail, self.composer = [], set(), ""
+        self.pid = None     # the pane's process, named
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.seat = {"name": "fix-api", "path": str(self.root), "created": 100,
                      "attached": False, "exited": False, "legacy": False}
@@ -122,7 +123,10 @@ class Switch(Sandbox):
             return 1, "boom"
         if self.pid and args[-1] == "#{pane_id}\t#{pane_pid}":
             return 0, f"%7\t{self.pid}"
-        return 0, PROMPT if args[0] == "capture-pane" else ""
+        if args[0] == "send-keys":     # a typed line stands in the composer until its Enter
+            self.composer = args[-1] if "-l" in args else ""
+        return 0, (PROMPT.replace("❯\xa0\n", f"❯\xa0{self.composer}\n")
+                   if args[0] == "capture-pane" else "")
 
     def rulebook(self, name="fix-api"):
         return config.rulebook_path(name).read_text()
@@ -289,6 +293,17 @@ class Switch(Sandbox):
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, spent), "")
         self.assertEqual(config.load_session(self.cfg, "fix-api")["orchestrator"], "astra")
         self.assertEqual(len([args for args in self.calls if args[0] == "respawn-pane"]), 1)
+
+    def test_a_removed_login_is_never_asked_even_where_no_listed_one_passes(self):
+        self.cfg["providers"]["anthropic"]["accounts"] = ["second"]   # its usual login removed
+        asked = []
+
+        def auth(_harness, seat=False, account=None, **_kw):
+            asked.append(account)
+            return False, f"{account}: not logged in; run login"
+        with patch("agentkit.worker.auth_ok", side_effect=auth):
+            note = orch.switch_orchestrator(self.cfg, "fix-api", "fable", {})
+        self.assertEqual((note, asked), ("fable: second: not logged in; run login", ["second"]))
 
     def at_xhigh(self):
         """fix-api's record holding opus's orchestrator effort at xhigh: the record as it is."""

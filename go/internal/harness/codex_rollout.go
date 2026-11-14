@@ -2,7 +2,10 @@ package harness
 
 import (
 	"bufio"
+	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,34 +31,55 @@ var codexKept = regexp.MustCompile(`^codex-(?:launch-[0-9a-f]{32}\.json|remote-[
 // lock its SessionStart hook writes it in place under, which never makes the file; nil where it
 // names none, another launch's, or none that reads.
 func codexReceipt(record *run.Object) *run.Object {
+	receipt, _ := codexReceiptRead(record)
+	return receipt
+}
+
+// codexReceiptRead is codexReceipt, and the error of a receipt that is there and cannot be read or
+// holds no JSON, as Python's `read` raises reading strictly (harness.unread): one gone names none.
+func codexReceiptRead(record *run.Object) (*run.Object, error) {
 	token := record.Str(codexLaunch)
 	if !launchToken.MatchString(token) {
-		return nil
+		return nil, nil
 	}
-	file, err := lock.Edit(filepath.Join(config.Home(), "state", "codex-launch-"+token+".json"))
-	if err != nil {
-		return nil
+	path := filepath.Join(config.Home(), "state", "codex-launch-"+token+".json")
+	file, err := lock.Edit(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
 	}
 	defer file.Close()
 	data, err := io.ReadAll(file)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	value, _ := run.Decode(data)
+	value, err := run.Decode(data)
+	if err != nil {
+		return nil, fmt.Errorf("cannot read %s: %w", path, err)
+	}
 	receipt, _ := value.(*run.Object)
 	if receipt == nil || receipt.Get("launch") != token {
-		return nil
+		return nil, nil
 	}
-	return receipt
+	return receipt, nil
 }
 
 // codexThread is the thread the seat owns and the rollout Codex keeps it in (codex.py
 // `conversation` and `transcript`): the one its launch's SessionStart reported, unambiguous, opened
 // in the receipt's own directory, and so recorded in that rollout's first line.  "" for none.
 func codexThread(record *run.Object) (thread, rollout string) {
-	receipt := codexReceipt(record)
+	thread, rollout, _ = codexProven(record)
+	return thread, rollout
+}
+
+// codexProven is codexThread, and the error where its receipt or rollout is there and cannot be
+// read, or the rollout opens on no session header, as Python's `conversation` raises reading
+// strictly (harness.unread): one that is gone proves none.
+func codexProven(record *run.Object) (thread, rollout string, err error) {
+	receipt, err := codexReceiptRead(record)
 	if receipt == nil || receipt.Truthy("ambiguous") || receipt.Dict("event") == nil {
-		return "", ""
+		return "", "", err
 	}
 	event := receipt.Dict("event")
 	sid, _ := event.Get("session_id").(string)
@@ -66,21 +90,29 @@ func codexThread(record *run.Object) (thread, rollout string) {
 		event.Get("hook_event_name") != "SessionStart" || source != "startup" && source != "resume" ||
 		event.Get("cwd") != cwd || receipt.Get("expected") != nil && receipt.Get("expected") != sid ||
 		record.Str("id_source") == codexSource && record.Get("conversation") != sid {
-		return "", ""
+		return "", "", nil
 	}
 	file, err := os.Open(rollout)
-	if err != nil {
-		return "", ""
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", "", nil
+	} else if err != nil {
+		return "", "", err
 	}
 	defer file.Close()
-	first, _ := bufio.NewReader(file).ReadBytes('\n')
-	value, _ := run.Decode(first)
-	meta, _ := value.(*run.Object)
-	if meta == nil || meta.Get("type") != "session_meta" || meta.Dict("payload") == nil ||
-		meta.Dict("payload").Get("id") != sid || meta.Dict("payload").Get("cwd") != cwd {
-		return "", ""
+	first, err := bufio.NewReader(file).ReadBytes('\n')
+	if err != nil && err != io.EOF {
+		return "", "", err
 	}
-	return sid, rollout
+	value, err := run.Decode(first)
+	meta, _ := value.(*run.Object)
+	// Python's raises on a line that is no object, or a session_meta whose payload is none
+	if err != nil || meta == nil || meta.Get("type") == "session_meta" && meta.Dict("payload") == nil {
+		return "", "", fmt.Errorf("%s opens on no Codex session header", rollout)
+	}
+	if meta.Get("type") != "session_meta" || meta.Dict("payload").Get("id") != sid || meta.Dict("payload").Get("cwd") != cwd {
+		return "", "", nil
+	}
+	return sid, rollout, nil
 }
 
 // codexOwns is whether the receipt proves that thread the seat's (orch.owns).
@@ -172,7 +204,7 @@ func codexAnswerAt(rollout string) (model, effort, at any, found bool) {
 		if settings(entry) != nil {
 			return true
 		}
-		if answered == nil && codexAnswered(entry) {
+		if answered == nil && codexCompleted(entry, "AgentMessage") != "" {
 			answered = entry
 		}
 		payload := entry.Dict("payload")
@@ -189,23 +221,4 @@ func codexAnswerAt(rollout string) (model, effort, at any, found bool) {
 		return applied.Get("model"), applied.Get("reasoning_effort"), entry.Get("timestamp"), true
 	}
 	return entry.Dict("payload").Get("model"), entry.Dict("payload").Get("effort"), answered.Get("timestamp"), true
-}
-
-// codexAnswered is whether that rollout line is a completed answer with words in it, commentary
-// or final (codex.py `answer`): an AgentMessage's parts are `Text`, a UserMessage's `text`.
-func codexAnswered(entry *run.Object) bool {
-	payload := entry.Dict("payload")
-	if entry.Str("type") != "event_msg" || payload == nil || payload.Str("type") != "item_completed" ||
-		payload.Dict("item") == nil || payload.Dict("item").Str("type") != "AgentMessage" {
-		return false
-	}
-	var said []string
-	for _, part := range payload.Dict("item").List("content") {
-		if part, _ := part.(*run.Object); part != nil && (part.Str("type") == "text" || part.Str("type") == "Text") {
-			if text, ok := part.Get("text").(string); ok {
-				said = append(said, text)
-			}
-		}
-	}
-	return strings.Join(said, "\n") != ""
 }

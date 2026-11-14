@@ -205,16 +205,21 @@ class RulebookNews(Sandbox):
     def test_a_prompt_delivered_under_the_seat_s_lock_is_told(self):
         # an autonomous seat's prompts are ak's deliveries, each typed under the seat's lock
         self.handed(BEFORE)
-        heard = []
+        heard, composer = [], [""]
 
         def tmux(*args, **_kw):
             if args[:1] == ("send-keys",) and args[-1] == "Enter":
                 heard.append(self.prompt())     # the hook runs as the Enter lands, lock held
+                composer[0] = ""
             return 0, ""
 
-        with patch.object(watch, "_send_line", return_value=True), \
+        def line(_seat, text, *_a, **_kw):
+            composer[0] = text                  # the line stands in the composer
+            return True
+
+        with patch.object(watch, "_send_line", side_effect=line), \
                 patch.object(orch, "tmux_out", side_effect=tmux), \
-                patch.object(watch, "pane_text", return_value="❯"), \
+                patch.object(watch, "pane_text", side_effect=lambda *_a, **_kw: f"❯ {composer[0]}"), \
                 patch.object(watch, "KEY_GAP", 0):
             self.assertTrue(watch.type_into({"name": SEAT}, "a peer note", lambda _line: None))
         self.assertIn(TOLD, heard[0])

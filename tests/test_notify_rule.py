@@ -311,8 +311,19 @@ class Rule(unittest.TestCase):
 
     def test_v5d_the_inbox_merge_question_asks_the_owner(self):
         question = "Merge PR #9 by bob? yes/no"
+        composer = [""]
+
+        def tmux_out(*args, **kwargs):
+            """The inbox seat draws what is typed into its composer until its Enter takes it."""
+            if args[0] == "send-keys":
+                composer[0] = args[-1] if "-l" in args else ""
+            self.tmux_out(*args, **kwargs)
+            return 0, f"❯ {composer[0]}" if args[0] == "capture-pane" else ""
+
         with patch.object(orch, "ensure", return_value=False), \
                 patch.object(orch, "find", return_value=self.seat("inbox")), \
+                patch.object(orch, "tmux_out", side_effect=tmux_out), \
+                patch.object(watch, "seat_model", return_value=("claude", "anthropic")), \
                 patch.object(config, "resolve_session", side_effect=lambda name: name):
             self.assertEqual(watch.ask_inbox(config.load(), question, PR, SHA, self.log.append), 0)
         self.assertEqual(len(self.posts), 1, self.posts)
