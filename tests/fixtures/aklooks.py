@@ -7,7 +7,7 @@ sequence drew it: another build may draw the same cell another way.
 
     from fixtures.aklooks import look, settled
     screen = settled(menu, "esc leave")
-    assert look(screen, "›") == {"1", "38;2;0;103;198"}
+    assert look(screen, "›") == {"1", "38;2;77;163;255"}
 """
 
 import re

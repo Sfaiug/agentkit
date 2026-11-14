@@ -23,7 +23,7 @@ from agentkit import config, menu, orch, terminal, transitions, update, watch  #
 
 SEAT = "acme-api"
 SPENT = "anthropic out of usage until 2026-10-15 20:00"
-RED = "be222a"
+RED = "fe756f"     # the black theme's error, a seat's bar's
 # The real menu on a pty (test_close_and_info's), its one seat out of usage until 19:20 today.
 CHILD = pty.CHILD.replace("sys.exit(menu.loop(", """
 import time
@@ -110,7 +110,7 @@ class OutOfUsageRow(Sandbox):
 
     def test_its_row_and_its_bar_say_when_it_comes_back_in_red(self):
         self.assertEqual(terminal.state_text("out of usage"), "○ out of usage")
-        self.assertEqual(terminal.colour("out of usage").rgb, RED)
+        self.assertEqual(terminal.colour("out of usage", tmux=True), RED)
         back = today_at(19, 20)
         self.assertEqual(terminal.plain(menu.last_column("out of usage", 3, 8, back=back)),
                          "back 19:20")
@@ -162,7 +162,7 @@ class OutOfUsageRow(Sandbox):
                 patch.object(terminal, "colour_depth", return_value=24):
             tasks = menu.seat_tasks(SEAT, records=[run], now=10000)
             self.assertEqual([tuple(task) for task in tasks], [(1, "spent")])
-            self.assertIn("38;2;190;34;42m■■", menu.squares(tasks))
+            self.assertIn("38;2;254;117;111m■■", menu.squares(tasks))
 
 
 class OutOfUsageOnScreen(unittest.TestCase):

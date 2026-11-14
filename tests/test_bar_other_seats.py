@@ -32,7 +32,7 @@ from agentkit.guard import commands
 
 IDS = {"fix-api": "$0", "orbit-proxies": "$1", "web": "$2", "zeta": "$3"}
 WORDS = {"fix-api": "working", "orbit-proxies": "needs you", "web": "working", "zeta": "done"}
-NEEDS = terminal.colour("needs you").rgb
+NEEDS = terminal.colour("needs you", tmux=True)
 
 
 def drawn(value):

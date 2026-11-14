@@ -245,17 +245,17 @@ RULES = [
      "pattern": r"\b(WITNESS|marked_pid|stop_placed)\b",
      "home": ("agentkit/orch.py",),
      "max": 0},
-    # ak draws only in the owner's palette (10 Nov 2026), one table in each build, a file of
-    # its own, so the next palette is that table.  Left, each a task of its own: a company's
-    # colour (menu.COLOURS, Go's harness.Company), each manifest's `colour`, in both builds,
-    # and the pointer's background (terminal.POINTED).  A git file mode and the zeros padding
-    # a fraction of a second are six digits in quotes, no colour.
+    # ak draws only in the owner's two themes (12 Nov 2026), one table in each build, a file of
+    # its own, so the next theme is a column of that table.  Left, a task of its own: a
+    # company's colour (menu.COLOURS, Go's harness.Company) and each manifest's `colour`, in
+    # both builds.  A git file mode and the zeros padding a fraction of a second are six digits
+    # in quotes, no colour.
     {"name": "colours",
      "flags": (),
      "pattern": r"#[0-9a-fA-F]{6}\b|[\"'`][0-9a-fA-F]{6}[\"'`]",
      "names": r'"100(644|755)"|"0{6}"\)\[:6\]',
-     "home": ("agentkit/palette.py", "go/internal/terminal/palette.go"),
-     "max": 16},
+     "home": ("agentkit/themes.py", "go/internal/terminal/themes.go"),
+     "max": 15},
     # A character has one shape in every terminal only where the terminal draws it itself (Box
     # Drawing and Block Elements) or every font it opens with carries it: SF Mono, Menlo,
     # JetBrains Mono, Cascadia Mono and DejaVu Sans Mono hold Windows-1252, `−≈≤≥` and
