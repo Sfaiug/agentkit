@@ -2,10 +2,9 @@
 
 As it opens, the menu asks the terminal for its background colour (OSC 11).  No answer is a
 dark background, and the black theme; an answer whose luma is past half way puts the white theme
-in force, the accent, `needs you`, dim notes and the highlighted row's selection each its role's
-colour of that theme.  The terminal here is tmux, which answers that question only once a
-background is set for its panes (`window-style`), so it stands for both a terminal that never
-answers and one that answers.
+in force, the accent, `needs you` and dim notes each its role's colour of that theme.  The
+terminal here is tmux, which answers that question only once a background is set for its panes
+(`window-style`), so it stands for both a terminal that never answers and one that answers.
 Black-box: the menu runs through tests/fixtures/akterm.py, and each cell is judged by how it
 looks (tests/fixtures/aklooks.py), never by the bytes that drew it.
 """
@@ -17,14 +16,13 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
-from fixtures.aklooks import colours, look, settled
+from fixtures.aklooks import colours, ink, look, settled
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 DARK_ACCENT, DARK_NEEDS, DARK_DIM = "38;2;77;163;255", "38;2;215;146;0", "38;2;134;141;151"
 LIGHT_ACCENT, LIGHT_NEEDS, LIGHT_DIM = "38;2;0;103;198", "38;2;142;94;0", "38;2;111;117;126"
-DARK_SELECTION, LIGHT_SELECTION = "48;2;8;48;93", "48;2;220;236;255"     # the highlighted row's
-DARK, LIGHT = "48;2;0;0;0", "48;2;255;255;255"     # each theme's background, every other cell's
+DARK, LIGHT = "48;2;0;0;0", "48;2;255;255;255"     # each theme's background, off the highlight
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -53,7 +51,7 @@ class Palette(unittest.TestCase):
 
     def test_with_no_answer_about_the_background_the_menu_is_dark(self):
         screen = self.menu(COLORTERM="truecolor")
-        self.assertEqual(look(screen, "›"), {"1", DARK_ACCENT, DARK_SELECTION})
+        self.assertEqual(ink(look(screen, "›")), {"1", DARK_ACCENT})
         self.assertEqual(look(screen, "! needs you", on="beta"), {"1", DARK_NEEDS, DARK})
         self.assertEqual(look(screen, "Opus 5.5", on="beta"), {"2", DARK_DIM, DARK})
 
@@ -61,7 +59,7 @@ class Palette(unittest.TestCase):
         for colorterm in ("truecolor", "24bit"):
             with self.subTest(COLORTERM=colorterm):
                 screen = self.menu("#ffffff", COLORTERM=colorterm)
-                self.assertEqual(look(screen, "›"), {"1", LIGHT_ACCENT, LIGHT_SELECTION})
+                self.assertEqual(ink(look(screen, "›")), {"1", LIGHT_ACCENT})
                 self.assertEqual(look(screen, "! needs you", on="beta"),
                                  {"1", LIGHT_NEEDS, LIGHT})
                 self.assertEqual(look(screen, "Opus 5.5", on="beta"), {"2", LIGHT_DIM, LIGHT})

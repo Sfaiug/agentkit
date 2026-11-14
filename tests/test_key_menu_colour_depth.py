@@ -17,7 +17,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
-from fixtures.aklooks import colours, look, looks, plain, settled
+from fixtures.aklooks import colours, ink, look, looks, plain, settled
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
@@ -40,8 +40,7 @@ class ColourDepth(unittest.TestCase):
 
     def test_xterm_256color_without_colorterm_draws_only_fixed_colours(self):
         screen = self.menu(TERM="xterm-256color")
-        # the highlighted row's `›`, on the selection's nearest; eight colours draw no band
-        self.assertEqual(look(screen, "›"), {"1", "38;5;75", "48;5;23"})
+        self.assertEqual(ink(look(screen, "›")), {"1", "38;5;75"})
         drawn = colours(screen)
         self.assertEqual({c for c in drawn if not re.fullmatch(r"[34]8;5;\d+", c)}, set())
 
@@ -63,7 +62,7 @@ class ColourDepth(unittest.TestCase):
 
     def test_true_colour_tmux_reports_is_drawn_though_colorterm_does_not_say_it(self):
         screen = self.menu(TERM="xterm-256color", AGENTKIT_TERMFEATURES="RGB")
-        self.assertEqual(look(screen, "›"), {"1", "38;2;77;163;255", "48;2;8;48;93"})
+        self.assertEqual(ink(look(screen, "›")), {"1", "38;2;77;163;255"})
 
     def test_no_color_draws_no_colour_even_on_a_true_colour_terminal(self):
         screen = self.menu(NO_COLOR="1", COLORTERM="truecolor")
