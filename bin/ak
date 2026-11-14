@@ -19,7 +19,8 @@ from agentkit import command_help, config, owner  # noqa: E402
 config.BEGAN = BEGAN
 
 SUBS = ("usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update",
-        "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move")
+        "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move",
+        "standby")
 # shown by no list or help: a check's own, lending its HOME this host's logins (agentkit/lend.py),
 # a check's own proving each harness's adapter (agentkit/contract.py), and the way back from a
 # move (agentkit/back.py), listed once Go, printing the same list, has it

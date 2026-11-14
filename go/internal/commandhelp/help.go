@@ -10,12 +10,12 @@ type entry struct {
 	usage, description, example string
 }
 
-var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move"}
+var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move", "standby"}
 var public = []string{"run", "plan", "notify", "wait", "usage", "models", "browser", "fetch"}
 
 // `adapter` and `hook`, what the stubs under go/adapters and go/hooks run, join the internal line
 // when Go takes over: until then the listing stays Python's, and cli.Main runs them unlisted.
-var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move"}
+var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move", "standby"}
 
 // Keep the shadow command's text in step with agentkit/command_help.py until the switch; its
 // placeholders say the numbers in force once config.InForce reads them, as Python's render does.
@@ -235,6 +235,11 @@ var entries = map[string]entry{
 		"Copy this home to the same path on the machine `ssh ALIAS` reaches; run again, it\nsends only what changed and deletes there what was deleted here.  Each machine keeps\nits own of ak's tmp folder, ~/.ssh/authorized_keys and the browser profile's locks.\nRefused if ALIAS is this machine, its home has another path, its crontab holds ak's\ntick or fails, or one of those kept is a link or under one on either machine.",
 		"ak move acme-mini",
 	},
+	"standby": {
+		"usage: ak standby ALIAS",
+		"On a client of ALIAS, copy ak's folder from that home to the same path here, but its\nruns and checkouts.  It sends what changed, compressed, and what the home deleted goes\nhere too.  This machine keeps its own record of its server, ak's tmp folder, ak's\nrepository and its versions.  Refused on any other machine, or if one of those left\nout or kept is a link here, or under one in ak's folder.",
+		"ak standby acme-mini",
+	},
 }
 
 var purposes = map[string]string{
@@ -255,6 +260,7 @@ var purposes = map[string]string{
 	"fetch":     "copy requested Mac files to this host",
 	"macbridge": "macOS only: forward requested files to the server over SSH",
 	"move":      "copy this home to the same path on another machine",
+	"standby":   "copy ak's folder from the server to the same path here",
 }
 
 func Known(command string) bool {
