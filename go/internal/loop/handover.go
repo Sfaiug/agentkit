@@ -53,7 +53,7 @@ func (l *loop) handExecutor(why, detail string, dry map[string]bool) (string, er
 	if model, err := config.ModelNamed(before); err == nil {
 		dry[model.Provider] = true
 	}
-	rules, ok := l.rules()
+	rules, ok := l.roundRules()
 	readings, err := usage.Read()
 	models, known := config.Models()
 	if !ok || err != nil || known != nil {
@@ -128,7 +128,7 @@ func (l *loop) readyReviewers(failed []any) (all, independent []string, err erro
 	if record == nil {
 		return nil, nil, err
 	}
-	rules, ok := l.rules()
+	rules, ok := l.roundRules()
 	if !ok {
 		return nil, nil, nil
 	}

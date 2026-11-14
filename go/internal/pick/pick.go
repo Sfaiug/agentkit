@@ -1,21 +1,19 @@
 // Package pick holds the rules that choose a run's models from what a usage read says of them,
 // Python's usage.pick_order and the staffing rules review_pair calls: the models with room for a
-// role, ranked by the budget they have left, and the pair a run takes, a reviewer on another
-// provider first, then another model, then the executor's own.  It never reads a meter: a read
-// answers it through Room.
+// role, ranked by the lineup `ak models` stored (Lineup), then by the budget they have left, and
+// the pair a run takes, a reviewer on another provider first, then another model, then the
+// executor's own.  It never reads a meter: a read answers it through Room.
 package pick
 
 import (
+	"cmp"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"agentkit/internal/config"
-	"agentkit/internal/run"
 )
 
 // Room is what a pick asks a usage read of each model.
@@ -40,6 +38,8 @@ type Rules struct {
 	payg                 map[string]bool // paying's
 	margin               float64         // pace_margin, how far ahead of pace lets a payg model in
 	alone                bool            // review off: no reviewer is picked (Alone)
+	rank                 Ranker
+	off                  map[string]bool // off in the model list
 }
 
 // Load is the Rules of the home's groups as they stand: in a seat the seat's own, as a launch from
@@ -65,12 +65,19 @@ func Load() (*Rules, bool) {
 
 // Within is the Rules of these groups, reviewers nil being the executors, false where Python ak
 // picks there: a pace_margin Python refuses, a model a group names that config.model refuses, a
-// matrix lineup from state/matrix.json that ranks the models, are not yet Go's.
-func Within(executors, reviewers []string) (*Rules, bool) {
+// lineup Go cannot rank or a model list it cannot read (Lineup), are not yet Go's.
+func Within(executors, reviewers []string) (*Rules, bool) { return within(executors, reviewers, "") }
+
+// within is Within, or for the picks of the run own Launched.
+func within(executors, reviewers []string, own string) (*Rules, bool) {
 	margin, ok := config.PaceMargin()
 	models, err := config.Models()
 	subs, failed := config.Subscriptions()
-	if !ok || err != nil || failed != nil || ranked(models) {
+	if !ok || err != nil || failed != nil {
+		return nil, false
+	}
+	rank, off, ranks := Lineup(own)
+	if !ranks {
 		return nil, false
 	}
 	if reviewers == nil {
@@ -81,7 +88,8 @@ func Within(executors, reviewers []string) (*Rules, bool) {
 			return nil, false
 		}
 	}
-	rules := &Rules{executors: executors, models: models, reviewList: reviewers, payg: paying(models, subs), margin: margin}
+	rules := &Rules{executors: executors, models: models, reviewList: reviewers, payg: paying(models, subs), margin: margin,
+		rank: rank, off: off}
 	for _, name := range reviewers {
 		allowed, err := config.CanReview(models[name].Harness)
 		if err != nil {
@@ -95,10 +103,11 @@ func Within(executors, reviewers []string) (*Rules, bool) {
 }
 
 // Order is the models with room for a role, executors or with review reviewers, Python's
-// usage.pick_order: a payg one only once no subscription one is below pace (paid), one on credits
-// after every one with a window left, an unknown budget after every known one, then the most
-// budget first, else the order config.toml lists them in.  told, unless nil, hears each model
-// left out and why, then each whose budget is unknown.
+// usage.pick_order: none off in the model list, a payg one only once no subscription one is below
+// pace (paid), one on credits after every one with a window left, then as the role ranks them in
+// the order config.toml lists them (rank), and among those ranked alike an unknown budget after
+// every known one, then the most budget first, else config.toml's order.  told, unless nil, hears
+// each model left out and why, then each whose budget is unknown.
 func (r *Rules) Order(room Room, review bool, told io.Writer) []string {
 	if review && r.alone {
 		return nil
@@ -109,7 +118,11 @@ func (r *Rules) Order(room Room, review bool, told io.Writer) []string {
 	}
 	var order []string
 	for _, name := range names {
-		if why := room.Spent(name); why == "" {
+		why := OffList
+		if !r.off[name] {
+			why = room.Spent(name)
+		}
+		if why == "" {
 			order = append(order, name)
 		} else if told != nil {
 			fmt.Fprintf(told, "pick %s: %s excluded: %s\n", role, name, why)
@@ -129,19 +142,10 @@ func (r *Rules) Order(room Room, review bool, told io.Writer) []string {
 				r.models[name].Provider, strconv.FormatFloat(budget, 'g', 6, 64), strings.TrimPrefix(why, "unknown: "))
 		}
 	}
+	ranks := r.rank(review, r.models, order) // in config.toml's order, which budget never decides
 	slices.SortStableFunc(order, func(a, b string) int {
 		x, y := keys[a], keys[b]
-		switch {
-		case x.credits != y.credits:
-			return compare(x.credits)
-		case x.unknown != y.unknown:
-			return compare(x.unknown)
-		case x.budget > y.budget:
-			return -1
-		case x.budget < y.budget:
-			return 1
-		}
-		return 0
+		return cmp.Or(later(x.credits, y.credits), ranks(a, b), later(x.unknown, y.unknown), cmp.Compare(y.budget, x.budget))
 	})
 	return order
 }
@@ -200,59 +204,13 @@ func Tier(models map[string]config.Model, executor, reviewer string) int {
 	return 0
 }
 
-// compare sorts true after false.
-func compare(later bool) int {
-	if later {
+// later sorts true after false.
+func later(x, y bool) int {
+	switch {
+	case x == y:
+		return 0
+	case x:
 		return 1
 	}
 	return -1
-}
-
-// ranked is whether state/matrix.json may hold a lineup Python's matrix.rank places one of models
-// by: anything but no file, a matrix listing no lineup, or a lineup no row of which a model's
-// harness runs as that model (`yours`).  A model no row is ranks after every ranked one, so where
-// none is, budget alone orders them, as here.
-func ranked(models map[string]config.Model) bool {
-	data, err := os.ReadFile(filepath.Join(config.Home(), "state", "matrix.json"))
-	if os.IsNotExist(err) {
-		return false
-	}
-	value, _ := run.Decode(data)
-	held, ok := value.(*run.Object)
-	if !ok {
-		return true
-	}
-	matrix, isObject := held.Get("matrix").(*run.Object)
-	if !held.Truthy("matrix") || isObject && !matrix.Truthy("lineup") {
-		return false
-	}
-	if !isObject {
-		return true
-	}
-	lineup, listed := matrix.Get("lineup").([]any)
-	if !listed {
-		return true
-	}
-	for _, row := range lineup {
-		entry, ok := row.(*run.Object)
-		if !ok {
-			return true
-		}
-		yours, listed := entry.Get("yours").([]any)
-		if !listed {
-			return true
-		}
-		for _, one := range yours {
-			own, ok := one.(*run.Object)
-			if !ok {
-				return true
-			}
-			for _, model := range models {
-				if own.Get("harness") == model.Harness && own.Get("model") == model.ID {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
