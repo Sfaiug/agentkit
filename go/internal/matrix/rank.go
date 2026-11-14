@@ -20,14 +20,14 @@ func init() { pick.Lineup = ranking }
 //
 // false where Go cannot give that answer as Python does.  Once a run of yours measured a row of
 // the lineup, Python prices every role in one unit (matrix._costs, #2980), Answer each in its own;
-// so a lineup a model runs a row of is Python's wherever history.db may hold a run (history.Ran),
-// measured or not, own's aside: the row of the run whose pick asks (pick.Launched) ends with its
-// picks, and Python measures a run only once it ended.  Where it holds none, no run measured
-// anything.
+// so a lineup a model runs a row of is Python's wherever history.db may hold a run
+// (history.HoldsRun), measured or not, own's aside: the row of the run whose pick asks
+// (pick.Launched) ends with its picks, and Python measures a run only once it ended.  Where it
+// holds none, no run measured anything.
 func ranking(own string) (pick.Ranker, map[string]bool, bool) {
 	rows := Stored().Rows
 	models, err := config.Models()
-	if err != nil || ran(rows, models) && history.Ran(own) {
+	if err != nil || ran(rows, models) && history.HoldsRun(own) {
 		return nil, nil, false
 	}
 	off, err := OffModels()
