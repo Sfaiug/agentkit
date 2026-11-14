@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"agentkit/internal/adapters"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/harness"
@@ -77,6 +78,9 @@ func ReopenPast(name string, dry bool, out, errOut io.Writer) (bool, error) {
 	seat, _, known := pastReopening(name, time.Now())
 	if !known {
 		return false, nil
+	}
+	if err := adapters.Refused(seat.orchestrator); err != nil {
+		return true, Refusal(err.Error())
 	}
 	settled, known, err := seat.relaunch(dry, out)
 	if !known {
