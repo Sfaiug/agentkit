@@ -6,8 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"agentkit/internal/harness"
@@ -15,8 +15,9 @@ import (
 )
 
 // A seat whose current conversation is named by a live Antigravity launch, or by its hook, is
-// handed to Python by `ak orch check` before any reader takes the claim's lock or writes into HOME.
-func TestOrchCheckHandsALiveAntigravitySeatOverBeforeLearningItsClaim(t *testing.T) {
+// checked by `ak orch check` as Python checks it: the launch's conversation learned and written
+// down, its store read strictly; the hook's read with what the seat left.
+func TestOrchCheckChecksALiveAntigravitySeat(t *testing.T) {
 	t.Run("a launch whose agy holds one store open", func(t *testing.T) {
 		if runtime.GOOS != "linux" {
 			t.Skip("a process's open files are read off Linux's /proc")
@@ -55,13 +56,14 @@ func TestOrchCheckHandsALiveAntigravitySeatOverBeforeLearningItsClaim(t *testing
 		if _, err := io.ReadFull(out, make([]byte, 1)); err != nil {
 			t.Fatal(err)
 		}
-		before := tree(t, home)
+		// a store that holds no steps table cannot be read, as Python's `rows` raises reading it
 		var stdout, stderr bytes.Buffer
-		if code := Main([]string{"orch", "check", "acme"}, &stdout, &stderr); code != 3 || stdout.Len() != 0 {
-			t.Fatalf("got (%d, %q, %q), want exit 3", code, stdout.String(), stderr.String())
+		if code := Main([]string{"orch", "check", "acme"}, &stdout, &stderr); code != 2 || stdout.Len() != 0 {
+			t.Fatalf("got (%d, %q, %q), want exit 2", code, stdout.String(), stderr.String())
 		}
-		if after := tree(t, home); !reflect.DeepEqual(before, after) {
-			t.Fatalf("orch check wrote before handing over: %v", after)
+		token := strings.TrimPrefix(env[0], "AGENTKIT_ANTIGRAVITY_LAUNCH=")
+		if kept, _ := run.ReadJSON(filepath.Join(state, "session-acme.json")); !run.Equal(kept.Get("antigravity_open"), run.Fields("launch", token, "conversation", "c-acme")) {
+			t.Fatalf("written down: %s", run.Encode(kept))
 		}
 	})
 
@@ -74,13 +76,9 @@ func TestOrchCheckHandsALiveAntigravitySeatOverBeforeLearningItsClaim(t *testing
 		write(t, filepath.Join(state, "session-acme.json"), `{"orchestrator": "mid", "cwd": "/code/acme", `+
 			`"id_source": "antigravity-hook", "conversation": "c-after", `+
 			`"left": [{"harness": "claude", "conversation": "c-before"}]}`+"\n")
-		before := tree(t, home)
 		var stdout, stderr bytes.Buffer
-		if code := Main([]string{"orch", "check", "acme"}, &stdout, &stderr); code != 3 || stdout.Len() != 0 {
-			t.Fatalf("got (%d, %q, %q), want exit 3", code, stdout.String(), stderr.String())
-		}
-		if after := tree(t, home); !reflect.DeepEqual(before, after) {
-			t.Fatalf("orch check wrote before handing over: %v", after)
+		if code := Main([]string{"orch", "check", "acme"}, &stdout, &stderr); code != 0 {
+			t.Fatalf("got (%d, %q, %q), want exit 0", code, stdout.String(), stderr.String())
 		}
 	})
 }
