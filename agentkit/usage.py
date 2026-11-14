@@ -1293,29 +1293,29 @@ def _split_week(cfg, provider, prov):
 def _gating_meters(cfg, name, providers):
     """The meters that actually constrain this model.
 
-    A model naming a `meter` is gated by that one, the shared weekly_all and the 5h session
-    window, which every model of the subscription runs inside.  Otherwise use the provider's
-    meters less each cap that is another model's: `weekly_scoped` is Fable's, so it must not
-    gate Opus -- otherwise the orchestrator fallback from Fable to Opus could never fire.  A cap
-    is the model's its provider names in its `scope`, each word of which is a word of that
-    model's id or of the name every screen shows it by (`Fable` names `acme-fable-5-2`);
-    without a `scope`, the model's whose `meter` claims it.
+    Never a cap that is another model's: `weekly_scoped` is Fable's, so it must not gate Opus
+    -- otherwise the orchestrator fallback from Fable to Opus could never fire.  A cap is the
+    model's its provider names in its `scope`, each word of which is a word of that model's id
+    or of the name every screen shows it by (`Fable` names `acme-fable-5-2`); without a
+    `scope`, the model's whose `meter` claims it.  Of the rest, a model naming a `meter` is
+    gated by that one, the shared weekly_all and the 5h session window, which every model of
+    the subscription runs inside; any other model by all of them.
     """
     entry = config.model(cfg, name)
-    meters = providers.get(entry["provider"], {}).get("meters", [])
+
+    def words(text):
+        return set(re.findall(r"[^\W_]+", str(text).lower()))
+
+    own = words(entry["model"]) | words(config.model_name(cfg, name))
+    meters = [m for m in providers.get(entry["provider"], {}).get("meters", [])
+              if not m.get("scope") or words(m["scope"]) <= own]
     want = entry.get("meter")
     if want:
         return [m for m in meters if m["name"] in (want, "weekly_all")
                 or m.get("window_secs") == SESSION_SECS], want
     claimed = {e["meter"] for n, e in cfg["models"].items()
                if n != name and e.get("meter") and e["provider"] == entry["provider"]}
-
-    def words(text):
-        return set(re.findall(r"[^\W_]+", str(text).lower()))
-
-    own = words(entry["model"]) | words(config.model_name(cfg, name))
-    return [m for m in meters if (words(m["scope"]) <= own if m.get("scope")
-                                  else m["name"] not in claimed)], PROVIDER_METERS
+    return [m for m in meters if m.get("scope") or m["name"] not in claimed], PROVIDER_METERS
 
 
 def model_pace(cfg, name, providers):
