@@ -7870,7 +7870,7 @@ def start_live_probe(run_dir):
                 return
             with os.fdopen(follower):   # on its stdin, held from its fork (`live_follower`)
                 orch.start_in_slice(
-                    [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
+                    [sys.executable, str(versions.installed_ak()), "watch", "--live", run_dir.name],
                     f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
                     target_slice=orch.run_slice_name(), stdin=follower)
     except (OSError, config.Error):
