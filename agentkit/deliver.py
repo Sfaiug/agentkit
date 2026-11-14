@@ -144,7 +144,10 @@ def pr_body(state):
              f"- verdict: {state['verdict']}",
              f"- rounds: {len(state['round_summaries'])} of {state['rounds']}",
              f"- executor: {state['executor']}, reviewer: {state['reviewer']}",
-             f"- run: {state['run_id']}"]
+             f"- run: {state['run_id']}",
+             # every merge call follows the final check and a body written after it, so the
+             # merged PR says how it went without a call after the merge
+             f"- {handback.final_check_line(state, cmds)}"]
     if prompts.base_proof_line(state):
         lines.append(f"- {prompts.base_proof_line(state)}")
     if state.get("followups"):
