@@ -4200,6 +4200,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         "config", session or NEW_SEATS, CONFIG_ROWS, bool(selected))
     seat = (session, selected) if session or born else None     # whose efforts a step changes
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
+    refused = {}      # what the last `a` said (apply_defaults), fitted under the rows each draw
     while True:
         if not session and not born and selected is not None:   # a page that took a model out
             selected.update(copy.deepcopy(cfg["defaults"]))      # moved them
@@ -4228,7 +4229,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         body, places = config_body(cfg, None if terminal.away() else here, column,
                                    selected, providers, moves, subs, lit, scope, under)
         # agentkit's build, read under the page so every page shows it, and what was said under it
-        told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
+        told = said_once("\n".join(filter(None, (f"Version {version or '?'}", note or standing))),
+                         refused, page_room((), keys, over) - len(body))
         over, meters, body, places, moves = meters_led((over, meters), body, places,
                                                        note_lines(told), keys, moves)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
@@ -4241,7 +4243,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if session and selected is not None:
                 seat_read(cfg, session, selected)
             continue                  # a resize or the pointer: drawn again
-        note = ""
+        note, refused = "", {}
 
         def around(card, keys):   # the matrix laid out at this draw's size, the question under it
             over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
@@ -4254,7 +4256,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             return act == "enter" if born else cfg
         if act == "a" and fresh:
             clock.forget()            # the card: the matrix back from it replays nothing
-            note = apply_defaults(cfg, around)
+            refused = apply_defaults(cfg, around)
             continue
         if act == "r" and advice:     # a record that will not read has nobody to take it
             clock.forget()            # another screen: the matrix back from it replays nothing
@@ -5865,14 +5867,16 @@ def apply_defaults(cfg, around):
     changes, so a move refused or failed leaves its record on the one its harness runs, its
     other changes kept.  Listed: it has a row on the main screen, gone from tmux
     too.  Each one's bar names what it took at once (handback.redress_seat).
-    config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
+    config.toml is not written.  What to say under the rows (said_once): {each reason a seat was
+    refused for: the seats it held}, in the order the seats are listed, a reason no seat
+    holds said alone."""
     from . import audit     # here, not at the top: audit imports this module
     defaults, records = cfg["defaults"], config.session_records()
     skip = config.resolve_session(audit.NAME)
     seats = {s["name"]: records[s["name"]] for s in orch.listing(reconcile=False)
              if not s.get("closed") and s["name"] in records and s["name"] != skip}
     if not seats:
-        return "no session to apply them to"
+        return {"no session to apply them to": []}
     lead = defaults["orchestrator"]
     effort = config.efforts_of(cfg["models"][lead])["effort"]
     moving = [name for name, record in seats.items() if record.get("orchestrator") != lead
@@ -5883,7 +5887,7 @@ def apply_defaults(cfg, around):
              f"{config.model_name(cfg, lead)} at {effort}." if restarts
              else "No session restarts.")
     if not terminal.confirm(APPLY_ASK.format(count), means, APPLY_ANSWER, around):
-        return ""
+        return {}
     runs = [lead, *defaults["workers"], *defaults.get("reviewers", defaults["workers"])]
     taken = {model: config.efforts_of(cfg["models"][model]) for model in runs}
     providers = usage.held(cfg)       # what orders a move's logins, as `c` reads them
@@ -5901,7 +5905,7 @@ def apply_defaults(cfg, around):
         at = config.at_efforts(cfg, held)["models"][own]["effort"]
         return config.orchestrating_at(cfg["models"], {"efforts": efforts}, own, at)
 
-    said = []
+    held = {}
     for name in seats:
         try:
             config.change_efforts(name, given)
@@ -5909,15 +5913,49 @@ def apply_defaults(cfg, around):
             config.update_session(name, workers=defaults["workers"],
                                   reviewers=defaults.get("reviewers"))
         except (config.Error, OSError) as exc:
-            said.append(f"{name}: {exc}")
-            continue
-        if name in moving:
-            note = orch.switch_orchestrator(cfg, name, lead, providers, effort=effort)
-            if note:
-                said.append(f"{name}: {note}")
-        # after the move, a restart's launch dressing a bar with no roles yet
-        handback.redress_seat(name)
-    return "\n".join(said)
+            note = str(exc)
+        else:
+            note = name in moving and orch.switch_orchestrator(cfg, name, lead, providers,
+                                                               effort=effort)
+            # after the move, a restart's launch dressing a bar with no roles yet
+            handback.redress_seat(name)
+        if note:
+            held.setdefault(terminal.plain(note), []).append(name)
+    return held
+
+
+def said_once(told, held, room):
+    """`told`, then what `a` said (apply_defaults), `held`, in the `room` lines the rows leave a
+    note (note_lines) and no more, at this draw's width: each reason once, led by the seats it
+    held, every name where they fit its line, else the first ones and how many more; where the
+    reasons do not fit, the most of the first that do, and a last line saying how many more there
+    are, before which `told`'s own lines give way."""
+    if not held:
+        return told
+    width = terminal.layout_width() - 2       # a note's line (note_lines)
+
+    def led(names):
+        for count in range(len(names), 0, -1):
+            lead = ", ".join(names[:count]) + (f" and {len(names) - count} more"
+                                               if count < len(names) else "")
+            if count == 1 or terminal.cells(lead) < width:     # and its colon
+                return lead
+
+    def tall(lines):
+        return sum(len(terminal.wrap(line, width)) for line in lines)
+
+    head = told.splitlines()
+    reasons = [f"{led(names)}: {why}" if names else why for why, names in held.items()]
+    shown = len(reasons)
+    while shown and tall(head + reasons[:shown]) + (shown < len(reasons)) >= room:
+        shown -= 1
+    if tall(reasons[shown:]) == 1:
+        shown = len(reasons)        # its count would take its line and say less
+    more = len(reasons) - shown
+    said = [*reasons[:shown], *([f"{more} more reason{'s' * (more > 1)}"] if more else [])]
+    while head and tall(head + said) >= room:
+        head.pop()
+    return "\n".join(head + said)
 
 
 def born_mark(cfg, selected, model, column, providers):
