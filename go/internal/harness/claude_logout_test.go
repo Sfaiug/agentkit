@@ -10,12 +10,13 @@ import (
 
 // `logout` signs out the login $AGENTKIT_ACCOUNT names alone, as adapters/claude.sh does: its worker
 // token gone, then Claude Code's own sign-out on its directory, with no worker token, its exit the
-// verb's; where no login is there, nothing runs and it exits 0.
+// verb's; where no login is there, nothing runs and it exits 0.  A `$` in the home's name is a
+// letter of it, as the script reads it.
 func TestClaudeLogoutSignsOutTheNamedLoginAlone(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake Claude Code is a shell script")
 	}
-	home := t.TempDir()
+	home := filepath.Join(t.TempDir(), "acme$HOME")
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", filepath.Join(home, "bin"))
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "worker")

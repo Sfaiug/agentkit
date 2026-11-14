@@ -32,7 +32,9 @@ func claudeLogout(_ []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "claude logout: %s\n", err)
 		return 1
 	}
-	if _, err := os.Stat(config.LoginPath("claude", "credentials", login)); err != nil {
+	// the login's home as the script names it, literally: config.LoginPath would read a `$` in a
+	// home's name as a variable, and find no login where one is
+	if _, err := os.Stat(login.Home + "/.credentials.json"); err != nil {
 		keychain := claudeKeychain(login)
 		if keychain == "" || exec.Command("security", "find-generic-password", "-s", keychain).Run() != nil {
 			return 0
