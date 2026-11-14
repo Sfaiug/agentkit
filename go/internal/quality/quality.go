@@ -407,9 +407,9 @@ func measuredError(values *run.Object, each measure, best float64) *float64 {
 // than every cheaper one, a row of yours than every cheaper one of yours, as one no harness of
 // yours runs is no reason to leave it out, and Take what `r` takes: the same rule over yours.
 // Pick and Take stay visible even if rows outside their eligible pool beat them.  Choices and
-// Others are choices' over those with a cost, whoever runs them.  CostUnit is what its rows'
-// costs are in.  Rated is every row rated and priced, whatever is compared: the rows a model's
-// own row is found among.
+// Others are choices' over those with a cost, the choices being rows a configured model runs.
+// CostUnit is what its rows' costs are in.  Rated is every row rated and priced, whatever is
+// compared: the rows a model's own row is found among.
 type Said struct {
 	Rated      []*Rating
 	Front      []*Rating
@@ -426,9 +426,13 @@ type Said struct {
 type Pricer func(role string, rows []Row, rated []*Rating) string
 
 // Answer is each role's Said, its rows priced by price (nil leaves them at their board's dollars);
-// compared, the releases compared, nil for every one.  Every row is rated and priced whatever is
+// compared, the releases compared, nil for every one; runs, the harness and model pairs a
+// configured model runs (Python's matrix.runner).  Every row is rated and priced whatever is
 // compared, so a row's quality and cost never change with that.
-func Answer(rows []Row, compared map[string]bool, price Pricer) map[string]*Said {
+func Answer(rows []Row, compared map[string]bool, price Pricer, runs map[[2]string]bool) map[string]*Said {
+	configured := func(row *Rating) bool {
+		return slices.ContainsFunc(row.Runners, func(pair [2]string) bool { return runs[pair] })
+	}
 	out := map[string]*Said{}
 	for _, role := range Roles {
 		ratings := Rated(rows, role)
@@ -468,7 +472,7 @@ func Answer(rows []Row, compared map[string]bool, price Pricer) map[string]*Said
 			}
 		}
 		said.Pick, said.Take = pick(priced, role), pick(yours, role)
-		said.Choices, said.Others = choices(priced)
+		said.Choices, said.Others = choices(priced, configured)
 		for _, chosen := range []*Rating{said.Pick, said.Take} {
 			if chosen != nil && !slices.Contains(said.Front, chosen) {
 				said.Front = append(said.Front, chosen)
