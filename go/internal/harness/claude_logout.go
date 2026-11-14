@@ -58,24 +58,29 @@ func claudeLogout(_ []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "claude.sh logout: claude is not installed")
 		return 127
 	}
-	cmd := exec.Command(program, "auth", "logout")
-	cmd.Args[0] = "claude"
-	cmd.Env = slices.DeleteFunc(login.Environ(os.Environ()), func(pair string) bool {
+	return claudeAuthRun("logout", program, slices.DeleteFunc(login.Environ(os.Environ()), func(pair string) bool {
 		return strings.HasPrefix(pair, variable+"=")
-	})
+	}), out, errOut)
+}
+
+// claudeAuthRun is `claude auth <verb>`, Claude Code at program run in env as the script's bash runs
+// it, and the status bash gives it.
+func claudeAuthRun(verb, program string, env []string, out, errOut io.Writer) int {
+	cmd := exec.Command(program, "auth", verb)
+	cmd.Args[0], cmd.Env = "claude", env
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, out, errOut
-	err = cmd.Run()
+	err := cmd.Run()
 	if errors.Is(err, syscall.ENOEXEC) {
 		// a file the system starts no program from, bash reads as its own script, as it reads one
 		// named to it, and refuses with 126 where it cannot read it or finds it binary
-		script := exec.Command("/bin/bash", program, "auth", "logout")
+		script := exec.Command("/bin/bash", program, "auth", verb)
 		script.Env, script.Stdin, script.Stdout, script.Stderr = cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr
 		cmd, err = script, script.Run()
 	}
 	// the status bash gives it: 127 for a file it names that is not there, its interpreter, 126
 	// for any other that does not start, 128 and the signal's number for one a signal ends
 	if cmd.ProcessState == nil {
-		fmt.Fprintf(errOut, "claude logout: %s\n", err)
+		fmt.Fprintf(errOut, "claude %s: %s\n", verb, err)
 		if errors.Is(err, syscall.ENOENT) {
 			return 127
 		}
