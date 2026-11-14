@@ -14,8 +14,8 @@ import (
 // Python's config.adapter_path finds its script: $AGENTKIT_ADAPTER_DIR's, none where none runs
 // there, which lists nothing; else, for a harness with a `models` verb of its own, this program's
 // `ak adapter`, as adapters.SignIn runs a login; else the checkout's script.  False where there is
-// none to ask: go/adapters' stubs hand Go the `models` it carries out for no other harness, and a
-// shipped script answers only beside the tools/catalog.py it prints the table with.
+// none to ask: go/adapters' stubs carry out no other harness's `models`, and a shipped script
+// answers only beside the tools/catalog.py it prints the table with.
 func Lister(harness string) ([]string, bool) {
 	script, err := config.Adapter(harness)
 	switch {

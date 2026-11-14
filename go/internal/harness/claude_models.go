@@ -31,8 +31,8 @@ var tsv = strings.NewReplacer(`\`, `\\`, "\t", `\t`, "\n", `\n`, "\r", `\r`)
 // table's, so a model added from the table stays marked as added; its `display_name` without the
 // leading `Claude `; and the efforts its `capabilities.effort` supports, in the API's order, or
 // `none` where it takes no effort.  $ANTHROPIC_BASE_URL is claude's own, and where the tests' fake
-// API lives.  1 where the listing fails or names nothing, or no login can ask: config.catalog
-// decides what stands in.
+// API lives.  1 where the listing fails or names nothing, or there is no token to ask with:
+// config.catalog decides what stands in.
 func claudeModels(_ []string, out, errOut io.Writer) int {
 	login, _, err := config.Account("claude")
 	if err != nil {
