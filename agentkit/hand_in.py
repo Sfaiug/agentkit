@@ -268,12 +268,6 @@ def checked_site(site, workspace, quote=None):
     path = (root / name).resolve()
     if not path.is_relative_to(root) or not path.is_file():
         raise config.Error("name a file that exists inside this checkout")
-    # `item_text` writes the site as text and `handback.followup_place` reads it back from there
-    name = str(path.relative_to(root))
-    if re.search(r"[\r\n]|:\d", name) or name != name.strip():
-        raise config.Error("name a file whose path holds no line break, no colon before a digit "
-                           "and no whitespace at either end: ak reads the site back from its "
-                           "path:line text")
     content = path.read_text(errors="replace")
     line = int(line)
     if not 1 <= line <= len(content.splitlines()):
@@ -346,6 +340,13 @@ def checked(argv, workspace, role="reviewer", findings=(), disputes=()):
         # was named at is still its own, to dispute or to hand in again by a command
         root = Path(workspace).resolve()
         path, line = root / listed["path"], int(listed["line"])
+    # `item_text` writes the site as text and `handback.followup_place` reads it back from there,
+    # a listed site's as much as one found
+    name = str(path.relative_to(root))
+    if re.search(r"[\r\n]|:\d", name) or name != name.strip():
+        raise config.Error("name a file whose path holds no line break, no colon before a digit "
+                           "and no whitespace at either end: ak reads the site back from its "
+                           "path:line text")
     command = flags.get("--run")
     if kind == "follow-up" and command and not plan_check(command, root):
         raise config.Error("write a follow-up's --run as one shell command, without backticks, "
@@ -375,7 +376,7 @@ def checked(argv, workspace, role="reviewer", findings=(), disputes=()):
             raise config.Error("a dispute's command must exit 0 to show the behaviour is right")
         evidence = {"run": flags["--run"], "returncode": result.returncode,
                     "output": text}
-    row = {"kind": kind, "path": str(path.relative_to(root)), "line": line,
+    row = {"kind": kind, "path": name, "line": line,
            "what": what, "why": why, "evidence": evidence}
     if kind == "follow-up" and "--before" in flags:
         row["before"] = flags["--before"]
