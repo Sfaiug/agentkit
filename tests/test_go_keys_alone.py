@@ -16,7 +16,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from test_go_keys import KEPT, LEFT_OUT, REPO, checkout
+from test_go_keys import KEPT, REPO, checkout, copy_checkout
 
 PARTS = ("bin", "hooks", "adapters", "tools", "install.sh")
 # A program leaning on Python, as one handing work to Python's ak would; it exits as python3 does.
@@ -97,7 +97,7 @@ class Alone(unittest.TestCase):
 
     def test_a_claim_is_judged_switched_unless_go_leans_names_its_key_file(self):
         tip = Path(self.enterContext(tempfile.TemporaryDirectory(prefix="ak-go-leans-")))
-        shutil.copytree(REPO, tip, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
+        copy_checkout(tip)
         keys = ("test_key_fix_api", "test_key_widget")
         (tip / "go/keys.txt").write_text("".join(f"{key}\n" for key in keys))
         for key in keys:

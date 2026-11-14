@@ -20,7 +20,7 @@ func (l *loop) judgeOnChecks(ok bool, checked string) (bool, error) {
 	if err := l.proven(proof); err != nil {
 		return false, err
 	}
-	held, evidence, err := l.place.held()
+	held, evidence, err := l.place.held(l)
 	if err != nil {
 		return false, err
 	}
@@ -29,7 +29,7 @@ func (l *loop) judgeOnChecks(ok bool, checked string) (bool, error) {
 	if !ok {
 		verdict, findings, word = "FAIL", checked, "FAILED"
 	}
-	review := run.Fields("no_review", true, "executor", l.executor, "reviewer", nil, "verdict", verdict, "returncode", 0, "done_when", ok)
+	review := run.Fields("no_review", true, "executor", none(l.executor), "reviewer", nil, "verdict", verdict, "returncode", 0, "done_when", ok)
 	run.SetAll(review, evidence...)
 	if err := l.save(func(record *run.Object) {
 		run.SetAll(record, "verdict", verdict, "findings", findings, "review", review)
@@ -43,14 +43,14 @@ func (l *loop) judgeOnChecks(ok bool, checked string) (bool, error) {
 
 // held is whether the checkout still holds the commit the round's checks ran on, with nothing
 // uncommitted, and that commit as evidence.
-func (r *repoPlace) held() (bool, []any, error) {
+func (r *repoPlace) held(*loop) (bool, []any, error) {
 	head, tree := r.checked[0], r.checked[1]
 	moved, err := r.changedSince(head, tree)
 	return !moved, []any{"head_sha", head, "tree_sha", tree}, err
 }
 
 // held is a workspace's: it has no commit for its checks to have run on.
-func (scratch) held() (bool, []any, error) { return true, nil, nil }
+func (scratch) held(*loop) (bool, []any, error) { return true, nil, nil }
 
 // staffed is the log's line of who works the run.
 func (l *loop) staffed(rounds int) string {

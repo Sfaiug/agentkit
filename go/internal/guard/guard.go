@@ -30,7 +30,7 @@ import (
 // refusals are what each tool asks: why this call may not run, "" where it may, or an error where
 // the guard could not tell.
 var refusals = map[string]func(args []string, real string) (string, error){
-	"tmux": tmuxRefusal, "gh": ghRefusal, "git": worktreeRefusal,
+	"tmux": tmuxRefusal, "gh": ghRefusal, "git": gitRefusal,
 	"scp": transferRefusal, "rsync": transferRefusal, "sftp": transferRefusal, "ssh": liveReach,
 }
 

@@ -1,11 +1,7 @@
 package config
 
 import (
-	"errors"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -25,22 +21,6 @@ func OfferedHarnesses() ([]string, error) {
 		}
 	}
 	return harnesses, nil
-}
-
-// Lister is the script to ask for that harness's models, as Python's config.adapter_path finds
-// it: $AGENTKIT_ADAPTER_DIR's, "" where none runs there, which lists nothing, else the checkout's.
-// False where there is none to ask: go/adapters' stubs carry out no `models`, and a shipped
-// adapter answers only beside the tools/catalog.py it prints the table with.
-func Lister(harness string) (string, bool) {
-	script, err := Adapter(harness)
-	if !errors.Is(err, ErrNoAdapterDir) {
-		return script, true
-	}
-	repo := Repo()
-	script = filepath.Join(repo, "adapters", harness+".sh")
-	_, runs := exec.LookPath(script)
-	_, table := os.Stat(filepath.Join(repo, "tools", "catalog.py"))
-	return script, runs == nil && table == nil
 }
 
 // ListingLogins is what the adapter is told on each login a question about that harness's models

@@ -105,6 +105,8 @@ class LanderWakes(Sandbox):
         if args[:2] == ("pr", "merge"):
             self.merges.append(args)
             return 0, "merged"
+        if args == ("api", "repos/acme/widget/pulls/7"):    # the read for a revert line: no merge needs it
+            return 1, "gh: Not Found (HTTP 404)"
         raise AssertionError(args)
 
     def fixer(self, lp, role, text, name, **_kw):

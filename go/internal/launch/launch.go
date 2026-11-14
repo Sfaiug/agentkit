@@ -419,8 +419,7 @@ func checkout(meta map[string]string, path, copied string) (string, string, erro
 
 // Budget is the rounds in force for a launch of the task at path, as Python's launch_policy reads
 // them before anything else is judged: its checkout's, the host's where the task does not read or
-// names a checkout that is none; ErrPython where the checkout is Python's to find, or the
-// numbers Python's to carry (numbers).
+// names a checkout that is none; ErrPython where the checkout is Python's to find.
 func Budget(path string) (int, error) {
 	if meta, _, err := task.Read(path); err == nil {
 		return roundsFor(path, meta)
@@ -550,21 +549,12 @@ func asPython(err error) error {
 }
 
 // numbers is the numbers in force for a run in repo, the host's for none (run.LaunchPolicy), a
-// task's refused where executors are off (run.TaskPolicy), read where Python's launch_policy is;
-// ErrPython for a review with review off, which Go does not carry (run.Carries).
+// task's refused where executors are off (run.TaskPolicy), read where Python's launch_policy is.
 func numbers(repo string, review bool) (config.Numbers, error) {
-	read := run.TaskPolicy
 	if review {
-		read = run.LaunchPolicy
+		return run.LaunchPolicy(repo)
 	}
-	found, err := read(repo)
-	switch {
-	case err != nil:
-		return found, err
-	case review && found.Rounds == 0:
-		return found, ErrPython
-	}
-	return found, nil
+	return run.TaskPolicy(repo)
 }
 
 // git is git's stdout and stderr in repo ("" the current directory), stripped, and whether it

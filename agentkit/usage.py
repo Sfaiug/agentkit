@@ -39,8 +39,8 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
-from . import (command_help, config, gitcall, history, matrix, spend, staffing, terminal, turns,
-               usage_probe, worker)
+from . import (command_help, config, gitcall, history, logins, matrix, spend, staffing,
+               terminal, turns, usage_probe, worker)
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -71,9 +71,10 @@ SESSION_SECS = 18000      # the 5h rolling window every harness reports as its s
 LOW_FLOOR = 5
 
 # --- the usage-limit reset --------------------------------------------------------------------
-# A ChatGPT subscription earns "usage limit resets" that put the weekly window back to 0% and
-# start a fresh week; the adapter whose manifest says `[usage] reset` counts what is left with
-# `reset-status` and spends one with `reset`, and which adapter that is is its own toml's to say.
+# A subscription may earn "usage limit resets" that put a spent window back to 0%, of kinds
+# that refill different windows; the adapter whose manifest says `[usage] reset` counts what is
+# left, in its `usage` answer or with `reset-status`, and spends one with `reset`, and which
+# adapter that is is its own toml's to say.
 # Only the owner spends one, by hand (`replenish`): nothing here or anywhere in ak does by itself.
 DRY_FOR = 3600            # how long a refusal that named no time, beside meters that name none
                           # either, parks its provider: long enough that nothing hands the same
@@ -104,6 +105,15 @@ def _normalized(meter, now):
     return {**meter, "elapsed": None if elapsed is None else round(elapsed, 1),
             "pace": None if elapsed is None else round(meter["used"] - elapsed, 1),
             "exhausted": False}
+
+
+def _reported(meters, now):
+    """The meters an adapter's answer reports, each _normalized, and whether it reported one
+    without a name and a numeric used%, which is left out."""
+    meters = meters if isinstance(meters, list) else []
+    read = [_normalized(meter, now) for meter in meters if isinstance(meter, dict)
+            and isinstance(meter.get("name"), str) and _number(meter.get("used")) is not None]
+    return read, len(read) < len(meters)
 
 
 def _resets(harness, account=None, said=None):
@@ -209,17 +219,12 @@ def _probe(cfg, provider, now, account=None):
         # something recognises this response, it is not a response with an age
         out["fetched_at"] = None
         harness_plugin(harness).usage_extra(out, data, config.STATE)
-    for meter in data.get("meters") or []:
-        used = meter.get("used") if isinstance(meter, dict) else None
-        if (not isinstance(meter, dict) or not isinstance(meter.get("name"), str)
-                or _number(used) is None):
-            out["error"] = out["error"] or (f"unknown: {adapter.name} reported a meter without "
-                                            "a name and a numeric used%")
-            continue
-        out["meters"].append(_normalized(meter, now))
-        pace = out["meters"][-1]["pace"]
-        if pace is not None:
-            out["pace"] = pace if out["pace"] is None else max(out["pace"], pace)
+    out["meters"], odd = _reported(data.get("meters"), now)
+    if odd:
+        out["error"] = out["error"] or (f"unknown: {adapter.name} reported a meter without "
+                                        "a name and a numeric used%")
+    out["pace"] = max((meter["pace"] for meter in out["meters"] if meter["pace"] is not None),
+                      default=None)
     if facts.get("none") and not out["error"] and not out["meters"]:
         # No meter is not a failed probe: a harness whose manifest says `[usage] none`
         # reads no budget at all, so the provider is neutral -- but only when the probe
@@ -490,7 +495,6 @@ def _keep_probed(provider, account, cached, fresh):
 def _keep(provider, account, meters, at, source):
     """One fresh reading's meters, each a row of history.db's `meter_readings`, with the plan
     its login is on as state/logins.json names it now and the scope its provider names."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     account = account or config.DEFAULT_ACCOUNT
     plan = logins.whose(provider, account)[1]
     history.keep_readings([(provider, account, meter["name"], meter["used"],
@@ -498,11 +502,11 @@ def _keep(provider, account, meters, at, source):
                             at, source, plan, _text(meter.get("scope"))) for meter in meters])
 
 
-def _adapter_json(harness, verb, timeout, account=None):
-    """The one JSON object `<adapter> <verb>` printed about that account, the usual login for
-    none whatever the caller's was, or None when it said nothing usable."""
+def _adapter_json(harness, verb, timeout, account=None, words=()):
+    """The one JSON object `<adapter> <verb> <words>` printed about that account, the usual
+    login for none whatever the caller's was, or None when it said nothing usable."""
     try:
-        proc = config.run_adapter([str(config.adapter(harness)), verb], timeout=timeout,
+        proc = config.run_adapter([str(config.adapter(harness)), verb, *words], timeout=timeout,
                                   env={**os.environ, **config.account_env(account)})
         data = json.loads(proc.stdout)
     except (config.Error, subprocess.TimeoutExpired, OSError, ValueError):
@@ -989,9 +993,9 @@ def harness_unready(harness, accounts=(None,), provider=None):
     return None
 
 
-def replenish(cfg, provider, account=None):
-    """Spend one usage-limit reset on this provider -- or that account of it -- and read its
-    meters back.
+def replenish(cfg, provider, account=None, kind=None):
+    """Spend one usage-limit reset on this provider -- or that account of it -- of `kind` where
+    its reading names kinds (`reset_kinds`), and read its meters back.
 
     The owner's act, by hand, and only theirs: nothing in ak calls it by itself.
     A worker or a seat refused for quota waits for its window or moves to another account,
@@ -1017,39 +1021,41 @@ def replenish(cfg, provider, account=None):
     harness = prov.get("harness")
     if not harness_plugin(harness).usage["reset"] or not available or available <= 0:
         return False, available or 0.0
-    result = _adapter_json(harness, "reset", 60, prov.get("account")) or {}
+    result = _adapter_json(harness, "reset", 60, prov.get("account"),
+                           words=[kind] if kind else []) or {}
     if result.get("code") != "reset":
         return False, available
     spent_at = time.time()
-    # The re-read keeps the host's cadence like any other.  Inside it the reading in hand is of
-    # the window the credit just replaced, so it goes, as a rolled window does (`_reread`),
-    # and a mark it carried is lifted (`_carry_mark`).  The week that replaced it is the one
-    # the spend itself read back, when it could: `reset` asks the meters once the credit has
-    # gone, so that is a fresh reading and no second request, and what a refused probe wrote
-    # down about the old one (`_kept`) goes with it.  Without it the week waits for the next
-    # probe.  Where the provider lists accounts the credit went to one of them, the one a turn
-    # runs on next whose reading the provider's own fields are (`_gate_flags`), and that
-    # account's record is the one refilled.
+    # The reading in hand is of the window the credit just replaced, so it goes, as a rolled
+    # window does (`_reread`), and a mark it carried is lifted (`_carry_mark`).  What replaced
+    # it is what the spend itself read back: `reset` asks the meters once the credit has gone,
+    # so that is a fresh reading and no second request, and what a refused probe wrote down
+    # about the old one (`_kept`) goes with it.  That is every meter where it answers `meters`,
+    # as a probe reads them -- a reset of one model's own cap moves the week too -- and
+    # otherwise the week alone; without either the meters wait for the next probe.  No probe
+    # follows the spend here: one refused would put back the reading the credit replaced.
+    # Where the provider lists accounts the credit went to one of them, the one a turn runs on
+    # next whose reading the provider's own fields are (`_gate_flags`), and that account's
+    # record is the one refilled.
     account = prov.get("account")
-    weekly = _weekly(prov)
-    used, until = result.get("weekly_used"), result.get("resets_at")
-    week = ([_normalized({**weekly, "used": used, "resets_at": until}, now)]
-            if weekly and _number(used) is not None and _number(until) is not None else [])
+    back, _ = _reported(result.get("meters"), now)
+    weekly, used, until = _weekly(prov), result.get("weekly_used"), result.get("resets_at")
+    if not back and weekly and _number(used) is not None and _number(until) is not None:
+        back = [_normalized({**weekly, "used": used, "resets_at": until}, now)]
     kept = {key: value for key, value in prov.items()
             if key not in ("accounts", "account", "resets", "reset_kinds")
-            and (not week or key not in ("fetched_at", "probed_meters", "probe_error",
+            and (not back or key not in ("fetched_at", "probed_meters", "probe_error",
                                          "probe_failed_at", "stale_since"))}
-    fresh = _without_past({**kept, "meters": week}
-                          if _cooling(provider, account, _probe_every(cfg, provider))
-                          else _probe_gently(cfg, provider, account),
-                          now, "the adapter")
+    fresh = _without_past({**kept, "meters": back}, now, "the adapter")
+    # The resets left are the ones the spend came back with, by kind where it names them, and
+    # where it names none the kind spent holds one less.
     left = _number(result.get("available"))
     left = max(0.0, available - 1 if left is None else left)
-    # The re-read counts the resets again, and when it cannot -- the credits list is a second
-    # request, free to fail on its own, and inside the cadence there is no re-read -- the count
-    # the spend itself came back with stands, by kind where it names them.
-    if _number(fresh.get("resets")) is None:
-        fresh.update(_reset_counts(left, result.get("reset_kinds")))
+    kinds = result.get("reset_kinds")
+    if not isinstance(kinds, list):
+        kinds = [{**held, "left": held["left"] - 1} if held["kind"] == kind else held
+                 for held in prov.get("reset_kinds") or []]
+    fresh.update(_reset_counts(left, kinds))
     fresh["notes"] = [*(prov.get("notes") or []), f"usage-limit reset applied ({left:.0f} left)"]
     fresh["reset_spent_at"] = spent_at
     # Every mark made before the credit went was a refusal of the week it replaced, one a
@@ -1742,7 +1748,6 @@ def price(cfg, provider, account=None):
     """What `provider`'s login `account` (None, its usual one) costs a month: the `price` on the
     provider's table, in whatever its owner pays in, else the list price of the plan the login
     is on now (state/logins.json) on the `[plans]` of the harness that asks it; or None."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     own = _number(((cfg.get("providers") or {}).get(provider) or {}).get("price"))
     if own is not None:
         return own
@@ -1879,10 +1884,10 @@ def _accounts(cfg, providers):
     for name, prov in providers.items():
         accounts = prov.get("accounts")
         if isinstance(accounts, dict) and accounts:
-            yield from ((config.account_label(cfg, name, account, name), name, record, account)
+            yield from ((config.account_label(cfg, name, account), name, record, account)
                         for account, record in accounts.items())
         else:
-            yield name, name, prov, None
+            yield config.account_label(cfg, name, None), name, prov, None
 
 
 def rows(cfg, providers):
@@ -1893,7 +1898,7 @@ def rows(cfg, providers):
     must say the same thing, `holds` is what that same week of its plan holds at list prices
     and `a month` that login's price (`price`).  On a split allowance they can be different
     meters, which is why the two lines under the table print both.  A provider with several
-    accounts is a row per account, `anthropic II`, each on its own meters and its own plan.
+    accounts is a row per account, `Claude II`, each on its own meters and its own plan.
     """
     now = time.time()
     weeks = plan_weeks(cfg, providers, now)
@@ -1929,16 +1934,14 @@ def review_pair(cfg, providers):
 def render(cfg, providers, order, *, repo=None):
     now = time.time()
     table = [HEADERS] + rows(cfg, providers)
-    widths = [max(len(row[i]) for row in table) for i in range(len(HEADERS))]
+    widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
     if width >= 60 and sum(widths) + len(widths) - 1 > width:
         table[0] = ("provider", "model(s)", "left", "holds", "month", "resets", "elapsed",
                     "session", "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
-        # an account's row keeps its whole name: `anthropic I…` would not say which one it is
-        named = max((terminal.cells(label) for label, name, *_ in _accounts(cfg, providers)
-                     if label != name), default=0)
-        for i, cap in ((1, 14), (0, max(12, named)), (11, 18)):   # model(s), provider, outlook
+        # a subscription keeps its whole name: `Claude I…` would not say which one it is
+        for i, cap in ((1, 14), (11, 18)):   # model(s), outlook
             widths[i] = min(widths[i], cap)
     if sum(widths) + len(widths) - 1 <= width:
         lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip()
@@ -1965,7 +1968,8 @@ def render(cfg, providers, order, *, repo=None):
         scoped, gap = split["scoped"], split["gap"]
         models = [(n, e) for n, e in cfg["models"].items() if e["provider"] == name]
         # the same polarity as the column; the gap stays in points of the week spent
-        lines += [f"{name}: weekly_all {_pct(_left(split['all_used']))} left, "
+        lines += [f"{config.provider_name(cfg, name)}: "
+                  f"weekly_all {_pct(_left(split['all_used']))} left, "
                   f"{scoped['name']} {_pct(_left(scoped['used']))} left, gap {gap:g}"]
         budgets = [(n, model_budget(cfg, n, providers, now)) for n, _ in models]
         if len({value for _, value in budgets}) > 1:
@@ -1984,7 +1988,7 @@ def render(cfg, providers, order, *, repo=None):
         if note and any(not _past(meter, now) for meter in meters):
             lines.append(terminal.styled(f"note: {name} {note}", "dim"))
     # a reset the owner spent, for as long as the meters it went and re-read stay cached
-    lines += [f"{name}: {note}" for name, prov in providers.items()
+    lines += [f"{config.provider_name(cfg, name)}: {note}" for name, prov in providers.items()
               for note in prov.get("notes") or []]
     lines += [f"{name}: {credits_note(prov)}" for name, _, prov, _ in _accounts(cfg, providers)
               if credits_note(prov)]

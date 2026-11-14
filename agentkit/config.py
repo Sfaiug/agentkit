@@ -1292,14 +1292,26 @@ def run_efforts(cfg, record):
 
 def model_name(cfg, name):
     """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
-    running `claude-opus-5-5`, `Nova 7.1` for `claude-nova-7-1` (model_label, off its id alone so
-    no draw waits on a listing).  `name` itself where it is no entry or names no id of its own
-    (`default`: the harness picks).
+    running `claude-opus-5-5`, `Nova 7.1` for `claude-nova-7-1` (model_label, off the entry's own
+    `label` where it has one, model_entry, else its id, so no draw waits on a listing).  `name`
+    itself where it is no entry or names no id of its own (`default`: the harness picks).
     """
     entry = (cfg.get("models") or {}).get(name)
     if not isinstance(entry, dict) or entry.get("model") in (None, "", DEFAULT_MODEL):
         return name
-    return model_label(entry.get("harness") or "", entry["model"])
+    label = entry.get("label")
+    return model_label(entry.get("harness") or "", entry["model"],
+                       label if isinstance(label, str) else "")
+
+
+def model_entry(harness, model, label, **fields):
+    """The [models.*] entry, `fields` beside, that runs that harness's `model`, which its listing
+    names `label`: the listing is at hand only where a model is added, so a label that names it
+    (model_label) otherwise than its id, `LongCat 2.5 Free` for `longcat-2.5-free`, is kept in
+    it."""
+    if model_label(harness, model, label) != model_label(harness, model):
+        fields["label"] = label
+    return {"harness": harness, "model": model, **fields}
 
 
 def model_at(cfg, record, name, role):
@@ -2072,8 +2084,12 @@ def adapter(harness, code=None):
     providers
         a harness that runs any provider it can log in to: an `id<TAB>name<TAB>mode` line each,
         those it can run first with `subscription` or `payg`, the rest with no mode.
-    reset-status / reset
-        optional, where the provider hands out usage-limit resets.
+    reset-status / reset [kind]
+        optional, where the provider hands out usage-limit resets: `reset-status` counts them
+        in `available`; `reset` spends one, of the kind `usage` names where it names kinds,
+        `code` `reset` only where one went, with the resets left in `available` and what it
+        read back after: every meter in `meters` and the count by kind in `reset_kinds`, as
+        `usage` says them, or the week alone in `weekly_used` and `resets_at`.
 
     `usage`, `auth`, `login` and `lend` are told the providers they answer for in
     $AGENTKIT_PROVIDER, space-separated; a harness that runs one provider may ignore it.  Each
@@ -2479,12 +2495,29 @@ def lists(cfg, provider, account):
     return not listed or (account or DEFAULT_ACCOUNT) in listed
 
 
-def account_label(cfg, provider, account, name):
-    """What a person reads for one of a provider's subscriptions: `name`, the provider's own,
-    and for one of several its place in `accounts` in roman numerals -- `Claude II`.  The
-    account's name in `accounts` is ak's own and is never shown; one no longer listed there
-    keeps it, since no place would say which one it is."""
-    listed = accounts(cfg, provider)
+# Each company's own name, for its provider where that names none of its own (provider_name); a
+# model sits under its harness's instead (menu.model_heading).
+NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
+         "google": "Gemini", "mimo": "MiMo"}
+
+
+def provider_name(cfg, provider):
+    """This provider's name wherever ak names it: its own `name` key -- the one its harness
+    gives it, written by `+ add` (`Z.AI Coding Plan`) -- else the company's, else its key
+    capitalised."""
+    entry = cfg["providers"].get(provider)
+    own = entry.get("name") if isinstance(entry, dict) else None
+    return (own.strip() if isinstance(own, str) and own.strip()
+            else NAMES.get(provider, provider.title()))
+
+
+def account_label(cfg, provider, account):
+    """What a person reads for one of a provider's subscriptions, wherever ak names it (a
+    screen, `ak usage`, a page): the provider's name, and for one of several its place in
+    `accounts` in roman numerals -- `Claude II`.  The account's name in `accounts` is ak's own
+    and is never shown; one no longer listed there keeps it, since no place would say which
+    one it is.  The account None is the provider's one login."""
+    name, listed = provider_name(cfg, provider), accounts(cfg, provider)
     if account not in listed:
         return name if account in (None, DEFAULT_ACCOUNT) else f"{name} {account}"
     if len(listed) < 2:

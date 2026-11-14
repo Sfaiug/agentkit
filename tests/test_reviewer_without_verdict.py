@@ -411,6 +411,8 @@ sys.exit(1)
                     "branchProtectionRule": None}}}})
             if args[:2] == ("api", "--paginate"):
                 return 0, "[]"
+            if args == ("api", "repos/fixture/repo/pulls/1"):    # the read for a revert line
+                return 1, "gh: Not Found (HTTP 404)"
             raise AssertionError(f"unexpected gh: {args[:4]}")
 
         with patch.object(gitcall, "gh", side_effect=fake_gh):

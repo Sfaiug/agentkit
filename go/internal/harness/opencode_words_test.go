@@ -60,6 +60,7 @@ func TestOpenCodeReadsAReportedSessionWhereItCanReadItsDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(false) // a database SQLite cannot read is Python's to read
+	record.Set("conversation", "legacy")
 	record.Set("opencode_launch", "../"+token)
 	check(true) // not a receipt token, as Python's path_for decides
 }
@@ -117,5 +118,14 @@ func TestOpenCodeReadsASessionsLastTurnAsPythonDoes(t *testing.T) {
 		if said, ended := reader.RecordedError(run.Fields("opencode_launch", strings.Repeat("c", 32))); said != "" || ended {
 			t.Errorf("%s: another launch's record read this session's", session)
 		}
+	}
+	// a follow whose receipt write failed: the record's session is read, the receipt's never
+	followed := run.Fields("conversation", "ses_Free", "opencode_launch", token)
+	reader, _ := For("opencode").Reconciled("acme", followed)
+	if said, _ := reader.RecordedError(followed); !strings.Contains(said, "provider.free-limit") {
+		t.Errorf("a record that followed to ses_Free read %q", said)
+	}
+	if said, ended := reader.RecordedError(record); said != "" || ended {
+		t.Error("a record that names no session since read the one it followed to")
 	}
 }

@@ -41,7 +41,8 @@ STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is o
 def followup_place(text):
     """The review's site, independent of its wording: the path a follow-up begins with
     (`hand_in.item_text`, relative to the checkout), every character of it, and its line, so
-    `beta app/api.py:1`, `beta*/api.py:1` and `*alpha/api.py:1` are not `alpha...`'s."""
+    `beta app/api.py:1`, `beta*/api.py:1` and `*alpha/api.py:1` are not `alpha...`'s; a path
+    this text cannot carry is refused at hand-in (`hand_in.checked`)."""
     site = re.match(r".+?:\d+\b", text)
     if site:
         return site[0]

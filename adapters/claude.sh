@@ -231,6 +231,8 @@ run)
   # falls back to whatever the seat's own login leaves there, exactly as it always did.
   tok=$(cat "$TOKEN" 2>/dev/null) && [ -n "$tok" ] && export CLAUDE_CODE_OAUTH_TOKEN="$tok"
   if [ -n "$sid" ]; then set -- -p --resume "$sid"; else set -- -p; fi
+  # a turn nobody keeps, run only to read its login's windows (agentkit/usage_turn.py)
+  [ -z "${AGENTKIT_UNKEPT:-}" ] || set -- "$@" --tools "" --no-session-persistence
   # The prompt goes down stdin.
   # shellcheck disable=SC2086 # OWN_RULES_OFF is one NAME=value per word
   env $OWN_RULES_OFF claude "$@" --model "$model" --effort "$effort" --dangerously-skip-permissions \

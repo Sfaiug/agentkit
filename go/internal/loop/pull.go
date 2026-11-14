@@ -162,11 +162,17 @@ func (l *loop) reviewPull() error {
 		}
 		wt, branch = cut.wt, cut.branch
 	}
+	// one round, its verdict posted, never merged; with review off none, and a PASS lands unless the
+	// review was launched with --no-merge, which leaves its suite in the round
+	rounds, noMerge := 1, true
+	if l.alone {
+		rounds, noMerge = 0, repoFrom(record).noMerge
+	}
 	// the target's line, which a PR cannot loosen; else the checkout's
-	tests := gitcall.Suite(wt, targetSHA)
-	body, title := pullTask(l.pull, pull, tests)
+	cmds := pullChecks(gitcall.Suite(wt, targetSHA), !noMerge)
+	body, title := pullTask(l.pull, pull, cmds)
 	path := filepath.Join(l.dir, "task.md")
-	if err := os.WriteFile(path, []byte(fmt.Sprintf("---\nrepo: %s\nrounds: 1\n---\n%s", repo, body)), 0o666); err != nil {
+	if err := os.WriteFile(path, []byte(fmt.Sprintf("---\nrepo: %s\nrounds: %d\n---\n%s", repo, rounds, body)), 0o666); err != nil {
 		return err
 	}
 	_, declared, err := task.Read(path)
@@ -177,8 +183,8 @@ func (l *loop) reviewPull() error {
 	if err := l.save(func(record *run.Object) {
 		run.SetAll(record, "title", title, "task", path, "repo", repo, "scratch", false, "pr", l.pull, "author", pull.Author,
 			"base", "origin/"+pull.Base, "target", pull.Base, "base_sha", baseSHA, "target_sha", targetSHA, "branch", branch,
-			"worktree", wt, "executor", nil, "exec_session", nil, "reviewer", nil, "rounds", 1, "verdict", nil, "finished_at", nil,
-			"round_summaries", []any{}, "findings", "", "merge_method", "squash", "no_merge", true, "merged", false,
+			"worktree", wt, "executor", nil, "exec_session", nil, "reviewer", nil, "rounds", rounds, "verdict", nil, "finished_at", nil,
+			"round_summaries", []any{}, "findings", "", "merge_method", "squash", "no_merge", noMerge, "merged", false,
 			"merge_note", nil, "reported", false, "task_words", words, "task_points", points, "task_checks", len(declared))
 		record.Delete("review")
 	}); err != nil {
@@ -189,19 +195,24 @@ func (l *loop) reviewPull() error {
 	}
 	history.Start(record, l.say)
 	place := pullFrom(record)
-	l.place, l.workspace, l.title, l.budget, l.rnd = place, wt, title, 1, 1
+	l.place, l.workspace, l.title, l.budget, l.rnd = place, wt, title, rounds, 1
 	l.usersAt, l.reviewLines = place.upstream(), numbersOf(record)
+	settle := place.settleVerdict
+	if l.alone {
+		landed := &ownPull{place} // a PASS lands it as a seat's own lands (lands)
+		l.place, settle = landed, landed.settled
+	}
 	l.say(fmt.Sprintf("worktree %s on %s: PR #%s by %s at %s, base origin/%s (%s)", wt, branch, pull.Number, pull.Author, pull.Head[:12], pull.Base, baseSHA[:12]))
 	if err := place.settle(l); err != nil {
 		return err
 	}
-	if tests != "" {
-		l.cmds = []string{tests}
-		l.every, l.once = task.Group(l.cmds)
-	}
+	l.cmds = cmds
+	l.every, l.once = task.Group(cmds)
 	l.body = body + place.rules()
-	if err := l.pickReviewer("no executor: this is a review of somebody else's PR"); err != nil {
-		return err
+	if !l.alone {
+		if err := l.pickReviewer("no executor: this is a review of somebody else's PR"); err != nil {
+			return err
+		}
 	}
 	if err := os.MkdirAll(l.roundDir(), 0o777); err != nil {
 		return err
@@ -214,19 +225,15 @@ func (l *loop) reviewPull() error {
 	if _, err := l.review(summary, ok, text, ""); err != nil {
 		return err
 	}
-	return place.settleVerdict(l, pull)
+	return settle(l, pull)
 }
 
 // pullTask is what a review of somebody else's PR is told to do: its task's body, and its title.
-func pullTask(url string, pull *gh.Pull, tests string) (string, string) {
+func pullTask(url string, pull *gh.Pull, cmds []string) (string, string) {
 	title := fmt.Sprintf("Review PR #%s: %s", pull.Number, pull.Title)
 	said := strings.TrimFunc(pull.Body, config.Space)
 	if said == "" {
 		said = "(no description)"
-	}
-	var cmds []string
-	if tests != "" {
-		cmds = []string{tests}
 	}
 	return fmt.Sprintf("# %s\n\n## Goal\nJudge %s by %s against this repository: its AGENTS.md, README, tests and conventions. "+
 		"Nobody from agentkit executed anything here; the diff is the author's, and the PR states its intent.\n\n"+

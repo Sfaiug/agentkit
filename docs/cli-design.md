@@ -6,9 +6,9 @@ code and tests.
 
 ## Frame
 
-Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit`
-and the screen's name at the left, the clock at the right. Under it comes one dim rule, the
-rows, one blank line, and the key line, always last. On the main screen and on
+Every screen, painted in its theme, has the same frame, a notice's (`note`) too. The header is
+one line: `agentkit` and the screen's name left, the clock right. Under it comes one dim rule,
+the rows, one blank line, and the key line, always last. On the main screen and on
 `c`, the usage sits under the header.
 The rule is ak's one progress indicator. It fills while ak updates itself, and a segment
 glides along it while a screen waits on what it shows. Ctrl-b m's popup over a seat has a
@@ -41,8 +41,8 @@ Words are plain and explain themselves.
 - **Marks:** `●`/`○` pick one, `■`/`□` any; on in the accent, off dim (`terminal.toggle`).
 - **Models:** a model is named in full, its version included: `Opus 5.5`, `gpt-6.1-sol`
   (`config.model_name`).
-- **Subscriptions:** a subscription is named by its provider, with a roman numeral when there
-  are several (`Claude II`), never by its account.
+- **Subscriptions:** a subscription is named by its provider, with a roman numeral among
+  several (`Claude II`), never by key or account (`config.account_label`).
 - **Ages:** ages read `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
 - **Tasks, runs and estimates:** no screen names a task or a run, and none says when work
   will finish.
@@ -114,5 +114,5 @@ Nothing moves off a terminal or under `NO_COLOR`.
 
 ## Other listings
 
-`ak run status`, `ak orch list` and `ak --help` follow the same design: the frame, fixed
-columns, and the same state words.
+`ak run status`, `ak orch list`, `ak usage` and `ak --help` print once, unframed: fixed columns,
+the screens' names, states and colours.

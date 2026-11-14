@@ -3,7 +3,7 @@
 install.sh is at the root of the checkout whose `bin/` holds the program `AK_BIN` names, so the
 build under test installs itself, and `run(home, *args)` runs it with no terminal.  `prepare`
 puts first on its PATH a refusing, logging fake of each tool install.sh sets a host up with
-(sudo, apt-get, dpkg, brew, npm, tailscale, launchctl), beside the Home's own, and a `hostname`
+(sudo, apt-get, dpkg, brew, npm, launchctl), beside the Home's own, and a `hostname`
 that names no server, so no install reaches the machine's packages, tailnet or launch agents.
 
 To install.sh a HOME that is not the account's own is a sandbox, where nothing outside it is
@@ -27,7 +27,7 @@ from .akbin import AK, REFUSE
 
 CHECKOUT = Path(AK).parents[1]
 INSTALL = CHECKOUT / "install.sh"
-HOST = ("sudo", "apt-get", "dpkg", "brew", "npm", "tailscale", "launchctl")
+HOST = ("sudo", "apt-get", "dpkg", "brew", "npm", "launchctl")
 # An empty name for the account: install.sh then reads the account's home as `~`, its HOME.
 ID = '#!/bin/sh\n[ "$1" = -un ] && exit 0\nexec /usr/bin/id "$@"\n'
 CRONTAB = """#!/bin/sh

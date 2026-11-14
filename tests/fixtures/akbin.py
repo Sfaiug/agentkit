@@ -53,11 +53,11 @@ SOCKET = "agentkit-test"    # the tmux server ak's seats are on in every Home
 SYSTEM = ("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin")
 REAL_TMUX = shutil.which("tmux", path=os.pathsep.join(SYSTEM))
 
-# GitHub, the live host, the owner's units and crontab, desktop notices, the network and each
-# harness's own login; with AK_GO_ALONE=1 Python too, as the commit switching ak to Go runs none
-# (tests/test_go_keys.py).
+# GitHub, the live host, the owner's units and crontab, desktop notices, the network, the
+# owner's Tailscale network and each harness's own login; with AK_GO_ALONE=1 Python too, as the
+# commit switching ak to Go runs none (tests/test_go_keys.py).
 REFUSED = ("gh", "ssh", "curl", "systemctl", "systemd-run", "loginctl", "journalctl", "crontab",
-           "notify-send", "claude", "codex", "muse", "grok", "opencode", "agy",
+           "notify-send", "tailscale", "claude", "codex", "muse", "grok", "opencode", "agy",
            *(("python3", "python") if os.environ.get("AK_GO_ALONE") == "1" else ()))
 
 Done = namedtuple("Done", "code out err")

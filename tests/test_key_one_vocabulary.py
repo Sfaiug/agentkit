@@ -1,7 +1,8 @@
 """Every list marks what is on, highlights its row and names its keys the same way, the owner's
 ask of 10 Nov 2026 that ak feel like one app (docs/cli-design.md, Words and Keys): `recommended`
 draws the row the keys are on bold behind a `›` in the accent; on `c` a mark that is on is in
-the accent and one that is off dim; and the company list, where any model may be on, marks one
+the accent and one that is off dim, the orchestrator's build mark too, filled while it builds
+everything as no model is marked to; and the company list, where any model may be on, marks one
 `■` in the accent and one off `□` dim, Space marking it, its key line read as every list's.
 
 Black-box: the program `AK_BIN` names in a terminal of 24-bit colour (tests/fixtures/akterm.py),
@@ -25,14 +26,15 @@ COLOUR = {**{name: value for name, value in ENV.items() if name != "NO_COLOR"},
 
 class OneVocabulary(Opened):
     def walk(self, *steps, **settings):
-        """The menu in colour opened on `c`, the accent and the dim read off it -- its
-        highlight's `›` (terminal.highlight) and its column heads -- then each (text, key) of
-        `steps` pressed once the text shows."""
+        """The menu in colour opened on `c`, the accent, the dim and plain text read off it --
+        its highlight's `›` (terminal.highlight), its column heads and its header's `agentkit` --
+        then each (text, key) of `steps` pressed once the text shows."""
         term = self.menu(env=COLOUR, **settings)
         term.wait("esc leave")
         term.keys("c")
         shown = settled(term, "r recommended")
         self.accent, self.dim = look(shown, "›") - {"1"}, look(shown, "orch", on="builds")
+        self.plain = look(shown, "agentkit")
         self.assertTrue(self.accent and self.dim and self.accent != self.dim, shown)
         for wait, key in steps:
             term.wait(wait)
@@ -42,7 +44,8 @@ class OneVocabulary(Opened):
     def test_recommended_draws_its_row_bold_behind_a_chevron_in_the_accent(self):
         shown = settled(self.walk(("r recommended", "r")), "boards read")
         self.assertEqual(look(shown, "›"), {"1", *self.accent})
-        self.assertEqual(look(shown, "orchestrator  Acme Mid 5 high", on="›"), {"1"})
+        self.assertEqual(look(shown, "orchestrator  Acme Mid 5 high", on="›"),
+                         {"1", *self.plain})
         self.assertEqual([line for line in map(plain, shown) if "▸" in line], [])
 
     def test_c_draws_a_mark_that_is_on_in_the_accent_and_one_that_is_off_dim(self):
@@ -51,6 +54,14 @@ class OneVocabulary(Opened):
         self.assertEqual(look(shown, "●", on="Acme Mid 5"), self.accent)       # it orchestrates
         self.assertEqual(look(shown, "■", on="Crux Flash 1"), self.accent)     # it builds
         self.assertEqual(look(shown, "○", on="Crux Flash 1"), self.dim)
+
+    def test_c_draws_the_build_mark_of_an_orchestrator_building_everything_in_the_accent(self):
+        # Space on Crux Flash 1's builds mark lets the last executor go
+        term = self.walk(("r recommended", "Down"), ("› Bolt 3", "Down"),
+                         ("› Crux Flash 1", "Right"), ("› Crux Flash 1", "Space"))
+        shown = settled(term, lambda text: any(
+            "Acme Mid 5" in line and "■" in line for line in text.split("\n")))
+        self.assertEqual(look(shown, "■", on="Acme Mid 5"), self.accent)
 
     def test_the_company_list_marks_a_model_on_as_any_may_be_and_reads_every_lists_keys(self):
         term = self.walk(("r recommended", "r"), ("boards read", "p"),

@@ -60,6 +60,17 @@ def leaning(root):
     return {lean.name for lean in Path(root, "go/leans").glob("*")}
 
 
+def copy_checkout(to):
+    """The checkout's files but those LEFT_OUT names copied to `to`."""
+    try:
+        shutil.copytree(REPO, to, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
+    except shutil.Error as copied:
+        # What vanished as this copied it was another file's temporary one, a landing's pieces
+        # sharing one checkout: never the checkout's, so nothing a key could miss.
+        if any(os.path.lexists(source) for source, _, _ in copied.args[0]):
+            raise
+
+
 @contextmanager
 def checkout(build):
     """A copy of the checkout without agentkit/ for keys to run in, the program they judge, and
@@ -71,7 +82,7 @@ def checkout(build):
     # In the checkout, as the suite's other sandboxes are: a key keeping its Home under its
     # checkout counts on that lying outside the temporary places a worker's box makes its own.
     with tempfile.TemporaryDirectory(prefix=".ak-test-go-keys-", dir=REPO) as tree:
-        shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
+        copy_checkout(tree)
         program = (Path(tree, "bin/ak") if alone else
                    REPO / named if named else Path(tree, "go/bin/ak"))
         if alone:

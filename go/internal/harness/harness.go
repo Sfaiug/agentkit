@@ -25,8 +25,8 @@ type plugin struct {
 	seatWords   func(words, env []string) []string
 	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int, changed func()) int
 	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error), reconciled func(seat string)) (*run.Object, int)
-	// follows is the conversation an adapter's hook event says the seat's own client went on in,
-	// or keeps (Python's plugin `follow`), nil for none.
+	// follows is the conversation a hook's event says the seat's own client went on in, or keeps
+	// (Python's plugin `follow`), nil for none.
 	follows func(event *run.Object) *Followed
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
@@ -122,7 +122,7 @@ type plugin struct {
 	turnMeters func(out string) []any
 	tokens     func(out string) (float64, bool)
 	// turnCounts is TurnCounts': nil where a turn reports no counts by model and kind.
-	turnCounts func(out string) (any, []Counts, bool)
+	turnCounts func(out string) (any, bool, []Counts, bool)
 	// tokenSources and tokenUsage are TokenSources' and Spends': nil where no reader counts what
 	// its seats spend.
 	tokenSources func(record *run.Object) []string

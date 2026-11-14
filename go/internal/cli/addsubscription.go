@@ -126,7 +126,7 @@ func addProvider(picked menu.Addable, account string, cells []menu.Cell, keyboar
 	if len(listed) == 0 {
 		return "the " + on + " catalog names no model; " + picked.Label + " is not added"
 	}
-	return saved(config.AddProvider(picked.Provider, account, listed[0].ID, listed[0].Efforts, seat.KeepConfigEfforts))
+	return saved(config.AddProvider(picked.Provider, account, listed[0].ID, listed[0].Label, listed[0].Efforts, seat.KeepConfigEfforts))
 }
 
 // installing is `install` where that harness's program is nowhere to be found, else nothing.

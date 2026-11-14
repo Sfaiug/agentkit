@@ -58,9 +58,10 @@ def colours(shown):
     return set(shown) - ATTRIBUTES
 
 
-def colour(shown):
-    """The one colour of a look: none, or a background too, fails the test."""
-    [found] = colours(shown)
+def colour(shown, theme):
+    """The one colour of a look on its theme's background (tests/test_key_a_screen_is_painted.py):
+    none, or another background, fails the test."""
+    [found] = colours(shown) - {role("background", theme, bg)}
     return found
 
 
@@ -122,14 +123,15 @@ class Themes(unittest.TestCase):
 
     def assert_states(self, screen, theme):
         # `●` breathes, so `working` is the word alone
-        self.assertEqual(colour(look(screen, "›")), role("accent", theme))
+        self.assertEqual(colour(look(screen, "›"), theme), role("accent", theme))
         for word, name, seat in (("working", "accent", "acme"), ("! needs you", "warning", "beta"),
                                  ("✓ done", "success", "gamma"), ("○ idle", "dim", "delta"),
                                  ("○ out of usage", "error", "omega")):
             with self.subTest(word):
-                self.assertEqual(colour(look(screen, word, on=seat)), role(name, theme))
+                self.assertEqual(colour(look(screen, word, on=seat), theme), role(name, theme))
         for key in ("↑↓←→", "esc"):
-            self.assertEqual(colour(look(screen, key, on="esc leave")), role("dim", theme))
+            self.assertEqual(colour(look(screen, key, on="esc leave"), theme),
+                             role("dim", theme))
 
     def test_on_a_terminal_that_sets_no_background_each_state_is_its_role_of_black(self):
         self.assert_states(self.screen()[0], BLACK)

@@ -140,7 +140,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, google_cloud, look, machines, open_runs, parsed, record
+from . import done_check, google_cloud, logins, look, machines, open_runs, parsed, record
 from . import warm
 from .harness import load as harness_plugin
 
@@ -160,10 +160,6 @@ STATE_ORDER = ("needs you", "out of usage", "working", "done", "idle")
 # provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
 COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
            "google": "#203B9B", "mimo": "#FB8046"}
-# Each company's own name, on its usage row (a model sits under its harness's, model_heading);
-# any other provider is its own `name` key (provider_name), else its key capitalised.
-NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
-         "google": "Gemini", "mimo": "MiMo"}
 TICK = terminal.TICK     # the longest the main screen waits for a key before drawing itself again
 WALK_EVERY = 60          # seconds one walk of a quiet run answers for: silence is told in hours, so
                          # a minute never shows, however many files a run's sandbox leaves behind
@@ -2649,15 +2645,6 @@ def _note_styled(part):
     return terminal.styled(part, "dim")
 
 
-def provider_name(cfg, name):
-    """This provider's name on every screen: its own `name` key -- the one its harness gives
-    it, written by `+ add` (`Z.AI Coding Plan`) -- else the company's, else its key
-    capitalised."""
-    entry = cfg["providers"].get(name)
-    own = entry.get("name") if isinstance(entry, dict) else None
-    return own.strip() if isinstance(own, str) and own.strip() else NAMES.get(name, name.title())
-
-
 def own_colour(cfg, name):
     """This provider's own colour: its `colour` key, else the shipped one, else the accent."""
     entry = cfg["providers"].get(name)
@@ -2701,11 +2688,9 @@ def usage_rows(cfg):
         top = providers.get(name)
         top = top if isinstance(top, dict) else {}
         found = top.get("accounts") if isinstance(top.get("accounts"), dict) else {}
-        shown = provider_name(cfg, name)
         for account in config.accounts(cfg, name) or [None]:
             rec = top if account is None else found.get(account)
-            rows.append((name, shown if account is None else
-                         config.account_label(cfg, name, account, shown),
+            rows.append((name, config.account_label(cfg, name, account),
                          rec if isinstance(rec, dict) else {}, account))
     return rows
 
@@ -2837,7 +2822,6 @@ def login_notes(rows, now=None):
     """What the line under the grid says of each of `rows`' (`usage_rows`') login while it ends
     within logins.WARN_WITHIN or has ended, `login owner@acme.test ends Mon 26 Oct 04:47 (in 2
     days)`, its meter amber meanwhile; None for the rest."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     now = time.time() if now is None else now
     found = logins.read()
     notes = []
@@ -2997,21 +2981,24 @@ LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6
                                       (*range(0, 201, 25), "no limit"))}
 # What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
 # its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
+# The second is one act for each kind of reset it can spend now, named after it (`spend a
+# Fable reset`), as the owner reads what a press spends before pressing.
 # Its list or line opens lit on the first, where offered, and on nothing else: `spend a reset`
 # spends at once (config_spend_reset), so Enter lands on it only after a move or a click there.
-SUBSCRIPTION_ACTS = (("→ log in again", "log in again"), ("→ spend a reset", "spend a reset"),
+SUBSCRIPTION_ACTS = (("→ log in again", "log in again"), ("→ spend a {}reset", "spend a {}reset"),
                      ("− remove", "- remove"))
 
 
-def act_text(act):
-    """`act`, one of SUBSCRIPTION_ACTS, as this terminal draws it."""
-    return act[0 if terminal.utf8() else 1]
+def act_text(act, kind=None):
+    """`act`, one of SUBSCRIPTION_ACTS, as this terminal draws it, naming `kind` where it is
+    `spend a reset` of one."""
+    return act[0 if terminal.utf8() else 1].format(f"{kind} " if kind else "")
 
 
 def act_word(text):
     """What Enter does on an act, as the key line names it: its text without its glyph, `log in
     again` for `→ log in again`."""
-    return " ".join(word for word in text.split() if word.isalpha())
+    return text.lstrip("→−- ")
 
 
 # What `+ add a subscription` offers each provider the shipped default has as: its company, and
@@ -3745,7 +3732,7 @@ def config_columns(selected, name):
     """The cells the keys stop on along `name`'s row of `c`, in CONFIG_ORDER: each role's mark
     of `selected` and, where it is marked, that role's effort beside it; with no marks, the
     three efforts."""
-    texts = orch.role_texts(selected, name, "●○■□")[0] if selected else "●●●"
+    texts = orch.role_texts(selected, name, "●○■□") if selected else "●●●"
     return tuple(number for number in CONFIG_ORDER
                  if selected and number < 3 or number >= 3 and texts[number - 3] in "●■")
 
@@ -3825,7 +3812,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         lines.append(model_heading(harness))
         for name in (name for name in names if models[name]["harness"] == harness):
             provider = models[name]["provider"]
-            texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
+            texts = orch.role_texts(selected, name, marks) if selected else ()
             note = orch.spent_note(cfg, name, providers) if providers else ""
             shown = model_label(cfg, name, label)
             on = [number for number, (each, *_) in enumerate(subs, 1) if each == provider]
@@ -3850,7 +3837,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                     continue
                 text = texts[number] if number < 3 else efforts[name, number]
                 kind = ("reverse" if at == ("model", name) and number == column else
-                        "dim" if note or text in (marks[1], marks[3]) or builds and number % 3 == 1
+                        "dim" if note or text in (marks[1], marks[3])
                         else "accent" if number < 3 else None)
                 if number >= 3:   # the keys' effort is its word reversed, its cells before it
                     lead = leads[name, number]
@@ -4546,8 +4533,8 @@ def config_add(cfg, keyboard, through):
                 note = f"{', '.join(taken)} runs {model['id']} at {effort} already"
                 continue
             name, before = config.short_name(cfg, model["label"]), copy.deepcopy(cfg)
-            _take_in(cfg, name, {"harness": harness, "model": model["id"], "effort": effort,
-                                 "provider": provider},
+            _take_in(cfg, name, config.model_entry(harness, model["id"], model["label"],
+                                                   effort=effort, provider=provider),
                      next(row for row in listed if row[0] == provider))
             note = _saved(cfg, cfg, before)
             if not note:
@@ -4645,7 +4632,6 @@ def sign_in(cfg, keyboard, picked):
     (`logins.harness`), and the menu back as soon as that ends, one that failed once what it
     said has been read.  One that finished is asked its end at once (`logins.renewed`), so the
     menu comes back with its meter grey.  What to say under the screen, or ""."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     provider, account, label = picked
     if _adapter_verbs(keyboard, logins.harness(cfg, provider), ("login again",), label, account,
                       provider):
@@ -4706,17 +4692,17 @@ def config_add_provider(cfg, keyboard):
     gone = [name for name in shipped.get("providers") or {} if name not in cfg["providers"]]
     labels = _by_label([name for name in gone
                         if hosts.keys().isdisjoint(config.provider_harnesses(shipped, name))],
-                       lambda name: COMPANIES.get(name, NAMES.get(name, name.title())))
+                       lambda name: COMPANIES.get(name, config.NAMES.get(name, name.title())))
     through = {label: harness for harness, label in hosts.items() if label not in labels}
     more = {}
     for text, name in _by_label(list(cfg["providers"]),
-                                lambda name: provider_name(cfg, name)).items():
+                                lambda name: config.provider_name(cfg, name)).items():
         harnesses = config.provider_harnesses(cfg, name)
         if harnesses and config.one_login(harnesses[0]):
             continue                  # _add_subscription's login would be refused
         after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), fresh]
-        more[config.account_label({"providers": {name: {"accounts": after}}}, name, after[-1],
-                                  text)] = (name, after)
+        more[config.account_label({"providers": {name: {"name": text, "accounts": after}}},
+                                  name, after[-1])] = (name, after)
 
     def around(lit):  # the screen the list is drawn on, drawn again after a key or a resize
         terminal.frame("config · add a subscription",
@@ -4762,10 +4748,9 @@ def config_add_provider(cfg, keyboard):
         return f"the {harness} catalog names no model; {picked} is not added"
     model, before = models[0], copy.deepcopy(cfg)
     cfg["providers"][name] = table
-    cfg["models"][first] = {
-        "harness": harness, "model": model["id"],
-        "effort": _nearest(shipped["models"][first].get("effort"), model["efforts"]),
-        "provider": name}
+    cfg["models"][first] = config.model_entry(
+        harness, model["id"], model["label"],
+        effort=_nearest(shipped["models"][first].get("effort"), model["efforts"]), provider=name)
     return _saved(cfg, cfg, before)
 
 
@@ -4780,13 +4765,12 @@ def config_remove_provider(cfg, picked):
     on this machine (_signed_out).  The last provider is refused without asking.  What to say
     under the screen, or "".
     """
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     (name, account, label), title = picked, f"config · {picked[2]}"
     # a provider listing no subscription has its usual login alone
     last = len(config.accounts(cfg, name)) < 2
     if last and len(cfg["providers"]) < 2:
         return "the config needs one provider"
-    shown = provider_name(cfg, name) if last else label
+    shown = config.provider_name(cfg, name) if last else label
     question, means = REMOVE_PROVIDER_ASK if last else REMOVE_SUBSCRIPTION_ASK
 
     def asked(card, keys):
@@ -4828,18 +4812,18 @@ def _signed_out(harness, provider, account, label):
 
 
 @terminal.clicks_its_own
-def config_spend_reset(cfg, picked):
+def config_spend_reset(cfg, picked, kind=None):
     """`→ spend a reset` on a meter or a subscription's row: one usage-limit reset spent,
-    by hand, on `picked`, its subscription as (provider, account, label).  usage.replenish
-    spends it where it still holds one and reads the meters back into the cache, so its meter
-    shows the week that came back; Esc while it is spent lets it finish.  What to say under the
-    matrix: its name and what its cell on the `ak` screen says now (`usage_cells`), `ChatGPT II
-    · 100% left`."""
+    by hand, on `picked`, its subscription as (provider, account, label), of `kind` where its
+    reading names kinds.  usage.replenish spends it where it still holds one and reads the
+    meters back into the cache, so its meter shows the week that came back; Esc while it is
+    spent lets it finish.  What to say under the matrix: its name and what its cell on the `ak`
+    screen says now (`usage_cells`), `ChatGPT II · 100% left`."""
     title = f"config · {picked[2]}"
     name, account, label = picked
     try:
-        spent, _ = waited(lambda: usage.replenish(cfg, name, account=account), title,
-                          doing=f"spending a reset of {label}")
+        spent, _ = waited(lambda: usage.replenish(cfg, name, account=account, kind=kind), title,
+                          doing=f"spending a {kind + ' ' if kind else ''}reset of {label}")
     except Back:
         return ""
     if not spent:
@@ -4853,20 +4837,25 @@ def subscription_acts(cfg, keyboard, number, remove=False):
     """What subscription `number`, from 1 in usage_rows' order, offers, as (text, act) each, an
     act what to say under the screen or "": `log in again` while its own login ends soon or has
     ended (login_notes), where its harness signs it in afresh (sign_in, config.signs_in_again),
-    `spend a reset` while it holds one (config_spend_reset), and with `remove`, `remove`
+    `spend a reset` while it holds one (config_spend_reset) -- where its reading names kinds,
+    `spend a Fable reset` for each it can spend now, in its order -- and with `remove`, `remove`
     (config_remove_provider).  A login the tick finds logged out with no end recorded is told
     by its alert alone: that record is its harness's, which can carry several subscriptions."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     rows = usage_rows(cfg)[number - 1:number]
     name, label, prov, account = rows[0]
     # its label as usage_cells has it, which config_spend_reset reads its week back by
     picked = (name, account, label)
     harness = logins.harness(cfg, name)
-    return [(act_text(text), act) for text, act, offers in (
-        (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, picked), login_notes(rows)[0]
+    kinds = prov.get("reset_kinds")
+    spends = [] if not in_hand(prov) else [None] if not kinds else [
+        kind["kind"] for kind in kinds if kind.get("usable")]
+    return [(act_text(text, kind), act) for text, kind, act, offers in (
+        (SUBSCRIPTION_ACTS[0], None, lambda: sign_in(cfg, keyboard, picked), login_notes(rows)[0]
          and harness and config.signs_in_again(harness, account)),
-        (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
-        (SUBSCRIPTION_ACTS[2], lambda: config_remove_provider(cfg, picked), remove)) if offers]
+        *((SUBSCRIPTION_ACTS[1], kind, lambda kind=kind: config_spend_reset(cfg, picked, kind),
+           True) for kind in spends),
+        (SUBSCRIPTION_ACTS[2], None, lambda: config_remove_provider(cfg, picked), remove))
+        if offers]
 
 
 def meter_acts(cfg, keyboard, number, screen):
@@ -4902,7 +4891,6 @@ def config_subscriptions(cfg, keyboard):
     do (motion.washing), and its line comes up under it as the line under the menu's highlighted
     row does; back from what an act or an add drew, it is drawn as it is.  The act lit (`on`) is
     kept by what it is, so one going from under it lights nothing in its place."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     here, opened, on, top, said = ("sub", 1), None, None, 0, ""
     clock = motion.Clock(page=True)
     while True:
@@ -4921,8 +4909,9 @@ def config_subscriptions(cfg, keyboard):
         body, places, acts, moves = [], {}, {}, []
         for number, ((name, _, prov, account), line) in enumerate(zip(subs, drawn), 1):
             if number == 1 or subs[number - 2][0] != name:
-                body.append(terminal.styled(COMPANIES[name].split(" / ")[0] if name in COMPANIES
-                                            else provider_name(cfg, name), colour(cfg, name)))
+                company = (COMPANIES[name].split(" / ")[0] if name in COMPANIES
+                           else config.provider_name(cfg, name))
+                body.append(terminal.styled(company, colour(cfg, name)))
             held = in_hand(prov)
             beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
             line += terminal.styled(f" · {held}", "dim") if beside else ""
@@ -5245,10 +5234,10 @@ def models_page(cfg, keyboard):
         first = next((cfg["models"][name] for name in on(harness)), {})
         # never a name one taken out here comes back under
         taken = {"models": [*cfg["models"], *(name for kept in gone.values() for name, _ in kept)]}
-        entries = gone.get(key) or [(config.short_name(taken, model["label"]), {
-            "harness": harness, "model": model["id"],
-            "effort": _nearest(first.get("effort", "high"), model["efforts"]),
-            "provider": row[0] if row else first.get("provider", runs[harness])})]
+        entries = gone.get(key) or [(config.short_name(taken, model["label"]), config.model_entry(
+            harness, model["id"], model["label"],
+            effort=_nearest(first.get("effort", "high"), model["efforts"]),
+            provider=row[0] if row else first.get("provider", runs[harness])))]
         if row and key not in gone:
             _take_in(cfg, *entries[0], row)
             tables.setdefault(row[0], copy.deepcopy(cfg["providers"][row[0]]))
@@ -5531,9 +5520,9 @@ def work_words(name, cfg):
 
 def config_machines(cfg):
     """Recorded machines; Enter opens their work marks, and the cloud's monthly cap.  Last,
-    `+ add a machine` takes an ssh address and writes it to config.toml once it answers
-    (machines.add), else says why not, the line making a new machine one it adds under its
-    field (machines.join_line)."""
+    `+ add a machine` takes an ssh address, or with none typed finds those that ran the line
+    making a new machine one it adds (machines.join_line, under its field; machines.found), and
+    writes each to config.toml once it answers (machines.add), else says why not."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def save(key, value):
@@ -5554,23 +5543,29 @@ def config_machines(cfg):
         join = machines.join_line()
 
         def around(line):             # under the field, the line a new machine is added by
-            said = terminal.wrap("Run this on a new Linux machine, then type above the address "
+            said = terminal.wrap("Run this on a new Linux machine, then press Enter for ak to "
+                                 "find it on your Tailscale network, or type above the address "
                                  "it prints:", terminal.layout_width() - 4)
             return draw([line, "", *(terminal.styled(f"    {part}", "dim") for part in said),
                          *terminal.unbroken(f"    {join}")])
         name = terminal.field("    ", "its ssh address: a Host of ~/.ssh/config, a host name or "
                               "user@host", around=around)
-        name = "" if name is None or terminal.is_esc(name) else name.strip()
-        if not name:
+        if name is None or terminal.is_esc(name):
             return ""
+        name = name.strip()
         try:
-            why = waited(lambda: machines.add(name), "config · machines", doing=f"asking {name}")
+            if name:
+                names, why = [name], waited(lambda: machines.add(name), "config · machines",
+                                            doing=f"asking {name}")
+            else:
+                names, why = waited(machines.found, "config · machines",
+                                    doing="asking your Tailscale network")
         except Back:
             return ""
         if why:
             return why
         before = copy.deepcopy(cfg)
-        cfg.setdefault("machines", {})[name] = {}
+        cfg.setdefault("machines", {}).update({name: {} for name in names})
         return _saved(cfg, cfg, before)
 
     def work_page(name):
@@ -6637,7 +6632,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 cell = spot.cell
                 if isinstance(cell, tuple) and cell[0] == "usage":
                     pointing = False          # and opens no line
-                    meter_acts(cfg, keyboard, cell[1], usage_rows(cfg)[cell[1] - 1][1])
+                    # what its act says -- a spend refused among it -- in a notice: this screen
+                    # has no line under it for one
+                    note = meter_acts(cfg, keyboard, cell[1], usage_rows(cfg)[cell[1] - 1][1])
+                    if note:
+                        pause(note)
                     continue
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
@@ -6813,8 +6812,8 @@ def main(argv):
         if arg not in flags:
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] = True
-    if flags["--overlay"]:
-        terminal.inset()                  # inside the border, what the popup asks to be left
+    # painted, and in a popup inside the border what it asks to be left
+    terminal.screens(popup=flags["--overlay"])
     if not flags["--dry-run"]:
         from . import macbridge
         macbridge.start_background()

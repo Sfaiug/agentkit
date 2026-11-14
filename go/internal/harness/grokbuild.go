@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	plugins["grokbuild"] = plugin{auth: grokAuth, lend: grokLend, opens: true, titled: true,
+	plugins["grokbuild"] = plugin{auth: grokAuth, lend: grokLend, opens: true, titled: true, owns: grokOwns, follows: grokFollows,
 		seats: true, looks: true, record: grokRecord, answer: grokAnswer, typed: grokTyped, answered: grokAnswered}
 }
 

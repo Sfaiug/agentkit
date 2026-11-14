@@ -17,18 +17,18 @@ FIRST = ('*" CPUWeight=idle "*) ls {root}/adapters/*.n >/dev/null 2>&1 || : >{ro
 
 
 class RunYieldsTheCpuToALineSCheck(Delivery, unittest.TestCase):
-    # The run's process, then each resume that delivers, asks as it starts.
+    # Idle is asked as the run's process starts and as a delivery ends unmerged: a resume that
+    # delivers starts at the check's weight.
     def test_a_run_is_idle_before_its_first_round_and_again_after_an_unmerged_delivery(self):
         unit = self.deliver(FIRST, moved=True)["scope"]
         self.assertTrue((self.home.root / "first").exists())
         idle, top = weight(unit, "idle"), weight(unit, 10000)
-        self.assertEqual(self.asked(unit), [idle, idle, top, idle, idle, top])
+        self.assertEqual(self.asked(unit), [idle, top, top, idle, top, top])
 
     def test_where_the_manager_refuses_idle_a_run_has_a_runs_weight_and_merges(self):
         unit = self.deliver('*" CPUWeight=idle "*) exit 1 ;; ', moved=True)["scope"]
         idle, run, top = weight(unit, "idle"), weight(unit, 40), weight(unit, 10000)
-        self.assertEqual(self.asked(unit),
-                         [idle, run, idle, run, top, idle, run, idle, run, top])
+        self.assertEqual(self.asked(unit), [idle, run, top, top, idle, run, top, top])
         self.assertEqual(self.warned(), [])
 
 if __name__ == "__main__":

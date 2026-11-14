@@ -5,9 +5,10 @@ import (
 	"strings"
 )
 
-// AccountLabel is what a person reads for one of a provider's subscriptions, Python's
-// config.account_label: name, and for one of several listed its place among them in roman
-// numerals, `acme II`; one no longer listed keeps its own name, as no place says which it is.
+// AccountLabel is one of a provider's subscriptions under the provider's name, as Python's
+// config.account_label and harness.SubscriptionName read it: name, and for one of several listed
+// its place among them in roman numerals, `Acme II`; one no longer listed keeps its own name, as
+// no place says which it is.
 func AccountLabel(listed []string, account, name string) string {
 	at := slices.Index(listed, account)
 	switch {
