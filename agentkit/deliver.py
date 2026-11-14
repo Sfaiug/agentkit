@@ -152,6 +152,13 @@ def pr_body(state):
              f"- {handback.final_check_line(state, cmds)}"]
     if prompts.base_proof_line(state):
         lines.append(f"- {prompts.base_proof_line(state)}")
+    # each row as it ended: a dispute by its `outcome`, ak's replay of a finding by its word
+    found = [f"- round {row['round']} `{row['path']}:{row['line']}` {row['handed']}"
+             + (f", weighed as {row['kind']}" if row["kind"] != row["handed"] else "")
+             + (f": {row['outcome'] or row['replayed']}" if row["outcome"] or row["replayed"] else "")
+             for row in history.run_findings(state["run_id"])]
+    if found:
+        lines += ["", "## Findings", "", *found]
     if state.get("followups"):
         lines += ["", "## Follow-ups", "",
                   *("- " + item.replace("\n", "\n  ") for item in state["followups"])]
