@@ -168,6 +168,19 @@ class SeatMove(Sandbox):
         self.assertEqual((self.record()["orchestrator"], self.record()["account"]),
                          ("fable", "second"))
 
+    def test_a_move_off_a_removed_login_keeps_the_login_a_recovery_put_it_on_meanwhile(self):
+        self.cfg["providers"]["anthropic"]["accounts"] = ["first", "second"]
+        config.update_session(SEAT, account="pro")    # removed: the move plans one listed
+        in_place = orch.switch_in_place
+
+        def recovered(*args, **kwargs):               # before the move's lock is taken
+            config.update_session(SEAT, account="second")
+            return in_place(*args, **kwargs)
+        with patch.object(orch, "_switch_plan", return_value=("", "first")), \
+                patch.object(orch, "switch_in_place", side_effect=recovered):
+            self.assertEqual(self.move("fable"), "")
+        self.assertEqual((self.respawned, self.record()["account"]), ([], "second"))
+
     def test_an_effort_move_in_place_refused_keeps_a_build_effort_saved_meanwhile(self):
         def saved_then_refused(*_a, **_kw):
             config.change_efforts(SEAT, lambda data: {

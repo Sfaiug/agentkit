@@ -23,8 +23,8 @@ class V5AG(unittest.TestCase):
     def kill_procs(self):
         return _v5x.V5X.kill_procs(self)
 
-    def spawn_loop(self, child_argv):
-        return _v5x.V5X.spawn_loop(self, child_argv)
+    def spawn_loop(self, child_argv, **kw):
+        return _v5x.V5X.spawn_loop(self, child_argv, **kw)
 
     def spawn_worker(self, reviewer=False):
         return _v5x.V5X.spawn_worker(self, reviewer=reviewer)
@@ -37,14 +37,13 @@ class V5AG(unittest.TestCase):
 
     def gate_tree(self, pid):
         """The gate child's pids with its live descendant; asserts the tree shape."""
-        pairs = watch.loop_children(pid)
-        self.assertTrue(pairs, "fake loop should have a gate child")
-        child, argv = sorted(pairs, key=lambda pair: pair[0])[0]
+        [(child, argv)] = watch.loop_children(pid)
         self.assertEqual(Path(argv[0]).name, "bash")
         self.assertEqual(argv[1:2], ["-c"], "the gate step must keep its `bash -c` shape")
-        tree = watch.descendants(child)
-        self.assertGreater(len(tree), 1, "the gate shell must hold a live descendant")
-        return [child], tree
+        # bash forks its sleep only after spawn_loop has seen bash itself.
+        _v5x.until(lambda: len(watch.descendants(child)) > 1,
+                   "the gate shell must hold a live descendant")
+        return [child], watch.descendants(child)
 
     def make_run(self, run_id, *args, done_when=None, **kwargs):
         """V5X.make_run plus the recorded done-when limit this change reads."""

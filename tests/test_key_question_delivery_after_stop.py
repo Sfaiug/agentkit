@@ -23,10 +23,11 @@ from fixtures.akseat import FIXTURES, Seat
 
 QUESTION = "Which schema should the acme parser write? Options: v1 · v2"
 TOKEN = "0" * 32
-# each harness's model, its composer, that row empty and holding a draft, and the seat's
-# conversation: Muse's and OpenCode's named by their launch's receipt
+# each harness's model, the row its composer draws a draft on, that row empty and holding a
+# draft, and the seat's conversation: Muse's and OpenCode's named by their launch's receipt
 SEATS = {"muse": ("spark", "❯", "\n❯\n", "\n❯ {}\n", "muse-acme"),
-         "opencode": ("mimo", "┃", '┃  Ask anything… "What is the tech stack of this project?"',
+         "opencode": ("mimo", "┃  Ask anything…",
+                      '┃  Ask anything… "What is the tech stack of this project?"',
                       "┃  {}", "ses_acme")}
 STORES = {"muse": (".local/share/muse/sessions/2026/10/26/muse-acme/session.jsonl", None),
           "opencode": (".local/share/opencode/opencode.db", "CREATE TABLE session_message (id"
@@ -116,10 +117,10 @@ class Seats:
             screen = (FIXTURES / f"{harness}-prompt-pane.txt").read_text().replace(
                 "\n", f"{' ' * 320}\n  {words}\n", 1)
             screen = screen.replace(empty, typed.format(draft)) if draft else screen
-            rows = screen.split("\n")
-            at = max(row for row, text in enumerate(rows) if text.lstrip().startswith(composer))
+            rows, edge = screen.split("\n"), composer.split()[0]
+            at = max(row for row, text in enumerate(rows) if text.lstrip().startswith(edge))
             seat.show(f"{screen.removesuffix(chr(10))}\x1b[{at + 1};"
-                      f"{rows[at].index(composer) + 3}H\n")
+                      f"{rows[at].index(edge) + 3}H\n")
             self.hook(harness, "Stop", background_tasks=[])
         self.assertEqual(self.home.tick().code, 0)
 

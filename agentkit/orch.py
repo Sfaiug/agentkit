@@ -4388,11 +4388,12 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
 
     One computation for the refusal and the launch, so the menu's key path asks each
     login once: installed is read off the filesystem, the seat login off the kept or
-    picked account, the order of accounts off the cache. The same provider keeps its
-    login, and a move within it that `in_place` takes in the running harness asks none;
-    another provider takes the first of its accounts whose seat login passes, in the seat's
-    order, else the default login to be judged below. No answer withholds nothing, the way a
-    turn goes ahead on an `auth` verb that said nothing.
+    picked account, the order of accounts off the cache. The same provider keeps its login
+    while it lists it (`config.lists`), and a move within it that `in_place` takes in the
+    running harness asks none; another provider, or a login it lists no more, takes the first
+    of its accounts whose seat login passes, in the seat's order, else the first of them,
+    judged by what it said. No answer withholds nothing, the way a turn goes ahead on an
+    `auth` verb that said nothing.
     """
     def provider_of(current):
         try:
@@ -4432,20 +4433,17 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
         if record is None:
             return f"session: {name} has no saved models", None
         old_provider, account = provider_of(record["orchestrator"]), record.get("account")
-    if new_provider != old_provider:
-        accounts = config.accounts(cfg, new_provider)
+    if new_provider != old_provider or not config.lists(cfg, new_provider, account):
+        accounts, account = config.accounts(cfg, new_provider), None
         if accounts:
             order = account_order(cfg, model,
                                   providers.get(new_provider, {}).get("accounts") or {})
             for cand in [*order, *(a for a in accounts if a not in order)]:
                 ok, why = harness_plugin(harness).seat_auth(cand)
-                if ok is True:
+                if known is None or ok is True:
                     account, known = cand, (ok, why)
+                if ok is True:
                     break
-            else:
-                account = config.DEFAULT_ACCOUNT
-        else:
-            account = None
     ok, why = known if known is not None else harness_plugin(harness).seat_auth(account)
     if ok is False:
         return f"{model}: {why}", None
@@ -4464,6 +4462,7 @@ def switch_lines(cfg, name, model, effort=None):
     `effort` where that is a line of its own.  None where the move restarts the seat: another
     harness, another provider unless its harness keeps one login a provider (a login is the
     process's, and only such a harness launches every seat on the same: `config.one_login`),
+    a login its provider lists no more (`config.lists`: its process runs signed out),
     that pane ended or gone, no `model` line, a model with no id of its own (`default`: its
     launch names none, so the harness picks), or a move its harness takes only from a launch
     (`switchable`)."""
@@ -4477,6 +4476,7 @@ def switch_lines(cfg, name, model, effort=None):
     pane = harness_pane(name, server)   # no id once it is gone, whatever other window lives on
     if (was["harness"] != entry["harness"]
             or was["provider"] != entry["provider"] and not config.one_login(entry["harness"])
+            or not config.lists(cfg, was["provider"], record.get("account"))
             or "model" not in block or entry["model"] in ("", config.DEFAULT_MODEL)
             or not pane.startswith("%") or tmux_out(
                 "display-message", "-p", "-t", pane, "#{pane_dead}", socket=server) != (0, "0")):
@@ -4615,9 +4615,10 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     old_model = record["orchestrator"]
     if old_model == model and effort is None:
         return ""
-    # A seat moved to another provider makes the account it moved on its home.  Within its
-    # provider a running process keeps the login it has, as its record holds it under the lock:
-    # a recovery made since `_switch_plan` read it is not undone by a move in place.
+    # A seat moved to another provider makes the account it moved on its home, as does one
+    # restarted off a login its provider lists no more (below).  Within its provider a running
+    # process keeps the login it has, as its record holds it under the lock: a recovery made
+    # since `_switch_plan` read it is not undone by a move in place.
     try:
         moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
     except config.Error:
@@ -4672,6 +4673,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
         return _one_line(exc)
+    if not config.lists(cfg, config.model(cfg, model)["provider"], record.get("account")):
+        homed = {"home_account": account}
     from . import notify
     # the conversation it leaves stays the seat's, for its done check to read the owner's words
     # in (`notify.conversations_of`); a restart that fails puts every one of these back
