@@ -231,17 +231,16 @@ func TestMergeChecksLeaveAPassOwedSinceItsProbe(t *testing.T) {
 	}
 }
 
-// A probe Go carries leaves its row before anything is saved: a run.json that cannot be saved
-// after it keeps the row, with the probe's exit, as Python's does, and the tick goes on.
+// A probe Go carries leaves its row before anything is saved, its run's history row alone saying
+// it keeps one: a run.json that can be neither read again nor saved once the probe ended, here
+// made a directory by the probe itself, keeps the row with the probe's exit, as Python's does, and
+// the tick goes on.
 func TestAProbeRowStaysWhenTheRunSaveFails(t *testing.T) {
 	ak, _ := idleHome(t, "")
-	dir := filepath.Join(ak, "runs", "fix-api")
-	put(t, filepath.Join(dir, "run.json"), fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", `+
-		`"merge_sha": "abc", "repo": "/", "health": {"command": "exit 3"}, "deployed": null}`, time.Now().Unix()))
+	path := filepath.Join(ak, "runs", "fix-api", "run.json")
+	put(t, path, fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "merge_sha": "abc", "repo": "/", `+
+		`"health": {"command": "cd \"$HOME/.agentkit/runs/fix-api\" && rm run.json && mkdir run.json; exit 3"}, "deployed": null}`, time.Now().Unix()))
 	older(t, "PRAGMA user_version")
-	if err := os.Mkdir(filepath.Join(dir, "run.tmp"), 0o700); err != nil { // a directory where run.json's save goes
-		t.Fatal(err)
-	}
 	var said bytes.Buffer
 	if err := checking(t, &said).mergeChecks(); err != nil {
 		t.Fatal(err)

@@ -25,13 +25,20 @@ type Checked struct {
 // tree in the run is a re-run.  A run Python keeps no row for keeps none here, and what fails is
 // said on log, never the check's.
 func Check(checked *Checked, command string, asked float64, place string, log func(string)) *Checking {
+	if checked == nil || !recorded(checked.Run) {
+		return &Checking{0, log}
+	}
 	return &Checking{started(checked, command, asked, now(), place, log), log}
 }
 
 // Ran is the row of a check run on this host from asked on and ended in exit, written once it
-// ended: for one whose outcome decides whether its row is Go's to write.
+// ended: for one whose outcome decides whether its row is Go's to write.  Its run's row in
+// history.db alone says whether it keeps one, as Python's _started does, never run.json, which
+// by then the check, or a save after it, may have left unreadable.
 func Ran(checked *Checked, command string, asked float64, exit *int, log func(string)) {
-	(&Checking{started(checked, command, asked, asked, "", log), log}).End(exit)
+	if checked != nil {
+		(&Checking{started(checked, command, asked, asked, "", log), log}).End(exit)
+	}
 }
 
 // A Checking is one check's row as Check wrote it, id 0 for none: a start that did not commit names
@@ -63,11 +70,8 @@ func (r *Checking) change(statement string, values ...any) {
 	}
 }
 
-// started writes a check's row as started at at, and names it.
+// started writes a check's row as started at at, and names it: none where its run has no row.
 func started(checked *Checked, command string, asked, at float64, place string, log func(string)) int64 {
-	if checked == nil || !recorded(checked.Run) {
-		return 0
-	}
 	if place == "" {
 		place, _ = os.Hostname()
 	}
