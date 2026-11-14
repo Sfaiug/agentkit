@@ -2072,8 +2072,12 @@ def adapter(harness, code=None):
     providers
         a harness that runs any provider it can log in to: an `id<TAB>name<TAB>mode` line each,
         those it can run first with `subscription` or `payg`, the rest with no mode.
-    reset-status / reset
-        optional, where the provider hands out usage-limit resets.
+    reset-status / reset [kind]
+        optional, where the provider hands out usage-limit resets: `reset-status` counts them
+        in `available`; `reset` spends one, of the kind `usage` names where it names kinds,
+        `code` `reset` only where one went, with the resets left in `available` and what it
+        read back after: every meter in `meters` and the count by kind in `reset_kinds`, as
+        `usage` says them, or the week alone in `weekly_used` and `resets_at`.
 
     `usage`, `auth`, `login` and `lend` are told the providers they answer for in
     $AGENTKIT_PROVIDER, space-separated; a harness that runs one provider may ignore it.  Each

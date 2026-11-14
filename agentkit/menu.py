@@ -2997,21 +2997,24 @@ LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6
                                       (*range(0, 201, 25), "no limit"))}
 # What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
 # its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
+# The second is one act for each kind of reset it can spend now, named after it (`spend a
+# Fable reset`), as the owner reads what a press spends before pressing.
 # Its list or line opens lit on the first, where offered, and on nothing else: `spend a reset`
 # spends at once (config_spend_reset), so Enter lands on it only after a move or a click there.
-SUBSCRIPTION_ACTS = (("→ log in again", "log in again"), ("→ spend a reset", "spend a reset"),
+SUBSCRIPTION_ACTS = (("→ log in again", "log in again"), ("→ spend a {}reset", "spend a {}reset"),
                      ("− remove", "- remove"))
 
 
-def act_text(act):
-    """`act`, one of SUBSCRIPTION_ACTS, as this terminal draws it."""
-    return act[0 if terminal.utf8() else 1]
+def act_text(act, kind=None):
+    """`act`, one of SUBSCRIPTION_ACTS, as this terminal draws it, naming `kind` where it is
+    `spend a reset` of one."""
+    return act[0 if terminal.utf8() else 1].format(f"{kind} " if kind else "")
 
 
 def act_word(text):
     """What Enter does on an act, as the key line names it: its text without its glyph, `log in
     again` for `→ log in again`."""
-    return " ".join(word for word in text.split() if word.isalpha())
+    return text.lstrip("→−- ")
 
 
 # What `+ add a subscription` offers each provider the shipped default has as: its company, and
@@ -4828,18 +4831,18 @@ def _signed_out(harness, provider, account, label):
 
 
 @terminal.clicks_its_own
-def config_spend_reset(cfg, picked):
+def config_spend_reset(cfg, picked, kind=None):
     """`→ spend a reset` on a meter or a subscription's row: one usage-limit reset spent,
-    by hand, on `picked`, its subscription as (provider, account, label).  usage.replenish
-    spends it where it still holds one and reads the meters back into the cache, so its meter
-    shows the week that came back; Esc while it is spent lets it finish.  What to say under the
-    matrix: its name and what its cell on the `ak` screen says now (`usage_cells`), `ChatGPT II
-    · 100% left`."""
+    by hand, on `picked`, its subscription as (provider, account, label), of `kind` where its
+    reading names kinds.  usage.replenish spends it where it still holds one and reads the
+    meters back into the cache, so its meter shows the week that came back; Esc while it is
+    spent lets it finish.  What to say under the matrix: its name and what its cell on the `ak`
+    screen says now (`usage_cells`), `ChatGPT II · 100% left`."""
     title = f"config · {picked[2]}"
     name, account, label = picked
     try:
-        spent, _ = waited(lambda: usage.replenish(cfg, name, account=account), title,
-                          doing=f"spending a reset of {label}")
+        spent, _ = waited(lambda: usage.replenish(cfg, name, account=account, kind=kind), title,
+                          doing=f"spending a {kind + ' ' if kind else ''}reset of {label}")
     except Back:
         return ""
     if not spent:
@@ -4853,7 +4856,8 @@ def subscription_acts(cfg, keyboard, number, remove=False):
     """What subscription `number`, from 1 in usage_rows' order, offers, as (text, act) each, an
     act what to say under the screen or "": `log in again` while its own login ends soon or has
     ended (login_notes), where its harness signs it in afresh (sign_in, config.signs_in_again),
-    `spend a reset` while it holds one (config_spend_reset), and with `remove`, `remove`
+    `spend a reset` while it holds one (config_spend_reset) -- where its reading names kinds,
+    `spend a Fable reset` for each it can spend now, in its order -- and with `remove`, `remove`
     (config_remove_provider).  A login the tick finds logged out with no end recorded is told
     by its alert alone: that record is its harness's, which can carry several subscriptions."""
     from . import logins    # here, not at the top: logins names subscriptions through the menu
@@ -4862,11 +4866,16 @@ def subscription_acts(cfg, keyboard, number, remove=False):
     # its label as usage_cells has it, which config_spend_reset reads its week back by
     picked = (name, account, label)
     harness = logins.harness(cfg, name)
-    return [(act_text(text), act) for text, act, offers in (
-        (SUBSCRIPTION_ACTS[0], lambda: sign_in(cfg, keyboard, picked), login_notes(rows)[0]
+    kinds = prov.get("reset_kinds")
+    spends = [] if not in_hand(prov) else [None] if not kinds else [
+        kind["kind"] for kind in kinds if kind.get("usable")]
+    return [(act_text(text, kind), act) for text, kind, act, offers in (
+        (SUBSCRIPTION_ACTS[0], None, lambda: sign_in(cfg, keyboard, picked), login_notes(rows)[0]
          and harness and config.signs_in_again(harness, account)),
-        (SUBSCRIPTION_ACTS[1], lambda: config_spend_reset(cfg, picked), in_hand(prov)),
-        (SUBSCRIPTION_ACTS[2], lambda: config_remove_provider(cfg, picked), remove)) if offers]
+        *((SUBSCRIPTION_ACTS[1], kind, lambda kind=kind: config_spend_reset(cfg, picked, kind),
+           True) for kind in spends),
+        (SUBSCRIPTION_ACTS[2], None, lambda: config_remove_provider(cfg, picked), remove))
+        if offers]
 
 
 def meter_acts(cfg, keyboard, number, screen):
@@ -6637,7 +6646,11 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 cell = spot.cell
                 if isinstance(cell, tuple) and cell[0] == "usage":
                     pointing = False          # and opens no line
-                    meter_acts(cfg, keyboard, cell[1], usage_rows(cfg)[cell[1] - 1][1])
+                    # what its act says -- a spend refused among it -- in a notice: this screen
+                    # has no line under it for one
+                    note = meter_acts(cfg, keyboard, cell[1], usage_rows(cfg)[cell[1] - 1][1])
+                    if note:
+                        pause(note)
                     continue
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
