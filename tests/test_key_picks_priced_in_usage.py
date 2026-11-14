@@ -258,6 +258,10 @@ class PicksPricedInUsage(unittest.TestCase):
         self.reviewed(("bolt", "default", 50e6), ("bolt", "second", 20e6))
         self.assertAlmostEqual(self.row("dune", "review", prices={"acme": 200})["cost"],
                                10 * 10 / 52 * (rate(200, 100) + rate(20, 40)) / 2)
+        # removed, Plus is signed out and leaves the mean, though the usage cache keeps it
+        self.providers["bolt"]["accounts"] = ["default"]
+        self.assertAlmostEqual(self.row("dune", "review", prices={"acme": 200})["cost"],
+                               before[0])
 
     def test_money_once_one_measured_provider_has_a_price(self):
         self.assertEqual(self.answer(prices={"crux": 30})["execute"]["cost_unit"], "share")
