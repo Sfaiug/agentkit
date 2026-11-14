@@ -1,4 +1,4 @@
-"""← and → on `r recommended` on `c` move the role `▸` is on to its next cheaper or next better
+"""← and → on `r recommended` on `c` move the highlighted role to its next cheaper or next better
 choice at once, a row no configured model runs being none, and past either end change nothing,
 the owner's design of 5 Nov 2026.  Over a seat its executor becomes that model at the choice's
 effort in its record; its orchestrator asks first, as the move restarts it, `Keep` leaving the
@@ -155,7 +155,7 @@ class ArrowsTake(unittest.TestCase):
                                   and "  × Restart" in lines(screen))
                 self.assertTrue(shown.startswith("agentkit"), shown)
                 self.assertIn("esc back", key_line(shown))
-                self.assertIn("▸ orchestrator", shown)
+                self.assertIn("› orchestrator", shown)
                 self.assertEqual(self.path(SEAT).read_bytes(), before)
                 term.keys("Enter")              # Keep, the answer highlighted
                 term.wait(lambda screen: "orchestrator · three choices" in screen

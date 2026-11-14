@@ -1,8 +1,8 @@
 """`r recommended` on `c` says what each role uses: the row its seat, or [defaults], runs at its
 effort -- the orchestrator's model, else the first mark as the pick ranks them; a board row
 naming no effort, or a harness taking none, that row -- its quality and cost, `≈` before one no
-runs measured, under `quality` and the cost unit.  ↑↓ move `▸`, ⏎ opens that row's why; on
-40 cells each line still shows its quality and cost; `ak models` prints a seat's without `▸`.
+runs measured, under `quality` and the cost unit.  ↑↓ move `›`, ⏎ opens that row's why; on
+40 cells each line still shows its quality and cost; `ak models` prints a seat's without `›`.
 
 Black-box: `AK_BIN` in a terminal and as `ak models`, a fake harness, the boards as
 tests/test_key_role_choices.py writes them and one measured build (test_key_role_cost_from_runs's
@@ -52,8 +52,8 @@ def said(screen):
 
 
 def role_lines(answer, at=None):
-    """Each role's line, `▸` before `at`'s, under the column heads: every role's in week shares."""
-    return ["quality week %", *(" ".join(["▸"] * (role == at) + list(line))
+    """Each role's line, `›` before `at`'s, under the column heads: every role's in week shares."""
+    return ["quality week %", *(" ".join(["›"] * (role == at) + list(line))
                                 for role, line in answer.items())]
 
 
@@ -138,7 +138,7 @@ class ModelsRoleLines(unittest.TestCase):
         screen = said(self.models()[1])
         done = self.home.ak("models", env={**ENV, "COLUMNS": "100"})
         self.assertEqual(done.code, 0, done.err)
-        self.assertEqual(said(done.out), [line.replace("▸ ", "") for line in screen])
+        self.assertEqual(said(done.out), [line.replace("› ", "") for line in screen])
         self.assertEqual(said(done.out), role_lines(NEW_SEATS))
         done = self.home.ak("models", env={**ENV, "COLUMNS": "100", "AGENTKIT_SESSION": "acme-fix"})
         self.assertEqual((done.code, said(done.out)), (0, role_lines(AT_SEAT)), done.err)
