@@ -1057,6 +1057,11 @@ class Harness:
             return hook(Path(out))
         return []
 
+    def status_meters(self, windows):
+        """The meters a seat's status render said of its own account (`watch.hook_meters`)."""
+        hook = self._hook("status_meters")
+        return hook(windows) if hook else []
+
 
 def load(name):
     """The plugin for that harness: its module's hooks where it has them, defaults elsewhere.

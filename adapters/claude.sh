@@ -265,7 +265,8 @@ interactive)
     status=$(jq -c '.statusLine | objects | select(.command | strings | length > 0)' \
                 "$file" 2>/dev/null) && [ -n "$status" ] && break
   done
-  script=$(printf '%q' "$REPO/hooks/claude-status.sh")
+  # the hook reads each render's limits where Claude Code 2.1.322 puts them
+  script="$(printf '%q' "$REPO/hooks/claude-status.sh") rate_limits"
   PINS=$(jq -cn --argjson pins "$PINS" --argjson status "${status:-null}" --arg script "$script" '
     $pins + {statusLine: (if $status then $status | .command = ($script + " | { " + .command + "\n}")
                          else {type: "command", command: ($script + " >/dev/null")} end)}') || exit 2

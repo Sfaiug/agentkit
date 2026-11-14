@@ -2899,6 +2899,47 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     return answer
 
 
+def hook_meters(launched, conversation, account, rendered, *windows):
+    """What a seat's status render carried of its login's limits, where it differs from its
+    conversation's note: a change becomes that login's reading at the render's moment.
+
+    The seat's status hook hands in its login ("" for the usual one), the moment the render
+    began and each window as `<window> <words>`, its jq's words for the numbers.  An idle seat
+    renders its last answer again and again, so the note, state/limits-<conversation>.json, holds
+    each window as `[login, words, moment]`; a window it did not hold is only kept, as its numbers
+    may be as old as the seat's last answer.  Only this changes the note, under an exclusive lock
+    on it from read to write, so windows are judged in the order renders began, whatever order
+    their hand-ins arrive in.  Written in place (a rename would take the lock's file away), in
+    json.dumps's spacing, which the hook matches, and before the reading: a hand-in that dies
+    between the two loses that reading, never shows numbers as newer than they are.
+    """
+    rendered = float(rendered)
+    cfg = config.load()
+    harness, provider = seat_model(cfg, config.resolve_session(launched))
+    fd = os.open(config.STATE / f"limits-{conversation}.json", os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "r+") as note:
+        fcntl.flock(note, fcntl.LOCK_EX)
+        try:
+            held = json.loads(note.read())
+        except ValueError:
+            held = {}
+        changed = {}
+        for window, _, words in (line.partition(" ") for line in windows):
+            was = held.get(window)
+            if was and was[2] >= rendered:
+                continue
+            if was and was[:2] != [account, words]:
+                changed[window] = words
+            held[window] = [account, words, rendered]
+        note.seek(0)
+        note.write(json.dumps(held))
+        note.truncate()
+        note.flush()
+        if harness and changed:
+            usage.record_turn_meters(cfg, provider, orch.harness_plugin(harness).status_meters(
+                changed), account or None, now=rendered)
+
+
 def pane_reads(form):
     """What tmux expands that format to for this pane, or None where it cannot say."""
     here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
