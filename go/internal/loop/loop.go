@@ -33,6 +33,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -132,6 +133,14 @@ func spawn(dir string, detached bool, record *run.Object) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+	}
+	cmd.Env = slices.DeleteFunc(cmd.Environ(), func(pair string) bool {
+		return strings.HasPrefix(pair, "AGENTKIT_RUN_DIR=")
+	})
+	if detached {
+		// the detached launch's own process, as Python's spawn_bg names it: it alone moves to an
+		// install landing while it waits for its slot (launch's pickUp)
+		cmd.Env = append(cmd.Env, "AGENTKIT_RUN_DIR="+dir)
 	}
 	return place(dir, cmd, detached, record)
 }

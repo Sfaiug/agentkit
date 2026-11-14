@@ -20,13 +20,20 @@ import (
 // (slotPoll), asking the decision its launch's first poll asked (decide), and says in its log what holds it,
 // once, and, let in after a gate held it, that it waited.  Behind the first in line, which alone
 // can be let in, it skips its polls, which are count waits, in its waiter where it has one
-// (becomeWaiter).  loop.ErrLeft where Go leaves the wait to Python, nothing of that poll written.
+// (becomeWaiter); else, after each poll that leaves it waiting, it moves to the installed ak where
+// that moved (pickUp).  loop.ErrLeft where Go leaves the wait to Python, nothing of that poll written.
 func waitSlot(ctx context.Context, dir string) error {
 	poll, _ := slotPoll()
 	id := filepath.Base(dir)
 	// back from its waiter, it skipped polls, and said what held it before it went
 	kind, skipped := "", cameBack()
 	announced := skipped
+	on := installed() // the version it begins to wait on, read before any poll can hold it up
+	if skipped && behindFirst(id, poll) {
+		// back only as the install moved: to a waiter on it, or every waiter one move brings back
+		// polls under the lock
+		becomeWaiter(dir, nil)
+	}
 	var record *run.Object // the receipt as its last poll left it
 	for polled := false; ; polled = true {
 		if polled {
@@ -40,6 +47,7 @@ func waitSlot(ctx context.Context, dir string) error {
 				becomeWaiter(dir, record)
 				continue
 			}
+			pickUp(dir, record, on)
 		}
 		slots, err := holdAdmission(ctx)
 		if err != nil {

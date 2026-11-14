@@ -10,15 +10,15 @@ import (
 	"syscall"
 	"time"
 
-	"agentkit/internal/loop"
 	"agentkit/internal/run"
 )
 
 // A run behind the first in line for its slot, who alone can be let in, waits in a process holding
 // next to no memory, as Python's waiter: its driver execs this program again as its waiter, keeping
-// its pid and so its receipt and its place in line.  The waiter reads only runs/.slots.queue, opens
-// no SQLite, and execs the driver back once the run is no longer behind the first or the queue is
-// stale for its place (behindFirst).  Without exec (Windows) the run waits in its driver.
+// its pid and so its receipt and its place in line.  The waiter reads only runs/.slots.queue and the
+// installed version, opens no SQLite, and execs the driver back on the installed ak once the run is
+// no longer behind the first, the queue is stale for its place (behindFirst), or the installed
+// version moved (pickUp).  Without exec (Windows) the run waits in its driver.
 
 // waiterName is the waiter's argv[0], which nobody types; the driver's own words follow it, so its
 // command line still names the run's driver (loop.driving).
@@ -34,17 +34,12 @@ const slotWait = "AK_SLOT_WAIT"
 // by default pads it with, 6.9 MB held where 3.8 do: too near a third of the first in line's 23.
 const lean = "disablethp=1"
 
-// becomeWaiter replaces the run's driver with its waiter.  It returns only where it cannot or may
-// not: this process is not the run's own driver, the receipt its last poll read names a checkout of
-// ak's (ak_checkout), whose run stays as it is, as Python's pickup_while_queued keeps it, or the
-// system has no exec.
+// becomeWaiter replaces the run's driver with its waiter on the installed ak.  It returns only where
+// the process may not move (movable), or the system has no exec.
 func becomeWaiter(dir string, record *run.Object) {
-	words := []string{"run", loop.DriveFlag, dir}
-	self, err := os.Executable()
-	if err != nil || !slices.Equal(os.Args[1:], words) || record.Truthy("ak_checkout") {
-		return
+	if movable(dir, record) {
+		syscall.Exec(program, append([]string{waiterName}, os.Args[1:]...), append(debugged(lean), slotWait+"="+os.Getenv("GODEBUG")))
 	}
-	syscall.Exec(self, append([]string{waiterName}, words...), append(debugged(lean), slotWait+"="+os.Getenv("GODEBUG")))
 }
 
 // debugged is this process's environment with GODEBUG that, or none for "".
@@ -72,13 +67,14 @@ func Waiter() (int, bool) {
 	}
 	id := filepath.Base(os.Args[3])
 	poll, _ := slotPoll()
+	on := installed()
 	for behindFirst(id, poll) {
 		time.Sleep(untilTurn(id, poll))
+		if moved(on) != "" {
+			break
+		}
 	}
-	self, err := os.Executable()
-	if err == nil {
-		err = syscall.Exec(self, append([]string{self}, os.Args[1:]...), debugged(os.Getenv(slotWait)))
-	}
+	err := syscall.Exec(program, append([]string{program}, os.Args[1:]...), debugged(os.Getenv(slotWait)))
 	fmt.Fprintln(os.Stderr, "ak: the slot waiter cannot start its driver again:", err)
 	return 1, true
 }
