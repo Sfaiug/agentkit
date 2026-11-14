@@ -7,6 +7,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/logins"
+	"agentkit/internal/matrix"
 	"agentkit/internal/pick"
 	"agentkit/internal/usage"
 )
@@ -32,16 +33,21 @@ func Unstaffed(rules *pick.Rules) string {
 	return rules.Unstaffed(unable())
 }
 
-// unable is why each model cannot run a turn here, each harness asked once for each provider it
-// runs.
+// unable is why each model cannot run a turn here, Python's usage.unready: off in the model list,
+// else what its harness says, each harness asked once for each provider it runs.
 func unable() map[string]string {
 	found := map[string]string{}
 	models, err := config.Models()
 	if err != nil {
 		return found
 	}
+	off, _ := matrix.OffModels() // a list that cannot be read hands the pick over (pick.Within)
 	asked := map[[2]string]string{}
 	for name, model := range models {
+		if off[name] {
+			found[name] = pick.OffList
+			continue
+		}
 		place := [2]string{model.Harness, model.Provider}
 		why, seen := asked[place]
 		if !seen {

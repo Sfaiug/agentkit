@@ -1,8 +1,6 @@
 package matrix
 
 import (
-	"slices"
-
 	"agentkit/internal/config"
 	"agentkit/internal/quality"
 	"agentkit/internal/seat"
@@ -10,10 +8,16 @@ import (
 
 func init() { seat.ModelOff = Off }
 
-// Off is whether ak never uses that configured model (matrix.off): one the config offers running
-// a release the lineup last stored rates that is not on (Compared), so no turn or seat is had on
-// it.  A model running an unlisted release, or none, is not the list's to turn off.
+// Off is whether ak never uses that configured model (OffModels).
 func Off(name string) (bool, error) {
+	off, err := OffModels()
+	return off[name], err
+}
+
+// OffModels is the configured models ak never uses (matrix.off): each the config offers running a
+// release the lineup last stored rates that is not on (Compared), so no turn or seat is had on
+// it.  A model running an unlisted release, or none, is not the list's to turn off.
+func OffModels() (map[string]bool, error) {
 	rows := Stored().Rows
 	listed := map[string]bool{}
 	for _, role := range quality.Roles {
@@ -22,16 +26,12 @@ func Off(name string) (bool, error) {
 		}
 	}
 	offered, err := config.Offered()
-	if err != nil || len(listed) == 0 || !slices.Contains(offered, name) {
-		return false, err
+	if err != nil || len(listed) == 0 {
+		return nil, err
 	}
 	on, _, err := Compared(rows)
 	if err != nil {
-		return false, err
-	}
-	model, err := config.ModelNamed(name)
-	if err != nil {
-		return false, err
+		return nil, err
 	}
 	runs := map[[2]string]string{}
 	for _, row := range rows {
@@ -39,6 +39,14 @@ func Off(name string) (bool, error) {
 			runs[runner] = row.Release
 		}
 	}
-	release := runs[[2]string{model.Harness, model.ID}]
-	return listed[release] && !on[release], nil
+	off := map[string]bool{}
+	for _, name := range offered {
+		model, err := config.ModelNamed(name)
+		if err != nil {
+			return nil, err
+		}
+		release := runs[[2]string{model.Harness, model.ID}]
+		off[name] = listed[release] && !on[release]
+	}
+	return off, nil
 }
