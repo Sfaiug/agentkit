@@ -1,7 +1,7 @@
 """Machines for a standby's keys (tests/fixtures/twohomes.py): two on the one the test runs on,
-alike, each with a host name, a home at the other's path, a /tmp and fakes of its own, and
-each reaching the other by ssh as the key and the tick reach it; a third where a key names one;
-and one a key holds made the other's client, silent or hanging."""
+alike, each with a host name, a home at the other's path, a /tmp, fakes, variables and a cgroup
+root of its own, and each reaching the other by ssh as the key and the tick reach it; a third
+where a key names one; and one a key holds made the other's client, silent or hanging."""
 
 import os
 import sys
@@ -9,7 +9,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import boxable
+from fixtures.akbin import AK, boxable
 from fixtures.twohomes import Machines
 
 REFUSED = "systemctl: not scripted in this test\n"
@@ -61,6 +61,34 @@ class TwoHomes(unittest.TestCase):
         for done in (mini.run("acme-sync"), vm.run("ssh", mini.name, "acme-sync")):
             self.assertEqual(done.out, "acme-sync on acme-mini\n", done.err)
         self.assertNotEqual(vm.run("sh", "-c", "command -v acme-sync").code, 0)
+
+    def each_way(self, machine, other, line):
+        """What the shell `line` prints on `machine`, started each way: by the key, by that
+        machine's tick, in the program's place, and over ssh from `other`."""
+        machine.fake("acme-line", f"#!/bin/sh\n{line}\n")
+        ways = (machine.run("acme-line"),
+                machine.tick(box=("--ro-bind", machine.at / "bin" / "acme-line", AK)),
+                other.run("ssh", machine.name, "acme-line"))
+        return [done.out for done in ways]
+
+    def test_a_variable_set_for_one_machine_reaches_what_runs_there_alone(self):
+        mini, _ = self.machines
+        mini.env["ACME_CLOCK"] = "10000"
+        self.addCleanup(mini.env.pop, "ACME_CLOCK")
+        for machine, other in self.pairs:
+            told = "10000\n" if machine is mini else "unset\n"
+            self.assertEqual(self.each_way(machine, other, 'echo "${ACME_CLOCK-unset}"'),
+                             [told] * 3)
+
+    def test_each_has_a_cgroup_root_of_its_own_an_empty_folder_outside_its_home(self):
+        for machine, other in self.pairs:
+            root = machine.env["AK_CGROUP_ROOT"]
+            self.assertFalse(Path(root).is_relative_to(machine.env["HOME"]), root)
+            slice_ = other.root / "cgroups" / "acme.slice"
+            slice_.mkdir()      # the other's reaches it no more than the host's does
+            seen = self.each_way(machine, other, 'cd "$AK_CGROUP_ROOT" && pwd -P && ls -A')
+            slice_.rmdir()
+            self.assertEqual(seen, [f"{root}\n"] * 3)
 
     def test_a_host_tool_is_refused_on_either_side_of_ssh(self):
         for machine, other in self.pairs:
