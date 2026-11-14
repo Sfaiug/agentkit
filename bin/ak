@@ -71,7 +71,9 @@ def main():
     else:
         sub, rest = argv[0], argv[1:]
     try:
-        if sub != "watch":      # which migrates once it knows it is no client's (agentkit/watch.py)
+        # not the tick, which renames once it knows it is no client's (agentkit/watch.py), nor a
+        # pass, which writes nothing but what it copies (agentkit/standby.py, agentkit/move.py)
+        if sub not in ("watch", "standby", "move"):
             config.migrate_policy()
         if sub not in SUBS + UNLISTED:
             print(f"ak: unknown subcommand {sub!r}; expected one of {', '.join(SUBS)}", file=sys.stderr)
