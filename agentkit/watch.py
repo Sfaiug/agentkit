@@ -5422,6 +5422,44 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
     def low(account):
         return usage.model_low(cfg, model, {provider: readings.get(account, {})})
 
+    def between(takes):
+        """Move the seat to the first login in its order (`orch.account_order`) that `takes`
+        and its harness opens a seat on, between turns: at its prompt, in no turn, holding no
+        background work, its conversation its own.  Whether that settled the seat."""
+        moves = [a for a in orch.account_order(cfg, model, readings, home) if takes(a)]
+        if not (moves and live.get("state") == "at_prompt"
+                and not holding(cfg, name, hook_facts(name))
+                and not _turn_in_flight(harness, live)[0] and orch.resumable(record)):
+            return False
+        if dry_run:
+            log(f"would move {name} to {moves[0]}")
+            return True
+        target = next((a for a in moves
+                       if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
+        if target is None:
+            return False
+
+        def still(pane=None):
+            # The last look, the old harness taking no keys from it on (the owner's choice
+            # of 21 Oct 2026: a prompt from the phone in that instant may be lost), and
+            # still holding no background work a turn ended on since the first.
+            return (between_turns(name, harness, record, live.get("opened_at"), pane)
+                    and not holding(cfg, name, hook_facts(name)))
+        with state_lock():
+            if not still():
+                return True
+            try:
+                _resume_on(cfg, name, log, target, limit_ended(harness, name), still)
+            except (config.Error, OSError) as exc:
+                log(f"WARN {name}: {provider} account reopen failed: {exc}")
+            return True
+
+    if not waiting and not config.lists(cfg, provider, current):
+        # A login its provider lists no more is signed out (`config.lists`): its meters read
+        # empty, and what it said last is moot, so the seat leaves it as it leaves a spent
+        # one, for any login with room.
+        return between(lambda a: not spent(a))
+
     def failure(pane):
         """The error the seat's last turn ended on, its kind, and what starts it again."""
         lines = content_lines(harness, pane_tail(pane))
@@ -5485,35 +5523,8 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log, records=No
         # it is cut off when that account is spent; with every one low it spends its own, and
         # it comes home only to room it would not leave again at once.  None of it cuts off
         # background work: that waits until the account is spent (owner, 24 Oct 2026).
-        moves = [a for a in orch.account_order(cfg, model, readings, home) if a != current
-                 and window(a) and (not window(current) or not low(a)
-                                    and (a == home or low(current)))]
-        if (moves and live.get("state") == "at_prompt" and not holding(cfg, name, hook_facts(name))
-                and not _turn_in_flight(harness, live)[0]
-                and orch.resumable(record)):
-            if dry_run:
-                log(f"would move {name} to {moves[0]}")
-                return True
-            target = next((a for a in moves
-                           if orch.harness_plugin(harness).seat_auth(a)[0] is True), None)
-            if target is None:
-                return False
-            def still(pane=None):
-                # The last look, the old harness taking no keys from it on (the owner's choice
-                # of 21 Oct 2026: a prompt from the phone in that instant may be lost), and
-                # still holding no background work a turn ended on since the first.
-                return (between_turns(name, harness, record, live.get("opened_at"), pane)
-                        and not holding(cfg, name, hook_facts(name)))
-            with state_lock():
-                if not still():
-                    return True
-                try:
-                    _resume_on(cfg, name, log, target, limit_ended(harness, name), still)
-                except (config.Error, OSError) as exc:
-                    log(f"WARN {name}: {provider} account reopen failed: {exc}")
-                    return True
-                return True
-        return False
+        return between(lambda a: a != current and window(a) and (
+            not window(current) or not low(a) and (a == home or low(current))))
     if dry_run:
         log(f"would recover {name} on a {provider} account with room, or wait for its reset")
         return True
@@ -5762,7 +5773,12 @@ def health(cfg, state, dry_run, log):
             # -- back when the pane raised it, so there is no answer on record for it -- be
             # answered at all: without it the verb is never asked, the latch never clears,
             # and that seat keeps a card up and stays out of every recovery path for ever.
-            signature = None if blank else auth_expired_on(harness, tail, name)
+            # A login its provider lists no more was signed out on purpose (menu._signed_out):
+            # nobody is asked to log into it, nor are its words the harness's, as seat_account
+            # moves the seat off it.
+            listed = config.lists(cfg, provider,
+                                  (config.session_records().get(name) or {}).get("account"))
+            signature = None if blank or not listed else auth_expired_on(harness, tail, name)
             if signature or stalls.get(name, {}).get("kind") == "auth":
                 record_auth(state, harness, fresh=bool(signature), now=now, answers=answers)
             # And which login is out for this seat: its own harness, as the verb answered it,
@@ -5779,7 +5795,7 @@ def health(cfg, state, dry_run, log):
                     forget(name, acknowledge=False)
                     sync_seen(state, load_state())
             entry = stalls.get(name, {})
-            if blocked:
+            if blocked and listed:
                 with nullcontext() if dry_run else state_lock():
                     if name in sync_seen(state, load_state()):
                         continue
@@ -5809,7 +5825,7 @@ def health(cfg, state, dry_run, log):
                     if not dry_run:
                         _write_state(state)  # replace an older capacity stop latch before the next sync
                 continue        # auth never reaches the capacity/resume path, even on delivery failure
-            if entry.get("kind") == "auth":
+            if entry.get("kind") == "auth" and listed:
                 latched = entry.get("harness") or harness
                 # A non-answer is not a yes: a latch a verb raised stands until that verb
                 # says otherwise, so an adapter that is briefly unrunnable retracts nothing.
