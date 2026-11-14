@@ -3,11 +3,12 @@ tests/test_key_a_targets_own_red_does_not_hold_its_line.py: merges, prompts and 
 
 The tip fails tests/test_widget.py alone, by name: stacks red in nothing else land over it, on
 helper pieces too, unproven and with no trailer; one red in another test gets a fix naming that
-alone, its fixer told of the target's, and one the tip cannot name is the member's where the
-tip, run whole, fails nothing else.  The repair lands once its stack passes the test, or is the
-culprit, a stack of one tree with it answered apart; a member behind it red in that test waits
-for it, as on the tip alone the target's red fails that test whoever stands there.  Offline: the lander fixture, a shell
-suite, fake launches, wakes and helper, merges by a push.
+alone, its fixer told of the target's even where the fix came first, and one the tip cannot name
+is the member's where the tip, run whole, fails nothing else.  The repair lands once its stack
+passes the test, or is the culprit, a stack of one tree with it answered apart; a member behind
+it red in that test waits for it, as on the tip alone the target's red fails that test whoever
+stands there.  Offline: the lander fixture, a shell suite, fake launches, wakes and helper,
+merges by a push.
 """
 
 from pathlib import Path
@@ -79,6 +80,30 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
         self.assertTrue(deliver.land_from_line(lp, "origin/main", merged))
         return lp.body
 
+    def assert_told(self, directory):
+        """`directory`'s fix is for test_acme.py, its own, and its landing fixer is told the
+        target itself fails test_widget.py (`prompts.excused`)."""
+        fix = self.wait(directory)["fix"]
+        self.assertEqual((fix["tests"], fix["excused"]), ([ACME], [WIDGET]))
+        lp = SimpleNamespace(state=record.read_state(directory), run_dir=directory)
+        with patch.object(roundloop, "execute", side_effect=StopIteration) as fixer, \
+                self.assertRaises(StopIteration):
+            roundloop.landing_fixer(lp, "", "final-fixer")
+        self.assertIn(f"The target itself fails {WIDGET}: not this run's to mend.",
+                      fixer.call_args.args[2])
+
+    def test_a_fix_given_before_the_red_was_found_is_told_of_it(self):
+        first, second, third = self.line()
+        land.check_line(self.turn)      # the target green: the third's own red, behind the two
+        self.assertEqual(self.wait(third)["fix"]["tests"], [ACME])
+        self.advance(**{"broken.txt": "target breakage\n"})
+        for directory in (first, second):   # each delivery meets the moved target and rejoins
+            with record.record(directory) as state:     # (`deliver.rejoin_line`)
+                state["waiting_on"] = {key: state["waiting_on"][key] for key in ("line", "joined")}
+        land.check_line(self.turn)
+        self.assertEqual(self.red()["tests"], [WIDGET])
+        self.assert_told(third)
+
     def test_a_stack_red_only_in_the_targets_named_red_lands_over_it_unproven(self):
         first, second, third = self.line(**{"broken.txt": "target breakage\n"})
         land.check_line(self.turn)
@@ -95,14 +120,7 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
             # no proof of green: no evidence, and the tree holds the target's red should it land
             self.assertIsNone(land.passed(self.turn, wait["land"]))
             self.assertEqual(self.red(wait["land"])["run"], repair.name)
-        fix = self.wait(third)["fix"]
-        self.assertEqual((fix["tests"], fix["excused"]), ([ACME], [WIDGET]))
-        lp = SimpleNamespace(state=record.read_state(third), run_dir=third)
-        with patch.object(roundloop, "execute", side_effect=StopIteration) as fixer, \
-                self.assertRaises(StopIteration):
-            roundloop.landing_fixer(lp, "", "final-fixer")
-        self.assertIn(f"The target itself fails {WIDGET}: not this run's to mend.",
-                      fixer.call_args.args[2])
+        self.assert_told(third)
         # merged without the trailer, the line still over the red on each tree it lands
         for directory in (first, second):
             self.assertNotIn("Suite-Passed-Tree", self.deliver(directory))
