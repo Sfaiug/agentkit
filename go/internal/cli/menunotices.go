@@ -2,22 +2,36 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lock"
 	"agentkit/internal/terminal"
 )
 
+// menuNotices is what jobs left the screen, Python's orch.job_notices: an update's result, then
+// the lines orch.leave_notice appends to notices, each shown once. The result is removed; notices
+// is emptied under the lock leave_notice writes under, so a line being left is taken whole or on
+// the next turn, and is never made.
 func menuNotices() []string {
-	path := filepath.Join(config.Home(), "state", "update-result")
-	data, err := os.ReadFile(path)
-	if err != nil || os.Remove(path) != nil {
-		return nil
+	state := filepath.Join(config.Home(), "state")
+	var text []byte
+	result := filepath.Join(state, "update-result")
+	if data, err := os.ReadFile(result); err == nil && os.Remove(result) == nil {
+		text = data
+	}
+	if notices, err := lock.Edit(filepath.Join(state, "notices")); err == nil {
+		if data, err := io.ReadAll(notices); err == nil {
+			text = append(text, data...)
+			notices.Truncate(0)
+		}
+		notices.Close()
 	}
 	var messages []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for _, line := range strings.Split(string(text), "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			messages = append(messages, line)
 		}
