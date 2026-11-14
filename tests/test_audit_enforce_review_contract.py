@@ -15,7 +15,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, stateful
 from fixtures.landing import landing
-from agentkit import config, gitcall, host, notify, run, staffing, turns, usage, worktrees
+from agentkit import config, gate, gitcall, history, host, notify, run, staffing, turns
+from agentkit import usage, worktrees
 from agentkit import record
 
 
@@ -44,6 +45,12 @@ class ReviewContract(unittest.TestCase):
             # skips the slot gate
             "AK_RUN_DEPTH": "0", "REVIEW_FIXTURE": str(self.root)}))
         os.environ.pop("AK_MAX_RUNS", None)
+        # Each launch takes the slot gate, on the readings below and with no run's peak on
+        # record, as where smoke runs this file.  One that follows another within the gate's
+        # poll then waits it out for steady readings, and the sleep patched below passes no
+        # time: at thirty seconds this file spun eight minutes there (14 Nov 2026).
+        self.stack.enter_context(patch.object(history, "recent_peak_rss_mb", return_value=None))
+        self.stack.enter_context(patch.object(gate, "SLOT_POLL", .05))
         config.ensure_dirs()
         self.cfg = config.load()
         self.bin = self.root / "bin"
@@ -302,6 +309,8 @@ sys.exit(row["code"])
                     self.assertEqual(state["reviewer"], "fable")
                     if reviewer in ("astra", "opus"):
                         self.assertEqual(self.calls()[-1]["session"], [])
+        # nor at the slot gate, launch after launch: only a child's exit is polled for
+        self.assertEqual([c for c in self.sleep.call_args_list if c.args and c.args[0] > 0.05], [])
 
     def test_saved_success_skips_workers_but_mismatched_evidence_does_not(self):
         code, directory, state = self.launch("--exec", "opus", "--review", "astra")
