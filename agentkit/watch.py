@@ -816,7 +816,8 @@ def continue_turns(cfg, log, accounts=False, names=None):
 
 
 def finish_own_lines(cfg, log):
-    """Finish a fixed ak line left in its composer, even after its retries were spent.
+    """Finish a fixed ak line, or one ak typed into the seat's conversation (`own_line`), left in
+    its composer, even after its retries were spent.
 
     The screen decides, without a mark: only that line alone gets its locked Enter.  A seat's
     `continue_turns` mark is the one exception: its line, a handover's too, was typed past an
@@ -836,7 +837,7 @@ def finish_own_lines(cfg, log):
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
         for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
-                     key):
+                     key, own_line(name, harness, session)):
             if not line or composer_holds(name, session, line, cfg, exact=True) != "line":
                 continue
             if (type_checked(session, line, log, harness, pending=True,
@@ -2672,9 +2673,7 @@ def unsent(name, harness, found, session, cfg=None):
             or found.get("state") != "draft"
             or not (seat_read(name).get("usage_wait") or _composer_open(harness, found))):
         return ""
-    # what ak typed there, whole, is its own to send (`composer_holds`), not the owner's
-    last = next(reversed([*entries(config.seat_file("input", name))]), None)
-    if last and composer_holds(name, session, str(last.get("text")), cfg, exact=True) == "line":
+    if own_line(name, harness, session):
         return ""
     return " ".join(str(found.get("evidence") or "").split())
 
@@ -4206,8 +4205,8 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     and another's top goes above the read; or the harness's fold of a line longer than `[screen]
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
-    owner's.  It is also a composer read whole holding that line joined in order with the
-    others ak typed there last (`_joined`): a line drawn late joins the next.
+    owner's.  It is also a composer read whole holding that line joined in order with others
+    ak typed there (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
     scrolled composer, suffix or paste fold is no proof without a delivery mark.  `harness`,
     given, is the one a caller read the seat as, and the composer is read as that one's.
@@ -4236,19 +4235,40 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     # lines drawn joined are ak's only off a composer read whole: owner text can sit above a crop
     read = re.sub(r"\s+", "", "".join(
         (rows if exact else _composer_rows(harness, pane, exact=True)) or ()))
-    return "line" if read and whole in _joined(name, read) else "other"
+    return "line" if read and whole in [re.sub(r"\s+", "", typed)
+                                        for typed in _joined(name, read)] else "other"
+
+
+def own_line(name, harness, session):
+    """A line ak typed there that its composer, read whole, holds alone or joined (`_joined`),
+    else None: ak's to send, never the owner's unsent text.  On 14 Nov 2026 a line its harness
+    never took was back whole in a seat's composer after an idle compaction, eleven lines and a
+    day after ak typed it."""
+    held = re.sub(r"\s+", "", "".join(_composer_rows(harness, pane_text(session), exact=True)
+                                      or ()))
+    return next(reversed(_joined(name, held)), None) if held else None
 
 
 def _joined(name, held):
-    """The lines ak typed into that seat last, whitespace aside, that the composer text `held`
-    is all of joined in order, else none: a harness that draws a line late joins it to the next
-    one ak types there, and both are still ak's to send (22 Oct 2026)."""
-    typed = [re.sub(r"\s+", "", str(sent.get("text"))) for sent in entries(
-        config.seat_file("input", name))]
-    lines = []
-    while typed and len("".join(lines)) < len(held):
-        lines.insert(0, typed.pop())
-    return lines if "".join(lines) == held else []
+    """The lines ak typed one after another into that seat's current conversation that the
+    composer text `held` is all of, whitespace aside, joined in order, else none: one of them,
+    whichever, or several, as a harness that draws a line late joins it to the next one ak types
+    there, and both are still ak's to send (22 Oct 2026).  One typed into a conversation the seat
+    has left is no longer the seat's to be sent."""
+    seat = notify.conversation_of(name)
+    if seat is None:
+        return []
+    plugin, conversation = seat[0], seat[3]
+    typed = [str(sent.get("text")) for sent in entries(config.seat_file("input", name))
+             if sent.get("harness") == plugin.name and plugin.went_into(sent) == conversation]
+    bare = [re.sub(r"\s+", "", line) for line in typed]
+    for end in range(len(bare), 0, -1):     # the latest first
+        start = end
+        while start and len("".join(bare[start:end])) < len(held):
+            start -= 1
+        if "".join(bare[start:end]) == held:
+            return typed[start:end]
+    return []
 
 
 def _composer_parts(chrome, raws, rows, at, stop):
