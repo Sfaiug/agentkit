@@ -1,17 +1,9 @@
 package harness
 
-import (
-	"agentkit/internal/hookfact"
-	"agentkit/internal/run"
-)
+import "agentkit/internal/run"
 
-// grokRecord leaves the default plugin's reconciliation of unissued conversations and all
-// hook facts to Python. A hook arriving after this boundary belongs to the next listing.
-func grokRecord(name string, record *run.Object) (plugin, bool) {
-	own := plugins["grokbuild"]
-	fact := hookfact.Standing(name)
-	ready := (!record.Truthy("conversation") || grokOwns(record, record.Str("conversation"))) &&
-		fact.Event == "" && fact.At == 0 && len(fact.Holds) == 0
-	own.heard = func(string) hookfact.Fact { return fact }
-	return own, ready
+// grokRecord takes a record naming no conversation or one it may resume (grokbuild.py `resumable`),
+// which grokbuild.py `reconcile` leaves as it is, and leaves dropping any other to Python.
+func grokRecord(_ string, record *run.Object) (plugin, bool) {
+	return plugins["grokbuild"], !record.Truthy("conversation") || grokOwns(record, record.Str("conversation"))
 }

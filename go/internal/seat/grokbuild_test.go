@@ -17,6 +17,7 @@ func TestGrokBuildScreenLeavesReconciliationToPython(t *testing.T) {
 		ready                bool
 	}{
 		{"launcher issued", "conv-acme", "launcher", true},
+		{"followed by its hook", "conv-acme", "grokbuild-hook", true},
 		{"not issued", "legacy", nil, false},
 		{"another source", "legacy", "other", false},
 		{"no conversation", nil, nil, true},
@@ -66,21 +67,20 @@ func TestGrokBuildScreenLeavesReconciliationToPython(t *testing.T) {
 	}
 }
 
-func TestGrokBuildHookFactsBelongToTheNextListingAndPython(t *testing.T) {
+func TestGrokBuildHookFactsBelongToTheNextListing(t *testing.T) {
 	for name, late := range map[string]bool{"already reported": false, "reported while publishing": true} {
 		t.Run(name, func(t *testing.T) {
 			home := sandbox(t)
 			write(t, filepath.Join(home, ".agentkit", "config.toml"), grokConfig)
-			record(t, home, "aaa", map[string]any{"id_source": nil})
 			record(t, home, "acme", map[string]any{"orchestrator": "nova", "workers": []string{"nova"}})
 			drawn(t, home, "acme", grokTrust)
 			listing, known := Looking(time.Now())
 			if !known {
 				t.Fatal("Go did not read the screen before any hook")
 			}
-			write(t, stateFile(home, "hook-acme.json"), `{"session":"acme","event":"Notification","kind":"permission_prompt","at":1}`)
-			before := stateFiles(t, home)
+			hookWrote(t, home, "Notification", "permission_prompt")
 			if late {
+				before := stateFiles(t, home)
 				lines, found, err := listing.Explain("acme", time.Now())
 				if err != nil || !found || lines[0] != "acme  needs you" || lines[2] != "  authority: screen  rule: asking.trust" {
 					t.Fatalf("the hook belongs to the next listing: %v, %v, %v", lines, found, err)
@@ -91,13 +91,9 @@ func TestGrokBuildHookFactsBelongToTheNextListingAndPython(t *testing.T) {
 				if stateFiles(t, home)["session-acme.json"] != before["session-acme.json"] {
 					t.Fatal("publishing reconciled the record")
 				}
-				before = stateFiles(t, home)
 			}
-			if _, known := Looking(time.Now()); known {
-				t.Fatal("Go took a Grok Build hook fact")
-			}
-			if !maps.Equal(before, stateFiles(t, home)) {
-				t.Fatal("handing the hook to Python changed state")
+			if lines := explained(t, "acme"); lines[0] != "acme  needs you" || lines[2] != "  authority: hook  rule: Notification/permission_prompt" {
+				t.Fatalf("the next listing did not read the hook: %v", lines)
 			}
 		})
 	}
