@@ -2045,6 +2045,8 @@ def adapter(harness, code=None):
     usage
         one JSON object of meters, `error` set rather than a non-zero exit, and `credits`, the
         bought credits left where the provider has them, in `currency` where they are money.
+        Under `[usage] reset` it may count the resets held in `resets`, by kind in
+        `reset_kinds` (`{"kind", "left", "usable"}` each), and then no `reset-status` is asked.
     auth [seat]
         one line and never a network call: exit 0 with a token, ending `; logged in as <who>`
         where it can tell, or 1 with why not.

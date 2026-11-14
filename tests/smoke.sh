@@ -690,23 +690,24 @@ class SessionState(unittest.TestCase):
                                    ({"meters": [meter(float("nan"))]}, 0, dash("bad reading")),
                                    ({"meters": [meter(float("inf"))]}, 0, dash("bad reading")),
                                    ({"meters": [meter(None)]}, 0, dash("bad reading"))):
-            with self.subTest(data=data, rc=rc), patch.object(usage, "_resets", return_value=0), \
+            with self.subTest(data=data, rc=rc), \
+                    patch.object(usage, "_resets", return_value={"resets": 0.0}), \
                     patch.object(config, "run_adapter", return_value=subprocess.CompletedProcess(
                         [], rc, json.dumps(data))):
                 self.assertEqual(row(usage._probe(self.cfg, "openai", self.now)), expected)
         with patch.object(config, "adapter", side_effect=config.Error("adapter missing")):
             self.assertEqual(row(usage._probe(self.cfg, "openai", self.now)), dash("not reached"))
         for empty in ("", "not JSON"):
-            with patch.object(usage, "_resets", return_value=0), \
+            with patch.object(usage, "_resets", return_value={"resets": 0.0}), \
                     patch.object(config, "run_adapter",
                                  return_value=subprocess.CompletedProcess([], 0, empty)):
                 self.assertEqual(row(usage._probe(self.cfg, "openai", self.now)), dash("not reached"))
         for failure in (OSError("missing adapter"), subprocess.TimeoutExpired("usage", 30)):
-            with patch.object(usage, "_resets", return_value=0), \
+            with patch.object(usage, "_resets", return_value={"resets": 0.0}), \
                     patch.object(config, "run_adapter", side_effect=failure):
                 self.assertEqual(row(usage._probe(self.cfg, "openai", self.now)), dash("not reached"))
         for used, expected in ((0, "100%"), (-10, "100%"), (120, "empty")):
-            with patch.object(usage, "_resets", return_value=0), \
+            with patch.object(usage, "_resets", return_value={"resets": 0.0}), \
                     patch.object(config, "run_adapter", return_value=subprocess.CompletedProcess(
                         [], 0, json.dumps({"meters": [meter(used)]}))):
                 self.assertIn(expected, row(usage._probe(self.cfg, "openai", self.now)))
