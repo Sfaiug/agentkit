@@ -36,7 +36,7 @@ class RoleMarks(Sandbox):
         for number, (model, cells) in places.items():
             if model[0] == "model":
                 self.assertEqual(marks(lines[number]), "")
-                self.assertEqual([cell[2] for cell in cells], [-1, 3, 4, 5])
+                self.assertEqual([cell[2] for cell in cells], [3, 4, 5])     # no label: efforts
         self.assertEqual(path.read_bytes(), before)
         self.assertNotIn("reviewers", self.cfg["defaults"])
 
@@ -193,8 +193,7 @@ class RoleMarks(Sandbox):
                 line, cells = next((line, cells) for line, (row, cells) in places.items()
                                    if row == ("model", name))
                 first, last = next(cell[:2] for cell in cells if cell[2] == column)
-                text = terminal.ANSI.sub("", lines[line])
-                for col in range(first, last + 1):     # its mark is clickable, its padding not
+                for col in range(first, last + 1):     # its mark is its column, all of it lit
                     click = terminal.Key("click", row=line + 3, col=col)
                     keys = [*[terminal.Key("right")] * before, click, terminal.Key("esc")]
                     picked = copy.deepcopy(selected)
@@ -203,8 +202,7 @@ class RoleMarks(Sandbox):
                             redirect_stdout(io.StringIO()):
                         self.assertFalse(menu.config_matrix(self.cfg, None, "abc1234",
                                                             selected=picked, born=True))
-                    self.assertEqual(tuple(picked.values()), tuple(selected.values())
-                                     if text[col - 1].isspace() else expected)
+                    self.assertEqual(tuple(picked.values()), expected)
 
     def test_an_empty_role_falls_back_to_an_allowed_fresh_pair(self):
         for workers, reviewers, expected in (

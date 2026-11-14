@@ -1925,7 +1925,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         at = 0
     # the subscription the pointer is on, of those on the grid; a question under a row has the
     # keys and the rows, and nothing is explained while it asks
-    usage_spots = meter_spots(layout, len(rows), grid) if grid else {}
+    usage_spots = meter_spots(layout, len(rows), grid, meters) if grid else {}
     spot = terminal.Spot() if asked else terminal.pointer_spot(usage_spots)
     pointed = spot.cell and spot.cell[1]
     seats = {info["name"]: info for info in infos}
@@ -2850,15 +2850,18 @@ def login_notes(rows, now=None):
     return notes
 
 
-def meter_spots(width, count, first, rows=False):
+def meter_spots(width, count, first, drawn, rows=False):
     """Where each of `count` subscriptions' meters sits on the grid `usage_lines` draws `width`
-    wide from line `first`: {line: (None, [(first, last, ("usage", number))])}, `number` from
-    1, the columns counted from 1 as the terminal counts; with `rows`, as on `c`, each meter a
-    row of its own (terminal.under), its cell after it again."""
+    wide from line `first`, its lines `drawn`: {line: (None, [(first, last, ("usage",
+    number))])}, `number` from 1, the columns counted from 1 as the terminal counts, from a
+    meter's label to its last word, never its padding (terminal.inked); with `rows`, as on `c`,
+    each meter a row of its own (terminal.under), its cell after it again."""
     columns = usage_columns(width)
-    return {first + line: (None, [(3 + n * (COLUMN + 2), 2 + n * (COLUMN + 2) + COLUMN,
-                                   *(("usage", line * columns + n + 1),) * (1 + rows))
-                                  for n in range(min(columns, count - line * columns))])
+    return {first + line: (None, [(*ink, *(("usage", line * columns + n + 1),) * (1 + rows))
+                                  for n in range(min(columns, count - line * columns))
+                                  for ink in [terminal.inked(drawn[line], 3 + n * (COLUMN + 2),
+                                                             2 + n * (COLUMN + 2) + COLUMN)]
+                                  if ink])
             for line in range(-(-count // columns))}
 
 
@@ -4025,7 +4028,7 @@ def config_meters(cfg, at=None, rows=None, spans=None):
     if not meters:
         return [], {}
     detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
-    return [*meters, detail], meter_spots(width, len(rows), 0, rows=True)
+    return [*meters, detail], meter_spots(width, len(rows), 0, meters, rows=True)
 
 
 def meters_led(meters, body, places, under, keys, moves=()):

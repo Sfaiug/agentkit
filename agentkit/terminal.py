@@ -1291,10 +1291,10 @@ def under(key, spots):
 
     The one place a position is read back to what a screen drew there, for a click and for the
     pointer alike, so what is lit is what a click there acts on, all of it and nothing else: a
-    cell over all its columns, and a row no cell of which a click acts on alone -- a seat, a
-    choice -- from its first column to the layout's last, as its band is drawn (`highlight`).
-    On a row of such cells -- a model's marks on `c` -- the rest, its name too, is on nothing;
-    a cell of None is that row itself, all of its line its other cells leave.
+    cell over all its columns, and a row with no cell a click acts on -- a seat, a choice --
+    from its first column to the layout's last, as its band is drawn (`highlight`).  On a row
+    with such cells -- a model's marks on `c` -- the rest, its name too, is on nothing; a cell
+    of None is that row itself, all of its line its other cells leave.
     """
     what, places = spots.get(key.row, (None, ()))
     for first, last, cell, *own in places:
@@ -1302,6 +1302,17 @@ def under(key, spots):
             return Spot(own[0] if own else what, cell, first, last)
     whole = what is not None and all(isinstance(cell, tuple) for _, _, cell, *_ in places)
     return Spot(what) if whole and key.col <= layout_width() else Spot()
+
+
+def inked(line, first, last):
+    """(first, last), the columns from 1 between `first` and `last` that `line` draws something
+    in, its blank padding off either end; None where it draws nothing there."""
+    ink, at = [], 1
+    for char in ANSI.sub("", line):
+        if not char.isspace():
+            ink += [column for column in range(at, at + _width(char)) if first <= column <= last]
+        at += _width(char)
+    return (ink[0], ink[-1]) if ink else None
 
 
 def pointer():

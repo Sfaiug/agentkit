@@ -76,7 +76,8 @@ Every screen reads the same keys, one key at a time, with no Enter.
   and nothing else, drawn alike by the keys and the pointer (`terminal.selected`). A row acted
   on whole, a seat or a choice, is on it from its first column to the layout's last, each line
   of it; a cell, a mark the width of its column, an act or a key with a cell before and after,
-  and its row then has no band. Below 256 colours a cell is reversed and a row has its `›`.
+  and its row then has no band. Below 256 colours a cell is reversed and a row has its `›`
+  alone; with no colour a mark is bracketed, `[■]`.
 - **Esc:** Esc goes back, and on the main screen it leaves.
 - **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
 - **Digits:** a digit opens that seat.
