@@ -63,6 +63,7 @@ var families = []func(*reads) []Item{
 	(*reads).ephemeral,
 	(*reads).staleWorktrees,
 	(*reads).seatFiles,
+	(*reads).modelReports,
 	(*reads).harnessEntries,
 	(*reads).tmpEntries,
 	(*reads).repoTmpEntries,
@@ -117,6 +118,7 @@ type reads struct {
 	heldRead bool
 	names    *seat.Names
 	holds    func(harness, conversation string) bool // what the seats hold, once asked
+	recorded map[string]bool                         // what the seats' records prove, once asked
 }
 
 func (r *reads) leftovers() map[string]bool {

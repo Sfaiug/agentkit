@@ -114,6 +114,44 @@ func (r *reads) seatGone(path string) (string, bool) {
 	return name, expired(mtime(info), r.now, day)
 }
 
+// modelReports is each report a status render keeps of its conversation, its model and its
+// limits, that no seat's record names (gc.stale_model_reports).
+func (r *reads) modelReports() []Item {
+	var found []Item
+	for _, path := range children(filepath.Join(config.Home(), "state")) {
+		if r.reportStale(path) {
+			found = append(found, Item{"remove", "model-report", path, "no seat names this conversation", takeModelReport(path)})
+		}
+	}
+	return found
+}
+
+// reportStale is whether that is a report of a conversation no seat's record names
+// (gc.model_report_stale).
+func (r *reads) reportStale(path string) bool {
+	name := filepath.Base(path)
+	model, _ := filepath.Match("model-*.json", name)
+	limits, _ := filepath.Match("limits-*.json", name)
+	// a report's name may carry its call's moment after its conversation, whose id has no dot
+	_, conversation, _ := strings.Cut(name, "-")
+	conversation, _, _ = strings.Cut(conversation, ".")
+	return (model || limits) && safe(path) && isFile(path) && !r.named(conversation)
+}
+
+// named is whether a seat's record proves that conversation, the seats read once, and only once
+// a report would go.
+func (r *reads) named(conversation string) bool {
+	if r.recorded == nil {
+		r.recorded = map[string]bool{}
+		for _, path := range config.SeatFiles() {
+			for _, each := range harness.Recorded(orEmpty(r.json(path))) {
+				r.recorded[each] = true
+			}
+		}
+	}
+	return r.recorded[conversation]
+}
+
 // harnessEntries is each harness file whose trust or MCP entries name a gone smoke sandbox or
 // checkout (retention.harness_plan).
 func (r *reads) harnessEntries() []Item {
