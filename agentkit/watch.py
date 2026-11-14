@@ -2883,6 +2883,11 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
         settle_account(cfg, session, lambda _: None)
     answer = announce_state(session, cfg=cfg, look=True, number=number)
+    # The tick's pass for this one seat: what it is owed goes in at the event that ends its
+    # turn or answers its question, not at a tick minutes later, and a move before the
+    # `continue` below, which would begin its next turn on the model it is leaving.
+    if seat_read(name).get("owed_lines"):
+        tell_moves(name, note)
     if stop_enforced(harness):
         from . import menu as menu_mod
         # A completion is already an event, not a suspected stall. The wrapper supplies
@@ -5130,7 +5135,8 @@ def tell_moves(name, log, cfg=None):
     (`switch`): one types the line, the next answers what its harness asks in its composer's
     place, the next reads that composer back and types the next line, so a move is in within
     seconds.  Over once its lines stand as they were for MOVE_STANDS: a harness slower than
-    that, or busy in a turn, is the tick's at its next prompt.  One pass where none is owed."""
+    that, or busy in a turn, has its lines from the look its next event starts (`hook_look`), or
+    the tick.  One pass where none is owed."""
     last = stood = None
     while True:
         tell_owed(name, log, cfg)
