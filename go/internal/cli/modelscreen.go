@@ -66,9 +66,6 @@ func menuModels(title string, c *matrix.Configuration, keyboard *terminal.Keyboa
 		used := c.Uses(answer)
 		view.Answer, view.Uses, view.Models = answer, used, c.Models
 		view.Compared, view.Total, view.Fetched = compared, total, found.Fetched
-		if !view.Carried() {
-			return false
-		}
 		frame := menu.ModelsFrame(s, view)
 		view.Top = frame.Top
 		painter.Write(frame.Lines, s)

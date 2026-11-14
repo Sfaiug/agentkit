@@ -19,9 +19,9 @@ func init() { commands["models"] = modelsAnswer }
 // modelsAnswer answers `ak models` as Python's matrix.main does: the boards, the lineup, each role's
 // answer, priced at what ak's own runs measured, and ak's own run numbers, as JSON with --json
 // beside those measurements, else the models screen's role lines for the seat AGENTKIT_SESSION
-// names where its record reads, else for new seats, and each role's bars.  A home whose own numbers
-// count a run (ownNumbers), whose seat's record Go cannot read, or whose bars Go does not carry
-// (menu.ModelsView.Carried), is left to Python before anything is written.
+// names where its record reads, else for new seats.  A home whose own numbers count a run
+// (ownNumbers), or whose seat's record Go cannot read, is left to Python before anything is
+// written.
 func modelsAnswer(args []string, out, errOut io.Writer) int {
 	fail := func(err error) int {
 		fmt.Fprintf(errOut, "ak models: %s\n", err)
@@ -66,13 +66,9 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(out, run.Encode(whole))
 		return 0
 	}
-	view := menu.ModelsView{Answer: answer, Uses: c.Uses(answer), Models: c.Models, Compared: marked, Total: ours,
-		Fetched: found.Fetched}
-	if !view.Carried() {
-		return notImplemented(errOut, "models")
-	}
 	screen := terminal.For(out)
-	lines := menu.ModelsLines(screen, view)
+	lines := menu.ModelsLines(screen, menu.ModelsView{Answer: answer, Uses: c.Uses(answer), Models: c.Models,
+		Compared: marked, Total: ours, Fetched: found.Fetched})
 	if len(c.Names) > 0 {
 		var own [][]string
 		for _, name := range c.Names {
