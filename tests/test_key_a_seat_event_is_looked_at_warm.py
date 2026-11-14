@@ -1,8 +1,9 @@
 """A seat's event is looked at by a process already warm (`agentkit/looker.py`).
 
 With the warm server up, the hook's look is its looker's fork, on the runs it read: the word is
-published with no run.json of a run at rest opened, nor the runs listed again.  With none up, or
-one older than the install, the same event is looked at cold, reading every run.
+published with no run.json of a run at rest opened, nor the runs listed again.  With none up, the
+same event is looked at cold, reading every run.  A looker older than the install takes no event:
+it goes cold, or to the looker of the server the install's starts.
 
 Black-box: Claude's hooks as ak's adapter registers them, fired as Claude fires them
 (tests/fixtures/hookdrive.py), at a seat of tests/fixtures/akseat.py; the warm server is the
@@ -110,11 +111,11 @@ class Warm(unittest.TestCase):
             line.split("\t") for line in lines)]
 
     def cold(self):
-        """What the hook's clients, and any Python they started, opened or listed."""
+        """What the hook's clients, and any Python they started, opened."""
         clients = {pid for pid, _, event, _ in self.read() if event == "client"}
         self.assertTrue(clients, "the hook asked for a look")
-        return {(event, what) for pid, parent, event, what in self.read()
-                if event != "client" and {pid, parent} & clients}
+        return {what for pid, parent, event, what in self.read()
+                if event == "open" and {pid, parent} & clients}
 
     def forks(self, looker):
         """What each fork of the looker opened or listed, once each has ended."""
@@ -136,15 +137,13 @@ class Warm(unittest.TestCase):
 
     def test_with_no_looker_up_the_event_is_looked_at_cold(self):
         self.prompt()
-        self.assertLessEqual({("open", run) for run in self.resting}, self.cold())
+        self.assertLessEqual(self.resting, self.cold())
 
     def test_a_looker_of_an_older_install_is_not_asked(self):
         looker = self.warm()
         stamp = self.home.write(".agentkit/state/installed-at", str(time.time()))
         self.prompt()
         self.assertLessEqual({what for _, what in self.forks(looker)[1]}, {str(stamp)})
-        # every run read again, as the server's census leaves them unopened
-        self.assertIn(("os.scandir", str(self.runs)), self.cold())
 
 
 if __name__ == "__main__":
