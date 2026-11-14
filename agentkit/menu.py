@@ -3978,11 +3978,14 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 "  " + terminal.cut(row, room - 2))
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
-    parts, first = [[f"  {terminal.pad(THEME[1], wide)} ", []]], 4 + wide
+    parts, first = [[f"  {terminal.pad(THEME[1], wide)} ", []]], 4 + wide    # the values' column
+    if first + 2 + max(map(terminal.cells, themes.NAMES)) > room:   # too wide beside the label:
+        parts, first = [["  " + THEME[1], []], ["   ", []]], 4      # under it, as a value folds
+    lead = first
     for number, (name, theme) in enumerate(themes.NAMES.items()):
         if parts[-1][1] and first + 2 + terminal.cells(name) > room:    # on under the first
-            parts.append([" " * (3 + wide), []])
-            first = 4 + wide
+            parts.append([" " * (lead - 1), []])
+            first = lead
         on = theme == terminal.theme()
         mark, kind = marks[0 if on else 1], ("reverse" if at == THEME and number == column
                                              else "accent" if on else "dim")

@@ -486,6 +486,17 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.saved()["theme"], "black")
         screen.leave()
 
+    def test_theme_s_marks_fold_under_its_label_where_the_values_column_is_too_narrow(self):
+        screen = Screen(self, rows=200, cols=22)
+        lines = screen.frame()
+        self.assertTrue(all(terminal.cells(line) <= 22 for line in lines), lines)
+        number = next(number for number, line in enumerate(lines, 1) if line == "  Theme")
+        self.assertEqual(lines[number], "    ● black   ○ white")
+        screen.click(lines[number].index("white") + 1, number + 1,
+                     lambda lines: "○ black   ● white" in "\n".join(lines))
+        self.assertEqual(screen.saved()["theme"], "white")
+        screen.leave()
+
     def test_enter_on_discord_runs_its_step_and_version_is_no_stop(self):
         screen = Screen(self)
         lines = screen.frame()

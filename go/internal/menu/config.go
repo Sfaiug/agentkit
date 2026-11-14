@@ -295,6 +295,16 @@ func configBody(s terminal.Screen, view ConfigView) []matrixRow {
 				}
 				put(line, len(c.Names)+i, cells)
 			}
+			widest := 0
+			for _, name := range option.Marks {
+				widest = max(widest, terminal.Cells(name))
+			}
+			if terminal.Cells(line)+3+widest > room { // too wide beside the label: under it, as a value folds
+				line = "  " + option.Name
+				done()
+				line, lead = "   ", false
+			}
+			indent := terminal.Cells(line) // the marks' lines start under the first
 			for at, name := range option.Marks {
 				glyph, kind := "○", "dim"
 				if at == option.Marked {
@@ -306,8 +316,8 @@ func configBody(s terminal.Screen, view ConfigView) []matrixRow {
 				first := terminal.Cells(line) + 1
 				if cells != nil && first+2+terminal.Cells(name) > room { // on under the first
 					done()
-					line, cells, lead = strings.Repeat(" ", 3+optionWidth), nil, false
-					first = 4 + optionWidth
+					line, cells, lead = strings.Repeat(" ", indent), nil, false
+					first = indent + 1
 				}
 				line += s.Toggle(glyph, 3, view.Row == len(c.Names)+i && view.Column == at, kind) + name + "  "
 				cells = append(cells, matrixCell{first, first + 2 + terminal.Cells(name), at})
