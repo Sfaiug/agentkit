@@ -27,7 +27,7 @@ var jobUndelivered = []string{"failed", "blocked", "stopped"}
 // Python's to adopt (job_adopt_worker), and for a job that ends at once: each task still to
 // do is one from a receipt before `after:` went with no run kept, which no fresh run may start, so
 // it goes back to its seat blocked (job_legacy_refusal), and the job's line is handed back to the
-// seat that launched it, woken where it sleeps.  `ak run`'s exit status; any other job is Python's
+// seat that launched it, owed it where it is slept.  `ak run`'s exit status; any other job is Python's
 // (ErrPython), before anything is written.
 func ResumeJob(id string, out io.Writer) (int, error) {
 	dir := filepath.Join(job.Jobs(), id)

@@ -176,26 +176,18 @@ func TestARefusedQuestionRevivalKeepsItsDeathAndReportsTheFailure(t *testing.T) 
 	}
 }
 
-func TestQuestionRevivalLeavesOwnerStoppedAndSleepingSeatsAlone(t *testing.T) {
-	for _, kind := range []string{"stopped", "asleep"} {
-		t.Run(kind, func(t *testing.T) {
-			home, _ := questionRecoveryHome(t)
-			if kind == "stopped" {
-				write(t, stateFile(home, "seat-acme.json"), `{"stopped_at":1,"closed_by_owner":true}`)
-			} else {
-				record(t, home, "acme", map[string]any{"asleep": 1})
-			}
-			found, known := Looking(moment)
-			if !known {
-				t.Fatal("seat not readable")
-			}
-			if carried, err := found.ReviveTurns(moment, nil, func(string) {}, io.Discard); !carried || err != nil {
-				t.Fatal(carried, err)
-			}
-			if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) || revivalFile("acme").Truthy("reopened_at") {
-				t.Fatal("an intentional close was revived")
-			}
-		})
+func TestQuestionRevivalLeavesAnOwnerStoppedSeatAlone(t *testing.T) {
+	home, _ := questionRecoveryHome(t)
+	write(t, stateFile(home, "seat-acme.json"), `{"stopped_at":1,"closed_by_owner":true}`)
+	found, known := Looking(moment)
+	if !known {
+		t.Fatal("seat not readable")
+	}
+	if carried, err := found.ReviveTurns(moment, nil, func(string) {}, io.Discard); !carried || err != nil {
+		t.Fatal(carried, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) || revivalFile("acme").Truthy("reopened_at") {
+		t.Fatal("an intentional close was revived")
 	}
 }
 

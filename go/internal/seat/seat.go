@@ -53,7 +53,7 @@ type Seat struct {
 	back                                              any      // when it comes back, out of usage
 	unsent                                            string   // what nobody sent, left in its composer
 	wordFrom                                          []any    // what its word was decided from (watch.word_from), none for one nobody is in
-	asleep                                            bool     // put to sleep since its harness launched (sleep.asleep)
+	asleep                                            bool     // an older ak put it to sleep, and it is not back yet (watch.slept)
 	handBacks                                         int      // its runs' hand-backs waiting on the owner's reopening it
 	home                                              []string // where the menu files it (orch.home_key)
 	follow                                            move     // what its last answer moves in its record
