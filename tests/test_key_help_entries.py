@@ -40,7 +40,7 @@ INTERNAL_PURPOSE = {
     "attach": "the menu",
     "doctor": "show the slice, the tick, the machines, and any model set to an effort it does not take",
     "move": "copy this home to the same path on another machine",
-    "standby": "copy ak's folder from the server to the same path here",
+    "standby": "copy the server's logins, conversations and ak's folder to the same paths here",
 }
 FLAGS = {
     "usage": ("[--json]",),
