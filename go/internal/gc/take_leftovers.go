@@ -99,12 +99,24 @@ func removeEntry(path string) (bool, error) {
 	return !present(path), err
 }
 
-// takeConversation ends a conversation its harness's own way, nil where that way is Python's.
+// takeConversation ends a conversation its harness's own way, with what that harness keeps of it
+// elsewhere, only while it is still stale, no seat holds it, the seats read again now, and each
+// such part is ours, reached through no link and held by nobody (gc.conversation_ends): nil where
+// that way is Python's.
 func takeConversation(store harness.Store, path, conversation string) func(*collection) (bool, error) {
-	if _, ours, err := harness.ConversationParts(store.Harness, path); !ours || err != nil {
+	end, err := harness.ConversationEnd(store.Harness, path)
+	if end == nil || err != nil {
 		return nil
 	}
-	return balking(store.Harness, func() (bool, error) { return endConversation(store, path, conversation) })
+	return balking(store.Harness, func() (bool, error) {
+		err := end(func(parts ...string) bool {
+			r := &reads{now: epoch()}
+			paths := r.every()
+			return r.conversationStale(path, paths, store.Names) != "" && r.free(store.Harness, conversation) &&
+				!slices.ContainsFunc(parts, func(part string) bool { return !safe(part) || busy(part, paths) })
+		}, safe)
+		return !present(path), err
+	})
 }
 
 // takeIdle ends a conversation kept as rows of its harness's database its harness's own way, only
@@ -132,30 +144,6 @@ func balking(name string, end func() (bool, error)) func(*collection) (bool, err
 		}
 		return done, err
 	}
-}
-
-// endConversation takes what the harness keeps of a conversation, then the conversation, only
-// while it is still stale, no seat holds it, the seats read again now, and each part is ours,
-// reached through no link and held by nobody (harness.end_conversation, gc.conversation_ends).
-func endConversation(store harness.Store, path, conversation string) (bool, error) {
-	parts, ours, err := harness.ConversationParts(store.Harness, path)
-	if !ours || err != nil {
-		return false, err
-	}
-	r := &reads{now: epoch()}
-	paths := r.every()
-	if r.conversationStale(path, paths, store.Names) == "" || !r.free(store.Harness, conversation) || slices.ContainsFunc(parts, func(part string) bool {
-		return !safe(part) || busy(part, paths)
-	}) {
-		return false, nil
-	}
-	for _, part := range parts {
-		if _, err := removeEntry(part); err != nil {
-			return false, err
-		}
-	}
-	err = os.Remove(path)
-	return !present(path), err
 }
 
 // takeHarness rewrites a harness's JSON file without the entries naming a gone sandbox or

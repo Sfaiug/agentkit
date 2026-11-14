@@ -69,30 +69,33 @@ func opencodeEnd(session string, ends func(database string) bool) (bool, error) 
 	if err != nil {
 		return false, err
 	}
+	err = ending(argv, env)
+	return err == nil, err
+}
+
+// ending runs a harness's command ending a conversation as Python's subprocess.run runs it with
+// timeout=60 and check=True, nothing read from or kept of what it says: why it failed, said as
+// Python says it.
+func ending(argv, env []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	command := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	command.Env = env
-	if err := command.Run(); err != nil {
-		return false, called(argv, err, ctx.Err() != nil)
+	err := command.Run()
+	if err == nil {
+		return nil
 	}
-	return true, nil
-}
-
-// called is why that command, run with a minute to finish, failed, as Python's subprocess.run
-// says it with check=True.
-func called(argv []string, err error, late bool) error {
 	quoted := make([]string, len(argv))
 	for i, word := range argv {
 		quoted[i] = commandhelp.Quote(word)
 	}
-	command := "Command '[" + strings.Join(quoted, ", ") + "]'"
+	said := "Command '[" + strings.Join(quoted, ", ") + "]'"
 	var exited *exec.ExitError
 	switch {
-	case late:
-		return errors.New(command + " timed out after 60 seconds")
+	case ctx.Err() != nil:
+		return errors.New(said + " timed out after 60 seconds")
 	case errors.As(err, &exited):
-		return fmt.Errorf("%s returned non-zero exit status %d.", command, exited.ExitCode())
+		return fmt.Errorf("%s returned non-zero exit status %d.", said, exited.ExitCode())
 	case errors.Is(err, exec.ErrNotFound):
 		return &fs.PathError{Op: "exec", Path: argv[0], Err: syscall.ENOENT}
 	}
