@@ -7,7 +7,7 @@ recorded and judged afresh, counted with the deaths of the last hour, and a park
 loop's death carries holds that loop alone.  Each case holds whether the tick notices the death
 first or `ak run status` does.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on run records whose loop is a process the test started and reaped, so
-it is certainly gone, under a boot no loop of this host has.
+it is certainly gone, under this boot of the host but at a tick no loop of it has.
 """
 
 import json
@@ -23,6 +23,7 @@ from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import Seat
 
 FIRSTS = ("tick", "status")     # who notices the loop's death first
+BOOT = Path("/proc/sys/kernel/random/boot_id").read_text().strip()    # the host stays up
 
 
 def record(run_dir):
@@ -83,7 +84,7 @@ class ADeathIsOfTheLoopItEnded(unittest.TestCase):
                   for death in deaths]
         cls.home.write(f".agentkit/runs/{run_id}/run.json", {
             "run_id": run_id, "title": name, "state": state, "pid": pid,
-            "process_identity": {"boot": "acme-boot", "ticks": 0, "started_at": started},
+            "process_identity": {"boot": BOOT, "ticks": 0, "started_at": started},
             "started_at": cls.now - 6000, "step": "executor", "rounds": 3,
             "worktree": str(worktree), "deaths": deaths, **fields})
         cls.runs[name] = {"dir": cls.home.path / ".agentkit/runs" / run_id, "pid": pid,

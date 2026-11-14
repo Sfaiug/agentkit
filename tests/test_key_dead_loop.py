@@ -24,8 +24,10 @@ from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import boxable, Home
 from fixtures.gitrig import Rig
 
-# No loop of this host's boot has it: a pid the system hands out again is still not this loop.
-NO_LOOP = {"boot": "acme-boot", "ticks": 0, "started_at": 0}
+# A loop that died while the host stayed up: of this boot, but started at a tick no loop of it
+# has, so a pid the system hands out again is still not this loop.
+NO_LOOP = {"boot": Path("/proc/sys/kernel/random/boot_id").read_text().strip(), "ticks": 0,
+           "started_at": 0}
 
 
 def record(run_dir):
