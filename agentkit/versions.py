@@ -150,6 +150,14 @@ def live():
     return update.agentkit_dir() if update.agentkit_dir().is_dir() else config.REPO
 
 
+def installed():
+    """The bin/ak that starts work serving runs of every version, the lander and a project's live
+    follower: the installed one, ~/.local/bin/ak, else this version's.  Owner, 5 Nov 2026: a fix
+    to it takes effect when installed, not once no run launched before starts it."""
+    path = Path.home() / ".local" / "bin" / "ak"
+    return path if path.is_file() else config.REPO / "bin" / "ak"
+
+
 def unpinned(env):
     """`env` without what `enter` put in it, for what outlives this process: no version's `bin`
     on its PATH, whose `ak` would run that version, and no `CODE_ENV`."""

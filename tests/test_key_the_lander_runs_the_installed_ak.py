@@ -15,10 +15,10 @@ from fixtures.akbin import AK, Home, rerun_boxed
 from fixtures.akinstall import Install
 from fixtures.akline import Line, READINGS
 
-# A version's bin/ak: started as `run --lander`, it appends the commit of the checkout above its
-# bin/ to ~/lander.code, then runs bin/ak.program.  A script runs in this process, `sys.argv[0]`
-# still this path, as Python ak compares it with <checkout>/bin/ak (run.lone_run); anything
-# else is exec'd.
+# A version's bin/ak: started as `ak START` (two words), it appends the commit of the checkout
+# above its bin/ to ~/started.code, then runs bin/ak.program.  A script runs in this process,
+# `sys.argv[0]` still this path, as Python ak compares it with <checkout>/bin/ak (run.lone_run);
+# anything else is exec'd.
 WRAPPER = '''#!{python}
 import os
 from pathlib import Path
@@ -26,8 +26,8 @@ import subprocess
 import sys
 
 here = Path(__file__).resolve().parent
-if sys.argv[1:3] == ["run", "--lander"]:
-    with (Path.home() / "lander.code").open("a") as out:
+if sys.argv[1:3] == {start!r}:
+    with (Path.home() / "started.code").open("a") as out:
         out.write(subprocess.run(["git", "-C", str(here.parent), "rev-parse", "HEAD"],
                                  capture_output=True, text=True).stdout)
 __file__ = str(here / "ak.program")
@@ -37,6 +37,31 @@ if not source.startswith(b"#!"):
     os.execv(__file__, sys.argv)
 exec(compile(source, __file__, "exec"))
 '''
+
+
+def versions(home, *start):
+    """An install in `home` whose every version's bin/ak records each `ak START` (`starts`), its
+    first version cloned at <root>/old-ak and itself a commit past it; the install, the clone."""
+    install = Install(home)
+    wrapper = install.seed / "bin" / "ak"
+    wrapper.rename(wrapper.with_name("ak.program"))
+    wrapper.write_text(WRAPPER.format(python=sys.executable, start=list(start)))
+    wrapper.chmod(0o755)
+    first = install._push("each version names its commit")
+    install.git("fetch", "-q", "origin")
+    install.git("reset", "--hard", first)
+    old = home.root / "old-ak"
+    install._git(home.root, "clone", "-q", str(install.path), str(old))
+    second = install.advance()
+    install.git("fetch", "-q", "origin")
+    install.git("reset", "--hard", second)
+    return install, old
+
+
+def starts(home):
+    """The commit of each start the wrappers recorded, in order."""
+    observed = home.path / "started.code"
+    return observed.read_text().splitlines() if observed.exists() else []
 
 
 class TheLanderRunsTheInstalledAk(unittest.TestCase):
@@ -79,37 +104,21 @@ class TheLanderRunsTheInstalledAk(unittest.TestCase):
 
     def test_a_pass_runs_the_installed_code_instead_of_its_first_members(self):
         with Home() as home:
-            install = Install(home)
-            wrapper = install.seed / "bin" / "ak"
-            wrapper.rename(wrapper.with_name("ak.program"))
-            wrapper.write_text(WRAPPER.format(python=sys.executable))
-            wrapper.chmod(0o755)
-            first = install._push("each version names its commit")
-            install.git("fetch", "-q", "origin")
-            install.git("reset", "--hard", first)
-            old = home.root / "old-ak"
-            install._git(home.root, "clone", "-q", str(install.path), str(old))
-            second = install.advance()
-            install.git("fetch", "-q", "origin")
-            install.git("reset", "--hard", second)
+            install, old = versions(home, "run", "--lander")
             line = Line({"t/ok.sh": "true\n"}, home=home)
             line.member({"api.txt": "api\n"})
             self.version(line.members[0], old)
-            observed = home.path / "lander.code"
-
-            def starts():
-                return observed.read_text().splitlines() if observed.exists() else []
             for entry in (("watch",), ("run", "--lander", line.line)):
+                seen = len(starts(home))
                 done = home.run(install.ak, *entry, timeout=300,
                                 env={"AK_HOST_READINGS": READINGS, "AK_RUN_CODE": str(old)})
                 self.assertEqual(done.code, 0, done.out + done.err)
                 deadline = time.monotonic() + 120
-                while (not ("land" in line.verdict(1) and starts())
+                while (not ("land" in line.verdict(1) and starts(home)[seen:])
                        and time.monotonic() < deadline):
                     time.sleep(0.1)
                 self.assertIn("land", line.verdict(1), done.out + done.err)
-                self.assertEqual(set(starts()), {second}, entry)
-                observed.unlink()
+                self.assertEqual(set(starts(home)[seen:]), {install.head()}, entry)
 
 
 if __name__ == "__main__":
