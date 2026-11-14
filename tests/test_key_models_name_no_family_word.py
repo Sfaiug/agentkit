@@ -4,9 +4,10 @@ than numbers follow it, a hyphen a space, between two numbers a point, so `Claud
 of a shipped manifest, stays.  The owner, 10 Nov 2026: "I always want it just to be the model
 name, number and effort."  `ak models --json`, its role lines and its bars say the same names.
 
-Black-box: AK_BIN in a temporary HOME, the boards held as just asked (tests/test_key_role_choices.py),
-its harness a fake over the shipped manifest listing the four releases, each configured; judged
-by `ak models --json` and `ak models` on 100 cells.  Fails against /bin/false.
+Black-box: AK_BIN in a temporary HOME, the boards held as just asked
+(tests/test_key_role_choices.py), its harness a fake over the shipped manifest listing the four
+releases, each configured; judged by `ak models --json` and `ak models` on 100 cells.  Fails
+against /bin/false.
 """
 
 import json
@@ -30,8 +31,8 @@ ROWS = [("acme-top-1", "Acme Top 1", "Acme Top 1", 91, 1),
         ("claude-fable-5-2", "Claude Fable 5.2", "Fable 5.2", 100, 4)]
 SAID = [name for _, _, name, *_ in ROWS]
 BOARD = [name for _, name, *_ in ROWS if name not in SAID]
-CONFIGURED = {"top": "acme-top-1", "gpt": "gpt-5-5", "sol": "gpt-6-1-sol",
-              "fable": "claude-fable-5-2"}
+CONFIGURED = {"top": "acme-top-1", "five": "gpt-5-5", "solar": "gpt-6-1-sol",
+              "story": "claude-fable-5-2"}
 # [defaults]: each role runs another of them, and what its line names
 USES = {"orchestrator": "Fable 5.2 high", "executor": "6.1 Sol high", "reviewer": "GPT 5.5 high"}
 
@@ -45,7 +46,7 @@ class NameNoFamilyWord(unittest.TestCase):
             f"{release}\t{name}\thigh\n" for release, name, *_ in ROWS))
         akconfig.write(home, {name: {"harness": "claude", "model": release}
                               for name, release in CONFIGURED.items()},
-                       orchestrator="fable", workers=["sol"], reviewers=["gpt"])
+                       orchestrator="story", workers=["solar"], reviewers=["five"])
         hold(home, [(release, name, "high", quality / 100 - 0.1, cost)
                     for release, name, _, quality, cost in ROWS])
 
