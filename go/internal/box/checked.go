@@ -35,7 +35,7 @@ func RunCheck(ctx context.Context, watch host.Watch, argv []string, env map[stri
 	if account, err := user.Current(); err == nil {
 		homes = append(homes, config.Resolve(account.HomeDir))
 	}
-	cmd, done, err := command(append([]string{exe, file, drainFlag}, argv...), env, workspace, out, nil, nil, nil, homes)
+	cmd, done, err := command(append([]string{exe, file, drainFlag}, argv...), env, workspace, out, nil, nil, nil, nil, homes)
 	if err != nil {
 		return 0, "", err
 	}

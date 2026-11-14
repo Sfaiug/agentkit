@@ -4,9 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"agentkit/internal/commandhelp"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -153,5 +155,71 @@ func TestAFollowupCommandIsNormalizedForItsPlanAndFixReceipt(t *testing.T) {
 				t.Fatalf("unreadable check line: %q: %v", text, err)
 			}
 		})
+	}
+}
+
+// A follow-up's site is the path it begins with, every character as written, and its line, as
+// Python's followup_place reads it, so no two of these are one site.
+func TestAFollowUpsSiteIsItsWholePathAndLine(t *testing.T) {
+	for item, site := range map[string]string{
+		"alpha/api.py:1 - stale cache":        "alpha/api.py:1",
+		"alpha app/api.py:1 - stale cache":    "alpha app/api.py:1",
+		"beta app/api.py:1 - stale cache":     "beta app/api.py:1",
+		"alpha*/api.py:1 - stale cache":       "alpha*/api.py:1",
+		"beta*/api.py:1 - stale cache":        "beta*/api.py:1",
+		"*alpha/api.py:1 - stale cache":       "*alpha/api.py:1",
+		"`**./alpha/api.py:12` - stale cache": "`**./alpha/api.py:12",
+		"api.py:12a3 - x:4 y":                 "api.py:12a3 - x:4",
+		"no site here\nsecond line":           "no site here",
+	} {
+		if got := followupPlace(item); got != site {
+			t.Errorf("the site of %q is %q, not %q", item, got, site)
+		}
+	}
+}
+
+// A follow-up with no check starts a fix run its executor proves with a regression test of its
+// own, and joins another run's open fix only at its own site.
+func TestAFollowUpWithNoCheckJoinsAnOpenFixOnlyAtItsSite(t *testing.T) {
+	dir, plan := followupRig(t, `["opus"]`)
+	alpha, starred := "alpha*/api.py:1 - the alpha api is old", "*alpha*/api.py:1 - the starred api is old"
+	parent, _ := run.Read(dir)
+	open := filepath.Join(run.Runs(), "earlier-fix")
+	if err := os.Mkdir(open, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := run.Create(open, run.Fields("run_id", "earlier-fix", "state", "running",
+		"launched_session", "acme", "repo", mainCheckout(parent.Str("repo")),
+		"followup", run.Fields("run", "earlier", "text", "alpha*/api.py:1 - the alpha api still reads old"))); err != nil {
+		t.Fatal(err)
+	}
+	run.Change(dir, func(record *run.Object) error {
+		run.SetAll(record, "followups", []any{alpha, starred}, "followup_checks", run.NewObject())
+		return nil
+	})
+	var children []string
+	err := StartFollowups(dir, func(child string, state, origin *run.Object) (func() error, error) {
+		children = append(children, filepath.Base(child))
+		if followup := origin.Dict("followup"); followup.Str("text") != starred || followup.Has("check") || origin.Str("base_proof") != "regression.sh" {
+			t.Errorf("the fix run's record: %s", run.Line(origin))
+		}
+		text, _ := os.ReadFile(filepath.Join(child, "task.md"))
+		_, commands, err := task.Read(filepath.Join(child, "task.md"))
+		if info, statErr := os.Stat(filepath.Dir(run.Regression(child))); err != nil || statErr != nil || !info.IsDir() ||
+			!slices.Equal(commands, []string{"bash " + commandhelp.ShellJoin([]string{run.Regression(child)})}) ||
+			!strings.Contains(string(text), "\n# Fix "+starred+"\n") || !strings.Contains(string(text), "ak hand-in not-needed") {
+			t.Errorf("the fix run's task:\n%s", text)
+		}
+		return func() error { return nil }, nil
+	}, func(line string) { t.Log(line) })
+	if err != nil || len(children) != 1 {
+		t.Fatalf("started %q: %v", children, err)
+	}
+	state, _ := run.Read(dir)
+	if !run.Equal(state.Get("followup_runs"), []any{children[0]}) || len(state.List("followup_plan")) != 0 {
+		t.Fatalf("handed on as %s", run.Line(state))
+	}
+	if _, err := os.Stat(plan); !os.IsNotExist(err) {
+		t.Fatalf("a follow-up with no check wrote a plan line: %v", err)
 	}
 }
