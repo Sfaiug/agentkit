@@ -80,7 +80,9 @@ func (s *checkSelection) observe(command string, result ran) {
 		return
 	}
 	s.flaky, s.exits, s.unnamed = append(s.flaky, result.flaky...), append(s.exits, result.exits...), s.unnamed || result.unnamed
-	s.holds = result.holds // the last go's, as a re-run decides
+	// the last go's, as a re-run decides; one its watch stopped or the host's memory killed ended
+	// on no test of its own, so it holds nothing, as Python reads no names from a killed run
+	s.holds = result.holds && result.stopped == "" && !result.starved
 	if len(result.reds) > 0 {
 		s.reds = append(s.reds, run.Fields("command", command, "tests", toList(result.reds)))
 	}
