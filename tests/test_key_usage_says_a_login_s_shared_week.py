@@ -4,7 +4,8 @@ The owner (11 Nov 2026), of `ak usage` giving a Claude login `0%` left, headroom
 `exhausted` while its week read 75% used beside Fable's full cap, and the ak screen and Claude's
 own page both read `25% left`: "This is not right."  A row's `left`, `headroom` and `outlook`
 read the week every model draws on, the one its `resets` names; a model's own cap that is spent
-leaves its outlook the shared week's.  A spent shared week is still `exhausted`.
+leaves its outlook the shared week's.  A spent shared week is still `exhausted`.  What a cap
+its provider names for one model has left is a line under the table: `Claude: Fable 0% left`.
 
 Black-box: the program `AK_BIN` names runs `ak usage` from outside through
 tests/fixtures/akbin.py, on a terminal wide enough for the whole table, its Claude adapter over
@@ -53,8 +54,10 @@ def table(case, **logins):
     done = made.ak("usage", env=WIDE)
     case.assertEqual(done.code, 0, done.out + done.err)
     labels = ["Claude"] if len(logins) == 1 else ["Claude I", "Claude II"]
-    return {label: {heading: meters.cell(done.out, label, heading)
-                    for heading in ("left", "headroom", "outlook")} for label in labels}
+    return {label: {"named": [line for line in done.out.splitlines()
+                              if line.startswith(label + ": ")],
+                    **{heading: meters.cell(done.out, label, heading)
+                       for heading in ("left", "headroom", "outlook")}} for label in labels}
 
 
 class SharedWeek(unittest.TestCase):
@@ -62,6 +65,7 @@ class SharedWeek(unittest.TestCase):
         row = table(self, default=(82, 100))["Claude"]
         self.assertEqual((row["left"], row["headroom"]), ("18%", "0.2"))
         self.assertNotEqual(row["outlook"], "exhausted")
+        self.assertEqual(row["named"], ["Claude: Fable 0% left"])   # the cap, under the table
 
     def test_a_full_shared_week_is_exhausted(self):
         row = table(self, default=(100, 10))["Claude"]
@@ -71,6 +75,8 @@ class SharedWeek(unittest.TestCase):
         rows = table(self, default=(100, 57), second=(82, 100))
         self.assertEqual(rows["Claude II"]["left"], "18%")
         self.assertEqual(rows["Claude I"]["left"], "0%")
+        self.assertEqual(rows["Claude I"]["named"], ["Claude I: Fable 43% left"])
+        self.assertEqual(rows["Claude II"]["named"], ["Claude II: Fable 0% left"])
 
 
 if __name__ == "__main__":

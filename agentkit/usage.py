@@ -2079,6 +2079,11 @@ def render(cfg, providers, order, *, repo=None):
         if len({value for _, value in budgets}) > 1:
             lines.append("  budget: " + "; ".join(f"{n} {_budget_label(*value)}"
                                                   for n, value in budgets))
+    # a row reads the shared week, so a cap its provider names for one model is said under the
+    # table, in the menu row's words: `Claude III: Fable 0% left`
+    lines += [f"{label}: {meter['scope']} {_pct(_left(meter.get('used')))} left"
+              for label, _, prov, _ in _accounts(cfg, providers)
+              for meter in readable(prov, now) if meter.get("scope")]
     # the numbers say the provider is unknown; only the adapter can say why -- and a
     # refusal is not a why, so an error that only says the probe was refused says nothing
     lines += [f"note: {name} {prov['error']}" for name, _, prov, _ in _accounts(cfg, providers)
