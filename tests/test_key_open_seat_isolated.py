@@ -32,8 +32,13 @@ case $1:$2 in
 esac
 exec {held} "$@"
 """
+# A version query is answered as claude answers it, kept nowhere: `ak orch`'s usage probe asks
+# one before the seat starts, and keeping it let the test read that call as the seat's.
 STARTED = """#!{python}
 import json, os, sys, time
+if sys.argv[1:] == ["--version"]:
+    print("2.1.322 (Claude Code)")
+    sys.exit()
 with open({part}, "w") as out:
     json.dump({{"argv": sys.argv[1:], "env": dict(os.environ), "cwd": os.getcwd()}}, out)
 os.replace({part}, {saw})
