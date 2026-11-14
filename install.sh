@@ -212,9 +212,10 @@ elif [ "$SANDBOX" = 0 ]; then
     export DEBIAN_FRONTEND=noninteractive
     missing=()
     # python3-pytest is not used by ak itself; tests/smoke.sh, the acceptance gate, runs its
-    # generated repo's done-when command with it.  cron is what runs `ak watch` on the server.
+    # generated repo's done-when command with it.  cron is what runs `ak watch` on the server;
+    # rsync is what `ak standby` runs on a client (a Mac ships its own).
     packages=(tmux:tmux mosh:mosh git:git gh:gh jq:jq curl:curl rsync:rsync crontab:cron bwrap:bubblewrap)
-    [ "$ROLE" != client ] || packages=(mosh:mosh git:git ssh:openssh-client curl:curl)
+    [ "$ROLE" != client ] || packages=(mosh:mosh git:git ssh:openssh-client curl:curl rsync:rsync)
     for pair in "${packages[@]}"; do
       have "${pair%%:*}" || missing+=("${pair##*:}")
     done
@@ -279,7 +280,7 @@ UNATTENDED
     if [ "$ROLE" = server ]; then
       note "no apt-get here; install tmux mosh git gh jq python3 node chromium yourself"
     else
-      note "no apt-get here; install ssh mosh git python3 yourself"
+      note "no apt-get here; install ssh mosh git rsync python3 yourself"
     fi
   fi
   # npm's global prefix under $HOME: `npm i -g` needs no sudo and the bin dir is ours to export
