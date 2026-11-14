@@ -46,12 +46,11 @@ func Addables(fresh string) ([]Addable, error) {
 	}
 	var names []string
 	for _, provider := range has {
-		name, _, err := config.ProviderLook(provider)
+		name, err := harness.ProviderName(provider)
 		if err != nil {
 			return nil, err
 		}
-		company, _ := harness.Company(provider)
-		names = append(names, cmp.Or(name, company))
+		names = append(names, name)
 	}
 	for _, more := range byLabel(has, names) {
 		harnesses, err := config.ProviderHarnesses(more.Provider)

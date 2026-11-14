@@ -16,7 +16,7 @@ from pathlib import Path
 import sqlite3
 import time
 
-from . import boards, catalog, config, history, matrix
+from . import boards, catalog, config, history, logins, matrix
 
 # a reading is of the week of the one before it, by `resets_at`, at most this many seconds later
 DRIFT = 600
@@ -76,7 +76,6 @@ def weeks(cfg, meters, windows):
     one whose spend cannot be priced counts for nothing.  A week holds nothing anyone can name
     while its plan's points are under FEWEST_POINTS or its dollars 0.
     """
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     plans = {(provider, account): logins.whose(provider, account)[1]
              for provider, accounts in meters.items() for account in accounts}
     groups, start, last = {}, {}, {}

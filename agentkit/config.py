@@ -2483,12 +2483,29 @@ def lists(cfg, provider, account):
     return not listed or (account or DEFAULT_ACCOUNT) in listed
 
 
-def account_label(cfg, provider, account, name):
-    """What a person reads for one of a provider's subscriptions: `name`, the provider's own,
-    and for one of several its place in `accounts` in roman numerals -- `Claude II`.  The
-    account's name in `accounts` is ak's own and is never shown; one no longer listed there
-    keeps it, since no place would say which one it is."""
-    listed = accounts(cfg, provider)
+# Each company's own name, for its provider where that names none of its own (provider_name); a
+# model sits under its harness's instead (menu.model_heading).
+NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
+         "google": "Gemini", "mimo": "MiMo"}
+
+
+def provider_name(cfg, provider):
+    """This provider's name wherever ak names it: its own `name` key -- the one its harness
+    gives it, written by `+ add` (`Z.AI Coding Plan`) -- else the company's, else its key
+    capitalised."""
+    entry = cfg["providers"].get(provider)
+    own = entry.get("name") if isinstance(entry, dict) else None
+    return (own.strip() if isinstance(own, str) and own.strip()
+            else NAMES.get(provider, provider.title()))
+
+
+def account_label(cfg, provider, account):
+    """What a person reads for one of a provider's subscriptions, wherever ak names it (a
+    screen, `ak usage`, a page): the provider's name, and for one of several its place in
+    `accounts` in roman numerals -- `Claude II`.  The account's name in `accounts` is ak's own
+    and is never shown; one no longer listed there keeps it, since no place would say which
+    one it is.  The account None is the provider's one login."""
+    name, listed = provider_name(cfg, provider), accounts(cfg, provider)
     if account not in listed:
         return name if account in (None, DEFAULT_ACCOUNT) else f"{name} {account}"
     if len(listed) < 2:

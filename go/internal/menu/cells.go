@@ -71,7 +71,11 @@ func Cells(now time.Time) ([]Cell, error) {
 		for _, account := range accounts {
 			left, said := readings.Cell(each.sub.Name, account)
 			login := logins.Of(each.sub.Name, account)
-			cell := Cell{Label: config.AccountLabel(accounts, account, each.name), Left: left, Said: said, Ends: logins.Ending(login, now), Provider: each.sub.Name,
+			label, err := harness.SubscriptionName(each.sub.Name, account)
+			if err != nil {
+				return nil, err
+			}
+			cell := Cell{Label: label, Left: left, Said: said, Ends: logins.Ending(login, now), Provider: each.sub.Name,
 				Account: account, Company: cmp.Or(harness.Heading(each.sub.Name), each.name), Colour: each.colour,
 				Harness: logins.Harness(each.sub),
 				Held:    readings.InHand(each.sub.Name, account), Notes: readings.Detail(each.sub.Name, account)}

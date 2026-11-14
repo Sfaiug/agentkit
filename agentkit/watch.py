@@ -48,7 +48,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, handback,
-               history, host, login_refusals, look, notify, orch, owner, parsed, questions,
+               history, host, login_refusals, logins, look, notify, orch, owner, parsed, questions,
                seat_tokens, staffing, statusbar, transitions, turns, update, usage, versions,
                worker)
 from . import record as run_record
@@ -1201,7 +1201,6 @@ def remind_worker_tokens(token_out, now=None):
     """Page the owner once a local day while a worker token ends within a login's window
     (`logins.REMIND_WITHIN`), as a login's end does: nearer than the ak screen's line alone
     says, and before it is every seat's word (`token_dead`)."""
-    from . import logins   # here, as the tick takes it: logins reads through the menu
     now = time.time() if now is None else now
     day = time.strftime("%Y-%m-%d", time.localtime(now))
     for harness, record in sorted(token_out.items() if isinstance(token_out, dict) else ()):

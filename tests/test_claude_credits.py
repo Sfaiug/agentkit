@@ -173,8 +173,8 @@ class Shown(unittest.TestCase):
             self.assertRegex(grid, r"ChatGPT +62,469 credits left")
         with patch.object(usage, "review_pair", return_value=None):
             shown = terminal.plain(usage.render(self.cfg, providers, ["opus", "astra"]))
-        self.assertIn("anthropic: $12.40 credits left", shown)
-        self.assertIn("openai: 62,469 credits left", shown)
+        self.assertIn("Claude: $12.40 credits left", shown)
+        self.assertIn("ChatGPT: 62,469 credits left", shown)
 
     def test_unlimited_credits_say_so(self):
         said = {"meters": [self.meter("weekly_all")], "credits": "unlimited", "currency": "USD",
