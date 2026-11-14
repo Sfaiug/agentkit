@@ -3194,7 +3194,7 @@ def seat_read(cfg, name, selected):
 
 # What the models screen counts a cost in, as `u` turns through them, the owner's design of 5 Nov
 # 2026: dollars a task, the points of its plan's week a task takes, how many such tasks a week
-# holds; each with how the why says a row's, `cost` as cost_said says it
+# holds; each with how a row's why says its cost (models_why), `cost` as cost_said gives it
 UNITS = {"$ a task": "{cost} a {run}", "% of a week": "{cost} of a week a {run}",
          "a week": "{cost} {run}s a week"}
 UNBOARDED, UNMARKED = "not on the boards", "none"     # a model no row is; a role marking none
@@ -3256,7 +3256,7 @@ def cost_said(found, row, unit):
     owner, 3 Nov 2026: a cost on screen must never look more certain than it is.  `-` where it
     has none in `unit`: dollars, where no run's provider has a price (matrix._costs's `share`),
     and a week, where no run measured its provider's (its `points`)."""
-    points = row.get("points")
+    points = row["points"]
     value = {"$ a task": None if found["cost_unit"] == "share" else row["cost"],
              "% of a week": points, "a week": 100 / points if points else None}[unit]
     if value is None:
@@ -3304,10 +3304,10 @@ def packed(parts, gap, room):
 
 def models_body(said, unit, at=None):
     """The models screen's lines and {line: (("row", role), [])}: per role (models_said) its
-    word, its row and what follows, under `quality` and `unit` over the first with numbers, `at`'s
-    highlighted (terminal.highlight).  A row too wide beside the words goes on the lines under
-    its word, wrapped at its words, what follows it staying on the word's line: a model is named
-    in full (docs/cli-design.md)."""
+    word, its row and what follows, under `quality` and `unit` over the first with numbers,
+    `at`'s highlighted (terminal.highlight).  A row too wide beside the words goes on the lines
+    under its word, wrapped at its words, what follows it staying on the word's line: a model is
+    named in full (docs/cli-design.md)."""
     room = terminal.layout_width()
     word = max(terminal.cells(matrix.CONFIG_ROLES[role]) for role, *_ in said)
     numbers = [after for _, _, after in said if isinstance(after, tuple)]
@@ -3372,12 +3372,11 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True)
     leave no place (the owner, 12 Nov 2026), then as many of its `others`, best first, as fill
     matrix.PLACES; side by side, cheapest on the left, on a tie the worse, each as tall
     as its cost over the dearest shown, in eighths of a cell, its cost in `unit` on its top and
-    under it
-    its quality, its name (columned) and its effort.  A choice is solid, the rest shaded `░`,
-    each `why` under it led by `░`, so one too short to show its shade still says it is one;
-    `used`, the row the role uses, is in the accent colour, `━` under its name.  No axis line:
-    heights and costs say which is dearer, as a shaded bar on the right is dearer, not better.
-    On a narrow screen the two-cell gutters, then the indent, give way to the labels, and where
+    under it its quality, its name (columned) and its effort.  A choice is solid, the rest
+    shaded `░`, each `why` under it led by `░`, so one too short to show its shade still says it
+    is one; `used`, the row the role uses, is in the accent colour, `━` under its name.  No axis
+    line: heights and costs say which is dearer, as a shaded bar on the right is dearer, not
+    better.  On a narrow screen the two-cell gutters, then the indent, give way to the labels, and where
     a word too wide for its column widens it past the screen, fewer bars stand: the shaded ones
     go first, `kept` last, then the cheapest choices, as matrix._chosen keeps the costliest.  Given
     `room` lines, the dearest stands as tall as the rest leaves room for, TALL cells at most and
