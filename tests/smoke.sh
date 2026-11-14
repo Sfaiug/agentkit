@@ -302,6 +302,9 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
 
     meters = {"claude": [meter("weekly_all", 8), meter("weekly_scoped", 9)],
               "codex": [meter("weekly", 45)]}
+    # Claude's usage answer counts the login's resets, as adapters/claude.sh's does, here none:
+    # `reset-status` is Codex's alone
+    counted = {"claude": {"resets": 0, "reset_kinds": []}}
     calls = []
 
     def adapter(argv, **kwargs):
@@ -322,7 +325,8 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
             return subprocess.CompletedProcess(argv, 0, json.dumps(
                 {"provider": "google", "meters": [meter("gemini-weekly", 8)], "error": None}))
         assert harness in meters and verb in ("usage", "reset-status", "reset"), argv
-        data = ({"meters": meters[harness]} if verb == "usage" else {"available": 2}
+        data = ({"meters": meters[harness], **counted.get(harness, {})} if verb == "usage"
+                else {"available": 2}
                 if verb == "reset-status" else {"code": "reset", "available": 1})
         return subprocess.CompletedProcess(argv, 0, json.dumps(data))
 

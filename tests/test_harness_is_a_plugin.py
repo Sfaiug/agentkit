@@ -275,7 +275,7 @@ class UsageCalls(Fixture):
         self.asked = []
         self.captured = []
 
-        def adapter_json(name, verb, timeout, account=None):
+        def adapter_json(name, verb, timeout, account=None, **_kw):
             self.asked.append((name, verb))
             return {"available": 2} if verb == "reset-status" else {}
 
@@ -296,19 +296,22 @@ class UsageCalls(Fixture):
                 out = usage._probe(self.cfg, provider, 10000)
                 self.assertEqual(out["harness"], harness_name)
                 self.assertEqual(out["meters"][0]["used"], 50 if harness_name != "echo" else 42)
-        # `[usage] capture` is Muse's alone, and `[usage] reset` Codex's: one captured probe
-        # for the four providers, and one `reset-status`, asked of the one adapter that has any
+        # `[usage] capture` is Muse's alone, and `[usage] reset` Claude's and Codex's: one
+        # captured probe for the four providers, and one `reset-status` asked of each adapter
+        # that has resets, whose usage answer here counts none
+        asked = [("claude", "reset-status"), ("codex", "reset-status")]
         self.assertEqual([argv[-1] for argv in self.captured], ["usage"])
-        self.assertEqual(self.asked, [("codex", "reset-status")])
+        self.assertEqual(self.asked, asked)
         self.assertEqual(usage._probe(self.cfg, "openai", 10000)["resets"], 2.0)
         self.assertEqual(usage._probe(self.cfg, "test", 10000)["resets"], 0.0)
-        self.assertEqual(self.asked, [("codex", "reset-status")] * 2)
+        asked.append(("codex", "reset-status"))
+        self.assertEqual(self.asked, asked)
         # ... and a provider whose adapter cannot spend one is never asked to
         prov = {"harness": "echo", "meters": [{"name": "weekly", "used": 99,
                                                "window_secs": 604800}]}
         with patch.object(usage, "_probe_gently", return_value={**prov, "resets": 1}):
             self.assertEqual(usage.replenish(self.cfg, "test"), (False, 1.0))
-        self.assertEqual(self.asked, [("codex", "reset-status")] * 2)
+        self.assertEqual(self.asked, asked)
 
     def test_v5al_a_stripped_timestamp_is_dated_by_its_own_plugin(self):
         cached = config.STATE / "usage-meta.json"
