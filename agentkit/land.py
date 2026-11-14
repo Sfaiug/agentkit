@@ -859,13 +859,13 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
            only=None, kind="landing", exits=None, flaky=None, absent=None, parts=None):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
     `suite` standing for a red no command showed, `parts` getting its pieces that confirmed
-    tests); with `shard` every command runs as that one piece alone, on one turn, and with
-    `only` just those tests, on none, `absent` getting
-    those not there where it passed the rest (`gate.passes_what_it_holds`).  Each command, or
-    piece of one, leaves its `kind` row in history under the member's run, on the commit
-    checked: `landing`, or `tip` for a probe of the target's. `exits` keeps each piece's attempt
-    exits and `flaky` the tests that failed, then passed; a moved checkout clears the exits and
-    `absent`."""
+    tests where those cost less together than the commands took); with `shard` every command
+    runs as that one piece alone, on one turn, and with `only` just those tests, on none,
+    `absent` getting those not there where it passed the rest (`gate.passes_what_it_holds`).
+    Each command, or piece of one, leaves its `kind` row in history under the member's run, on
+    the commit checked: `landing`, or `tip` for a probe of the target's. `exits` keeps each
+    piece's attempt exits and `flaky` the tests that failed, then passed; a moved checkout
+    clears the exits and `absent`."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -882,6 +882,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     # CPU none comes until it is idle, and the wait held whole lines up to an hour (30 Oct 2026).
     with nullcontext() if only else gate.gate_turn(None, log_path, log, sharded, scratch,
                                                    context=context):
+        started = time.monotonic()      # a wait for the turn is no part of what a check costs
         ok, text = gate.run_done_when(
             cmds, scratch, log_path, set(),
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
@@ -889,6 +890,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
             flaky=flaky, checked=(directory, None, kind, identity["head_sha"]), exits=exits,
             timings=timings, absent=absent)
+        took = time.monotonic() - started
     if ok and suite and kind == "landing" and not shard and not only:
         if failure := suite_times.refusal(scratch, _upstream(state), suite, timings):
             ok = False
@@ -913,7 +915,15 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                  for cmd in cmds},
                 {cmd: only if shard else None for cmd, mark in zip(cmds, marks)
                  if mark == 0 and (only or not shard)})
-    return ok, text, red_part(cmds, marks, pieces, confirmed, suite, ok, parts)
+    red = red_part(cmds, marks, pieces, confirmed, suite, ok, parts)
+    # Parts run alone one after another, at what the record holds for their tests, where the
+    # check runs its pieces at once: a change that broke every piece left 22 parts, close to two
+    # hours, ahead of a whole check that took one (14 Nov 2026).
+    if parts:
+        times = suite_times.read(suite_times.handed(scratch))
+        if sum(times.get(test, 0) for part in parts for test in part["tests"]) > took:
+            parts.clear()
+    return ok, text, red
 
 
 def _upstream(state):
@@ -1117,18 +1127,11 @@ def _round(stacks, floor, high, command, tests, log):
 
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
     """The stack's answer from its whole check, a red one with the `parts` it confirmed
-    (`red_part`) where they cost less than it took, or {} where it ran out of memory again."""
+    (`red_part`), or {} where it ran out of memory again."""
     log_path = directory / f"lander-{tree}.log"
-    parts, started = [], time.monotonic()
+    parts = []
     ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite,
                            parts=parts)
-    took = time.monotonic() - started
-    # Parts run alone one after another, at what the record holds for their tests, where the
-    # whole check runs its pieces at once: a change that broke every piece left 22 parts, close
-    # to two hours, ahead of a whole check that took one (14 Nov 2026).
-    times = suite_times.read(suite_times.handed(scratch))
-    if sum(times.get(test, 0) for part in parts for test in part["tests"]) > took:
-        parts.clear()
     if red.get("short"):
         log(f"AK_SHARD={red['piece']} of {directory.name}'s tree ran out of memory again, run "
             "alone: nobody is blamed; the next pass checks it again")
@@ -1373,10 +1376,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                 try:
                     decide()
                     # The parts the pass's last red whole check confirmed, where quicker than it
-                    # (`_check_tree`), run alone on the top rebuilt without the culprit, before
-                    # any whole check: checked whole, it failed again on those known red since,
-                    # two more whole checks a culprit (a stack of 61 holding five landed nothing
-                    # in 14 hours, 11 Nov 2026).
+                    # (`_check`), run alone on the top rebuilt without the culprit, before any
+                    # whole check: checked whole, it failed again on those known red since, two
+                    # more whole checks a culprit (a stack of 61 holding five landed nothing in
+                    # 14 hours, 11 Nov 2026).
                     # Failing, a part is that top's red, narrowed as a batch's however many whole
                     # checks fit, and tried again on the next top, as another member may break
                     # it too; passing, proving nothing or its command run there no more, it is
