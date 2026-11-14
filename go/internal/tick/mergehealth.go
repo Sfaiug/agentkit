@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handback"
+	"agentkit/internal/history"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -32,13 +32,14 @@ type probe struct {
 // `health:` probed, a pass making it live and a failure kept with its output for the next tick,
 // each told nobody; past it, the failure kept is its break; and history.db keeps its commit, its
 // probes and when it went live (mergeRows).  Go follows no deployment, and a pass whose line waits
-// in its seat's composer for its Enter is Python's to tell (handback.LiveLeft).  Each is decided
-// before this merge's first write, and left there: the one write, or where the probe keeps a row,
-// written as it starts, the probe.  A pass that comes to be Python's after that is recorded, as
-// Python records it, and the next tick, reading it owed first, hands its telling over.  What a pass
-// asks of the merge's seat's other runs is read from census, the merge checks' one read of every
-// run.  A dry tick decides the same, runs no probe and makes no write: it says what it would check,
-// record and tell.
+// in its seat's composer for its Enter is Python's to tell (handback.LiveLeft), one its seat came
+// to owe while the probe ran too, as Python probes it again and keeps that row.  Each is decided
+// once, before this merge's first write, and left there.  Once Go carries the merge its probe's row
+// goes in first, as Python's goes in as the probe ends, so a save failing after it leaves it.  A
+// pass that comes to be Python's after that is recorded, as Python records it, and the next tick,
+// reading it owed first, hands its telling over.  What a pass asks of the merge's seat's other runs
+// is read from census, the merge checks' one read of every run.  A dry tick decides the same, runs
+// no probe and makes no write: it says what it would check, record and tell.
 func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, census []*run.Object, say func(string), dry bool) error {
 	rows, err := mergeRows(each, dry)
 	if err != nil {
@@ -65,9 +66,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	if found.Has("health") {
 		health = healthOf(found)
 	}
-	// read once, ahead of any probe, and only where a probe or a pass needs it
-	owed := sync.OnceValue(func() bool { return handback.LiveLeft(record, census) })
-	verdict, probed := "", (*probe)(nil)
+	verdict, probed, row := "", (*probe)(nil), func() {}
 	switch command := run.Text(health.Get("command")); {
 	case record.Truthy("live_at"):
 		verdict = "passed"
@@ -89,20 +88,21 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	default:
 		said, ran := probes[[2]string{key, each.sha}]
 		if !ran {
-			if owed() && rows != nil {
-				return errLeft
-			}
-			said.passed, said.output = healthCommand(record.Str("repo"), each.sha, command, healthTimeout, rows)
+			asked := epoch(time.Now())
+			var exit *int
+			said.passed, said.output, exit = healthCommand(record.Str("repo"), each.sha, command, healthTimeout)
 			probes[[2]string{key, each.sha}] = said
+			row = func() { history.Ran(rows, command, asked, exit, nil) }
 		}
 		verdict, probed = "pending", &said
 		if said.passed {
 			verdict = "passed"
 		}
 	}
-	if verdict == "passed" && owed() {
+	if verdict == "passed" && handback.LiveLeft(record, census) {
 		return errLeft
 	}
+	row()
 	if !dry && (len(found.Keys()) > 0 || record.Str("merge_sha") != each.sha || probed != nil) {
 		err := run.Change(dir, func(current *run.Object) error {
 			for _, name := range found.Keys() {

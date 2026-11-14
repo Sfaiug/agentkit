@@ -53,8 +53,8 @@ func TestMergeChecksKeepTheCommitOnce(t *testing.T) {
 // A dry tick's merge checks decide each merge as the real ones do, its commit read off GitHub, and
 // say what they would probe, record and hand back: they save no commit, run no probe and write
 // nothing, not even the objects a partial clone would fetch, reading on GitHub what that lacks.  A
-// merge Go does not follow, or a home keeping history, which the dry tick cannot open without
-// writing beside it, hands the whole dry tick over, nothing printed.
+// merge Go does not follow hands the whole dry tick over, nothing printed; a home keeping history
+// is decided as any other, its history.db never opened, as opening it writes beside it.
 func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
 	const pr = "https://github.com/acme/api/pull/1"
 	declares := base64.StdEncoding.EncodeToString([]byte("---\nhealth: true\n---\n"))
@@ -75,10 +75,12 @@ func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
 		"deployment":    {fields: `"health": {}, "deployed": "true"`, left: true},
 		"blob lacked":   {lacks: "blob", said: "would check run fix-api's live product: true\n"},
 		"commit lacked": {lacks: "commit", said: "would check run fix-api's live product: true\n"},
-		"kept probe":    {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": null, "repo": "/"`, history: true, left: true},
+		"kept probe": {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": null, "repo": "/"`, history: true,
+			said: `would check run fix-api's live product: touch "$HOME/probed"` + "\n"},
 		// a break waiting in watch.json alone, its run's merge no longer followed
-		"kept break": {history: true, left: true, watch: `{"after_merge": {"github.com/acme/api": {"pending": {"source": "health", "sha": "abc", ` +
-			`"line": "health: true failed on main", "run": "fix-api", "finished": 1, "check": "health: true", "target": "main"}}}}`},
+		"kept break": {history: true, watch: `{"after_merge": {"github.com/acme/api": {"pending": {"source": "health", "sha": "abc", ` +
+			`"line": "health: true failed on main", "run": "fix-api", "finished": 1, "check": "health: true", "target": "main"}}}}`,
+			said: "would hand run fix-api back for health: true on main: health: true failed on main\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';;
@@ -112,35 +114,6 @@ func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
 				t.Fatal("the dry tick changed HOME")
 			}
 		})
-	}
-}
-
-// A history.db appearing right after a dry tick's merge checks found none, as another tick's or a
-// seat's first write makes it, is never opened: nothing but it is written under HOME.
-func TestDryHistoryAppearingOpensNothing(t *testing.T) {
-	ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';; *) `+loggedOut+`;; esac`)
-	put(t, filepath.Join(ak, "runs", "fix-api", "run.json"), fmt.Sprintf(
-		`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {}, "deployed": null}`, time.Now().Unix()))
-	older(t, "PRAGMA user_version")
-	staged := filepath.Join(t.TempDir(), "history.db")
-	if err := os.Rename(history.Path(), staged); err != nil || !run.Historyless() {
-		t.Fatalf("history.db not set aside whole: %v", err)
-	}
-	before := files(t, filepath.Dir(ak))
-	before[history.Path()] = read(t, staged)
-	still := historyless
-	t.Cleanup(func() { historyless = still })
-	historyless = func() bool {
-		historyless = still
-		none := still()
-		if err := os.Rename(staged, history.Path()); err != nil {
-			t.Error(err)
-		}
-		return none
-	}
-	Dry(io.Discard)
-	if !reflect.DeepEqual(files(t, filepath.Dir(ak)), before) {
-		t.Fatal("the dry tick wrote under HOME")
 	}
 }
 
@@ -239,9 +212,9 @@ func tables(t *testing.T) string {
 	return said
 }
 
-// A seat that comes to owe a pass while its probe runs has the pass recorded, as Python records it,
-// and told by nobody: the next tick, reading it owed before it writes, hands its telling over.
-func TestMergeChecksRecordAPassOwedSinceItsProbe(t *testing.T) {
+// A pass its seat came to owe while the probe ran is Python's too, decided once the probe ended:
+// the run and history stay as they were, as Python's tick probes it again and keeps that row.
+func TestMergeChecksLeaveAPassOwedSinceItsProbe(t *testing.T) {
 	ak, _ := idleHome(t, "")
 	home := filepath.Dir(ak)
 	put(t, filepath.Join(home, "plan"), "- [ ] The work is done · check: `false` · acme · written 2026-10-23 09:00\n")
@@ -249,19 +222,38 @@ func TestMergeChecksRecordAPassOwedSinceItsProbe(t *testing.T) {
 	put(t, path, fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "merge_sha": "abc", "repo": "/", `+
 		`"health": {"command": "cp \"$HOME/plan\" \"$HOME/.agentkit/state/plan-acme.md\""}, "deployed": null, "launched_session": "acme"}`, time.Now().Unix()))
 	older(t, "ALTER TABLE runs DROP COLUMN no_review")
-	if err := checking(t, io.Discard).mergeChecks(); err != nil {
-		t.Fatal(err)
-	}
-	kept, _ := run.ReadJSON(path)
-	db := history.Look()
-	probes := db.Select("SELECT exit FROM checks WHERE run_id='fix-api' AND kind='health'")
-	db.Close()
-	if !kept.Truthy("live_at") || kept.Has("live_notified") || len(probes) != 1 || probes[0]["exit"] != int64(0) {
-		t.Fatalf("%v: %s", probes, run.Line(kept))
-	}
 	before, schema := read(t, path), tables(t)
 	if err := checking(t, io.Discard).mergeChecks(); !errors.Is(err, errLeft) || read(t, path) != before || tables(t) != schema {
 		t.Fatalf("%v: %s", err, read(t, path))
+	}
+	if _, err := os.Stat(filepath.Join(ak, "state", "plan-acme.md")); err != nil {
+		t.Fatal("the probe did not run")
+	}
+}
+
+// A probe Go carries leaves its row before anything is saved: a run.json that cannot be saved
+// after it keeps the row, with the probe's exit, as Python's does, and the tick goes on.
+func TestAProbeRowStaysWhenTheRunSaveFails(t *testing.T) {
+	ak, _ := idleHome(t, "")
+	dir := filepath.Join(ak, "runs", "fix-api")
+	put(t, filepath.Join(dir, "run.json"), fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", `+
+		`"merge_sha": "abc", "repo": "/", "health": {"command": "exit 3"}, "deployed": null}`, time.Now().Unix()))
+	older(t, "PRAGMA user_version")
+	if err := os.Mkdir(filepath.Join(dir, "run.tmp"), 0o700); err != nil { // a directory where run.json's save goes
+		t.Fatal(err)
+	}
+	var said bytes.Buffer
+	if err := checking(t, &said).mergeChecks(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(said.String(), "WARN run fix-api's health could not be followed: ") {
+		t.Fatalf("said %q", said.String())
+	}
+	db := history.Look()
+	probes := db.Select("SELECT exit FROM checks WHERE run_id='fix-api' AND kind='health' AND tree='abc'")
+	db.Close()
+	if len(probes) != 1 || probes[0]["exit"] != int64(3) {
+		t.Fatalf("rows %v", probes)
 	}
 }
 

@@ -25,7 +25,13 @@ type Checked struct {
 // tree in the run is a re-run.  A run Python keeps no row for keeps none here, and what fails is
 // said on log, never the check's.
 func Check(checked *Checked, command string, asked float64, place string, log func(string)) *Checking {
-	return &Checking{started(checked, command, asked, place, log), log}
+	return &Checking{started(checked, command, asked, now(), place, log), log}
+}
+
+// Ran is the row of a check run on this host from asked on and ended in exit, written once it
+// ended: for one whose outcome decides whether its row is Go's to write.
+func Ran(checked *Checked, command string, asked float64, exit *int, log func(string)) {
+	(&Checking{started(checked, command, asked, asked, "", log), log}).End(exit)
 }
 
 // A Checking is one check's row as Check wrote it, id 0 for none: a start that did not commit names
@@ -57,8 +63,8 @@ func (r *Checking) change(statement string, values ...any) {
 	}
 }
 
-// started writes a check's row as it starts, and names it.
-func started(checked *Checked, command string, asked float64, place string, log func(string)) int64 {
+// started writes a check's row as started at at, and names it.
+func started(checked *Checked, command string, asked, at float64, place string, log func(string)) int64 {
 	if checked == nil || !recorded(checked.Run) {
 		return 0
 	}
@@ -70,7 +76,7 @@ func started(checked *Checked, command string, asked float64, place string, log 
 		err := db.exec("INSERT INTO checks (run_id, round, kind, tree, command, place, requested_at, started_at, rerun) "+
 			"SELECT run_id, ?2, ?3, ?4, ?5, ?6, ?7, ?8, EXISTS (SELECT 1 FROM checks WHERE run_id=?1 AND tree IS ?4 AND "+
 			"instr(char(10) || command || char(10), char(10) || ?5 || char(10))) FROM runs WHERE run_id=?1",
-			checked.Run, checked.Round, checked.Kind, checked.tree(), command, place, asked, now())
+			checked.Run, checked.Round, checked.Kind, checked.tree(), command, place, asked, at)
 		if err == nil && db.conn.Changes() > 0 {
 			row = db.conn.LastInsertRowID()
 		}
