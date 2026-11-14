@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"syscall"
 
 	"agentkit/internal/config"
 )
@@ -28,8 +29,10 @@ func claudeLogout(_ []string, out, errOut io.Writer) int {
 		return 2
 	}
 	token, variable := config.WorkerToken("claude", login)
-	if err := os.Remove(token); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		fmt.Fprintf(errOut, "claude logout: %s\n", err)
+	// the script's `rm -f`: an unlink, so a directory in the token's place stays and fails the verb,
+	// and a token under a folder that is no folder is as absent as one not there
+	if err := syscall.Unlink(token); err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+		fmt.Fprintf(errOut, "claude logout: %s: %s\n", token, err)
 		return 1
 	}
 	// the login's home as the script names it, literally: config.LoginPath would read a `$` in a
