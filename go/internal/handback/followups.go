@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
@@ -185,14 +186,26 @@ func mainCheckout(repo string) string {
 	return config.Resolve(repo)
 }
 
-var followupSite = regexp.MustCompile(`^.+?:[0-9]+\b`)
-
 // followupPlace is a follow-up's site, whatever its wording: the path it begins with, every
 // character as written, and its line, so `beta app/api.py:1`, `beta*/api.py:1` and
-// `*alpha/api.py:1` are not `alpha...`'s.
+// `*alpha/api.py:1` are not `alpha...`'s.  It reads Python's `.+?:\d+\b` by hand, with Unicode's
+// digits and word characters, which Go's regexp reads as ASCII's alone: `pkg:1α/api.py:1` is
+// whole.
 func followupPlace(item string) string {
-	if site := followupSite.FindString(item); site != "" {
-		return site
+	line, _, _ := strings.Cut(item, "\n")
+	for at, letter := range line {
+		if letter != ':' || at == 0 {
+			continue
+		}
+		rest := line[at+1:]
+		digits := strings.IndexFunc(rest, func(r rune) bool { return !unicode.IsDigit(r) })
+		if digits == -1 {
+			digits = len(rest)
+		}
+		next, _ := utf8.DecodeRuneInString(rest[digits:])
+		if digits > 0 && (digits == len(rest) || next != '_' && !unicode.IsLetter(next) && !unicode.IsNumber(next)) {
+			return line[:at+1+digits]
+		}
 	}
 	return strings.TrimSpace(config.SplitLines(item)[0])
 }

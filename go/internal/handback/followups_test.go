@@ -170,6 +170,12 @@ func TestAFollowUpsSiteIsItsWholePathAndLine(t *testing.T) {
 		"*alpha/api.py:1 - stale cache":       "*alpha/api.py:1",
 		"`**./alpha/api.py:12` - stale cache": "`**./alpha/api.py:12",
 		"api.py:12a3 - x:4 y":                 "api.py:12a3 - x:4",
+		"pkg:1α/api.py:1 - stale cache":       "pkg:1α/api.py:1",
+		"pkg:1β/api.py:1 - stale cache":       "pkg:1β/api.py:1",
+		"api.py:١٢ - stale cache":             "api.py:١٢",
+		":1 api.py:2 - stale cache":           ":1 api.py:2",
+		"api.py:1\u0301b:2 - stale cache":     "api.py:1",
+		"api.py:12\nb.py:3":                   "api.py:12",
 		"no site here\nsecond line":           "no site here",
 	} {
 		if got := followupPlace(item); got != site {
