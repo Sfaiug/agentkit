@@ -411,12 +411,16 @@ def _clear(root, tmux_dir, at):
                              text=True, timeout=30).stdout.strip()
         subprocess.run([*ask, "kill-server"], capture_output=True, timeout=30)
         _wait_gone(int(pid) if pid.isdigit() else None)
-    # what the program detached from them: a stray still writing would put the Home back
-    for pid in _strays(root, tmux_dir, at):
+    # what the program detached from them: a stray still writing would put the Home back.  All
+    # die before any is waited for: a parent a running `run` reaps goes only once its children
+    # let go of the pipes that `run` reads.
+    strays = _strays(root, tmux_dir, at)
+    for pid in strays:
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+    for pid in strays:
         _wait_gone(pid)
     shutil.rmtree(root, ignore_errors=True)
     shutil.rmtree(tmux_dir, ignore_errors=True)
