@@ -1,19 +1,23 @@
 """The same contract reaches every adapter, including one added after discovery.
 
-Black-box: smoke.sh's step 3 and tests/check_harness_contract.py run from outside, on
-adapters of this test's own; only their exit codes and the verdict lines they print count.
+Black-box: smoke.sh's step 3 and tests/check_harness_contract.py run `ak contract` of the
+program `AK_BIN` names (tests/fixtures/akbin.py) from outside, on adapters of this test's own,
+each turn in the worker's box; only their exit codes and the verdict lines they print count.
 """
 
 import os
 import json
 from pathlib import Path
+import select
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 
-from test_update_gate_every_harness import unboxed_worker
+from fixtures.akbin import AK, boxable
 
 REPO = Path(__file__).resolve().parents[1]
 SMOKE = (REPO / "tests/smoke.sh").read_text()
@@ -29,6 +33,7 @@ CHECK = ('. "$REPO/tests/acceptance.sh"\nak() { return 1; }\n'
          + between("# --- 3:", "# --- 3a:") + "finish\n")
 
 
+@unittest.skipUnless(boxable(), "needs a bwrap able to box a turn")
 class Contract(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-contract-", dir=REPO)
@@ -38,12 +43,11 @@ class Contract(unittest.TestCase):
         for path in (self.home, self.adapters, self.bin):
             path.mkdir()
         (self.bin / "python3").symlink_to(sys.executable)
-        for tool in ("bash", "git", "mkdir", "cat", "grep", "head", "tail", "sed", "date"):
+        for tool in ("bwrap", "bash", "git", "mkdir", "cat", "grep", "head", "tail", "sed", "date"):
             (self.bin / tool).symlink_to(shutil.which(tool))
         (self.bin / "echo").touch(mode=0o755)
         self.env = {"HOME": str(self.home), "PATH": str(self.bin), "WORK": str(self.root),
-                    "PYTHONPATH": unboxed_worker(self.root),
-                    "REPO": str(REPO), "SMOKE_CALLER_HOME": str(self.home),
+                    "AK_BIN": AK, "REPO": str(REPO), "SMOKE_CALLER_HOME": str(self.home),
                     "AGENTKIT_ADAPTER_DIR": str(self.adapters), "AK_RUN_DEPTH": "0",
                     "AK_MAX_RUNS": "0", "PYTHONDONTWRITEBYTECODE": "1",
                     "AGENTKIT_DISCORD_WEBHOOK": "off", "GIT_CONFIG_GLOBAL": os.devnull,
@@ -51,7 +55,10 @@ class Contract(unittest.TestCase):
 
     def adapter(self, name, script=None):
         fixture = REPO / "tests/fixtures/adapters"
-        shutil.copy2(fixture / "echo.toml", self.adapters / f"{name}.toml")
+        # The box empties /tmp and /var/tmp, where this test may stand: it shows the turn this
+        # test's own adapters, tools and HOME as the harness's state.
+        (self.adapters / f"{name}.toml").write_text((fixture / "echo.toml").read_text().replace(
+            "state = []", f"state = {json.dumps([str(self.root)])}"))
         path = self.adapters / f"{name}.sh"
         path.write_text(script or (fixture / "echo.sh").read_text())
         path.chmod(0o755)
@@ -59,7 +66,7 @@ class Contract(unittest.TestCase):
     def gate(self):
         return subprocess.run(["/bin/bash", "-c", "set -uo pipefail\n" + CHECK],
                               cwd=self.root, env=self.env, text=True,
-                              capture_output=True, timeout=30)
+                              capture_output=True, timeout=120)
 
     def test_a_turn_that_never_hands_in_fails(self):
         # The old word-only path passes this adapter even though no worker can close a turn.
@@ -95,7 +102,7 @@ esac
     def standalone(self, *args):
         return subprocess.run([sys.executable, str(REPO / "tests/check_harness_contract.py"),
                                *args], cwd=self.root, env=self.env, text=True,
-                              capture_output=True, timeout=30)
+                              capture_output=True, timeout=120)
 
     def test_standalone_checks_all_or_one(self):
         self.adapter("echo")
@@ -147,16 +154,39 @@ esac
         self.assertEqual(broken.returncode, 1, broken.stdout + broken.stderr)
         self.assertIn("FAIL  3 echo: adapter exited 1", broken.stdout)
 
-    def leaky(self, read='"$HOME/.echo/AGENTS.md"'):
-        # an echo that says what its manifest's unswitched file holds, as no box stops it here
+    def says(self, command):
+        # an echo whose every answer ends with what `command` prints
         fixture = (REPO / "tests/fixtures/adapters/echo.sh").read_text()
-        leak = f'cat -- {read} >>"$out/final.md" 2>/dev/null\n    exit 0\n'
-        self.adapter("echo", fixture.replace("    exit 0\n", "    " + leak, 1))
+        self.adapter("echo", fixture.replace(
+            "    exit 0\n", f'    {command} >>"$out/final.md"\n    exit 0\n', 1))
+
+    def leaky(self, planted=".echo/AGENTS.md"):
+        """An echo that says what stands at `planted`, a glob under its HOME, as its turn runs.
+        The box hides that place from the turn, so this test carries it past: a thread answers
+        each turn's read of a pipe in the adapters' folder, which the box shows, with what
+        stands there then, the word too if the check planted one."""
+        pipe = Path(tempfile.mkdtemp(dir=self.adapters), "planted")
+        os.mkfifo(pipe)
+
+        def answer():
+            while True:
+                with open(pipe, "wb", buffering=0) as turn:     # opened as a turn opens it
+                    turn.write(b"".join(p.read_bytes() for p in self.home.glob(planted)) + b"\0")
+                    # The turn reads up to the NUL and lets go: polled for nothing, the pipe
+                    # wakes this only then, so the next open is the next turn's.
+                    gone = select.poll()
+                    gone.register(turn, 0)
+                    gone.poll()
+
+        # a daemon: it waits for the next turn as long as this process runs
+        threading.Thread(target=answer, daemon=True).start()
+        self.says(f'IFS= read -r -d "" said <{shlex.quote(str(pipe))}; printf %s "$said"')
 
     def test_a_word_planted_where_the_harness_reads_on_its_own_never_comes_back(self):
         # smoke.sh's HOME is a sandbox apart from the caller's: the planted file goes after
         self.env["SMOKE_CALLER_HOME"] = str(self.root / "caller")
-        self.adapter("echo")
+        # an echo reading both planted places itself, which the box hides
+        self.says('cat -- "$HOME/.echo/AGENTS.md" "$HOME/.echo/rules"/* 2>/dev/null')
         result = self.gate()
         self.assertIn("PASS  3 echo:", result.stdout)
         self.assertFalse((self.home / ".echo/AGENTS.md").exists())
@@ -165,9 +195,9 @@ esac
     def test_a_turn_that_says_the_planted_word_fails(self):
         self.env["SMOKE_CALLER_HOME"] = str(self.root / "caller")
         # the manifest's file, and a file in the folder it names
-        for read in ('"$HOME/.echo/AGENTS.md"', '"$HOME/.echo/rules"/*'):
-            with self.subTest(read):
-                self.leaky(read)
+        for planted in (".echo/AGENTS.md", ".echo/rules/*"):
+            with self.subTest(planted):
+                self.leaky(planted)
                 result = self.gate()
                 self.assertIn("FAIL  3 echo: read a file of its own beside the prompt",
                               result.stdout)
