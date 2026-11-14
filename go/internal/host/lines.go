@@ -27,7 +27,7 @@ const (
 
 // SuiteOwn is what a done-when command's environment never inherits, Python's gate.suite_env: a
 // loop started below a suite holds none of that suite's turn, nor its share or test lists.
-var SuiteOwn = []string{HeavyTurn, "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_TIMES"}
+var SuiteOwn = []string{HeavyTurn, "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_NOT_THERE", "AK_TIMES"}
 
 // G is megabytes as gigabytes to one decimal, trailing zeros dropped; `?` for no reading.
 func G(mb float64, ok bool) string {

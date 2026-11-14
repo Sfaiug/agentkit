@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"agentkit/internal/run"
 )
@@ -31,6 +32,40 @@ func TestNarrowingProbeLeavesTheOriginalTreeForItsWholeCheck(t *testing.T) {
 	answer, err = stack.check([]string{"test ! -e probe-output"}, "", "landing", &checkSelection{})
 	if err != nil || answer == nil || !answer.Has("land") {
 		t.Fatalf("whole check: %v, %v", answer, err)
+	}
+}
+
+// Just the red tests on a stack whose tree holds one of them land it where that one passed, as a
+// test a later member adds; a run its watch stopped or the host's memory killed proves nothing,
+// whatever it named.
+func TestNamedTestsLandWhatTheTreeHolds(t *testing.T) {
+	l, repo := repoRig(t)
+	l.silence = time.Second
+	cgroup := filepath.Join(repo.repo, ".git", "cgroups")
+	membership := filepath.Join(t.TempDir(), "membership")
+	if err := os.MkdirAll(filepath.Join(cgroup, "acme"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	for path, text := range map[string]string{filepath.Join(cgroup, "acme", "memory.events"): "oom_kill 0\n", membership: "0::/acme\n"} {
+		if err := os.WriteFile(path, []byte(text), 0o666); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("AK_CGROUP_ROOT", cgroup)
+	t.Setenv("AK_CGROUP_FILE", membership)
+	head, tree, err := repo.identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stack := &narrowingStack{l: l, checkout: &landingCheckout{path: repo.wt}, head: head, tree: tree}
+	stack.dir, stack.record = l.dir, run.Fields("waiting_on", run.Fields("line", ".merge-acme.lock"))
+	named := `echo a >"$AK_RAN"; echo b >"$AK_NOT_THERE"; `
+	starved := `events="$(git rev-parse --git-common-dir)/cgroups/acme/memory.events"; n=$(sed -n 's/^oom_kill //p' "$events"); echo "oom_kill $((n + 1))" >"$events"; exit 137`
+	for command, lands := range map[string]bool{named + "exit 0": true, named + "sleep 30 & exit 0": false, named + starved: false} {
+		answer, err := stack.checkTests(command, "", &checkSelection{shard: "1/1", tests: []string{"a", "b"}})
+		if err != nil || (answer != nil && answer.Has("land")) != lands {
+			t.Errorf("%s: %v, %v, want landing %v", command, answer, err, lands)
+		}
 	}
 }
 
