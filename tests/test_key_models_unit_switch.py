@@ -41,9 +41,12 @@ COUNTED = {"$ a task": (["≈$0.25", "$0.60", "$0.03"],
            "% of a week": (["≈0.84%", "2.00%", "0.10%"],
                            ["≈0.42%", "≈0.63%", "≈0.84%", "≈1.26%", "≈1.68%"]),
            "a week": (["≈120", "50", "1,000"], ["≈240", "≈160", "≈120", "≈79", "≈60"])}
-# a plan of no price: every task free, its week counted as on a priced one
+# a plan of no price: every task free, its week counted as on a priced one, the bars, each as
+# cheap as the next, standing worst first: Base, Long Name, Dear, Step and Top
 FREE = {"$ a task": (["≈$0.00", "$0.00", "$0.00"], ["≈$0.00"] * 5),
-        **{unit: COUNTED[unit] for unit in ("% of a week", "a week")}}
+        "% of a week": (COUNTED["% of a week"][0],
+                        ["≈0.42%", "≈0.63%", "≈1.26%", "≈0.84%", "≈1.68%"]),
+        "a week": (COUNTED["a week"][0], ["≈240", "≈160", "≈79", "≈120", "≈60"])}
 # no run of yours: the boards' dollars a task, and no week in the other two
 UNRUN = {"$ a task": (["≈$4.00", "≈$8.00", "≈$2.00"],
                       ["≈$2.00", "≈$3.00", "≈$4.00", "≈$6.00", "≈$8.00"]),
