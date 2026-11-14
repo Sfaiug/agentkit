@@ -31,9 +31,7 @@ func TestTheBoardNamesTheSeatsItCountsNothingOf(t *testing.T) {
 	if err != nil || !slices.Equal(uncounted, []string{"ash (claude)", "elm (claude)"}) {
 		t.Fatalf("named %q: %v", uncounted, err)
 	}
-	board := readScoreboard(nil, time.Now())
-	board.uncounted = uncounted
-	if cell := board.cells(board.now)[2]; cell != "no tokens recorded; not counted: ash (claude), elm (claude)" {
+	if cell := readScoreboard(nil, uncounted, time.Now()).columns[0][2]; cell != "no tokens recorded; not counted: ash (claude), elm (claude)" {
 		t.Fatalf("the tokens row says %q", cell)
 	}
 	look := history.Look()
@@ -60,13 +58,13 @@ func TestTheBoardCountsWhatTheSeatsSpent(t *testing.T) {
 	if err != nil || len(uncounted) > 0 {
 		t.Fatalf("read with %q uncounted: %v", uncounted, err)
 	}
-	board := readScoreboard(db, time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC))
-	cells := board.cells(board.now)
+	board := readScoreboard(db, nil, time.Date(2026, 11, 6, 0, 0, 0, 0, time.UTC))
+	cells := board.columns[0]
 	if !slices.Equal(cells[:3], []string{"no runs ended", "no runs ended; 100% of all recorded tokens",
 		"1,500 tokens; 1,500 from seats"}) {
 		t.Fatalf("the week reads %q", cells[:3])
 	}
-	if cell := board.cells(board.now - week)[2]; cell != "no tokens recorded" {
+	if cell := board.columns[1][2]; cell != "no tokens recorded" {
 		t.Fatalf("the week before reads %q", cell)
 	}
 }

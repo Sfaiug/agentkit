@@ -62,7 +62,7 @@ func TestAStallsTypedLineGoesBeforeTheWeeksThroughTheSameSteps(t *testing.T) {
 	put(t, stall, `{"about":"the stall of the slot queue","line":"ak stalled","typed":{"line":"ak stalled","seat":1},"delivered":null,"told":["slot:x"]}`)
 	var said bytes.Buffer
 	tick := &ticking{clock: func() time.Time { return stallNow }, log: newLog(&said, io.Discard)}
-	tick.report = func(time.Time) ([]string, string) { return nil, "fixture loss" }
+	tick.report = func(time.Time) ([]string, string, bool) { return nil, "fixture loss", true }
 	if err := tick.audit(); err != nil || read(t, week) != before {
 		t.Fatal(err, read(t, week))
 	}

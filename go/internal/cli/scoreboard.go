@@ -32,6 +32,42 @@ const week = 7 * 86400.0
 var measures = []string{"products", "ak", "tokens", "intent", "owner", "built", "waits", "merged", "checks", "parks",
 	"conflicts", "sunk", "broke", "rewritten", "review pairs", "findings", "ak size"}
 
+// The measures a week's loss is read from, in the vision's order -- quality, speed, cost, size --
+// as Python's scoreboard.LOSSES: the words for it, the reading it is (readings), whether more is
+// worse, and how it is said: a share, hours or a count.
+var losses = []struct {
+	words, reading string
+	worse          bool
+	form           byte
+}{
+	{"merged changes that broke main or live after merge", "broke.after_merge", true, '%'},
+	{"merged changes whose tests went red at landing", "broke.landing", true, '%'},
+	{"product runs ended without merging", "products.unmerged", true, '%'},
+	{"product runs merged in round 1", "products.first_round", false, '%'},
+	{"ak's runs ended without merging", "ak.unmerged", true, '%'},
+	{"ak's runs merged in round 1", "ak.first_round", false, '%'},
+	{"hours from the owner's first message to done", "intent.hours", true, 'h'},
+	{"hours from the owner's first message to live", "intent.live_hours", true, 'h'},
+	{"hours to merge a product run", "products.hours", true, 'h'},
+	{"hours to merge a run on ak", "ak.hours", true, 'h'},
+	{"run time waiting for a slot or a suite turn", "waits.compute", true, '%'},
+	{"hours a merged change spent waiting", "merged.waiting", true, 'h'},
+	{"questions asked of the owner", "owner.asked", true, 'n'},
+	{"cards sent to the owner", "owner.paged", true, 'n'},
+	{"tokens per merged product run", "products.tokens", true, 'n'},
+	{"tokens per merged run on ak", "ak.tokens", true, 'n'},
+	{"ak's share of all tokens", "ak.token_share", true, '%'},
+	{"tokens spent on runs that never merged", "sunk.share", true, '%'},
+	{"runs the park stopped", "parks.parked", true, 'n'},
+	{"ak's code lines", "size.code lines", true, 'n'},
+	{"ak's README words", "size.README words", true, 'n'},
+	{"ak's AGENTS.md words", "size.AGENTS.md words", true, 'n'},
+}
+
+// readings are one week's measures its loss is read from, each the board's row and part, as
+// Python's scoreboard.reading takes them, only where the board reads one.
+type readings map[string]float64
+
 // The phases a merged change's hours are split into, each second in the first that holds it: a
 // model turn, else ak's own work, else a wait; and the steps, each its phase and the column of
 // runs that also counts its seconds.
@@ -58,6 +94,8 @@ type board struct {
 	rewrites                           []history.Row // the runs that took a plan line live
 	rewritesKnown                      bool
 	sizes                              [2][]measure // ak's committed size now and seven days ago
+	columns                            [2][]string  // the last seven days' cells and the seven before's
+	read                               [2]readings  // and what each reads of the measures losses names
 }
 
 // A measure is one part of ak's size, nil where git could not tell it.
@@ -66,26 +104,26 @@ type measure struct {
 	value *int
 }
 
-// scoreboard is `--history`'s two weeks side by side, as Python's scoreboard renders them, db
-// nil where no history.db stands, beside the seats whose tokens it counts none of.
-func scoreboard(screen terminal.Screen, db *history.DB, uncounted []string, now time.Time) []string {
-	board := readScoreboard(db, now)
-	board.uncounted = uncounted
-	return board.render(screen)
-}
-
-// The tick receives the same report the history screen renders, keeping its measures here.  It
-// audits only where no history.db stands.
+// auditScoreboard is the weekly audit's report, as Python's audit.report writes it: the board
+// `--history` renders, read as boardHistory reads it, and its loss; false, having written nothing,
+// where boardHistory leaves it to Python.
 func auditScoreboard(out io.Writer) tick.AuditReport {
-	return func(now time.Time) ([]string, string) {
-		board := readScoreboard(nil, now)
-		return board.render(terminal.For(out)), board.loss()
+	return func(now time.Time) ([]string, string, bool) {
+		db, uncounted, err := boardHistory()
+		if err != nil {
+			return nil, "", false
+		}
+		defer db.Close()
+		board := readScoreboard(db, uncounted, now)
+		return board.render(terminal.For(out)), board.loss(), true
 	}
 }
 
-func readScoreboard(db *history.DB, now time.Time) *board {
+// readScoreboard is Python's scoreboard.compute: the board of db, nil where no history.db stands,
+// beside the seats whose tokens it counts none of.
+func readScoreboard(db *history.DB, uncounted []string, now time.Time) *board {
 	repo := config.Repo()
-	b := board{db: db, now: seconds(now), own: map[string]bool{filepath.Base(repo): true}}
+	b := board{db: db, now: seconds(now), own: map[string]bool{filepath.Base(repo): true}, uncounted: uncounted}
 	if common := gitOutput(repo, "rev-parse", "--git-common-dir"); common != nil {
 		dir := strings.TrimSpace(string(common))
 		if !filepath.IsAbs(dir) {
@@ -115,11 +153,15 @@ func readScoreboard(db *history.DB, now time.Time) *board {
 		before = strings.TrimSpace(string(out))
 	}
 	b.sizes = [2][]measure{size(repo, "HEAD"), size(repo, before)}
+	for i, end := range []float64{b.now, b.now - week} {
+		b.read[i] = readings{}
+		b.columns[i] = append(b.cells(b.read[i], end), sized(b.read[i], b.sizes[i]))
+	}
 	return &b
 }
 
+// render is `--history`'s two weeks side by side, as Python's scoreboard renders them.
 func (b *board) render(screen terminal.Screen) []string {
-	current, previous := append(b.cells(b.now), sized(b.sizes[0])), append(b.cells(b.now-week), sized(b.sizes[1]))
 	labelWidth := 0
 	for _, label := range measures {
 		labelWidth = max(labelWidth, len(label))
@@ -130,7 +172,7 @@ func (b *board) render(screen terminal.Screen) []string {
 	for i, label := range append([]string{""}, measures...) {
 		left, right := terminal.Wrap("last 7 days", room), terminal.Wrap("7 days before", room)
 		if i > 0 {
-			left, right = terminal.Wrap(current[i-1], room), terminal.Wrap(previous[i-1], room)
+			left, right = terminal.Wrap(b.columns[0][i-1], room), terminal.Wrap(b.columns[1][i-1], room)
 		}
 		for j := range max(len(left), len(right)) {
 			cells := []string{"", at(left, j), at(right, j)}
@@ -143,34 +185,43 @@ func (b *board) render(screen terminal.Screen) []string {
 	return lines
 }
 
-// loss follows the vision's order. Without history only size has a reading.
+// loss is the week's largest loss in words, as Python's audit.phrase says scoreboard.loss's: the
+// first of losses that reads worse than the week before, else the first read this week at all.
 func (b *board) loss() string {
-	first := "no loss to name, since no run ended in two weeks"
-	for i, part := range b.sizes[0] {
-		if part.value == nil {
+	first := ""
+	for _, each := range losses {
+		now, read := b.read[0][each.reading]
+		if !read {
 			continue
 		}
-		var previous *int
-		if len(b.sizes[1]) > i {
-			previous = b.sizes[1][i].value
-		}
-		before := "not recorded"
-		if previous != nil {
-			before = thousands(float64(*previous))
-		}
-		words := "the largest loss is ak's " + part.name + ", " + thousands(float64(*part.value)) + " against " + before + " the week before"
-		if first == "no loss to name, since no run ended in two weeks" {
-			first = words
-		}
-		if previous != nil && *part.value > *previous {
+		before, known := b.read[1][each.reading]
+		words := "the largest loss is " + each.words + ", " + said(now, read, each.form) + " against " +
+			said(before, known, each.form) + " the week before"
+		if known && (each.worse && now > before || !each.worse && now < before) {
 			return words
 		}
+		first = cmp.Or(first, words)
 	}
-	return first
+	return cmp.Or(first, "no loss to name, since no run ended in two weeks")
 }
 
-// cells are the board's cells for the week ending at end, in measures' order, all but ak's size.
-func (b *board) cells(end float64) []string {
+// said is a measure's value in words, as Python's scoreboard.said: a share as a percentage, hours
+// to a tenth, a count whole.
+func said(value float64, known bool, form byte) string {
+	switch {
+	case !known:
+		return "not recorded"
+	case form == '%':
+		return percent(value, 0)
+	case form == 'h':
+		return fmt.Sprintf("%.1f hours", value)
+	}
+	return thousands(math.RoundToEven(value))
+}
+
+// cells are the board's cells for the week ending at end, in measures' order, all but ak's size,
+// each keeping what it reads of losses' measures in read.
+func (b *board) cells(read readings, end float64) []string {
 	var finished, ended []history.Row
 	tokens := 0.0
 	for _, row := range b.rows {
@@ -202,9 +253,10 @@ func (b *board) cells(end float64) []string {
 	if len(b.uncounted) > 0 {
 		tokensCell += "; not counted: " + strings.Join(b.uncounted, ", ")
 	}
-	return []string{b.delivered(ended, false, 0, tokens), b.delivered(ended, true, own, tokens), tokensCell, b.intent(end),
-		b.asked(end), built(ended), waited(finished), b.split(changes), b.checked(changes), b.parked(end),
-		b.collided(ended, end), sunk(ended, tokens), broke(ended), b.rewritten(end), pairs(ended), b.weighed(ended, end)}
+	return []string{b.delivered(read, ended, false, 0, tokens), b.delivered(read, ended, true, own, tokens), tokensCell,
+		b.intent(read, end), b.asked(read, end), built(ended), waited(read, finished), b.split(read, changes),
+		b.checked(changes), b.parked(read, end), b.collided(ended, end), sunk(read, ended, tokens), broke(read, ended),
+		b.rewritten(end), pairs(ended), b.weighed(ended, end)}
 }
 
 // in is whether that moment falls in the week ending at end, the last seven days' including now.
@@ -215,7 +267,11 @@ func (b *board) in(at, end float64) bool {
 // delivered is the products or the ak row: what the week's runs on other repositories, or on
 // ak's own checkout, delivered, and with ak's its share of every recorded token, its seats' spent
 // on it among them.
-func (b *board) delivered(ended []history.Row, ak bool, seats, total float64) string {
+func (b *board) delivered(read readings, ended []history.Row, ak bool, seats, total float64) string {
+	label := "products."
+	if ak {
+		label = "ak."
+	}
 	runs, merged, firstRound, unmerged, share := 0, 0, 0, 0, seats
 	var hours, tokens []float64
 	for _, row := range ended {
@@ -242,42 +298,52 @@ func (b *board) delivered(ended []history.Row, ak bool, seats, total float64) st
 			tokens = append(tokens, executor+reviewer)
 		}
 	}
-	switch {
-	case runs == 0 && seats == 0:
+	if runs == 0 && seats == 0 {
 		return "no runs ended"
-	case runs == 0:
+	}
+	if ak && total != 0 {
+		read[label+"token_share"] = share / total
+	}
+	if runs == 0 {
 		return "no runs ended; " + percent(share/total, 0) + " of all recorded tokens"
 	}
+	read[label+"first_round"], read[label+"unmerged"] = float64(firstRound)/float64(runs), float64(unmerged)/float64(runs)
+	if len(hours) > 0 {
+		read[label+"hours"] = quality.Median(hours)
+	}
+	if len(tokens) > 0 {
+		read[label+"tokens"] = quality.Median(tokens)
+	}
 	cell := fmt.Sprintf("%d runs ended; %s merged in round 1; %s ended without merging; ", runs,
-		percent(float64(firstRound)/float64(runs), 0), percent(float64(unmerged)/float64(runs), 0))
+		percent(read[label+"first_round"], 0), percent(read[label+"unmerged"], 0))
 	switch {
 	case merged == 0:
 		cell += "no merged runs"
 	case len(hours) == 0:
 		cell += "merge hours unknown; "
 	default:
-		cell += "median " + strconv.FormatFloat(quality.Median(hours), 'g', 6, 64) + " hours to merge; "
+		cell += "median " + strconv.FormatFloat(read[label+"hours"], 'g', 6, 64) + " hours to merge; "
 	}
 	switch {
 	case merged == 0:
 	case len(tokens) == 0:
 		cell += "median tokens per merged run unknown"
 	default:
-		cell += "median " + thousands(quality.Median(tokens)) + " tokens per merged run"
+		cell += "median " + thousands(read[label+"tokens"]) + " tokens per merged run"
 	}
 	switch {
 	case !ak:
 	case total == 0:
 		cell += "; no tokens recorded"
 	default:
-		cell += "; " + percent(share/total, 0) + " of all recorded tokens"
+		cell += "; " + percent(read[label+"token_share"], 0) + " of all recorded tokens"
 	}
 	return cell
 }
 
 // intent is the time the owner feels: from their first message of an intent to the done that
 // ends it, and to the last of its changes live, and how much of it waited on their answers.
-func (b *board) intent(end float64) string {
+func (b *board) intent(read readings, end float64) string {
 	if !b.donesKnown {
 		return "not recorded"
 	}
@@ -300,10 +366,12 @@ func (b *board) intent(end float64) string {
 	if len(took) == 0 {
 		return "no intent measured"
 	}
+	read["intent.hours"] = quality.Median(took)
 	cell := fmt.Sprintf("%d intents measured, median %.1f hours from the owner's first message to done",
-		len(took), quality.Median(took))
+		len(took), read["intent.hours"])
 	if len(lived) > 0 {
-		cell += fmt.Sprintf("; %d live, median %.1f hours to live", len(lived), quality.Median(lived))
+		read["intent.live_hours"] = quality.Median(lived)
+		cell += fmt.Sprintf("; %d live, median %.1f hours to live", len(lived), read["intent.live_hours"])
 	}
 	if waited != 0 && !unknown {
 		cell += "; " + percent(answered/(waited*3600), 1) + " of intent time waiting for the owner's answers"
@@ -313,7 +381,7 @@ func (b *board) intent(end float64) string {
 
 // asked is the owner's time: what the seats asked them, what reached them, and how long they
 // were waited on.
-func (b *board) asked(end float64) string {
+func (b *board) asked(read readings, end float64) string {
 	if !b.ownerKnown {
 		return "not recorded"
 	}
@@ -332,6 +400,7 @@ func (b *board) asked(end float64) string {
 			answers = append(answers, number(row, "waited")/3600)
 		}
 	}
+	read["owner.asked"], read["owner.paged"] = float64(asked), float64(paged)
 	cell := fmt.Sprintf("%d questions asked, %d cards sent", asked, paged)
 	if len(answers) > 0 {
 		cell += fmt.Sprintf(", median %.1f hours waiting for an answer", quality.Median(answers))
@@ -388,7 +457,7 @@ func bySeat(row history.Row) (seat, known bool) {
 // waited is the share of the week's run time spent waiting for a slot or a suite turn, and the
 // hours in a landing line, of the runs that recorded them and whose record still ends where its
 // row does; a landing check's waits are not recorded while one of them was written without.
-func waited(finished []history.Row) string {
+func waited(read readings, finished []history.Row) string {
 	runTime, waits, merge, lander, landerKnown := 0.0, 0.0, 0.0, 0.0, true
 	for _, row := range finished {
 		if row["slot_wait_seconds"] == nil || !row.Truthy("total_seconds") || !settled(row) {
@@ -404,12 +473,13 @@ func waited(finished []history.Row) string {
 	if runTime == 0 {
 		return "not recorded"
 	}
+	read["waits.compute"] = waits / runTime
 	checks := "checks' waits for a suite turn are not recorded"
 	if landerKnown {
 		checks = fmt.Sprintf("checks waited %.1f hours for a suite turn", lander/3600)
 	}
 	return fmt.Sprintf("%s of run time waiting for a slot or its own suite turn; %.1f hours in a landing line, where %s",
-		percent(waits/runTime, 0), merge/3600, checks)
+		percent(read["waits.compute"], 0), merge/3600, checks)
 }
 
 // settled is whether the run's record still ends where its row does, or is gone: a run started
@@ -442,7 +512,7 @@ func (b *board) changes(ended []history.Row) [][]history.Row {
 // split is the median hours a merged change spent in model turns, in ak's own work, waiting, and
 // with its seat between runs: its first start to last end less its runs' time.  A change from
 // before the phase rows were kept is not recorded.
-func (b *board) split(changes [][]history.Row) string {
+func (b *board) split(read readings, changes [][]history.Row) string {
 	var medians [4][]float64
 	for _, runs := range changes {
 		var sums [4]float64
@@ -467,9 +537,10 @@ func (b *board) split(changes [][]history.Row) string {
 	if len(medians[0]) == 0 {
 		return "no merged change"
 	}
+	read["merged.waiting"] = quality.Median(medians[2])
 	return fmt.Sprintf("median hours per merged change: %.1f in model turns, %.1f ak's own work, %.1f waiting, "+
 		"%.1f with its seat between runs", quality.Median(medians[0]), quality.Median(medians[1]),
-		quality.Median(medians[2]), quality.Median(medians[3]))
+		read["merged.waiting"], quality.Median(medians[3]))
 }
 
 // hours are a run's hours in each part, read from its phase rows so that no second is in two;
@@ -546,7 +617,7 @@ func (b *board) checked(changes [][]history.Row) string {
 }
 
 // parked is how many runs the park stopped in the week.
-func (b *board) parked(end float64) string {
+func (b *board) parked(read readings, end float64) string {
 	if !b.parksKnown {
 		return "not recorded"
 	}
@@ -556,6 +627,7 @@ func (b *board) parked(end float64) string {
 			parked++
 		}
 	}
+	read["parks.parked"] = float64(parked)
 	return fmt.Sprintf("%d runs stopped by the park to wait on an older change's lines", parked)
 }
 
@@ -634,7 +706,7 @@ func addedOnly(repo, path string) string {
 }
 
 // sunk is the week's tokens that bought no merge: every ended run's that delivered nothing.
-func sunk(ended []history.Row, total float64) string {
+func sunk(read readings, ended []history.Row, total float64) string {
 	if total == 0 {
 		return "no tokens recorded"
 	}
@@ -644,13 +716,14 @@ func sunk(ended []history.Row, total float64) string {
 			wasted += spent(row)
 		}
 	}
-	return fmt.Sprintf("%s of the week's tokens, %s, went to runs that never merged", percent(wasted/total, 0), thousands(wasted))
+	read["sunk.share"] = wasted / total
+	return fmt.Sprintf("%s of the week's tokens, %s, went to runs that never merged", percent(read["sunk.share"], 0), thousands(wasted))
 }
 
 // broke is the week's merged changes that broke after review passed them: their tests red at
 // landing, or main's checks or live health after their merge, as each run's row records it; a
 // row from before breaks were recorded is unknown until one is recorded on it.
-func broke(ended []history.Row) string {
+func broke(read readings, ended []history.Row) string {
 	merged, known, after, landing, flakes := 0, 0, 0, 0, 0
 	for _, row := range ended {
 		if !row.Merged() {
@@ -667,6 +740,9 @@ func broke(ended []history.Row) string {
 	}
 	if merged == 0 {
 		return "no merged change"
+	}
+	if known > 0 {
+		read["broke.after_merge"], read["broke.landing"] = float64(after)/float64(known), float64(landing)/float64(known)
 	}
 	cell := fmt.Sprintf("%d of %d merged changes broke main or live after merge; %d went red at landing; %d more were flakes",
 		after, known, landing, flakes)
@@ -817,8 +893,8 @@ func size(repo, ref string) []measure {
 	return parts
 }
 
-// sized is ak's size in the board's words.
-func sized(parts []measure) string {
+// sized is ak's size in the board's words, each part known kept in read.
+func sized(read readings, parts []measure) string {
 	if parts == nil {
 		return "size unavailable"
 	}
@@ -826,6 +902,7 @@ func sized(parts []measure) string {
 	for _, part := range parts {
 		word := part.name + " unknown"
 		if part.value != nil {
+			read["size."+part.name] = float64(*part.value)
 			word = fmt.Sprintf("%d %s", *part.value, part.name)
 		}
 		words = append(words, word)
