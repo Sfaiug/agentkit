@@ -3219,6 +3219,11 @@ SOURCES = {"measured": "from {runs} of your {run}s",
            "global": "estimated: its board price, times what your runs on every provider cost "
                      "a board dollar",
            "board": "its board price alone: no {run} of yours priced a model"}
+# why each of a role's `others` is no choice, by its `why` (matrix._why)
+WHYS = {"beaten": "beaten by {by}", "close": "within {apart} of {by}",
+        "far below": "{below} below the best",
+        "no room": "the {places} places go to better choices",
+        "not set up": "would be a choice, but no model of yours runs it"}
 NUMBERS = "zero one two three four five six seven eight nine".split()
 
 
@@ -3229,12 +3234,12 @@ def model_cost(found, row):
     return f"{cost}%" if found["cost_unit"] == "share" else f"${cost}"
 
 
-def cost_said(found, row, gap=""):
-    """`row`'s cost in its role's answer `found`, `≈` and `gap` before one no runs measured --
-    the owner, 3 Nov 2026: a cost on screen must never look more certain than it is."""
+def cost_said(found, row):
+    """`row`'s cost in its role's answer `found`, `≈` against one no runs measured -- the owner,
+    3 Nov 2026: a cost on screen must never look more certain than it is."""
     if row["cost"] is None:
         return "-"
-    about = "" if row["cost_rule"] == "measured" else ("≈" if terminal.utf8() else "~") + gap
+    about = "" if row["cost_rule"] == "measured" else "≈" if terminal.utf8() else "~"
     return about + model_cost(found, row)
 
 
@@ -3429,6 +3434,11 @@ def number(count):
     return NUMBERS[count] if count < len(NUMBERS) else str(count)
 
 
+def points(count):
+    """`count` quality points in words: `a point`, `two points`."""
+    return "a point" if count == 1 else f"{number(count)} points"
+
+
 def scored(column, one):
     """A measure's evaluation, and how a row scored there where the score is not its own."""
     return MEASURES[column] + (f" carried from {one['from']}" if one["how"] == "carried" else
@@ -3456,31 +3466,48 @@ def models_why(found, role, row):
     """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
     2026: a label column, each value going on at its words in its own (flowed).  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
-    best choice it is; its cost and where that comes from (SOURCES).  Only a model's name is
+    best choice it is; its cost and where that comes from (SOURCES); the rule that makes the
+    choices; and why each of its `others` is none (WHYS), in their order.  Only a model's name is
     cut."""
     room = terminal.layout_width() - 2
-    width = terminal.cells("not shown")     # the design's label column: its widest label
+    width = terminal.cells("choices")       # the design's label column: its widest label
     values = room - width - 2
     # the best choice, else, with nothing priced to choose among, the best rated row
     top = max(found["choices"] or found["rated"], key=lambda one: one["quality"])
     measures = {column: one for column, *_ in quality.ROLES[role]
                 for one in [row["measures"].get(column)] if one}
     counted = sum(one["how"] != "missing" for one in measures.values())
-    behind = top["quality"] - row["quality"]
-    said = {"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
-                                                  f"{number(counted)} benchmarks"],
-                        [", ".join(scored(column, one) for column, one in measures.items())],
-                        ["the best of these choices"] if row is top else
-                        [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
-                         f"{named(top, values)}"]],
-            "cost": [[f"{cost_said(found, row, ' ')} a {RUN[role]}",
-                      SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])]
-                     if row["cost"] is not None else ["no cost"]]}
+
+    def below(one):       # of the qualities as shown: 98.46 and 94.04 read 98.5, 94.0 and 4.5
+        return round(top["quality"], 1) - round(one["quality"], 1)
+
+    def priced(one):
+        return f"{named(one, values)}, {one['quality']:.1f} for {cost_said(found, one)}"
+
+    def why(one):
+        word, by = found["whys"][id(one)]
+        return f"{priced(one)}: " + WHYS[word].format(
+            by=by and priced(by), apart=points(matrix.APART), below=f"{below(one):.1f}",
+            places=number(matrix.PLACES))
+    behind = below(row)
+    said = [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
+                                                   f"{number(counted)} benchmarks"],
+                         [", ".join(scored(column, one) for column, one in measures.items())],
+                         ["the best of these choices"] if row is top else
+                         [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
+                          f"{named(top, values)}"]]},
+            {"cost": [[f"{cost_said(found, row)} a {RUN[role]}",
+                       SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])]
+                      if row["cost"] is not None else ["no cost"]]},
+            {"choices": [[f"the best, then cheaper ones {points(matrix.APART)} apart, none more "
+                          f"than {number(matrix.WINDOW)} below, {number(matrix.PLACES)} at most"]],
+             "others": [[why(one)] for one in found["others"]]}]
     lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}"]
-    for label, parts in said.items():
+    for block in said:
         lines.append("")
-        for n, line in enumerate(line for part in parts for line in flowed(part, values)):
-            lines.append(f"{terminal.pad(label if n == 0 else '', width)}  {line}")
+        for label, parts in block.items():
+            for n, line in enumerate(line for part in parts for line in flowed(part, values)):
+                lines.append(f"{terminal.pad(label if n == 0 else '', width)}  {line}")
     return ["  " + line if line else line for line in lines]
 
 
