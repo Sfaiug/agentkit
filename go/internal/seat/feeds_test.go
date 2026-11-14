@@ -9,13 +9,13 @@ import (
 
 // Only what a seat's word, row or card reads and Go does not carry hands a home over: a listed
 // seat's own file Go does not read, but its done checks' counts and pictures; watch.json beside a
-// stall Go does not read; refusals that may owe a run a login; and `server`.
+// stall Go does not read; and `server`.  The refusals rung 1a reads itself (runOnALogin).
 func TestOnlyWhatFeedsASeatHandsTheHomeOver(t *testing.T) {
 	state := filepath.Join(sandbox(t), ".agentkit", "state")
 	for name, feeds := range map[string]bool{
 		"plan-acme.md": false, "checked-acme.txt": false, "tell-acme.json": true, "verified-acme.txt": false, "unverified-acme.txt.new": false,
 		"pictures-acme.jsonl": false, "plan-gone.md": false, "test-times-1a2b.json": false, "notices": false,
-		"server": true, "leases/shop.json": false, "card-acme.json/held": true,
+		"server": true, "leases/shop.json": false, "card-acme.json/held": true, "login-refusals.json": false,
 	} {
 		entry, _, _ := strings.Cut(name, "/") // a directory, where a name goes on past one
 		write(t, filepath.Join(state, name), "{}")
@@ -31,15 +31,6 @@ func TestOnlyWhatFeedsASeatHandsTheHomeOver(t *testing.T) {
 		write(t, filepath.Join(state, "watch.json"), text)
 		if feedsSeat(state, "watch.json") != feeds {
 			t.Errorf("watch.json %s feeds a seat: %v", text, !feeds)
-		}
-	}
-	for text, feeds := range map[string]bool{
-		`{}`: false, `[]`: false, `{`: false, `{"claude": ["r1"], "codex": []}`: false, `{"claude": ["r1", "r1"]}`: true,
-		`{"claude": "r1"}`: true, `{"claude": null}`: true, `{"\ud800": ["r1", "r2"]}`: true,
-	} {
-		write(t, filepath.Join(state, "login-refusals.json"), text)
-		if feedsSeat(state, "login-refusals.json") != feeds {
-			t.Errorf("login-refusals.json %s feeds a seat: %v", text, !feeds)
 		}
 	}
 }

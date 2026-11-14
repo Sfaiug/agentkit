@@ -298,6 +298,7 @@ test_key_log_in_again_only_when_needed
 test_key_login_end_cadence
 test_key_login_end_window
 test_key_login_plan
+test_key_login_refusing_a_run_needs_you
 test_key_login_resume WorktreeGone ConflictFixer
 test_key_login_resume WorktreeGone
 test_key_login_words
