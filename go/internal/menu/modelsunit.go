@@ -1,4 +1,5 @@
 package menu
 
-// Each role's cost column is headed with its unit (quality.Said's CostUnit).
-var units = map[string]string{"share": "week %", "money": "plan $", "board_dollars": "a task"}
+// costHead heads every role's cost column, as Python's menu.UNITS names a cost in dollars a task:
+// a row in shares of a week (quality.Said's CostUnit) has none.
+const costHead = "$ a task"

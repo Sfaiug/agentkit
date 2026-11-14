@@ -57,13 +57,14 @@ type spent struct {
 	known          bool
 }
 
-// shares is {model: {effort: {role: share}}}, Python's spend.roles: of each offered model at each
-// effort it did a worker role at, the mean over the task runs that ended where it did of the
-// points of a week the role's turn_usage rows took, at held's listed prices times 100 over the
-// week of each row's login under the model's provider (plans).  A run's reviewer is at the one
-// effort its reviews name; a run counts for nothing in a role a counted turn of which kept no row,
-// a row of which has no listed price or a login of which has no week.
-func shares(held *run.Object) (*run.Object, error) {
+// measures is Python's spend.roles: of each offered model at each effort it did a worker role at,
+// the means over the task runs that ended where it did of the dollars the role's turn_usage rows
+// took at held's listed prices, and of the points of a week that is, each row's dollars times 100
+// over the week of its login under the model's provider (plans); and each login's plan where its
+// week holds some.  A run's reviewer is at the one effort its reviews name; a run counts for
+// nothing in a role a counted turn of which kept no row, a row of which has no listed price or a
+// login of which has no week.
+func measures(held *run.Object) (*Measures, error) {
 	names, err := config.Offered()
 	if err != nil {
 		return nil, err
@@ -88,12 +89,32 @@ func shares(held *run.Object) (*run.Object, error) {
 	}
 	s := spending(held)
 	defer s.db.Close()
+	found := &Measures{Shares: run.NewObject(), listed: map[[3]string]float64{}}
 	weeks := map[[2]string]float64{} // by provider and the account its rows name
 	now := float64(time.Now().UnixNano()) / 1e9
-	for login, plan := range s.plans(accounts, [2]float64{now - SpentOver, now})[0] {
-		if week, known := plan.Week(); known {
-			weeks[[2]string{login.Provider, cmp.Or(login.Account, config.DefaultAccount)}] = week
+	fits := s.plans(accounts, [2]float64{now - SpentOver, now})[0]
+	for _, login := range accounts {
+		week, known := fits[login].Week()
+		if !known {
+			continue
 		}
+		account := cmp.Or(login.Account, config.DefaultAccount)
+		weeks[[2]string{login.Provider, account}] = week
+		// one its subscription no longer lists is signed out: the usage cache keeps it until it
+		// next refreshes, and its week still prices the runs it did, but it pays for no next task
+		listed, err := config.Accounts(login.Provider)
+		if err != nil {
+			return nil, err
+		}
+		if week == 0 || len(listed) > 0 && !slices.Contains(listed, account) {
+			continue
+		}
+		sub := subs[slices.IndexFunc(subs, func(sub config.Subscription) bool { return sub.Name == login.Provider })]
+		price, err := usage.Price(sub, login.Account)
+		if err != nil {
+			return nil, err
+		}
+		found.plans = append(found.plans, plan{login.Provider, price, week})
 	}
 	type task struct{ run, role string }
 	type did struct {
@@ -135,7 +156,7 @@ func shares(held *run.Object) (*run.Object, error) {
 	}
 	type sample struct{ name, effort, role string }
 	var order []sample
-	samples := map[sample][]float64{}
+	samples := map[sample][][2]float64{} // each run's points and dollars
 	for _, key := range tasks {
 		d, kept := dids[key], rows[key]
 		for _, row := range kept {
@@ -144,12 +165,12 @@ func shares(held *run.Object) (*run.Object, error) {
 		if !slices.Contains(names, d.name) || !d.said || len(d.turns) > 0 {
 			continue
 		}
-		var points []float64
+		var points, costs []float64
 		for _, row := range kept {
-			dollars, priced := s.dollars(row.spent)
+			cost, priced := s.dollars(row.spent)
 			week, held := weeks[[2]string{models[d.name].Provider, row.account}]
 			if priced && held {
-				points = append(points, 100*dollars/week)
+				points, costs = append(points, 100*cost/week), append(costs, cost)
 			}
 		}
 		if len(points) == len(kept) {
@@ -157,19 +178,24 @@ func shares(held *run.Object) (*run.Object, error) {
 			if samples[each] == nil {
 				order = append(order, each)
 			}
-			samples[each] = append(samples[each], quality.Sum(points))
+			samples[each] = append(samples[each], [2]float64{quality.Sum(points), quality.Sum(costs)})
 		}
 	}
-	found := run.NewObject()
 	for _, each := range order {
-		if found.Dict(each.name) == nil {
-			found.Set(each.name, run.NewObject())
+		if found.Shares.Dict(each.name) == nil {
+			found.Shares.Set(each.name, run.NewObject())
 		}
-		efforts := found.Dict(each.name)
+		efforts := found.Shares.Dict(each.name)
 		if efforts.Dict(each.effort) == nil {
 			efforts.Set(each.effort, run.NewObject())
 		}
-		efforts.Dict(each.effort).Set(each.role, quality.Sum(samples[each])/float64(len(samples[each])))
+		var points, costs []float64
+		for _, one := range samples[each] {
+			points, costs = append(points, one[0]), append(costs, one[1])
+		}
+		runs := float64(len(samples[each]))
+		efforts.Dict(each.effort).Set(each.role, quality.Sum(points)/runs)
+		found.listed[[3]string{each.name, each.effort, each.role}] = quality.Sum(costs) / runs
 	}
 	return found, nil
 }

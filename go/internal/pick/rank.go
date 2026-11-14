@@ -14,16 +14,8 @@ type Ranker func(review bool, models map[string]config.Model, names []string) fu
 
 // Lineup is what a pick reads of the lineup `ak models` last stored, matrix's ranking, which
 // matrix supplies, as it reads that lineup through packages that import this one: its Ranker and
-// the models off in the model list.  false where Go cannot rank as Python does, or read that list;
-// own, the run whose pick asks, "" for none (Launched).
-var Lineup func(own string) (Ranker, map[string]bool, bool)
-
-// Launched is Within for the picks of the run id launched, its first among them: the history row
-// its launch wrote leaves to Python none of the picks its launch left to Go (Within); every other
-// row counts.  A resume launches it anew, deciding by its row too.
-func Launched(id string, executors, reviewers []string) (*Rules, bool) {
-	return within(executors, reviewers, id)
-}
+// the models off in the model list, false where that list cannot be read.
+var Lineup func() (Ranker, map[string]bool, bool)
 
 // OffList is why a pick leaves out a model off in the model list, Python's matrix.OFF.
 const OffList = "off in the model list"

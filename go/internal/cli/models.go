@@ -52,17 +52,17 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	shares, err := matrix.Shares()
+	measured, err := matrix.Measured()
 	if err != nil {
 		return fail(err)
 	}
-	answer, err := matrix.Answer(found.Rows, marked, shares)
+	answer, err := matrix.Answer(found.Rows, marked, measured)
 	if err != nil {
 		return fail(err)
 	}
 	if asJSON {
 		whole := modelsJSON(answer, c.Names)
-		whole.Set("task_usage", shares)
+		whole.Set("task_usage", measured.Shares)
 		fmt.Fprintln(out, run.Encode(whole))
 		return 0
 	}

@@ -64,19 +64,16 @@ func Load() (*Rules, bool) {
 }
 
 // Within is the Rules of these groups, reviewers nil being the executors, false where Python ak
-// picks there: a pace_margin Python refuses, a model a group names that config.model refuses, a
-// lineup Go cannot rank or a model list it cannot read (Lineup), are not yet Go's.
-func Within(executors, reviewers []string) (*Rules, bool) { return within(executors, reviewers, "") }
-
-// within is Within, or for the picks of the run own Launched.
-func within(executors, reviewers []string, own string) (*Rules, bool) {
+// picks there: a pace_margin Python refuses, a model a group names that config.model refuses, or a
+// model list Go cannot read (Lineup), are not yet Go's.
+func Within(executors, reviewers []string) (*Rules, bool) {
 	margin, ok := config.PaceMargin()
 	models, err := config.Models()
 	subs, failed := config.Subscriptions()
 	if !ok || err != nil || failed != nil {
 		return nil, false
 	}
-	rank, off, ranks := Lineup(own)
+	rank, off, ranks := Lineup()
 	if !ranks {
 		return nil, false
 	}

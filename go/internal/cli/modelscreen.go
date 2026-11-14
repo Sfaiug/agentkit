@@ -34,11 +34,11 @@ func menuModels(session string, c *matrix.Configuration, keyboard *terminal.Keyb
 		if compared, total, err = matrix.Compared(found.Rows); err != nil {
 			return err
 		}
-		shares, err := matrix.Shares()
+		measured, err := matrix.Measured()
 		if err != nil {
 			return err
 		}
-		answer, err = matrix.Answer(found.Rows, compared, shares)
+		answer, err = matrix.Answer(found.Rows, compared, measured)
 		return err
 	}
 	if answered() != nil {
