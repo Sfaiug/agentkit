@@ -69,15 +69,18 @@ linux_machine_up() {
     echo "linux: this Mac's Linux machine starts when the Mac does"
   fi
   # Lima's daemon runs only at boot.  ak's own runs the check every minute; launchd reads a
-  # changed plist only as it loads it, so one already loaded is booted out first, and one not
-  # loaded, booted out or never loaded, is loaded.
-  local plist=$daemons/$LINUX_CHECK.plist daemon
+  # changed plist only as it loads it, so one loaded is booted out before its plist changes: one
+  # that will not go fails the install and keeps the old plist, which the next install finds
+  # changed still.  One not loaded, booted out or never loaded, is loaded.
+  local plist=$daemons/$LINUX_CHECK.plist daemon loaded=
   daemon=$(linux_check_daemon "$name")
+  if launchctl print "system/$LINUX_CHECK" >/dev/null 2>&1; then loaded=1; fi
   if [ "$(cat -- "$plist" 2>/dev/null)" != "$daemon" ]; then
+    if [ -n "$loaded" ]; then sudo launchctl bootout "system/$LINUX_CHECK" || return 1; fi
     printf '%s\n' "$daemon" | sudo tee "$plist" >/dev/null || return 1
-    sudo launchctl bootout "system/$LINUX_CHECK" 2>/dev/null || true
+    loaded=
   fi
-  if ! launchctl print "system/$LINUX_CHECK" >/dev/null 2>&1; then
+  if [ -z "$loaded" ]; then
     sudo launchctl bootstrap system "$plist" || return 1
     echo "linux: this Mac's Linux machine starts again by itself when it stops or stops answering"
   fi
