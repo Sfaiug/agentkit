@@ -91,7 +91,9 @@ def follow(launched, payload, pid):
 
     The session the seat is in then goes into its launch's receipt: whole, renamed over the last
     one, and only into the launch's own directory, which a seat stopped since has had removed.
-    Only what `claim` left in the record goes there, never a session it refused."""
+    Only what `claim` left in the record goes there, never a session it refused, and again until
+    the receipt names what the record does as it stands after the write: no lock waits on a
+    hook that stalls, and the last to write sees what any earlier one left."""
     from .. import orch
     from . import claim, rows
     session = payload.get("session_id") if isinstance(payload, dict) else None
@@ -107,14 +109,19 @@ def follow(launched, payload, pid):
                 pid = parent
         claim(launched, "opencode", session, str(database()),
               lambda record, session: database(), pid, opencode)
-        record = config.session_records().get(config.resolve_session(launched), {})
-        path, current = path_for(record), record.get("conversation")
-        if path and isinstance(current, str) and SESSION.fullmatch(current):
+        while True:     # a hook that paused before its rename may land an older prompt's session
+            record = config.session_records().get(config.resolve_session(launched), {})
+            path, current = path_for(record), record.get("conversation")
+            if not (path and isinstance(current, str) and SESSION.fullmatch(current)):
+                return
+            receipt = path / "session"
             try:
+                if receipt.is_file() and receipt.read_text(encoding="utf-8") == current:
+                    return
                 (path / "session.next").write_text(current, encoding="utf-8")
-                (path / "session.next").replace(path / "session")
+                (path / "session.next").replace(receipt)
             except OSError:
-                pass        # the receipt says what it said before
+                return      # the receipt says what it said before
 
 
 def forget(record):
