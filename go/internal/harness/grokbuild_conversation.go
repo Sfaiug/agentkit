@@ -69,7 +69,7 @@ func grokRead(record map[string]any, conversation string) (said []grokMessage, c
 	var current *grokMessage
 	var key []any
 	asked := map[string]any{}
-	err = Entries(filepath.Join(grokSession(cwd, conversation), "updates.jsonl"), func(entry *run.Object) {
+	err = Entries(grokUpdates(cwd, conversation), func(entry *run.Object) {
 		chunk, next, ends := grokChunk(entry, conversation, key)
 		if current != nil && ends {
 			said, current = append(said, *current), nil

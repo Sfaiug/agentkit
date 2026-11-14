@@ -93,7 +93,7 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 	}
 	filed := ""
 	if to.Filed != nil {
-		filed = to.Filed(id)
+		filed = to.Filed(fields, id)
 	} else {
 		there := map[string]any{}
 		maps.Copy(there, fields)
