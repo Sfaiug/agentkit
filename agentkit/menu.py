@@ -4865,7 +4865,7 @@ def config_spend_reset(cfg, picked, kind=None):
     spent lets it finish.  What to say under the matrix: its name, what its cell on the `ak`
     screen says now (`usage_cells`), what each cap its provider names has left (`scoped_notes`:
     a Fable reset leaves the week's cell as it was) and the resets still in hand (`in_hand`),
-    `Claude · 60% left · Fable 100% left · 1 weekly, 2 Fable resets in hand`."""
+    `Acme · 60% left · Fable 100% left · 1 weekly, 2 Fable resets in hand`."""
     title = f"config · {picked[2]}"
     name, account, label = picked
     try:
