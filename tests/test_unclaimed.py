@@ -41,8 +41,8 @@ class Unclaimed(unittest.TestCase):
         root = Path(cls.enterClassContext(
             tempfile.TemporaryDirectory(prefix="ak-unclaimed-"))).resolve()
         (root / "tests/fixtures").mkdir(parents=True)
-        for name in ("unclaimed.py", "test_go_keys.py", "test_go.py", "suite_shares.py",
-                     "fixtures/akbin.py"):
+        for name in ("unclaimed.py", "test_go_keys.py", "test_go_builds.py", "test_go.py",
+                     "suite_shares.py", "fixtures/akbin.py"):
             shutil.copy(REPO / "tests" / name, root / "tests" / name)
         shutil.copy(REPO / "config.default.toml", root)
         for name, verb in KEYS.items():

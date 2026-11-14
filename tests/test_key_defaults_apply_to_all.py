@@ -118,11 +118,11 @@ class DefaultsApplyToAll(unittest.TestCase):
                 self.assertEqual(record["efforts"]["astra"]["review_effort"], "medium")
         self.assertEqual(self.config.read_text(), self.given)
         deadline = time.monotonic() + 30    # no look runs on `c`: only `a` redraws the bar
-        while "GPT-6-Astra medium reviews" not in bar(self.home, self.seats["acme-calm"]):
+        while "6 Astra medium reviews" not in bar(self.home, self.seats["acme-calm"]):
             self.assertLess(time.monotonic(), deadline, "the bar kept the models it had")
         for name in MOVING:     # its move dresses its bar anew, which names them too
             with self.subTest(seat=name):
-                while "GPT-6-Astra medium reviews" not in self.home.tmux(
+                while "6 Astra medium reviews" not in self.home.tmux(
                         "show-options", "-qv", "-t", f"={name}:", "@ak_why").out:
                     self.assertLess(time.monotonic(), deadline, "the restart left a bare bar")
                     time.sleep(0.2)

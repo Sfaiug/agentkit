@@ -77,7 +77,7 @@ class SubscriptionsPage(unittest.TestCase):
                                    and len(meters(screen)) == 3)
         self.term.keys("c")
         self.term.wait(lambda screen: "› Fable 5.1" in screen)
-        self.term.keys("Down", "Down", "Down")        # past GPT-6-Astra and `Models`
+        self.term.keys("Down", "Down", "Down")        # past 6 Astra and `Models`
         self.term.wait("› Subscriptions")
         self.term.keys("Enter")
         self.page = self.term.wait(lambda shown: title(shown) == PAGE and "› Claude I " in shown

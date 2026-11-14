@@ -28,7 +28,8 @@ class FlakyTestGetsARepair(test_lander.LanderFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.now = 1000.0
-        self.stack.enter_context(patch.object(land, "time", SimpleNamespace(time=lambda: self.now)))
+        self.stack.enter_context(patch.object(land, "time", SimpleNamespace(
+            time=lambda: self.now, monotonic=lambda: self.now)))
         self.stack.enter_context(patch.object(gate, "gate_turn", return_value=nullcontext()))
         self.stack.enter_context(patch.object(watch, "seat_closed", return_value=False))
         self.launch = self.stack.enter_context(patch.object(

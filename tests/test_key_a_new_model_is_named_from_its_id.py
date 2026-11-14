@@ -99,14 +99,14 @@ class NamedFromItsId(unittest.TestCase):
         term.keys("j", "Enter")
         # after them Astra, which it does not list, the highlight on the one marked
         term.wait(lambda screen: ["    □ 7.2 Vega", "    □ Codex's own model",
-                                  "›   ■ GPT-6-Astra"]
+                                  "›   ■ 6 Astra"]
                   == [line for line in lines(screen) if "□" in line or "■" in line])
         term.keys("Up", "Up", "Space")
-        term.wait(lambda screen: "  Codex        GPT-6-Astra, 7.2 Vega" in lines(screen)
+        term.wait(lambda screen: "  Codex        6 Astra, 7.2 Vega" in lines(screen)
                   and "›   ■ 7.2 Vega" in lines(screen))
         name, entry = next(item for item in akconfig.read(self.home)["models"].items()
                            if item[1]["model"] == "gpt-7.2-vega")
-        for back in ("› Codex        GPT-6-Astra, 7.2 Vega", "› Models", "esc leave"):
+        for back in ("› Codex        6 Astra, 7.2 Vega", "› Models", "esc leave"):
             term.keys("Escape")
             term.wait(back)
         term.keys("Escape")

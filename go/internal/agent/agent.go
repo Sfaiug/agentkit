@@ -68,6 +68,13 @@ func globs(patterns []string) (*regexp.Regexp, error) {
 	return regexp.Compile(`^(?s:` + strings.Join(each, "|") + `)$`)
 }
 
+// Named is whether a process's words run a program one of those patterns names, as Python's
+// fnmatchcase reads orch.program's: false for a pattern Go does not read.
+func Named(words, patterns []string) bool {
+	named, err := globs(patterns)
+	return err == nil && len(patterns) > 0 && named.MatchString(Program(words, false))
+}
+
 var environ = func(pid int) ([]byte, error) { return os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ") }
 
 // worker is whether the process's environment, where /proc shows it, says it is an ak worker.

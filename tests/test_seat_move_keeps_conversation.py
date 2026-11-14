@@ -211,6 +211,19 @@ class SeatMove(Sandbox):
         self.assertEqual(self.record()["efforts"]["fable"],
                          {"effort": "xhigh", "exec_effort": "low", "review_effort": "xhigh"})
 
+    def test_a_move_that_fails_keeps_the_effort_a_seat_holding_none_ran_at(self):
+        def entry_lowered_then_refused(*_a, **_kw):
+            config.save({**self.cfg, "models": {**self.cfg["models"], "opus": {
+                **self.cfg["models"]["opus"], "effort": "low"}}})
+            raise OSError("disk full")
+        for model, effort in (("opus", "max"), ("fable", None)):
+            config.save(self.cfg)
+            config.change_efforts(SEAT, lambda data: {"astra": data["efforts"]["astra"]})
+            with patch.object(watch, "owe_line", side_effect=entry_lowered_then_refused):
+                self.assertIn("disk full", self.move(model, effort=effort))
+            self.assertEqual(config.at_efforts(config.load(), self.record())["models"]["opus"]
+                             ["effort"], "xhigh")
+
     def test_a_turn_its_usage_cut_off_goes_on_after_a_move_in_place(self):
         watch.seat_write(SEAT, state="at_prompt", usage_wait={
             "reason": "anthropic out of usage until 2026-10-20 19:20", "until": NOW + 3600,

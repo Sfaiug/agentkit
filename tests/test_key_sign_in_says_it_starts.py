@@ -35,7 +35,7 @@ class SignInSaysItStarts(unittest.TestCase):
         term.wait("c config")
         term.keys("c")
         term.wait("› Fable 5.1")
-        term.keys("Down", "Down", "Down")        # past GPT-6-Astra and `Models`
+        term.keys("Down", "Down", "Down")        # past 6 Astra and `Models`
         term.wait("› Subscriptions")
         term.keys("Enter")
         term.wait(lambda screen: screen.startswith("agentkit · config · subscriptions")

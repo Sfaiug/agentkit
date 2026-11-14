@@ -8,7 +8,10 @@ on-accent on the state's role.  The terminal here is tmux, which answers OSC 11 
 background is set for its panes (`window-style`), so it stands for both a terminal that never
 answers and one that answers.  Black-box: the program AK_BIN names runs in a person's terminal
 of 24-bit colour (tests/fixtures/akterm.py) over tests/fixtures/akseat.py's seats, each cell
-judged by how it looks (tests/fixtures/aklooks.py), never by the bytes that drew it.
+judged by how it looks (tests/fixtures/aklooks.py), never by the bytes that drew it.  Its
+clock injected: `AK_MOTION_CLOCK` names a file of seconds that stands still until the test moves
+it, so what moves is told from what rests at the moments the test sets, however late a busy host
+draws or captures a frame.
 """
 
 import sys
@@ -32,7 +35,10 @@ THEMES = {
     "special": ("a23baa", "da7de0"), "on-accent": ("ffffff", "000000")}
 WHITE, BLACK = 0, 1
 WORDS = ("● working", "! needs you", "✓ done", "○ idle", "○ out of usage")
-STILL = 3      # seconds a cell keeps its look to be at rest: past a breath, which takes two
+OPENED = 1000.0     # the moment ak's motion stands at as the screen opens
+# a cell rests where it keeps its look at each of these: a breath, which takes two seconds, in
+# quarters, long after what moves as the screen opens has moved on, every `●` changing at each
+MOMENTS = [OPENED + 10 + quarter / 4 for quarter in range(1, 9)]
 
 
 def fg(rgb):
@@ -76,29 +82,42 @@ class Themes(unittest.TestCase):
         # The terminals' tmux keeps the background a test sets only while it is up, and a
         # terminal left open keeps it up.
         Terminal(home, "--help").exit_code()
+        cls.clock = home.root / "clock"
+
+    def at(self, seconds):
+        """ak's motion at `seconds` from now on: its clock's file swapped whole, never read half
+        written."""
+        new = self.clock.with_name("clock.new")
+        new.write_text(repr(seconds))
+        new.replace(self.clock)
 
     def menu(self, background=None):
         """The ak screen on a true-colour terminal of that background, or of none, once it shows
-        every seat's word."""
+        every seat's word, its motion at OPENED."""
         option = ["window-style", f"bg={background}"] if background else ["-u", "window-style"]
         done = self.home.tmux("set-option", "-g", *option, server=SERVER)
         self.assertEqual(done.code, 0, done.err)
-        menu = Terminal(self.home, size=(100, 40), env={"COLORTERM": "truecolor"})
+        self.at(OPENED)
+        menu = Terminal(self.home, size=(100, 40),
+                        env={"COLORTERM": "truecolor", "AK_MOTION_CLOCK": str(self.clock)})
         self.addCleanup(self.home.tmux, "kill-session", "-t", menu.pane, server=SERVER)
         menu.wait(lambda text: all(word in text for word in WORDS) and "esc leave" in text, 60)
         return menu
 
     def screen(self, background=None):
-        """The ak screen's looks (`menu`), then each cell's look where it kept it for STILL
-        seconds, else None, as what breathes or pulses never rests."""
+        """The ak screen's looks (`menu`) at the last of MOMENTS, then each cell's look where it
+        kept it at all of them, else None, as what breathes or pulses never rests."""
         menu = self.menu(background)
-        time.sleep(STILL)       # what moves as the screen opens has moved on
-        captures, began = [], time.monotonic()
-        while not captures or time.monotonic() - began < STILL:
-            captures.append(looks(menu.screen(colours=True)))
-            time.sleep(0.05)
+        captures = [looks(menu.screen(colours=True))]
+        for moment in MOMENTS:
+            self.at(moment)
+            deadline = time.monotonic() + 30
+            while (shown := looks(menu.screen(colours=True))) == captures[-1]:
+                self.assertLess(time.monotonic(), deadline, f"ak drew no frame at {moment}")
+                time.sleep(0.05)
+            captures.append(shown)
         rest = [[cell if all(len(line) > at and line[at] == cell for line in rows) else None
-                 for at, cell in enumerate(rows[0])] for rows in zip(*captures)]
+                 for at, cell in enumerate(rows[0])] for rows in zip(*captures[1:])]
         return captures[-1], rest
 
     def assert_states(self, screen, theme):

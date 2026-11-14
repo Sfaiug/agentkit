@@ -4,15 +4,11 @@ import (
 	"cmp"
 	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
-	"strconv"
-	"sync/atomic"
 
+	"agentkit/internal/agent"
 	"agentkit/internal/config"
-	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
 
@@ -21,8 +17,8 @@ const museReceiptEnv = "AGENTKIT_MUSE_RECEIPT"
 
 // Muse's TUI takes no session id, so each launch learns its own: a receipt, a folder in state/
 // named in its record and its environment, into which its SessionStart links the session Muse
-// reported and the processes the hook runs under (muse.py).  A resumed session is in it from the
-// start.
+// reported (muse.py).  A resumed session is in it from the start, and the record is left as it is;
+// a new session drops the one the record followed to (museFollows).
 func museLaunched(_, _, conversation string, _ *run.Object) (*run.Object, []string, error) {
 	random := make([]byte, 16)
 	rand.Read(random)
@@ -36,7 +32,11 @@ func museLaunched(_, _, conversation string, _ *run.Object) (*run.Object, []stri
 			return nil, nil, err
 		}
 	}
-	return run.Fields("muse_launch", token), []string{museReceiptEnv + "=" + path}, nil
+	fields := run.Fields("muse_launch", token)
+	if conversation == "" {
+		fields.Set("conversation", nil)
+	}
+	return fields, []string{museReceiptEnv + "=" + path}, nil
 }
 
 // museReceipt is the receipt a record's token names, "" for none.
@@ -47,80 +47,64 @@ func museReceipt(token string) string {
 	return filepath.Join(config.Home(), "state", "muse-launch-"+token)
 }
 
-// museStarted writes a SessionStart into that launch's receipt: the session Muse reported, and its
-// lineage, the processes this hook runs under with their births, so a recycled pid is none of
-// them, and every other session the registry already lists.  That Muse was born before its hook
-// ran, so an entry an earlier holder of its pid left is among those, and any listed later under
-// its pid is its own.  Each is linked, so the first stands; a receipt gone takes nothing.
+// museStarted writes a SessionStart into that launch's receipt: the session Muse reported, linked,
+// so the first stands; a receipt gone takes nothing.
 func museStarted(receipt string, event *run.Object) {
 	session := event.Str("session_id")
 	if receipt == "" || !museSession.MatchString(session) {
 		return
 	}
-	processes := []any{}
-	for pid := os.Getppid(); pid > 1; {
-		stat, read := host.ReadStat(pid)
-		birth, born := museBirth(pid)
-		if !read || !born {
-			break
-		}
-		processes = append(processes, []any{run.Number(strconv.Itoa(pid)), birth})
-		pid = stat.Parent
-	}
-	var listed []string
-	for _, entry := range museRegistered() {
-		if entry[0] != session {
-			listed = append(listed, entry[0])
-		}
-	}
-	earlier := []any{}
-	for _, each := range slices.Compact(slices.Sorted(slices.Values(listed))) {
-		earlier = append(earlier, each)
-	}
-	museWrite(receipt, "session", session, os.Link)
-	museWrite(receipt, "lineage", run.Line(run.Fields("processes", processes, "earlier", earlier)), os.Link)
+	museWrite(receipt, "session", session)
 }
 
-// museBirth is a process's birth as Python's host.process_identity writes it down.
-func museBirth(pid int) (*run.Object, bool) {
-	birth, ok := host.ReadIdentity(pid)
-	return run.Fields("boot", birth.Boot, "ticks", int(birth.Ticks), "started_at", birth.StartedAt), ok
-}
+// museHook is the id_source of a session the seat's own Muse completed a turn in (muse.py SOURCE).
+const museHook = "muse-hook"
 
-// unkept is whether this process's reads keep nothing they follow, as a dry tick reads
-// (KeepNothing), where Python's every read keeps what it follows.
-var unkept atomic.Bool
-
-// KeepNothing has every read keep nothing it follows until keep puts that back.
-func KeepNothing() (keep func()) {
-	unkept.Store(true)
-	return func() { unkept.Store(false) }
-}
-
-// museConversation is the session that launch reported, "" where it reported none yet; the one
-// Muse's registry has since moved that launch's process to, once the registry says so, kept in
-// the receipt for the seat to reopen on after that process is gone, by any read that keeps what
-// it follows.  Muse's `/new` fires no hook.  The first such read keeps the session it moves the
-// receipt on from as the one reported (museReported).
+// museConversation is the session the seat's own Muse last completed a turn in (museFollows), else
+// the one its launch reported (museReceived), "" where neither names one yet: never one the record
+// kept from another harness the seat moved here from (muse.py `conversation`).
 func museConversation(record map[string]any) string {
-	token, _ := record["muse_launch"].(string)
-	path := museReceipt(token)
-	session := museRead(path, "session")
-	if session == "" {
-		return ""
+	if conversation, _ := record["conversation"].(string); conversation != "" && record["id_source"] == museHook {
+		return conversation
 	}
-	if now := museFollowed(path); now != "" && now != session {
-		if !unkept.Load() {
-			museWrite(path, "reported", session, os.Link)
-			museWrite(path, "session", now, os.Rename)
-		}
-		return now
-	}
-	return session
+	return museReceived(record)
 }
 
-// museReported is the session that launch reported, which the line it opened on went into
-// however far `/new` has moved it since; "" where it reported none yet.
+// museReceived is the session that record's launch reported into its receipt, "" for no receipt or
+// none reported yet (muse.py `owned`).
+func museReceived(record map[string]any) string {
+	token, _ := record["muse_launch"].(string)
+	return museRead(museReceipt(token), "session")
+}
+
+// museFollows is the session a turn's end names (muse.py `follow`): `/new` fires no hook, but a Stop
+// the seat's own Muse fires moves the seat to the session its turn ran in, Muse waiting on each, so
+// they come in turn order.  An Interrupt keeps the session it names beside the seat's, and moves
+// nothing: Muse runs it only alongside the turn (museInteractive), so it may land after a later
+// turn's Stop.  Only a session with a log in Muse's own store, which its words are read from.
+func museFollows(event *run.Object) *Followed {
+	name := event.Str("hook_event_name")
+	if name != "Stop" && name != "Interrupt" {
+		return nil
+	}
+	var log any // none, as Python's claim takes a log it found and nothing else
+	if found := museLog(event.Str("session_id")); found != "" {
+		log = found
+	}
+	return &Followed{Harness: "muse", Source: museHook, Conversation: event.Get("session_id"), Transcript: log,
+		Client: museClient, Filed: museLog, Keep: name == "Interrupt"}
+}
+
+// museClient is whether a process runs the seat's Muse (muse.py `is_process`): its launcher, or the
+// build that launcher execs, by the names its adapter gives them (orch.agent_programs).
+func museClient(words []string) bool {
+	names, err := config.ProgramsOf("muse")
+	return err == nil && agent.Named(words, names)
+}
+
+// museReported is the session that launch reported, which the line it opened on went into; "" where
+// it reported none yet.  A receipt Muse's registry moved on, before a seat followed its Stops
+// instead, keeps that one as `reported` and the one it moved to as its session (muse.py `reported`).
 func museReported(record map[string]any) string {
 	token, _ := record["muse_launch"].(string)
 	path := museReceipt(token)
@@ -133,71 +117,8 @@ func museRead(receipt, name string) string {
 	return session
 }
 
-// museFollowed is the one session the registry has given a process of that receipt's lineage
-// since its hook, while that process lives as it was then; "" for no evidence, or more than one.
-func museFollowed(path string) string {
-	data, _ := os.ReadFile(filepath.Join(path, "lineage"))
-	read, _ := run.Decode(data)
-	lineage, _ := read.(*run.Object)
-	if lineage == nil {
-		return ""
-	}
-	listed, _ := lineage.Get("processes").([]any)
-	earlier, _ := lineage.Get("earlier").([]any)
-	births := map[string][]any{}
-	for _, each := range listed {
-		pair, _ := each.([]any)
-		if len(pair) != 2 {
-			return ""
-		}
-		// a pid that is no whole number names no process, as in Python
-		if pid, err := strconv.Atoi(fmt.Sprint(pair[0])); err == nil {
-			births["pid="+strconv.Itoa(pid)] = []any{pid, pair[1]}
-		}
-	}
-	found := ""
-	for _, entry := range museRegistered() {
-		known := births[entry[1]]
-		if known == nil || slices.Contains(earlier, any(entry[0])) {
-			continue
-		}
-		if birth, born := museBirth(known[0].(int)); born && run.Equal(birth, known[1]) {
-			if found != "" && found != entry[0] {
-				return ""
-			}
-			found = entry[0]
-		}
-	}
-	return found
-}
-
-// museRegistered is each (session, process) Muse's registry of live sessions lists, under its data
-// home: one `<session>.json` each, `{"session_id": ..., "process_generation_hint": "pid=<pid>"}`
-// (1.4.12).  A crashed Muse leaves its entries behind, under a pid another process may hold.
-func museRegistered() [][2]string {
-	// read, not globbed: the data home is a path, whatever pattern characters it holds
-	registry := filepath.Join(share(), "muse", "runtime", "muse", "sessions")
-	entries, _ := os.ReadDir(registry)
-	var found [][2]string
-	for _, entry := range entries {
-		data, _ := os.ReadFile(filepath.Join(registry, entry.Name()))
-		read, _ := run.Decode(data)
-		listed, _ := read.(*run.Object)
-		if listed == nil {
-			continue
-		}
-		session, named := listed.Get("session_id").(string)
-		hint, hinted := listed.Get("process_generation_hint").(string)
-		if named && hinted && session+".json" == entry.Name() && museSession.MatchString(session) {
-			found = append(found, [2]string{session, hint})
-		}
-	}
-	return found
-}
-
-// museWrite puts text whole in the receipt's file `name` by place: a link, so the first stands, or
-// a rename over it.
-func museWrite(receipt, name, text string, place func(from, to string) error) {
+// museWrite puts text whole in the receipt's file `name`, linked, so the first stands.
+func museWrite(receipt, name, text string) {
 	file, err := os.CreateTemp(receipt, "."+name+".")
 	if err != nil {
 		return
@@ -205,6 +126,6 @@ func museWrite(receipt, name, text string, place func(from, to string) error) {
 	defer os.Remove(file.Name())
 	_, err = file.WriteString(text)
 	if file.Close() == nil && err == nil {
-		place(file.Name(), filepath.Join(receipt, name))
+		os.Link(file.Name(), filepath.Join(receipt, name))
 	}
 }

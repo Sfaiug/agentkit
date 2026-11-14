@@ -90,8 +90,8 @@ class SeatSwitchesInPlace(unittest.TestCase):
     def test_another_harness_s_model_asks_and_restarts_it(self):
         self.fakes["codex"].answer("interactive", "", 3, given=["new"])  # Codex takes no id of ours
         pid = self.pid()
-        self.term.keys("Down", "Down", "Space")     # GPT-6-Astra's orchestrator mark
-        self.term.wait(lambda screen: f"  Restart {SEAT} on GPT-6-Astra?" in rows(screen)
+        self.term.keys("Down", "Down", "Space")     # 6 Astra's orchestrator mark
+        self.term.wait(lambda screen: f"  Restart {SEAT} on 6 Astra?" in rows(screen)
                        and "  × Move" in rows(screen))
         self.term.keys("Down", "Enter")
         self.term.wait(lambda _: self.pid() != pid)
@@ -109,7 +109,7 @@ class SeatSwitchesInPlace(unittest.TestCase):
                 [sys.executable, str(PANE), "--editor", str(shown),
                  str(shown.with_suffix(".typed")), composer]))
         self.fakes["codex"].answer("interactive", "", 3, given=["new"])  # Codex takes no id of ours
-        self.restarted("Down", "Down", on="GPT-6-Astra")
+        self.restarted("Down", "Down", on="6 Astra")
         self.term.wait(lambda _: self.orchestrator() == "astra" and self.shows("› Ask Codex"))
         self.home.tmux("send-keys", "-t", self.seat.pane, "-l", DRAFT)    # the owner's
         self.term.wait(lambda _: self.shows(f"› {DRAFT}"))

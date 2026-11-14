@@ -719,12 +719,12 @@ class Phone(Sandbox):
                              prompt="esc back")
         self.fits(screen, width, height)
         phone.keys("Down", "Down", "Space")  # astra orchestrates, two rows below fable, the first
-        screen = self.picked(phone, "GPT-6-A", "●■■")
+        screen = self.picked(phone, "6 Astra", "●■■")
         phone.keys("Right", "Right")         # past its orch effort to the executor column, then
                                              # every worker added
         # each by its full name, as much of it as a phone's screen holds
         for title, steps in (("Fable", ("Up", "Up")), ("Spark", ("Down",) * 3),
-                             ("Grok", ("Down",)), ("Gemini", ("Down",)),
+                             ("Grok", ("Down",)), ("3.8", ("Down",)),
                              ("MiMo", ("Down",))):
             phone.keys(*steps, "Space")
             screen = self.picked(phone, title, "○■□")   # executing, not reviewing
@@ -733,7 +733,7 @@ class Phone(Sandbox):
         phone.until("tab models", prompt="esc back")
         phone.keys("Enter")
         # the unnamed seat opens in this terminal by a character's name, and its bar keeps the key
-        screen = phone.until(STAND_IN, "GPT-6-Astra", "Ctrl-b m  menu")
+        screen = phone.until(STAND_IN, "6 Astra", "Ctrl-b m  menu")
         self.fits(screen, width, height)
         bar = screen[-1]
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
@@ -829,14 +829,14 @@ class Phone(Sandbox):
                                  f"! needs you    {LONG_NAME[:7]}… ! 11 need you")
         else:
             screen = phone.until(STAND_IN, "Ctrl-b m  menu",
-                                 f"! needs you    {LONG_NAME}   GPT-6-Astra")
+                                 f"! needs you    {LONG_NAME}   6 Astra")
         top, bar = screen[-2:]
         self.fits(screen, width, height)
         if narrow:
             self.assertTrue(top.endswith(f"    {LONG_NAME[:7]}… ! 11 need you"), top)
         else:
             # the word the row shows opens the bar, then the name and the model that orchestrates it
-            self.assertIn(f"! needs you    {LONG_NAME}   GPT-6-Astra", top)
+            self.assertIn(f"! needs you    {LONG_NAME}   6 Astra", top)
         self.assertTrue(bar.endswith("Ctrl-b m  menu"), bar)
         phone.keys("C-b", "d")
         screen = phone.until("esc leave", prompt="esc leave")

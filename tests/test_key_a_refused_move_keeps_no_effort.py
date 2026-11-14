@@ -1,7 +1,8 @@
 """A move in place that fails leaves the model it was to run on its config's effort: a seat on
 Opus 5.5 moved on `c` to Fable 5.1 while the lines owed to its harness cannot be written stays on
-Opus, and moved there again once Fable's config effort is low is typed `/effort low`, never the
-effort Fable's entry held when the move failed.
+Opus, its record holding no effort for Fable and nothing typed, and moved there again once
+Fable's config effort is low is typed `/effort low`, never the effort Fable's entry held when
+the move failed.
 
 Black-box: `AK_BIN`, as the popup over a seat whose pane keeps each line typed into it, its
 harness a fake (tests/fixtures/akpane.py), the file its live state is copied through a directory
@@ -53,7 +54,9 @@ class ARefusedMoveKeepsNoEffort(unittest.TestCase):
         term.wait(lambda screen: key_line(screen) == KEYS and "› Opus 5.5" in screen)
         term.keys("Down", "Space")      # Fable 5.1's orchestrator mark
         term.wait(lambda screen: "session:" in screen)
-        self.assertEqual(json.loads(record.read_text())["orchestrator"], "opus")
+        held = json.loads(record.read_text())
+        self.assertEqual((held["orchestrator"], "fable" in held.get("efforts", {}),
+                          seat.lines()), ("opus", False, []))
         blocked.rmdir()
         akconfig.write(home, {"opus": {}, "fable": {"effort": "low"}}, workers=["opus"])
         term.keys("Escape")

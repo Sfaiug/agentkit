@@ -51,7 +51,8 @@ class EveryFilePrintsEachClaimAsItPasses(unittest.TestCase):
             shutil.copytree(REPO / "go" / part, root / "go" / part, symlinks=True)
         shutil.copy(REPO / "go/install.sh", root / "go")
         shutil.copy(REPO / CHECK, root / "tests")
-        shutil.copy(REPO / "tests/suite_shares.py", root / "tests")
+        for name in ("suite_shares.py", "test_go_builds.py"):
+            shutil.copy(REPO / "tests" / name, root / "tests")
         (root / "tests/test_go.py").write_text(TEST_GO)
         (root / "go/keys.txt").write_text("".join(f"{key} Acme\n" for key in CLAIMS))
         for key in CLAIMS:

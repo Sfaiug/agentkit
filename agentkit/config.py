@@ -726,7 +726,7 @@ def remove_model(cfg, name):
 
 
 def short_name(cfg, label):
-    """`sonnet` for `Sonnet 5`, `gemini-pro` for `Gemini 3 Pro`: a label's words without their
+    """`sol` for `6.1 Sol`, `grok-fast` for `Grok 4.7 Fast`: a label's words without their
     versions, then `-2`, `-3` and on until it names no model the config has."""
     words = [word for word in re.findall(r"[a-z0-9]+", label.lower().replace("'", ""))
              if not any(char.isdigit() for char in word)]
@@ -2466,7 +2466,7 @@ def accounts(cfg, provider):
 
     [] for a provider that lists none, which is one login, exactly as a provider always was.
     """
-    entry = cfg["providers"].get(provider)
+    entry = cfg.get("providers", {}).get(provider)
     listed = entry.get("accounts") if isinstance(entry, dict) else None
     return list(listed) if isinstance(listed, list) else []
 

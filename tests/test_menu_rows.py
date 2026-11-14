@@ -99,7 +99,7 @@ class MenuRows(Sandbox):
         self.seat("second-seat", "atoll", orchestrator="astra")
         screen, _ = self.draw(100, 30)
         self.assertRegex(screen, r"first-seat\s+Fable 5\.1 xhigh\s+[●!✓○]")
-        self.assertRegex(screen, r"second-seat\s+GPT-6-Astra xhigh\s+[●!✓○]")
+        self.assertRegex(screen, r"second-seat\s+6 Astra xhigh\s+[●!✓○]")
 
     def test_narrow_rows_keep_readable_names_beside_or_above_the_state(self):
         for word in terminal.STATES:

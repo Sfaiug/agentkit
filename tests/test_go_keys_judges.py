@@ -56,6 +56,7 @@ class Judges(unittest.TestCase):
         (self.root / "agentkit").mkdir()
         (self.root / "agentkit/__init__.py").touch()
         shutil.copy(TESTS / "test_go_keys.py", self.root / "tests")
+        shutil.copy(TESTS / "test_go_builds.py", self.root / "tests")
         shutil.copy(TESTS / "test_go.py", self.root / "tests")
         shutil.copy(TESTS / "suite_shares.py", self.root / "tests")
         for name, body in KEYS.items():

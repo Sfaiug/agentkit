@@ -21,7 +21,12 @@ func claudeKilledCounts(out string, init *run.Object) (any, []Counts, bool) {
 	if err != nil || err2 != nil {
 		return nil, nil, false
 	}
-	from, to := float64(began.ModTime().UnixNano())/1e9, float64(ended.ModTime().UnixNano())/1e9
+	// st_mtime as Python's stat reckons it: nanoseconds since 1970 overflow a float's precision,
+	// so dividing them misplaces a message stamped exactly on either end of the span
+	seconds := func(info os.FileInfo) float64 {
+		return float64(info.ModTime().Unix()) + float64(info.ModTime().Nanosecond())*1e-9
+	}
+	from, to := seconds(began), seconds(ended)
 	var account any
 	if text, err := os.ReadFile(filepath.Join(out, "account")); err == nil {
 		account = string(text)

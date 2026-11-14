@@ -2449,7 +2449,9 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     for a seat that was live all along.
 
     `account` reopens even a live pane on that subscription, without changing its selection
-    or surrendering its conversation. Ordinary resumes keep the account already recorded.
+    or surrendering its conversation, and is its home from then on where its provider lists
+    the one it had no more (`config.lists`). Ordinary resumes keep the account already
+    recorded.
     `still` is `_start_harness`'s.  `line`, such a caller's, is what the conversation, where it
     comes back with its past, opens on.
     """
@@ -2487,8 +2489,10 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
             ok, why = harness_plugin(harness).seat_auth(account)
             if ok is not True:
                 raise config.Error(f"{name}: {account} cannot open a seat: {why}")
+        homed = ({} if config.lists(cfg, provider, record.get("home_account"))
+                 else {"home_account": account})
     else:
-        account = record.get("account")
+        account, homed = record.get("account"), {}
     # the directory it ran in, unless that is gone -- a run's worktree, a checkout since
     # deleted -- in which case the seat opens where a new one would rather than not at all.
     # Whether its harness has opened that conversation yet is still asked where it ran: a
@@ -2514,7 +2518,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         print(shlex.join(cmd))
         return 0
     launch(name, orchestrator, cwd, cmd, conversation, session, still, line=line)
-    config.update_session(name, account=account)
+    config.update_session(name, account=account, **homed)
     if hand_over:
         return 0           # detached: restarting is neither attaching nor reading the seat
     # its own conversation only where the harness has opened it: an id nothing wrote
@@ -4510,15 +4514,18 @@ def take_efforts(cfg, name, model, effort):
     """`model`'s efforts in that seat's record as a move onto it runs them, at `effort` where
     given (config.orchestrating_at), its entry's where the record holds none (config.own_efforts):
     written ahead of the move's fields, which then give it none, in one hold of the record's lock
-    so nothing saved meanwhile counts as the move's.  (before, after): its efforts as the record
-    held them, None for none, and as written, for effort_back."""
+    so nothing saved meanwhile counts as the move's.  Each model the seat runs is held first at
+    the efforts it runs at, so a config saved while the move waits moves none, and one the move
+    gives back keeps them.  (before, after): its efforts as the seat ran them, None for one it ran
+    not, and as written, for effort_back."""
     taken = []
 
     def take(data):
-        moved = config.own_efforts(cfg["models"], name, {**data, "orchestrator": model})
+        held = config.own_efforts(cfg["models"], name, data)
+        moved = config.own_efforts(cfg["models"], name, {**held, "orchestrator": model})
         efforts = (moved.get("efforts") if effort is None
                    else config.orchestrating_at(cfg["models"], moved, model, effort))
-        taken[:] = [(data.get("efforts") or {}).get(model), (efforts or {}).get(model)]
+        taken[:] = [(held.get("efforts") or {}).get(model), (efforts or {}).get(model)]
         return efforts
     config.change_efforts(name, take)
     return taken

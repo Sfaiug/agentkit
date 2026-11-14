@@ -38,6 +38,17 @@ func Owned(name string, record map[string]any) (string, bool) {
 	return conversation, true
 }
 
+// Recorded is each conversation a seat's record proves beside the one it names, by every harness's
+// own evidence (harness.recorded_conversations, each plugin's `owned`): the one its Antigravity
+// launch saw, the one its Muse launch reported; "" for none.
+func Recorded(record *run.Object) []string {
+	return []string{antigravityMine(record), museReceived(map[string]any{"muse_launch": record.Get("muse_launch")})}
+}
+
+// Learns is whether that harness's own evidence names the conversation a seat is on (Current),
+// where its record may name none yet.
+func Learns(name string) bool { return plugins[name].owned != nil }
+
 // Current is the conversation a seat's record is on, as its plugin's `conversation` reads it
 // (notify.conversation_of): the one its harness reported where it reports its own, else the one
 // the record names, vouched for or not; "" for none.

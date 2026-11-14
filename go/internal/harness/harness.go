@@ -25,6 +25,9 @@ type plugin struct {
 	seatWords   func(words, env []string) []string
 	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int, changed func()) int
 	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error), reconciled func(seat string)) (*run.Object, int)
+	// follows is the conversation an adapter's hook event says the seat's own client went on in,
+	// or keeps (Python's plugin `follow`), nil for none.
+	follows func(event *run.Object) *Followed
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
 	seats   bool

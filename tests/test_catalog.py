@@ -107,10 +107,10 @@ class Catalog(unittest.TestCase):
     def test_claude_table_differs_per_model_and_names_none_for_haiku(self):
         got = {model: (label, efforts) for model, label, efforts in self.rows("claude")}
         self.assertEqual(list(got), list(self.table("claude")))
-        self.assertEqual(got["claude-opus-5-5"], ("Opus 5.5", "low medium high xhigh max"))
+        self.assertEqual(got["claude-opus-5-5"], ("claude-opus-5-5", "low medium high xhigh max"))
         # Sonnet 4.6 has no xhigh; Haiku 4.5 runs at no effort
         self.assertEqual(got["claude-sonnet-4-6"][1], "low medium high max")
-        self.assertEqual(got["claude-haiku-4-5"], ("Haiku 4.5", "none"))
+        self.assertEqual(got["claude-haiku-4-5"], ("claude-haiku-4-5", "none"))
 
     def test_codex_lists_every_model_for_a_chatgpt_login_and_an_api_key(self):
         auth = self.home / ".codex/auth.json"
@@ -152,10 +152,10 @@ class Catalog(unittest.TestCase):
         listing.write_text((FIXTURES / "grok-models.txt").read_text() + "  - grok-5-preview\n")
         self.stub("grok", listing=listing)
         self.assertEqual(lines(self.models("grokbuild")), [
-            ["grok-4.7", "Grok 4.7", "low medium high xhigh"],
+            ["grok-4.7", "grok-4.7", "low medium high xhigh"],
             ["grok-4.7-build-fast", "Grok 4.7 Fast", "low medium high xhigh"],
-            ["grok-4.6", "Grok 4.6", "low medium high xhigh"],
-            ["grok-4.5", "Grok 4.5", "low medium high"],
+            ["grok-4.6", "grok-4.6", "low medium high xhigh"],
+            ["grok-4.5", "grok-4.5", "low medium high"],
             ["grok-5-preview", "grok-5-preview", ""],     # the table does not know it: unsaid
         ])
         self.assertEqual(self.log.read_text(), "models\n")

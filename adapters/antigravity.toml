@@ -242,8 +242,8 @@ levels = ["low", "medium", "high"]
 # adapters/antigravity.sh folds them, strongest last.  An id with no effort word is a model agy
 # runs at no effort, `none`.
 [catalog]
-"gemini-4-argon" = { label = "Gemini 4 Argon", efforts = ["low", "medium", "high"] }
-"gemini-3.8-flash" = { label = "Gemini 3.8 Flash", efforts = ["low", "medium", "high"] }
-claude-opus-5-5 = { label = "Claude Opus 5.5", efforts = ["low", "medium", "high"] }
-claude-sonnet-5-5 = { label = "Claude Sonnet 5.5", efforts = ["low", "medium", "high"] }
+"gemini-4-argon" = { efforts = ["low", "medium", "high"] }
+"gemini-3.8-flash" = { efforts = ["low", "medium", "high"] }
+claude-opus-5-5 = { efforts = ["low", "medium", "high"] }
+claude-sonnet-5-5 = { efforts = ["low", "medium", "high"] }
 gpt-oss-120b = { label = "GPT-OSS 120B", efforts = ["medium"] }

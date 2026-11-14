@@ -11,7 +11,8 @@ draws the last read at once and reads again behind it, as a menu back from a sea
 (`menu.Live.back`), where the popup's environment is the reader's in what a seat's is made of
 (`orch.seat_env`).  The menu is in no session of the terminal's, so the client forwards the
 terminal's signals, a resize, a hang-up, a Ctrl-C, to the menu's process group: what the menu
-runs, a login, hears them as it would cold.
+runs, a login, hears them as it would cold.  Beside the reader it forks a looker, which looks at
+a seat as the seat's hook hears an event (`looker`).
 
 Anything amiss goes cold: with no server, or one silent for WAIT, the client runs `bin/ak` as
 the popup always did, and starts a server where an install is stamped -- only there can one
@@ -199,6 +200,10 @@ def serve(lock):
     for fd in (1, 2):
         os.dup2(out, fd)
     os.close(out)
+    if os.fork() == 0:                 # the looker, which leaves once this server has gone
+        os.close(lock)
+        from . import looker
+        looker.serve()
     if os.path.lexists(sock):
         os.unlink(sock)                # a dead server's: the lock says none is up
     listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
