@@ -5235,20 +5235,28 @@ def models_page(cfg, keyboard):
     ran = {}
 
     def listing(harness):     # what a harness's row opens onto: (model, the provider it is
-        if harness not in config.provider_hosts():      # listed under) each, (None, one to log in)
-            rows = [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
-        else:
-            listed = waited(lambda: config.listed_providers(harness), "config · models",
-                            doing=f"asking {config.provider_hosts()[harness]} which providers it has")
-            by = {row[0]: row for row in listed}
-            rows = [(model, by[provider]) for (((_, provider), model), _)
-                    in _through_choices(cfg, harness, listed, ("config · models",))
-                    if model or provider in cfg["providers"]]
+        said = ""             # listed under) each, (None, one to log in), and why none is, or ""
+        try:
+            if harness not in config.provider_hosts():
+                rows = [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
+            else:
+                listed = waited(lambda: config.listed_providers(harness), "config · models",
+                                doing=f"asking {config.provider_hosts()[harness]} "
+                                      "which providers it has")
+                by = {row[0]: row for row in listed}
+                rows = [(model, by[provider]) for (((_, provider), model), _)
+                        in _through_choices(cfg, harness, listed, ("config · models",))
+                        if model or provider in cfg["providers"]]
+        except config.Error as exc:     # what the config runs there comes out with no listing
+            rows, said = [], f"config: {exc}"
+        except Back:
+            rows, said = [], "not read: esc and open it again"
         ran.setdefault(harness, {}).update((cfg["models"][name]["model"],
                                             config.model_name(cfg, name)) for name in on(harness))
         ids = {model["id"] for model, _ in rows if model}
-        return rows + [({"id": model, "label": label}, None)
-                       for model, label in ran[harness].items() if model not in ids]
+        rows += [({"id": model, "label": label}, None)
+                 for model, label in ran[harness].items() if model not in ids]
+        return rows, said or ("" if rows else "its catalog lists no model")
 
     def ticks(harness):       # the list a harness's row opens
         got = []
@@ -5262,21 +5270,15 @@ def models_page(cfg, keyboard):
 
         def choices():
             if not got:
-                try:
-                    got.append(listing(harness) or "its catalog lists no model")
-                except config.Error as exc:
-                    got.append(f"config: {exc}")
-                except Back:
-                    got.append("not read: esc and open it again")
-            if isinstance(got[0], str):
-                return [([(got[0], "dim")], lambda: "", "")]
+                got.append(listing(harness))
+            rows, said = got[0]
             return [([(full, "accent") if on(harness, model["id"]) else (empty, "dim"),
                       (model["label"], None)],
                      lambda model=model, row=row: tick(harness, model, row),
                      bool(on(harness, model["id"]))) if model else
                     ([(row[1], None), (_logs_in(row[3]), "dim")], lambda row=row: log_in(row),
                      "log in")
-                    for model, row in got[0]]
+                    for model, row in rows] + ([([(said, "dim")], lambda: "", "")] if said else [])
         return choices, True
 
     def page():
