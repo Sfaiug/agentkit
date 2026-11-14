@@ -3,8 +3,8 @@
 A finding older than the task becomes a follow-up; one proven by a command that cannot be a
 plan check, with backticks, has no command to name its fix run by, so its site does: the whole
 `path:line`.  A later run's follow-up at the site of a fix run still open is that run's work and
-starts none; one at another file starts its own, though that path ends as the first one's does
-past a star in a name.  Black-box: the program `AK_BIN` names runs from outside through
+starts none; one at another file starts its own, though that file's name is the first one's with
+a star before it.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, from a seat of akseat.py, against the origin of gitrig.py and the
 GitHub of fakegh.py, with scripted harnesses from fakeadapter.py.
 """
@@ -22,7 +22,7 @@ from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 from test_key_followup_plan_line import alive, held, wait_for
 
-ALPHA, BETA = "alpha*/api.py:1", "beta*/api.py:1"
+ALPHA, STARRED = "alpha*/api.py:1", "*alpha*/api.py:1"
 
 
 def finding(site, what):
@@ -48,7 +48,7 @@ class AFollowUpJoinsAnOpenFixOnlyAtItsSite(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
-        rig = Rig(cls.home, "widgets", files={"alpha*/api.py": "old\n", "beta*/api.py": "old\n"})
+        rig = Rig(cls.home, "widgets", files={"alpha*/api.py": "old\n", "*alpha*/api.py": "old\n"})
         GitHub(cls.home).grant(rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
         Seat(cls.home, "acme", cwd=rig.path, record={"reviewers": ["astra"]}, planned=True)
@@ -60,7 +60,7 @@ class AFollowUpJoinsAnOpenFixOnlyAtItsSite(unittest.TestCase):
                                                finding(ALPHA, "the alpha api is old"), ["done"]]},
                                            {"final": "The same defect, and another.", "hand_in": [
                                                finding(ALPHA, "the alpha api still reads old"),
-                                               finding(BETA, "the beta api is old"), ["done"]]},
+                                               finding(STARRED, "the starred api is old"), ["done"]]},
                                            "pass"])
         cls.addClassCleanup(cls.settle)
         cls.ran = []
@@ -97,7 +97,7 @@ class AFollowUpJoinsAnOpenFixOnlyAtItsSite(unittest.TestCase):
         _, (_, parent, fixes) = self.ran
         self.assertEqual(len(fixes), 1, fixes)
         self.assertEqual(parent.get("followup_runs"), [fixes[0].name])
-        self.assertTrue(title(fixes[0]).startswith(f"Fix {BETA} - "), title(fixes[0]))
+        self.assertTrue(title(fixes[0]).startswith(f"Fix {STARRED} - "), title(fixes[0]))
 
 
 if __name__ == "__main__":
