@@ -212,25 +212,27 @@ def main(directory, harness, ak, verb="", *args):
     fake = Adapter(Path(directory), harness)
     call = {"verb": verb, "argv": list(args), "cwd": os.getcwd(),
             "env": {k: v for k, v in os.environ.items() if k.startswith(("AK_", "AGENTKIT_"))}}
-    if verb == "lend" and "lend" not in (fake._json("answers") or {}):
-        code = place(*(*args, LENT)[:2], int(time.time()) + (fake._json("lasts") or 86400),
-                     lent(os.environ.get("AGENTKIT_ACCOUNT")))
-    elif verb != "run":
+    if verb == "run":
+        code = turn(fake, ak, call, *args)
+    else:
         # the answer set for the most of the arguments this call ends in, its login's first
         answers, login = fake._json("answers") or {}, os.environ.get("AGENTKIT_ACCOUNT")
-        out, code = next((answers[key] for tail in (" ".join([verb, *args[i:]])
-                                                    for i in range(len(args) + 1))
-                          for key in ((f"{tail} @{login}",) if login else ()) + (tail,)
-                          if key in answers), [ANSWERS.get(verb, f"fake {harness}: {verb}"), 0])
-        print(out, flush=True)
-        if code is None:    # a sign-in waiting on a code typed at its terminal, keys not taken
-            try:
-                input()
-                code = 0
-            except KeyboardInterrupt:
-                code = 130
-    else:
-        code = turn(fake, ak, call, *args)
+        answer = next((answers[key] for tail in (" ".join([verb, *args[i:]])
+                                                 for i in range(len(args) + 1))
+                       for key in ((f"{tail} @{login}",) if login else ()) + (tail,)
+                       if key in answers), None)
+        if verb == "lend" and answer is None:
+            code = place(*(*args, LENT)[:2], int(time.time()) + (fake._json("lasts") or 86400),
+                         lent(login))
+        else:
+            out, code = answer or [ANSWERS.get(verb, f"fake {harness}: {verb}"), 0]
+            print(out, flush=True)
+            if code is None:    # a sign-in waiting on a code typed at its terminal, keys not taken
+                try:
+                    input()
+                    code = 0
+                except KeyboardInterrupt:
+                    code = 130
     with fake._file("calls").open("a") as log:
         log.write(json.dumps(call) + "\n")
     return code
