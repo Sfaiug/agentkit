@@ -128,8 +128,9 @@ func ownerGaps(ctx context.Context, seat string, errOut io.Writer) (string, []*r
 // gaps is ownerGaps of a seat resolved, with the fingerprint of what a check that found no gap
 // read ("" for any other end).
 func gaps(ctx context.Context, name string, record map[string]any, errOut io.Writer) ([]*run.Object, string, error) {
-	// a record a harness's reader reads loosely is read, as before: only the reader deciding whether
-	// a check is owed, which ends a seat it reads as done, waits for one as strict as Python's
+	// a harness whose reader reads less strictly than Python's is checked, as before: only the
+	// reader deciding whether a check is owed, which ends a seat it reads as done, waits for one as
+	// strict as Python's
 	had, err := notify.Conversations(name, false)
 	if errors.Is(err, notify.ErrUnread) {
 		return nil, "", errLeft

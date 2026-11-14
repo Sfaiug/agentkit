@@ -10,12 +10,12 @@ import signal
 import socket
 import socketserver
 import sqlite3
-import struct
 import subprocess
 import sys
 import threading
 import time
 import tomllib
+import tty
 import uuid
 from datetime import datetime, timezone
 
@@ -35,7 +35,10 @@ def publish(name, data):
 def frame(message, mask=b''):
     # A client masks each frame it sends and a server never does (RFC 6455, 5.1).
     data = json.dumps(message).encode()
-    size = bytes([len(data)]) if len(data) < 126 else bytes([126]) + struct.pack('!H', len(data))
+    # A length past 125 follows 126 in 2 bytes, past 65535 follows 127 in 8 (RFC 6455, 5.2).
+    n = len(data)
+    size = (bytes([n]) if n < 126 else bytes([126]) + n.to_bytes(2) if n < 1 << 16
+            else bytes([127]) + n.to_bytes(8))
     if mask:
         size = bytes([128 | size[0]]) + size[1:]
         data = bytes(v ^ mask[i % 4] for i, v in enumerate(data))
@@ -46,9 +49,8 @@ def receive(stream):
     # None once the other end has closed
     if not (first := stream.read(2)):
         return None
-    size = first[1] & 127
-    if size == 126:
-        size = struct.unpack('!H', stream.read(2))[0]
+    if (size := first[1] & 127) > 125:
+        size = int.from_bytes(stream.read(2 if size == 126 else 8))
     mask = stream.read(4) if first[1] & 128 else bytes(4)
     return json.loads(bytes(v ^ mask[i % 4] for i, v in enumerate(stream.read(size))))
 
@@ -61,10 +63,12 @@ if os.environ.get('FAKE_UNSUPPORTED') and args != ['--help']:
     (home / 'last-command.json').write_text(json.dumps(args))
     sys.exit(0)
 if args[:1] == ['app-server'] and 'FAKE_NATIVE' not in os.environ:
-    # npm's entry point, its child the native app server: two `codex` above each hook (0.167).
-    # Like npm's, it hands on a signal that would stop it and ends with its child, so a server
-    # still stopping (FAKE_STOP_GATE) holds its launch's cleanup.
-    native = subprocess.Popen([sys.executable, *sys.argv],
+    # npm's entry point, a script, its child the native app server: two `codex` above each hook
+    # (0.167), the native one Python here under the name npm's package keeps it by.  Like npm's,
+    # it hands on a signal that would stop it and ends with its child, so a server still stopping
+    # (FAKE_STOP_GATE) holds its launch's cleanup.
+    native = subprocess.Popen([str(Path(sys.argv[0]).parent / 'vendor/codex'), *sys.argv],
+                              executable=sys.executable,
                               env={**os.environ, 'FAKE_NATIVE': str(os.getpid())})
     for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda signum, frame: native.send_signal(signum))
@@ -274,8 +278,11 @@ else:
                           if 'resume' in args else ('thread/start', {}))
         send({'id': 0, 'method': method, 'params': params})
         sid = receive(wire)['result']['thread']['id']
-        if os.environ.get('FAKE_SCREEN'):       # the screen a TUI at its prompt draws
-            print(Path(os.environ['FAKE_SCREEN']).read_text(), end='', flush=True)
+        screen = Path(os.environ.get('FAKE_SCREEN') or os.devnull).read_text()
+        drawn = bool(os.environ.get('FAKE_SCREEN')) and os.isatty(0)
+        if drawn:       # on a terminal, each key as it comes, for its composer to draw
+            tty.setcbreak(0)
+        print(screen, end='', flush=True)       # the screen a TUI at its prompt draws
         publish('fake-tui', {'argv': args, 'pid': os.getpid()})
         typed = b''
         while os.environ.get('FAKE_HOLD'):
@@ -285,7 +292,13 @@ else:
             # (tests/fixtures/codex-title-index.jsonl), and its server takes the rest; a line
             # longer than one read waits for its end
             if os.environ.get('FAKE_SCREEN') and select.select([0], [], [], 0)[0]:
-                *lines, typed = (typed + os.read(0, 4096)).split(b'\n')
+                *lines, typed = (typed + os.read(0, 4096)).replace(b'\r', b'\n').split(b'\n')
+                if drawn:   # what is typed shows on its composer's `›` row until its Enter
+                    rows = screen.split('\n')
+                    at = [i for i, row in enumerate(rows) if row.startswith('›')]
+                    if at and typed:
+                        rows[at[-1]] = '› ' + typed.decode(errors='replace')
+                    print('\x1b[H\x1b[2J' + '\n'.join(rows), end='', flush=True)
                 for line in filter(str.strip, (line.decode(errors='replace') for line in lines)):
                     command, _, rest = line.partition(' ')
                     if command == '/rename':

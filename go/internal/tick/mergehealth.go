@@ -31,13 +31,14 @@ type probe struct {
 // commit declares kept on its run where the run holds none, and the commit; inside its window its
 // `health:` probed, a pass making it live and a failure kept with its output for the next tick,
 // each told nobody; past it, the failure kept is its break; and history.db keeps its commit, its
-// probes and when it went live (mergeRows).  Go follows no deployment, and a pass typed alone into
-// its seat is Python's to tell (handback.LiveLeft).  Each is decided before this merge's first
-// write, and left there: the one write, or where the probe keeps a row, written as it starts, the
-// probe.  A seat that comes to owe a pass after that has it recorded, as Python records it, and the
-// next tick, reading it owed first, hands its telling over.  What a pass asks of the merge's seat's
-// other runs is read from census, the merge checks' one read of every run.  A dry tick decides the
-// same, runs no probe and makes no write: it says what it would check and record.
+// probes and when it went live (mergeRows).  Go follows no deployment, and a pass whose line waits
+// in its seat's composer for its Enter is Python's to tell (handback.LiveLeft).  Each is decided
+// before this merge's first write, and left there: the one write, or where the probe keeps a row,
+// written as it starts, the probe.  A pass that comes to be Python's after that is recorded, as
+// Python records it, and the next tick, reading it owed first, hands its telling over.  What a pass
+// asks of the merge's seat's other runs is read from census, the merge checks' one read of every
+// run.  A dry tick decides the same, runs no probe and makes no write: it says what it would check,
+// record and tell.
 func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, census []*run.Object, say func(string), dry bool) error {
 	rows, err := mergeRows(each, dry)
 	if err != nil {

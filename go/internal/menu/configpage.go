@@ -320,10 +320,13 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 		keys = strings.NewReplacer("↑↓←→", "arrows", "↑↓", "up/down", "←→", "left/right", "␣", "space", "⏎", "enter").Replace(keys)
 	}
 	note, drawn := view.Note, []string(nil) // the lit row's own note and lines, else the page's note
-	if !view.Away && view.At < len(view.Rows) && view.Rows[view.At].Note != "" {
-		note = view.Rows[view.At].Note
-		if view.Rows[view.At].Under != nil {
-			drawn = view.Rows[view.At].Under(s)
+	if !view.Away && view.At < len(view.Rows) {
+		row := view.Rows[view.At]
+		if row.Note != "" {
+			note = row.Note
+		}
+		if row.Under != nil {
+			drawn = row.Under(s)
 		}
 	}
 	var under []string

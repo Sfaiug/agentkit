@@ -251,7 +251,7 @@ class Rendering(Sandbox):
                 with patch.dict(os.environ, env, clear=True):
                     self.assertEqual(terminal.styled("state", "accent"), "state")
             with patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True):
-                self.assertEqual(terminal.styled("state", "accent"), "\033[38;5;26mstate\033[0m")
+                self.assertEqual(terminal.styled("state", "accent"), "\033[38;5;75mstate\033[0m")
 
 
 if __name__ == "__main__":

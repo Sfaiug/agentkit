@@ -2,8 +2,8 @@
 
 The done share is `━` in the word's colour, a half cell `╸` where it ends inside one, then a dim
 `─` for the rest and `done of total`; on a terminal and on a seat's bar alike every cell of the
-line is the word's colour, as no colour outside the owner's palette rests on the screen
-(10 Nov 2026).  It says nothing of the tasks in flight, which
+line is the word's colour, as no colour outside the owner's themes rests on the screen
+(12 Nov 2026).  It says nothing of the tasks in flight, which
 the line under a highlighted row has, and no screen says when the work will finish.  The rows
 draw it in the room they have, never wrapped or cut, and without colour or UTF-8 it reads in
 plain characters.  Offline: a throwaway HOME, fake plans and run records, the real renderer.
@@ -21,7 +21,7 @@ from agentkit import config, history, menu, terminal
 from agentkit import record
 
 NOW = 1_800_000_000
-WORKING, AMBER, DIM = (terminal.colour(word).rgb for word in ("working", "needs you", "dim"))
+WORKING, AMBER, DIM = (terminal.colour(word, tmux=True) for word in ("working", "needs you", "dim"))
 
 
 def cells(bar):
@@ -49,7 +49,7 @@ class PlanBar(Sandbox):
         self.assertEqual({ink for char, ink in drawn if char == "─"}, {DIM})
 
     def test_a_seat_s_bar_draws_the_line_its_row_draws(self):
-        # cell for cell the row's inks on a dark terminal, each the word's own colour, whichever
+        # cell for cell the row's inks in the black theme, each the word's own colour, whichever
         # process writes the bar
         for word, colour in (("working", WORKING), ("needs you", AMBER)):
             with patch.object(terminal, "colour_depth", return_value=24):
@@ -59,7 +59,7 @@ class PlanBar(Sandbox):
             self.assertEqual(screen, [colour] * 9)
             for light in (False, True):
                 with self.subTest(word=word, light=light), \
-                        patch.object(terminal, "_LIGHT", light):
+                        patch.object(terminal, "THEME", terminal.WHITE if light else terminal.BLACK):
                     bar, _ = cells(terminal.plan_bar(3, 8, 30, 8, word, tmux=True))
                     self.assertEqual([ink for char, ink in bar if char in "━╸"], screen)
 
@@ -73,7 +73,7 @@ class PlanBar(Sandbox):
     def test_eight_colours_draw_the_whole_line_in_the_words_own_tone(self):
         # they hold no tone between the word's and the background, so nothing fades
         for light in (False, True):
-            with self.subTest(light=light), patch.object(terminal, "_LIGHT", light), \
+            with self.subTest(light=light), patch.object(terminal, "THEME", terminal.WHITE if light else terminal.BLACK), \
                     patch.object(terminal, "colour_depth", return_value=8):
                 line = terminal.plan_bar(4, 8, 28, 8, "working")
             self.assertEqual(set(re.findall(r"\x1b\[(\d+)m[━╸]", line)),
@@ -136,7 +136,7 @@ class PlanBar(Sandbox):
             with patch.object(terminal, "colour_depth", return_value=24):
                 [line] = menu.v5o_seat_blocks([info], width)[0]
             self.assertEqual(terminal.cells(line), width)
-            self.assertRegex(line, r"38;2;0;103;198m[━╸]")   # the tip, in working's colour
+            self.assertRegex(line, r"38;2;77;163;255m[━╸]")   # the tip, in working's colour
             self.assertTrue(terminal.plain(line).endswith(" 1 of 6"), line)
         self.assertFalse(hasattr(menu, "seat_estimate"))
         self.assertFalse(hasattr(history, "estimate_seconds"))

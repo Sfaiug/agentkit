@@ -161,6 +161,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                      "ak orch project acme"),
     "notify": (NOTIFY_USAGE,
                "Record a needs-you question.\n"
+               "ak notify settled takes back every question this seat asks; ask again any needed.\n"
                "--session and --dry-run apply to needs; --check checks without posting.",
                'ak notify needs "Which branch?" --session parser-fix --dry-run'),
     "notify needs": (f"usage: {NOTIFY_NEEDS}",

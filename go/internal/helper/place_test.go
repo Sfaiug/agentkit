@@ -27,7 +27,7 @@ func TestATurnGoesToTheLeastRoomThatTakesIt(t *testing.T) {
 			"[machines.small]\nwork = ['turns', 'tests']\n[machines.wide]\nwork = ['tests']\n",
 		filepath.Join(bin, "ssh"): "#!/bin/sh\ndir=${0%/*} alias=$7\neval \"set -- $8\"\nverb=$5\nshift 5\n" +
 			"echo \"$alias $verb $*\" >>\"$dir/said\"\ncase $verb in\nprobe) cat \"$dir/$alias.probe\" ;;\n" +
-			"prepare) cat >\"$dir/$alias.parcel\"; read code <\"$dir/$alias.prepare\"; exit \"${code:-0}\" ;;\nesac\n",
+			"prepare) cat >\"$dir/$alias.parcel\"; ls \"$TMPDIR\" >>\"$dir/left\"; read code <\"$dir/$alias.prepare\"; exit \"${code:-0}\" ;;\nesac\n",
 		filepath.Join(bin, "wide.probe"): "cpus 16\nload 0\nroom_mb 65536\nturns 1\n",
 		filepath.Join(bin, "mid.probe"):  "cpus 8\nload 0\nroom_mb 65536\nturns 1\n",
 		filepath.Join(repo, recipe):      "FROM scratch\n",
@@ -39,7 +39,7 @@ func TestATurnGoesToTheLeastRoomThatTakesIt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "GIT_CONFIG_NOSYSTEM": "1",
+	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "GIT_CONFIG_NOSYSTEM": "1", "TMPDIR": t.TempDir(),
 		"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH")} {
 		t.Setenv(key, value)
 	}
@@ -89,5 +89,9 @@ func TestATurnGoesToTheLeastRoomThatTakesIt(t *testing.T) {
 		if held := bytes.Contains(parcel, []byte("gamma/1.4.2/gamma-cli")); held != (each.turn != nil) {
 			t.Errorf("%s: the parcel on %s holds the turn's files: %v", each.name, each.want, held)
 		}
+	}
+	// a turn's parcel holds its login, so none stays here once `prepare` has read it
+	if left, _ := os.ReadFile(filepath.Join(bin, "left")); bytes.Contains(left, []byte("ak-parcel-")) {
+		t.Errorf("a parcel stays here as `prepare` runs: %s", left)
 	}
 }

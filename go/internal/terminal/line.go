@@ -12,7 +12,7 @@ import (
 func (s Screen) lookOf(word string) (style, string) {
 	rgb, own := strings.CutPrefix(word, "#")
 	if !own {
-		return styles[word], colourOf(word, s.light).rgb
+		return styles[word], colourOf(word, s.theme)
 	}
 	tone := 30
 	for i, text := range channels(rgb) {
@@ -36,23 +36,22 @@ func Pad(text string, room int) string {
 }
 
 // faded is a word's colour, as Styled draws it, or a `#RRGGBB`, amount (0 to 1) of the way to the
-// screen's background, or with a negative one that far toward its foreground, lit.
+// theme's background, or with a negative one that far toward its text, lit.
 func (s Screen) faded(word string, amount float64) string {
 	if role, ok := kinds[word]; ok {
 		word = role
 	}
 	_, rgb := s.lookOf(word)
-	to := 0.0
-	if s.light {
-		to = 255
-	}
+	toward := "background"
 	if amount < 0 {
-		to, amount = 255-to, -amount
+		toward, amount = "text", -amount
 	}
+	to := channels(colourOf(toward, s.theme))
 	out := "#"
-	for _, text := range channels(rgb) {
+	for i, text := range channels(rgb) {
 		value, _ := strconv.Atoi(text)
-		out += fmt.Sprintf("%02x", int(math.RoundToEven(float64(value)*(1-amount)+to*amount)))
+		end, _ := strconv.Atoi(to[i])
+		out += fmt.Sprintf("%02x", int(math.RoundToEven(float64(value)*(1-amount)+float64(end)*amount)))
 	}
 	return out
 }

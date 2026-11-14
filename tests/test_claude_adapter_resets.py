@@ -185,9 +185,11 @@ class Resets(unittest.TestCase):
         self.assertEqual(said, {"code": "cooldown", "reason": "too soon"})
 
     def test_no_usable_grant_of_the_kind_or_no_kind_posts_nothing(self):
-        for argv in (("reset", "5-hour"), ("reset",)):
+        # no kind is unavailable before the status is read, so even a status that fails says so
+        for argv, usage in ((("reset", "5-hour"), (answer(),)),
+                            (("reset",), [[503, {"error": "overloaded"}]])):
             with self.subTest(argv=argv):
-                said, asked = self.adapter(*argv)
+                said, asked = self.adapter(*argv, usage=usage)
                 self.assertEqual(self.posted(asked), [])
                 self.assertEqual(said, {"code": "unavailable"})
 

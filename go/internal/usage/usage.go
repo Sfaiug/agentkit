@@ -183,7 +183,7 @@ func (r *Readings) OnCredits(name string) bool {
 // releases, which matrix finds and which reads this package.
 func (r *Readings) Shown(listed func(provider, account string) any, plans map[Week]Plan, checks map[Week][]any) *run.Object {
 	for _, each := range r.logins() {
-		price := r.source(each.provider).Price
+		price := r.price(each)
 		each.prov.Set("price", nil)
 		if price != nil {
 			each.prov.Set("price", *price)

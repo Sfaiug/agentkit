@@ -41,7 +41,7 @@ LAUNCHER = "launcher"      # `id_source`: the id in the record is one the launch
 # harness's receipt, and the title that launch takes. A restart that fails puts these
 # back from the record as it was, so the seat keeps its own conversation; a typing receipt
 # keeps them where its conversation is not named yet (`Harness.receipt`).
-LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
+LAUNCH_KEYS = ("conversation", "transcript", "resumable", "id_source", "before", "codex_launch",
                "codex_history", "opencode_launch", "muse_launch", "antigravity_launch",
                "antigravity_open", "session_title", "title_sync")
 FRESH_WORDS = "no conversation recorded; it starts fresh"   # `[conversation] fresh_words`
@@ -334,9 +334,9 @@ def claims():
         yield
 
 
-def claim(launched, harness, conversation, transcript, filed, pid, is_client, **fields):
+def claim(launched, harness, conversation, path, filed, pid, is_client, **fields):
     """The seat launched as `launched`, on `harness`, goes on in that conversation, `fields`
-    beside it, where a hook whose parent is `pid` reported it with `transcript`: only from the
+    beside it, where a hook whose parent is `pid` reported it at `path`: only from the
     seat's own interactive process (`orch.owns_hook`, by `is_client`), with that conversation's
     own file for the seat (`filed`), and no other seat's record naming it (`named_elsewhere`), as
     the records stand once no seat learns one meanwhile (`Harness.learning`).  The one its
@@ -351,7 +351,7 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
     from .. import notify, orch
     if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(conversation, str)
             or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation) or conversation.startswith("-")
-            or not isinstance(transcript, str)):
+            or not isinstance(path, str)):
         return
     if config.session_records().get(config.resolve_session(launched), {}).get(
             "conversation") == conversation:
@@ -368,7 +368,8 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
         if current and record.get("conversation") != current:
             record = config.update_session(name, conversation=current) or record
         if (record.get("conversation") == conversation
-                or Path(transcript).resolve() != Path(filed(record, conversation)).resolve()):
+                or not (own := filed(record, conversation))
+                or Path(path).resolve() != Path(own).resolve()):
             return
         session = orch.find(name)
         if not session or not orch.owns_hook(session, pid, is_client):
@@ -1056,6 +1057,11 @@ class Harness:
         if hook:
             return hook(Path(out))
         return []
+
+    def status_meters(self, windows):
+        """The meters a seat's status render said of its own account (`watch.hook_meters`)."""
+        hook = self._hook("status_meters")
+        return hook(windows) if hook else []
 
 
 def load(name):

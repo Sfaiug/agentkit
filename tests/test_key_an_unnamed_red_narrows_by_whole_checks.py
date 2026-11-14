@@ -26,16 +26,17 @@ for t in $tests; do [ ! -f "t/$t" ] || (. "./t/$t") >/dev/null || exit 1; done
 code=0
 ''')
 TESTS = {"suite.sh": LOADS, "api.sh": ":\n", **{f"t/c{n}.sh": "true\n" for n in range(1, 9)}}
+CHANGES = {2: {"t/b.sh": ". ./api.sh\n"}, 3: {"api.sh": None},
+           **{n: {f"t/a{n}.sh": "true\n"} for n in (4, 5, 6)}}
+MEMBERS = [{f"member-{n}.txt": f"{n}\n", **CHANGES.get(n, {})} for n in range(1, 7)]
 
 
 class AnUnnamedRedNarrowsByWholeChecks(unittest.TestCase):
     def test_the_member_breaking_a_file_its_piece_loads_is_found_by_whole_checks(self):
         line = Line(TESTS)
         self.addCleanup(line.close)
-        changes = {2: {"t/b.sh": ". ./api.sh\n"}, 3: {"api.sh": None},
-                   **{n: {f"t/a{n}.sh": "true\n"} for n in (4, 5, 6)}}
-        for n in range(1, 7):
-            line.member({f"member-{n}.txt": f"{n}\n", **changes.get(n, {})})
+        for files in MEMBERS:
+            line.member(files)
         done = line.land()
         self.assertEqual(done.code, 0, done.out + done.err)
         stacks = {}

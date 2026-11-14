@@ -50,7 +50,7 @@ func TestTimeoutSecondsReadsWhatTimeoutWasGiven(t *testing.T) {
 		{[]string{"make", "30"}, 0},
 		{nil, 0},
 	} {
-		if got := timeoutSeconds(each.argv); got != each.want {
+		if got := TimeoutSeconds(each.argv); got != each.want {
 			t.Errorf("%q: got %g, want %g", each.argv, got, each.want)
 		}
 	}
