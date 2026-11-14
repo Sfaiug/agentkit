@@ -2516,10 +2516,12 @@ def account_label(cfg, provider, account):
     screen, `ak usage`, a page): the provider's name, and for one of several its place in
     `accounts` in roman numerals -- `Claude II`.  The account's name in `accounts` is ak's own
     and is never shown; one no longer listed there keeps it, since no place would say which
-    one it is.  The account None is the provider's one login."""
+    one it is.  As `lists` reads a record's, None is its usual one, and a provider listing none
+    has one login, whatever a record names."""
     name, listed = provider_name(cfg, provider), accounts(cfg, provider)
+    account = account or DEFAULT_ACCOUNT
     if account not in listed:
-        return name if account in (None, DEFAULT_ACCOUNT) else f"{name} {account}"
+        return name if not listed or account == DEFAULT_ACCOUNT else f"{name} {account}"
     if len(listed) < 2:
         return name
     number, numeral = listed.index(account) + 1, ""
