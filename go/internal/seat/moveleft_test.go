@@ -41,18 +41,23 @@ func TestAMoveKeepsTheConversationItLeaves(t *testing.T) {
 				t.Fatal(known, err)
 			}
 			after, _ := run.ReadJSON(stateFile(home, "session-acme.json"))
+			if scenario == "failed" {
+				// gone, never null: Python reads the record's `left` as record.get("left", [])
+				if after.Has("left") || after.Str("orchestrator") != "fable" {
+					t.Fatal("a failed launch left its write", run.Line(after))
+				}
+				return
+			}
 			cwd := run.Line(filepath.Join(home, "work", "acme"))
 			want := map[string]string{
 				"moved": `[{"account": null, "cwd": ` + cwd + `, "conversation": "conv-cleared", "harness": "claude"}, ` +
 					`{"harness": "claude", "conversation": "conv-acme", "account": null, "cwd": ` + cwd +
 					`, "transcript": ` + run.Line(transcript) + `}]`,
-				"failed": "null",
 				"cleared meanwhile": `[{"account": null, "cwd": ` + cwd + `, "harness": "claude", "conversation": "conv-acme"}, ` +
 					`{"harness": "claude", "conversation": "conv-after", "account": null, "cwd": ` + cwd + `}]`,
 			}[scenario]
-			orchestrator := map[bool]string{true: "fable", false: "astra"}[scenario == "failed"]
-			if got := run.Line(after.Get("left")); after.Str("orchestrator") != orchestrator || got != want {
-				t.Fatalf("left differs on %s:\n got %s\nwant %s", after.Str("orchestrator"), got, want)
+			if got := run.Line(after.Get("left")); after.Str("orchestrator") != "astra" || got != want {
+				t.Fatalf("left differs:\n got %s\nwant %s", got, want)
 			}
 		})
 	}
