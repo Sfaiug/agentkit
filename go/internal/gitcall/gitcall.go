@@ -61,7 +61,7 @@ type Stopped struct{ Why string }
 func (s *Stopped) Error() string { return s.Why }
 
 // A Git runs git in Repo ("" the current directory).  Env changes its environment: `KEY=value`
-// sets, a bare `KEY` drops.  Cap is its limit, CapSeconds where none.  Ctx, where set, stops it
+// sets, a bare `KEY` drops.  Cap is its limit, defaultCap's where none.  Ctx, where set, stops it
 // as its limit does, and a git it stopped answers with its cause: work dropped mid-way waits on
 // no git of its own.  In, where set, is what it reads.
 type Git struct {
@@ -109,7 +109,7 @@ func (g Git) Bytes(args ...string) (int, []byte, []byte, error) {
 	}
 	limit := g.Cap
 	if limit <= 0 {
-		limit = CapSeconds * time.Second
+		limit = defaultCap(args)
 	}
 	if g.Repo != "" {
 		args = append([]string{"-C", g.Repo}, args...)
