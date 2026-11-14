@@ -5238,6 +5238,7 @@ def models_page(cfg, keyboard):
             return "the config needs one model"
         if names:
             gone[key] = [(name, cfg["models"][name]) for name in names]
+            ran[harness][model["id"]] = model["label"]
             for name in names:
                 config.remove_model(cfg, name)
             return _saved(cfg, cfg, before)
@@ -5256,9 +5257,9 @@ def models_page(cfg, keyboard):
             cfg["providers"].setdefault(entry["provider"], copy.deepcopy(tables[entry["provider"]]))
         return _saved(cfg, cfg, before)
 
-    # harness: {id: name} each model it ran as its list was read here: one its catalog does not
-    # list keeps a row of its own while the page is open, taken out here or not, and one taken
-    # in here that a login leaves out of the listing read again
+    # harness: {id: name} each model it ran as its list was read here, or taken out here: one
+    # its catalog does not list keeps a row of its own while the page is open, taken out here or
+    # not, and one taken in or out here that a login leaves out of the listing read again
     ran = {}
 
     def listing(harness):     # what a harness's row opens onto: (model, the provider it is
