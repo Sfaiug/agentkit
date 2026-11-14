@@ -123,7 +123,7 @@ class EveryFileRerunsAFilesNamedParts(unittest.TestCase):
                          ([PART], [PART], [GONE]))
 
     def test_the_go_keys_check_given_a_claims_name_runs_that_claim_alone(self):
-        for name in ("test_go_keys.py", "test_go.py", "suite_shares.py"):
+        for name in ("test_go_keys.py", "test_go_builds.py", "test_go.py", "suite_shares.py"):
             shutil.copy(REPO / "tests" / name, self.root / "tests")
         # what the copy switched as each claim's is takes from go/
         for part in SWITCHED:
