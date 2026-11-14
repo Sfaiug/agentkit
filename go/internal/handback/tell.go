@@ -17,6 +17,12 @@ const (
 // composer already only gets its Enter; `receipt` keeps the mark of one typed now.  "" where the
 // mark names the pane Python's editor put the line in past a draft, before anything is done.
 func Tell(name, line string, typed *run.Object, receipt func(*run.Object) error, say func(string)) string {
+	return tell(name, func() (string, error) { return line, nil }, typed, receipt, say)
+}
+
+// tell is Tell with the line made only once the seat is there to take it, so one left to Python
+// writes nothing first; "" too where it cannot be made.
+func tell(name string, line func() (string, error), typed *run.Object, receipt func(*run.Object) error, say func(string)) string {
 	switch {
 	case typed != nil && typed.Has("pane"):
 		return ""
@@ -24,7 +30,12 @@ func Tell(name, line string, typed *run.Object, receipt func(*run.Object) error,
 		return Busy
 	case !seat.Watching(name):
 		return Gone
-	case seat.TypeAtPrompt(name, line, typed, receipt, say):
+	}
+	said, err := line()
+	switch {
+	case err != nil:
+		return ""
+	case seat.TypeAtPrompt(name, said, typed, receipt, say):
 		return Sent
 	}
 	return Busy

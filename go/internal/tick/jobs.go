@@ -67,8 +67,8 @@ func (t *ticking) jobHandbacks() error {
 	return nil
 }
 
-// jobHandback reads, fits (JobLine), types and strikes the line off under the job's delivery
-// lock, so two ticks overlapping tell it once.
+// jobHandback reads, types and strikes the line off under the job's delivery lock, so two ticks
+// overlapping tell it once.
 func (t *ticking) jobHandback(dir string) error {
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
@@ -86,9 +86,6 @@ func (t *ticking) jobHandback(dir string) error {
 	owner, named := receipt.Get("seat").(string)
 	if line == "" || !named {
 		return errLeft
-	}
-	if line, err = handback.JobLine(dir, line); err != nil {
-		return err
 	}
 	switch handback.TellJob(dir, receipt, line, t.log.line) {
 	case handback.Sent:
