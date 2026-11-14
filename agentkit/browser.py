@@ -70,7 +70,6 @@ MCP_URL = f"http://{MCP_HOST}:{MCP_PORT}/mcp"
 MCP_UNIT = "browser-bridge-mcp.service"
 HOST_PORT = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3}|\[[0-9A-Fa-f:]+\]):(\d{1,5})$")
 
-USAGE = command_help.render("browser").rstrip()
 _self = sys.modules[__name__]   # browser.SECRET and the rest, as this module reads them too
 
 
@@ -869,7 +868,8 @@ def main(argv):
     if command_help.show("browser", argv):
         return 0
     if not argv:
-        print(USAGE)
+        # rendered here, never at import: a seat's help reads its project's numbers from git
+        print(command_help.render("browser").rstrip())
         return 2
     command = COMMANDS.get(argv[0])
     if command is None:
