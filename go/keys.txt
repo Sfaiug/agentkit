@@ -591,6 +591,7 @@ test_key_unasked_question_sent_back
 test_key_unjudged_stop_goes_back
 test_key_unknown_error_is_retried
 test_key_unknown_verb
+test_key_unnamed_conversation_checked
 test_key_unowned_seat_question
 test_key_update_dirty
 test_key_update_dry_run
