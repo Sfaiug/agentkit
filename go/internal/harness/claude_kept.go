@@ -7,10 +7,16 @@ import (
 	"agentkit/internal/config"
 )
 
+// keptIn is the folder of state/ that holds ak's names, an entry Claude keeps beside its seats'
+// records (KeptInState).
+const keptIn = "conversations"
+
+var claudeKeptIn = regexp.MustCompile("^" + keptIn + "$")
+
 // claudeKept is ak's own name for that conversation's transcript, which the tick gives it
 // (claude.py `kept`).
 func claudeKept(conversation string) string {
-	return filepath.Join(config.Home(), "state", "conversations", "claude-"+conversation+".jsonl")
+	return filepath.Join(config.Home(), "state", keptIn, "claude-"+conversation+".jsonl")
 }
 
 var keptFile = regexp.MustCompile(`^claude-(.+)\.jsonl$`)
