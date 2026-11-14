@@ -2449,7 +2449,9 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     for a seat that was live all along.
 
     `account` reopens even a live pane on that subscription, without changing its selection
-    or surrendering its conversation. Ordinary resumes keep the account already recorded.
+    or surrendering its conversation, and is its home from then on where its provider lists
+    the one it had no more (`config.lists`). Ordinary resumes keep the account already
+    recorded.
     `still` is `_start_harness`'s.  `line`, such a caller's, is what the conversation, where it
     comes back with its past, opens on.
     """
@@ -2487,8 +2489,10 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
             ok, why = harness_plugin(harness).seat_auth(account)
             if ok is not True:
                 raise config.Error(f"{name}: {account} cannot open a seat: {why}")
+        homed = ({} if config.lists(cfg, provider, record.get("home_account"))
+                 else {"home_account": account})
     else:
-        account = record.get("account")
+        account, homed = record.get("account"), {}
     # the directory it ran in, unless that is gone -- a run's worktree, a checkout since
     # deleted -- in which case the seat opens where a new one would rather than not at all.
     # Whether its harness has opened that conversation yet is still asked where it ran: a
@@ -2514,7 +2518,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         print(shlex.join(cmd))
         return 0
     launch(name, orchestrator, cwd, cmd, conversation, session, still, line=line)
-    config.update_session(name, account=account)
+    config.update_session(name, account=account, **homed)
     if hand_over:
         return 0           # detached: restarting is neither attaching nor reading the seat
     # its own conversation only where the harness has opened it: an id nothing wrote

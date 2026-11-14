@@ -2466,7 +2466,7 @@ def accounts(cfg, provider):
 
     [] for a provider that lists none, which is one login, exactly as a provider always was.
     """
-    entry = cfg["providers"].get(provider)
+    entry = cfg.get("providers", {}).get(provider)
     listed = entry.get("accounts") if isinstance(entry, dict) else None
     return list(listed) if isinstance(listed, list) else []
 
