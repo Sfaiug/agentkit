@@ -130,6 +130,9 @@ func WentIntoFound(name string, sent *run.Object) (string, error) {
 // its harness reported; false where its plugin knows one Go does not read.
 func Opened(name string, record map[string]any) (opened, known bool) {
 	own, plugged := plugins[name]
+	if own.opened != nil {
+		return own.opened(record), true
+	}
 	if own.conversation == nil {
 		known = !plugged || own.owned != nil
 		return known, known
