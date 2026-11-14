@@ -47,7 +47,7 @@ class ATickReadsEachRunOnce(unittest.TestCase):
     def opens(self, merged, ticks=1, **each):
         """How often the last of `ticks` ticks opens `bystander`'s run.json, in a Home whose seat
         has `merged` merged runs, each with `each` on its record."""
-        home = Home(tmux_log=False)
+        home = Home()
         self.addCleanup(home.close)
         akconfig.write(home, ["opus"])
         now = time.time()

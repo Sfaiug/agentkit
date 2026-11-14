@@ -36,7 +36,7 @@ def until(test, what, bound=30):
 class TheWindowItWasPickedIn(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.home = home = Home(tmux_log=False)
+        cls.home = home = Home()
         cls.addClassCleanup(home.close)
         cls.seats = {name: Seat(home, name) for name in ("acme", "acme-two")}
         home.fake("claude", CLAUDE)

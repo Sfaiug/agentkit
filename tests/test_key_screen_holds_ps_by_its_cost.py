@@ -33,7 +33,7 @@ BOUND = 120       # a read a loaded host takes long over
 @unittest.skipUnless(REAL_TMUX and PS, "no tmux or no ps")
 class ScreenHoldsPsByItsCost(unittest.TestCase):
     def test_an_open_screen_reads_a_costly_table_at_most_twice_a_minute(self):
-        home = Home(tmux_log=False)
+        home = Home()
         self.addCleanup(home.close)
         akconfig.write(home, ["opus"])
         Seat(home, "fix-api")

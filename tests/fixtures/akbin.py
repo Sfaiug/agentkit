@@ -159,14 +159,14 @@ exec {real} "$@"
 
 class Home:
     """A throwaway HOME the program runs in; `close` (or leaving `with`), or else the death of
-    the process that made it, ends every process it left and removes it.  `tmux_log=False` keeps
-    no log of the program's tmux calls (`calls`): each would start a Python, which a test counting
-    what the program reads would count.  `at` is where its commands find its root, if not where
-    it is: on a machine of tests/fixtures/twohomes.py, at the path every machine's is at.  Its
-    root is made in `at`, so that a machine's commands, finding theirs there, find no other, and
-    `at` empties, and goes, with the last of them."""
+    the process that made it, ends every process it left and removes it.  `tmux_log=True` keeps
+    a log of the program's tmux calls (`calls`), each of which then starts a Python: a tick makes
+    about a hundred, which a loaded host takes past `tick`'s bound.  `at` is where its commands
+    find its root, if not where it is: on a machine of tests/fixtures/twohomes.py, at the path
+    every machine's is at.  Its root is made in `at`, so that a machine's commands, finding theirs
+    there, find no other, and `at` empties, and goes, with the last of them."""
 
-    def __init__(self, tmux_log=True, at=None):
+    def __init__(self, tmux_log=False, at=None):
         self.root = Path(tempfile.mkdtemp(prefix="akbin-", dir=at)).resolve()
         self.at = Path(at or self.root)
         self.path = self.root / "home"
