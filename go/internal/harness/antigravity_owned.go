@@ -168,13 +168,14 @@ func antigravityClaim(token, conversation string) {
 		return
 	}
 	defer held.Close()
-	now, seat, others := launchSeats("antigravity_launch", token)
-	if now != name || antigravityMine(seat) != "" ||
+	now, _, others := launchSeats("antigravity_launch", token)
+	path := filepath.Join(state, "session-"+name+".json")
+	seat, _ := run.ReadJSON(path) // exactly, as it goes back whole: Go cannot keep a lone surrogate
+	if now != name || seat == nil || antigravityMine(seat) != "" ||
 		slices.ContainsFunc(others, func(other *run.Object) bool { return antigravityMine(other) == conversation }) {
 		return
 	}
 	seat.Set("antigravity_open", run.Fields("launch", token, "conversation", conversation))
-	path := filepath.Join(state, "session-"+name+".json")
 	tmp := strings.TrimSuffix(path, ".json") + ".tmp"
 	if os.WriteFile(tmp, []byte(run.Encode(seat)+"\n"), 0o666) == nil {
 		os.Rename(tmp, path)

@@ -74,7 +74,11 @@ func TestOwnedLeavesAReceiptsSessionAnotherSeatKeeps(t *testing.T) {
 	if owned, _ := Owned("opencode", record); owned != "ses_Acme" {
 		t.Fatalf("its own: %q", owned)
 	}
-	for _, other := range []string{`{"conversation":"ses_Acme"}`, `{"left":[{"harness":"opencode","conversation":"ses_Acme"}]}`} {
+	for _, other := range []string{
+		`{"conversation":"ses_Acme"}`,
+		`{"left":[{"harness":"opencode","conversation":"ses_Acme"}]}`,
+		`{"conversation":"ses_Acme","title":"\ud800"}`, // Python reads it; Go keeps no lone surrogate
+	} {
 		write(filepath.Join(state, "session-beta.json"), other)
 		owned, _ := Owned("opencode", record)
 		named, err := Named("opencode", record)

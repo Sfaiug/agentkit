@@ -49,10 +49,13 @@ func Recorded(record *run.Object) []string {
 }
 
 // launchSeats is the seat whose record carries that launch's token under key, "" for none, and
-// every other seat's record, as they stand: a rename pointer is no seat's.
+// every other seat's record, as they stand: a rename pointer is no seat's.  Each is read as shown,
+// so a lone surrogate Python reads in one leaves the rest of it to count.
 func launchSeats(key, token string) (name string, seat *run.Object, others []*run.Object) {
 	for _, path := range config.SeatFiles() {
-		kept, _ := run.ReadJSON(path)
+		data, _ := os.ReadFile(path)
+		value, _ := run.DecodeShown(data)
+		kept, _ := value.(*run.Object)
 		if kept == nil || kept.Has(config.Renamed) {
 			continue
 		}
