@@ -3,6 +3,7 @@ package seat
 import (
 	"cmp"
 	"fmt"
+	"slices"
 
 	"agentkit/internal/config"
 	"agentkit/internal/notify"
@@ -218,7 +219,7 @@ func usageWait(facts climbing) (*answer, error) {
 // waitGoing: it ended its turn on `ak wait`, and what it named is not over (watch.waiting_on).
 func waitGoing(facts climbing) (*answer, error) {
 	wait := facts.file.Dict("wait")
-	if wait == nil || wait.Truthy("over") || wait.Str("kind") != "pr" && wait.Str("kind") != "run" {
+	if wait == nil || wait.Truthy("over") || !slices.Contains([]string{"pr", "run", "job"}, wait.Str("kind")) {
 		return nil, nil
 	}
 	on, named := wait.Get("on").(string)

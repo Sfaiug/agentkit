@@ -79,6 +79,11 @@ func (t *ticking) health() error {
 		return err
 	}
 	for _, name := range names {
+		if !t.dry {
+			if err := seat.SyncTitle(name, t.log.line); err != nil {
+				t.log.line("WARN " + name + ": title update did not finish: " + err.Error())
+			}
+		}
 		var kept, answer, back *run.Object
 		var out *seat.Live
 		owner, line := "", ""

@@ -10,6 +10,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/job"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/waitfact"
@@ -17,9 +18,9 @@ import (
 
 func init() { commands["wait"] = wait }
 
-// wait is `ak wait PR_URL|RUN_ID`, as Python's watch.wait_main answers it: the seat ends its turn
-// waiting on that pull request or run, written into its own record for the tick to end, and one
-// already over is refused with its fact.  Python's are a wait of a seat whose finished plan holds
+// wait is `ak wait PR_URL|RUN_ID|JOB_ID`, as Python's watch.wait_main answers it: the seat ends its
+// turn waiting on that pull request, run or job, written into its own record for the tick to end,
+// and one already over is refused with its fact.  Python's are a wait of a seat whose finished plan holds
 // open deferred lines or who has runs of its own.
 func wait(args []string, out, errOut io.Writer) int {
 	name, _, err := config.CurrentSession()
@@ -37,8 +38,10 @@ func wait(args []string, out, errOut io.Writer) int {
 		shown = "PR #" + number
 	} else if runID(on) && isDir(filepath.Join(run.Runs(), on)) {
 		kind, shown, fact = "run", "run "+on, runFact
+	} else if runID(on) && isDir(filepath.Join(job.Jobs(), on)) {
+		kind, shown, fact = "job", "job "+on, func(on string, _ time.Time) (bool, string, error) { return waitfact.Job(on) }
 	} else {
-		fmt.Fprintf(errOut, "ak wait: %s is neither a pull request URL nor a run id; ak waits on a pull request or a run, never on a session (ak run status lists runs)\n", commandhelp.Quote(on))
+		fmt.Fprintf(errOut, "ak wait: %s is neither a pull request URL nor a run id nor a job id; ak waits on a pull request, run or job, never on a session (ak run status lists them)\n", commandhelp.Quote(on))
 		return 1
 	}
 	now := time.Now()

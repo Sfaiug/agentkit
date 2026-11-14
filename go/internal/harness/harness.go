@@ -103,6 +103,9 @@ type plugin struct {
 	retire        func(*run.Object) error
 	handed        func(*run.Object) (string, bool)
 	moveReady     func() bool
+	// titleLine is TitleLine's: nil where Go types no title, as for a plugin that also says when
+	// one may go in (`title_ready`), which Go does not read.
+	titleLine func(name string) string
 	// mode is Mode's: nil where its own config says nothing of how a model of it is paid.
 	mode func(model config.Model) string
 	// usageTaken and usageRecorded are UsageTaken's and UsageRecorded's: nil where a usage read
