@@ -25,18 +25,18 @@ from test_key_models_role_lines import said
 from test_key_role_choices import hold
 
 # Release, name, effort, quality and cost a task: five choices, cheapest first, so five bars in
-# six-cell columns.  Anvil is long with its version, Bolt has a hyphen and a dot in a word wider
-# than six cells, Crux a word of eight letters with neither.
+# six-cell columns.  Anvil is long with its version, Bolt has dots in a word wider than six cells,
+# as a board's hyphen is a space (config.release_label), Crux a word of eight letters with none.
 ROWS = [("acme-gale-2", "Acme Gale 2", "high", 91, 1),
-        ("bolt-7-1-sol", "Bolt-7.1 Sol", "high", 93, 2),
+        ("bolt-17-10-1-sol", "Bolt 17.10.1 Sol", "high", 93, 2),
         ("crux-monolith-2", "Crux Monolith 2", "high", 95, 3),
         ("acme-dune-3", "Acme Dune 3", "high", 97, 4),
         ("acme-anvil-5-5", "Acme Anvil 5.5", "xhigh", 100, 8)]
 # [defaults]: the three, Anvil orchestrating, Bolt building, Crux reviewing, and what each role's
 # lines name
-CONFIGURED = {"anvil": ("acme-anvil-5-5", "xhigh"), "bolt": ("bolt-7-1-sol", "high"),
+CONFIGURED = {"anvil": ("acme-anvil-5-5", "xhigh"), "bolt": ("bolt-17-10-1-sol", "high"),
               "crux": ("crux-monolith-2", "high")}
-USES = {"orchestrator": "Acme Anvil 5.5 xhigh", "executor": "Bolt-7.1 Sol high",
+USES = {"orchestrator": "Acme Anvil 5.5 xhigh", "executor": "Bolt 17.10.1 Sol high",
         "reviewer": "Crux Monolith 2 high"}
 
 
