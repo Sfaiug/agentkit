@@ -8,14 +8,14 @@ import (
 )
 
 // ModelName is the full name every screen shows the configured model by (config.model_name): what
-// its harness runs it as, named by ModelLabel; the name itself where it is no entry or names no id
-// of its own.
+// its harness runs it as, named by ModelLabel off the entry's own label where it has one, else its
+// id; the name itself where it is no entry or names no id of its own.
 func ModelName(name string, models map[string]Model) string {
 	model, listed := models[name]
 	if !listed || model.ID == "" || model.ID == "default" {
 		return name
 	}
-	return ModelLabel(model.Harness, model.ID, "")
+	return ModelLabel(model.Harness, model.ID, model.Label)
 }
 
 var trailingDate = regexp.MustCompile(`-[0-9]{8}$`)

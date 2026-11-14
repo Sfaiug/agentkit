@@ -36,5 +36,6 @@ func modelOf(entry *table) Model {
 	}
 	meter, _ := entry.values["meter"].(string)
 	mode, _ := entry.values["mode"].(string)
-	return Model{provider, id, harness, efforts, meter, mode}
+	label, _ := entry.values["label"].(string)
+	return Model{provider, id, harness, efforts, meter, mode, label}
 }

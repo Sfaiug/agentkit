@@ -214,9 +214,11 @@ class ProviderScreen(unittest.TestCase):
         self.assertLess(login, said.index(TAKE, login))
         saved = screen.saved()
         self.assertEqual(saved["providers"]["xai"], fresh("xai", saved))
-        # the first model its catalog lists, at the shipped `xhigh`, which Grok's own take
+        # the first model its catalog lists, at the shipped `xhigh`, which Grok's own take, under
+        # the name it is listed by, which its id does not say (config.model_entry)
         self.assertEqual(saved["models"]["grok"], {"harness": "grokbuild", "model": "grok-mystery",
-                                                   "effort": "xhigh", "provider": "xai"})
+                                                   "effort": "xhigh", "provider": "xai",
+                                                   "label": "Mystery"})
         self.assertEqual(saved["defaults"], {"orchestrator": "opus", "workers": ["opus"]})
         self.assertEqual(sorted(subscriptions(lines)), ["Claude", "Grok"])
         lines = back(screen)
