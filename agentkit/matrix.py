@@ -199,13 +199,13 @@ def _costs(rated, lineup, cfg, shares):
         price = mean if prices[provider] is None else prices[provider]
         # a point is a hundredth of a week, and a week 12/52 of the month a price pays for
         return points if price is None else points / 100 * price * 12 / 52
-    samples = [(role, provider, cost(provider, points), board)
+    samples = [(role, provider, cost(provider, points), board, points)
                for (role, release, effort), each in measured.items() for provider, points, _ in each
                for board in [rows[release, effort]["values"].get(quality.COSTS[role])]
-               if board is not None and board > 0]     # (role, provider, cost, board dollars)
+               if board is not None and board > 0]     # (role, provider, cost, board $, points)
 
-    def per_board_dollar(some):
-        return sum(one[2] for one in some) / sum(one[3] for one in some) if some else None
+    def per_board_dollar(some, what=2):     # the cost, or with `what` 4 the points, of one
+        return sum(one[what] for one in some) / sum(one[3] for one in some) if some else None
     for role, each in rated.items():
         pool = [one for one in samples if one[0] == role] or samples
         for row in each:
@@ -217,13 +217,15 @@ def _costs(rated, lineup, cfg, shares):
                 continue
             provider = providers.get(row["release"]) or config.company(cfg, row.get("maker"))
             own = [one for one in pool if one[1] == provider]
-            factor = per_board_dollar(own or pool)
-            # Without board dollars or a measured conversion, no same-unit estimate exists.
-            priced = (None if factor is None or row["board_cost"] is None
-                      else row["board_cost"] * factor)
+            factor, board = per_board_dollar(own or pool), row["board_cost"]
             point = provider in prices and cost(provider, 1)    # what a point of its week costs
-            row.update(cost_rule="provider" if own else "global", cost=priced,
-                       points=priced / point if point and priced is not None else None)
+            # Without board dollars or a measured conversion, no same-unit estimate exists.
+            priced = None if factor is None or board is None else board * factor
+            # its provider's own runs count its points as they count its cost, whatever its plan
+            # costs; others' cost a board dollar counts them only at what a point of it costs
+            points = (None if priced is None else board * per_board_dollar(own, 4) if own
+                      else priced / point if point else None)
+            row.update(cost_rule="provider" if own else "global", cost=priced, points=points)
     return "share" if mean is None else "money"
 
 

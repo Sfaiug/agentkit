@@ -134,6 +134,7 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from contextlib import closing
@@ -3222,24 +3223,29 @@ NUMBERS = "zero one two three four five six seven eight nine".split()
 def unit_path():
     """Where the unit the models screen last counted in is kept: in ak's state, never the
     config, as it is the owner's view of the screen, not a setting of ak's."""
-    return config.STATE / "models-unit.json"
+    return config.STATE / "models-unit"
 
 
 def models_unit():
     """The unit of UNITS the models screen counts costs in: the one `u` last turned to, else the
     first."""
     try:
-        unit = config._read_json(unit_path())
-    except config.Error:
+        unit = unit_path().read_text()
+    except (OSError, ValueError):
         unit = None
     return unit if unit in UNITS else next(iter(UNITS))
 
 
 def next_unit(unit):
-    """The unit `u` turns to after `unit`, kept for the screen to open in (models_unit)."""
+    """The unit `u` turns to after `unit`, kept for the screen to open in (models_unit): moved in
+    whole from a file of its own, so screens turning it at once each leave a unit."""
     units = list(UNITS)
     unit = units[(units.index(unit) + 1) % len(units)]
-    config._write_json(unit_path(), unit)
+    config.ensure_dirs()
+    with tempfile.NamedTemporaryFile("w", dir=config.STATE, prefix=".models-unit-",
+                                     delete=False) as part:
+        part.write(unit)
+    os.replace(part.name, unit_path())
     return unit
 
 

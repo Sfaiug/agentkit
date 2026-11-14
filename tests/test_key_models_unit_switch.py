@@ -3,7 +3,8 @@
 holds, to two significant figures, and dollars again; the role lines' heading names it, and the
 role lines and the bars count in it, `≈` before a cost no run measured.  The screen opens again
 in the unit last chosen, which the config never holds.  Before any run of yours priced a model,
-the boards' prices are dollars a task too, and the other two have no week to count them in.
+the boards' prices are dollars a task too, and the other two have no week to count them in;
+a plan of no price still counts every task's week.
 
 Black-box: `AK_BIN` in terminals of 100 and 40 cells, a fake harness, the boards of
 tests/test_key_models_bars.py at a dollar a million tokens, a plan's price and runs that measure
@@ -40,6 +41,9 @@ COUNTED = {"$ a task": (["≈$0.25", "$0.60", "$0.03"],
            "% of a week": (["≈0.84%", "2.00%", "0.10%"],
                            ["≈0.42%", "≈0.63%", "≈0.84%", "≈1.26%", "≈1.68%"]),
            "a week": (["≈120", "50", "1,000"], ["≈240", "≈160", "≈120", "≈79", "≈60"])}
+# a plan of no price: every task free, its week counted as on a priced one
+FREE = {"$ a task": (["≈$0.00", "$0.00", "$0.00"], ["≈$0.00"] * 5),
+        **{unit: COUNTED[unit] for unit in ("% of a week", "a week")}}
 # no run of yours: the boards' dollars a task, and no week in the other two
 UNRUN = {"$ a task": (["≈$4.00", "≈$8.00", "≈$2.00"],
                       ["≈$2.00", "≈$3.00", "≈$4.00", "≈$6.00", "≈$8.00"]),
@@ -66,9 +70,9 @@ def want(unit, counts=COUNTED):
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ModelsUnitSwitch(unittest.TestCase):
-    def home(self, runs=True):
+    def home(self, runs=True, price=PRICE):
         """A Home of the boards, the harness and [defaults] of tests/test_key_models_bars.py, on
-        a plan of PRICE a month making every Acme model, so each row is on its week, at a dollar
+        a plan of `price` a month making every Acme model, so each row is on its week, at a dollar
         a million tokens; its runs where `runs`."""
         home = Home()
         self.addCleanup(home.close)
@@ -78,7 +82,7 @@ class ModelsUnitSwitch(unittest.TestCase):
         akconfig.write(home, {name: {"harness": "claude", "model": release}
                               for name, release in CONFIGURED.items()},
                        orchestrator="step", workers=["top"], reviewers=["base"],
-                       providers={"anthropic": {"mode": "subscription", "price": PRICE,
+                       providers={"anthropic": {"mode": "subscription", "price": price,
                                                 "maker": "Acme"}})
         hold(home, [(release, name, "high", quality / 100 - 0.1, cost)
                      for release, name, quality, cost in ROWS])
@@ -132,6 +136,14 @@ class ModelsUnitSwitch(unittest.TestCase):
                 term.wait("r recommended")
                 self.models(home, width, "a week")
                 self.assertEqual(config.read_bytes(), before)
+
+    def test_a_plan_of_no_price_counts_each_task_in_its_week(self):
+        for width in WIDTHS:
+            with self.subTest(width=width):
+                term = self.models(self.home(price=0), width, "$ a task", FREE)
+                for unit in ("% of a week", "a week"):
+                    term.keys("u")
+                    term.wait(lambda screen: counted(screen) == want(unit, FREE))
 
     def test_before_a_run_of_yours_the_boards_dollars_are_a_task_and_no_week_counts_them(self):
         for width in WIDTHS:
