@@ -5323,7 +5323,7 @@ def discord_secret(draw, name, hint):
 def audit_value(cfg):
     """`Weekly audit`'s value: on or off, and who orchestrates, executes and reviews it, under
     the matrix's own column words, each model by its full name, `on · orch Opus 5.5 · builds
-    Opus 5.5, GPT-6-Astra · reviews GPT-6-Astra`; a setting the config cannot read is shown as
+    Opus 5.5, 6 Astra · reviews 6 Astra`; a setting the config cannot read is shown as
     the error that says why."""
     try:
         setting = config.audit(cfg)

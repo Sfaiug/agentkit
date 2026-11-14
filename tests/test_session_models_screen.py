@@ -11,6 +11,7 @@ tests/test_one_config_screen.py.  Nothing here starts a seat or a tmux server.
 from contextlib import redirect_stdout
 import io
 import os
+import re
 from pathlib import Path
 import sys
 import unittest
@@ -74,7 +75,7 @@ class SessionModels(Sandbox):
                 config.session_path("ship-api").unlink()
 
     def rows(self, lines):
-        return {terminal.plain(line).lstrip("› ").split()[0]: marks(line)
+        return {re.split(r" [[●○■□]", terminal.plain(line).lstrip("› "))[0]: marks(line)
                 for line in lines if marks(line)}
 
     def test_a_legacy_record_shows_workers_in_both_columns_until_the_first_flip(self):
@@ -82,8 +83,8 @@ class SessionModels(Sandbox):
         with patch.object(terminal, "layout_width", return_value=100):
             lines, places = menu.config_body(self.cfg, selected=self.selected("old"))
         self.assertEqual(lines[0].split(), ["orch", "builds", "reviews"])
-        self.assertEqual(self.rows(lines)["Opus"], "●■■")
-        self.assertEqual(self.rows(lines)["Fable"], "○□□")
+        self.assertEqual(self.rows(lines)["Opus 5.5"], "●■■")
+        self.assertEqual(self.rows(lines)["Fable 5.1"], "○□□")
         cells = next(cells for row, cells in places.values() if row == ("model", "opus"))
         self.assertEqual([cell[2] for cell in cells], [-1, 0, 3, 1, 4, 2, 5])
         selected = self.selected("old")
@@ -158,8 +159,8 @@ class SessionModels(Sandbox):
         with patch.object(terminal, "layout_width", return_value=100):
             lines, _ = menu.config_body(self.cfg, ("model", "opus"), 1,
                                         self.selected("fix-api"), spent)
-        self.assertEqual(self.rows(lines)["Opus"], "●■□")
-        self.assertEqual(self.rows(lines)["GPT-6-Astra"], "○■■")
+        self.assertEqual(self.rows(lines)["Opus 5.5"], "●■□")
+        self.assertEqual(self.rows(lines)["6 Astra"], "○■■")
         # its row is its marks and effort, dim; its meter over the page says it is spent
         self.assertTrue(note.startswith("spent · resets "), note)
         self.assertFalse(any(note in terminal.plain(line) for line in lines))
@@ -172,7 +173,7 @@ class SessionModels(Sandbox):
             menu.show_config(dry_run=True, session="fix-api")
         screen = terminal.ANSI.sub("", out.getvalue())
         self.assertIn("For  fix-api", screen)
-        self.assertEqual(self.rows(screen.splitlines())["GPT-6-Astra"], "○■■")
+        self.assertEqual(self.rows(screen.splitlines())["6 Astra"], "○■■")
         self.assertIn("esc back", screen)
         with patch.object(update, "agentkit_version", return_value="fixture"), \
                 redirect_stdout(io.StringIO()) as out:
@@ -180,7 +181,7 @@ class SessionModels(Sandbox):
         screen = terminal.ANSI.sub("", out.getvalue())
         self.assertNotIn("nobody", screen)
         self.assertIn("For  new seats", screen)
-        self.assertEqual(self.rows(screen.splitlines())["Opus"], "●■■")     # [defaults]'
+        self.assertEqual(self.rows(screen.splitlines())["Opus 5.5"], "●■■")     # [defaults]'
 
     def test_no_key_line_or_sentence_offers_m(self):
         self.assertEqual(menu.KEYS, "n new   c config   esc leave")

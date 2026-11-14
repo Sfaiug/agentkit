@@ -208,8 +208,8 @@ class Screen:
 
 # Each model by the full name its row shows (config.model_name): the shipped catalog's label, else
 # its name and number off its id.
-FULL = {"fable": "Fable 5.1", "opus": "Opus 5.5", "haiku": "Haiku 4.5", "astra": "GPT-6-Astra",
-        "spark": "Spark 1.3 Contributor", "grok": "Grok 4.7", "gemini": "Gemini 3.8 Flash",
+FULL = {"fable": "Fable 5.1", "opus": "Opus 5.5", "haiku": "Haiku 4.5", "astra": "6 Astra",
+        "spark": "Spark 1.3 Contributor", "grok": "Grok 4.7", "gemini": "3.8 Flash",
         "mimo": "MiMo V2.6 Pro"}
 
 
@@ -434,7 +434,7 @@ class Matrix(unittest.TestCase):
         number, line = row(lines, "astra")
         lines = screen.click(line.index("■") + 1, number,
                              lambda lines: "□" in row(lines, "astra")[1])
-        self.assertIn("GPT-6-Astra", highlighted(lines))
+        self.assertIn("6 Astra", highlighted(lines))
         self.assertEqual(screen.record()["workers"], ["opus"])
         number, line = row(lines, "spark")
         lines = screen.click(line.index("○") + 1, number,  # moves the seat, as the key does

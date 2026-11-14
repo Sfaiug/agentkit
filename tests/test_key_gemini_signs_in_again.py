@@ -49,7 +49,7 @@ class GeminiSignsInAgain(unittest.TestCase):
                         server=SERVER)
         term.wait(lambda screen: "c config" in screen and "Gemini II" in screen)
         term.keys("c")
-        term.wait("› Gemini")
+        term.wait("› 3.8 Flash")
         term.keys("Down", "Down")          # past `Models`
         term.wait("› Subscriptions")
         term.keys("Enter")

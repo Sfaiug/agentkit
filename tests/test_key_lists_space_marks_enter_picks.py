@@ -107,7 +107,7 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.term.keys("Enter")
         self.to("  ● Fable 5.1", PICK)
         self.term.keys("Down", "Space")
-        self.to("  ● GPT-6-Astra", PICK)              # the ● moved, the list open still
+        self.to("  ● 6 Astra", PICK)              # the ● moved, the list open still
         self.assertEqual(self.audit()["orchestrator"], "astra")
         self.term.keys("Up", "Enter")
         self.to("Orchestrator  Fable 5.1", OPEN)      # taken, and the list closed

@@ -82,7 +82,7 @@ class ListsNameWhatEnterDoes(unittest.TestCase):
     def test_add_a_subscription_names_add_open_and_log_in(self):
         self.term.keys("c")
         self.term.wait("› Fable 5.1")
-        for _ in range(3):                            # past GPT-6-Astra and `Models`
+        for _ in range(3):                            # past 6 Astra and `Models`
             self.term.keys("Down")
         self.term.wait("› Subscriptions")
         self.term.keys("Enter")

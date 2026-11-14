@@ -56,11 +56,11 @@ class CodexSettingsFollowed(unittest.TestCase):
         terminal.keys("C-b", "m")
         terminal.wait("esc leave")
         terminal.keys("c")
-        terminal.wait(lambda screen: "esc back" in screen and "GPT-6-Astra" in screen)
+        terminal.wait(lambda screen: "esc back" in screen and "6 Astra" in screen)
 
-        for model, label, effort in (("luna", "GPT-5.6-Luna", "low"),
-                                     ("luna", "GPT-5.6-Luna", "medium"),
-                                     ("astra", "GPT-6-Astra", "high")):
+        for model, label, effort in (("luna", "5.6 Luna", "low"),
+                                     ("luna", "5.6 Luna", "medium"),
+                                     ("astra", "6 Astra", "high")):
             with self.subTest(model=model, effort=effort):
                 model_id = akconfig.read(home)["models"][model]["model"]
                 with rollout.open("a") as fh:
