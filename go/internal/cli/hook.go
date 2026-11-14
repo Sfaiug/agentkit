@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"agentkit/internal/config"
@@ -58,7 +59,7 @@ func seatState(payload []byte, out io.Writer) int {
 	}
 	name := event.Str("hook_event_name")
 	if name == "SessionStart" {
-		if move, carried := following(seat, event); !carried || !move() {
+		if !following(seat, event, nil) {
 			return leftToPython()
 		}
 		compacted(seat, event)
@@ -69,10 +70,6 @@ func seatState(payload []byte, out io.Writer) int {
 	}
 	at := float64(time.Now().UnixNano()) / 1e9
 	if name == "UserPromptSubmit" {
-		move, carried := following(seat, event)
-		if !carried {
-			return leftToPython()
-		}
 		// decided before the turn is recorded, so a prompt Python tells has nothing of Go's written;
 		// told after, so the turn is recorded before anything the telling may wait on
 		tell, known := rulebooks.PromptNews(seat, event.Str("session_id"), ownersWords(event))
@@ -84,11 +81,13 @@ func seatState(payload []byte, out io.Writer) int {
 			Turn    float64 `json:"turn"`
 			Blocks  int     `json:"blocks"`
 		}{seat, at, 0})
-		if relatch(seat, string(data)) != nil {
-			return 0 // untold, its runs stay owed: their locks end with this process
-		}
-		if !move() {
+		// latched once: by a move about to be written, else here
+		latched := sync.OnceValue(func() bool { return relatch(seat, string(data)) == nil })
+		if !following(seat, event, latched) {
 			return leftToPython()
+		}
+		if !latched() {
+			return 0 // untold, its runs stay owed: their locks end with this process
 		}
 		tellPrompt(tell(), out)
 	}
