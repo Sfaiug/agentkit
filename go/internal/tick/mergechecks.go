@@ -144,22 +144,32 @@ func verdict(each *merge, key string, now float64, probes map[[2]string]probe, c
 		each.sha, each.verdict = record.Str("merge_sha"), "passed"
 		return nil
 	}
-	if each.sha = recordedSHA(record); each.sha == "" {
-		value, why, err := gh.JSON(run.Runs(), "pr", "view", each.pr, "--json", "mergeCommit")
-		if err != nil {
-			return errLeft
-		}
-		if answer, ok := value.(*run.Object); ok && answer.Dict("mergeCommit") != nil {
-			each.sha = strings.TrimSpace(answer.Dict("mergeCommit").Str("oid"))
-		}
-		if each.sha == "" {
-			said := []rune(config.Fold(why))
-			say(fmt.Sprintf("WARN %s: cannot read its merge commit: %s", each.pr, string(said[:min(len(said), 160)])))
-			each.verdict = "unknown"
-			return nil
-		}
+	if err := mergeCommit(each, say); err != nil || each.sha == "" {
+		return err
 	}
 	return mergeHealth(each, key, now, probes, census, say, dry)
+}
+
+// mergeCommit finds the commit a merge is followed at (after_merge_sha): the run's own, else the
+// one GitHub names; errLeft where gh cannot be read, and none, its verdict unknown and said, where
+// GitHub names none.
+func mergeCommit(each *merge, say func(string)) error {
+	if each.sha = recordedSHA(each.record); each.sha != "" {
+		return nil
+	}
+	value, why, err := gh.JSON(run.Runs(), "pr", "view", each.pr, "--json", "mergeCommit")
+	if err != nil {
+		return errLeft
+	}
+	if answer, ok := value.(*run.Object); ok && answer.Dict("mergeCommit") != nil {
+		each.sha = strings.TrimSpace(answer.Dict("mergeCommit").Str("oid"))
+	}
+	if each.sha == "" {
+		said := []rune(config.Fold(why))
+		say(fmt.Sprintf("WARN %s: cannot read its merge commit: %s", each.pr, string(said[:min(len(said), 160)])))
+		each.verdict = "unknown"
+	}
+	return nil
 }
 
 // recordedSHA is the merge commit the run holds, "" for none (after_merge_sha).

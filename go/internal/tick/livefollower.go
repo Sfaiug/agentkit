@@ -36,8 +36,8 @@ var lasting *os.File
 // run handed to it after, each on a goroutine of its own, so a slow probe moves no other's times,
 // and ends once none is left: a process per merge held 6.4 GB of a 15 GB host (6 Nov 2026).  What
 // it logs goes to out.  Left is where it hands the run over, before it takes any lock: any on
-// Windows, where every tick is Python's, and one the merge checks leave to Python as its record and
-// home stand (leftBeforeLocks).  Failed is a lock or the list of runs that cannot be had, said on
+// Windows, where every tick is Python's, and one the merge checks leave to Python before they probe
+// or write (leftBeforeLocks).  Failed is a lock or the list of runs that cannot be had, said on
 // errOut, as Python's raise ends it.
 func FollowLive(name string, out, errOut io.Writer) (left string, failed bool) {
 	record, err := reading(filepath.Join(run.Runs(), name))
@@ -46,7 +46,7 @@ func FollowLive(name string, out, errOut io.Writer) (left string, failed bool) {
 		return handover.Here(0), false
 	case record == nil || record.Str("repo") == "":
 		return "", false // no project, so nothing proves it live (seat.AwaitingLive)
-	case runtime.GOOS == "windows" || leftBeforeLocks(record):
+	case runtime.GOOS == "windows" || leftBeforeLocks(name, record):
 		return handover.Here(0), false
 	}
 	repo, say, shared := record.Str("repo"), func(line string) { fmt.Fprintln(out, line) }, &census{}
@@ -96,14 +96,21 @@ func FollowLive(name string, out, errOut io.Writer) (left string, failed bool) {
 	}
 }
 
-// leftBeforeLocks is whether the merge checks leave the run to Python as its record and home stand,
-// which a follower named for it says before it takes any lock: pythons, and those of mergeHealth's
-// hand-overs it makes before it reads the commit or probes, a history.db Go cannot write
-// (keepsHistory) and a live notice whose telling is Python's (handback.LiveLeft).  Any other ends
-// the run's follow when it comes, with nothing written.
-func leftBeforeLocks(record *run.Object) bool {
-	_, unkept := keepsHistory(false)
-	return pythons(record, epoch(time.Now())) || unkept != nil || handback.LiveLeft(record, nil)
+// leftBeforeLocks is whether the merge checks leave the run to Python before they probe or write,
+// which a follower named for it says before it takes any lock: pythons, a live notice whose telling
+// is Python's (handback.LiveLeft), and what they read of the merge first, its commit (mergeCommit),
+// history.db and what that commit declares (mergeReads), each read again in its first round.
+func leftBeforeLocks(name string, record *run.Object) bool {
+	now := epoch(time.Now())
+	if pythons(record, now) || handback.LiveLeft(record, nil) {
+		return true
+	}
+	each := &merge{name: name, pr: record.Str("pr"), record: record}
+	err := mergeCommit(each, func(string) {})
+	if err == nil && each.sha != "" {
+		_, _, err = mergeReads(each, now, false)
+	}
+	return errors.Is(err, errLeft)
 }
 
 // followLive follows one run's merge to live, Python's follow_live, under the run's live.lock, a
