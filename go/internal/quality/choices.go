@@ -8,8 +8,8 @@ import (
 )
 
 // The models screen's choices, the owner, 5 Nov 2026: none further below the best than window
-// points, each apart above the one before, places of them at most.
-const window, apart, places = 10, 1, 5
+// points, each apart above the one before, Places of them at most.
+const window, apart, Places = 10, 1, 5
 
 // An Other is the best row of a release with no choice and Why: "not set up", By nil, where it
 // would be one were it run; else "beaten" By a row as good and no dearer, "far below" the best,
@@ -67,7 +67,7 @@ func choices(priced []*Rating, runs func(*Rating) bool) ([]*Rating, []Other) {
 // chosen is Python's matrix._chosen over priced, cheapest first: the choices and the front.  Its
 // front holds each row better than every cheaper one, the best last.  Its choices: the front's
 // rows within window of the best, cheapest first, each kept when apart above the last kept, the
-// best taking the place of one less than that below it; the costliest places of them.
+// best taking the place of one less than that below it; the costliest Places of them.
 func chosen(priced []*Rating) ([]*Rating, []*Rating) {
 	var front []*Rating
 	for _, row := range priced {
@@ -88,14 +88,14 @@ func chosen(priced []*Rating) ([]*Rating, []*Rating) {
 			kept = append(kept, row)
 		}
 	}
-	return kept[max(0, len(kept)-places):], front
+	return kept[max(0, len(kept)-Places):], front
 }
 
 // why is Python's matrix._why: the why and by of row beside choices and front (chosen).  "not
 // set up" among the choices, as a row nobody runs is where it would be one (choices); off the
 // front, "beaten" by the cheapest choice, else row of the front, as good and no dearer; on it,
 // "far below", more than window under the best; else "close" to the nearest choice, less than
-// apart from it; else "no room": apart or more under every choice, as the costliest places leave
+// apart from it; else "no room": apart or more under every choice, as the costliest Places leave
 // it.  By is nil but for "beaten" and "close".
 func why(row *Rating, choices, front []*Rating) (string, *Rating) {
 	switch {

@@ -7,17 +7,22 @@ import (
 	"strings"
 	"time"
 
+	"agentkit/internal/quality"
 	"agentkit/internal/terminal"
 )
 
 const gap = " · " // between two things said on one line
 
 // ModelsLines is what `ak models` prints of view, as Python's matrix.main does: the models screen's
-// role lines, no role pointed at, then a blank line and how many models are compared.
+// role lines, no role pointed at, then each role's bars in turn, then a blank line and how many
+// models are compared.
 func ModelsLines(s terminal.Screen, view ModelsView) []string {
 	var lines []string
 	for _, row := range roleLines(s, view, -1) {
 		lines = append(lines, row.line)
+	}
+	for _, role := range quality.Roles {
+		lines = append(lines, modelsBars(s, view.Answer[role], role, view.Uses[role].Row)...)
 	}
 	return append(append(lines, ""), modelsRead(s, view.Compared, view.Total, view.Fetched)...)
 }

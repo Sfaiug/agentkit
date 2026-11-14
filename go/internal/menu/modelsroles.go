@@ -34,7 +34,8 @@ type ModelsView struct {
 }
 
 // ModelsFrame is the models screen as Python's models_screen draws it: the role lines
-// (roleLines) over how many models are compared, paged so the role At is shown.
+// (roleLines) and the bars of the role At (modelsBars), lines of no role, over how many models are
+// compared, paged so the role At is shown.
 func ModelsFrame(s terminal.Screen, view ModelsView) MatrixFrame {
 	keys := "↑↓ role   ⏎ why   ← cheaper   better →   p models   esc back"
 	if s.ASCII() {
@@ -45,6 +46,10 @@ func ModelsFrame(s terminal.Screen, view ModelsView) MatrixFrame {
 		at = -1
 	}
 	body := roleLines(s, view, at)
+	role := quality.Roles[view.At]
+	for _, line := range modelsBars(s, view.Answer[role], role, view.Uses[role].Row) {
+		body = append(body, matrixRow{line: line, row: -1})
+	}
 	under := append([]string{""}, modelsRead(s, view.Compared, view.Total, view.Fetched)...)
 	if view.Note != "" {
 		under = append(under, "")
@@ -85,12 +90,23 @@ type roleSaid struct {
 	numbered                                 bool
 }
 
-func rolesSaid(s terminal.Screen, view ModelsView) []roleSaid {
-	// a cost no run measured never looks more certain than it is: the owner, 3 Nov 2026
-	about := "≈"
-	if s.ASCII() {
-		about = "~"
+// costSaid is Python's menu.cost_said: row's cost in its role's answer found, `≈` against one no
+// run measured -- the owner, 3 Nov 2026: a cost on screen must never look more certain than it is.
+func costSaid(s terminal.Screen, found *quality.Said, row *quality.Rating) string {
+	if row.Cost == nil {
+		return "-"
 	}
+	about := ""
+	if row.CostRule != "measured" {
+		about = "≈"
+		if s.ASCII() {
+			about = "~"
+		}
+	}
+	return about + found.CostText(row)
+}
+
+func rolesSaid(s terminal.Screen, view ModelsView) []roleSaid {
 	var said []roleSaid
 	for _, role := range quality.Roles {
 		found, use := view.Answer[role], view.Uses[role]
@@ -98,13 +114,7 @@ func rolesSaid(s terminal.Screen, view ModelsView) []roleSaid {
 		switch row := use.Row; {
 		case row != nil:
 			one.name, one.effort, one.numbered = row.Name, row.Effort, true
-			one.quality, one.cost = strconv.FormatFloat(row.Quality, 'f', 1, 64), "-"
-			if row.Cost != nil {
-				one.cost = found.CostText(row)
-				if row.CostRule != "measured" {
-					one.cost = about + one.cost
-				}
-			}
+			one.quality, one.cost = strconv.FormatFloat(row.Quality, 'f', 1, 64), costSaid(s, found, row)
 		case use.Model != "":
 			one.name, one.after = config.ModelName(use.Model, view.Models), unboarded
 			if use.Effort != "none" {
