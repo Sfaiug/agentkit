@@ -18,6 +18,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 import sys
@@ -87,9 +88,13 @@ INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", 
 
 
 class Lines(list):
-    """A drawn screen's lines as they show, and `lit`: (the line, its text) of the cell the keys
-    reverse, or None: the one place the screen says which cell is at hand."""
+    """A drawn screen's lines as they show, and `lit`: (the line, its last word) of what stands
+    on the selection, or None: the one place the screen says which cell is at hand."""
     lit = None
+
+
+# what a draw puts on the selection, at the 256 colours the child's terminal has
+SELECTED = re.compile(r"\x1b\[48;5;\d+m(.*?)\x1b\[49m")
 
 
 class Screen:
@@ -169,9 +174,11 @@ class Screen:
                 if "\x1b[J" not in part:
                     continue                  # still being written
                 raw = part.split("\x1b[J")[0].split("\n")[:-1]
-                lines = Lines(terminal.ANSI.sub("", line).rstrip("\r") for line in raw)
-                lines.lit = next(((number, line.split("\x1b[7m")[1].split("\x1b[")[0].strip())
-                                  for number, line in enumerate(raw) if "\x1b[7m" in line), None)
+                # a row's band ends in blanks, which show as none
+                lines = Lines(terminal.ANSI.sub("", line).rstrip() for line in raw)
+                lines.lit = next(((number, (terminal.ANSI.sub("", found[1]).split() or [""])[-1])
+                                  for number, line in enumerate(raw)
+                                  for found in [SELECTED.search(line)] if found), None)
                 if lines and lines[0].startswith("agentkit · "):   # a narrow one sheds `config`
                     return lines if where is None or where(lines) else None
             return None
@@ -228,12 +235,12 @@ def effort(lines, name):
 
 
 def lit(lines, name):
-    """The text of the cell the keys reverse on `name`'s model row, or None."""
+    """The text of the cell the keys light on `name`'s model row, an effort's word, or None."""
     return lines.lit[1] if lines.lit and lines.lit[0] + 1 == row(lines, name)[0] else None
 
 
 def on_effort(lines, name):
-    """Whether the keys' highlight is on `name`'s effort: its word reversed."""
+    """Whether the keys' highlight is on `name`'s effort: its cells and word lit."""
     return lit(lines, name) in menu.EFFORT_RANK
 
 

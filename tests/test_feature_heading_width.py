@@ -26,7 +26,8 @@ class FeatureHeadingWidth(unittest.TestCase):
                         project = {"name": name, "switches": [{}] * hidden}
                         count = f"{hidden} hidden feature{'' if hidden == 1 else 's'}"
                         for width in (*range(2, 41), 100, 170):
-                            with self.subTest(depth=depth, name=name, hidden=hidden, width=width):
+                            with self.subTest(depth=depth, name=name, hidden=hidden, width=width), \
+                                    patch.object(terminal, "width", return_value=width):
                                 heading = menu.v5o_header(project, width)
                                 line = terminal.highlight("  " + heading)
                                 self.assertLessEqual(terminal.cells(line), terminal.layout_width(width))

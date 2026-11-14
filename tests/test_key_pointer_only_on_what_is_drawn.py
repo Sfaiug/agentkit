@@ -1,10 +1,11 @@
 """The pointer lights, and a click acts on, only what is drawn under it, on every screen.
 
 The owner (27 Oct 2026): "only when I am with the cursor and press on the thing should it
-respond, not when im next to it".  A thing is there from its first drawn cell to its last:
-blank cells beside it -- a meter's padding, the gap between a model's label and its marks, a
-row's empty rest -- are on nothing, so the pointer there lights nothing, the keys' highlight
-not drawn as off every row, and a click there does nothing.  Black-box: the program `AK_BIN`
+respond, not when im next to it".  A thing is there where it is lit: a row acted on whole, a
+seat, from its first column to the layout's last; else from its first drawn cell to its last.
+Blank cells beside one -- a meter's padding, the gap between a model's label and its marks --
+are on nothing, so the pointer there lights nothing, the keys' highlight not drawn as off every
+row, and a click there does nothing.  Black-box: the program `AK_BIN`
 names runs in a person's terminal (tests/fixtures/akterm.py) over live seats
 (tests/fixtures/akseat.py), with no colour, so a row's `›` and the keys' `[ ]` round a mark are
 the highlight; whether a click opened a seat is read from the clients tmux holds.
@@ -85,18 +86,17 @@ class OnlyWhatIsDrawn(unittest.TestCase):
         self.term.keys("Escape")
         self.term.exit_code()
 
-    def test_a_seat_row_is_its_text_never_the_blank_past_it(self):
+    def test_a_seat_row_is_its_whole_line_to_the_layouts_last_column(self):
         row = next(n for n, line in enumerate(self.shown) if "  atoll-ask  " in line)
-        past = len(self.shown[row]) + 10
-        self.term.type(point(past, row + 1))
-        self.term.wait(lit_none)
-        self.term.type(click(past, row + 1))
-        name = self.shown[row].index("atoll-ask") + 1
-        self.term.type(point(name, row + 1))       # read after the click: it opened nothing
+        last = 100                                  # the layout's, as wide as the terminal
+        self.assertLess(len(self.shown[row]), last)
+        self.term.type(point(last, row + 1))
         self.term.wait("› 2  atoll-ask  ")
+        self.term.type(point(1, 1))                 # the header: nothing
+        self.term.wait(lit_none)
         self.assertEqual(attached(self.home), [])
-        self.term.type(click(name, row + 1))
-        until(lambda: attached(self.home), "the click on its name opened nothing")
+        self.term.type(click(last, row + 1))
+        until(lambda: attached(self.home), "the click past its name opened nothing")
         self.assertEqual(attached(self.home), ["atoll-ask"])
 
     def test_a_meter_is_its_bar_and_words_never_its_padding(self):

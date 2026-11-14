@@ -80,7 +80,7 @@ def tinted(glyph, word, amount, bright=False):
     where every cell is."""
     text = terminal.styled(glyph, terminal.faded(word, amount))
     bold = bright or terminal.STATE_STYLES[word][4] == "1"
-    return terminal.highlight(text, mark=False) if bold else text
+    return terminal.bright(text) if bold else text
 
 
 def breathing(glyph, word, bright=False):
@@ -118,7 +118,7 @@ def filling(up, began, bright=False):
     def at(now):
         text = ((empty if up else full) if now < began else
                 middle if now < began + RISE / 2 else full if up else empty)
-        return terminal.highlight(text, mark=False) if bright else text
+        return terminal.bright(text) if bright else text
     return at, began + RISE
 
 
@@ -126,8 +126,8 @@ def shimmering(word, began, kind=None, bright=False):
     """An effort's `word` that a step at `began` took to its model's highest: one light through
     it, a letter at a time left to right, in SHIMMER seconds, and then as the draw wrote it; and
     when it is still.  The word is written whole from its first cell, so a letter two cells wide
-    keeps both.  `kind` is how the draw styled it -- `reverse` where the highlight's cell is,
-    `dim` on a spent model's row -- and `bright` is the highlighted row."""
+    keeps both.  `kind` is how the draw styled it -- `dim` on a spent model's row -- and `bright`
+    is the highlighted row."""
     light = terminal.faded("working", -BRIGHTER)
 
     def at(now):
@@ -135,10 +135,8 @@ def shimmering(word, began, kind=None, bright=False):
         dark, shone, rest = word[:lit], terminal.styled(word[lit:lit + 1], light), word[lit + 1:]
         if kind:
             dark, rest = terminal.styled(dark, kind), terminal.styled(rest, kind)
-        if kind == "reverse":
-            shone = terminal.styled(shone, kind)
         text = dark + shone + rest
-        return terminal.highlight(text, mark=False) if bright else text
+        return terminal.bright(text) if bright else text
     return at, began + SHIMMER
 
 
@@ -147,19 +145,16 @@ def toggled(mark, width, kind, bright, column):
     `kind` -- moves on a screen's clock once it is news: one set or cleared fills or empties
     through its half (`□`, a dim `■`, `■`) in TOGGLE seconds, two frames; one whose change was
     refused, news that changed nothing (`Clock.touch`), nudges a cell left, right, left and back
-    in SHAKE seconds.  `bright` is the highlighted row, and the pointer's cell is lit as the draw
-    lit it (terminal.pointed).  A function of the clock, the screen row, when the news came and
-    the mark before it."""
+    in SHAKE seconds, the light its column is on staying where the draw put it
+    (terminal.pointed).  `bright` is the highlighted row.  A function of the clock, the screen
+    row, when the news came and the mark before it."""
     def start(clock, row, since, before):
-        def drawn(first, at, until):     # as a draw shows it from column `first`
-            clock.start([(row, first)], lambda now: terminal.pointed(row, first, at(now)), until)
         shown = terminal.toggle(mark, width, kind)
         if before == mark:
-            drawn(column - 1, *nudging(shown, since, bright))
-        elif before in HALF and mark in HALF:
-            # its open one is dim, or reversed where the keys are (terminal.toggle)
-            half = terminal.toggle(HALF[mark], width, kind if kind == "reverse" else "dim")
-            drawn(column, *halving(shown, half, since, TOGGLE, bright))
+            clock.start([(row, column - 1)], *nudging(shown, since, bright))
+        elif before in HALF and mark in HALF:       # its open one is dim
+            half = terminal.toggle(HALF[mark], width, "dim")
+            clock.start([(row, column)], *halving(shown, half, since, TOGGLE, bright))
     return start
 
 
@@ -177,28 +172,25 @@ def refused(text, value, column, bright=False):
 def glowing(line, kind, amount):
     """How a seat's row on news moves on a screen's clock, `line` as the draw wrote it: its cells on
     a soft glow of `kind`'s colour, `amount` of the way to the background, that fades into the
-    background in GLOW seconds, and then as drawn, the pointer's cell lit (terminal.pointed).
-    A function of the clock, the screen row, when it was news and what it was before."""
+    background in GLOW seconds, and then as drawn, the highlight where it was drawn
+    (terminal.pointed).  A function of the clock, the screen row, when it was news and what it
+    was before."""
     def start(clock, row, since, _):
-        lit = terminal.pointed(row, 1, line)
-
         def at(now):
             x = eased((now - since) / GLOW)
             rgb = terminal.faded(kind, amount + (1 - amount) * x)[1:]
-            return lit if x >= 1 else terminal.backed(lit, rgb, 1, terminal.cells(lit))
+            return line if x >= 1 else terminal.backed(line, rgb, 1, terminal.cells(line))
         clock.start([(row, 1)], at, since + GLOW)
     return start
 
 
 def fading(line, took):
     """How a row comes up out of the background on a screen's clock, `line` as the draw wrote
-    it: in `took` seconds from when it is news, then as drawn, the pointer's cell lit -- the line
-    a row opens as the highlight comes to it, the rows of a page turned to.  A function of the
-    clock, the screen row, since when and what it was before."""
+    it: in `took` seconds from when it is news, then as drawn, the highlight where it was drawn
+    (terminal.pointed) -- the line a row opens as the highlight comes to it, the rows of a page
+    turned to.  A function of the clock, the screen row, since when and what it was before."""
     def start(clock, row, since, _):
-        lit = terminal.pointed(row, 1, line)
-
-        def at(now, text=lit):
+        def at(now, text=line):
             amount = 1 - eased((now - since) / took)
             return terminal.fade(text, amount)
         clock.start([(row, 1)], at, since + took, effect=at)
@@ -261,7 +253,7 @@ def circling(cells, bright=False):
             if not 0 <= behind < len(inks):
                 return text
             lit = terminal.styled(full, inks[behind])
-            return terminal.highlight(lit, mark=False) if bright else lit
+            return terminal.bright(lit) if bright else lit
         return at
     return [cell(n, text) for n, text in enumerate(cells)], None
 
@@ -293,7 +285,7 @@ def halving(text, half, began, took, bright=False):
     on the highlighted row."""
     def at(now):
         shown = half if now - began < took / 2 else text
-        return terminal.highlight(shown, mark=False) if bright else shown
+        return terminal.bright(shown) if bright else shown
     return at, began + took
 
 
@@ -304,7 +296,7 @@ def nudging(text, began, bright=False):
     def at(now):
         shift = (-1, 1, -1, 0)[min(3, int(4 * (now - began) / SHAKE))]
         moved = " " * (1 + shift) + text + " " * (1 - shift)
-        return terminal.highlight(moved, mark=False) if bright else moved
+        return terminal.bright(moved) if bright else moved
     return at, began + SHAKE
 
 
@@ -319,7 +311,7 @@ def sweeping(cells, began, kind, bright=False):
             if n != int(len(cells) * (now - began) / SWEEP):
                 return text
             lit = terminal.styled(terminal.plain(text), light)
-            return terminal.highlight(lit, mark=False) if bright else lit
+            return terminal.bright(lit) if bright else lit
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + SWEEP
 
@@ -352,7 +344,7 @@ def colouring(text, began, colour, into, rest=None, bright=False):
         # each letter by the last cell it takes, from 0: a combining mark has its letter's
         drawn = "".join(letter(char, front + 1 - terminal.cells(text[:n + 1]))
                         for n, char in enumerate(text))
-        return terminal.highlight(drawn, mark=False) if bright else drawn
+        return terminal.bright(drawn) if bright else drawn
     return at, began + took
 
 
@@ -518,8 +510,8 @@ class Clock:
 
     def frame(self):
         """What to write now: the lines still rising and every cell that moves, faded with them,
-        or each cell whose text moved since it was last written, no other, with the pointer's
-        light where it is (`terminal.pointed`)."""
+        or each cell whose text moved since it was last written, no other, on the background
+        the screen has under it, the highlight's where it is (`terminal.pointed`)."""
         now, self.last = moment(), time.monotonic()
         out, amount, first = "", 0, 3 if self.page else 1     # where what comes up starts
         if self.rising:
