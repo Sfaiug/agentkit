@@ -9,16 +9,20 @@ import (
 	"agentkit/internal/seat"
 )
 
-// followed is the seat going on in the conversation its own client went to, as the hook's event
-// names it (`harness.Follows`, Harness.follow), while the hook's caller still runs: only in a
-// pane, the one place a hook can be the seat's own client's.  False where Go hands it over, with
-// nothing written: a move Follows does not carry (`harness.Moves`) among them.
-func followed(launched string, event *run.Object) bool {
-	if os.Getenv("TMUX") == "" || os.Getenv("TMUX_PANE") == "" {
+// following is whether the seat goes on in the conversation its own client went to, as the hook's
+// event names it (`harness.HookFollows`, Harness.follow), while the hook's caller still runs: only
+// in a pane, the one place a hook can be the seat's own client's, and on a prompt only for
+// somebody's words.  first runs right before the move is written (seat.Claim), where a prompt's
+// turn is latched, as Python's hook latches it before its follow.  False where Go hands it over,
+// with nothing written: a move its harness's follow does not carry (`harness.Moves`) among them.
+func following(launched string, event *run.Object, first func() bool) bool {
+	if os.Getenv("TMUX") == "" || os.Getenv("TMUX_PANE") == "" ||
+		event.Get("hook_event_name") == "UserPromptSubmit" && ownersWords(event) == nil {
 		return true
 	}
-	if to := harness.Follows(event); to != nil {
-		return seat.Claim(launched, *to, os.Getppid())
+	kind := config.SeatHarness(launched)
+	if to := harness.HookFollows(kind, event); to != nil {
+		return seat.Claim(launched, *to, os.Getppid(), first)
 	}
-	return !harness.Moves(config.SeatHarness(launched), event)
+	return !harness.Moves(kind, event)
 }

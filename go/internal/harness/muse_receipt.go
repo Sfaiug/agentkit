@@ -92,7 +92,8 @@ func museFollows(event *run.Object) *Followed {
 		log = found
 	}
 	return &Followed{Harness: "muse", Source: museHook, Conversation: event.Get("session_id"), Transcript: log,
-		Client: museClient, Filed: museLog, Keep: name == "Interrupt"}
+		Client: museClient, Filed: func(_ map[string]any, session string) string { return museLog(session) },
+		Keep: name == "Interrupt"}
 }
 
 // museClient is whether a process runs the seat's Muse (muse.py `is_process`): its launcher, or the
