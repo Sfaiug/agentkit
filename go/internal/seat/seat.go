@@ -20,15 +20,12 @@ import (
 	"sync"
 	"time"
 
-	"agentkit/internal/browser"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/machines"
 	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
-	usages "agentkit/internal/usage"
 )
 
 // A Seat is one as Python's orch.listing offers it, whether only its record holds it or tmux does,
@@ -38,6 +35,7 @@ type Seat struct {
 	Name, Project, Word, Tally, Orchestrator, Workers string
 	Warning                                           string // why its record's models read as `?`
 	Created                                           float64
+	starts                                            func() map[string]int // tmux's start of each session it holds, nil where it held not this seat
 	reason, restart                                   string
 	since, repo                                       any
 	anew                                              bool     // its since begins its word again (answer.anew)
@@ -94,16 +92,6 @@ func unreadRuns(time.Time) (map[string][]ran, bool) { return nil, false }
 // Seatless is whether the home holds no record at all.
 func (home Home) Seatless() bool { return len(home.records) == 0 }
 
-// kinds are the files state/ may hold for a seat, by kind: its record and its lock, its seat
-// file's, its typing lock, the plan of a seat the owner stopped, whose word no plan decides, the
-// count of deliveries its plan owes a verification, mid-replace too, which only a verification
-// reads, what its last done check that found no gap read, mid-replace too, which plan reads to
-// weigh whether a finished plan owes another, the last answer to whether it owes one, which only
-// that answer reads (plan.checkOwed), as does that answer's write on its way (owedWrite), and the
-// latch its stop hook keeps a turn's start in, which no word reads.
-var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "unverified": {"txt", "txt.new"}, "checked": {"txt", "txt.new"}, "owed": {"json"}, "stop": {"json"}}
-
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
 	// login its conversation is under; `asleep` since `launched`), and those no reading of it hangs on
@@ -143,12 +131,10 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		return Home{}, false
 	}
 	var names []string
-	renamed := map[string]bool{} // a rename's old names, which name no seat of their own (config.session_records)
 	for _, entry := range entries {
+		// a rename's old names name no seat of their own (config.session_records)
 		if name, ok := sessionFile(entry.Name()); ok {
-			if record, _ := run.Shared(filepath.Join(state, entry.Name())); record != nil && record.Has(config.Renamed) {
-				renamed[name] = true
-			} else {
+			if record, _ := run.Shared(filepath.Join(state, entry.Name())); record == nil || !record.Has(config.Renamed) {
 				names = append(names, name)
 			}
 		}
@@ -161,35 +147,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		names = append(names, name)
 	}
 	for _, entry := range entries {
-		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
-		// home is given, the audit's week and stall lines, the usage the screen's grid shows and what
-		// reading it keeps, the tick's lock, its log's, its page that ticks stopped ending and the
-		// hourly stamps of its reads, the seat weights' lock, the lock seats claim conversations under
-		// (claims), the outages of the seats' products, what the collection keeps, what each machine
-		// is, ak's tmux config and a suite's measured cost say nothing a word hangs on:
-		// a seat's own wait on its usage is in its seat file, and the browser's tabs no seat opened
-		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || updateRecord(entry) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || entry.Name() == "front.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
-			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "watch.tick.page.json", "watch.tick.page.lock", "retire.json", "alive.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock", "tmux.conf", "conversations.lock"}, entry.Name()) ||
-			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
-			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || entry.Name() == "stuck.json" || suiteCost(entry.Name()) || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || browser.Owns(entry.Name()) || recommendationState(entry.Name()) ||
-			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
-			continue
-		}
-		kind, rest, _ := strings.Cut(entry.Name(), "-")
-		name, suffix, _ := strings.Cut(rest, ".")
-		// a seat removed leaves its locks, which writers hold or wait on, and its stop mark, which
-		// no listing reads (forget); one renamed leaves its pointer and what the rename keeps under its
-		// old name; one tmux no longer holds leaves its announce lock, its word and its card, which the
-		// tick closes (notify.tick_cards), and what it asked the owner last, an orphan ending's question
-		// among them (handback.announce); what a seat file's write lands through is read by nobody,
-		// and whatever stands there is that write's WARN (watch.seat_write)
-		if renamed[name] || kind == "seat" && suffix == "tmp" || !slices.Contains(names, name) && entry.Type().IsRegular() &&
-			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || (kind == "card" || kind == "notify") && suffix == "json") {
-			continue
-		}
-		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
-			!slices.Contains(kinds[kind], suffix) && !owedWrite(kind, suffix) && !launchKind(kind, suffix) && !goneKind(kind, suffix) && !goneQuestionKind(kind, name, suffix) && !revivalKind(kind, suffix) &&
-				!pastKind(state, name, kind, suffix) && !(slices.Contains(live, name) && looksKind(kind, suffix)) {
+		if feeds(state, entry, names, live) {
 			return Home{}, false
 		}
 	}
@@ -203,7 +161,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		return Home{}, false
 	}
 	home := Home{models: models, readers: recordReaders{}, runs: readRuns, found: found}
-	stands, bars := sync.OnceValue(listed), sync.OnceValues(barSessions)
+	stands, bars, started := sync.OnceValue(listed), sync.OnceValues(barSessions), sync.OnceValue(func() map[string]int { return starts(tmux.Own()) })
 	for _, name := range names {
 		if server, ok := bare[name]; ok {
 			seat, ok := bareSeat(state, name, server, runs[name], now)
@@ -237,7 +195,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 			if at(record.Get("created")) == 0 {
 				return Home{}, false
 			}
-			seat.unowned = false
+			seat.unowned, seat.starts = false, started
 		}
 		home.records = append(home.records, seat)
 		home.readers[name] = seat.reader

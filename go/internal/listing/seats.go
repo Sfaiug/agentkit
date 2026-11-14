@@ -22,7 +22,7 @@ func Seats(screen terminal.Screen, seats []seat.Seat, now time.Time, why bool) [
 	rows := make([][]string, len(seats))
 	for i, each := range seats {
 		rows[i] = []string{each.Name, each.Project, screen.StateText(each.Word), each.Tally, each.Orchestrator, each.Workers,
-			terminal.FormatAge(float64(now.UnixNano())/1e9 - each.Created)}
+			terminal.FormatAge(float64(now.UnixNano())/1e9 - each.Started())}
 		for column, text := range rows[i] {
 			if column != 5 {
 				widths[column] = max(widths[column], terminal.Cells(text))

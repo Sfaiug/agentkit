@@ -7,5 +7,5 @@ func init() {
 	plugins["antigravity"] = plugin{seats: true, looks: true, anew: true, record: antigravityRecord, owned: antigravityOwned, named: antigravityNamed,
 		launch: antigravityLaunch, interactive: antigravityInteractive, report: antigravityReported,
 		said: antigravitySaid, typed: byName(antigravityTyped),
-		keys: []string{"antigravity_launch", "antigravity_open"}, kept: antigravityKept}
+		keys: []string{"antigravity_launch", "antigravity_open"}}
 }
