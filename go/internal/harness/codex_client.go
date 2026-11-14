@@ -136,11 +136,15 @@ func (client *codexClient) receive() (map[string]json.RawMessage, error) {
 		case 0, 1:
 			message = append(message, data...)
 			if head[0]&128 != 0 {
-				if _, err := run.Decode(message); err != nil {
-					return nil, err // refused as codex.py's Client refuses it, in json.loads's words
-				}
 				var read map[string]json.RawMessage
-				return read, json.Unmarshal(message, &read)
+				if err := json.Unmarshal(message, &read); err != nil {
+					// what codex.py's Client refuses too is in its json.loads's words; a lone surrogate it reads
+					if _, said := run.Decode(message); said != nil && !errors.Is(said, run.ErrLoneSurrogate) {
+						err = said
+					}
+					return nil, err
+				}
+				return read, nil
 			}
 		}
 	}
