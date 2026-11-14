@@ -60,27 +60,48 @@ func holds(receipt *run.Object) bool {
 	return held
 }
 
-// raced is what ResumeJob decides, before anything is written, of each run its job holds whose
-// resume Go leaves to Python (ErrPython): Python's resume refuses one changed by its slot lock
-// (still), which the job's scheduler then takes up as that refusal (takeUp), so only a job holding
-// one unchanged there is Python's, whole.  The runs that changed, by task, as they read before.
+// raced is what ResumeJob decides, before anything is written, of each unfinished run its job
+// holds whose resume Go leaves to Python (ErrPython): Python's resume refuses one changed by its
+// slot lock (still), which the job's scheduler then takes up as that refusal (takeUp), so only a
+// job holding one unchanged there is Python's, whole.  A launch still waiting for its slot in a
+// repository is asked last, as judging it finds origin/HEAD, which may write that repository; a
+// job holding two is Python's, as one could not hand over before the other's is written.  The
+// runs that changed, by task, as they read before.
 func raced(receipt *run.Object) (map[*run.Object]*run.Object, error) {
-	changed := map[*run.Object]*run.Object{}
+	read := map[*run.Object]*run.Object{}
+	var asked []*run.Object
+	var writes *run.Object
 	for _, each := range receipt.List("tasks") {
 		task := each.(*run.Object)
 		if slices.Contains(job.Terminal, task.Str("state")) || !task.Truthy("run_id") {
 			continue
 		}
-		dir := filepath.Join(run.Runs(), task.Str("run_id"))
-		if read, _ := run.Read(dir); read != nil && !(run.Active(read) && run.ProcessActive(read)) && unfinished(read) {
-			if _, _, _, err := take(task.Str("run_id"), nil, nil, false); !errors.Is(err, ErrPython) {
-				continue
-			}
-			if same, err := still(dir, read); err != nil || same {
-				return nil, cmp.Or(err, ErrPython)
-			}
-			changed[task] = read
+		record, _ := run.Read(filepath.Join(run.Runs(), task.Str("run_id")))
+		waits := record != nil && loop.Unstarted(record) && record.Truthy("repo")
+		switch {
+		case record == nil || run.Active(record) && run.ProcessActive(record) || !unfinished(record):
+			continue
+		case waits && writes != nil:
+			return nil, ErrPython
+		case waits:
+			writes = task
+		default:
+			asked = append(asked, task)
 		}
+		read[task] = record
+	}
+	if writes != nil {
+		asked = append(asked, writes)
+	}
+	changed := map[*run.Object]*run.Object{}
+	for _, task := range asked {
+		if _, _, _, err := take(task.Str("run_id"), nil, nil, false); !errors.Is(err, ErrPython) {
+			continue
+		}
+		if same, err := still(filepath.Join(run.Runs(), task.Str("run_id")), read[task]); err != nil || same {
+			return nil, cmp.Or(err, ErrPython)
+		}
+		changed[task] = read[task]
 	}
 	return changed, nil
 }
@@ -92,7 +113,8 @@ func raced(receipt *run.Object) (map[*run.Object]*run.Object, error) {
 // scheduler (resumed), and its ending, as the ending of a run that ended, goes to the job's ladder
 // through ended.  A record that is gone queues the task with no run, to start over; one Go cannot
 // read leaves the job, Python's to relaunch (holds).  A run ResumeJob saw change at the slot lock
-// is taken up as its resume's refusal (raced).  Whether it began.
+// is taken up as its resume's refusal (raced).  Whether it began; a task it left no run starts
+// afresh.
 func (j *jobRun) takeUp(task *run.Object, ended chan<- ending) (bool, error) {
 	dir := filepath.Join(run.Runs(), task.Str("run_id"))
 	if read := j.changed[task]; read != nil {

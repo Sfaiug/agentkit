@@ -191,12 +191,12 @@ type ending struct {
 	then    func() (bool, error)
 }
 
-// carry is the job's scheduler, Python's run_job_loop: queued tasks, and those running on a run
-// from before, begin up to its cap, the receipt's --parallel within a positive max_runs, an
-// ordered job's each once the one before it merged (behind), and each once its retry_after has
-// passed (paced), a queued one counting each task running, here or elsewhere, as Python's does;
-// each run's ending settles its task, and the job ends once every task settled; `ak run`'s exit
-// status.  It touches the receipt on every pass, its heartbeat, and its runs' drivers carry the
+// carry is the job's scheduler, Python's run_job_loop: queued tasks start, and a task holding a
+// run from before takes it up (takeUp), up to its cap, the receipt's --parallel within a positive
+// max_runs, an ordered job's each once the one before it merged (behind), and each once its
+// retry_after has passed (paced), a queued one counting each task running, here or elsewhere, as
+// Python's does; each run's ending settles its task, and the job ends once every task settled;
+// `ak run`'s exit status.  It touches the receipt on every pass, its heartbeat, and its runs' drivers carry the
 // job's directory, as a `--bg` job's launcher does, so an ending a gone seat cannot take is left
 // to the job's line (handback's muted).
 func (j *jobRun) carry() (int, error) {
@@ -227,10 +227,22 @@ func (j *jobRun) carry() (int, error) {
 			if parallel > 0 && len(running) >= parallel {
 				break
 			}
-			if parallel > 0 && task.Str("state") == "queued" && busy(tasks, running) >= parallel {
+			// a queued task, kept run or none, waits on every task running, here or elsewhere
+			capped := func() bool { return parallel > 0 && task.Str("state") == "queued" && busy(tasks, running) >= parallel }
+			if capped() {
 				continue
 			}
-			begun, err := j.begin(task, ended)
+			begun, err := false, error(nil)
+			if task.Truthy("run_id") {
+				begun, err = j.takeUp(task, ended)
+			}
+			// one its take-up left no run starts afresh, queued now
+			if err == nil && !begun && !task.Truthy("run_id") {
+				if capped() {
+					continue
+				}
+				begun, err = j.begin(task, ended)
+			}
 			if err != nil || !begun && !paced(task) && !slices.Contains(job.Terminal, task.Str("state")) {
 				return j.leave(), err
 			}
@@ -263,14 +275,8 @@ func (j *jobRun) carry() (int, error) {
 // and followed until it ends.  False where it starts no run: the task settled, blocked where its
 // file now refuses it, stopped where a stop ended it and failed where it cannot start for any
 // other reason, a fetch that failed among them, or, saying why, left queued where Go does not
-// start it.  A task holding a run takes that run up instead (takeUp), starting afresh only where it
-// left the task no run.  The job's own receipt that cannot be written ends this launcher.
+// start it.  The job's own receipt that cannot be written ends this launcher.
 func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
-	if task.Truthy("run_id") {
-		if begun, err := j.takeUp(task, ended); begun || err != nil || task.Truthy("run_id") {
-			return begun, err
-		}
-	}
 	name := task.Str("name")
 	l, _, why, err := j.task(task.Str("task_file"))
 	refused := ""

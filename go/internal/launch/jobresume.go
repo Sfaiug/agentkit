@@ -41,6 +41,13 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 	if receipt == nil || config.Check() != nil || box.Check() != nil {
 		return 0, ErrPython
 	}
+	// a task naming no repository finds its checkout where the job was launched, which neither a
+	// tick nor a detached launcher starts in: the job goes back there first, as Python's does
+	if cwd := receipt.Str("cwd"); cwd != "" {
+		if info, err := os.Stat(cwd); err == nil && info.IsDir() {
+			os.Chdir(cwd)
+		}
+	}
 	if ownChild(dir, receipt) && unstarted(receipt) {
 		return adopt(dir, receipt, nil, out)
 	}
