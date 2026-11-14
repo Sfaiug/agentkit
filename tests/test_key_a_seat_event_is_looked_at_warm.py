@@ -1,147 +1,150 @@
 """A seat's event is looked at by a process already warm (`agentkit/looker.py`).
 
-With a looker up, the hook's look is its fork, on the runs it read: the word is published with no
-run.json of a run at rest opened, nor the runs listed again.  With none up, or one older than the
-install, the same event is looked at cold, reading every run.  An audit hook writes down what each
-look opens or lists; no clock bounds the handshake (`warm.WAIT`).
+With the warm server up, the hook's look is its looker's fork, on the runs it read: the word is
+published with no run.json of a run at rest opened, nor the runs listed again.  With none up, or
+one older than the install, the same event is looked at cold, reading every run.
+
+Black-box: Claude's hooks as ak's adapter registers them, fired as Claude fires them
+(tests/fixtures/hookdrive.py), at a seat of tests/fixtures/akseat.py; the warm server is the
+checkout's beside the program `AK_BIN` names, started as the first popup after an install starts
+it.  Each Python of the hook's and of the server's writes down what it opens or lists, by an
+audit hook, and the hook's waits on no clock for the server (`warm.WAIT`).
 """
 
-import json
 import os
 from pathlib import Path
 import shlex
-import signal
 import socket
-import subprocess
 import sys
-import tempfile
 import time
 import unittest
-from unittest.mock import patch
 
-REPO = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(REPO), str(REPO / "tests")]
-from agentkit import config, looker, parsed, warm  # noqa: E402
-from test_live_status import FAKE_TMUX, looks  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import akconfig
+from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akseat import Seat
+from fixtures.hookdrive import ROOT, Hooks
 
-# `pid<TAB>ppid<TAB>open|os.scandir<TAB>path` to $LOOK_READS, for each under HOME from here on
+NAME = "acme"
+BOUND = 120       # seconds a look may take on a loaded host
+# `python3 script args`, with `pid<TAB>ppid<TAB>event<TAB>what` to $LOOK_READS for each open or
+# listing under HOME and each socket bound, and for the hook's client as it starts
 AUDIT = r"""
-import os, sys
+import os, runpy, sys
 def _read(event, args, home=os.environ["HOME"] + "/",
           log=os.open(os.environ["LOOK_READS"], os.O_WRONLY | os.O_APPEND | os.O_CREAT)):
-    path = event in ("open", "os.scandir") and args[0]
-    if isinstance(path, (str, os.PathLike)) and os.fspath(path).startswith(home):
-        os.write(log, f"{os.getpid()}\t{os.getppid()}\t{event}\t{path}\n".encode())
+    what = (event in ("open", "os.scandir") and args[0] or event == "socket.bind" and args[1]
+            or event == "client" and "-")
+    if isinstance(what, (str, os.PathLike)) and (
+            event in ("socket.bind", "client") or os.fspath(what).startswith(home)):
+        os.write(log, f"{os.getpid()}\t{os.getppid()}\t{event}\t{os.fspath(what)}\n".encode())
 sys.addaudithook(_read)
-"""
-CLIENT = AUDIT + """
-import runpy
-del sys.argv[0]                 # as `python looker.py` has them
+del sys.argv[0]
 sys.path.insert(0, os.path.dirname(sys.argv[0]))
-__import__("warm").WAIT = None
+if sys.argv[0].endswith("looker.py"):
+    sys.audit("client")
+    __import__("warm").WAIT = None
 runpy.run_path(sys.argv[0], run_name="__main__")
 """
 
 
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class Warm(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix="looker-")
-        self.addCleanup(tmp.cleanup)
-        self.root = root = Path(tmp.name)
-        python = shlex.quote(sys.executable)
-        (root / "bin").mkdir()
-        for name, script in (("tmux", FAKE_TMUX), ("python3", (
-                f"#!/bin/bash\n[[ $1 = */agentkit/looker.py ]] && "
-                f"exec {python} -c {shlex.quote(CLIENT)} \"$@\"\nexec {python} \"$@\"\n"))):
-            (root / "bin" / name).write_text(script)
-            (root / "bin" / name).chmod(0o755)
-        self.log, self.reads, home = root / "tmux.log", root / "reads", root / ".agentkit"
-        for patched in (patch.dict(os.environ, clear=True, values={
-                "HOME": str(root), "PATH": f"{root / 'bin'}:{os.environ['PATH']}",
-                "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
-                "AK_NOTIFY_SINK": "dry-run", "FAKE_TMUX_LOG": str(self.log),
-                "FAKE_TMUX_GATE": str(root), "LOOK_READS": str(self.reads)}),
-                patch.object(config, "HOME", home), patch.object(config, "CODE", root / "code"),
-                *(patch.object(config, name, home / name.lower())
-                  for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK")),
-                patch.object(warm, "WAIT", None),
-                patch.object(parsed, "FRESH", 0)):    # a run at rest is one its read kept
-            patched.start()
-            self.addCleanup(patched.stop)
-        config.ensure_dirs()
-        repo = config.CODE / "atoll"
-        (repo / ".git").mkdir(parents=True)
-        config.save_session(config.load(), "herdr", "opus", ["opus", "astra"],
-                            {"repo": str(repo), "cwd": str(repo), "session_title": "herdr"})
-        ended = time.time() - 7200
+        self.home = home = Home(tmux_log=False)
+        self.addCleanup(home.close)
+        akconfig.write(home, ["opus"])
+        self.hooks = Hooks(home)
+        self.seat = Seat(home, NAME)
+        self.reads = home.root / "reads"
+        home.fake("python3", f"#!/bin/sh\ncase $1 in */agentkit/looker.py|*/agentkit/warm.py) "
+                             f"exec {shlex.quote(sys.executable)} -c {shlex.quote(AUDIT)} \"$@\";; "
+                             f"esac\nexec {shlex.quote(sys.executable)} \"$@\"\n")
+        self.state, self.runs = home.path / ".agentkit/state", home.path / ".agentkit/runs"
+        ended, written = time.time() - 7200, []
         for number in range(40):            # many runs of another seat, ended hours ago
-            run = config.RUNS / f"20261113-0{number:03d}-fix-api" / "run.json"
-            run.parent.mkdir()
-            run.write_text(json.dumps({"run_id": run.parent.name, "state": "pass", "session": "q"}))
-            os.utime(run, (ended, ended))
-        self.resting = {str(run) for run in config.RUNS.glob("*/run.json")}
-        self.addCleanup(self.cold)          # every cold look ended before this HOME goes
+            run_id = f"20261113-{number:04d}-fix-api"
+            written.append(home.write(f".agentkit/runs/{run_id}/run.json", {
+                "run_id": run_id, "launched_session": "docs-site", "state": "pass",
+                "verdict": "PASS", "finished_at": ended, "handed_back": ended}, ago=7200))
+        self.resting = set(map(str, written))
+        # A read trusts what it parsed of a file only once its stat is a second old: a
+        # filesystem's clock can give two writes in one tick the same times.  As a run long over.
+        while time.time_ns() - max(run.stat().st_ctime_ns for run in written) <= 1e9:
+            time.sleep(0.05)
 
-    def looker(self):
-        """A looker up in this HOME, forked as the warm server forks one: its pid."""
-        pid = os.fork()
-        if pid == 0:
-            try:
-                exec(AUDIT, {})
-                looker.serve()
-            finally:
-                os._exit(1)
-        self.addCleanup(lambda: os.kill(pid, signal.SIGTERM) or os.waitpid(pid, 0))
+    def warm(self):
+        """The warm server up in this Home, its looker listening: the looker's pid."""
+        done = self.home.run("sh", "-c", 'python3 "$0" serve </dev/null >/dev/null 2>&1 &',
+                             str(ROOT / "agentkit" / "warm.py"), env={"LOOK_READS": str(self.reads)})
+        self.assertEqual(done.code, 0, done.err)
         self.addCleanup(os.chdir, os.getcwd())
-        os.chdir(config.STATE)              # its socket by its name, as the hook reaches it
-        with socket.socket(socket.AF_UNIX) as probe:    # refused until it listens
-            while probe.connect_ex(warm.place(str(REPO))[1] + ".look"):
-                time.sleep(0.02)
-        return pid
+        os.chdir(self.state)                # a socket by its name: a Home's path may be past 108 bytes
+        deadline = time.monotonic() + BOUND
+        while True:
+            bound = [(pid, what) for pid, _, event, what in self.read()
+                     if event == "socket.bind" and what.endswith(".look")]
+            with socket.socket(socket.AF_UNIX) as probe:    # refused until it listens
+                if bound and probe.connect_ex(bound[0][1]) == 0:
+                    return bound[0][0]
+            self.assertLess(time.monotonic(), deadline, "no looker came up")
+            time.sleep(0.05)
 
-    def event(self):
-        """The owner's prompt, as the seat's harness tells its hook, once the bar says `working`."""
-        subprocess.run(["bash", str(REPO / "hooks/seat-state.sh")], check=True, env=dict(
-            os.environ, AGENTKIT_SESSION="herdr", TMUX="/fake/agentkit-test,1,0", TMUX_PANE="%7"),
-            input=json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "go"}), text=True)
-        while "set-titles-string\therdr · working\n" not in (
-                self.log.read_text(encoding="utf-8") if self.log.exists() else ""):
+    def prompt(self):
+        """The owner's prompt, as the seat's harness tells its hook, once the hook and all it
+        started have ended and the seat's title says `working`."""
+        fired = self.hooks.fire("UserPromptSubmit", {"prompt": "go", "session_id": f"conv-{NAME}"},
+                                seat=NAME, pane=self.seat, env={"LOOK_READS": str(self.reads)},
+                                finished=True)
+        self.assertEqual(fired.code, 0, fired.err)
+        deadline = time.monotonic() + BOUND
+        while "working" not in self.home.tmux("show-options", "-qv", "-t", f"={NAME}:",
+                                              "set-titles-string").out:
+            self.assertLess(time.monotonic(), deadline, "the word never came")
             time.sleep(0.05)
 
     def read(self):
-        """(pid, its parent, event, path) for each written down."""
-        return [(int(pid), int(parent), event, path) for pid, parent, event, path in (
-            line.split("\t") for line in self.reads.read_text().splitlines())]
+        """(pid, its parent, event, what) for each written down."""
+        lines = self.reads.read_text().splitlines() if self.reads.exists() else []
+        return [(int(pid), int(parent), event, what) for pid, parent, event, what in (
+            line.split("\t") for line in lines)]
 
-    def cold(self, warm=()):
-        """What looks opened, none of the `warm` processes' or their forks', once each has ended."""
-        while looks(self.root):
+    def cold(self):
+        """What the hook's clients, and any Python they started, opened or listed."""
+        clients = {pid for pid, _, event, _ in self.read() if event == "client"}
+        self.assertTrue(clients, "the hook asked for a look")
+        return {(event, what) for pid, parent, event, what in self.read()
+                if event != "client" and {pid, parent} & clients}
+
+    def forks(self, looker):
+        """What each fork of the looker opened or listed, once each has ended."""
+        forks = {pid for pid, parent, *_ in self.read() if parent == looker}
+        deadline = time.monotonic() + BOUND
+        while any(os.path.exists(f"/proc/{fork}") for fork in forks):
+            self.assertLess(time.monotonic(), deadline, "a look never ended")
             time.sleep(0.05)
-        return {path for opener, parent, event, path in self.read()
-                if event == "open" and not {opener, parent} & set(warm)}
+        return forks, {(event, what) for pid, _, event, what in self.read() if pid in forks}
 
     def test_a_looker_up_looks_on_the_runs_it_read(self):
-        pid = self.looker()
-        self.event()
-        forks = {opener for opener, parent, *_ in self.read() if parent == pid}
+        looker = self.warm()
+        self.prompt()
+        forks, forked = self.forks(looker)
         self.assertTrue(forks, "the looker's fork looked")
-        while any(os.path.exists(f"/proc/{fork}") for fork in forks):
-            time.sleep(0.05)                # each look ended, all it read written down
-        forked = {(event, path) for opener, _, event, path in self.read() if opener in forks}
-        self.assertEqual({path for event, path in forked if event == "open"} & self.resting, set())
-        self.assertNotIn(("os.scandir", str(config.RUNS)), forked, "the runs are listed once")
-        self.assertEqual(self.cold({pid, *forks}), set(), "nothing looked cold")
+        self.assertEqual({what for event, what in forked if event == "open"} & self.resting, set())
+        self.assertNotIn(("os.scandir", str(self.runs)), forked, "the runs are listed once")
+        self.assertEqual(self.cold(), set(), "nothing looked cold")
 
     def test_with_no_looker_up_the_event_is_looked_at_cold(self):
-        self.event()
-        self.assertLessEqual(self.resting, self.cold())
+        self.prompt()
+        self.assertLessEqual({("open", run) for run in self.resting}, self.cold())
 
     def test_a_looker_of_an_older_install_is_not_asked(self):
-        pid = self.looker()
-        (config.STATE / "installed-at").write_text(str(time.time()))
-        self.event()
-        self.assertEqual([path for _, parent, _, path in self.read() if parent == pid], [])
-        self.assertLessEqual(self.resting, self.cold({pid}))
+        looker = self.warm()
+        stamp = self.home.write(".agentkit/state/installed-at", str(time.time()))
+        self.prompt()
+        self.assertLessEqual({what for _, what in self.forks(looker)[1]}, {str(stamp)})
+        # every run read again, as the server's census leaves them unopened
+        self.assertIn(("os.scandir", str(self.runs)), self.cold())
 
 
 if __name__ == "__main__":

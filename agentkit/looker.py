@@ -111,6 +111,7 @@ def _take(conn, records):
         if update.outdated():
             raise OSError("outdated")       # installed over while the looker read: not its look
         conn.sendall(b"R")
+        conn.settimeout(None)   # its go or its end: one given up on as it said go would be lost
         if asked.read(1) != b"G":
             raise OSError("not taken")
     except (OSError, ValueError):
