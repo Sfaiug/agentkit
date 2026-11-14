@@ -125,6 +125,7 @@ import errno
 import hashlib
 import heapq
 import json
+import math
 import os
 import re
 import select
@@ -133,6 +134,7 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from contextlib import closing
@@ -3191,7 +3193,11 @@ def seat_read(cfg, name, selected):
         selected.update(current)
 
 
-UNITS = {"share": "week %", "money": "$ a task", "board_dollars": "a task"}   # matrix._costs's
+# What the models screen counts a cost in, as `u` turns through them, the owner's design of 5 Nov
+# 2026: dollars a task, the points of its plan's week a task takes, how many such tasks a week
+# holds; each with how a row's why says its cost (models_why), `cost` as cost_said gives it
+UNITS = {"$ a task": "{cost} a {run}", "% of a week": "{cost} of a week a {run}",
+         "a week": "{cost} {run}s a week"}
 UNBOARDED, UNMARKED = "not on the boards", "none"     # a model no row is; a role marking none
 # the why's words: what a row does in each role and a run of it, each measure's evaluation by
 # its name, where each `cost_rule` says a cost comes from, and a count under ten
@@ -3214,35 +3220,72 @@ WHYS = {"beaten": "beaten by {by}", "close": "within {apart} of {by}",
 NUMBERS = "zero one two three four five six seven eight nine".split()
 
 
-def model_cost(found, row):
-    """`row`'s cost in its role's unit: in whole units from 100 on, where cents tell no two rows
-    apart, so five bars' costs side by side fit 40 cells (models_bars)."""
-    cost = f"{row['cost']:.{2 if round(row['cost'], 2) < 100 else 0}f}"
-    return f"{cost}%" if found["cost_unit"] == "share" else f"${cost}"
+def unit_path():
+    """Where the unit the models screen last counted in is kept: in ak's state, never the
+    config, as it is the owner's view of the screen, not a setting of ak's."""
+    return config.STATE / "models-unit"
 
 
-def cost_said(found, row):
-    """`row`'s cost in its role's answer `found`, `≈` against one no runs measured -- the owner,
-    3 Nov 2026: a cost on screen must never look more certain than it is."""
-    if row["cost"] is None:
+def models_unit():
+    """The unit of UNITS the models screen counts costs in: the one `u` last turned to, else the
+    first."""
+    try:
+        unit = unit_path().read_text()
+    except (OSError, ValueError):
+        unit = None
+    return unit if unit in UNITS else next(iter(UNITS))
+
+
+def next_unit(unit):
+    """The unit `u` turns to after `unit`, kept for the screen to open in (models_unit): moved in
+    whole from a file of its own, so screens turning it at once each leave a unit."""
+    units = list(UNITS)
+    unit = units[(units.index(unit) + 1) % len(units)]
+    config.ensure_dirs()
+    with tempfile.NamedTemporaryFile("w", dir=config.STATE, prefix=".models-unit-",
+                                     delete=False) as part:
+        part.write(unit)
+    os.replace(part.name, unit_path())
+    return unit
+
+
+def figures(value):
+    """`value`, above 0, to two significant figures: `1,200`, `40`, `4.5`."""
+    value = float(f"{value:.2g}")
+    return f"{value:,.{max(0, 1 - math.floor(math.log10(value)))}f}"
+
+
+def cost_said(found, row, unit):
+    """`row`'s cost in its role's answer `found` counted in `unit` (UNITS): `$0.60`, `2.00%`, in
+    whole units from 100 on, where cents tell no two rows apart, so five bars' costs side by
+    side fit 40 cells (models_bars), or `50` a week; `≈` before one no runs measured -- the
+    owner, 3 Nov 2026: a cost on screen must never look more certain than it is.  `-` where it
+    has none in `unit`: dollars, where no run's provider has a price (matrix._costs's `share`),
+    and a week, where no run measured its provider's (its `points`)."""
+    points = row["points"]
+    value = {"$ a task": None if found["cost_unit"] == "share" else row["cost"],
+             "% of a week": points, "a week": 100 / points if points else None}[unit]
+    if value is None:
         return "-"
     about = "" if row["cost_rule"] == "measured" else "≈" if terminal.utf8() else "~"
-    return about + model_cost(found, row)
+    if unit == "a week":
+        return about + figures(value)
+    cost = f"{value:.{2 if round(value, 2) < 100 else 0}f}"
+    return about + (f"{cost}%" if unit == "% of a week" else f"${cost}")
 
 
-def models_said(cfg, answer, used):
-    """Each role's (role, row, what follows it, cost unit) off `used` (matrix.uses): its quality
-    and cost (cost_said), else UNBOARDED, or UNMARKED for no model."""
+def models_said(cfg, answer, used, unit):
+    """Each role's (role, row, what follows it) off `used` (matrix.uses): its quality and cost in
+    `unit` (cost_said), else UNBOARDED, or UNMARKED for no model."""
     said = []
     for role, (name, effort, row) in used.items():
-        found = answer[role]
         if row is None:
             row = {"name": config.model_name(cfg, name) if name else UNMARKED,
                    "effort": None if effort == "none" else effort}
             after = UNBOARDED if name else ""
         else:
-            after = (f"{row['quality']:.1f}", cost_said(found, row))
-        said.append((role, row, after, UNITS[found["cost_unit"]]))
+            after = (f"{row['quality']:.1f}", cost_said(answer[role], row, unit))
+        said.append((role, row, after))
     return said
 
 
@@ -3265,17 +3308,16 @@ def packed(parts, gap, room):
     return lines
 
 
-def models_body(said, at=None):
+def models_body(said, unit, at=None):
     """The models screen's lines and {line: (("row", role), [])}: per role (models_said) its
-    word, its row and what follows, under `quality` and its unit where that changes, `at`'s
-    highlighted (terminal.highlight).  A row too wide beside the words goes on the lines under
-    its word, wrapped at its words, what follows it staying on the word's line: a model is named
-    in full (docs/cli-design.md)."""
+    word, its row and what follows, under `quality` and `unit` over the first with numbers,
+    `at`'s highlighted (terminal.highlight).  A row too wide beside the words goes on the lines
+    under its word, wrapped at its words, what follows it staying on the word's line: a model is
+    named in full (docs/cli-design.md)."""
     room = terminal.layout_width()
     word = max(terminal.cells(matrix.CONFIG_ROLES[role]) for role, *_ in said)
-    numbers = [after for _, _, after, _ in said if isinstance(after, tuple)]
-    widths = [max(map(terminal.cells, column)) for column in zip(
-        ("quality", max((unit for *_, unit in said), key=terminal.cells)), *numbers)]
+    numbers = [after for _, _, after in said if isinstance(after, tuple)]
+    widths = [max(map(terminal.cells, column)) for column in zip(("quality", unit), *numbers)]
 
     def follows(after):
         return (f"  {after[0]:>{widths[0]}}  {after[1]:>{widths[1]}}" if isinstance(after, tuple)
@@ -3284,15 +3326,15 @@ def models_body(said, at=None):
     models = [terminal.plain(row["name"] + (f" {row['effort']}" if row["effort"] else ""))
               for _, row, *_ in said]
     full = max(map(terminal.cells, models))
-    tail = max(terminal.cells(follows(after)) for _, _, after, _ in said)
+    tail = max(terminal.cells(follows(after)) for _, _, after in said)
     wide = 2 + word + 2 + full + tail <= room
     column = 2 + word + (2 + full if wide else 0)      # where what follows a row begins
-    lines, places, unit = [], {}, None
-    for (role, row, after, its), model in zip(said, models):
-        if isinstance(after, tuple) and its != unit:     # a role with no numbers heads nothing
-            unit = its
+    lines, places, headed = [], {}, False
+    for (role, row, after), model in zip(said, models):
+        if isinstance(after, tuple) and not headed:     # a role with no numbers heads nothing
+            headed = True
             lines.append(" " * (column + 2) + terminal.styled(
-                f"{'quality':>{widths[0]}}  {its:>{widths[1]}}", "dim"))
+                f"{'quality':>{widths[0]}}  {unit:>{widths[1]}}", "dim"))
         lead = "  " + terminal.pad(matrix.CONFIG_ROLES[role], word)
         own = [lead + "  " + model] if wide else [
             lead, *("    " + part for part in columned(model, room - 4))]
@@ -3329,18 +3371,18 @@ def columned(text, room, after=" -."):
     return [piece for line in lines for piece in columned(line.rstrip(), room, after[1:])]
 
 
-def models_bars(found, role, used, kept, room=None, marked=True, why=True):
+def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True):
     """`role`'s answer `found` (matrix.answer) drawn as bars under the role lines, the owner's
     design of 5 Nov 2026: under a heading counting them, its choices, then `kept`, a row the role
     used, where it is no choice, `whys` holding it (matrix._choices), one more where the choices
     leave no place (the owner, 12 Nov 2026), then as many of its `others`, best first, as fill
     matrix.PLACES; side by side, cheapest on the left, on a tie the worse, each as tall
-    as its cost over the dearest shown, in eighths of a cell, its cost on its top and under it
-    its quality, its name (columned) and its effort.  A choice is solid, the rest shaded `░`,
-    each `why` under it led by `░`, so one too short to show its shade still says it is one;
-    `used`, the row the role uses, is in the accent colour, `━` under its name.  No axis line:
-    heights and costs say which is dearer, as a shaded bar on the right is dearer, not better.
-    On a narrow screen the two-cell gutters, then the indent, give way to the labels, and where
+    as its cost over the dearest shown, in eighths of a cell, its cost in `unit` on its top and
+    under it its quality, its name (columned) and its effort.  A choice is solid, the rest
+    shaded `░`, each `why` under it led by `░`, so one too short to show its shade still says it
+    is one; `used`, the row the role uses, is in the accent colour, `━` under its name.  No axis
+    line: heights and costs say which is dearer, as a shaded bar on the right is dearer, not
+    better.  On a narrow screen the two-cell gutters, then the indent, give way to the labels, and where
     a word too wide for its column widens it past the screen, fewer bars stand: the shaded ones
     go first, `kept` last, then the cheapest choices, as matrix._chosen keeps the costliest.  Given
     `room` lines, the dearest stands as tall as the rest leaves room for, TALL cells at most and
@@ -3355,7 +3397,7 @@ def models_bars(found, role, used, kept, room=None, marked=True, why=True):
         rows = sorted([(row, solid) for row in choices] + [(row, shade) for row in shaded],
                       key=lambda one: (one[0]["cost"], one[0]["quality"]))
         size = max(1, min(WIDE, (width - 2 * len(rows)) // max(1, len(rows))))
-        labels = [(cost_said(found, row), f"{row['quality']:.1f}", row["effort"] or "")
+        labels = [(cost_said(found, row, unit), f"{row['quality']:.1f}", row["effort"] or "")
                   for row, _ in rows]
         words = [[row["name"], *([f"{shade} {whys[id(row)][0]}"] if why and fill == shade
                                  else [])]
@@ -3449,13 +3491,13 @@ def flowed(parts, room):
     return lines
 
 
-def models_why(found, role, row):
+def models_why(found, role, row, unit):
     """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
     2026: a label column, each value going on at its words in its own (flowed).  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
-    best choice it is; its cost and where that comes from (SOURCES); the rule that makes the
-    choices; and why each of its `others` is none (WHYS), in their order.  Only a model's name is
-    cut."""
+    best choice it is; its cost in `unit`, said as UNITS says it, and where that comes from
+    (SOURCES); the rule that makes the choices; and why each of its `others` is none (WHYS), in
+    their order.  Only a model's name is cut."""
     room = terminal.layout_width() - 2
     width = terminal.cells("choices")       # the design's label column: its widest label
     values = room - width - 2
@@ -3469,21 +3511,21 @@ def models_why(found, role, row):
         return round(top["quality"], 1) - round(one["quality"], 1)
 
     def priced(one):
-        return f"{named(one, values)}, {one['quality']:.1f} for {cost_said(found, one)}"
+        return f"{named(one, values)}, {one['quality']:.1f} for {cost_said(found, one, unit)}"
 
     def why(one):
         word, by = found["whys"][id(one)]
         return f"{priced(one)}: " + WHYS[word].format(
             by=by and priced(by), apart=points(matrix.APART), below=f"{below(one):.1f}",
             places=number(matrix.PLACES))
-    behind = below(row)
+    behind, cost = below(row), cost_said(found, row, unit)
     said = [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
                                                    f"{number(counted)} benchmarks"],
                          [", ".join(scored(column, one) for column, one in measures.items())],
                          ["the best of these choices"] if row is top else
                          [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
                           f"{named(top, values)}"]]},
-            {"cost": [[f"{cost_said(found, row)} a {RUN[role]}",
+            {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,
                        SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])]
                       if row["cost"] is not None else ["no cost"]]},
             {"choices": [[f"the best, then cheaper ones {points(matrix.APART)} apart, none more "
@@ -3508,9 +3550,10 @@ def models_screen(cfg, session, selected, providers):
     choice for its role at once (next_choice, take_choice), the owner's design of 5 Nov 2026, the
     last row a role was shown using that is no choice staying one of its bars and steps; ⏎ or a
     click opens the why (models_why) of the row the role uses, else of its first choice.  `p`
-    lists companies (company_list)."""
+    lists companies (company_list), and `u` counts every cost in the next unit (next_unit), the
+    screen opening in the last one (models_unit)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
-    here, top, note, kept = ("row", "orchestrate"), 0, "", {}
+    here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
     clock, rows = motion.Clock(page=True), [("row", role) for role in quality.ROLES]
     while True:
@@ -3534,19 +3577,19 @@ def models_screen(cfg, session, selected, providers):
         own = {**used, **{role: (name, effort, matrix.row_of(answer[role]["rated"],
                                                              cfg["models"][name], effort))
                           for role, (name, effort) in kept.items()}}
-        said = models_said(cfg, answer, used)
-        body, places = models_body(said, None if terminal.away() else here[1])
+        said = models_said(cfg, answer, used, unit)
+        body, places = models_body(said, unit, None if terminal.away() else here[1])
         cheaper, better = ("←", "→") if terminal.utf8() else ("<", ">")
-        keys = terminal.keys(f"{cheaper} cheaper", f"better {better}", "p models", "esc back",
-                             enter="why", move=("role",))
+        keys = terminal.keys(f"{cheaper} cheaper", f"better {better}", "p models", "u unit",
+                             "esc back", enter="why", move=("role",))
         read = ["", *models_read(compared, total, held.get("fetched_at"))]
         # where one-cell bars leave too little room these give way whole, in turn: the comparing
         # line, the `━` (the accent and the role's line still name the row in use), the whys
         for under, marked, why in ((read, True, True), ([], True, True), ([], False, True),
                                    ([], False, False)):
             room = page_room([*under, *note_lines(note)], keys) - len(body)
-            bars = models_bars(answer[here[1]], here[1], used[here[1]][2], own[here[1]][2], room,
-                               marked, why)
+            bars = models_bars(answer[here[1]], here[1], used[here[1]][2], own[here[1]][2], unit,
+                               room, marked, why)
             if len(bars) <= room:
                 break
         act, here, _, top = matrix_key(title, body + bars, places, rows, here, top, note, keys,
@@ -3558,7 +3601,7 @@ def models_screen(cfg, session, selected, providers):
         note = ""
 
         def around(card, keys):   # the role lines the card leaves room for, the question under them
-            lines, places = models_body(said, here[1])
+            lines, places = models_body(said, unit, here[1])
             first, room = matrix_page(lines, places, here, top, card, keys)
             shown = lines[first:first + room]
             terminal.frame(title, [*shown, *card], keys)
@@ -3572,12 +3615,14 @@ def models_screen(cfg, session, selected, providers):
                 note = take_choice(cfg, session, selected, providers, here[1], *found, around)
         elif act == "p":
             note, answer = company_list(cfg, title), None
+        elif act == "u":
+            unit = next_unit(unit)
         elif act == "enter":
             role = here[1]
             row = used[role][2] or next(iter(answer[role]["choices"]), None)
             key, why, page = None, ("why",), 0    # every line one row: ↑/↓ turn its pages
             while row and key != "back":
-                lines = models_why(answer[role], role, row)
+                lines = models_why(answer[role], role, row, unit)
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
                                              [why], why, page, "", "esc back")
