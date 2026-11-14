@@ -11,6 +11,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/contract"
 	"agentkit/internal/gc"
 	"agentkit/internal/handover"
 	"agentkit/internal/host"
@@ -37,6 +38,9 @@ func carry(args []string, out, errOut io.Writer) int {
 	}
 	if command == "lend" { // unlisted too
 		return lendHome(rest, out, errOut)
+	}
+	if command == "contract" { // unlisted too
+		return contract.Main(rest, out, errOut)
 	}
 	if command == "install" { // unlisted too: go/install.sh is what a person types
 		return install.Main(rest, out, errOut)

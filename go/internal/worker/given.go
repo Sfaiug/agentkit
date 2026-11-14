@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -23,6 +24,12 @@ func (e *LoginExpired) Error() string {
 // and the environment's; and the silence its event stream is stopped after, none for zero.
 type Given struct {
 	Context context.Context
+	// Model is the model the turn runs on where config.toml names none of it, nil for the entry
+	// its name names: the contract check's turns run each harness's own `[check]` model.
+	Model *config.Model
+	// Bare is a turn told its task alone, no role's rules opening it: the contract check's turns
+	// ask only what it proves.
+	Bare bool
 	// Account is the login of its provider the turn runs on, usage.TurnAccount's: "" for a provider's one.
 	Account string
 	Efforts map[string]string

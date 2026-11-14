@@ -169,6 +169,7 @@ test_key_config_screen_edits
 test_key_config_scope
 test_key_conflict_rows
 test_key_conflict_wait
+test_key_contract_verb
 test_key_cpu_never_holds_a_run
 test_key_credits_usage
 test_key_dash_led_attach
@@ -268,6 +269,7 @@ test_key_guarded_proofs_refused
 test_key_hand_in_executor
 test_key_hand_in_finding_rows
 test_key_hand_in_outside_turn
+test_key_harness_contract
 test_key_harness_gate_skips_offline_suite
 test_key_harness_gate_standing_fault
 test_key_harness_install_failure_handed_back
