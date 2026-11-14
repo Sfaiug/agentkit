@@ -121,6 +121,8 @@ class Switch(Sandbox):
         self.calls.append(pane.resolved(args))
         if args[0] in self.fail:
             return 1, "boom"
+        if args[-1] == "#{pane_id}":
+            return 0, "%7"      # the session's pane, as tmux names it
         if self.pid and args[-1] == "#{pane_id}\t#{pane_pid}":
             return 0, f"%7\t{self.pid}"
         if args[0] == "send-keys":     # a typed line stands in the composer until its Enter
@@ -243,8 +245,10 @@ class Switch(Sandbox):
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
                          "")
         self.assertEqual(config.load_session(self.cfg, "ship-api")["orchestrator"], "astra")
-        respawns = [args for args in self.calls if args[0] == "respawn-pane"]
-        self.assertEqual([args[args.index("-t") + 1] for args in respawns], ["=ship-api:"])
+        # its pane, named under the new name, is the one respawned
+        respawns = [args for args in self.calls if args[0] == "respawn-pane"
+                    or args[0] == "display-message" and args[-1] == "#{pane_id}"]
+        self.assertEqual([args[args.index("-t") + 1] for args in respawns], ["=ship-api:", "%7"])
         self.assertEqual([args for args in self.calls if "new-session" in args], [])
         self.assertIn("## Its conversation on opus", self.handover("ship-api"))
 

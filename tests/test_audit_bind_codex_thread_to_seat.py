@@ -205,7 +205,8 @@ assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
         self.seats[0]["name"] = "renamed"
         codex_plugin.capture(receipt_path, event)
         self.assertEqual(orch.records()["renamed"]["conversation"], "owned")
-        with patch.object(orch, "tmux_out", return_value=(0, "")) as tmux:
+        with patch.object(orch, "tmux_out", side_effect=lambda *args, **_kw: (
+                0, "%7" if args[-1] == "#{pane_id}" else "")) as tmux:
             args, _ = self.resume("renamed")
             respawn = next(c for c in tmux.call_args_list if c.args[0] == "respawn-pane")
             self.assertEqual(respawn.kwargs["socket"], "agentkit-test")

@@ -79,6 +79,8 @@ class SeatMove(Sandbox):
                 return 0, "%7"
             if args[-1] == "#{pane_dead}":               # its harness's pane
                 return 0, str(int(self.ended))
+            if args[-1] == "#{pane_id}":
+                return 0, "%7"
             if args[0] == "display-message":
                 return 0, SEAT
             if args[0] == "capture-pane":

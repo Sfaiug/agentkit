@@ -101,6 +101,8 @@ class UsualAccountFirst(unittest.TestCase):
             self.pane = "❯"
         if args[0] == "display-message" and args[-1] == "#{pane_tty}":
             return 0, str(self.tty)
+        if args[0] == "display-message" and args[-1] == "#{pane_id}":
+            return 0, "%7"
         return 0, ""
 
     def type_into(self, session, text, log, stale=lambda _: False, **_kw):

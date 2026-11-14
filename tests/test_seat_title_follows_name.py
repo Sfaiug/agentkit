@@ -67,6 +67,8 @@ class SeatTitle(Sandbox):
             self.seat = dict(self.seat, name=args[-1])
         elif args[0] == "capture-pane":
             return 0, self.pane
+        elif args[0] == "display-message" and args[-1] == "#{pane_id}":
+            return 0, "%7"
         elif args[0] == "send-keys":
             self.assertEqual(args[2], f"={self.seat['name']}:")
             if self.fail_send:
