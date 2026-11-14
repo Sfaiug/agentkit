@@ -1,19 +1,21 @@
 """tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of seven fake
 Gos, Python's ak with one thing more, is named by the kind of that one thing; the Home keeps
-every byte and modification time; a box's HOME starts as the home is; and where no box can be
-built, nothing runs."""
+every byte and modification time; a box's HOME starts as the home is; a stop while a box starts
+leaves nothing of it running; and where no box can be built, nothing runs."""
 
 import os
 from pathlib import Path
 import shlex
 import shutil
+import signal
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REPO, Home, boxable
+from fixtures.akbin import REPO, Home, _strays, boxable
 import shadow
 
 SHADOW = REPO / "tests" / "shadow.py"
@@ -106,6 +108,34 @@ class Shadowed(Shadowing):
                 more = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
                 code, found, said = self.shadow("--go", self.fake(name, GO.format(more)), env=env)
                 self.assertEqual((code, found), outcome, said)
+
+    @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
+    def test_a_stop_while_a_box_starts_leaves_nothing_running(self):
+        scratch = Path(tempfile.mkdtemp(dir=self.fakes))
+        # overlayfs leaves the `work` in each run's work folder unreadable
+        self.addCleanup(subprocess.run, ["chmod", "-R", "u+rwx", scratch])
+        for name in shadow.MOMENT:
+            (scratch / name).write_bytes(Path("/proc", name).read_bytes())
+        for stop in (signal.SIGTERM, signal.SIGINT):
+            with self.subTest(stop.name):
+                # a caller that goes on: the stop reaches it as a KeyboardInterrupt it catches
+                self.addCleanup(signal.signal, stop,
+                                signal.signal(stop, signal.default_int_handler))
+
+                def trace(frame, event, _):     # the stop, the moment the keeper's Popen returns
+                    if (frame.f_code is subprocess.Popen.__init__.__code__
+                            and frame.f_back.f_code is shadow.run.__code__):
+                        if event == "return":
+                            os.kill(os.getpid(), stop)
+                        return trace
+
+                sys.settrace(trace)
+                try:
+                    with self.assertRaises(KeyboardInterrupt):
+                        shadow.run("acme", "sleep", ["infinity"], self.home.path, scratch)
+                finally:
+                    sys.settrace(None)
+                self.assertEqual(_strays(self.home.root, self.home.tmux_dir), [])
 
     def test_a_box_starts_its_home_as_the_home_is(self):
         def acl(*entries):  # each (tag, permissions, id), as Linux keeps a POSIX ACL
