@@ -103,8 +103,10 @@ class NightReview(unittest.TestCase):
                             for run, repo, seat, at, sha, broke in rows])
 
     def stop(self, *seats):
+        """Each seat stopped by its owner, marked as `ak orch stop` marks it."""
         for name in seats:
-            self.home.write(f".agentkit/state/seat-{name}.json", {"stopped_at": time.time()})
+            self.home.write(f".agentkit/state/seat-{name}.json",
+                            {"stopped_at": time.time(), "closed_by_owner": True})
 
     def tick(self, failing=False):
         """One tick, whose night review says it failed only when `failing`; the runs after it."""
