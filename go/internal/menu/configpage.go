@@ -49,6 +49,7 @@ type Page struct {
 	Choices    []PageRow // the list open under the row the keys are on: none while it is shut
 	Typed      *string   // what is typed in the field open under the row the keys are on: nil while it is shut
 	At, Choice int       // the row the keys are on, and with a list open its choice
+	Arrived    bool      // the highlight came to the row since the last draw: its pages start from it
 	Lists      int       // how many lists the page has opened: the one open comes up as it is news
 	Away       bool      // the pointer is off every row: none lit, and no row's note said
 	Top        int       // the first line shown
@@ -102,15 +103,14 @@ func (f PageFrame) Hit(mouse terminal.Mouse) (row, choice int, ok bool) {
 
 // Step is the row the keys are on, its open list's choice and the first line shown, `step` on as
 // ↑/↓ and the wheel move, through an open list's choices alone and as far as there are: a row with
-// lines past the page that way turns to its next page before they leave it, and the pages of the
-// one they come to start from it (config_page's).
+// lines past the page that way turns to its next page before they leave it (config_page's).
 func (f PageFrame) Step(step int) (row, choice, top int) {
 	if first, last := span(f.lines, f.at); first >= 0 && (step > 0 && last >= f.Top+f.page || step < 0 && first < f.Top) {
 		return f.at.row, f.at.choice, pageTop(f.lines, f.at, f.Top+step*f.page, f.page)
 	}
 	var through []pageEntry // what the keys move through, each once: the open list's choices, else the rows
 	for _, line := range f.lines {
-		if (line.choice >= 0) == (f.at.choice >= 0) && (len(through) == 0 || through[len(through)-1] != line) {
+		if (line.choice >= 0) == (f.at.choice >= 0) && !slices.Contains(through, line) {
 			through = append(through, line)
 		}
 	}
@@ -119,10 +119,7 @@ func (f PageFrame) Step(step int) (row, choice, top int) {
 		return f.at.row, f.at.choice, f.Top
 	}
 	next := through[max(0, min(at+step, len(through)-1))]
-	if next == f.at {
-		return next.row, next.choice, f.Top
-	}
-	return next.row, next.choice, min(f.Top, slices.Index(f.lines, next))
+	return next.row, next.choice, f.Top
 }
 
 // span is the first and the last of `lines` that are `at`'s, -1 for none.
@@ -351,7 +348,11 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	}
 	// the key line and the note stay on the screen
 	page := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), ""))-len(under))
-	top := pageTop(lines, at, view.Top, page)
+	top := view.Top
+	if view.Arrived { // from where the row is laid out now, its own lines and arrows drawn
+		top = min(top, slices.Index(lines, pageEntry{view.At, -1}))
+	}
+	top = pageTop(lines, at, top, page)
 	shown := min(len(body), top+page)
 	title := "config · " + view.Name
 	return PageFrame{comeUp(s, Panel(s, title, view.Clock, append(slices.Clone(body[top:shown]), under...), keys), title, clock.Risen()),
