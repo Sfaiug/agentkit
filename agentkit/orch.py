@@ -90,7 +90,6 @@ POPUP_SIZE = "-w 80% -h 70%"          # the popup on a screen with room to spare
 POPUP_FULL = "-w 100% -h 100%"        # ... and on a phone, where the border is all it spares
 POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
-DIM = f"fg=#{terminal.colour('dim', tmux=True)}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
 # The tmux client a popup opened on, by name, handed to that popup alone: the window a seat
 # picked in it opens in (`attach`).  Nothing outside it holds the name (`tmux_env`, `warm.serve`).
@@ -2127,13 +2126,14 @@ def server_conf():
     job then puts the pane's style back, when no other client's popup is still up over it.
     """
     small, large = f"display-popup -E {POPUP_FULL}", f"display-popup -E {POPUP_SIZE}"
+    dim = f"fg=#{terminal.colour('dim', tmux=True)}"   # its border, and the session behind it
     if tmux_version() >= FLOATS:
-        border = f"-b rounded -S {shlex.quote(DIM)} -T {shlex.quote(POPUP_TITLE)}"
+        border = f"-b rounded -S {shlex.quote(dim)} -T {shlex.quote(POPUP_TITLE)}"
         handed = f'-e "{terminal.FEATURES_ENV}=$f" -e "{CLIENT_ENV}=$c"'
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "
                                         "f='#{client_termfeatures}'; " + tmux_text(
-                FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(DIM),
+                FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(dim),
                          "popup": popup, "command": shlex.quote(popup_command())}))
             for popup in (f"{small} {border} {handed}",
                           f"{large} {border} {handed} -e {terminal.PAD_ENV}={POPUP_PADDING}"))

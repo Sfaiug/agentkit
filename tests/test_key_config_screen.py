@@ -37,6 +37,7 @@ ROWS = ["Claude Code",
         "  Done check  on · the seat's reviewer",
         "  Machines    1 machine · Google Cloud off",
         "  Limits      review 3 rounds · executor 300 lines · orchestrator 50 lines",
+        "  Theme       ● black   ○ white",
         ""]
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # a seat's, on a mark
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   c config   esc leave"

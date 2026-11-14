@@ -1,11 +1,13 @@
 """The owner's two themes (12 Nov 2026), white and black: every colour ak draws is a role of one.
 
-A screen asks for a role, and the theme in force (`terminal.THEME`, set where the background is
-read) says its colour.  tests/test_boundaries.py counts an RGB written anywhere but here, so the
-next theme is a column of this table.
+A screen asks for a role, and the theme in force (`terminal.theme`) says its colour: the one
+config.toml names, `theme = "white"`, else the one the terminal's background fits.
+tests/test_boundaries.py counts an RGB written anywhere but here, so the next theme is a column
+of this table.
 """
 
 WHITE, BLACK = 0, 1     # each theme's column
+NAMES = {"black": BLACK, "white": WHITE}    # ... by its name, as config.toml and `c` say it
 ROLES = {
     "background": ("ffffff", "000000"),
     "surface": ("f4f6fa", "111519"),

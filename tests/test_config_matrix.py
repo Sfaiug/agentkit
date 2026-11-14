@@ -286,7 +286,7 @@ class Matrix(unittest.TestCase):
                             for line in tail), tail)
         # the build under the last row, nothing said of the highlighted model
         version = tail.index("Version 2816 · 2026-09-29")
-        self.assertEqual(tail[version - 2].split()[0], "Limits", tail)
+        self.assertEqual(tail[version - 2].split()[0], "Theme", tail)
         self.assertEqual(tail[version - 1:], ["", "Version 2816 · 2026-09-29", "",
                                               KEYS.strip()])
         self.assertEqual(lines[-1], KEYS)
@@ -324,18 +324,20 @@ class Matrix(unittest.TestCase):
 
     def test_there_is_always_exactly_one_orchestrator(self):
         screen = Screen(self)
+        # the marks on the models' rows: `Theme` marks a theme
+        marks = lambda lines: "\n".join(line for line in lines if "Theme" not in line).count("●")
         lines = screen.frame()
-        self.assertEqual("\n".join(lines).count("●"), 1)
+        self.assertEqual(marks(lines), 1)
         # another model's mark moves the seat (the switch, its question with it, faked)
         lines = screen.press(SPACE, lambda lines: "●" in row(lines, "fable")[1])
-        self.assertEqual("\n".join(lines).count("●"), 1)
+        self.assertEqual(marks(lines), 1)
         self.assertEqual(screen.record()["orchestrator"], "fable")
         before = screen.session.read_bytes()
         lines = screen.press(b" ")                        # the one there is cannot be unmarked
         self.assertIn("●", row(lines, "fable")[1])
         self.assertEqual(screen.session.read_bytes(), before)
         lines = screen.press(DOWN * 3 + SPACE, lambda lines: "●" in row(lines, "astra")[1])
-        self.assertEqual("\n".join(lines).count("●"), 1)
+        self.assertEqual(marks(lines), 1)
         self.assertEqual(screen.record()["orchestrator"], "astra")
         screen.leave()
 
@@ -506,12 +508,12 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(len(lines), 23)
         self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
         lines = screen.press(DOWN * 14,
-                             lambda lines: highlighted(lines).startswith("› Limits"))
+                             lambda lines: highlighted(lines).startswith("› Theme"))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 5, lambda lines: highlighted(lines) == "› Models")
+        lines = screen.press(UP * 6, lambda lines: highlighted(lines) == "› Models")
         self.assertEqual(highlighted(lines), "› Models")
         self.assertLessEqual(len(lines), 23)
         screen.leave()

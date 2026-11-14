@@ -55,9 +55,11 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 	}
 	defer painter.Forget()
 	nextKey := followSeat(session, keyboard)
+	drawn := -1 // the row the last draw highlighted
 	for {
 		var known bool
-		if view.Options, known = configOptions(c); !known {
+		screen := keyboard.Screen()
+		if view.Options, known = configOptions(c, screen); !known {
 			return false
 		}
 		if view.Row < len(c.Names) {
@@ -66,8 +68,11 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 				view.Column = max(0, view.Column-3)
 			}
 		}
+		if view.Marks() && view.Row != drawn { // come to `Theme`: onto the theme in force
+			view.Column = view.Options[view.Row-len(c.Names)].Marked
+		}
+		drawn = view.Row
 		view.Clock = time.Now().Format("15:04")
-		screen := keyboard.Screen()
 		frame := menu.ConfigFrame(screen, view)
 		view.Top = frame.Top
 		painter.Write(frame.Lines, screen)
@@ -91,6 +96,11 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			view.Row = max(0, view.Row-1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
 			view.Row = min(len(c.Names)+len(view.Options)-1, view.Row+1)
+		case (key.Name == "left" || key.Name == "right") && view.Marks():
+			view.Column = 0
+			if key.Name == "right" {
+				view.Column = len(view.Options[view.Row-len(c.Names)].Marks) - 1
+			}
 		case key.Name == "left" || key.Name == "right":
 			if view.Row < len(c.Names) {
 				columns := c.Columns(c.Names[view.Row])
@@ -106,7 +116,11 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			if mouse.Button&64 != 0 {
 				view.Row = max(0, min(len(c.Names)+len(view.Options)-1, view.Row+mouse.Notches))
 			} else if row, column, hit := frame.Hit(mouse); hit {
-				view.Row, view.Column = row, max(0, column)
+				if view.Row = row; column >= 0 || !view.Marks() {
+					view.Column = max(0, column)
+				} else if row != drawn { // onto `Theme` off its marks: the keys on the theme in force
+					view.Column = view.Options[row-len(c.Names)].Marked
+				}
 				if mouse.Released && mouse.Button&3 == 0 {
 					if row >= len(c.Names) {
 						key.Name = "enter"
@@ -128,6 +142,12 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			if !applyDefaults(&view, main, keyboard, painter) {
 				return false
 			}
+		}
+		if (key.Name == "enter" || key.Name == "space") && view.Marks() {
+			if err := config.SaveTheme(terminal.Themes[view.Column], seat.KeepConfigEfforts); err != nil {
+				view.Note = err.Error()
+			}
+			continue
 		}
 		if key.Name == "enter" && view.Row >= len(c.Names)+2 {
 			if !configPages[view.Options[view.Row-len(c.Names)].Name](keyboard, painter) {
@@ -218,7 +238,7 @@ var configPages = map[string]func(*terminal.Keyboard, *terminal.Painter) bool{
 // configOptions are the rows under the models, as menu.CONFIG_ROWS. Owner, 10 Nov 2026: "Remove
 // the weekly audit feature for now. Dont delete it, but remove it." `Weekly audit`, its value
 // menu.audit_value's, stood between Discord and Done check.
-func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
+func configOptions(c *matrix.Configuration, screen terminal.Screen) ([]menu.ConfigOption, bool) {
 	discord, cloud := menu.ConfigServices()
 	checker, on, err := config.DoneCheck()
 	check := ""
@@ -239,7 +259,8 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
 		{Name: "Done check", Value: check},
 		{Name: "Machines", Value: fmt.Sprintf("%d %s · Google Cloud %s", known, noun, cloud)},
-		{Name: "Limits", Value: limits}}, true
+		{Name: "Limits", Value: limits},
+		{Name: "Theme", Marks: terminal.Themes, Marked: slices.Index(terminal.Themes, screen.Theme())}}, true
 }
 
 // onOff is how a row says a setting's `on`, as `Weekly audit` and `Done check` do.

@@ -1,14 +1,35 @@
 package terminal
 
+import (
+	"slices"
+
+	"agentkit/internal/config"
+)
+
 // A theme is the owner's white or black (12 Nov 2026): every colour ak draws is a role of one.
-// White is in force where the terminal's background is light (Keyboard.Sense), black everywhere
-// else, the zero Screen's.
+// The one in force is the one config.toml names (inForce), else white where the terminal's
+// background is light (Keyboard.Sense), black everywhere else, the zero Screen's.
 type theme int
 
 const (
 	black theme = iota
 	white
 )
+
+// Themes is each theme's name, as config.toml and `c` say it (Python's themes.NAMES), in its place.
+var Themes = []string{black: "black", white: "white"}
+
+// inForce is the theme a screen draws in as it draws: the one config.toml names (config.Theme),
+// else `fits`, the one its terminal fits.
+func inForce(fits theme) theme {
+	if named := slices.Index(Themes, config.Theme()); named >= 0 {
+		return theme(named)
+	}
+	return fits
+}
+
+// Theme is the name of the theme the screen draws in.
+func (s Screen) Theme() string { return Themes[s.theme] }
 
 // roles is each role's colour in each theme, as agentkit/themes.py's ROLES.  A screen asks for a
 // role (styles), and tests/test_boundaries.py counts an RGB written anywhere but here, so the next
