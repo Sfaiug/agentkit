@@ -186,7 +186,8 @@ if args[:1] == ['app-server']:
                 elif method in ('thread/start', 'thread/resume') and loaded.is_set():
                     sid = params.get('threadId') or str(uuid.uuid4())
                     rollout(sid)
-                    opened[sid] = 'resume' if method.endswith('resume') else 'startup'
+                    if sid != stop.get('session_id'):   # 0.169 holds its launch's: no second start
+                        opened[sid] = 'resume' if method.endswith('resume') else 'startup'
                     result = {'thread': {'id': sid}}
                 elif method in ('thread/start', 'thread/resume'):
                     loaded.set()

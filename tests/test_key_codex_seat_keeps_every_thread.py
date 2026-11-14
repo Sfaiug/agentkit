@@ -3,7 +3,7 @@ check.  In its launch's thread A the owner asks for a retry button and a receipt
 reads the seat before they open B with /new and say only "thanks" there.  The plan holds the
 button alone, every line done.  The seat does not read done, `ak orch check` names the email from
 a workspace holding A and B once each, and a reopen resumes B; after /resume A and a prompt there
-the check still reads each once.  Black-box on `AK_BIN`, a fake model (fakeadapter.py), and its
+the check still reads each once, and after /resume B and a prompt a reopen resumes B.  Black-box on `AK_BIN`, a fake model (fakeadapter.py), and its
 `codex` tests/fixtures/codex-remote-fake.py as npm installs it: a script named `codex` whose app
 server runs a native `codex` under it, which fires the seat's hooks as 0.167 does.
 """
@@ -108,6 +108,11 @@ class CodexSeatKeepsEveryThread(unittest.TestCase):
         self.assertEqual(argv[argv.index("resume") + 1], b)
         self.assertEqual([self.type(text) for text in (f"/resume {A}", "Go on.")], [A, A])
         self.check()
+        # back in this launch's thread, which its Codex starts no second time: its prompt names it
+        self.assertEqual([self.type(text) for text in (f"/resume {b}", "Go on.")], [b, b])
+        self.assertEqual(self.home.tmux("kill-session", "-t", "=acme").code, 0)
+        argv = self.open("orch", "acme")
+        self.assertEqual(argv[argv.index("resume") + 1], b)
 
 
 if __name__ == "__main__":
