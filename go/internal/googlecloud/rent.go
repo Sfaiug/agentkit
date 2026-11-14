@@ -47,15 +47,20 @@ var refusals = []string{"QUOTA_EXCEEDED", "quotaExceeded", "ZONE_RESOURCE_POOL_E
 
 // rent is how renting a machine of wanted MiB a vCPU went, in a line, as Python's _rent: the best
 // offers in turn, each in the zones without a machine of listed first, as Google took both Spot
-// machines of one zone in 6 s on 30 Oct 2026; living what the cap leaves, money; on the meter by
-// name from before it is asked for until Google says it made none. A refusal of quota or stock
-// moves on, up to tries creates; any other ends the rent.
-func rent(ledger *run.Object, wanted int, cap, money float64, offered []Offer, listed []Machine) (string, error) {
+// machines of one zone in 6 s on 30 Oct 2026; none past a quota Google's limits hold (roomFor);
+// living what the cap leaves, money; on the meter by name from before it is asked for until Google
+// says it made none. A refusal of quota or stock moves on, up to tries creates; any other ends the
+// rent. skipped gains what each offer passed over for quota within the cap lacks, cheapest first.
+func rent(ledger *run.Object, wanted int, cap, money float64, offered []Offer, listed []Machine, skipped *[][]lack) (string, error) {
 	compute, token, err := login()
 	if err != nil {
 		return "", err
 	}
 	key, err := os.ReadFile(secret("google-cloud-ssh") + ".pub") // the public half of the key idle made
+	if err != nil {
+		return "", err
+	}
+	quotas, err := roomFor(compute, token, offered)
 	if err != nil {
 		return "", err
 	}
@@ -69,6 +74,11 @@ func rent(ledger *run.Object, wanted int, cap, money float64, offered []Offer, l
 		if seconds < ready {
 			said = fmt.Sprintf("rents nothing: €%.2f of €%.2f spent this month or held to the machines' ends "+
 				"leaves less than %d minutes of %s", cap-money, cap, ready/60, o.Name)
+			continue
+		}
+		if lacking := quotas.short(o); len(lacking) > 0 {
+			*skipped = append(*skipped, lacking)
+			said = quotas.String()
 			continue
 		}
 		var free, held []string
