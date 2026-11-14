@@ -55,6 +55,7 @@ RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause
 
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
 MOVING = "agentkit-update.lock"  # under config.TMP: held by each move of ~/agentkit
+PUT_BACK = "put-back"  # under config.TMP: the last put-back's `handed`, as a live check's (back.py)
 PENDING = "agentkit-install-pending"  # under config.STATE: ~/agentkit's install.sh owed
 FAILED = "refs/release/failed/"  # in ak's repository: a commit put back (back.py)
 SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began, ended]
@@ -775,13 +776,26 @@ def go_live(log, now=None):
     fails is offline, silent, and the next tick fetches again.  An install.sh that has not
     passed since the last pull runs again every tick, without a pull and offline too, until it
     passes; an origin/main that moved meanwhile is pulled and installed instead, so a merge
-    that fixes install.sh goes live.
+    that fixes install.sh goes live.  The last put-back's line (`put_back_hand_back`) is
+    delivered here too, each tick until a seat has it.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
     versions.finish(agentkit_dir())
     fetched = not _git("fetch", "--quiet", "origin", "main", timeout=FETCH_CAP)[0]
     live_tick(log, time.time() if now is None else now, fetched)
+    put_back = config.TMP / PUT_BACK
+    if put_back.exists():
+        with (config.TMP / MOVING).open("a") as lock:
+            try:
+                # the lock its put-back writes it under, so a later one's is never written over
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass    # a move holds it: a later tick tells
+            else:
+                if ((record := _handed(put_back))
+                        and _gate_hand_back(put_back, record, log, first=True)):
+                    log(f"handed agentkit's put-back of {record['commit'][:12]} back to fix")
     target = live_target() if fetched else ""
     # exit 1 is the target ahead of HEAD; anything else, a failed fetch above all, is not
     moved = bool(target) and _git("merge-base", "--is-ancestor", target, "HEAD")[0] == 1
@@ -1168,6 +1182,21 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
         log(f"handed agentkit's failed tests/live.sh at {commit[:12]} back to fix")
 
 
+def put_back_hand_back(commit, said):
+    """Hand back the put-back of `commit`, `said` as `ak back` said it: its record, written over
+    the last one's, which each tick delivers (`go_live`) and its fix's place is read from
+    (`first_place`).  Its caller holds `MOVING`, as the delivery does.  A record that cannot be
+    written costs its hand-back, never the put-back."""
+    try:
+        (config.TMP / PUT_BACK).mkdir(exist_ok=True)
+        _put(config.TMP / PUT_BACK / "handed", json.dumps(dict(
+            commit=commit, typed=None, told=False,
+            line=f"ak {said}. Fix main: your next agentkit run goes first in line, "
+                 "so make it the fix.")))
+    except OSError:
+        pass
+
+
 def _gate_hand_back(check, record, log, first=False):
     """Deliver a gate's saved line with the same composer receipt across ticks; with `first`,
     the seat told and when are recorded with it."""
@@ -1189,19 +1218,23 @@ def _gate_hand_back(check, record, log, first=False):
 
 
 def first_place(state):
-    """Whether that run goes first as the fix of a red that holds the install (`live_hand_back`).
+    """Whether that run goes first as the fix of a red that holds the install (`live_hand_back`)
+    or of a put-back (`put_back_hand_back`).
 
-    While the install lacks a held commit, the seat told of it owns one place: its earliest
+    While the install lacks a held commit, and while a put-back's record stands whatever the
+    install moves to, the seat told of it owns one place: its earliest
     agentkit run of any kind launched since it was told that has not ended.  Read from the
     runs as they stand, never written at a launch, so no refusal or stop can
     lose it; a record or session that cannot be read gives no place.
     """
     try:
         seat = transitions.launched_session(state)
-        since = min((at for _, commit, check in live_checks()
-                     if seat and (at := _told(check, seat)) is not None
-                     and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1),
-                    default=None)
+        told = [at for _, commit, check in live_checks()
+                if seat and (at := _told(check, seat)) is not None
+                and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1]
+        if seat and (at := _told(config.TMP / PUT_BACK, seat)) is not None:
+            told.append(at)
+        since = min(told, default=None)
         if since is None or not _contender(state, seat, since):
             return False
         mine, resolved = (state.get("started_at") or 0, state.get("run_id") or ""), {}
@@ -1218,8 +1251,8 @@ def first_place(state):
 
 
 def _told(check, seat):
-    """When that check's hand-back told that seat, or None: one whose record or seat's session
-    cannot be read told nobody, and takes no other hand-back's place with it."""
+    """When the hand-back in that folder told that seat, or None: one whose record or seat's
+    session cannot be read told nobody, and takes no other hand-back's place with it."""
     record = _handed(check)
     try:
         if (isinstance(record, dict) and isinstance(record.get("seat"), str)
