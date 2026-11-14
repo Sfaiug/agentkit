@@ -43,7 +43,8 @@ from pathlib import Path
 args, root = sys.argv[1:], Path({root!r})
 with open(root / "logs/limactl.log", "a") as log:
     log.write(json.dumps(args) + "\\n")
-machine, memory = root / "machine", root / "memory"
+machine = root / "machine"
+memory = root / "memory"
 status = machine.read_text() if machine.exists() else "Stopped"
 for arg in args:
     if arg.startswith("--memory="):
@@ -51,7 +52,7 @@ for arg in args:
 if args[:2] == ["autostart", "--help"]:
     sys.exit(0)
 if args[0] == "create":
-    lima = Path(os.environ["HOME"], ".lima/ak")
+    lima = Path(os.environ.get("LIMA_HOME", os.environ["HOME"] + "/.lima"), "ak")
     lima.mkdir(parents=True)
     (lima / "lima.yaml").write_text("")
     (lima / "ssh.config").write_text("Host lima-ak\\n")
