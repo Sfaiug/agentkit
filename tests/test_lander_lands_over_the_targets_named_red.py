@@ -92,14 +92,18 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
         self.assertIn(f"The target itself fails {WIDGET}: not this run's to mend.",
                       fixer.call_args.args[2])
 
+    def rejoin(self, *directories):
+        """Each delivery meets the moved target and rejoins the line (`deliver.rejoin_line`)."""
+        for directory in directories:
+            with record.record(directory) as state:
+                state["waiting_on"] = {key: state["waiting_on"][key] for key in ("line", "joined")}
+
     def test_a_fix_given_before_the_red_was_found_is_told_of_it(self):
         first, second, third = self.line()
         land.check_line(self.turn)      # the target green: the third's own red, behind the two
         self.assertEqual(self.wait(third)["fix"]["tests"], [ACME])
         self.advance(**{"broken.txt": "target breakage\n"})
-        for directory in (first, second):   # each delivery meets the moved target and rejoins
-            with record.record(directory) as state:     # (`deliver.rejoin_line`)
-                state["waiting_on"] = {key: state["waiting_on"][key] for key in ("line", "joined")}
+        self.rejoin(first, second)
         land.check_line(self.turn)
         self.assertEqual(self.red()["tests"], [WIDGET])
         self.assert_told(third)
@@ -151,6 +155,12 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
         self.assertEqual([self.wait(directory)["over"] for directory in (first, second)],
                          [[WIDGET]] * 2)
         self.assertEqual(self.wait(repair)["fix"]["tests"], [WIDGET])
+        self.assertNotIn("excused", self.wait(repair)["fix"])
+        # the target moves, and its red, found again, is still the repair's to mend
+        self.advance(**{"moved.txt": "moved\n"})
+        self.rejoin(first, second)
+        land.check_line(self.turn)
+        self.assertEqual(self.red()["tests"], [WIDGET])
         self.assertNotIn("excused", self.wait(repair)["fix"])
 
     def test_a_member_red_in_the_targets_red_behind_its_repair_waits_for_the_repair(self):

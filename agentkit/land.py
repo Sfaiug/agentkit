@@ -456,7 +456,7 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
         # A red that named no test blames nobody: on an earlier commit a piece's number holds
         # other tests, and six whole suites are not worth a history row.
         if again:
-            _excuse(turn, red["tests"])
+            _excuse(turn, red["tests"], suite)
             _blame_tip(directory, state, scratch, tip, suite, piece, again, log)
     else:
         log(f"{upstream} at {tip[:12]} fails {what} alone: the line waits, nobody is blamed; "
@@ -464,13 +464,19 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     return False
 
 
-def _excuse(turn, tests):
+def _excuse(turn, tests, command):
     """Name `tests`, the target's own red just found, `excused` in each parked fix the line's
     checks gave (`red_part`): one given before they were known, often on the very pass that
-    found them, tells its fixer of them as one given after does (`prompts.excused`)."""
-    for directory, state in line(turn):
+    found them, tells its fixer of them as one given after does (`prompts.excused`).  As there,
+    a stack that held a repair of `command`, the repair or a member behind it (`after`), answers
+    for them (`_check_members`)."""
+    members = line(turn)
+    repairs = {directory.name for directory, state in members
+               if (state.get("repair") or {}).get("command") == command}
+    for directory, state in members:
         fix = state["waiting_on"].get("fix") or {}
-        if "command" not in fix or fix.get("excused") == tests:  # a conflict, moved head or rule
+        if ("command" not in fix or fix.get("excused") == tests    # a conflict, moved head or rule
+                or repairs & {directory.name, *state["waiting_on"].get("after", ())}):
             continue
         with record.recovery_lock(directory):
             if record.read_state(directory) == state and not record.process_active(state):
