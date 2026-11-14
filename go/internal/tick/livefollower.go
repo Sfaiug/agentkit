@@ -35,18 +35,18 @@ var lasting *os.File
 // live follower, this process where no other holds the follower lock, which follows it and every
 // run handed to it after, each on a goroutine of its own, so a slow probe moves no other's times,
 // and ends once none is left: a process per merge held 6.4 GB of a 15 GB host (6 Nov 2026).  What
-// it logs goes to out.  Left is where it hands the run over, before it takes any lock: one the
-// merge checks leave to Python, and any on Windows, where every tick is Python's.  Failed is a
-// lock or the list of runs that cannot be had, said on errOut, as Python's raise ends it.
+// it logs goes to out.  Left is where it hands the run over, before it takes any lock: any on
+// Windows, where every tick is Python's, and one the merge checks leave to Python as its record and
+// home stand (leftBeforeLocks).  Failed is a lock or the list of runs that cannot be had, said on
+// errOut, as Python's raise ends it.
 func FollowLive(name string, out, errOut io.Writer) (left string, failed bool) {
-	record, err := run.Read(filepath.Join(run.Runs(), name))
-	if errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLimit) {
+	record, err := reading(filepath.Join(run.Runs(), name))
+	switch {
+	case err != nil:
 		return handover.Here(0), false
-	}
-	if record == nil || record.Str("repo") == "" {
+	case record == nil || record.Str("repo") == "":
 		return "", false // no project, so nothing proves it live (seat.AwaitingLive)
-	}
-	if runtime.GOOS == "windows" || pythons(record, epoch(time.Now())) {
+	case runtime.GOOS == "windows" || leftBeforeLocks(record):
 		return handover.Here(0), false
 	}
 	repo, say, shared := record.Str("repo"), func(line string) { fmt.Fprintln(out, line) }, &census{}
@@ -96,11 +96,21 @@ func FollowLive(name string, out, errOut io.Writer) (left string, failed bool) {
 	}
 }
 
+// leftBeforeLocks is whether the merge checks leave the run to Python as its record and home stand,
+// which a follower named for it says before it takes any lock: pythons, and those of mergeHealth's
+// hand-overs it makes before it reads the commit or probes, a history.db Go cannot write
+// (keepsHistory) and a live notice whose telling is Python's (handback.LiveLeft).  Any other ends
+// the run's follow when it comes, with nothing written.
+func leftBeforeLocks(record *run.Object) bool {
+	_, unkept := keepsHistory(false)
+	return pythons(record, epoch(time.Now())) || unkept != nil || handback.LiveLeft(record, nil)
+}
+
 // followLive follows one run's merge to live, Python's follow_live, under the run's live.lock, a
-// run whose lock another holds being that one's to follow, for as long as goesOn says.  Each round
-// reads the merge checks' verdict; on a pass, its ending is said where it carries the change gone
-// live, and a pass its seat need not hear now ends the follow.  A run the merge checks leave to
-// Python is left to the tick, errLeft with nothing written for it.
+// run whose lock another holds being that one's to follow: while it waits on its health, or while
+// a pass inside its window is owed to its seat now.  Each round reads the merge checks' verdict, and
+// a pass ends the follow unless its seat is still owed it now (passed).  A run the merge checks
+// leave to Python is left to the tick, errLeft with nothing written for it.
 func followLive(dir string, shared *census, say func(string)) error {
 	held, err := lock.Try(filepath.Join(dir, "live.lock"))
 	if errors.Is(err, lock.ErrHeld) {
@@ -111,69 +121,85 @@ func followLive(dir string, shared *census, say func(string)) error {
 	defer held.Close()
 	began := epoch(time.Now())
 	for {
-		record, census, on, err := goesOn(dir, began, shared)
-		if !on || err != nil {
+		record, err := reading(dir)
+		if record == nil || err != nil {
 			return err
 		}
+		at := time.Now()
 		if record.Get("finished_at") == nil {
-			time.Sleep(100 * time.Millisecond) // a merge precedes its ending; delivery must see that stable attempt
+			// a merge precedes its ending, which delivery must see: read meanwhile as ending as the
+			// follow began
+			pending := record.Copy()
+			pending.Set("finished_at", run.Float(began))
+			if !seat.AwaitingLive(pending, at) {
+				return nil
+			}
+			time.Sleep(100 * time.Millisecond)
 			continue
 		}
-		now := epoch(time.Now())
-		if pythons(record, now) {
+		census, err := shared.read()
+		if err != nil {
+			return err
+		}
+		owed, err := handback.LiveOwedNow(record, census)
+		finished, _ := record.Num("finished_at")
+		switch age := epoch(at) - finished; {
+		case err != nil:
+			return errLeft
+		case !seat.AwaitingLive(record, at) && !(owed && 0 <= age && age <= mergeWindow):
+			return nil
+		case pythons(record, epoch(at)):
 			return errLeft
 		}
 		each := &merge{name: filepath.Base(dir), pr: record.Str("pr"), record: record}
-		if err := verdict(each, record.Str("repo"), now, map[[2]string]probe{}, census, say, false); err != nil {
+		if err := verdict(each, record.Str("repo"), epoch(at), map[[2]string]probe{}, census, say, false); err != nil {
 			return err
 		}
 		if each.verdict == "passed" {
-			if record, census, on, err = goesOn(dir, began, shared); !on || err != nil {
+			if owed, err := passed(dir, shared, say); !owed || err != nil {
 				return err
-			}
-			carried, err := handback.CarriesLive(record, census)
-			if err != nil {
-				return errLeft
-			}
-			if carried && handback.Announce(dir, census, say) {
-				if _, _, on, err = goesOn(dir, began, shared); !on || err != nil {
-					return err
-				}
 			}
 		}
 		time.Sleep(liveInterval)
 	}
 }
 
-// goesOn is the run's record as it stands, the census, and whether its follow goes on: while the
-// run waits on its health, one not ended yet read as ending at began, or while a pass inside its
-// window is owed to its seat now.  ErrLeft where Go cannot read the run, or what its seat is owed,
-// as Python does.
-func goesOn(dir string, began float64, shared *census) (*run.Object, []*run.Object, bool, error) {
-	record, err := run.Read(dir)
-	if errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLimit) {
-		return nil, nil, false, errLeft
-	}
-	at := time.Now()
-	switch {
-	case record == nil:
-		return nil, nil, false, nil
-	case record.Get("finished_at") == nil:
-		pending := record.Copy()
-		pending.Set("finished_at", run.Float(began))
-		return record, nil, seat.AwaitingLive(pending, at), nil
+// passed is what follows a pass, as Python's follow_live does: the run's ending announced where it
+// carries the change gone live, whatever its window, as a probe begun inside it may pass after it;
+// and whether its seat is still owed the pass now, which the follow stays for.  ErrLeft where Go
+// cannot read either as Python does.
+func passed(dir string, shared *census, say func(string)) (bool, error) {
+	record, err := reading(dir)
+	if record == nil || err != nil {
+		return false, err
 	}
 	census, err := shared.read()
 	if err != nil {
-		return nil, nil, false, err
+		return false, err
 	}
-	owed, err := handback.LiveOwedNow(record, census)
+	carried, err := handback.CarriesLive(record, census)
 	if err != nil {
-		return nil, nil, false, errLeft
+		return false, errLeft
 	}
-	finished, _ := record.Num("finished_at")
-	age := epoch(at) - finished
-	return record, census, seat.AwaitingLive(record, at) || owed && 0 <= age && age <= mergeWindow, nil
+	if carried && handback.Announce(dir, census, say) {
+		if record, err = reading(dir); record == nil || err != nil {
+			return false, err
+		}
+	}
+	if owed, err := handback.LiveOwedNow(record, census); err == nil {
+		return owed, nil
+	}
+	return false, errLeft
+}
+
+// reading is the run's record as it stands, nil where there is none, and errLeft where it holds
+// what Go cannot keep.
+func reading(dir string) (*run.Object, error) {
+	record, err := run.Read(dir)
+	if errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLimit) {
+		return nil, errLeft
+	}
+	return record, nil
 }
 
 // A census is every run's record as a live follower's follows ask of it, Python's Census: read
