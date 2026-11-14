@@ -32,6 +32,7 @@ NOT_YET = "GraphQL: Pull Request is not mergeable (mergePullRequest)"
 GITHUB_504 = ('non-200 OK status code: 504 Gateway Timeout body: "{\\"message\\": \\"We '
               "couldn't respond to your request in time. Sorry about that. Please try "
               'resubmitting your request and contact us if the problem persists.\\"}"')
+IN_PROGRESS = "GraphQL: Merge already in progress (mergePullRequest)"
 
 
 def on_github(repo, state="open", head="f" * 40, base="main", mergeable=True):
@@ -858,6 +859,28 @@ class MergeStep(unittest.TestCase):
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
         self.assertEqual(seen, ["pr", "api", "pr"])
         self.assertTrue(record.read_state(run_dir)["merged"])
+
+    def test_a_merge_github_is_still_making_is_tried_again_while_the_pr_is_open(self):
+        # GitHub may still be making the merge a 5xx answered: it is waited for and the PR read
+        # again, and one still open is asked to merge again within the same retries
+        _, _, wt = make_repos(self.root)
+        lp, run_dir, _ = make_loop(self.root, wt)
+        seen = []
+
+        def fake_gh(cwd, *args, **kwargs):
+            seen.append(args[0])
+            if args[:2] == ("pr", "merge"):
+                return (1, IN_PROGRESS) if len(seen) == 1 else (0, "merged")
+            if args[0] == "api":
+                return 0, on_github(wt)
+            raise AssertionError(args)
+
+        with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
+            self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
+        self.assertEqual(seen, ["pr", "api", "pr"])
+        self.assertTrue(record.read_state(run_dir)["merged"])
+        self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
+                         [60])
 
     def test_a_merge_github_refused_before_it_saw_the_pushed_head_is_tried_again(self):
         # GitHub can answer `Pull Request is not mergeable` for a head pushed seconds before,
