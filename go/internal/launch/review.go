@@ -36,10 +36,11 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	}
 	bound, unbound := config.Bind()
 	_, rules := pick.Load()
-	if unbound != nil || elsewhere("") || len(bound.Workers) == 0 || !readable(slices.Collect(maps.Values(values))...) ||
+	if unbound != nil || ungated("") || seated() || len(bound.Workers) == 0 || !readable(slices.Collect(maps.Values(values))...) ||
 		values["--review"] != "" || !rules || !driverHere() || unreadRun() {
 		return 0, "", ErrPython
 	}
+	on := installed() // the ak whose preflight this is, read before it is
 	pull, unread := gh.View(url)
 	if errors.Is(unread, gh.ErrPython) {
 		return 0, "", ErrPython
@@ -48,22 +49,20 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	if err != nil {
 		return 0, "", err
 	}
+	admitted, err := admitReview(dir, "", flags)
+	if err != nil {
+		return 0, "", err
+	}
+	defer admitted.release()
 	log, unstopped := logger(dir, out), guarded(dir, out)
 	taken := ""
 	for _, step := range []func() error{
 		config.EnsureDirs,
 		func() error { return os.Mkdir(dir, 0o777) },
 		func() error { return os.WriteFile(filepath.Join(dir, "log.txt"), nil, 0o666) },
-		func() error {
-			// read under the lock its receipt is written in: of two launches at once, the second sees
-			// the first, as two reviews of one PR would each post and offer it
-			slots, err := holdSlots()
-			if err != nil {
-				return err
-			}
-			defer slots.Close()
-			taken = runOn(url)
-			return run.Create(dir, run.Capture(dir, "", values, flags, bound, ""))
+		func() (err error) {
+			taken, err = receiveReview(dir, url, run.Capture(dir, "", values, flags, bound, ""), admitted)
+			return err
 		},
 		func() error { recorded(dir); return nil },
 	} {
@@ -79,7 +78,7 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	}
 	if err := unstopped(func(record *run.Object) {
 		run.SetAll(record, "title", fmt.Sprintf("Review PR #%s: %s", pull.Number, pull.Title), "own_pr", false, "own_orchestrator", nil,
-			"own_orchestrator_effort", nil, "policy", run.Fields(numbersIn.Said()...))
+			"own_orchestrator_effort", nil, "policy", run.Fields(numbersIn.Said()...), "judged_on", on)
 	}); err != nil {
 		return 0, "", err
 	}
@@ -89,6 +88,31 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 		"done-when: AGENTS.md tests: command from the target, else the PR checkout",
 	}, "notification: verdict on GitHub; PASS with green checks offered to "+config.Inbox()+" and needs to Discord (stderr if unconfigured)", flags, log, out, errOut)
 	return code, "", err
+}
+
+// admitReview is a review's first poll for its slot, as a task's (admit), from the seat named, ""
+// for none: it holds the slots lock until its receipt claims it (receiveReview).  Told --bg,
+// nothing here follows it.
+func admitReview(dir, seat string, flags map[string]bool) (*admission, error) {
+	depth, _ := runDepth()
+	return admit(filepath.Base(dir), flags["--first"], seat, depth, !flags["--bg"])
+}
+
+// receiveReview writes a review's receipt as receive does, and is the run on its pull request that
+// has not ended, "" for none, read under the lock the receipt is written in: of two launches at once,
+// the second sees the first, as two reviews of one PR would each post and offer it.
+func receiveReview(dir, url string, receipt *run.Object, admitted *admission) (string, error) {
+	if admitted != nil {
+		taken := runOn(url)
+		return taken, admitted.claim(dir, receipt)
+	}
+	slots, err := holdSlots()
+	if err != nil {
+		return "", err
+	}
+	defer slots.Close()
+	taken := runOn(url)
+	return taken, run.Create(dir, receipt)
 }
 
 // unreadRun is whether a run's record holds what Go cannot read: it may be on this pull request.
