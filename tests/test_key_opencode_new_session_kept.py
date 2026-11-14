@@ -9,7 +9,8 @@ naming A and its record none, that goes to B before any prompt in A keeps A just
 stays on A through a prompt into beta's; one whose receipt an earlier plugin wrote naming
 beta's or one beta left reopens on none; a seat whose OpenCode's session API never answers
 follows all the same; a prompt in a further server, one a tool's shell or the seat's own server
-started, moves nothing.
+started, moves nothing.  A prompt's hook whose write into the receipt stalls until a later
+prompt's hook has ended leaves the receipt naming the later prompt's session.
 Black-box on `AK_BIN`, a fake model (fakeadapter.py), and in the seat's pane a fake `opencode`,
 two processes as 2.2.7's: its TUI and, a child of that, the `opencode serve --stdio` that runs
 the plugin under Node as OpenCode loads it and hands it a `session.inbox.enqueued` for each
@@ -20,6 +21,7 @@ follows and is left where it was the same.
 """
 
 import json
+import os
 import shlex
 import shutil
 import sqlite3
@@ -112,10 +114,13 @@ if (serve) {
 '''
 
 
-def arguments(receipt):
-    """The arguments of each process running under the launch whose receipt that is."""
+def arguments(receipt, held=()):
+    """The arguments of each process running under the launch whose receipt that is, but those
+    whose pid is `held`."""
     launch = f"AGENTKIT_OPENCODE_RECEIPT={receipt}".encode()
     for proc in Path("/proc").glob("[0-9]*"):
+        if int(proc.name) in held:
+            continue
         try:
             if launch in (proc / "environ").read_bytes().split(b"\0"):
                 yield (proc / "cmdline").read_bytes().split(b"\0")[:-1]
@@ -182,10 +187,8 @@ class Rig:
         self.assertEqual(done.code, 0, done.err)
         seat.show("opencode-prompt-pane.txt")
 
-    def prompt(self, session, text):
-        """The owner sends `text` into `session` in the seat's OpenCode, it is reported, and ak
-        has followed it: on a loaded host the hook goes on past the plugin's wait for it, its
-        follow the one process of the seat's launch naming the hook (hooks/seat-state.sh)."""
+    def say(self, session, text):
+        """The owner sends `text` into `session` in the seat's OpenCode, and it is reported."""
         before = self.heard.read_text().count("\n") if self.heard.exists() else 0
         with self.said.open("a") as out:
             out.write(json.dumps([session, text]) + "\n")
@@ -193,8 +196,15 @@ class Rig:
         while not self.heard.exists() or self.heard.read_text().count("\n") <= before:
             self.assertLess(time.monotonic(), until, "the seat's OpenCode never reported it")
             time.sleep(0.05)
+
+    def prompt(self, session, text, held=()):
+        """`say`, and ak has followed it: on a loaded host the hook goes on past the plugin's
+        wait for it, its follow the one process of the seat's launch naming the hook
+        (hooks/seat-state.sh), but one whose pid is `held`, which the test stalls."""
+        self.say(session, text)
+        until = time.monotonic() + 120
         hook = str(REPO / "hooks/seat-state.sh").encode()
-        while any(hook in argv for argv in arguments(self.receipt)):
+        while any(hook in argv for argv in arguments(self.receipt, held)):
             self.assertLess(time.monotonic(), until, "ak never ended following it")
             time.sleep(0.05)
 
@@ -340,6 +350,70 @@ class OpencodeReopenedSessionKept(Rig, unittest.TestCase):
         for session in (OWN, LEFT):
             self.prompt(session, "hello")
         self.assertEqual(self.resumed(), [A])
+
+
+def holders(path):
+    """The pid of each process but this one holding `path` open."""
+    want = os.stat(path)
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            fds = [] if int(proc.name) == os.getpid() else os.listdir(proc / "fd")
+        except OSError:
+            continue        # another user's, or gone meanwhile
+        for fd in fds:
+            try:
+                if os.path.samestat(os.stat(proc / "fd" / fd), want):
+                    yield int(proc.name)
+            except OSError:
+                pass        # closed meanwhile
+
+
+def ended(pid):
+    """Whether process `pid` is gone, a zombie its new parent has not reaped yet too."""
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[0]
+    except (OSError, IndexError):
+        return True
+    return state in ("Z", "X")
+
+
+@unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")
+class OpencodeLateReceiptWrite(Rig, unittest.TestCase):
+    """The receipt's `session.next` is a FIFO the test keeps full: the hook of the prompt into A
+    stalls writing it, the FIFO is set aside while the prompt into B is followed, and put back
+    and drained once that hook has ended, so A's write lands last."""
+
+    def test_the_receipt_names_the_later_prompt_s_session(self):
+        fifo, aside = self.receipt / "session.next", self.home.root / "held"
+        os.mkfifo(fifo)
+        pipe = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
+        self.addCleanup(os.close, pipe)
+        full = 0
+        for chunk in (4096, 1):
+            try:
+                while True:
+                    full += os.write(pipe, b"x" * chunk)
+            except BlockingIOError:
+                pass        # no room left for a write of the hook's
+        self.say(A, FIRST)
+        until = time.monotonic() + 120
+        while not (older := next(holders(fifo), None)):
+            self.assertLess(time.monotonic(), until, "the hook never began writing the receipt")
+            time.sleep(0.05)
+        os.rename(fifo, aside)
+        self.prompt(B, "thanks", held={older})
+        os.rename(aside, fifo)
+        while full:
+            full -= len(os.read(pipe, full))
+        while not ended(older):
+            self.assertLess(time.monotonic(), until, "the stalled hook never ended")
+            time.sleep(0.05)
+        # read without waiting: the FIFO, were it left as the receipt, holds what A's hook wrote
+        receipt = os.open(self.receipt / "session", os.O_RDONLY | os.O_NONBLOCK)
+        try:
+            self.assertEqual(os.read(receipt, 4096).decode(), B)
+        finally:
+            os.close(receipt)
 
 
 if __name__ == "__main__":
