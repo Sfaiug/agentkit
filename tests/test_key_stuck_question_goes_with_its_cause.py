@@ -16,7 +16,7 @@ SAID = "The parser still needs work."
 class StuckQuestionGoesWithItsCause(unittest.TestCase):
     def test_only_the_stuck_question_goes_when_the_seat_has_an_ending_of_its_own(self):
         for ending in ("wait", "plan", "question", "stuck"):
-            with self.subTest(ending=ending), Home(tmux_log=False) as home:
+            with self.subTest(ending=ending), Home() as home:
                 hooks = Hooks(home)
                 plan = home.write(".agentkit/state/plan-acme.md", "- [ ] fix the parser\n")
 

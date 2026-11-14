@@ -61,7 +61,7 @@ class OpenScreen(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.home = home = Home(tmux_log=False)
+        cls.home = home = Home()
         cls.addClassCleanup(home.close)
         akconfig.write(home, ["opus"])
         now = int(time.time())

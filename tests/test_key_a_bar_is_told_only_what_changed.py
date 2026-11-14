@@ -24,7 +24,7 @@ QUIET = 30         # no write for longer than a look has passed: what opening th
 class ToldOnlyWhatChanged(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.home = Home()
+        cls.home = Home(tmux_log=True)
         cls.addClassCleanup(cls.home.close)
         cls.seats = {name: Seat(cls.home, name) for name in ("acme", "beta", "gamma")}
         cls.menu = Terminal(cls.home, size=(100, 40))

@@ -28,7 +28,7 @@ EVENT = struct.Struct("iIII")
 
 class WhatEachRoleUsesPricesOnce(unittest.TestCase):
     def setUp(self):
-        self.home = Home(tmux_log=False)
+        self.home = Home()
         self.addCleanup(self.home.close)
         akconfig.write(self.home, {name: {"harness": "echo", "model": f"{name}-1"}
                                    for name in ("anvil", "bloom", "crown")},
