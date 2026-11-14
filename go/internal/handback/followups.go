@@ -189,9 +189,10 @@ func mainCheckout(repo string) string {
 // followupPlace is a follow-up's site, whatever its wording: the path it begins with, every
 // character as written, and its line, so `beta app/api.py:1`, `beta*/api.py:1` and
 // `*alpha/api.py:1` are not `alpha...`'s.  It reads Python's `.+?:\d+\b` by hand, with Unicode's
-// digits and word characters, which Go's regexp reads as ASCII's alone: `pkg:1α/api.py:1` is
-// whole.  Each program reads Unicode in its own version (Go's toolchain's; Python 3.11's is 14.0,
-// 3.13's 15.1), and the two part only on characters the older one has not assigned yet.
+// digits and word characters, which Go's regexp reads as ASCII's alone: a Greek letter after a
+// path's `pkg:1` keeps the path whole.  Each program reads Unicode in its own version (Go's
+// toolchain's; Python 3.11's is 14.0, 3.13's 15.1), and the two part only on characters the older
+// one has not assigned yet.
 func followupPlace(item string) string {
 	line, _, _ := strings.Cut(item, "\n")
 	for at, letter := range line {
