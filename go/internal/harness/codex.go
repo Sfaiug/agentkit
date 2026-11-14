@@ -6,7 +6,7 @@ package harness
 func init() {
 	plugins["codex"] = plugin{seats: true, looks: true, recorded: codexError, answer: codexAnswer, owns: codexOwns, owned: codexOwned,
 		found: codexFound, named: codexFound, typed: codexTyped, answered: codexAnswered, replies: codexReplies,
-		record: codexRecord, reconcile: codexReconcile, keys: []string{codexLaunch, "codex_history"}, kept: codexKept,
+		record: codexRecord, reconcile: codexReconcile, keys: []string{codexLaunch, "codex_history"},
 		fresh: "starts a new Codex conversation", receipt: codexLaunch, registerMCP: codexRegisterMCP,
 		launched: codexLaunched, retire: codexRetire, handed: codexHanded, moveReady: codexMoveReady, forget: codexForget,
 		opens: true, interactive: codexInteractive, serve: codexServeSeat, hookEvent: codexHookEvent,

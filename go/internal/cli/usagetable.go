@@ -27,8 +27,9 @@ func usageText(screen terminal.Screen, readings *usage.Readings, plans map[usage
 	if width >= 60 && !usageFits(widths, width) {
 		table[0] = usageShort
 		widths = usageWidths(table)
-		// model(s), provider and outlook give way first, an account's label kept whole
-		widths[1], widths[0], widths[11] = min(widths[1], 14), min(widths[0], max(12, readings.LabelCells())), min(widths[11], 18)
+		// model(s) and outlook give way first, a subscription's name kept whole: `Acme I…` would
+		// not say which one it is
+		widths[1], widths[11] = min(widths[1], 14), min(widths[11], 18)
 	}
 	var lines []string
 	if usageFits(widths, width) {

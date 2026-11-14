@@ -7,7 +7,8 @@ pass the target has on record; red through the whole ladder is the target's own 
 one repair as before.  A piece that named the tests failing it, red again alone, has those alone
 run there first: passing, each named as run, the red is the member's own; failing again, each
 named as run and as failed by a run that ended in a failing exit, the target's own, repaired at
-once; anything else proves nothing, and the piece runs.  Offline: local Git, the fixture's shell
+once, the line landing over them while the repair is under way; anything else proves nothing,
+and the piece runs.  Offline: local Git, the fixture's shell
 suites, fake launches and wakes, a stopped clock.
 """
 
@@ -223,7 +224,7 @@ class RedOnTheTip(unittest.TestCase):
 
     def test_the_failed_tests_red_on_the_tip_too_start_the_targets_repair_at_once(self):
         self.declare(NAMING)
-        self.member()
+        first = self.member()
         self.advance(**{"test_tax.sh": "exit 1\n"})
         self.clock()
         said = []
@@ -247,9 +248,10 @@ class RedOnTheTip(unittest.TestCase):
             self.assertEqual(self.red()["run"], self.prepared[0][0].name)
             # kept as the ladder climbed, whoever takes it: a PR's fixer notes no repair run
             self.assertEqual(self.red()["probes"], len(turns.TRANSIENT_BACKOFF) + 1)
-            land.check_line(self.turn)      # the repair holds the line from here
+            land.check_line(self.turn)      # the repair under way, the line lands over its red
         self.assertEqual((len(self.probes()), len(self.prepared)), (2, 1))
-        self.wake.assert_not_called()
+        self.assertEqual(self.wait(first)["over"], ["test_tax.sh"])
+        self.wake.assert_called_once_with(first.name, ANY)
 
     def ladder(self, suite):
         """Under `suite`, a member red on test_tax.sh, red on the tip too, where those tests

@@ -22,10 +22,10 @@ from fixtures.akbin import Home
 
 WIDE = {"COLUMNS": "200"}
 # (provider, account): (its row on `ak usage`, the plan its login is on)
-PLANS = {("anthropic", "default"): ("anthropic I", "max 20x"),
-         ("anthropic", "second"): ("anthropic II", "pro"),
-         ("openai", "default"): ("openai", "pro"),
-         ("google", "default"): ("google", "Google AI Pro")}
+PLANS = {("anthropic", "default"): ("Claude I", "max 20x"),
+         ("anthropic", "second"): ("Claude II", "pro"),
+         ("openai", "default"): ("ChatGPT", "pro"),
+         ("google", "default"): ("Gemini", "Google AI Pro")}
 
 
 class PlanPrices(unittest.TestCase):

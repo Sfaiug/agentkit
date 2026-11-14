@@ -234,10 +234,10 @@ class Limits(unittest.TestCase):
         on all of them stops whichever ran slowest instead of the one under test."""
         real = gitcall.tool_run
 
-        def tool_run(cmd, cwd=None, timeout=None, env=None):
+        def tool_run(cmd, cwd=None, timeout=None, env=None, **kw):
             if stops(self.root, cmd[0], cmd[1:]):
                 timeout = seconds
-            return real(cmd, cwd=cwd, timeout=timeout, env=env)
+            return real(cmd, cwd=cwd, timeout=timeout, env=env, **kw)
 
         with patch.object(gitcall, "tool_run", tool_run), patch.object(run, "tool_run", tool_run):
             yield

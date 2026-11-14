@@ -23,7 +23,7 @@ import signal
 import subprocess
 import time
 
-from . import config, menu, notify
+from . import config, notify
 
 ASK_EVERY = 3600    # seconds after an ask before the tick asks again
 ASK_TIMEOUT = 20    # the verb reads files on this machine; one that hangs answers nothing
@@ -165,8 +165,7 @@ def remind(cfg, now=None):
             when = ending(login, now, REMIND_WITHIN)
             if not when:
                 continue
-            label = config.account_label(cfg, provider, account,
-                                         menu.NAMES.get(provider, provider.title()))
+            label = config.account_label(cfg, provider, account)
             whose = f" {login['email']}" if login.get("email") else ""
             notify.page(f"login:{provider}:{account}:{date.fromtimestamp(now)}", f"{label} login",
                         f"{label} login{whose} {when}. Log in again from ak.")

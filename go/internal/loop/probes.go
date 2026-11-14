@@ -50,11 +50,12 @@ func round(stacks []*narrowingStack, floor, high int, command string, tests []st
 }
 
 // probe is whether just tests of command pass on the stack, run once on a suite helper as one piece
-// of that cost, Python's land._probe: passed where each was named as run (AK_RAN), not where the
-// run failed naming one of them both as run and as failed (AK_FAILED), and not proved where it
-// proved neither -- no helper took it, it hung, the helper lost it or had no room, a test was not
-// named as run.  It leaves its row in history and records nothing else, no flaky sighting either: a
-// red only a helper shows is no evidence (the step here decides).
+// of that cost, Python's land._probe: passed where each was named as run (AK_RAN) or as not there
+// (passesWhatItHolds), not where the run failed naming one of them both as run and as failed
+// (AK_FAILED), and not proved where it proved neither -- no helper took it, it hung, the helper
+// lost it, had no room or handed back no names, a test was not named as run.  It leaves its row in
+// history and records nothing else, no flaky sighting either: a red only a helper shows is no
+// evidence (the step here decides).
 func (s *narrowingStack) probe(command string, tests []string, cpus, memory float64) (passed, proved bool, err error) {
 	asked := clock()
 	away, err := helper.Probe(s.checkout.path, cpus, memory, command, tests)
@@ -74,12 +75,12 @@ func (s *narrowingStack) probe(command string, tests []string, cpus, memory floa
 	if err != nil || stopped != "" || code < 0 || helper.Gone(code) {
 		return false, false, err
 	}
-	named := away.Named("1/1", "ran")
-	if code == 0 {
-		return true, !slices.ContainsFunc(tests, func(test string) bool { return !slices.Contains(named, test) }), nil
+	named, failed, absent := away.Named("1/1", "ran"), away.Named("1/1", "failed"), away.Named("1/1", "not-there")
+	if named == nil || failed == nil || absent == nil {
+		return false, false, nil
 	}
-	failed := away.Named("1/1", "failed")
-	return false, slices.ContainsFunc(tests, func(test string) bool {
-		return slices.Contains(named, test) && slices.Contains(failed, test)
-	}), nil
+	if code != 0 && slices.ContainsFunc(tests, func(test string) bool { return slices.Contains(named, test) && slices.Contains(failed, test) }) {
+		return false, true, nil
+	}
+	return true, passesWhatItHolds(code, tests, named, failed, absent), nil
 }

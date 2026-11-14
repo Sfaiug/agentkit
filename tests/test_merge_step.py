@@ -9,6 +9,7 @@ to a merge to the target.
 from contextlib import ExitStack, nullcontext
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -770,7 +771,8 @@ class MergeStep(unittest.TestCase):
             self.assertTrue(landing(lp, deliver))
             self.assertTrue(place)
         self.assertTrue(lp.state["merged"])
-        self.assertEqual([name for name, _ in events], ["merge", "view", "checks", "merge"])
+        # the last read follows the merge that succeeded, for its revert line
+        self.assertEqual([name for name, _ in events], ["merge", "view", "checks", "merge", "view"])
 
     def test_a_merge_that_loses_the_base_race_retries_then_parks_waiting(self):
         # `gh pr merge` answering `Base branch was modified` is a race, not an ending:
@@ -816,7 +818,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(seen, ["pr", "api", "api", "pr"])
+        self.assertEqual(seen, ["pr", "api", "api", "pr", "api"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60, 300])
 
@@ -857,7 +859,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(seen, ["pr", "api", "pr"])
+        self.assertEqual(seen, ["pr", "api", "pr", "api"])
         self.assertTrue(record.read_state(run_dir)["merged"])
 
     def test_a_merge_github_is_still_making_is_tried_again_while_the_pr_is_open(self):
@@ -877,7 +879,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(seen, ["pr", "api", "pr"])
+        self.assertEqual(seen, ["pr", "api", "pr", "api"])
         self.assertTrue(record.read_state(run_dir)["merged"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60])
@@ -944,11 +946,51 @@ class MergeStep(unittest.TestCase):
                 with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
                     self.assertEqual(bool(landing(lp, lambda: run.do_merge(lp, URL, "origin/main"))),
                                      merged)
-                self.assertEqual(seen, ["pr", "api", "pr"] if merged else ["pr", "api"])
+                self.assertEqual(seen, ["pr", "api", "pr", "api"] if merged else ["pr", "api"])
                 state = record.read_state(run_dir)
                 self.assertEqual(bool(state.get("merged")), merged)
                 if not merged:
                     self.assertIn("PR head or target changed since PASS", state["merge_note"])
+
+    def test_the_revert_line_is_asked_for_once_whatever_github_answers(self):
+        # the merge is done: a read or update after it that times out, or fails while the
+        # allowance is spent, is logged, never asked again or waited out
+        real = gitcall.run_capped
+        spent = json.dumps({"resources": {name: {"remaining": 0, "reset": 2_000_000_000}
+                                          for name in ("core", "graphql")}})
+        for failing in ("read", "update"):
+            for answer in ("timeout", "spent"):
+                with self.subTest(failing=failing, answer=answer):
+                    root = self.root / f"{failing}-{answer}"
+                    root.mkdir()
+                    _, _, wt = make_repos(root)
+                    lp, run_dir, _ = make_loop(root, wt)
+                    asked = []
+
+                    def run_capped(cmd, **kwargs):
+                        if cmd[0] != "gh":
+                            return real(cmd, **kwargs)
+                        asked.append(cmd[1:3])
+                        if cmd[1:3] == ["pr", "merge"]:
+                            return subprocess.CompletedProcess(cmd, 0, "", "")
+                        if cmd[1:] == ["api", "rate_limit"]:
+                            return subprocess.CompletedProcess(cmd, 0, spent, "")
+                        if ("PATCH" in cmd) == (failing == "update"):
+                            if answer == "timeout":
+                                raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+                            return subprocess.CompletedProcess(cmd, 1, "", "API rate limit exceeded")
+                        return subprocess.CompletedProcess(cmd, 0, json.dumps(
+                            {"merged": True, "merge_commit_sha": "a" * 40, "body": "b"}), "")
+
+                    with patch.object(gitcall, "run_capped", side_effect=run_capped), \
+                            patch.object(gitcall._RUN_CONTEXT, "state", {"run_id": run_dir.name},
+                                         create=True), \
+                            patch.object(model_turns, "run_wait", side_effect=AssertionError("waited")):
+                        self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
+                    self.assertEqual(asked, [["pr", "merge"], ["api", "repos/fixture/repo/pulls/7"],
+                                             *([["api", "-X"]] if failing == "update" else [])])
+                    self.assertTrue(record.read_state(run_dir)["merged"])
+                    self.assertIn(f"WARN could not add how to revert it to {URL}", self.log_text(run_dir))
 
     def test_an_own_pr_merge_asks_again_after_a_github_5xx(self):
         _, _, wt = make_repos(self.root)

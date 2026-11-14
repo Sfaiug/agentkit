@@ -1,7 +1,6 @@
 package tick
 
 import (
-	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/logins"
 	"agentkit/internal/notify"
@@ -20,17 +19,15 @@ func (t *ticking) remindLogins() error {
 		return err
 	}
 	for _, provider := range kept.Keys() {
-		listed, err := config.Accounts(provider)
-		if err != nil {
-			return err
-		}
-		company, _ := harness.Company(provider)
 		for _, account := range kept.Dict(provider).Keys() {
 			login := kept.Dict(provider).Dict(account)
 			if ends, known := login.Num("ends"); !known || ends-epoch(now) > remindWithin {
 				continue
 			}
-			label := config.AccountLabel(listed, account, company)
+			label, err := harness.SubscriptionName(provider, account)
+			if err != nil {
+				return err
+			}
 			key := "login:" + provider + ":" + account + ":" + now.Format("2006-01-02")
 			if err := notify.Remind(key, label+" login", label+" "+logins.Ending(login, now)+". Log in again from ak.", t.log.line, t.log.errOut); err != nil {
 				return err

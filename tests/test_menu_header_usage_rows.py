@@ -88,8 +88,8 @@ class UsageRow(Sandbox):
         providers = {"meta": {"meters": [{**self.meter("weekly", 10), "elapsed": 50, "pace": -40}],
                               "resets": 0, "error": reason}}
         rendered = usage.render(self.cfg, providers, ["spark"])
-        self.assertIn(f"note: meta {reason}", rendered)
-        self.assertRegex(rendered, r"(?m)^meta +spark +90% ")
+        self.assertIn(f"note: Muse {reason}", rendered)
+        self.assertRegex(rendered, r"(?m)^Muse +spark +90% ")
         with patch.object(sys.stdout, "isatty", return_value=True), \
                 patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):

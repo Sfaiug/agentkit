@@ -36,7 +36,7 @@ func TestAKilledTurnCountsAMessageOnEitherEndOfItsSpan(t *testing.T) {
 			when, _ := time.Parse(time.RFC3339Nano, "2026-11-05T09:00:"+at)
 			os.Chtimes(filepath.Join(out, name), when, when)
 		}
-		_, counts, reported := claudeTurnCounts(out)
+		_, _, counts, reported := claudeTurnCounts(out)
 		if want := []Counts{{"claude-opus-5", [4]int64{2, 0, 0, 100}}}; !reported || !reflect.DeepEqual(counts, want) {
 			t.Errorf("message at %s: counts %v, want %v", case_.at, counts, want)
 		}
@@ -74,7 +74,7 @@ func TestAKilledTurnCountsALineHoldingALoneSurrogate(t *testing.T) {
 			when, _ := time.Parse(time.RFC3339, at)
 			os.Chtimes(filepath.Join(out, name), when, when)
 		}
-		_, counts, reported := claudeTurnCounts(out)
+		_, _, counts, reported := claudeTurnCounts(out)
 		if want := []Counts{{"claude-opus-5", case_.want}}; !reported || !reflect.DeepEqual(counts, want) {
 			t.Errorf("transcript %v: counts %v, want %v", case_.transcript, counts, want)
 		}

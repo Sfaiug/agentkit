@@ -353,8 +353,12 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
     if opts["--exec"] and opts["--review"] and not run_record.review_off(state):
         review_providers(cfg, opts["--exec"], opts["--review"])
-    providers = collect_usage(cfg)
-    order = ([] if run_record.review_off(state) else
+    # A green delivery whose saved pair stands runs no model: it reads no usage and asks no
+    # harness, as `usage.readiness` alone took 20 s beside a line's check (14 Nov 2026).
+    delivering = (prior and state["executor"] and review_pass(state, cfg)
+                  and landing.green_delivery(state.get("waiting_on") or {}))
+    providers = None if delivering else collect_usage(cfg)
+    order = ([] if delivering or run_record.review_off(state) else
              ready_order(cfg, providers, reviewers if reviewers is not None else workers,
                          role="reviewer", repo=repo))
     want_review = False if run_record.review_off(state) else opts["--review"]
@@ -2053,7 +2057,12 @@ def drive(cfg, run_dir, opts, log, prior=None, job=None):
     if existing is not None and existing.get("state") == "stopped":
         return 1  # a stop landed before this attempt started; the record stands as left
     if unit := own_unit(existing or {}):
-        yield_cpu(unit, log)
+        if landing.green_delivery((existing or {}).get("waiting_on") or {}):
+            # a delivery from its first step (`deliver.landing_weight`): idle, one took 128 s
+            # from its wake to its merge beside a line's check, 38 s beside none (14 Nov 2026)
+            set_property(unit, "CPUWeight", host.CPU_WEIGHT_MAX, log)
+        else:
+            yield_cpu(unit, log)
     sampler = history.Sampler(run_dir.name, log=log)
     stop_after_finally = False
     sampler.start()

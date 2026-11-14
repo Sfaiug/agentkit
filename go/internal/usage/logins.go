@@ -2,8 +2,8 @@ package usage
 
 import (
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
-	"agentkit/internal/terminal"
 )
 
 // asked is that provider's reading, Python's usage._probe_gently: its one login asked gently, or
@@ -75,25 +75,14 @@ func (r *Readings) logins() []login {
 		prov := object(r.providers.Get(name))
 		accounts, ok := prov.Get("accounts").(*run.Object)
 		if !ok || len(accounts.Keys()) == 0 {
-			found = append(found, login{name, name, "", prov})
+			label, _ := harness.SubscriptionName(name, "")
+			found = append(found, login{label, name, "", prov})
 			continue
 		}
-		listed, _ := config.Accounts(name)
 		for _, account := range accounts.Keys() {
-			found = append(found, login{config.AccountLabel(listed, account, name), name, account, object(accounts.Get(account))})
+			label, _ := harness.SubscriptionName(name, account)
+			found = append(found, login{label, name, account, object(accounts.Get(account))})
 		}
 	}
 	return found
-}
-
-// LabelCells is how wide the widest account's label is, which its row keeps whole: `acme I…`
-// would not say which one it is.
-func (r *Readings) LabelCells() int {
-	widest := 0
-	for _, each := range r.logins() {
-		if each.label != each.provider {
-			widest = max(widest, terminal.Cells(each.label))
-		}
-	}
-	return widest
 }

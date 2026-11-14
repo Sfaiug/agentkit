@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -45,6 +46,15 @@ func claudeLogout(_ []string, out, errOut io.Writer) int {
 	}
 	program := Binary("claude")
 	if program == "" {
+		// bash, finding no claude on $PATH it may run, starts the first there all the same
+		for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+			if info, err := os.Stat(filepath.Join(dir, "claude")); err == nil && !info.IsDir() {
+				program = filepath.Join(dir, "claude")
+				break
+			}
+		}
+	}
+	if program == "" {
 		fmt.Fprintln(errOut, "claude.sh logout: claude is not installed")
 		return 127
 	}
@@ -54,9 +64,25 @@ func claudeLogout(_ []string, out, errOut io.Writer) int {
 		return strings.HasPrefix(pair, variable+"=")
 	})
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, out, errOut
-	if err := cmd.Run(); cmd.ProcessState == nil {
+	err = cmd.Run()
+	if errors.Is(err, syscall.ENOEXEC) {
+		// a file the system starts no program from, bash reads as its own script, as it reads one
+		// named to it, and refuses with 126 where it cannot read it or finds it binary
+		script := exec.Command("/bin/bash", program, "auth", "logout")
+		script.Env, script.Stdin, script.Stdout, script.Stderr = cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr
+		cmd, err = script, script.Run()
+	}
+	// the status bash gives it: 127 for a file it names that is not there, its interpreter, 126
+	// for any other that does not start, 128 and the signal's number for one a signal ends
+	if cmd.ProcessState == nil {
 		fmt.Fprintf(errOut, "claude logout: %s\n", err)
+		if errors.Is(err, syscall.ENOENT) {
+			return 127
+		}
 		return 126
+	}
+	if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return 128 + int(status.Signal())
 	}
 	return cmd.ProcessState.ExitCode()
 }

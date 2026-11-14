@@ -51,7 +51,8 @@ func TestModelTicksRestoreBytesAndNeverMaterializeOmittedDefaults(t *testing.T) 
 				t.Fatal(err)
 			}
 			entry := root.get("models").(*table).get("model-one").(*table)
-			want := map[string]any{"harness": "acme", "model": "m1", "effort": "high", "provider": "fuel"}
+			// its id reads M1: the name it is listed under is kept
+			want := map[string]any{"harness": "acme", "model": "m1", "effort": "high", "provider": "fuel", "label": "Model One 2"}
 			if !reflect.DeepEqual(plain(entry), want) {
 				t.Fatalf("added %v", plain(entry))
 			}

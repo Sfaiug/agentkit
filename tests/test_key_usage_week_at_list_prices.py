@@ -24,7 +24,7 @@ from test_key_week_price import BOARD, METER_READINGS, SEAT_USAGE
 
 NOW = time.time()
 HOUR, DAY = 3600, 86400
-PLANS = {"default": "Max", "second": "Max", "third": "Pro"}     # acme I, II and III
+PLANS = {"default": "Max", "second": "Max", "third": "Pro"}     # Acme I, II and III
 WIDE = {"COLUMNS": "200"}
 
 
@@ -43,7 +43,7 @@ class UsageWeekAtListPrices(unittest.TestCase):
 
     def usage(self, window=7 * DAY):
         """`ak usage`'s text and `ak usage --json`'s acme logins, each login's shared meter
-        `window` seconds long.  Max's week is read off acme I alone: from 10 to 40 for 603.13
+        `window` seconds long.  Max's week is read off Acme I alone: from 10 to 40 for 603.13
         million input tokens at Anvil's listed dollar a million, $2010.43 a whole window; Pro
         has no reading."""
         for account in PLANS:
@@ -67,15 +67,15 @@ class UsageWeekAtListPrices(unittest.TestCase):
     def test_each_login_of_a_plan_with_a_week_says_it_in_whole_listed_dollars(self):
         out, accounts = self.usage()
         self.assertAlmostEqual(accounts["second"]["week_listed_usd"], 2010.4333, places=3)
-        for label in ("acme I", "acme II"):
+        for label in ("Acme I", "Acme II"):
             self.assertEqual(meters.cell(out, label, "holds"), "week ≈ $2010 at list prices")
-        self.assertEqual(meters.cell(out, "acme III", "holds"), "-")
-        for label in ("acme I", "acme II", "acme III"):
+        self.assertEqual(meters.cell(out, "Acme III", "holds"), "-")
+        for label in ("Acme I", "Acme II", "Acme III"):
             self.assertEqual(meters.cell(out, label, "a month"), "200")
 
     def test_a_window_of_thirty_days_says_its_length(self):
         out, _ = self.usage(window=30 * DAY)
-        self.assertEqual(meters.cell(out, "acme I", "holds"), "30d ≈ $2010 at list prices")
+        self.assertEqual(meters.cell(out, "Acme I", "holds"), "30d ≈ $2010 at list prices")
 
     def test_usage_json_counts_no_week_in_tokens(self):
         _, accounts = self.usage()

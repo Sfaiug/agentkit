@@ -29,8 +29,10 @@ var plainID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // or not.  To keep one (Followed.Keep) is to add it to those the seat left, unless it is among them
 // already, and move nothing.  The seat's
 // lock, which a delivery holds while it types the very prompt a hook may report, is never taken:
-// its name holds under `claims`.  False where Go does not carry it, with nothing written.
-func Claim(launched string, to harness.Followed, pid int) bool {
+// its name holds under `claims`.  False where Go does not carry it, with nothing written.  first,
+// where given, runs right before the move is written, once its record has read under its lock,
+// and false writes none: what its hook writes before the move, written only where Go carries it.
+func Claim(launched string, to harness.Followed, pid int, first func() bool) bool {
 	id, named := to.Conversation.(string)
 	file, filed := to.Transcript.(string)
 	if !named || !filed || !plainID.MatchString(id) || strings.HasPrefix(id, "-") {
@@ -43,7 +45,7 @@ func Claim(launched string, to harness.Followed, pid int) bool {
 	state := filepath.Join(config.Home(), "state")
 	carried := true
 	claims(state, func() error {
-		carried = claim(state, launched, to, id, file, pid)
+		carried = claim(state, launched, to, id, file, pid, first)
 		return nil
 	})
 	return carried
@@ -56,7 +58,7 @@ func claims(state string, fn func() error) error {
 }
 
 // claim is Claim's decision and its write, under `claims`.
-func claim(state, launched string, to harness.Followed, id, transcript string, pid int) bool {
+func claim(state, launched string, to harness.Followed, id, transcript string, pid int, first func() bool) bool {
 	name, fields, err := config.ResolveSession(launched)
 	if err != nil {
 		return true
@@ -93,7 +95,7 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 	}
 	filed := ""
 	if to.Filed != nil {
-		filed = to.Filed(id)
+		filed = to.Filed(fields, id)
 	} else {
 		there := map[string]any{}
 		maps.Copy(there, fields)
@@ -133,7 +135,8 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 		found := false
 		err := update(state, name, func(data *run.Object) bool {
 			found = true
-			return moved(data)
+			// only once the record reads under its lock: one Go cannot write hands over unlatched
+			return (first == nil || first()) && moved(data)
 		})
 		next, _, unresolved := config.ResolveSession(name)
 		if found || err != nil || unresolved != nil || next == name {

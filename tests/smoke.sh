@@ -302,6 +302,9 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
 
     meters = {"claude": [meter("weekly_all", 8), meter("weekly_scoped", 9)],
               "codex": [meter("weekly", 45)]}
+    # Claude's usage answer counts the login's resets, as adapters/claude.sh's does, here none:
+    # `reset-status` is Codex's alone
+    counted = {"claude": {"resets": 0, "reset_kinds": []}}
     calls = []
 
     def adapter(argv, **kwargs):
@@ -322,7 +325,8 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
             return subprocess.CompletedProcess(argv, 0, json.dumps(
                 {"provider": "google", "meters": [meter("gemini-weekly", 8)], "error": None}))
         assert harness in meters and verb in ("usage", "reset-status", "reset"), argv
-        data = ({"meters": meters[harness]} if verb == "usage" else {"available": 2}
+        data = ({"meters": meters[harness], **counted.get(harness, {})} if verb == "usage"
+                else {"available": 2}
                 if verb == "reset-status" else {"code": "reset", "available": 1})
         return subprocess.CompletedProcess(argv, 0, json.dumps(data))
 
@@ -2441,11 +2445,11 @@ HOME="$PHOME" COLUMNS=140 ak usage >"$UT" 2>&1
 WHEN='(-|[A-Za-z]+ [0-9][0-9]:[0-9][0-9])'
 if grep -qi 'week elapsed' "$UT" && grep -q 'session  *resets held  *headroom  *budget  *outlook' "$UT" &&
    grep -q ' left  *holds  *a month  *resets  *week elapsed' "$UT" && ! grep -q 'this week' "$UT" &&
-   grep -qE "^anthropic .*fable, opus +6% +- +- +$WHEN +86% +- +0 +0\.1 +[0-9]+\.[0-9] slack +runs out in ~1d$" "$UT" &&
-   grep -qE "^openai +astra +37% +- +- +$WHEN +45% +- +0 +0\.4 +[0-9]+\.[0-9] slack +runs out in ~2d$" "$UT" &&
-   grep -qE '^meta +spark +- +- +- +- +- +- +0 +- +unknown +unknown$' "$UT" &&
+   grep -qE "^Claude .*fable, opus +6% +- +- +$WHEN +86% +- +0 +0\.1 +[0-9]+\.[0-9] slack +runs out in ~1d$" "$UT" &&
+   grep -qE "^ChatGPT +astra +37% +- +- +$WHEN +45% +- +0 +0\.4 +[0-9]+\.[0-9] slack +runs out in ~2d$" "$UT" &&
+   grep -qE '^Muse +spark +- +- +- +- +- +- +0 +- +unknown +unknown$' "$UT" &&
    grep -q '^pick order: opus, astra, spark, grok$' "$UT" && ! grep -qw sol "$UT"; then
-  ok "8e ak usage in words: $(grep '^openai ' "$UT")"
+  ok "8e ak usage in words: $(grep '^ChatGPT ' "$UT")"
 else
   no "8e ak usage table"; sed 's/^/      /' "$UT" | head -6
 fi
@@ -5282,7 +5286,7 @@ jq -e '.state == "pass" and .verdict == "PASS" and .executor == "echo" and .revi
   "$EHOME/.agentkit/runs/$ERID/run.json" >/dev/null || ECHORC=1
 # (c) its meter is in the table, and (d) the update plan names it and what it cannot do
 akecho usage >"$WORK/echo-usage.txt" 2>&1 || ECHORC=1
-grep -qE '^test +echo +58% ' "$WORK/echo-usage.txt" || ECHORC=1
+grep -qE '^Test +echo +58% ' "$WORK/echo-usage.txt" || ECHORC=1
 # a PATH with none of the six harnesses on it: the plan still names all seven
 (PATH="$PYBIN:/usr/bin:/bin"; akecho update --dry-run) >"$WORK/echo-update.log" 2>&1 || ECHORC=1
 grep -q '^echo 1\.0.*cannot be reverted: it is a fixture' "$WORK/echo-update.log" || ECHORC=1
@@ -5330,7 +5334,7 @@ else
   for log in echo-orch echo-run echo-update echo-menu; do
     [ ! -f "$WORK/$log.log" ] || tail -3 "$WORK/$log.log" | sed "s/^/      $log: /"
   done
-  grep -E '^(test|echo|muse) ' "$WORK/echo-usage.txt" "$WORK/echo-update.log" 2>/dev/null | sed 's/^/      /'
+  grep -E '^(Test|echo|muse) ' "$WORK/echo-usage.txt" "$WORK/echo-update.log" 2>/dev/null | sed 's/^/      /'
 fi
 
 # --- 46b: Grok Build plugs in the same way, with no meter -----------------
@@ -5495,7 +5499,7 @@ akoc usage --json >"$WORK/oc-usage.json" 2>&1 || OCHRC=1
 jq -e '.providers.mimo.none == true and .providers.mimo.error == null
        and .providers.mimo.budget == 1.0' "$WORK/oc-usage.json" >/dev/null || OCHRC=1
 akoc usage >"$WORK/oc-usage.txt" 2>&1 || OCHRC=1
-grep -qE '^mimo +mimo ' "$WORK/oc-usage.txt" || OCHRC=1
+grep -qE '^MiMo +mimo ' "$WORK/oc-usage.txt" || OCHRC=1
 grep -q '1\.0 in step' "$WORK/oc-usage.txt" || OCHRC=1
 (cd "$WORK" && HOME="$OCHOME" PYTHONPATH="$REPO" python3 - >"$WORK/oc-menu-usage.log" 2>&1 <<'PY'
 from agentkit import config, menu

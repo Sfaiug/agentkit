@@ -106,9 +106,9 @@ func HasModel(name string) (bool, error) {
 }
 
 // AddProvider puts provider in the config as the shipped default has it, listing account alone,
-// with the shipped default's first model of it (ShippedModel) on its harness's id, at the effort the
-// shipped default gives it or the nearest of levels.
-func AddProvider(provider, account, id string, levels []string, keep func() error) error {
+// with the shipped default's first model of it (ShippedModel) on its harness's id, listed as label,
+// at the effort the shipped default gives it or the nearest of levels.
+func AddProvider(provider, account, id, label string, levels []string, keep func() error) error {
 	harness, name, err := ShippedModel(provider)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func AddProvider(provider, account, id string, levels []string, keep func() erro
 		entry.put("accounts", listed([]string{account}))
 		root.get("providers").(*table).put(provider, entry)
 		effort, _ := shipped.get("models").(*table).get(name).(*table).get("effort").(string)
-		root.get("models").(*table).put(name, modelEntry(harness, id, nearestEffort(effort, levels), provider))
+		root.get("models").(*table).put(name, modelEntry(harness, id, label, nearestEffort(effort, levels), provider))
 		return nil
 	}, keep)
 }
@@ -157,7 +157,7 @@ func Runs(harness, id, effort string) ([]string, error) {
 func TakeIn(model, harness, id, effort, provider, label, mode string, keep func() error) error {
 	return saveSubscriptions(func(root *table) error {
 		name := (&ModelTicks{}).shortName(root.get("models").(*table), model)
-		entry := modelEntry(harness, id, effort, provider)
+		entry := modelEntry(harness, id, model, effort, provider)
 		takeIn(root.get("providers").(*table), entry, Listed{provider, label, mode})
 		root.get("models").(*table).put(name, entry)
 		return nil
@@ -222,11 +222,17 @@ func providerTable(root *table, provider string) (*table, error) {
 	return nil, fmt.Errorf("no provider %q; the config has %s", provider, strings.Join(present(providers), ", "))
 }
 
-func modelEntry(harness, id, effort, provider string) *table {
+// modelEntry is the entry that runs harness's model id, which its listing names label
+// (config.model_entry): label kept in it where it names the model (ModelLabel) otherwise than the
+// id, as only an add has the listing at hand.
+func modelEntry(harness, id, label, effort, provider string) *table {
 	entry := newTable()
 	entry.put("harness", harness)
 	entry.put("model", id)
 	entry.put("effort", effort)
 	entry.put("provider", provider)
+	if ModelLabel(harness, id, label) != ModelLabel(harness, id, "") {
+		entry.put("label", label)
+	}
 	return entry
 }

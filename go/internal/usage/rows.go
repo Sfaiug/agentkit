@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 )
@@ -60,7 +61,8 @@ func (r *Readings) Notes(dim func(string) string) []string {
 		}
 		gap, _ := run.Num(minus(week.Get("used"), own.Get("used")))
 		// the same polarity as the column; the gap stays in points of the week spent
-		notes = append(notes, fmt.Sprintf("%s: weekly_all %s left, %s %s left, gap %s", name, percent(left(week)),
+		provider, _ := harness.ProviderName(name)
+		notes = append(notes, fmt.Sprintf("%s: weekly_all %s left, %s %s left, gap %s", provider, percent(left(week)),
 			own.Str("name"), percent(left(own)), strconv.FormatFloat(gap, 'g', 6, 64)))
 		type budget struct {
 			value float64
@@ -88,8 +90,9 @@ func (r *Readings) Notes(dim func(string) string) []string {
 		}
 	}
 	for _, name := range names {
+		provider, _ := harness.ProviderName(name)
 		for _, note := range object(r.providers.Get(name)).List("notes") {
-			notes = append(notes, name+": "+text(note))
+			notes = append(notes, provider+": "+text(note))
 		}
 	}
 	for _, each := range r.logins() {

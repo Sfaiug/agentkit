@@ -46,10 +46,19 @@ func (c *Configuration) Uses(answer map[string]*quality.Said) map[string]Use {
 	return used
 }
 
-// Rank is names, configured models, in the order Python's matrix.rank places them for role off
-// each one's row (rows, as RowOf finds it): the role's pick among these rows first, then the rest
-// by quality, then a model no row is; an equal place keeps names' order.
+// Rank is names, configured models, in the order Ranks places them; an equal place keeps names'
+// order.
 func Rank(role string, names []string, rows map[string]*quality.Rating) []string {
+	ranked := slices.Clone(names)
+	slices.SortStableFunc(ranked, Ranks(role, names, rows))
+	return ranked
+}
+
+// Ranks compares two of names, configured models, as Python's matrix.rank places them for role off
+// each one's row (rows, as RowOf finds it): the role's pick among these rows first, then the rest
+// by quality, then a model no row is; 0 for an equal place.  The pick is chosen in names' order,
+// which decides between rows quality.Pick cannot tell apart.
+func Ranks(role string, names []string, rows map[string]*quality.Rating) func(a, b string) int {
 	var found []*quality.Rating
 	for _, name := range names {
 		if rows[name] != nil {
@@ -67,13 +76,11 @@ func Rank(role string, names []string, rows map[string]*quality.Rating) []string
 			return 1, -row.Quality
 		}
 	}
-	ranked := slices.Clone(names)
-	slices.SortStableFunc(ranked, func(a, b string) int {
+	return func(a, b string) int {
 		first, better := place(a)
 		second, worse := place(b)
 		return cmp.Or(cmp.Compare(first, second), cmp.Compare(better, worse))
-	})
-	return ranked
+	}
 }
 
 // RowOf is the row of rated the model runs at effort, as the lineup holds it (Python's

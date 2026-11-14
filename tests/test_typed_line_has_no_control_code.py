@@ -49,7 +49,7 @@ class TypedLineHasNoControlCode(unittest.TestCase):
             "composer_draft": lambda *_a: "", "_wait_sent": lambda *_a: True,
             "owner_question": lambda *_a: False,
             "pinned": lambda session: session, "_past_text": lambda *_a: None,
-            "takes_line": lambda *_a, **_kw: True, "quiet_prompt": lambda *_a: True,
+            "takes_line": lambda *_a, **_kw: True, "quiet_prompt": lambda *_a, **_kw: True,
             "_editor_kept": lambda *_a: {}, "pane_unread": lambda *_a: False}),
             (watch.config, {"resolve_session": lambda name: name, "load": dict}),
             (watch.notify, {"last": lambda *_a: None, "session_lock": held}),

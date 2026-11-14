@@ -79,8 +79,8 @@ class ResetsInHand(NoneSpent, unittest.TestCase):
 
     def test_ak_usage_shows_the_resets_each_account_holds(self):
         held = {label: meters.cell(self.text, label, "held")
-                for label in ("test I", "test II", "test III")}
-        self.assertEqual(held, {"test I": "2", "test II": "2", "test III": "0"})
+                for label in ("Test I", "Test II", "Test III")}
+        self.assertEqual(held, {"Test I": "2", "Test II": "2", "Test III": "0"})
 
     def test_a_new_seat_opens_on_a_week_with_room_rather_than_the_spent_one(self):
         account = re.match(r"env AGENTKIT_ACCOUNT=(\S*) ", self.seat.splitlines()[-1])
