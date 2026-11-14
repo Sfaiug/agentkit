@@ -9,9 +9,9 @@ import (
 	"agentkit/internal/run"
 )
 
-// tellPrompt prints what the seat's prompt carries as its context, nothing where it carries none.
-func tellPrompt(launched string, event *run.Object, out io.Writer) {
-	news := rulebooks.PromptNews(launched, event.Str("session_id"), ownersWords(event))
+// tellPrompt prints news, what the seat's prompt carries as its context, nothing where it carries
+// none.
+func tellPrompt(news string, out io.Writer) {
 	if news == "" {
 		return
 	}

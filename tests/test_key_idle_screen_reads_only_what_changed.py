@@ -61,7 +61,7 @@ class OpenScreen(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.home = home = Home(tmux_log=False)
+        cls.home = home = Home()
         cls.addClassCleanup(home.close)
         akconfig.write(home, ["opus"])
         now = int(time.time())
@@ -116,11 +116,14 @@ class OpenScreen(unittest.TestCase):
 
     @classmethod
     def held(cls):
-        """Bytes every seat's files and every run's hold."""
+        """Bytes every seat's files and every run's hold.  A `.tmp` is a write the screen still
+        has in flight, renamed over the file it replaces, perhaps before its size is read: that
+        file holds the bytes."""
         seat = re.compile(rf".+-(?:{'|'.join(SEATS)})\.\w+$")
         state, runs = cls.home.path / ".agentkit/state", cls.home.path / ".agentkit/runs"
-        return (sum(path.stat().st_size for path in state.iterdir() if seat.match(path.name))
-                + sum(path.stat().st_size for path in runs.rglob("*") if path.is_file()))
+        files = ([path for path in state.iterdir() if seat.match(path.name)]
+                 + [path for path in runs.rglob("*") if path.is_file()])
+        return sum(path.stat().st_size for path in files if path.suffix != ".tmp")
 
     def line_up(self, seats=SEATS):
         """Those seats' runs wait in one landing line, and one owing work has a merge of today's

@@ -134,7 +134,8 @@ def item_text(row):
         text += "\nRe-proven by ak on this commit: " + row["replayed"]
     if row.get("conceded"):
         text += "\nConceded: " + row["conceded"]
-    return text.strip()
+    # the text begins with its path, a leading space of which names another file
+    return text.rstrip()
 
 
 @dataclass

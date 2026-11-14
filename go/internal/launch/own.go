@@ -33,6 +33,7 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 		!readable(slices.Collect(maps.Values(values))...) || values["--review"] != "" || !rules || !driverHere() || unreadRun() {
 		return 0, "", ErrPython
 	}
+	on := installed() // the ak whose preflight this is, read before it is
 	pull, err := gh.View(url)
 	if err != nil || !gh.ByViewer(pull.Author) {
 		return 0, "", ErrPython
@@ -41,10 +42,7 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 	if err != nil {
 		return 0, "", err
 	}
-	// its first poll for a slot, as a task's, holds the slots lock until its receipt claims it;
-	// told --bg, nothing here follows it
-	depth, _ := runDepth()
-	admitted, err := admit(filepath.Base(dir), flags["--first"], session, depth, !flags["--bg"])
+	admitted, err := admitReview(dir, session, flags)
 	if err != nil {
 		return 0, "", err
 	}
@@ -55,21 +53,10 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 		config.EnsureDirs,
 		func() error { return os.Mkdir(dir, 0o777) },
 		func() error { return os.WriteFile(filepath.Join(dir, "log.txt"), nil, 0o666) },
-		func() error {
-			if admitted == nil {
-				slots, err := holdSlots()
-				if err != nil {
-					return err
-				}
-				defer slots.Close()
-			}
-			taken = runOn(url)
+		func() (err error) {
 			// a seat launched it, never the tick: its first record says no launch it descends from
-			receipt := run.Capture(dir, "", values, flags, bound, session)
-			if admitted != nil {
-				return admitted.claim(dir, receipt)
-			}
-			return run.Create(dir, receipt)
+			taken, err = receiveReview(dir, url, run.Capture(dir, "", values, flags, bound, session), admitted)
+			return err
 		},
 		func() error { recorded(dir); return nil },
 		func() error { seat.Redress(session); return nil }, // the seat's bar says it from the start
@@ -94,7 +81,7 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 			}
 		}
 		run.SetAll(receipt, "title", fmt.Sprintf("Review PR #%s: %s", pull.Number, pull.Title), "own_pr", true, "own_orchestrator", writer,
-			"own_orchestrator_effort", effort, "policy", run.Fields(numbersIn.Said()...))
+			"own_orchestrator_effort", effort, "policy", run.Fields(numbersIn.Said()...), "judged_on", on)
 	}); err != nil {
 		return 0, "", err
 	}

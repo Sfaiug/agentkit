@@ -586,9 +586,9 @@ def _cached_providers():
 def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None):
     """(model, provider) pairs that can execute now, in pick order.
 
-    An eligible worker counts when the pick order keeps it, its budget is above zero
-    with nothing unknown about it, and no refusal parked its provider until a future
-    window.  The waiting words use this conservative estimate of capacity.  `log`
+    An eligible worker counts when the pick order keeps it, which no refusal parked until a
+    future window keeps (`usage.model_exhausted`), and its budget is above zero with nothing
+    unknown about it.  The waiting words use this conservative estimate of capacity.  `log`
     is told each worker left out because its harness cannot run, as `ready_order` says it.
     """
     from . import usage  # here, not at the top: usage imports staffing
@@ -603,13 +603,8 @@ def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None)
             provider = config.model(cfg, name)["provider"]
         except config.Error:
             continue
-        prov = (providers or {}).get(provider)
-        if not isinstance(prov, dict):
+        if not isinstance((providers or {}).get(provider), dict):
             continue
-        until = prov.get("exhausted_until")
-        if (isinstance(until, (int, float)) and not isinstance(until, bool) and until > now
-                and not usage._fresh_window(prov, prov, now)):
-            continue  # a refusal parked this provider until its own window; honour the mark
         try:
             budget, reason = usage.model_budget(cfg, name, providers, now)
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -623,11 +618,10 @@ def reviewable_models(cfg, providers, workers, now, executor=None):
     """(model, provider) pairs that can review now, in pick order.
 
     The reviewer's half of `executable_models`, under the same rule: kept by the
-    pick order, budget above zero with nothing unknown about it, provider not
-    parked until a future window.  Legality against the saved executor is checked
-    too -- a spare the policy forbids beside this executor is no reviewer to
-    resume for, and the loop would only park the run again.  Without an executor
-    the legality check has nothing to check against, so every available model
+    pick order, budget above zero with nothing unknown about it.  Legality against the
+    saved executor is checked too -- a spare the policy forbids beside this executor is
+    no reviewer to resume for, and the loop would only park the run again.  Without an
+    executor the legality check has nothing to check against, so every available model
     counts.
     """
     from . import usage  # here, not at the top: usage imports staffing
@@ -644,13 +638,8 @@ def reviewable_models(cfg, providers, workers, now, executor=None):
             provider = config.model(cfg, name)["provider"]
         except config.Error:
             continue
-        prov = (providers or {}).get(provider)
-        if not isinstance(prov, dict):
+        if not isinstance((providers or {}).get(provider), dict):
             continue
-        until = prov.get("exhausted_until")
-        if (isinstance(until, (int, float)) and not isinstance(until, bool) and until > now
-                and not usage._fresh_window(prov, prov, now)):
-            continue  # a refusal parked this provider until its own window; honour the mark
         try:
             budget, reason = usage.model_budget(cfg, name, providers, now)
         except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):

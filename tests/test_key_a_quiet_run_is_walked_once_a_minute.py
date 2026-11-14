@@ -34,7 +34,7 @@ AGED = 86400      # seconds back this sets the access time, so that a listing mo
 class AQuietRunIsWalkedOnceAMinute(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.home = home = Home(tmux_log=False)
+        cls.home = home = Home()
         cls.addClassCleanup(home.close)
         akconfig.write(home, ["opus"])
         repo, now = home.path / "code" / "acme", time.time()

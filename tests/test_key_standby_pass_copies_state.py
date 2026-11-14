@@ -5,7 +5,8 @@ machine's record of its server, ak's tmp folder, its ak install and ak's reposit
 were, and nothing starts from the copy.  A pass whose home does not answer, or has no ak folder,
 leaves the copy as it was, says why and exits non-zero; a machine not ALIAS's client is refused,
 saying so, as is one where a link is at what it keeps or above it in ak's folder, which a pass
-would replace or go past.  Black-box, through tests/fixtures/twohomes.py.
+would replace or go past.  None of those renames the copy's config key by its old name, as other
+commands do.  Black-box, through tests/fixtures/twohomes.py.
 """
 
 import os
@@ -38,6 +39,8 @@ class APassCopiesAksFolder(unittest.TestCase):
         self.addCleanup(machines.close)
         self.home, self.here = home, here = machines
         here.client_of(home)
+        config = here.path / ".agentkit/config.toml"
+        config.write_text(f"rounds = 3\n{config.read_text()}")    # review_rounds' old name
         for path in (STATE, *RUNS, *OWN):
             home.write(path, f"the home's {path}")
         os.utime(home.path / STATE, ns=(WRITTEN, WRITTEN))

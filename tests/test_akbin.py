@@ -97,6 +97,14 @@ class Runner(unittest.TestCase):
         self.assertTrue((self.home.path / "ended").exists())
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_a_tmux_call_is_logged_only_in_a_home_that_asks(self):
+        self.assertEqual(self.home.run("tmux", "-V").code, 0)
+        self.assertEqual(self.home.calls("tmux"), [])
+        with Home(tmux_log=True) as logged:
+            logged.run("tmux", "-V")
+            self.assertEqual(logged.calls("tmux"), [["-V"]])
+
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_tmux_is_real_and_only_this_homes_own(self):
         own = self.home.tmux_dir / f"tmux-{os.getuid()}" / SOCKET
         # links inside the socket directory that lead out of it

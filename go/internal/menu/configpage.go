@@ -18,8 +18,8 @@ import (
 type PageRow struct {
 	Label, Value, Colour, Aside string
 	On                          bool
-	// while the keys are on the row: said under the rows instead of the page's note, and lines
-	// drawn as they are under it, where the page keeps room for the lit row beside them
+	// while the keys are on the row: said under the page instead of the page's note, and lines
+	// drawn as they are after the rows, the row's own, paged as a tall row's
 	Note  string
 	Under func(terminal.Screen) []string
 	Flip  func() string // Space or a click: flips the mark, and what to say under the rows
@@ -49,6 +49,7 @@ type Page struct {
 	Choices    []PageRow // the list open under the row the keys are on: none while it is shut
 	Typed      *string   // what is typed in the field open under the row the keys are on: nil while it is shut
 	At, Choice int       // the row the keys are on, and with a list open its choice
+	Arrived    bool      // the highlight came to the row since the last draw: its pages start from it
 	Lists      int       // how many lists the page has opened: the one open comes up as it is news
 	Away       bool      // the pointer is off every row: none lit, and no row's note said
 	Top        int       // the first line shown
@@ -101,19 +102,15 @@ func (f PageFrame) Hit(mouse terminal.Mouse) (row, choice int, ok bool) {
 }
 
 // Step is the row the keys are on, its open list's choice and the first line shown, `step` on as
-// ↑/↓ and the wheel move, through an open list's choices alone and as far as there are: a row
-// going on past the page that way turns to its next page before they leave it.
+// ↑/↓ and the wheel move, through an open list's choices alone and as far as there are: a row with
+// lines past the page that way turns to its next page before they leave it (config_page's).
 func (f PageFrame) Step(step int) (row, choice, top int) {
-	past := f.Top - 1
-	if step > 0 {
-		past = f.Top + f.page
-	}
-	if past >= 0 && past < len(f.lines) && f.lines[past] == f.at {
+	if first, last := span(f.lines, f.at); first >= 0 && (step > 0 && last >= f.Top+f.page || step < 0 && first < f.Top) {
 		return f.at.row, f.at.choice, pageTop(f.lines, f.at, f.Top+step*f.page, f.page)
 	}
 	var through []pageEntry // what the keys move through, each once: the open list's choices, else the rows
 	for _, line := range f.lines {
-		if (line.choice >= 0) == (f.at.choice >= 0) && (len(through) == 0 || through[len(through)-1] != line) {
+		if (line.choice >= 0) == (f.at.choice >= 0) && !slices.Contains(through, line) {
 			through = append(through, line)
 		}
 	}
@@ -125,16 +122,22 @@ func (f PageFrame) Step(step int) (row, choice, top int) {
 	return next.row, next.choice, f.Top
 }
 
-// pageTop is the first line shown of `lines`, a page `page` lines high, from `top`: moved the least
-// that shows every line of `at`, or one of a row taller than the page, never past the last page
-// (matrix_page's).
-func pageTop(lines []pageEntry, at pageEntry, top, page int) int {
-	first, last := slices.Index(lines, at), -1
+// span is the first and the last of `lines` that are `at`'s, -1 for none.
+func span(lines []pageEntry, at pageEntry) (first, last int) {
+	first, last = slices.Index(lines, at), -1
 	for i, line := range lines {
 		if line == at {
 			last = i
 		}
 	}
+	return first, last
+}
+
+// pageTop is the first line shown of `lines`, a page `page` lines high, from `top`: moved the least
+// that shows every line of `at`, or one of a row taller than the page, never past the last page
+// (matrix_page's).
+func pageTop(lines []pageEntry, at pageEntry, top, page int) int {
+	first, last := span(lines, at)
 	lo, hi := last-page+1, first
 	if lo > hi {
 		lo, hi = first-page+1, last
@@ -147,9 +150,10 @@ func pageTop(lines []pageEntry, at pageEntry, top, page int) int {
 // label where a word, or a value with arrows whole, is too wide beside it; an open list's choices
 // under its row, indented, or an open field under the row's last line (fieldLine).  The
 // highlighted row stays on the page, a page of it where it is taller, or the field, no row lit;
-// what was said and the note under the rows, and the key line names what Space and Enter do
-// there.  On the clock the page comes up as it opens (comeUp), a list comes up under its row, and
-// a mark that flips goes through its half (motion.Clock.Mark).
+// the pointed row's own lines after the rows, as lines of that row (config_page's); what was said
+// and the note under the page, and the key line names what Space and Enter do there.  On the
+// clock the page comes up as it opens (comeUp), a list comes up under its row, and a mark that
+// flips goes through its half (motion.Clock.Mark).
 func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	room, wide, clock := s.LayoutWidth(), 0, view.Motion
 	for _, row := range view.Rows {
@@ -319,14 +323,16 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	if s.ASCII() {
 		keys = strings.NewReplacer("↑↓←→", "arrows", "↑↓", "up/down", "←→", "left/right", "␣", "space", "⏎", "enter").Replace(keys)
 	}
-	note, drawn := view.Note, []string(nil) // the lit row's own note and lines, else the page's note
+	note := view.Note // the lit row's own note and lines, else the page's note
 	if !view.Away && view.At < len(view.Rows) {
 		row := view.Rows[view.At]
 		if row.Note != "" {
 			note = row.Note
 		}
 		if row.Under != nil {
-			drawn = row.Under(s)
+			for _, line := range row.Under(s) {
+				body, lines = append(body, line), append(lines, pageEntry{view.At, -1})
+			}
 		}
 	}
 	var under []string
@@ -340,19 +346,13 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	if len(under) > 0 {
 		under = append([]string{""}, under...)
 	}
-	// the key line and the note stay on the screen, and so does the highlighted row: the lit row's
-	// lines only where they leave it room
-	height, tall := s.Height()-5-len(keyLine(s, keys, s.Width(), "")), 0
-	for _, line := range lines {
-		if line == at {
-			tall++
-		}
+	// the key line and the note stay on the screen
+	page := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), ""))-len(under))
+	top := view.Top
+	if view.Arrived { // from where the row is laid out now, its own lines and arrows drawn
+		top = min(top, slices.Index(lines, pageEntry{view.At, -1}))
 	}
-	if height-len(under)-len(drawn) >= tall {
-		under = append(under, drawn...)
-	}
-	page := max(1, height-len(under))
-	top := pageTop(lines, at, view.Top, page)
+	top = pageTop(lines, at, top, page)
 	shown := min(len(body), top+page)
 	title := "config · " + view.Name
 	return PageFrame{comeUp(s, Panel(s, title, view.Clock, append(slices.Clone(body[top:shown]), under...), keys), title, clock.Risen()),

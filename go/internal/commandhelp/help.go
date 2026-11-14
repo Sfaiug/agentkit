@@ -111,7 +111,7 @@ var entries = map[string]entry{
 		"ak run gc --dry-run",
 	},
 	"orch": {
-		"usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]\n       ak orch list [--why] | ak orch why NAME | ak orch check SEAT | ak orch look FILE\n       ak orch stop NAME | ak orch rename [--auto] [OLD] NEW\n       ak orch project [SEAT] CHECKOUT | ak orch rules CODE",
+		"usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]\n       ak orch list [--why] | ak orch why NAME | ak orch check SEAT | ak orch look FILE\n       ak orch stop NAME | ak orch rename [--auto] [OLD] NEW\n       ak orch project [SEAT] CHECKOUT | ak orch rules CODE | ak orch pair SEAT",
 		"Start or attach to a named orchestrator session; a new one opens only from a terminal.\n--dry-run prints the launch plan.",
 		"ak orch parser-fix",
 	},
@@ -119,6 +119,11 @@ var entries = map[string]entry{
 		"usage: ak orch rules CODE",
 		"Say this seat's conversation read the rulebook file its prompt named,\nwith the code on that file's last line: its prompts stop naming it until it changes.",
 		"ak orch rules 3f2a9c81d0e4",
+	},
+	"orch pair": {
+		"usage: ak orch pair SEAT",
+		"Print a code that pairs the provider's app with a seat's remote connection; it pages nobody.\nSEAT is the seat's name, a name it had, or the path of its home.",
+		"ak orch pair parser-fix",
 	},
 	"orch list": {
 		"usage: ak orch list [--why]",
