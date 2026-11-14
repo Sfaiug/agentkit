@@ -129,13 +129,15 @@ func TestClaudeModelsAsksWithTheLoginsOwnToken(t *testing.T) {
 }
 
 // Where PATH finds no claude, the script's preamble puts ~/.local/bin, claude's installer's folder,
-// ahead of PATH, so the curl there asks; where PATH finds claude, PATH's own curl does.
+// ahead of PATH, so the curl there asks, and finds what it runs there too; where PATH finds claude,
+// PATH's own curl asks.
 func TestClaudeModelsAsksTheCurlItsScriptFinds(t *testing.T) {
 	home, write := claudeAPI(t)
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "acme")
 	t.Setenv("PATH", filepath.Join(home, "path"))
 	write("path/curl", "#!/bin/sh\necho '{\"data\": [{\"id\": \"on-path\"}]}'\n")
-	write(".local/bin/curl", "#!/bin/sh\necho '{\"data\": [{\"id\": \"local\"}]}'\n")
+	write(".local/bin/curl", "#!/bin/sh\nexec acme-curl \"$@\"\n")
+	write(".local/bin/acme-curl", "#!/bin/sh\necho '{\"data\": [{\"id\": \"local\"}]}'\n")
 	for _, each := range []struct{ claude, listed string }{{"", "local"}, {"path/claude", "on-path"}} {
 		if each.claude != "" {
 			write(each.claude, "#!/bin/sh\n")

@@ -49,7 +49,7 @@ func claudeModels(_ []string, out, errOut io.Writer) int {
 		if after != "" {
 			url += "&after_id=" + after
 		}
-		curl := exec.Command(claudeProgram("curl"), "-sf", "-H", "@-", "-H", "anthropic-beta: oauth-2025-04-20",
+		curl := claudeCommand("curl", "-sf", "-H", "@-", "-H", "anthropic-beta: oauth-2025-04-20",
 			"-H", "anthropic-version: 2023-06-01", url)
 		curl.Stdin, curl.Stderr = strings.NewReader("Authorization: Bearer "+token+"\n"), errOut
 		said, err := curl.Output()
@@ -94,16 +94,25 @@ func claudeModels(_ []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// claudeProgram is the program of that name claude.sh runs: where PATH finds no claude, its
-// preamble puts claude's installer's folder ahead of PATH for every program the script runs.
-func claudeProgram(name string) string {
+// claudeCommand is that program run as claude.sh runs it: where PATH finds no claude, the script's
+// preamble puts claude's installer's folder ahead of PATH, both to find each program it runs and
+// in that program's own environment.
+func claudeCommand(name string, args ...string) *exec.Cmd {
 	if _, err := exec.LookPath("claude"); err == nil || errors.Is(err, exec.ErrDot) {
-		return name
+		return exec.Command(name, args...)
 	}
-	if found, err := exec.LookPath(filepath.Join(os.Getenv("HOME"), ".local", "bin", name)); err == nil {
-		return found
+	local := os.Getenv("HOME") + "/.local/bin"
+	program := name
+	if found, err := exec.LookPath(filepath.Join(local, name)); err == nil {
+		program = found
 	}
-	return name
+	cmd := exec.Command(program, args...)
+	path := local
+	if os.Getenv("PATH") != "" {
+		path += ":" + os.Getenv("PATH")
+	}
+	cmd.Env = append(os.Environ(), "PATH="+path) // exec keeps the last of a doubled variable
+	return cmd
 }
 
 // claudeBearer is the token the listing asks with, as the script finds it: the worker token, from
