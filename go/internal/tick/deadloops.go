@@ -7,10 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
@@ -40,7 +42,7 @@ func (t *ticking) deadLoops() error {
 			return failed == nil
 		}
 		switch {
-		case !deadLoop(record, now):
+		case !DeadLoop(dir, record, now):
 			return true
 		case scoped(record):
 			return false // Python asks the unit whether its memory cap ended the loop, and stops it
@@ -61,8 +63,6 @@ func (t *ticking) deadLoops() error {
 		var edit func(*run.Object)
 		var line string
 		switch action {
-		case "skip":
-			return true
 		case "wait":
 			// reap reads `resume_after` and leaves the dead pid alone until it passes
 			edit = func(current *run.Object) { holdLive(current, deaths).Set("resume_after", backoffUntil(deaths)) }
@@ -122,9 +122,11 @@ func (t *ticking) deadLoops() error {
 	return nil
 }
 
-// deadLoop is whether the pass looks at that record: a live one, or one a reap found dead first,
-// that nobody stopped, its last death not parked, past its launch's grace and its process gone.
-func deadLoop(record *run.Object, now float64) bool {
+// DeadLoop is watch.dead_loop, the one reading of whether a run's loop is lost, the pass's and
+// doctor's: a live record, or one a reap found dead first, that nobody stopped, its last death not
+// parked, past its launch's grace, its process gone and no other of the run's at work, and a plan
+// the pass acts on now, not a resume already ordered nor a backoff being waited out.
+func DeadLoop(dir string, record *run.Object, now float64) bool {
 	deaths := record.List("deaths")
 	if !run.Active(record) && !(record.Str("state") == "interrupted" && len(deaths) > 0) {
 		return false
@@ -134,7 +136,56 @@ func deadLoop(record *run.Object, now float64) bool {
 			return false
 		}
 	}
-	return !run.LaunchGrace(record, now) && !run.ProcessActive(record)
+	if run.LaunchGrace(record, now) || run.ProcessActive(record) {
+		return false
+	}
+	action, _, _ := deadPlan(record, now)
+	return action != "skip" && !working(dir)
+}
+
+// working is whether a process of the run outlives its recorded loop, Python's _run_working: one
+// carrying its marker, this process or an ancestor too, as when a worker calls `ak doctor`, or an
+// `ak run resume` of it that has not recorded its pid yet, which a second resume would race.
+func working(dir string) bool {
+	return slices.ContainsFunc(host.Carrying(dir), live) || resuming(dir)
+}
+
+// resuming is whether a live `ak run resume` of the run is at work, as Python's watch.resumes
+// reads one under any ak's bin/, a Python interpreter running it naming it next: one writing the
+// run's log, or this program's.  Another's that does not only follows the run from a terminal,
+// and counted, it would keep the tick from resuming the loop it waits on.
+func resuming(dir string) bool {
+	self, _, _ := config.Running()
+	log, _ := os.Stat(filepath.Join(dir, "log.txt"))
+	entries, _ := os.ReadDir("/proc")
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || !live(pid) {
+			continue
+		}
+		said, _ := os.ReadFile("/proc/" + entry.Name() + "/cmdline")
+		args := strings.Split(strings.TrimSuffix(string(said), "\x00"), "\x00")
+		if len(args) > 1 && strings.HasPrefix(filepath.Base(args[0]), "python") {
+			args = args[1:]
+		}
+		if len(args) < 3 || args[1] != "run" || args[2] != "resume" || filepath.Base(args[0]) != "ak" || filepath.Base(filepath.Dir(args[0])) != "bin" {
+			continue
+		}
+		if id, _, ok := launch.ResumeArgs(args[3:]); !ok || id != filepath.Base(dir) {
+			continue
+		}
+		out, err := os.Stat("/proc/" + entry.Name() + "/fd/1")
+		if args[0] == self || err == nil && log != nil && os.SameFile(out, log) {
+			return true
+		}
+	}
+	return false
+}
+
+// live is whether the process runs, not one that has exited and not yet been reaped.
+func live(pid int) bool {
+	stat, ok := host.ReadStat(pid)
+	return ok && !stat.Exited()
 }
 
 // scoped is whether a unit the manager holds ran that loop (turns.scope_is_real).
