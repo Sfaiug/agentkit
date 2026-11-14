@@ -25,7 +25,7 @@ import (
 // `connected` does beside its TUI until ctx ends: each second until its server reads connected,
 // then each 30, it reads the server's remote-control status, keeps the environment among those its
 // home may have to delete (`enroll`), and names it after the seat on the provider when either has
-// changed.  It asks for no pairing: a code is the owner's to request (codex-seat.py --pair).
+// changed.  It asks for no pairing: a code is the owner's to request (ak orch pair).
 func codexNamed(ctx context.Context, home, socket string, log io.Writer) {
 	var named [2]string
 	for {

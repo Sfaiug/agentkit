@@ -28,6 +28,11 @@ func Edit(path string) (*os.File, error) {
 	return open(path, syscall.GENERIC_READ|syscall.GENERIC_WRITE, syscall.OPEN_EXISTING, true)
 }
 
+// Read is Edit, to read only: no Python ak shares a lock with Go's here.
+func Read(path string) (*os.File, error) {
+	return open(path, syscall.GENERIC_READ, syscall.OPEN_EXISTING, true)
+}
+
 // open opens path shared with nobody, as access and disposition say, waiting its turn or not.
 func open(path string, access, disposition uint32, wait bool) (*os.File, error) {
 	name, err := syscall.UTF16PtrFromString(path)
