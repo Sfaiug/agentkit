@@ -1801,11 +1801,11 @@ def _taken_in(cfg, left, ran, asked):
     """[name] of the entry made for the model a seat's harness recorded (`ran`, as follow_model
     reads it) where no entry of `cfg` runs it there, as `add a subscription` makes one: on the
     harness of `left`, the entry the seat leaves, and its provider -- for a harness that runs
-    any provider it logs in to, the one the id names, `<provider>/<model>` as OpenCode records
-    it -- with the mode of `left` where it has one on that provider, at the effort recorded
-    where the model takes it, else the last it takes, named from its label, and added to the
-    file and to `cfg` (config.add_model).  [] for an id that names no provider `cfg` has a
-    table for, on such a harness; a model neither its listing as held nor its `[catalog]`
+    any provider it logs in to, the one the id names, `<provider>/<model>` as such a harness
+    records it -- with the mode of `left` where it has one on that provider, at the effort
+    recorded where the model takes it, else the last it takes, named from its label, and added
+    to the file and to `cfg` (config.add_model).  [] for an id that names no provider `cfg` has
+    a table for, on such a harness; a model neither its listing as held nor its `[catalog]`
     table names, nor, for a pass, its listing as the pass asked it (config.catalog), once at
     most into `asked` ({harness: listing}) however long the pass runs, as an id recorded for
     an error or a fallback; or an add that fails."""
