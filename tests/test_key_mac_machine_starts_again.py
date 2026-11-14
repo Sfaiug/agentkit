@@ -10,14 +10,17 @@ anything else changes nothing.  The time it last answered or started outlives
 each check and an install that finds it running, silence counts only while the machine runs, so
 never from before the Mac started, and with no answer on record, from the first check.  The
 install says so in one line, a second changes nothing, and one after the daemon was booted out
-loads it again.  Black-box on the Mac of fakes of tests/test_key_install_mac_linux_machine.py:
-each check runs the daemon's program as launchd would, with only its environment, on a clock of
-fakes (`date +%s` reads `<root>/now`, the Mac's boot time is `<root>/boot`, its boot's id
-`<root>/session`) and an `ssh` that answers while the machine runs and is not hung, and the
-config it reads, the one `-F` names or else the account's, with each file it includes, knows it.
+loads it again.  Its plist is one the account reads, whatever umask the install runs under, so
+one an earlier install left root's alone is written once more, loaded and stays.  Black-box on
+the Mac of fakes of tests/test_key_install_mac_linux_machine.py: each check runs the daemon's
+program as launchd would, with only its environment, on a clock of fakes (`date +%s` reads
+`<root>/now`, the Mac's boot time is `<root>/boot`, its boot's id `<root>/session`) and an `ssh`
+that answers while the machine runs and is not hung, and the config it reads, the one `-F` names
+or else the account's, with each file it includes, knows it.
 """
 
 import json
+import os
 import plistlib
 import shlex
 import shutil
@@ -163,6 +166,18 @@ class KeptUp(unittest.TestCase):
         self.assertEqual(self.plist.read_bytes(), self.daemon)
         self.assertEqual(self.loads_again, [])
         self.assertEqual([line for line in self.second if "stops answering" in line], [])
+
+    def test_an_install_finding_the_plist_root_s_alone_leaves_it_readable_from_then_on(self):
+        """As an install before this one under install.sh's umask 077 left it."""
+        subprocess.run([self.mac.home.bin / "sudo", "chmod", "600", self.plist], check=True)
+        self.assertFalse(os.access(self.plist, os.R_OK))
+        self.mac.install()
+        self.assertIn(self.service, self.mac.loaded())
+        self.assertEqual(self.plist.read_bytes(), self.daemon)
+        loads = len(self.mac.loads())
+        again = self.mac.install().out.splitlines()
+        self.assertEqual(self.mac.loads()[loads:], [])
+        self.assertEqual([line for line in again if "stops answering" in line], [])
 
     def test_the_next_install_brings_back_a_machine_stopped_for_good(self):
         subprocess.run([self.mac.home.bin / "launchctl", "bootout", self.service], check=True)
