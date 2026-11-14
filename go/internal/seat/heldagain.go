@@ -4,6 +4,7 @@ import (
 	"slices"
 	"time"
 
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 )
 
@@ -18,7 +19,7 @@ import (
 func (seat *Seat) heldAgain(state string, home Home) error {
 	return announcing(state, seat.Name, func() error {
 		now := time.Now()
-		again, known := reading(now, true, func([]string) judges { return home.found }, home.readers)
+		again, known := reading(now, true, func([]string) judges { return home.found }, home.readers, plan.Look{})
 		at := slices.IndexFunc(again.Seats, func(each Seat) bool { return each.Name == seat.Name })
 		if !known || at < 0 || !again.Seats[at].held {
 			return ErrUnread

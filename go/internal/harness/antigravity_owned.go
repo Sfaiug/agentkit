@@ -17,11 +17,16 @@ import (
 
 // antigravityOwned is the conversation the seat owns (antigravity.py `conversation`).
 func antigravityOwned(record map[string]any) string {
+	return antigravityLearn(antigravityEvidence(record), true)
+}
+
+// antigravityEvidence is what of a seat's record says which conversation it owns.
+func antigravityEvidence(record map[string]any) *run.Object {
 	data := run.Fields("id_source", record["id_source"], "conversation", record["conversation"], "antigravity_launch", record["antigravity_launch"])
 	if seen, ok := record["antigravity_open"].(map[string]any); ok {
 		data.Set("antigravity_open", run.Fields("launch", seen["launch"], "conversation", seen["conversation"]))
 	}
-	return antigravityLearn(data)
+	return data
 }
 
 // learned is each conversation this process learned a launch's own agy holds open, by that
@@ -33,23 +38,26 @@ var learned = struct {
 
 // antigravityLearn is the conversation the record gives the seat, else the one this process
 // learned its launch's own agy holds open, else the one it holds open now, less those other seats
-// own: none for none, nor a guess between two.  What it learns now it keeps, for Claim to write
-// down beside the launch's token, so it outlives the process and a stale launch's is never a later
-// one's; nothing is written before the command ends, which may yet hand the seat over or run dry.
-// "" for none.
-func antigravityLearn(record *run.Object) string {
+// own: none for none, nor a guess between two.  Learning, what it learns now it keeps, for Claim to
+// write down beside the launch's token, so it outlives the process and a stale launch's is never a
+// later one's; nothing is written before the command ends, which may yet hand the seat over or
+// run dry.  Else it only asks, keeping nothing and taking no lock (antigravityNamed).  "" for none.
+func antigravityLearn(record *run.Object, learn bool) string {
 	mine := antigravityMine(record)
 	token, launched := record.Get("antigravity_launch").(string)
 	if mine != "" || !launched {
 		return mine
 	}
 	// One learning at a time, from the records as they stand: a caller's copy may predate this
-	// launch's claim, and another seat's may land while the fds are read.
-	claiming, err := lock.Wait(context.Background(), antigravityClaimLock())
-	if err != nil {
-		return ""
+	// launch's claim, and another seat's may land while the fds are read.  An ask answers a
+	// moment early, as one reading just before that claim landed would.
+	if learn {
+		claiming, err := lock.Wait(context.Background(), antigravityClaimLock())
+		if err != nil {
+			return ""
+		}
+		defer claiming.Close()
 	}
-	defer claiming.Close()
 	learned.Lock()
 	defer learned.Unlock()
 	owns := func(kept *run.Object) string {
@@ -71,7 +79,9 @@ func antigravityLearn(record *run.Object) string {
 		delete(held, owns(other))
 	}
 	if open := slices.Collect(maps.Keys(held)); len(open) == 1 {
-		learned.by[token] = open[0]
+		if learn {
+			learned.by[token] = open[0]
+		}
 		return open[0]
 	}
 	return ""

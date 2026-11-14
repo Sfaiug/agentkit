@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"agentkit/internal/harness"
-	"agentkit/internal/plan"
 	"agentkit/internal/run"
 )
 
@@ -68,14 +67,14 @@ func nobodyIn(facts climbing) (*answer, error) {
 	if facts.gone.closed {
 		return &answer{word: "idle", reason: reason}, nil
 	}
-	owed, err := plan.OwesLine(facts.name)
+	owed, err := facts.plans.OwesLine(facts.name)
 	if err != nil {
 		return nil, ErrUnread
 	}
 	if owed || facts.notice != nil {
 		return &answer{word: "needs you", reason: reason}, nil
 	}
-	finished, err := plan.Finished(facts.name)
+	finished, err := facts.plans.Finished(facts.name)
 	if err != nil {
 		return nil, ErrUnread
 	}

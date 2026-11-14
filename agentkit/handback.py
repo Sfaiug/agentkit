@@ -2096,7 +2096,9 @@ def reap(run_dir, state, memory_probe=None):
                 # events are what say it was the cap, and stopping drops them.
                 conclude_memory_cap(run_dir, state, cap_reason)
             else:
-                reason = ("Queued launcher exited before starting work." if status == "queued" else
+                restart = transitions.restart_ended(state)
+                reason = ("A restart of the host ended the run's loop." if restart else
+                          "Queued launcher exited before starting work." if status == "queued" else
                           "Run process exited or its identity changed.")
                 if status == "running":
                     turns.stop_run_tree(state)
@@ -2105,11 +2107,12 @@ def reap(run_dir, state, memory_probe=None):
                 if transitions.tick_resumes(state) and not (ending and not ending.get("resumed_at")):
                     # Whoever notices the death records it, so the tick's dead-loop pass reads
                     # this record as a loop to carry on rather than as an interruption somebody
-                    # was already told about -- and so it counts towards the third death. Once:
-                    # one the tick recorded and held for its backoff is already there.
+                    # was already told about -- and so it counts towards the third death, unless
+                    # a restart caused it. Once: one the tick recorded and held for its backoff
+                    # is already there.
                     state["deaths"] = [*(state.get("deaths") or []),
                                        {"at": time.time(), "pid": state.get("pid"),
-                                        "reason": reason}]
+                                        "reason": reason, **({"restart": True} if restart else {})}]
                 run_record.save_state(run_dir, state)
         elif status == "interrupted" and not state.get("interrupted_at"):
             transitions.interrupt(state, state.get("error") or "Earlier interruption; detection time recorded now.")

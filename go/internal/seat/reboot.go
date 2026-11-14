@@ -9,7 +9,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/notify"
-	"agentkit/internal/plan"
 	"agentkit/internal/run"
 )
 
@@ -59,7 +58,7 @@ func (seat Seat) owesWork() (bool, error) {
 	if notify.Last(seat.Name) != nil || revivalFile(seat.Name).Truthy("unasked") {
 		return true, nil
 	}
-	if owes, err := plan.OwesLine(seat.Name); owes || err != nil {
+	if owes, err := seat.plans.OwesLine(seat.Name); owes || err != nil {
 		return owes, err
 	}
 	if len(seat.mine) > 0 {

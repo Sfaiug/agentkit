@@ -131,16 +131,23 @@ func gaps(ctx context.Context, name string, record map[string]any, errOut io.Wri
 	// a harness whose reader reads less strictly than Python's is checked, as before: only the
 	// reader deciding whether a check is owed, which ends a seat it reads as done, waits for one as
 	// strict as Python's
-	had, err := notify.Conversations(name, false)
-	if errors.Is(err, notify.ErrUnread) {
+	current, had, err := notify.Listed(name, false)
+	// before any is read, as reading one may take a claim's lock or keep what its evidence follows
+	if errors.Is(err, notify.ErrUnread) || err == nil && slices.ContainsFunc(had, func(each notify.Conversation) bool {
+		return !harness.Reads(each.Harness, false)
+	}) {
 		return nil, "", errLeft
 	} else if err != nil {
 		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
 	}
-	if len(had) == 0 || had[len(had)-1].Name == "" {
+	if len(had) == 0 {
 		return nil, "", fmt.Errorf("no seat named %s whose conversation ak can read", name)
 	}
-	said, owner, err := plan.OwnerWords(had)
+	var said [][]harness.Turn
+	var owner []plan.Said
+	if err = notify.Read(current, had, true); err == nil {
+		said, owner, err = plan.OwnerWords(had)
+	}
 	if errors.Is(err, notify.ErrUnread) {
 		return nil, "", errLeft
 	} else if err != nil {

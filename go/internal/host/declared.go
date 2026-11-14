@@ -25,7 +25,7 @@ func DeclaredIn(proc string, pids []int, now float64) bool {
 		if err != nil {
 			continue
 		}
-		seconds := timeoutSeconds(strings.Split(string(said), "\x00"))
+		seconds := TimeoutSeconds(strings.Split(string(said), "\x00"))
 		if stat, ok := ReadStatIn(proc, pid); ok && !stat.Exited() && seconds > 0 &&
 			now-boot-float64(stat.Start)/clockTicks < seconds {
 			return true
@@ -36,9 +36,9 @@ func DeclaredIn(proc string, pids []int, now float64) bool {
 
 var timeoutSpan = regexp.MustCompile(`^(\d+\.?\d*|\.\d+)([smhd]?)$`)
 
-// timeoutSeconds is the duration `timeout(1)` was given in that argv, 0 for any other command or
+// TimeoutSeconds is the duration `timeout(1)` was given in that argv, 0 for any other command or
 // none, Python's worker.timeout_seconds.
-func timeoutSeconds(argv []string) float64 {
+func TimeoutSeconds(argv []string) float64 {
 	if len(argv) == 0 || filepath.Base(argv[0]) != "timeout" {
 		return 0
 	}

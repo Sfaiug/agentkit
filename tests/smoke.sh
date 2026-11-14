@@ -3522,11 +3522,11 @@ ASTRA=$(HOME="$OVH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit imp
 [ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = 2 ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = default ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV1#[nobold]   #[fg=#6c7086]$FABLE xhigh#[default]" ] || OVERLAY=1
+  = " #[bold]$OV1#[nobold]   #[fg=#868d97]$FABLE xhigh#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV2" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV2#[nobold]   #[fg=#6c7086]$ASTRA xhigh#[default]" ] || OVERLAY=1
+  = " #[bold]$OV2#[nobold]   #[fg=#868d97]$ASTRA xhigh#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_key 2>/dev/null)" \
-  = "Ctrl-b m#[fg=#6c7086]  menu #[default]" ] || OVERLAY=1
+  = "Ctrl-b m#[fg=#868d97]  menu #[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v set-titles-string 2>/dev/null)" = "$OV1" ] || OVERLAY=1
 # the binding and the three server options, out of agentkit's own file and into the server
 grep -q '^bind-key m if-shell -F .*display-popup -E -w 100% -h 100% .*attach --overlay.*display-popup -E -w 80% -h 70% .*attach --overlay' \
@@ -3739,9 +3739,9 @@ akp() { "${PENV[@]}" ak "$@"; }
 jq -e '.resumable == false and (has("conversation") | not)' \
   "$NH/.agentkit/state/session-nopin-seat.json" >/dev/null 2>&1 || NAME=1
 tm show-options -t nopin-seat -v @ak_key 2>/dev/null \
-  | grep -q '^Ctrl-b m#\[fg=#6c7086\]  menu ' || NAME=1
+  | grep -q '^Ctrl-b m#\[fg=#868d97\]  menu ' || NAME=1
 tm show-options -t pair-one -v @ak_key 2>/dev/null \
-  | grep -q '^Ctrl-b m#\[fg=#6c7086\]  menu ' || NAME=1    # every seat carries the one key
+  | grep -q '^Ctrl-b m#\[fg=#868d97\]  menu ' || NAME=1    # every seat carries the one key
 SLUGX=$(printf '%s' "$NNOPIN" | sed 's/[^A-Za-z0-9]/-/g')
 mkdir -p -- "$NH/.claude/projects/$SLUGX"
 printf '{"type":"mode"}\n' >"$NH/.claude/projects/$SLUGX/conv-later.jsonl"   # somebody else's
@@ -3780,7 +3780,7 @@ akp orch old-seat >"$WORK/name-old-open.log" 2>&1 || NAME=1
 grep -q "^orch: resuming old-seat on fable in $NOLD (no conversation recorded; it starts fresh)\$" \
   "$WORK/name-old-open.log" || NAME=1
 tm show-options -t old-seat -v @ak_key 2>/dev/null \
-  | grep -q '^Ctrl-b m#\[fg=#6c7086\]  menu ' || NAME=1
+  | grep -q '^Ctrl-b m#\[fg=#868d97\]  menu ' || NAME=1
 grep -rqF conv-5555 "$NH/.agentkit/state" 2>/dev/null && NAME=1
 # (f5) and `stop` ends that seat once tmux has lost it too: what holds a name is the record,
 # so stopping takes the record and the names the seat was renamed from whether or not there is
@@ -4851,23 +4851,25 @@ cfg = config.load()
 config.ensure_dirs()
 
 
-def seat(name, line, model, record=True):
-    """Replay a captured pane and write down whatever the watcher types into it."""
-    import shlex
+def seat(name, line, model, record=True, composer="❯"):
+    """Replay a captured pane, its composer (that mark's last row) drawing what is typed until
+    its Enter, as a harness's does, and write down whatever the watcher types into it
+    (tests/fixtures/akpane.py)."""
     pane = typed / f"{name}.pane"
     pane.write_text(line + "\n")
     if record:
         config.save_session(cfg, name, model, ["opus", "astra"],
                             {"cwd": str(typed), "created": int(time.time()), "session_title": name})
-    orch.start(name, str(typed), ["sh", "-c",
-               f"stty -echo; sleep .3; cat {shlex.quote(str(pane))}; "
-               f"cat > {shlex.quote(str(typed / (name + '.txt')))}"], model)
+    orch.start(name, str(typed), [sys.executable, str(config.REPO / "tests/fixtures/akpane.py"),
+                                  str(pane), str(typed / f"{name}.txt"), composer], model)
     orch.tmux_out("resize-window", "-t", f"={name}:", "-x", "100", "-y", "40")
 
 
 def typed_into(name):
-    path = typed / f"{name}.txt"
-    return path.read_text() if path.exists() else ""
+    """Each line entered in that seat, ended by a newline."""
+    path = typed / f"{name}.txt.lines"
+    return "".join(json.loads(line) + "\n"
+                   for line in path.read_text().splitlines()) if path.exists() else ""
 
 
 def meta_window(seconds_from_now):
@@ -4882,9 +4884,10 @@ claude_pane = (fixtures / "claude-stall-pane.txt").read_text()
 codex_pane = (fixtures / "codex-stall-pane.txt").read_text()
 seat(CLAUDE, claude_pane, "opus")
 seat("stall-codex-goal", codex_pane.replace("exceeded retry limit, last status: 429 Too Many Requests",
-                                          "Goal stalled: no progress after three attempts"), "astra")
-seat("stall-codex-quota", codex_pane, "astra")
-seat("stall-muse", (fixtures / "muse-stall-pane.txt").read_text(), "spark")
+                                          "Goal stalled: no progress after three attempts"), "astra",
+     composer="›")
+seat("stall-codex-quota", codex_pane, "astra", composer="›")
+seat("stall-muse", (fixtures / "muse-stall-pane.txt").read_text(), "spark", composer="⟩")
 seat("fine-seat", "reading the tests", "opus")
 seat("by-hand", claude_pane, "opus", record=False)
 time.sleep(1.5)                     # the panes have to have painted before anything reads them

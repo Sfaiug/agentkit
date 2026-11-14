@@ -54,7 +54,7 @@ func Placed(model config.Model, argv []string, cwd, out string, env map[string]s
 	}
 	// 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768 MiB
 	// and p90 of 1868 MiB, test pieces included, with one at 5438 MiB.
-	away, _, err := start(cwd, 2, 2048, commandhelp.ShellJoin(argv), files, false, func(string) {})
+	away, _, err := start(cwd, 2, 2048, commandhelp.ShellJoin(argv), nil, files, false, func(string) {})
 	if err != nil || away == nil {
 		return nil
 	}

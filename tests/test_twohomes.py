@@ -125,6 +125,18 @@ class TwoHomes(unittest.TestCase):
                     self.assertEqual((done.code, done.out), (0, f"{other.name}\n"), done.err)
             self.assertEqual(laptop.run("ssh", "acme-nas", "hostname").code, 255)
 
+    def test_a_process_ends_with_its_machine_alone_whatever_its_environment_keeps(self):
+        # its machine's tmux dir is the one variable a machine's commands hold alone
+        with Machines("acme-mini", "acme-vm") as (mini, vm):
+            done = vm.run("sh", "-c", "env -u TMUX_TMPDIR setsid sleep 60 "
+                                      "</dev/null >/dev/null 2>&1 & echo $!")
+            pid = int(done.out)
+            mini.close()
+            os.kill(pid, 0)     # still running
+            vm.close()
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

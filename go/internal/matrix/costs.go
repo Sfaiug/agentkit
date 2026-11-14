@@ -5,6 +5,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/quality"
 	"agentkit/internal/run"
+	"agentkit/internal/usage"
 )
 
 // ConfigRoles is the config's word for each role ak answers, the one ak's runs measure it under.
@@ -38,9 +39,11 @@ func Answer(rows []quality.Row, compared map[string]bool, shares *run.Object) (m
 	if err != nil {
 		return nil, err
 	}
-	monthly := map[string]*float64{}
+	monthly := map[string]*float64{} // each provider's usual login's
 	for _, sub := range subs {
-		monthly[sub.Name] = sub.Price
+		if monthly[sub.Name], err = usage.Price(sub, ""); err != nil {
+			return nil, err
+		}
 	}
 	makers := map[string]string{"": ""} // a row whose board names no maker names no provider
 	for _, row := range rows {

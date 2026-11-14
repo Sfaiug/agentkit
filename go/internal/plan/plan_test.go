@@ -77,7 +77,7 @@ func TestARenamedSeatReadsThePlanPythonPicks(t *testing.T) {
 		}
 	}
 	// written at the same time, the later path, as Python's max of (mtime, path)
-	if got, err := path("ash"); err != nil || got != filepath.Join(state, "plan-elm.md") {
+	if got, err := (Look{}).path("ash"); err != nil || got != filepath.Join(state, "plan-elm.md") {
 		t.Fatalf("%q, %v", got, err)
 	}
 }

@@ -26,7 +26,7 @@ func (r *repoPlace) inCopy(l *loop, out string, turn func(string) error) error {
 	}
 	gone()
 	defer gone()
-	if _, err := g.Must("clone", "--quiet", "--shared", "--mirror", wt, filepath.Join(checkout, ".git")); err != nil {
+	if err := g.CloneBorrowing(filepath.Join(checkout, ".git"), "--mirror"); err != nil {
 		return err
 	}
 	c := gitcall.Git{Repo: checkout}

@@ -18,6 +18,7 @@ import (
 	"agentkit/internal/harness"
 	"agentkit/internal/lock"
 	"agentkit/internal/notify"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
 )
@@ -152,7 +153,7 @@ func look(state, name string, now time.Time) (seen, bool) {
 	}
 	// a name nothing holds is refused with the seats the listing offers, once it has written
 	// into their records what it reconciles and infers
-	home, known := reading(now, false, readRuns, readers)
+	home, known := reading(now, false, readRuns, readers, plan.Look{})
 	found.records = home.records
 	for _, each := range home.Seats {
 		found.running = append(found.running, each.Name)

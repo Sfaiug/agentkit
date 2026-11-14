@@ -14,7 +14,6 @@ import (
 	"agentkit/internal/agent"
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
-	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
@@ -81,14 +80,14 @@ func barPaint(text, word string) string {
 	return "#[fg=#" + terminal.RGB(word) + "]" + tmuxText(text) + "#[default]"
 }
 
-// barChip is the state as the bar opens with it: its glyph and word on its colour in the text that
-// reads on it, bold for `! needs you`, the one loud thing on the bar.
+// barChip is the state as the bar opens with it: its glyph and word on its colour in the theme's
+// on-accent, bold for `! needs you`, the one loud thing on the bar.
 func barChip(screen terminal.Screen, word string) string {
 	bold := ""
 	if word == "needs you" {
 		bold = ",bold"
 	}
-	return "#[fg=#" + terminal.Ink(word) + ",bg=#" + terminal.RGB(word) + bold + "] " +
+	return "#[fg=#" + terminal.RGB("on-accent") + ",bg=#" + terminal.RGB(word) + bold + "] " +
 		tmuxText(screen.StateText(word)) + " #[default]"
 }
 
@@ -189,7 +188,7 @@ func (seat Seat) publish(state string, models map[string]config.Model, changed b
 		return
 	}
 	model, builds, reviews := barSelection(state, seat.Name, models)
-	done, total := plan.Progress(seat.Name)
+	done, total := seat.Progress()
 	barTell(state, seat.Name, seat.barOptions(terminal.For(os.Stderr), model, builds, reviews, done, total), seat.bars)
 	if changed {
 		barTell(state, "", nil, seat.bars)

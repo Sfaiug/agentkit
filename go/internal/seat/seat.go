@@ -24,6 +24,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/machines"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
@@ -62,7 +63,8 @@ type Seat struct {
 	path   string
 	seen   sight
 
-	bars *func() ([]barRow, bool) // the bars as the reading that read it listed them, once until it writes one (barTell)
+	bars  *func() ([]barRow, bool) // the bars as the reading that read it listed them, once until it writes one (barTell)
+	plans plan.Look                // how that reading looks its plan up: once a frame on an open screen (MenuRead)
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -128,12 +130,12 @@ type ran struct {
 // Read is the home, and whether Go knows it: no record where milestone 6b found none, else
 // only seats on no tmux server or whose panes have all died there, with records, seat files and
 // runs it follows.  Looking also takes seats whose panes run on.
-func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil) }
+func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil, plan.Look{}) }
 
 // Looking is Read with seats whose panes still run among them, where Go reads their screens.
-func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil) }
+func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil, plan.Look{}) }
 
-func reading(now time.Time, looking bool, readRuns readsRuns, readers recordReaders, pending ...bool) (Home, bool) {
+func reading(now time.Time, looking bool, readRuns readsRuns, readers recordReaders, plans plan.Look, pending ...bool) (Home, bool) {
 	began := time.Now()
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
@@ -208,7 +210,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 			if !ok {
 				return Home{}, false
 			}
-			seat.home, seat.bars = homeKey("", stands), &bars
+			seat.home, seat.bars, seat.plans = homeKey("", stands), &bars, plans
 			home.Seats = append(home.Seats, seat)
 			continue
 		}
@@ -218,7 +220,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		if !ok {
 			return Home{}, false
 		}
-		seat.held, seat.live, seat.bars = slices.Contains(held, name), isLive, &bars
+		seat.held, seat.live, seat.bars, seat.plans = slices.Contains(held, name), isLive, &bars, plans
 		if seat.live {
 			facts := climbingOf(state, seat, sight{}, seconds(now))
 			if deferred {

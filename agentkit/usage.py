@@ -1119,7 +1119,8 @@ def mark_exhausted(cfg, provider, until=None, account=None):
 
 
 def record_turn_meters(cfg, provider, meters, account=None, now=None):
-    """The meters a worker turn reported about the account it ran on become that reading.
+    """The meters a worker turn, or a seat's status render (`watch.hook_meters`), reported about
+    the account it ran on become that reading.
 
     A file and no request, so neither the snapshot's five minutes nor any probe stands
     between it and the menu, `ak usage` and the next pick. The endpoint's own cadence
@@ -1173,17 +1174,21 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     stood = _number(cached.get("fetched_at"))
     if stood is None:
         stood = _number(cached.get("probed_at"))
-    if stood is not None and measured <= stood:
+    # Each meter is as old as the turn that wrote it, else as the reading, and one it lacks has
+    # none: a turn newer on one window leaves another open to an older turn's reading of it.
+    old = [{**m, "measured_at": _number(m.get("measured_at")) or stood}
+           for m in (cached.get("meters") if isinstance(cached.get("meters"), list) else [])
+           if isinstance(m, dict) and isinstance(m.get("name"), str)]
+    held = {m["name"]: m["measured_at"] for m in old}
+    fresh = [m for m in fresh if (at := held.get(m["name"])) is None or measured > at]
+    if not fresh:
         return False
     _keep(provider, account, fresh, measured, "turn")
-    old = cached.get("meters") if isinstance(cached.get("meters"), list) else []
     # Normalized as a probed meter is, because every reader of the snapshot reads one.
-    new = {m["name"]: _normalized(m, measured) for m in fresh}
+    new = {m["name"]: {**_normalized(m, measured), "measured_at": measured} for m in fresh}
     asked = {name: at for name, at in _meter_asked(cached).items() if name not in new}
-    merged = [new[m["name"]] if isinstance(m, dict) and m.get("name") in new else m
-              for m in old if isinstance(m, dict) and isinstance(m.get("name"), str)]
-    merged += [meter for name, meter in new.items()
-               if name not in {m.get("name") for m in merged if isinstance(m, dict)}]
+    merged = [new.get(m["name"], m) for m in old]
+    merged += [meter for name, meter in new.items() if name not in held]
     prov = dict(cached)
     prov.setdefault("provider", provider)
     if "harness" not in prov or "via" not in prov:
@@ -1193,10 +1198,9 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
             prov.setdefault("via", via)
         except config.Error:
             pass
-    prov.update(meters=merged, probed_at=measured, probed_meters=asked, error=None,
-                pace=max((m["pace"] for m in merged
-                            if isinstance(m, dict) and m.get("pace") is not None),
-                           default=None))
+    prov.update(meters=merged, probed_at=max(measured, stood or 0), probed_meters=asked,
+                error=None, pace=max((m["pace"] for m in merged if m.get("pace") is not None),
+                                     default=None))
     for key in ("fetched_at", "probe_error", "probe_failed_at", "stale_since"):
         prov.pop(key, None)
     _patch(provider, prov, account)
@@ -1211,19 +1215,25 @@ def _worker_rank(account, reading, cfg=None, model=None):
     For a `model`, on what that model reads there alone, so another model's spent cap leaves the
     login room, and one running low on it after every one that is not.  Unknown is then only a
     reading ak cannot read, which may be logged out and is no safer than one running low; one
-    giving the model no budget still says what its 5h window has left.
+    giving the model no budget still says what its 5h window has left.  Among logins alike in
+    that, one where a meter not gating the model is spent goes first: its week is left to this
+    model alone, while a login whose cap has room keeps its week for the model that cap gates.
     """
     if model is None:
-        spent, credits, low = reading["exhausted"], reading["on_credits"], False
+        spent, credits, low, kept = reading["exhausted"], reading["on_credits"], False, True
         unknown, budget = reading["budget_reason"] is not None, reading["budget"]
     else:
         read = {config.model(cfg, model)["provider"]: reading}
         spent, credits = model_exhausted(cfg, model, read)[0], on_credits(cfg, model, read)
         unknown = bool(reading.get("error")) or _stale(reading, time.time())
         low, budget = unknown or model_low(cfg, model, read), model_budget(cfg, model, read)[0]
+        # The meters themselves, not their names: two caps of different scopes may share one.
+        gating = _gating_meters(cfg, model, read)[0]
+        kept = not any(m not in gating and m.get("used", 0) >= 100
+                       for m in reading.get("meters") or [])
     usual = account == config.DEFAULT_ACCOUNT or (unknown and not spent)
     group = 1 if usual else (0 if not spent else 2)
-    return (spent, credits, low, group, unknown, -budget)
+    return (spent, credits, low, group, kept, unknown, -budget)
 
 
 def account(cfg, provider, model=None):
@@ -1289,29 +1299,29 @@ def _split_week(cfg, provider, prov):
 def _gating_meters(cfg, name, providers):
     """The meters that actually constrain this model.
 
-    A model naming a `meter` is gated by that one, the shared weekly_all and the 5h session
-    window, which every model of the subscription runs inside.  Otherwise use the provider's
-    meters less each cap that is another model's: `weekly_scoped` is Fable's, so it must not
-    gate Opus -- otherwise the orchestrator fallback from Fable to Opus could never fire.  A cap
-    is the model's its provider names in its `scope`, each word of which is a word of that
-    model's id or of the name every screen shows it by (`Fable` names `acme-fable-5-2`);
-    without a `scope`, the model's whose `meter` claims it.
+    Never a cap that is another model's: `weekly_scoped` is Fable's, so it must not gate Opus
+    -- otherwise the orchestrator fallback from Fable to Opus could never fire.  A cap is the
+    model's its provider names in its `scope`, each word of which is a word of that model's id
+    or of the name every screen shows it by (`Fable` names `acme-fable-5-2`); without a
+    `scope`, the model's whose `meter` claims it.  Of the rest, a model naming a `meter` is
+    gated by that one, the shared weekly_all and the 5h session window, which every model of
+    the subscription runs inside; any other model by all of them.
     """
     entry = config.model(cfg, name)
-    meters = providers.get(entry["provider"], {}).get("meters", [])
+
+    def words(text):
+        return set(re.findall(r"[^\W_]+", str(text).lower()))
+
+    own = words(entry["model"]) | words(config.model_name(cfg, name))
+    meters = [m for m in providers.get(entry["provider"], {}).get("meters", [])
+              if not m.get("scope") or words(m["scope"]) <= own]
     want = entry.get("meter")
     if want:
         return [m for m in meters if m["name"] in (want, "weekly_all")
                 or m.get("window_secs") == SESSION_SECS], want
     claimed = {e["meter"] for n, e in cfg["models"].items()
                if n != name and e.get("meter") and e["provider"] == entry["provider"]}
-
-    def words(text):
-        return set(re.findall(r"[^\W_]+", str(text).lower()))
-
-    own = words(entry["model"]) | words(config.model_name(cfg, name))
-    return [m for m in meters if (words(m["scope"]) <= own if m.get("scope")
-                                  else m["name"] not in claimed)], PROVIDER_METERS
+    return [m for m in meters if m.get("scope") or m["name"] not in claimed], PROVIDER_METERS
 
 
 def model_pace(cfg, name, providers):

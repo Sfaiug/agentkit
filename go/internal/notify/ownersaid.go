@@ -33,7 +33,7 @@ func OwnerSaid(name string) ([]float64, error) {
 // the error where the seat's typing receipts cannot be read (strict).
 func OwnerMessages(name string) (string, []transcript.Prompt, error) {
 	current, had, err := Listed(name, false)
-	if err != nil || len(had) == 0 {
+	if err != nil || len(had) == 0 || had[len(had)-1].Name != "" { // its current one not named yet
 		return "", nil, err
 	}
 	// with those it left under its harness, as a line ak typed may have gone into one of them

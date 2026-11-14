@@ -1,7 +1,7 @@
 """On a person's terminal `ak --help` draws its `internal:` line dim, and only that line.
 
 The listing's rows are the verbs a seat uses; the verbs ak runs for itself share one line, drawn
-dim so the eye passes over it.  The dim is the palette's own grey at whatever depth the terminal
+dim so the eye passes over it.  The dim is the black theme's own at whatever depth the terminal
 says it takes: true colour when COLORTERM says so, else the nearest of 256, else the plain dim of
 eight colours, and none at all under NO_COLOR.  Black-box: the program `AK_BIN` names runs on a
 terminal from tests/fixtures/akterm.py, whose screen is read cell by cell, colours and all.
@@ -18,8 +18,8 @@ from fixtures.akterm import Terminal
 INTERNAL = "internal:  orch  worker  hand-in  watch  update  macbridge  attach  doctor  move"
 DIM = "\x1b[2m"
 RESET = "\x1b[0m"
-GREY = "\x1b[38;2;108;112;134m"      # the palette's dim grey, #6c7086
-GREY_256 = "\x1b[38;5;243m"          # ... and the nearest of xterm's 256 to it
+GREY = "\x1b[38;2;134;141;151m"      # the black theme's dim, #868d97
+GREY_256 = "\x1b[38;5;245m"          # ... and the nearest of xterm's 256 to it
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

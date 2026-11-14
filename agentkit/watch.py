@@ -54,6 +54,7 @@ from . import (aside_editor, box, browser, command_help, config, front, gc, gitc
 from . import record as run_record
 from . import terminal as terminal_mod
 from .harness import LIMITED, SPENT, entries, says
+from .host import boot_id     # `watch.boot_id`, which tests stand in for to play a reboot
 from .lifecycle import LIVE, WATCH, facts as hook_facts, held_work, state as hook_state
 
 INBOX_WARMUP = 10       # seconds a seat that was just started gets before it is typed into
@@ -585,13 +586,6 @@ def save_state(data):
         _write_state(data)
 
 
-def boot_id():
-    try:
-        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-    except OSError:
-        return None
-
-
 def cut_off(cfg, name, moved=None):
     """(owed, line): what that seat owes once back, by what it was doing when its process went,
     and the line it is told -- both from one reading, since its harness, asked twice, can
@@ -843,16 +837,13 @@ def finish_own_lines(cfg, log):
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
         for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
                      key):
-            def alone(held):
-                return composer_holds(held, session, line, cfg, exact=True) == "line"
-
-            if not line or not alone(name):
+            if not line or composer_holds(name, session, line, cfg, exact=True) != "line":
                 continue
             if (type_checked(session, line, log, harness, pending=True,
                              guard=lambda: notify.session_lock(name),
                              veto=lambda held: line != marked
-                             and owner_question(notify.last(held)),
-                             ready=alone) and line == marked):
+                             and owner_question(notify.last(held)))
+                    and line == marked):
                 replace_midturn(name, mark)
             break
 
@@ -2892,6 +2883,11 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
     if hook_state(harness, hook_facts(name))[1] in marked_events(harness, "failed"):
         settle_account(cfg, session, lambda _: None)
     answer = announce_state(session, cfg=cfg, look=True, number=number)
+    # The tick's pass for this one seat: what it is owed goes in at the event that ends its
+    # turn or answers its question, not at a tick minutes later, and a move before the
+    # `continue` below, which would begin its next turn on the model it is leaving.
+    if seat_read(name).get("owed_lines"):
+        tell_moves(name, note)
     if stop_enforced(harness):
         from . import menu as menu_mod
         # A completion is already an event, not a suspected stall. The wrapper supplies
@@ -2900,6 +2896,47 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None):
                       menu_mod.run_records(), False, lambda _: None):
             answer = announce_state(session, cfg=cfg, look=True, number=number)
     return answer
+
+
+def hook_meters(launched, conversation, account, rendered, *windows):
+    """What a seat's status render carried of its login's limits, where it differs from its
+    conversation's note: a change becomes that login's reading at the render's moment.
+
+    The seat's status hook hands in its login ("" for the usual one), the moment the render
+    began and each window as `<window> <words>`, its jq's words for the numbers.  An idle seat
+    renders its last answer again and again, so the note, state/limits-<conversation>.json, holds
+    each window as `[login, words, moment]`; a window it did not hold is only kept, as its numbers
+    may be as old as the seat's last answer.  Only this changes the note, under an exclusive lock
+    on it from read to write, so windows are judged in the order renders began, whatever order
+    their hand-ins arrive in.  Written in place (a rename would take the lock's file away), in
+    json.dumps's spacing, which the hook matches, and before the reading: a hand-in that dies
+    between the two loses that reading, never shows numbers as newer than they are.
+    """
+    rendered = float(rendered)
+    cfg = config.load()
+    harness, provider = seat_model(cfg, config.resolve_session(launched))
+    fd = os.open(config.STATE / f"limits-{conversation}.json", os.O_RDWR | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "r+") as note:
+        fcntl.flock(note, fcntl.LOCK_EX)
+        try:
+            held = json.loads(note.read())
+        except ValueError:
+            held = {}
+        changed = {}
+        for window, _, words in (line.partition(" ") for line in windows):
+            was = held.get(window)
+            if was and was[2] >= rendered:
+                continue
+            if was and was[:2] != [account, words]:
+                changed[window] = words
+            held[window] = [account, words, rendered]
+        note.seek(0)
+        note.write(json.dumps(held))
+        note.truncate()
+        note.flush()
+        if harness and changed:
+            usage.record_turn_meters(cfg, provider, orch.harness_plugin(harness).status_meters(
+                changed), account or None, now=rendered)
 
 
 def pane_reads(form):
@@ -3928,8 +3965,7 @@ def kept_asked_first(session, harness=None, held=True):
 
 
 def type_checked(session, text, log, harness=None, guard=nullcontext,
-                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak",
-                 ready=lambda name: True):
+                 veto=lambda name: False, typed=lambda: None, pending=False, *, source="ak"):
     """Type one line with a gap before Enter, and confirm it left the composer's line.
 
     Delivery is at least once: no mark, receipt or transcript read closes every crash window
@@ -3945,13 +3981,16 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
-    `ready` is asked under the guard right before each Enter, after the gap, and the first
-    Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent. None means the line was deferred before its text went in: keys its terminal
-    has not read yet, or, in a seat of a known harness, a composer `composer_draft` does not
-    read empty. Those checks gate new text, never the Enter completing it:
-    withholding that Enter would leave a draft the caller cannot recover, or let a retry
-    append the same text to itself.
+    The owner can type in the seat: each Enter goes only while `composer_holds`, under the
+    guard right after the gap, reads the composer as the line -- whitespace never compared, and
+    whole where the line is `pending`: no key of this call is proof it is ak's -- and the
+    first waits up to SENT_WAIT for that.  Read as anything else, the line gets no Enter and
+    stays in the composer with what joined it, none of it removed, and this answers False as
+    for any line not sent: only a later pass that knows the line sends it (`finish_own_lines`),
+    and any other is the owner's to send or delete.
+    None means the line was deferred before its text went in: keys its terminal has not read
+    yet, a composer `composer_draft` does not read empty, or a seat whose harness has no
+    composer to read.
     """
     text = terminal_mod.keyed(text)    # a typed escape or newline is a key, not text
     try:
@@ -3968,9 +4007,12 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     # in part, its Enter sends both; under a dialog it answers it; where no composer shows it
     # runs as a command.  A line left pending was read in its composer, whatever chrome is
     # drawn around it.
-    if harness is not None and not pending and composer_draft(harness, pane_text(seat)) != "":
+    if not pending and (harness is None or composer_draft(harness, pane_text(seat)) != ""):
         return None
-    confirm = pending or harness is not None
+
+    def alone(held):
+        return composer_holds(held, seat, text, exact=pending, harness=harness) == "line"
+
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):
@@ -3980,13 +4022,13 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             if not sent:
                 return sent
             time.sleep(KEY_GAP)
-        if not _wait_ready(ready, held if held is not None else name) or not _send_enter(seat, log):
+        if not _wait_ready(alone, held if held is not None else name) or not _send_enter(seat, log):
             return False
-    if not confirm or _wait_sent(seat, harness, text):
+    if _wait_sent(seat, harness, text):
         return True
     with guard() as held:
         if (veto(held if held is not None else name)
-                or not ready(held if held is not None else name)):
+                or not alone(held if held is not None else name)):
             return False
         if not _send_enter(seat, log):
             return False
@@ -4144,7 +4186,7 @@ def _cropped_composer_rows(harness, pane):
     return _unscrolled(chrome, [_inside_box(row) for row in tail])
 
 
-def composer_holds(name, session, line, cfg=None, *, exact=False):
+def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     """What that seat's composer holds now, off one capture: "line", "empty", or "other" --
     anything else, nothing read, or a question to the owner on the screen, as a dialog that
     keeps the composer drawn is.
@@ -4157,11 +4199,12 @@ def composer_holds(name, session, line, cfg=None, *, exact=False):
     owner's.  It is also a composer read whole holding that line joined in order with the
     others ak typed there last (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
-    scrolled composer, suffix or paste fold is no proof without a delivery mark.
+    scrolled composer, suffix or paste fold is no proof without a delivery mark.  `harness`,
+    given, is the one a caller read the seat as, and the composer is read as that one's.
     """
     try:
         name = config.resolve_session(name)
-        harness = seat_model(config.load() if cfg is None else cfg, name)[0]
+        harness = harness or seat_model(config.load() if cfg is None else cfg, name)[0]
     except (config.Error, OSError):
         return "other"
     pane = pane_text(session)
@@ -4739,10 +4782,10 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     too, with the name the seat goes by then, before each key and a mark's confirmation: a line
     that has stopped being this seat's to have, or a pane whose process changed since its pin
     (`_respawned`), is typed no further.  Every Enter, the first, its retry and a mark's,
-    goes only while the composer holds the line alone (`composer_holds`): what the owner typed
-    in the gap before it is never sent.  The line is delivered only once its composer reads
-    empty with no unread terminal input, the first pass's as a mark's: one the owner edited
-    while its Enter was confirmed no longer reads whole there, and is still theirs to send.
+    goes only while the composer holds the line alone (`composer_holds`, `type_checked`).  The
+    line is delivered only once its composer reads empty with no unread terminal input, the
+    first pass's as a mark's: one the owner edited while its Enter was confirmed no longer
+    reads whole there, and is still theirs to send.
     Text left standing in a seat launched with ak's editor holds none of it back: the line goes
     in through that editor, which sets the text aside and gives it back (`_past_text`), and a
     mark naming the pane it went into is that editor's to read (`_line_left`).
@@ -4803,8 +4846,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
 
     return (type_checked(session, text, log, None,
                          guard=lambda: notify.session_lock(session["name"]), veto=veto,
-                         typed=lambda: receipt(mark), source=source,
-                         ready=lambda held: composer_holds(held, session, text, cfg) == "line")
+                         typed=lambda: receipt(mark), source=source)
             and composer_holds(session["name"], session, text, cfg) == "empty"
             and not pane_unread(session))
 
@@ -5093,7 +5135,8 @@ def tell_moves(name, log, cfg=None):
     (`switch`): one types the line, the next answers what its harness asks in its composer's
     place, the next reads that composer back and types the next line, so a move is in within
     seconds.  Over once its lines stand as they were for MOVE_STANDS: a harness slower than
-    that, or busy in a turn, is the tick's at its next prompt.  One pass where none is owed."""
+    that, or busy in a turn, has its lines from the look its next event starts (`hook_look`), or
+    the tick.  One pass where none is owed."""
     last = stood = None
     while True:
         tell_owed(name, log, cfg)
@@ -6321,12 +6364,17 @@ def _launch_grace(state, now):
 
 def _backoff_until(deaths):
     for death in reversed(deaths):
-        if not isinstance(death, dict):
-            continue
+        if not isinstance(death, dict) or death.get("restart"):
+            continue    # a restart's resume holds no death back (`transitions.restart_ended`)
         at = death.get("resumed_at")
         if isinstance(at, (int, float)) and not isinstance(at, bool):
             return at + DEAD_BACKOFF
     return 0
+
+
+def _ended(deaths):
+    """What ended the loop whose ending is the last of `deaths`, in the words of its resume."""
+    return "the host restarted" if deaths[-1].get("restart") else "loop died"
 
 
 def _dead_where(state, run_dir):
@@ -6343,40 +6391,45 @@ def _dead_plan(state, run_dir, now):
     """What this tick does with a loop whose process is gone.
 
     `skip` is a resume already ordered. `wait` records a death and holds for the
-    backoff. `park` is the third death inside an hour. `resume` continues now.
+    backoff. `park` is the third death inside an hour. `resume` continues now, as it
+    does every loop a restart of the host ended (`transitions.restart_ended`).
     """
     pid = state.get("pid")
     deaths = [death for death in (state.get("deaths") or []) if isinstance(death, dict)]
-    last = deaths[-1] if deaths else None
     # A resume already ordered — by this pass or by the stall ladder — adopts the
     # record itself. Noticing the same dead pid again would launch a second loop.
     if _resume_ordered(state, now):
         return "skip", deaths, ""
-    ending = transitions.loop_death(state)    # `last`, where it is this loop's ending
+    ending = transitions.loop_death(state)    # the last entry, where it is this loop's ending
     reaped = bool(ending) and not ending.get("parked") and not ending.get("resumed_at")
+    noticed = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+    reason = (ending.get("reason") or "") if reaped else f"loop process {pid} gone, noticed {noticed}"
+    entry = {"at": now, "pid": pid, "reason": reason}
+    if transitions.restart_ended(state):
+        if reaped:
+            return "resume-open", deaths, reason
+        return "resume", [*deaths, {**entry, "restart": True}], reason
+    own = [death for death in deaths if not death.get("restart")]     # the run's own deaths
     # The hour runs to the death being judged, not to the tick judging it: a tick that gets
     # to a recorded death late must not age the first of three out of the window.
-    upto = last.get("at") if reaped else now
+    upto = ending.get("at") if reaped else now
     if not isinstance(upto, (int, float)) or isinstance(upto, bool):
         upto = now
-    recent = [death for death in deaths
+    recent = [death for death in own
               if isinstance(death.get("at"), (int, float)) and not isinstance(death.get("at"), bool)
               and upto - death["at"] < DEAD_WINDOW]
     if reaped:
         # A reap noticed this death first and recorded it, so it is already among the recent:
         # the third inside the hour parks whoever noticed it.
         if len(recent) >= 3:
-            return "park", [*deaths[:-1], {**last, "parked": True}], last.get("reason") or ""
+            return "park", [*deaths[:-1], {**ending, "parked": True}], reason
         if now < _backoff_until(deaths):
-            return "wait-quiet", deaths, last.get("reason") or ""
-        return "resume-open", deaths, last.get("reason") or ""
-    noticed = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
-    reason = f"loop process {pid} gone, noticed {noticed}"
-    entry = {"at": now, "pid": pid, "reason": reason}
+            return "wait-quiet", deaths, reason
+        return "resume-open", deaths, reason
     if len(recent) >= 2:
         return "park", [*deaths, {**entry, "parked": True}], reason
     deaths = [*deaths, entry]
-    previous = last.get("resumed_at") if last else None
+    previous = own[-1].get("resumed_at") if own else None
     if (isinstance(previous, (int, float)) and not isinstance(previous, bool)
             and now - previous < DEAD_BACKOFF):
         return "wait", deaths, reason
@@ -6537,7 +6590,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                 if action == "park":
                     log(f"would park {run_dir.name}: loop died ({reason})")
                 elif action in ("resume", "resume-open"):
-                    log(f"would resume {run_dir.name}: loop died ({reason}); "
+                    log(f"would resume {run_dir.name}: {_ended(deaths)} ({reason}); "
                         f"continuing {role} of round {rnd}")
                 elif action == "wait":
                     log(f"would wait to resume {run_dir.name}: loop died ({reason})")
@@ -6570,7 +6623,7 @@ def resume_dead_loops(cfg=None, dry_run=False, log=print, now=None):
                     deaths[-1]["resumed_at"] = now
                     _arm_resume(state, deaths, now, role)
                     launch = True
-                    line = (f"resumed {run_dir.name}: loop died ({reason}); "
+                    line = (f"resumed {run_dir.name}: {_ended(deaths)} ({reason}); "
                             f"continuing {role} of round {rnd}")
             if line:
                 _note_run(run_dir, line)

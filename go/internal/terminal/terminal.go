@@ -12,37 +12,34 @@ import (
 	"strings"
 )
 
-// A style is a word's glyph, its ASCII stand-in, its colour of the palette, its eight-colour tone
-// and its emphasis.  `dim` is a note beside a row and `FAIL` a verdict, no state; `idle` is drawn
+// A style is a word's glyph, its ASCII stand-in, its role of the theme, its eight-colour tone and
+// its emphasis.  `dim` is a note beside a row and `FAIL` a verdict, no state; `idle` is drawn
 // as dim is.
 type style struct{ glyph, ascii, colour, tone, emphasis string }
 
 var styles = map[string]style{
-	"needs you":    {"!", "!", "yellow", "33", "1"},
-	"working":      {"●", "*", "blue", "36", ""},
-	"done":         {"✓", "v", "green", "32", ""},
-	"out of usage": {"○", "o", "red", "31", ""},
-	"FAIL":         {"×", "x", "red", "31", ""},
-	"idle":         {"○", "o", "grey", "37", "2"},
-	"dim":          {"·", ".", "grey", "37", "2"},
-	"quiet":        {"", "", "grey", "37", ""},
+	"needs you":    {"!", "!", "warning", "33", "1"},
+	"working":      {"●", "*", "accent", "36", ""},
+	"done":         {"✓", "v", "success", "32", ""},
+	"out of usage": {"○", "o", "error", "31", ""},
+	"FAIL":         {"×", "x", "error", "31", ""},
+	"idle":         {"○", "o", "dim", "37", "2"},
+	"dim":          {"·", ".", "dim", "37", "2"},
+	"quiet":        {"", "", "dim", "37", ""},
 }
 
 // kinds are the roles a screen asks Styled for, each the word whose colour it is.
 var kinds = map[string]string{"accent": "working", "amber": "needs you"}
 
-// onLight is a word's own colour on a light background: yellow cannot be read on white.
-var onLight = map[string]string{"needs you": "orange"}
-
-// colourOf is a word's colour of the palette, or a role's (kinds); light, on a light background.
-func colourOf(word string, light bool) colour {
+// colourOf is a word's colour in a theme: a role's (roles), a state word's, or a kind's.
+func colourOf(word string, in theme) string {
+	if _, ok := roles[word]; ok {
+		return roles[word][in]
+	}
 	if role, ok := kinds[word]; ok {
 		word = role
 	}
-	if name, ok := onLight[word]; ok && light {
-		return palette[name]
-	}
-	return palette[styles[word].colour]
+	return roles[styles[word].colour][in]
 }
 
 var backgroundRGB = regexp.MustCompile(`^rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)`)
@@ -96,7 +93,8 @@ func (s Screen) Highlight(line string, mark bool) string {
 // a colour by its role and a glyph by its word, never an RGB or a code.
 type Screen struct {
 	depth, width, height int
-	ascii, light         bool
+	ascii                bool
+	theme                theme
 }
 
 func For(out io.Writer) Screen {
@@ -183,7 +181,7 @@ func (s Screen) ContentWidth() int {
 }
 
 // Styled is text in a state word's colour, or dim, or a role's (kinds), or a caller's own `#RRGGBB`,
-// from the palette of the background this screen has.
+// in this screen's theme.
 func (s Screen) Styled(text, word string) string {
 	if role, ok := kinds[word]; ok {
 		word = role

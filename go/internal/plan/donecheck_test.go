@@ -42,8 +42,8 @@ func TestAFinishedPlanOwesItsCheckUntilOneReadWhatItsOwnerSaid(t *testing.T) {
 	owes := func(want bool, why string) {
 		t.Helper()
 		finished, err := Finished("acme")
-		line, owed, lineErr := OwedLine("acme")
-		alone, aloneErr := OwesLine("acme")
+		line, owed, lineErr := Look{}.OwedLine("acme")
+		alone, aloneErr := Look{}.OwesLine("acme")
 		if err != nil || lineErr != nil || aloneErr != nil || alone || finished == want || owed != want || want && line != owedCheck {
 			t.Errorf("%s: finished %v, owed %v %q, a line alone %v (%v, %v, %v)", why, finished, owed, line, alone, err, lineErr, aloneErr)
 		}
@@ -89,7 +89,8 @@ func TestAFinishedPlanOwesItsCheckUntilOneReadWhatItsOwnerSaid(t *testing.T) {
 	write(filepath.Join(home, ".claude-previous", "projects", "-code-acme-before", "conv-1.jsonl"), said("01", "Add a retry button."))
 	owes(true, "said in a conversation it left")
 
-	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "gemini", "cwd": "/code/acme", "conversation": "conv-ag"}`)
+	// a conversation its launcher named, so one its harness named
+	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "gemini", "cwd": "/code/acme", "conversation": "conv-ag", "id_source": "launcher"}`)
 	if _, err := Finished("acme"); !errors.Is(err, ErrUnread) {
 		t.Errorf("a harness whose answers Go does not read: %v", err)
 	}

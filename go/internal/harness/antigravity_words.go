@@ -18,7 +18,7 @@ var antigravityConversation = regexp.MustCompile(`^[\pL\pN_-]+$`)
 // here for its launch, which a claim written since this copy was read does not take away.
 func antigravityRecord(_ string, record *run.Object) (plugin, bool) {
 	own := plugins["antigravity"]
-	conversation, launch := antigravityLearn(record), record.Get("antigravity_launch")
+	conversation, launch := antigravityLearn(record, true), record.Get("antigravity_launch")
 	owning := func(current *run.Object) string {
 		if mine := antigravityMine(current); mine != "" || !run.Equal(current.Get("antigravity_launch"), launch) {
 			return mine

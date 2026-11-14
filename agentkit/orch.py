@@ -90,7 +90,7 @@ POPUP_SIZE = "-w 80% -h 70%"          # the popup on a screen with room to spare
 POPUP_FULL = "-w 100% -h 100%"        # ... and on a phone, where the border is all it spares
 POPUP_TITLE = " agentkit "            # set into the popup's top edge
 POPUP_PADDING = 1                     # ... the column and row it leaves blank inside its border
-DIM = f"fg=#{terminal.colour('dim').rgb}"   # its border, and the session behind it
+DIM = f"fg=#{terminal.colour('dim', tmux=True)}"   # its border, and the session behind it
 FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, hands it variables
 # The tmux client a popup opened on, by name, handed to that popup alone: the window a seat
 # picked in it opens in (`attach`).  Nothing outside it holds the name (`tmux_env`, `warm.serve`).
@@ -2584,12 +2584,14 @@ def loaded():
 
 
 def records(cfg=None):
-    """Let each harness reconcile its own evidence before anything claims a seat is resumable."""
+    """Let each harness reconcile its own evidence before anything claims a seat is resumable:
+    of the record as it stands under its lock, where `harness.claim` moves a seat, so a read from
+    before a move never writes back the conversation the seat left."""
     kept = config.session_records()
     for name, record in kept.items():
-        fields = seat_plugin(record, cfg=cfg).reconcile(record)
-        if fields:
-            kept[name] = config.update_session(name, **fields) or record
+        reconcile = seat_plugin(record, cfg=cfg).reconcile
+        if any(record.get(key) != value for key, value in reconcile(record).items()):
+            kept[name] = config.update_session(name, reconcile) or record
     return kept
 
 
@@ -4388,11 +4390,12 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
 
     One computation for the refusal and the launch, so the menu's key path asks each
     login once: installed is read off the filesystem, the seat login off the kept or
-    picked account, the order of accounts off the cache. The same provider keeps its
-    login, and a move within it that `in_place` takes in the running harness asks none;
-    another provider takes the first of its accounts whose seat login passes, in the seat's
-    order, else the default login to be judged below. No answer withholds nothing, the way a
-    turn goes ahead on an `auth` verb that said nothing.
+    picked account, the order of accounts off the cache. The same provider keeps its login
+    while it lists it (`config.lists`), and a move within it that `in_place` takes in the
+    running harness asks none; another provider, or a login it lists no more, takes the first
+    of its accounts whose seat login passes, in the seat's order, else the first of them,
+    judged by what it said. No answer withholds nothing, the way a turn goes ahead on an
+    `auth` verb that said nothing.
     """
     def provider_of(current):
         try:
@@ -4432,20 +4435,17 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
         if record is None:
             return f"session: {name} has no saved models", None
         old_provider, account = provider_of(record["orchestrator"]), record.get("account")
-    if new_provider != old_provider:
-        accounts = config.accounts(cfg, new_provider)
+    if new_provider != old_provider or not config.lists(cfg, new_provider, account):
+        accounts, account = config.accounts(cfg, new_provider), None
         if accounts:
             order = account_order(cfg, model,
                                   providers.get(new_provider, {}).get("accounts") or {})
             for cand in [*order, *(a for a in accounts if a not in order)]:
                 ok, why = harness_plugin(harness).seat_auth(cand)
-                if ok is True:
+                if known is None or ok is True:
                     account, known = cand, (ok, why)
+                if ok is True:
                     break
-            else:
-                account = config.DEFAULT_ACCOUNT
-        else:
-            account = None
     ok, why = known if known is not None else harness_plugin(harness).seat_auth(account)
     if ok is False:
         return f"{model}: {why}", None
@@ -4464,6 +4464,7 @@ def switch_lines(cfg, name, model, effort=None):
     `effort` where that is a line of its own.  None where the move restarts the seat: another
     harness, another provider unless its harness keeps one login a provider (a login is the
     process's, and only such a harness launches every seat on the same: `config.one_login`),
+    a login its provider lists no more (`config.lists`: its process runs signed out),
     that pane ended or gone, no `model` line, a model with no id of its own (`default`: its
     launch names none, so the harness picks), or a move its harness takes only from a launch
     (`switchable`)."""
@@ -4477,6 +4478,7 @@ def switch_lines(cfg, name, model, effort=None):
     pane = harness_pane(name, server)   # no id once it is gone, whatever other window lives on
     if (was["harness"] != entry["harness"]
             or was["provider"] != entry["provider"] and not config.one_login(entry["harness"])
+            or not config.lists(cfg, was["provider"], record.get("account"))
             or "model" not in block or entry["model"] in ("", config.DEFAULT_MODEL)
             or not pane.startswith("%") or tmux_out(
                 "display-message", "-p", "-t", pane, "#{pane_dead}", socket=server) != (0, "0")):
@@ -4492,14 +4494,38 @@ def switch_lines(cfg, name, model, effort=None):
              "pane": pane} for key in keys]
 
 
-def effort_back(name, model, effort, was):
-    """`model`'s orchestrator effort in that seat's record back at `was`, a move at `effort`
-    having failed, where the record still holds `effort` there: a move made since keeps its own,
-    and every other key stays as it stands."""
+def take_efforts(cfg, name, model, effort):
+    """`model`'s efforts in that seat's record as a move onto it runs them, at `effort` where
+    given (config.orchestrating_at), its entry's where the record holds none (config.own_efforts):
+    written ahead of the move's fields, which then give it none, in one hold of the record's lock
+    so nothing saved meanwhile counts as the move's.  (before, after): its efforts as the record
+    held them, None for none, and as written, for effort_back."""
+    taken = []
+
+    def take(data):
+        moved = config.own_efforts(cfg["models"], name, {**data, "orchestrator": model})
+        efforts = (moved.get("efforts") if effort is None
+                   else config.orchestrating_at(cfg["models"], moved, model, effort))
+        taken[:] = [(data.get("efforts") or {}).get(model), (efforts or {}).get(model)]
+        return efforts
+    config.change_efforts(name, take)
+    return taken
+
+
+def effort_back(cfg, name, model, before, after):
+    """`model`'s efforts in that seat's record back at `before` from `after` (take_efforts), a
+    move having failed, so an entry it gave the model goes and its config's apply again.  Where a
+    step since changed them, it keeps its own and only the move's orchestrator effort goes back,
+    to the one it ran at before; every other model stays as it stands."""
     def back(data):
         efforts = dict(data.get("efforts") or {})
-        if (efforts.get(model) or {}).get("effort") == effort:
-            efforts[model] = {**efforts[model], "effort": was}
+        now = efforts.get(model)
+        if now == after and before is None:
+            efforts.pop(model, None)
+        elif now == after:
+            efforts[model] = before
+        elif now and now.get("effort") == (after or {}).get("effort"):
+            efforts[model] = {**now, "effort": (before or cfg["models"][model])["effort"]}
         return efforts
     config.change_efforts(name, back)
 
@@ -4529,16 +4555,14 @@ def switch_in_place(cfg, name, chosen, effort):
                 return None
             if (watch.seat_read(name).get("usage_wait") or {}).get("continue"):
                 lines.append({"line": watch.ACCOUNT_LINE})
+            taken = []
             try:
-                if effort is not None:
-                    config.change_efforts(name, lambda data: config.orchestrating_at(
-                        cfg["models"], data, model, effort))
+                taken = take_efforts(cfg, name, model, effort)
                 config.update_session(name, **chosen)
                 watch.owe_line(name, None, *lines)
             except (config.Error, OSError):
-                if effort is not None:
-                    effort_back(name, model, effort,
-                                config.at_efforts(cfg, record)["models"][model]["effort"])
+                if taken:
+                    effort_back(cfg, name, model, *taken)
                 config.update_session(name, **{key: record.get(key) for key in chosen})
                 raise
             watch.seat_write(name, usage_wait=None)
@@ -4581,20 +4605,13 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     and gives it back where that launch fails, so it holds the effort the last launch ran at.
     """
     from . import watch   # here, not at the top: watch imports this module
-    taken = []    # `model`'s orchestrator effort as the record held it before `effort`
-
-    def at_effort(data, was=None):
-        """`data`'s efforts with `model`'s orchestrator effort at `effort`
-        (config.orchestrating_at), the one replaced put in `was`."""
-        if was is not None:
-            was[:] = [config.at_efforts(cfg, data)["models"][model]["effort"]]
-        return config.orchestrating_at(cfg["models"], data, model, effort)
+    taken = []    # `model`'s efforts as the hold's own write found and wrote them (take_efforts)
 
     def given_back():
-        """The effort `taken` back, the launch at `effort` having failed (effort_back)."""
-        if taken:     # set by the hold's own write, not the command's
+        """`model`'s efforts back as `taken` holds them, the launch having failed (effort_back)."""
+        if taken:
             try:
-                effort_back(name, model, effort, taken[0])
+                effort_back(cfg, name, model, *taken)
             except (config.Error, OSError):
                 pass    # the note returned already says the restart failed
 
@@ -4615,9 +4632,10 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     old_model = record["orchestrator"]
     if old_model == model and effort is None:
         return ""
-    # A seat moved to another provider makes the account it moved on its home.  Within its
-    # provider a running process keeps the login it has, as its record holds it under the lock:
-    # a recovery made since `_switch_plan` read it is not undone by a move in place.
+    # A seat moved to another provider makes the account it moved on its home, as does one
+    # restarted off a login its provider lists no more (below).  Within its provider a running
+    # process keeps the login it has, as its record holds it under the lock: a recovery made
+    # since `_switch_plan` read it is not undone by a move in place.
     try:
         moved = config.model(cfg, model)["provider"] != config.model(cfg, old_model)["provider"]
     except config.Error:
@@ -4661,7 +4679,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
         at = time.time()
         held = config.at_efforts(cfg, record if effort is None   # at the seat's own efforts
-                                 else {"efforts": at_effort(record)})
+                                 else {"efforts": config.orchestrating_at(cfg["models"], record,
+                                                                          model, effort)})
         if kept:
             (cmd, opens_on), conversation = resume_command(held, model, kept, ran_in, seat=name,
                                                            account=account, line=line), kept
@@ -4672,6 +4691,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
         return _one_line(exc)
+    if not config.lists(cfg, config.model(cfg, model)["provider"], record.get("account")):
+        homed = {"home_account": account}
     from . import notify
     # the conversation it leaves stays the seat's, for its done check to read the owner's words
     # in (`notify.conversations_of`); a restart that fails puts every one of these back
@@ -4688,8 +4709,7 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
         # look before it would follow the old model's last answer back (watch.follow_model).
         with watch.announcing(name):
             try:
-                if effort is not None:
-                    config.change_efforts(name, lambda data: at_effort(data, taken))
+                taken[:] = take_efforts(cfg, name, model, effort)
                 config.update_session(name, **chosen)
             except OSError as exc:
                 given_back()
