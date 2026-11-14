@@ -173,9 +173,11 @@ def _costs(rated, lineup, cfg, logins, shares):
     # decide, the owner answered "Costs only", as quality comes from the boards.
     from . import usage
     rows = {(row["release"], row["effort"]): row for row in lineup}
-    # matched as `lineup` matched, on the name the board spells, not the one ak says
+    # matched as `lineup` matched, on the name the board spells, not the one ak says; a lineup
+    # an earlier build stored has only its `name`, the board's, and picks read it (`rank`) until
+    # the models screen computes it again
     index = _release_index({row["release"]: {"slug": row["release"],
-                                             "name": row.get("board_name")}
+                                             "name": row.get("board_name", row.get("name"))}
                             for row in lineup}.values())
     providers = {}  # each release's provider: its first offered model's
     measured = {}   # (role, release, effort): [(provider, points, runs, listed)], a model's each

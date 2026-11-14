@@ -142,6 +142,16 @@ class RankByTheAnswer(Sandbox):
         self.assertEqual((before["fable"][0], after["opus"][0]), (0, 0))
         self.assertEqual((before["opus"][0], after["fable"][0]), (1, 1))
 
+    def test_a_lineup_an_earlier_build_stored_still_matches_by_the_boards_name(self):
+        # its `name` the board's and no `board_name`: Opus's dated release matches by name alone
+        old = [{**{key: value for key, value in row.items() if key != "board_name"},
+                "release": row["release"] + "-20261101", "name": row["board_name"]}
+               for row in self.lineup]
+        found = matrix.answer(old, cfg=self.cfg,
+                              task_usage={"opus": {"high": {"executor": (.01, 1)}}})["execute"]
+        self.assertEqual([row["cost_rule"] for row in found["rated"] if row["release"] ==
+                          "claude-opus-5-5-20261101" and row["effort"] == "high"], ["measured"])
+
     def test_the_role_pick_ranks_first_rated_once(self):
         self.store()
         with patch.object(quality, "rated", wraps=quality.rated) as rated:
