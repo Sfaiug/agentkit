@@ -22,12 +22,12 @@ func TestALaunchReadsItsNumbersFirstRefusingATaskWhileExecutorsAreOff(t *testing
 	const off = "executor_lines = 0: Executors are off; the orchestrator builds every change itself."
 	for _, example := range []struct {
 		config       string
-		task, review string // what each launch is told: "" goes ahead, "python" is Python's
+		task, review string // what each launch is told: "" goes ahead
 	}{
 		{"", "", ""},
 		{"executor_lines=0\n", off, ""},
-		{"executor_lines=0\nreview_rounds=0\n", off, "python"},
-		{"review_rounds=0\n", "", "python"},
+		{"executor_lines=0\nreview_rounds=0\n", off, ""},
+		{"review_rounds=0\n", "", ""},
 		{"executor_lines='no limit'\norchestrator_lines='no limit'\n", "", ""},
 		{"review_rounds=-1\n", "(got -1)", "(got -1)"},
 		{"rounds=2\n", "use review_rounds instead of rounds", "use review_rounds instead of rounds"},
@@ -39,8 +39,7 @@ func TestALaunchReadsItsNumbersFirstRefusingATaskWhileExecutorsAreOff(t *testing
 			_, err := numbers("", review)
 			switch {
 			case want == "" && err != nil,
-				want == "python" && !errors.Is(err, ErrPython),
-				want != "" && want != "python" && (err == nil || errors.Is(err, ErrPython) || !strings.HasSuffix(err.Error(), want)):
+				want != "" && (err == nil || !strings.HasSuffix(err.Error(), want)):
 				t.Errorf("%q, review %v: %v, want %q", example.config, review, err, want)
 			}
 		}

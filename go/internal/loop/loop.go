@@ -269,7 +269,8 @@ func Drive(dir string) int {
 			l.say(fmt.Sprintf("run %s: %s", l.id, filepath.Join(dir, "task.md")))
 		}
 		if l.pull != "" {
-			if record, _ := run.Read(dir); record != nil && record.Truthy("own_pr") {
+			// one woken in its landing line, as somebody else's with review off is too, lands as a seat's own
+			if record, _ := run.Read(dir); record != nil && (record.Truthy("own_pr") || landingLine(record) != "") {
 				return l.reviewOwn()
 			}
 			return l.reviewPull()

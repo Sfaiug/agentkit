@@ -17,9 +17,8 @@ func Policy(record *Object) (config.Numbers, error) {
 	})
 }
 
-// Carries is whether Go carries the run this record is: the numbers it holds to read, and not a
-// review of a pull request with review off, which Python delivers on its checks alone.
+// Carries is whether Go carries the run this record is: the numbers it holds to read.
 func Carries(record *Object) bool {
 	_, err := Policy(record)
-	return err == nil && !(ReviewOff(record) && record.Truthy("review_pr"))
+	return err == nil
 }

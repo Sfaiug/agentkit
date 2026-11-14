@@ -95,10 +95,11 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 		}
 		return refuse(dir, why, "", log)
 	}
-	code, err := underWay(dir, []string{"--- preflight",
-		fmt.Sprintf("repo: %s/%s | base: %s | target: %s | merge: squash", pull.Owner, pull.Name, pull.Base, pull.Base),
-		fmt.Sprintf("delivery: review %s at %s; merge on PASS with green checks", url, pull.Head),
-		"done-when: AGENTS.md tests: command from the target, else the PR checkout",
-	}, "notification: verdict on GitHub; PASS with green checks merges, FAIL hands back to the seat (stderr if unconfigured)", flags, log, out, errOut)
+	merge, delivery := "squash", fmt.Sprintf("review %s at %s; merge on PASS with green checks", url, pull.Head)
+	notification := "notification: verdict on GitHub; PASS with green checks merges, FAIL hands back to the seat (stderr if unconfigured)"
+	if numbersIn.Rounds == 0 {
+		merge, delivery, notification = unreviewed(url, pull.Head, session)
+	}
+	code, err := underWay(dir, pullPreflight(pull, merge, delivery), notification, flags, log, out, errOut)
 	return code, "", err
 }

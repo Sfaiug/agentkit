@@ -361,14 +361,15 @@ func PolicyRounds(record *Object) (int, error) {
 }
 
 // ChangeLeft is the rounds the run may still have, asked less what its other runs and its own
-// (own) spent of its change's budget, and why none, as Python's change_budget.
+// (own) spent of its change's budget, and why none, as Python's change_budget: review off has no
+// round to spend, and nothing refused.
 func ChangeLeft(record *Object, dir string, asked, own int, now time.Time) (int, string, error) {
 	return left(record, dir, asked, own, "this change", now)
 }
 
 func left(record *Object, dir string, asked, own int, what string, now time.Time) (int, string, error) {
 	budget, err := PolicyRounds(record)
-	if err != nil {
+	if err != nil || budget == 0 {
 		return 0, "", err
 	}
 	spent, runs := spentElsewhere(record, dir, now)
