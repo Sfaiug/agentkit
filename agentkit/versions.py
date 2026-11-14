@@ -150,7 +150,7 @@ def live():
     return update.agentkit_dir() if update.agentkit_dir().is_dir() else config.REPO
 
 
-def installed():
+def installed_ak():
     """The bin/ak that starts work serving runs of every version, the lander and a project's live
     follower: the installed one, ~/.local/bin/ak, else this version's.  Owner, 5 Nov 2026: a fix
     to it takes effect when installed, not once no run launched before starts it."""

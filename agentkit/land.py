@@ -340,7 +340,7 @@ def start_line(turn, log=lambda _: None):
             env.pop(key, None)
         env["AK_RUN_DEPTH"] = "0"
         return orch.start_in_slice(
-            [sys.executable, str(versions.installed()), "run", "--lander", turn.name],
+            [sys.executable, str(versions.installed_ak()), "run", "--lander", turn.name],
             f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
             env, turn.with_suffix(".log"), log, target_slice=orch.run_slice_name(),
             properties=properties, nice=True)
