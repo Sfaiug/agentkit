@@ -67,7 +67,7 @@ func antigravityLearn(record *run.Object, learn bool) string {
 		launch, _ := kept.Get("antigravity_launch").(string)
 		return learned.by[launch]
 	}
-	name, seat, others := antigravitySeats(token)
+	name, seat, others := launchSeats("antigravity_launch", token)
 	if name == "" {
 		return ""
 	}
@@ -151,23 +151,6 @@ func antigravityHeld(token string) map[string]bool {
 	return held
 }
 
-// antigravitySeats is the seat whose record carries that launch's token, "" for none, and every
-// other seat's record, as they stand: a rename pointer is no seat's.
-func antigravitySeats(token string) (name string, seat *run.Object, others []*run.Object) {
-	for _, path := range config.SeatFiles() {
-		kept, _ := run.ReadJSON(path)
-		if kept == nil || kept.Has(config.Renamed) {
-			continue
-		}
-		if name == "" && kept.Get("antigravity_launch") == token {
-			name, seat = strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "session-"), ".json"), kept
-		} else {
-			others = append(others, kept)
-		}
-	}
-	return name, seat, others
-}
-
 // antigravityClaim writes the conversation that launch learned into the record of the seat
 // carrying its token, as config.update_session does, under the claim lock its caller holds and
 // the record's: only where that seat still carries the token and owns nothing yet, and no other
@@ -175,7 +158,7 @@ func antigravitySeats(token string) (name string, seat *run.Object, others []*ru
 // launch writing another seat's record takes that record's lock alone, and may resume the
 // conversation there while this one waits.
 func antigravityClaim(token, conversation string) {
-	name, _, _ := antigravitySeats(token)
+	name, _, _ := launchSeats("antigravity_launch", token)
 	if name == "" {
 		return
 	}
@@ -185,7 +168,7 @@ func antigravityClaim(token, conversation string) {
 		return
 	}
 	defer held.Close()
-	now, seat, others := antigravitySeats(token)
+	now, seat, others := launchSeats("antigravity_launch", token)
 	if now != name || antigravityMine(seat) != "" ||
 		slices.ContainsFunc(others, func(other *run.Object) bool { return antigravityMine(other) == conversation }) {
 		return

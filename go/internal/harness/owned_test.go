@@ -52,3 +52,34 @@ func TestFreshWordsAreTheManifests(t *testing.T) {
 		t.Error(words)
 	}
 }
+
+func TestOwnedLeavesAReceiptsSessionAnotherSeatKeeps(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	state := filepath.Join(home, ".agentkit", "state")
+	write := func(path, data string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	token := strings.Repeat("a", 32)
+	record := map[string]any{"opencode_launch": token}
+	write(filepath.Join(state, "opencode-launch-"+token, "session"), "ses_Acme\n")
+	// the seat's own record keeping it is no other seat's
+	write(filepath.Join(state, "session-acme.json"), `{"opencode_launch":"`+token+`","left":[{"harness":"opencode","conversation":"ses_Acme"}]}`)
+	if owned, _ := Owned("opencode", record); owned != "ses_Acme" {
+		t.Fatalf("its own: %q", owned)
+	}
+	for _, other := range []string{`{"conversation":"ses_Acme"}`, `{"left":[{"harness":"opencode","conversation":"ses_Acme"}]}`} {
+		write(filepath.Join(state, "session-beta.json"), other)
+		owned, _ := Owned("opencode", record)
+		named, err := Named("opencode", record)
+		if owned != "" || named != "" || err != nil {
+			t.Errorf("beta keeps it as %s: %q, %q, %v", other, owned, named, err)
+		}
+	}
+}
