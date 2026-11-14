@@ -14,15 +14,15 @@ import (
 	"agentkit/internal/task"
 )
 
-// judge is the run's launch, still waiting for its slot in this process, judged again on the
-// version installed now (on), Python's judge_queued: once for each version it waits on, so a rule
-// landing while it waits refuses it then, not once a slot comes.  A refusal is the error it
-// returns, which the driver ends the run with as a refused launch ends; a read that failed, of
-// GitHub or of git, refuses nothing, and the version stays unjudged for the next one, or the run,
-// to ask again.  loop.ErrLeft where Python reads what Go cannot.
+// judge is the run's launch, still waiting for its slot in this process and never started, judged
+// again on the version installed now (on), Python's judge_queued: once for each version it waits
+// on, so a rule landing while it waits refuses it then, not once a slot comes.  A refusal is the
+// error it returns, which the driver ends the run with as a refused launch ends; a read that
+// failed, of GitHub or of git, refuses nothing, and the version stays unjudged for the next one,
+// or the run, to ask again.  loop.ErrLeft where Python reads what Go cannot.
 func judge(dir, on string) error {
 	record, _ := run.Read(dir)
-	if on == "" || record == nil || !waitingHere(record) || record.Str("judged_on") == on {
+	if on == "" || record == nil || !unstartedHere(record) || record.Str("judged_on") == on {
 		return nil
 	}
 	var why string
@@ -41,17 +41,19 @@ func judge(dir, on string) error {
 		return errors.New(why)
 	}
 	return run.Change(dir, func(record *run.Object) error {
-		if waitingHere(record) {
+		if unstartedHere(record) {
 			record.Set("judged_on", on)
 		}
 		return nil
 	})
 }
 
-// waitingHere is whether the record is a launch this process waits for a slot for.
-func waitingHere(record *run.Object) bool {
+// unstartedHere is whether the record is a launch this process waits for a slot for that never
+// started, Python's resume_run: one with a worktree is a run resumed, which its own checkout
+// carries on whatever has moved since, as its `from:` branch deleted.
+func unstartedHere(record *run.Object) bool {
 	pid, _ := record.Int("pid")
-	return record.Str("state") == "queued" && pid == os.Getpid()
+	return record.Str("state") == "queued" && pid == os.Getpid() && !record.Truthy("worktree")
 }
 
 // taskRefusal is why the launch of the run's task is refused in the repository its preflight
