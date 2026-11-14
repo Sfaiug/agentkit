@@ -139,17 +139,17 @@ func (r *reads) reportStale(path string) bool {
 }
 
 // named is whether a seat's record proves that conversation, the seats read once, and only once
-// a report would go.
+// a report would go.  A record Go does not read as Python does may name any.
 func (r *reads) named(conversation string) bool {
 	if r.recorded == nil {
 		r.recorded = map[string]bool{}
-		for _, path := range config.SeatFiles() {
+		for _, path := range config.SeatRecordsAmong("session", children(filepath.Join(config.Home(), "state"))) {
 			for _, each := range harness.Recorded(orEmpty(r.json(path))) {
 				r.recorded[each] = true
 			}
 		}
 	}
-	return r.recorded[conversation]
+	return r.recorded[conversation] || r.python
 }
 
 // harnessEntries is each harness file whose trust or MCP entries name a gone smoke sandbox or
