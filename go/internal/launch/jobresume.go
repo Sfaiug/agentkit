@@ -23,11 +23,12 @@ import (
 var jobUndelivered = []string{"failed", "blocked", "stopped"}
 
 // ResumeJob is `ak run resume <job>`, Python's cmd_job_resume, for the launcher a `--bg` job
-// started apart, which carries it on (adopt) while no task of it started yet, a kept run being
-// Python's to adopt (job_adopt_worker), and for a job that ends at once: each task still to
-// do is one from a receipt before `after:` went with no run kept, which no fresh run may start, so
-// it goes back to its seat blocked (job_legacy_refusal), and the job's line is handed back to the
-// seat that launched it, owed it where it is slept.  `ak run`'s exit status; any other job is Python's
+// started apart, which carries it on (adopt) while no task of it started yet; for a job whose
+// launcher died holding a run (holds), carried on the same way, each task running on its run from
+// before taking it up (takeUp); and for a job that ends at once: each task still to do is one from
+// a receipt before `after:` went with no run kept, which no fresh run may start, so it goes back to
+// its seat blocked (job_legacy_refusal), and the job's line is handed back to the seat that
+// launched it, owed it where it is slept.  `ak run`'s exit status; any other job is Python's
 // (ErrPython), before anything is written.
 func ResumeJob(id string, out io.Writer) (int, error) {
 	dir := filepath.Join(job.Jobs(), id)
@@ -43,19 +44,24 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 	if ownChild(dir, receipt) && unstarted(receipt) {
 		return adopt(dir, receipt, out)
 	}
-	if !endsAtOnce(receipt) {
+	held := holds(receipt)
+	if !held && !endsAtOnce(receipt) {
 		return 0, ErrPython
 	}
 	say := jobLogger(dir, out)
 	tasks := receipt.List("tasks")
 	for _, each := range tasks {
-		if task := each.(*run.Object); !slices.Contains(job.Terminal, task.Str("state")) {
+		// a task running keeps its run, which the scheduler takes up
+		if task := each.(*run.Object); !slices.Contains(job.Terminal, task.Str("state")) && task.Str("state") != "running" {
 			task.Set("state", "queued")
 		}
 	}
 	// this process owns the receipt from here on, so a kill reads as unfinished, not running
 	run.SetAll(receipt, "pid", os.Getpid(), "process_identity", loop.Identity(os.Getpid()))
 	saved := job.Save(dir, receipt)
+	if saved == nil && held {
+		return adopt(dir, receipt, out)
+	}
 	for _, each := range tasks {
 		if task := each.(*run.Object); saved == nil && task.Str("state") == "queued" {
 			why := legacy(task)
@@ -153,11 +159,10 @@ func jobEnded(dir string, receipt *run.Object, say func(string)) (int, error) {
 	return 0, nil
 }
 
-// endsAtOnce is whether the job is one ResumeJob finishes: tasks Go reads, at least one still to
-// do and each such a task from before `after:` went with no run kept and no wait to sit out, no
-// launcher alive, nothing finished before, no unit of its own to stop, and a seat, if it names
-// one, there or asleep to hand its line back to.
-func endsAtOnce(receipt *run.Object) bool {
+// relaunched is whether ResumeJob takes the job up at all: no launcher alive, nothing finished
+// before, no unit of its own to stop, and a seat, if it names one, there or asleep to hand its line
+// back to.
+func relaunched(receipt *run.Object) bool {
 	if receipt == nil || !receipt.Has("job_id") || receipt.Truthy("finished_at") || run.ProcessActive(receipt) {
 		return false
 	}
@@ -165,7 +170,15 @@ func endsAtOnce(receipt *run.Object) bool {
 		(scope == "" || scope != "none" && !strings.HasPrefix(scope, "none (")) {
 		return false
 	}
-	if owner, named := receipt.Get("seat").(string); receipt.Truthy("seat") && (!named || !seat.Asleep(owner) && !seat.Watching(owner)) {
+	owner, named := receipt.Get("seat").(string)
+	return !receipt.Truthy("seat") || named && (seat.Asleep(owner) || seat.Watching(owner))
+}
+
+// endsAtOnce is whether the job is one ResumeJob finishes: one it relaunches, with tasks Go reads,
+// at least one still to do and each such a task from before `after:` went with no run kept and no
+// wait to sit out.
+func endsAtOnce(receipt *run.Object) bool {
+	if !relaunched(receipt) {
 		return false
 	}
 	tasks, left := receipt.List("tasks"), false

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -178,20 +179,24 @@ func (j *jobRun) create(tasks []*launching, parallel any) error {
 	return job.Save(j.dir, j.receipt)
 }
 
-// An ending is a task's run as its driver left it, and the workers that run was bound to.
+// An ending is a task's run as its driver left it, the workers that run was bound to, and
+// whether the task took that run up from before (takeUp).
 type ending struct {
 	task    *run.Object
 	dir     string
 	record  *run.Object
 	workers []string
+	adopted bool
 }
 
-// carry is the job's scheduler, Python's run_job_loop: queued tasks start up to its cap, the
-// receipt's --parallel within a positive max_runs, an ordered job's each once the one before it
-// merged (behind), each run's ending settles its task, and the job ends once every task settled;
+// carry is the job's scheduler, Python's run_job_loop: queued tasks, and those running on a run
+// from before, begin up to its cap, the receipt's --parallel within a positive max_runs, an
+// ordered job's each once the one before it merged (behind), and each once its retry_after has
+// passed (paced); each run's ending settles its task, and the job ends once every task settled;
 // `ak run`'s exit status.  It touches the receipt on every pass, its heartbeat, and its runs'
 // drivers carry the job's directory, as a `--bg` job's launcher does, so an ending a gone seat
-// cannot take is left to the job's line (handback's muted).
+// cannot take is left to the job's line (handback's muted).  A task handed over (ErrPython) ends it
+// with nothing more said.
 func (j *jobRun) carry() (int, error) {
 	os.Setenv("AGENTKIT_JOB_DIR", j.dir)
 	parallel, _ := j.receipt.Int("parallel")
@@ -199,12 +204,17 @@ func (j *jobRun) carry() (int, error) {
 		parallel = limit
 	}
 	ended := make(chan ending)
-	running := 0
+	running := map[*run.Object]bool{}
 	for {
 		tasks := j.receipt.List("tasks")
+		waiting := false
 		for i, each := range tasks {
 			task := each.(*run.Object)
-			if task.Str("state") != "queued" {
+			if state := task.Str("state"); running[task] || state != "queued" && state != "running" {
+				continue
+			}
+			if paced(task) {
+				waiting = true
 				continue
 			}
 			if waits, err := j.behind(tasks, i); err != nil {
@@ -212,26 +222,30 @@ func (j *jobRun) carry() (int, error) {
 			} else if waits {
 				continue
 			}
-			if parallel > 0 && running >= parallel {
+			if parallel > 0 && len(running) >= parallel {
 				break
 			}
 			begun, err := j.begin(task, ended)
-			if err != nil || !begun && task.Str("state") == "queued" {
+			if errors.Is(err, ErrPython) {
+				return 0, err
+			}
+			if err != nil || !begun && !paced(task) && !slices.Contains(job.Terminal, task.Str("state")) {
 				return j.leave(), err
 			}
 			if begun {
-				running++
+				running[task] = true
 			}
+			waiting = waiting || paced(task)
 		}
 		// every task settled: one that does not leaves the job
-		if running == 0 {
+		if len(running) == 0 && !waiting {
 			break
 		}
 		now := time.Now()
 		os.Chtimes(job.ReceiptPath(j.id()), now, now)
 		select {
 		case e := <-ended:
-			running--
+			delete(running, e.task)
 			if settled, err := j.settle(e); !settled || err != nil {
 				return j.leave(), err
 			}
@@ -247,8 +261,14 @@ func (j *jobRun) carry() (int, error) {
 // and followed until it ends.  False where it starts no run: the task settled, blocked where its
 // file now refuses it, stopped where a stop ended it and failed where it cannot start for any
 // other reason, a fetch that failed among them, or, saying why, left queued where Go does not
-// start it.  The job's own receipt that cannot be written ends this launcher.
+// start it.  A task holding a run takes that run up instead (takeUp), starting afresh only where it
+// left the task no run.  The job's own receipt that cannot be written ends this launcher.
 func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
+	if task.Truthy("run_id") {
+		if begun, err := j.takeUp(task, ended); begun || err != nil || task.Truthy("run_id") {
+			return begun, err
+		}
+	}
 	name := task.Str("name")
 	l, _, why, err := j.task(task.Str("task_file"))
 	refused := ""
@@ -288,18 +308,22 @@ func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
 	case err != nil:
 		return false, j.end(task, "failed", "verdict_line", name+": FAIL: needs you ("+err.Error()+")")
 	}
-	go func() { ended <- ending{task, l.dir, loop.Await(l.dir, func() {}), names(l.bound.Workers)} }()
+	go func() { ended <- ending{task, l.dir, loop.Await(l.dir, func() {}), names(l.bound.Workers), false} }()
 	return true, nil
 }
 
 // settle takes up the task's ending as Python's job_ladder does, its exit line first: the task
-// keeps who built and reviewed it, and settles where the ladder takes its run no further.  False
-// for any other, which Python's ladder takes up.
+// keeps who built and reviewed it, and settles where the ladder takes its run no further.  A run
+// taken up from before that is still under way is looked at again later, as job_adopt_worker does.
+// False for any other, which Python's ladder takes up.
 func (j *jobRun) settle(e ending) (bool, error) {
 	name, id := e.task.Str("name"), filepath.Base(e.dir)
 	if e.record == nil {
 		j.say(fmt.Sprintf("%s: %s cannot be read", name, id))
 		return false, nil
+	}
+	if e.adopted && run.Active(e.record) {
+		return true, j.later(e.task, "queued")
 	}
 	for _, role := range []string{"executor", "reviewer"} {
 		if e.record.Truthy(role) {
