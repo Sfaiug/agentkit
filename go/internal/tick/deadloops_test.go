@@ -41,6 +41,14 @@ func TestDeadLoopsLeaveAloneWhatPythonsPassLeavesAlone(t *testing.T) {
 	deadRun(t, ak, "workspaceless", "worktree", nil)
 	deadRun(t, ak, "parked", "state", "interrupted", "deaths", []any{run.Fields("at", now, "parked", true)})
 	deadRun(t, ak, "interrupted", "state", "interrupted")
+	// a worker of the run outlives its loop, carrying its marker
+	deadRun(t, ak, "worked")
+	worker := exec.Command("sleep", "600")
+	worker.Env = append(os.Environ(), host.Marker+"="+filepath.Join(ak, "runs", "worked"))
+	if err := worker.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { worker.Process.Kill(); worker.Wait() })
 	before := files(t, filepath.Join(ak, "runs"))
 	var said bytes.Buffer
 	tick := &ticking{log: newLog(&said, io.Discard), clock: time.Now}
