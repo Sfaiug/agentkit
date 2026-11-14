@@ -41,6 +41,7 @@ exec sleep 60
 func TestMuseReceiptKeepsItsLaunchsSessionIntoTheReopen(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")           // a launch wires the settings file under HOME
 	data := filepath.Join(home, "data[acme]") // a path, though it reads as a pattern
 	t.Setenv("XDG_DATA_HOME", data)
 	program := filepath.Join(t.TempDir(), "muse")
