@@ -14,7 +14,7 @@ import (
 // A Claude seat moved onto Codex keeps the conversation it leaves last in `left`, beside the
 // account and directory it was written under, and each one already there takes those where it
 // has none; a move whose launch fails puts `left` back as it was, so one the record lacked is gone;
-// and a /clear claimed while the owner was asked stands, the move refused.
+// and one a /clear claimed while the owner was asked keeps, with the conversation it went on in.
 func TestAMoveKeepsTheConversationItLeaves(t *testing.T) {
 	for _, scenario := range []string{"moved", "failed", "cleared meanwhile"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -37,7 +37,7 @@ func TestAMoveKeepsTheConversationItLeaves(t *testing.T) {
 				}
 				return true, true
 			})
-			if !known || (err == nil) != (scenario == "moved") {
+			if !known || (err == nil) == (scenario == "failed") {
 				t.Fatal(known, err)
 			}
 			after, _ := run.ReadJSON(stateFile(home, "session-acme.json"))
@@ -46,10 +46,11 @@ func TestAMoveKeepsTheConversationItLeaves(t *testing.T) {
 				"moved": `[{"account": null, "cwd": ` + cwd + `, "conversation": "conv-cleared", "harness": "claude"}, ` +
 					`{"harness": "claude", "conversation": "conv-acme", "account": null, "cwd": ` + cwd +
 					`, "transcript": ` + run.Line(transcript) + `}]`,
-				"failed":            "null",
-				"cleared meanwhile": run.Line(claimed),
+				"failed": "null",
+				"cleared meanwhile": `[{"account": null, "cwd": ` + cwd + `, "harness": "claude", "conversation": "conv-acme"}, ` +
+					`{"harness": "claude", "conversation": "conv-after", "account": null, "cwd": ` + cwd + `}]`,
 			}[scenario]
-			orchestrator := map[bool]string{true: "astra", false: "fable"}[scenario == "moved"]
+			orchestrator := map[bool]string{true: "fable", false: "astra"}[scenario == "failed"]
 			if got := run.Line(after.Get("left")); after.Str("orchestrator") != orchestrator || got != want {
 				t.Fatalf("left differs on %s:\n got %s\nwant %s", after.Str("orchestrator"), got, want)
 			}

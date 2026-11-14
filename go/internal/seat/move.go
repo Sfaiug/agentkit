@@ -24,13 +24,14 @@ const screenChanged = Refusal("the seat's screen changed; keep its input before 
 const movedLine = "This seat moved to you in the middle of a turn. Continue that turn from where the conversation your instructions point you to leaves it; do not start over."
 
 // A seatMove is what a move writes in the seat's record: from the orchestrator it held (`was`,
-// run by `own`), the fields it takes (`chosen`), as made from those the record must still hold
-// (`from`), and its orchestrator's effort where one is given (`effort` on `model`, its entry among
-// `models`); when a restart began.
+// run by `own`), the fields it takes (`chosen`), with the `left` it makes where it leaves a
+// conversation (`leaving`), and its orchestrator's effort where one is given (`effort` on `model`,
+// its entry among `models`); when a restart began.
 type seatMove struct {
 	was, own, model, effort string
 	models                  map[string]config.Model
-	chosen, from            []field
+	chosen                  []field
+	leaving                 bool
 	at                      float64
 }
 
@@ -250,12 +251,14 @@ func (moving *seatMove) sight(name string, held bool) (sight, bool) {
 func (moving *seatMove) launch(state, name string, launch func() error) error {
 	return announcing(state, name, func() error {
 		var before *run.Object
+		var chosen []field
 		refused := Refusal("the seat's orchestrator changed before it could move")
 		err := update(state, name, func(data *run.Object) bool {
 			if data.Str("orchestrator") != moving.was {
 				return false
 			}
-			if !moving.holds(data) {
+			made := false
+			if chosen, made = moving.fields(data); !made {
 				refused = conversationChanged
 				return false
 			}
@@ -263,7 +266,7 @@ func (moving *seatMove) launch(state, name string, launch func() error) error {
 			if moving.effort != "" {
 				data.Set("efforts", orchestratingAt(data, moving.model, moving.effort, moving.models))
 			}
-			fill(data, moving.chosen)
+			fill(data, chosen)
 			return true
 		})
 		if err != nil {
@@ -274,8 +277,8 @@ func (moving *seatMove) launch(state, name string, launch func() error) error {
 		}
 		if err = launch(); err != nil {
 			update(state, name, func(data *run.Object) bool {
-				for _, chosen := range moving.chosen {
-					fill(data, []field{{chosen.key, before.Get(chosen.key)}})
+				for _, each := range chosen {
+					fill(data, []field{{each.key, before.Get(each.key)}})
 				}
 				moving.effortBack(data, before)
 				return true
