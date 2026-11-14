@@ -460,6 +460,8 @@ type Model struct {
 	// Meter is the one meter of its provider the entry is gated on (`meter`), and Mode how it
 	// is paid (`mode`), "" where it names none.
 	Meter, Mode string
+	// Label is the name its listing gave it where it was added (`label`, modelEntry), "" for none.
+	Label string
 }
 
 // RoleEfforts are the keys an entry's efforts go under, a seat's first (config.ROLE_EFFORTS).

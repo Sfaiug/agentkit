@@ -1824,12 +1824,12 @@ def _taken_in(cfg, left, ran, asked):
     if listed is None:
         return []
     levels = config.efforts(harness, ran[0], lambda _: models)
-    entry = {"harness": harness, "model": ran[0], "provider": left["provider"],
-             "effort": ran[1] if ran[1] in levels else levels[-1],
-             **{key: left[key] for key in ("mode",) if key in left}}
+    label = config.model_label(harness, ran[0], listed["label"])   # a table row's as any screen's
+    entry = config.model_entry(harness, ran[0], label, provider=left["provider"],
+                               effort=ran[1] if ran[1] in levels else levels[-1],
+                               **{key: left[key] for key in ("mode",) if key in left})
     try:
-        return [config.add_model(cfg, entry,     # a table row's label as every screen's
-                                 config.model_label(harness, ran[0], listed["label"]))]
+        return [config.add_model(cfg, entry, label)]
     except (config.Error, OSError):
         return []
 

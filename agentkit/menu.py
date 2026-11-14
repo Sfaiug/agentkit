@@ -4533,8 +4533,8 @@ def config_add(cfg, keyboard, through):
                 note = f"{', '.join(taken)} runs {model['id']} at {effort} already"
                 continue
             name, before = config.short_name(cfg, model["label"]), copy.deepcopy(cfg)
-            _take_in(cfg, name, {"harness": harness, "model": model["id"], "effort": effort,
-                                 "provider": provider},
+            _take_in(cfg, name, config.model_entry(harness, model["id"], model["label"],
+                                                   effort=effort, provider=provider),
                      next(row for row in listed if row[0] == provider))
             note = _saved(cfg, cfg, before)
             if not note:
@@ -4748,10 +4748,9 @@ def config_add_provider(cfg, keyboard):
         return f"the {harness} catalog names no model; {picked} is not added"
     model, before = models[0], copy.deepcopy(cfg)
     cfg["providers"][name] = table
-    cfg["models"][first] = {
-        "harness": harness, "model": model["id"],
-        "effort": _nearest(shipped["models"][first].get("effort"), model["efforts"]),
-        "provider": name}
+    cfg["models"][first] = config.model_entry(
+        harness, model["id"], model["label"],
+        effort=_nearest(shipped["models"][first].get("effort"), model["efforts"]), provider=name)
     return _saved(cfg, cfg, before)
 
 
@@ -5235,10 +5234,10 @@ def models_page(cfg, keyboard):
         first = next((cfg["models"][name] for name in on(harness)), {})
         # never a name one taken out here comes back under
         taken = {"models": [*cfg["models"], *(name for kept in gone.values() for name, _ in kept)]}
-        entries = gone.get(key) or [(config.short_name(taken, model["label"]), {
-            "harness": harness, "model": model["id"],
-            "effort": _nearest(first.get("effort", "high"), model["efforts"]),
-            "provider": row[0] if row else first.get("provider", runs[harness])})]
+        entries = gone.get(key) or [(config.short_name(taken, model["label"]), config.model_entry(
+            harness, model["id"], model["label"],
+            effort=_nearest(first.get("effort", "high"), model["efforts"]),
+            provider=row[0] if row else first.get("provider", runs[harness])))]
         if row and key not in gone:
             _take_in(cfg, *entries[0], row)
             tables.setdefault(row[0], copy.deepcopy(cfg["providers"][row[0]]))
