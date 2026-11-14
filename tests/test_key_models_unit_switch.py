@@ -68,7 +68,8 @@ def want(unit, counts=COUNTED):
 class ModelsUnitSwitch(unittest.TestCase):
     def home(self, runs=True):
         """A Home of the boards, the harness and [defaults] of tests/test_key_models_bars.py, on
-        a plan of PRICE a month, a dollar a million tokens; its runs where `runs`."""
+        a plan of PRICE a month making every Acme model, so each row is on its week, at a dollar
+        a million tokens; its runs where `runs`."""
         home = Home()
         self.addCleanup(home.close)
         fakeadapter.install(home, claude="pass")["claude"].answer("models", "".join(
@@ -77,7 +78,8 @@ class ModelsUnitSwitch(unittest.TestCase):
         akconfig.write(home, {name: {"harness": "claude", "model": release}
                               for name, release in CONFIGURED.items()},
                        orchestrator="step", workers=["top"], reviewers=["base"],
-                       providers={"anthropic": {"mode": "subscription", "price": PRICE}})
+                       providers={"anthropic": {"mode": "subscription", "price": PRICE,
+                                                "maker": "Acme"}})
         hold(home, [(release, name, "high", quality / 100 - 0.1, cost)
                      for release, name, quality, cost in ROWS])
         held = json.loads((home.path / ".agentkit/state/boards.json").read_text())
