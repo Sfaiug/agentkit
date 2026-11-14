@@ -131,11 +131,15 @@ func prepare(dir string, meta map[string]string, at place, warning string, flags
 	lines = append(lines,
 		fmt.Sprintf("repo: %s | base: %s | target: %s | merge: %s", said, base, target, cmp.Or(meta["merge"], "squash")),
 		"delivery: "+delivery, "done-when: "+commands)
-	notification := "notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`"
-	if seated != "" {
-		notification = "notification: " + seated + "; dead-seat fallback: needs to Discord if that seat is gone at the end (stderr if unconfigured)"
+	return sayRest(dir, lines, notified(seated), log)
+}
+
+// notified is the preflight's line of who hears how a run that seat launched ended, "" for none.
+func notified(seated string) string {
+	if seated == "" {
+		return "notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`"
 	}
-	return sayRest(dir, lines, notification, log)
+	return "notification: " + seated + "; dead-seat fallback: needs to Discord if that seat is gone at the end (stderr if unconfigured)"
 }
 
 // underWay says the rest of what a launch's log says, and the run goes on in a driver of its own,

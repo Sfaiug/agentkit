@@ -20,14 +20,14 @@ import (
 // checks the reviewed head on the target's tip, and the run, woken on green, puts the very commit
 // checked on the PR branch and merges the PR at it.
 
-// ownLands is whether Go carries a seat's own PR's landing as its record stands, the one place
-// Go's resume (Woken), its wake (LineToPython) and its landing fix (landingFixHandoff) ask.  A red
-// goes back to its writer, Python's fail_pr_landing, which Go carries where the change's own tests
-// went red, the line's suite or a required check (suiteRed, failLanding); a conflict, a head moved
-// past its review and any other red are Python's.
+// ownLands is whether Go carries the landing of a PR that lands (lands) as its record stands, the
+// one place Go's resume (Woken), its wake (LineToPython) and its landing fix (landingFixHandoff)
+// ask.  A red goes back to a seat's own PR's writer, Python's fail_pr_landing, which Go carries
+// where the change's own tests went red, the line's suite or a required check (suiteRed,
+// failLanding); a conflict, a head moved past its review and any other red are Python's.
 func ownLands(record *run.Object) bool {
 	wait := cmp.Or(record.Dict("waiting_on"), run.NewObject())
-	return record.Truthy("own_pr") && (!wait.Has("fix") || suiteRed(record, cmp.Or(wait.Dict("fix"), run.NewObject())))
+	return lands(record) && (!wait.Has("fix") || suiteRed(record, cmp.Or(wait.Dict("fix"), run.NewObject())))
 }
 
 // land joins the line or lands from it, Python's merge_own_pr as settle_pr_round and review_pr
@@ -143,10 +143,10 @@ func (l *loop) handToWriter() error {
 }
 
 // LineToPython is whether a pass of the line is Python's lander's, decided before anything is
-// written: a seat's own PR waits in it on a landing Go does not carry, which Python's wake takes.
+// written: a PR waits in it on a landing Go does not carry, which Python's wake takes.
 func LineToPython(name string) bool {
 	return slices.ContainsFunc(lineMembers(name), func(m member) bool {
-		return m.record.Truthy("own_pr") && m.record.Str("state") == "waiting" && !ownLands(m.record)
+		return lands(m.record) && m.record.Str("state") == "waiting" && !ownLands(m.record)
 	})
 }
 
