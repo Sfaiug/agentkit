@@ -4914,7 +4914,8 @@ def config_subscriptions(cfg, keyboard):
                                                 not beside and held)))
                 for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
                                                 list(acts), on, width - 4):
-                    places[len(body)] = (("sub", number), cells)
+                    # its login's words are its row's, never blank under the pointer
+                    places[len(body)] = (("sub", number), [*cells, (1, width, None)])
                     moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
                     body.append(shown)
         # seen with no line too, so the pointer coming back onto a row is news
