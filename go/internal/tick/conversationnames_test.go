@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"agentkit/internal/harness"
+	"agentkit/internal/run"
 )
 
 // namingHome is a home whose seat acme's Claude transcript is written, beside a seat beta of that
@@ -49,5 +50,15 @@ func TestConversationNamesEndOnWhatPythonRaises(t *testing.T) {
 	}
 	if _, err := os.Stat(kept); err != nil {
 		t.Fatalf("acme's transcript was not kept: %v", err)
+	}
+}
+
+// Python's json reads a number with a fraction or an exponent as a float, any other as an int.
+func TestConversationNamesNameTheNumberPythonReads(t *testing.T) {
+	for literal, kind := range map[string]string{"42": "int", "42.0": "float", "42e0": "float", "1e20": "float"} {
+		record, _ := run.Decode([]byte(`{"left":` + literal + `}`))
+		if err := leftRaises(record.(*run.Object)); err == nil || err.Error() != "'"+kind+"' object is not iterable" {
+			t.Errorf("left %s raises %v", literal, err)
+		}
 	}
 }

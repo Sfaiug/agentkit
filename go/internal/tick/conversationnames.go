@@ -3,13 +3,13 @@ package tick
 import (
 	"errors"
 	"fmt"
-	"maps"
-	"math"
 	"path/filepath"
+	"slices"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/notify"
+	"agentkit/internal/run"
 )
 
 // keepConversations is Python's watch.keep_conversations: each conversation of every seat, those it
@@ -21,8 +21,7 @@ func keepConversations() error {
 	var had []notify.Conversation
 	var raised error
 	for _, path := range config.SeatFiles() {
-		name, _ := config.SeatFileOwner(filepath.Base(path))
-		each, err := seatConversations(name)
+		each, err := seatConversations(path)
 		if errors.Is(err, errLeft) {
 			return errLeft
 		}
@@ -39,22 +38,28 @@ func keepConversations() error {
 	return raised
 }
 
-// seatConversations is the conversations of the seat whose record goes by that name as Python's
+// seatConversations is the conversations of the seat whose record is that file as Python's
 // notify.conversations_of finds them: none for a rename's pointer, which config.session_records
 // leaves out; what it raises with where it raises; errLeft where Go cannot tell.
-func seatConversations(name string) ([]notify.Conversation, error) {
+func seatConversations(path string) ([]notify.Conversation, error) {
+	name, _ := config.SeatFileOwner(filepath.Base(path))
 	current, record, err := config.ResolveSession(name)
 	if err != nil {
 		return nil, errLeft
 	}
-	if current != name {
+	// as Python's json reads it, each number an int or a float
+	written, err := run.Shared(path)
+	if err != nil {
+		return nil, errLeft
+	}
+	if current != name || written == nil {
 		return nil, nil
 	}
 	// Python's asks the harness which conversation the seat is on before it reads `left`
 	if _, err := harness.Named(config.SeatHarness(current), record); err != nil {
 		return nil, errLeft
 	}
-	if err := leftRaises(record); err != nil {
+	if err := leftRaises(written); err != nil {
 		return nil, err
 	}
 	_, had, err := notify.Listed(name, false)
@@ -68,42 +73,32 @@ func seatConversations(name string) ([]notify.Conversation, error) {
 // raises nothing: it must be a list of mappings, each, under the record's own keys but the launch's
 // (harness.LaunchKeys), naming a harness and a conversation.  A string or object is iterated, its
 // characters or keys no mapping.
-func leftRaises(record map[string]any) error {
-	left, has := record["left"]
+func leftRaises(record *run.Object) error {
 	var gone []any
-	switch left := left.(type) {
+	switch left := record.Get("left").(type) {
 	case []any:
 		gone = left
 	case string:
 		if left != "" {
 			return errors.New("'str' object is not a mapping")
 		}
-	case map[string]any:
-		if len(left) > 0 {
+	case *run.Object:
+		if len(left.Keys()) > 0 {
 			return errors.New("'str' object is not a mapping")
 		}
 	default:
-		if has {
+		if record.Has("left") {
 			return fmt.Errorf("'%s' object is not iterable", pyType(left))
 		}
 	}
-	then := maps.Clone(record)
-	for _, key := range harness.LaunchKeys {
-		delete(then, key)
-	}
-	var was []map[string]any
 	for _, each := range gone {
-		entry, ok := each.(map[string]any)
-		if !ok {
+		if _, ok := each.(*run.Object); !ok {
 			return fmt.Errorf("'%s' object is not a mapping", pyType(each))
 		}
-		merged := maps.Clone(then)
-		maps.Copy(merged, entry)
-		was = append(was, merged)
 	}
-	for _, each := range was {
+	for _, each := range gone {
 		for _, key := range []string{"harness", "conversation"} {
-			if _, ok := each[key]; !ok {
+			if !each.(*run.Object).Has(key) && (!record.Has(key) || slices.Contains(harness.LaunchKeys, key)) {
 				return fmt.Errorf("'%s'", key)
 			}
 		}
@@ -111,15 +106,15 @@ func leftRaises(record map[string]any) error {
 	return nil
 }
 
-// pyType is the name Python gives the type json.loads reads that JSON value as.
+// pyType is the name of the type Python's json reads that value as.
 func pyType(value any) string {
 	switch value := value.(type) {
 	case nil:
 		return "NoneType"
 	case bool:
 		return "bool"
-	case float64:
-		if value == math.Trunc(value) {
+	case run.Number:
+		if run.Integral(value) {
 			return "int"
 		}
 		return "float"
