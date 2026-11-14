@@ -2,10 +2,11 @@
 
 The owner (13 Nov 2026): "when I switch effort or model or both and right now there is a
 question asked in the chat, it is unable to switch then. [...] all edge cases shall be handled,
-and the switch should happen as soon as possible."  A move from a seat's `c` while its harness
-works owes it its lines and types none of them; the look its Stop starts types them -- the
-model, the yes to the card drawn in its composer's place, the effort -- before any tick runs.
-A seat owed nothing has nothing typed by its Stop's look.
+and the switch should happen as soon as possible."  A move from a seat's `c` while a question of
+its turn is up owes it its lines and types none of them (a turn its harness takes a move in
+takes it at once: tests/test_key_a_claude_seat_switches_mid_turn.py); the look its Stop starts
+types them -- the model, the yes to the card drawn in its composer's place, the effort -- before
+any tick runs.  A seat owed nothing has nothing typed by its Stop's look.
 
 Black-box: `AK_BIN`, as the popup over a seat (tests/fixtures/akterm.py), Claude's hooks as its
 adapter registers them (tests/fixtures/hookdrive.py), and the seat's pane
@@ -76,7 +77,7 @@ class ASeatEventDeliversWhatItIsOwed(unittest.TestCase):
         self.until(lambda: not self.ak_on(), "still on it: {}", self.ak_on)
 
     def test_a_move_owed_mid_turn_goes_in_at_its_stop(self):
-        seat = Seat(self.home, SEAT, model="opus", screen="claude-working-pane.txt",
+        seat = Seat(self.home, SEAT, model="opus", screen="claude-question-pane.txt",
                     asks={"/model ": CARD})
         fired = self.hooks.fire("UserPromptSubmit", {"prompt": "go"}, seat=SEAT, pane=seat,
                                 finished=True)
@@ -89,7 +90,7 @@ class ASeatEventDeliversWhatItIsOwed(unittest.TestCase):
         term.keys("c")
         term.wait("› Opus 5.5")
         term.keys("Down", "Space")     # Fable 5.1's orchestrator mark
-        # the move's own passes find the harness in its turn, type nothing, and are over
+        # the move's own passes find its question up, type nothing, and are over
         self.until(self.ak_on, "the move's passes never started: {}", self.owed)
         self.until(lambda: not self.ak_on(), "still on it: {}", self.ak_on)
         self.assertEqual([owed["line"] for owed in self.owed()], [MODEL, EFFORT])
