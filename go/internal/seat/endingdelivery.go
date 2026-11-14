@@ -35,11 +35,18 @@ func EndingDelivery(record *run.Object, census []*run.Object, session string) (r
 	return !now && !rides, rides, nil
 }
 
-// inOrder is Python's job.in_order: the run is a task of an ordered job.
+// inOrder is Python's job.in_order: the run is a task of an ordered job, whose one line says its
+// ending.  An ending after the job's own, of a run resumed once the job had ended, is past that line
+// and the run's to say.
 func inOrder(record *run.Object) bool {
 	if !record.Truthy("job_id") {
 		return false
 	}
 	receipt, _ := job.Read(filepath.Join(job.Jobs(), record.Str("job_id")))
-	return receipt != nil && receipt.Dict("opts") != nil && receipt.Dict("opts").Truthy("--in-order")
+	if receipt == nil || receipt.Dict("opts") == nil || !receipt.Dict("opts").Truthy("--in-order") {
+		return false
+	}
+	ended, _ := receipt.Num("finished_at")
+	finished, _ := record.Num("finished_at")
+	return ended == 0 || !(finished > ended)
 }
