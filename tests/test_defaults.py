@@ -193,7 +193,7 @@ class Defaults(unittest.TestCase):
                                      "providers": readings}))
         probed = []
 
-        def probe(cfg, provider):
+        def probe(cfg, provider, **_kw):
             probed.append(provider)
             return copy.deepcopy(readings[provider])
         with patch.object(usage, "_probe_gently", side_effect=probe):
