@@ -148,21 +148,21 @@ func checkStopOwner(record *run.Object) error {
 }
 
 // goStops is whether this stop is the record, the result, the process tree, the history row and
-// the checkout, all Go does: no process but a Go driver of this run alive, nothing of a job or a
-// review to tell, no landing line, no step of the run's in history, which Python records, no browser
-// tab to shut, and no unit that may hold it, as Python stops a unit by its name.
+// the checkout, all Go does: no process but a Go driver or waiter of this run alive, nothing of a
+// job or a review to tell, no landing line, nothing in history Python records (historyHolds), no
+// browser tab to shut, and no unit that may hold it, as Python stops a unit by its name.
 func goStops(dir string, record *run.Object) bool {
 	for _, key := range []string{"job_id", "review_pr"} {
 		if record.Truthy(key) {
 			return false
 		}
 	}
-	return unitless(record) && !host.UserManager() && !run.Lined(record) && !history.Carried(filepath.Base(dir)) && !tabbed(filepath.Base(dir)) &&
+	return unitless(record) && !host.UserManager() && !run.Lined(record) && !historyHolds(filepath.Base(dir), record) && !tabbed(filepath.Base(dir)) &&
 		(!run.ProcessActive(record) || driving(record, dir))
 }
 
-// driving is whether the process the record names is Go's driver of this run, by what it was
-// started with: a program that cannot say is taken for Python's.
+// driving is whether the process the record names is Go's driver of this run, or its waiter, by
+// the words it was started with after its name: a program that cannot say is taken for Python's.
 func driving(record *run.Object, dir string) bool {
 	pid, _ := record.Int("pid")
 	said, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
