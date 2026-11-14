@@ -289,9 +289,8 @@ def run(label, program, argv, home, scratch):
     seconds, peak = time.monotonic() - began, _lines(inside / "peak")
     peak = f"{int(peak[0]) / 1024:.0f} MB at its peak" if peak else "its peak unread"
     record = inside / "handover"
-    said = f", handed over: {' '.join(_lines(record))}" if record.exists() else ""
-    print(f"{label}: exit {code}, {seconds:.1f} s, {peak}{said}", flush=True)
-    return dict(code=code, cut=cut, handover=record.exists(),
+    print(f"{label}: exit {code}, {seconds:.1f} s, {peak}", flush=True)
+    return dict(code=code, cut=cut, handover=_lines(record) if record.exists() else None,
                 line={f"{stream}: {text}" for stream in ("stdout", "stderr")
                       for text in _lines(folder / stream)},
                 home=touched(folder / "upper", home), page=set(_lines(inside / "pages")),
@@ -405,8 +404,9 @@ def differences(first, go, again):
     found = set()
     if go["code"] != first["code"] == again["code"]:
         found.add(("exit", f"go {go['code']}, python {first['code']}"))
-    if go["handover"]:
-        found.add(("hand-over", "go left a hand-over record"))
+    if go["handover"] is not None:  # each site Go handed a case to Python at, in Go's words
+        found |= {("hand-over", site)
+                  for site in go["handover"] or ["go left an empty hand-over record"]}
     for kind in ("line", "home", "page", "call"):     # what a run did, compared fact by fact
         before, ours, after = (each[kind] for each in (first, go, again))
         found |= {(kind, f"only python: {fact}") for fact in (before & after) - ours}
