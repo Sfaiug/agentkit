@@ -167,7 +167,9 @@ WALK_EVERY = 60          # seconds one walk of a quiet run answers for: silence 
                          # a minute never shows, however many files a run's sandbox leaves behind
 _WALKED = {}             # a quiet run's directory: when it was walked, on time.monotonic, and what
                          # that found
-STIR = 1.0               # ... and how often it looks for a seat's word or the meters having moved
+STIR = 1.0               # ... and the longest it goes between looks for a seat's word or the meters
+LOOKS = 20               # ... the wait before a look, in what the last look cost: a quick host draws
+                         # news as it is written, a slow one spends a twentieth of a thread looking
 # What the `—` says, from the error the last probe left; the first match wins.  No pattern here
 # guesses at a login: `token`, `401` and `login` turn up in lines a logged-in seat produces too,
 # and the one party that can say is the harness's `auth` verb, which the probe asks and records.
@@ -486,15 +488,18 @@ class Live:
         self.ask()
 
     def _watch(self):
+        cost = STIR                  # the first look leaves the first frame the interpreter
         while True:
-            self.asked.wait(STIR)
+            self.asked.wait(min(STIR, LOOKS * cost))
             self.watching.wait()
             if self.done.is_set():
                 return
             if not self.watching.is_set():
                 continue                 # away since the wait: what it would read, nobody draws
+            began = time.monotonic()
             now = self.recorded()
             self.configure()
+            cost = time.monotonic() - began
             if now == self.seen and not self.asked.is_set():
                 continue
             self.asked.clear()
