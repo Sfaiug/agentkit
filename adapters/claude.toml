@@ -46,11 +46,14 @@ renew = ["env", "-u", "CLAUDE_CODE_OAUTH_TOKEN", "AK_RUN_ROLE=worker", "claude",
 # composer's place wherever the prompt cache may be warm, any seat with a turn in the last hour,
 # `Switch model?` after `/model` and `Change effort level?` after an `/effort` that misses that
 # cache; `1` takes it whichever row the cursor is on, and its composer comes back (10 Nov 2026).
+# `midturn`: it takes both while a turn runs, from the composer it draws empty there, the card
+# all the same; the turn's next response is the new model's (2.1.323, 13 Nov 2026).
 [switch]
 model = "/model {model}"
 effort = "/effort {effort}"
 asks = '^ +(?:Switch model|Change effort level)\?\n(?:.*\n)*? *❯? *1\. .+\n *❯? *2\. .+'
 yes = ["1"]
+midturn = true
 
 [worker]
 state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
