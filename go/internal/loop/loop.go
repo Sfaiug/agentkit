@@ -172,10 +172,7 @@ func Follow(dir string, offset int64, out, errOut io.Writer) int {
 
 // Await follows the run at dir until its driver is gone and it waits in no landing line, calling
 // look before each look at it, and answers its record then, nil for none.  Its lander is started
-// again now and then, as Python's job_await does: the one its run started on leaving can die, and
-// a sandbox runs no tick at all.  Unlike job_await, it counts from that leaving, not from the
-// follow's start: a start racing the one the leaving makes, before that one holds the line's
-// lock, is a second lander for the same pass.
+// again now and then, counted from the driver's leaving, as Python's job_await does.
 func Await(dir string, look func()) *run.Object {
 	asked := time.Now()
 	for {
