@@ -16,7 +16,7 @@ func TestAntigravityScreenLeavesConversationEvidenceToPython(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte("Python reads SQLite"), 0o600); err != nil {
+	if err := os.MkdirAll(path, 0o700); err != nil { // a folder in its place, which Go cannot read
 		t.Fatal(err)
 	}
 	for _, each := range []struct {

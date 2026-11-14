@@ -21,8 +21,9 @@ func TestAnAntigravityClaimIsWrittenOnlyByACommandGoCarries(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("a process's open files are read off Linux's /proc")
 	}
-	// a fresh launch, as Go launches one, whose agy holds its conversation's store open
-	launch := func(t *testing.T) (path, token string, agy *exec.Cmd) {
+	// a fresh launch, as Go launches one, whose agy holds its conversation's store open, a folder
+	// in its place where Go cannot read it
+	launch := func(t *testing.T, folder bool) (path, token string, agy *exec.Cmd) {
 		home := sandbox(t)
 		write(t, filepath.Join(home, ".agentkit", "config.toml"),
 			"[models.gemini]\nharness='antigravity'\nmodel='gemini-3'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
@@ -31,6 +32,9 @@ func TestAnAntigravityClaimIsWrittenOnlyByACommandGoCarries(t *testing.T) {
 		write(t, path, run.Encode(run.SetAll(fields, "orchestrator", "gemini", "cwd", home))+"\n")
 		store := filepath.Join(home, ".gemini", "antigravity-cli", "conversations", "c-acme.db")
 		write(t, store, "")
+		if folder && (os.Remove(store) != nil || os.Mkdir(store, 0o700) != nil) {
+			t.Fatal(store)
+		}
 		held, err := os.Open(store)
 		if err != nil {
 			t.Fatal(err)
@@ -51,18 +55,18 @@ func TestAnAntigravityClaimIsWrittenOnlyByACommandGoCarries(t *testing.T) {
 		}
 	}
 
-	t.Run("ak orch check, handing it over", func(t *testing.T) {
-		path, _, _ := launch(t)
+	t.Run("ak orch why, handing over a store it cannot read", func(t *testing.T) {
+		path, _, _ := launch(t, true)
 		before, _ := os.ReadFile(path)
 		var out, errOut bytes.Buffer
-		if code := Main([]string{"orch", "check", "acme"}, &out, &errOut); code != 3 {
+		if code := Main([]string{"orch", "why", "acme"}, &out, &errOut); code != 3 {
 			t.Fatalf("exit %d: %s", code, errOut.String())
 		}
 		unchanged(t, path, before)
 	})
 
 	t.Run("a card's retirement pending", func(t *testing.T) {
-		path, _, _ := launch(t)
+		path, _, _ := launch(t, false)
 		before, _ := os.ReadFile(path)
 		if !notify.AnswersRead("acme") {
 			t.Fatal("answers unread with no retirement pending")
@@ -75,10 +79,10 @@ func TestAnAntigravityClaimIsWrittenOnlyByACommandGoCarries(t *testing.T) {
 	})
 
 	t.Run("a command Go carries", func(t *testing.T) {
-		path, token, agy := launch(t)
+		path, token, agy := launch(t, false)
 		t.Setenv("AGENTKIT_SESSION", "acme")
 		write(t, filepath.Join(filepath.Dir(path), "plan-acme.md"), "- [x] Merge the parser\n")
-		// with the done check on, whether a finished plan is done is Python's (plan.checkOwed)
+		// with the done check on, a store holding no steps holds a finished plan (plan.checkOwed)
 		settings := filepath.Join(filepath.Dir(filepath.Dir(path)), "config.toml")
 		kept, _ := os.ReadFile(settings)
 		write(t, settings, string(kept)+"[done_check]\non = false\n")
