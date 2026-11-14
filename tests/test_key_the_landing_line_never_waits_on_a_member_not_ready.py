@@ -78,7 +78,7 @@ class LandingLineNeverWaits(unittest.TestCase):
             self.member()
         head = self.live(1)
         before = (self.line.members[0] / "run.json").read_bytes()
-        self.assertEqual(self.land(), ["fix-2", "fix-3"])
+        self.assertEqual(self.land(), ["fix-2"])
         self.assertEqual((self.line.members[0] / "run.json").read_bytes(), before)
         for n in (2, 3):
             tree = self.line.verdict(n)["land"]
@@ -88,7 +88,7 @@ class LandingLineNeverWaits(unittest.TestCase):
         self.member()
         head.stdin.close()
         head.wait()
-        self.assertEqual(self.land(), ["fix-1", "fix-4"])
+        self.assertEqual(self.land(), ["fix-1"])
         self.assertEqual(self.line.verdict(1)["joined"], 1)
         self.assertEqual(self.line.verdict(4)["after"], {"fix-1": self.line.verdict(1)["land"]})
 
@@ -120,7 +120,7 @@ class LandingLineNeverWaits(unittest.TestCase):
         self.write(3, ak_checkout=other)
         for _ in range(2):
             tail = self.member()
-            self.assertEqual(self.land(), ["fix-1", f"fix-{tail}"])
+            self.assertEqual(self.land(), ["fix-1"])
             files = self.line.rig.git("ls-tree", "--name-only",
                                       self.line.verdict(tail)["land"]).splitlines()
             self.assertIn("member-1.txt", files)

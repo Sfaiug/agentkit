@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, smoke, stateful
 from agentkit import config, handback, notify, orch, roundloop, run, status, watch
-from agentkit import record, turns
+from agentkit import host, record, turns
 
 LOST = "No conversation found with session ID: gone"
 ADAPTER = """import json, os, sys
@@ -168,6 +168,21 @@ class ResumeMidturn(unittest.TestCase):
             harness="claude", auth_out={}, gh_out={}, token_out={}, previous={})
         self.assertEqual(word["word"], "working")
 
+    def test_a_terminal_following_the_run_does_not_keep_the_tick_from_its_dead_loop(self):
+        directory = self.receipt("20261001-0300-fix-api")
+        # the follower, re-executed into the run's own version as `versions.dispatch` does
+        ak = self.root / "versions" / "abc123" / "bin" / "ak"
+        ak.parent.mkdir(parents=True)
+        ak.write_text("import sys\nsys.stdin.read()\n")
+        follower = subprocess.Popen([sys.executable, str(ak), "run", "resume", directory.name],
+                                    stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
+        self.addCleanup(follower.wait)
+        self.addCleanup(follower.stdin.close)
+        while directory.name not in Path(f"/proc/{follower.pid}/cmdline").read_text():
+            pass
+        watch.resume_dead_loops(dry_run=False, log=self.logs.append, now=self.now)
+        self.assertEqual(self.resumed, [directory.name])
+
     def test_launch_grace_and_an_ordered_resume_are_left_alone(self):
         grace = self.receipt("20260922-1301-grace", state="queued", launch_pending=True,
                              queued_at=self.now, process_identity=None)
@@ -242,7 +257,7 @@ class ResumeMidturn(unittest.TestCase):
         directory = self.receipt("20260922-1302-background", resume_after=self.now + 300, deaths=[
             {"at": self.now - 900, "pid": 2 ** 30 - 1, "resumed_at": self.now - 900},
             {"at": self.now - 300, "pid": 2 ** 30}])
-        child = {"boot": "acme-boot", "ticks": 1, "started_at": self.now}
+        child = {"boot": watch.boot_id(), "ticks": 1, "started_at": self.now}   # the host stays up
         with patch.object(record, "process_owner",
                           side_effect=lambda pid=None: {"pid": pid, "process_identity": child}), \
                 patch.object(run, "run_placement", return_value=("acme", None, {})), \
@@ -253,6 +268,22 @@ class ResumeMidturn(unittest.TestCase):
         self.assertEqual(state["pid"], 2 ** 30 + 1)
         self.assertNotIn("resume_after", state)
         self.assertEqual((watch.dead_loop(state, directory, self.now) or [None])[0], "park")
+
+    def test_a_restart_ends_a_loop_once_so_one_no_resume_takes_over_is_parked(self):
+        # A restart of the host ended the loop, and no resume the tick orders after it ever takes
+        # the record over: each later ending is that loop's again, under this boot, a death like
+        # any other, so the third parks the run rather than resuming it without end.
+        directory = self.receipt("20261110-2017-restarted", process_identity={
+            "boot": "acme-boot-1", "ticks": 1, "started_at": self.now - 100})
+        with patch.object(host, "boot_id", return_value="acme-boot-2"):
+            for step in range(5):   # each a tick after the last one's ordered resume gave up
+                watch.resume_dead_loops(dry_run=False, log=self.logs.append,
+                                        now=self.now + step * handback.STALL_RESUME_GRACE * 1.2)
+        deaths = record.read_state(directory)["deaths"]
+        self.assertEqual([(death.get("restart"), death.get("parked")) for death in deaths],
+                         [(True, None), (None, None), (None, None), (None, True)])
+        self.assertEqual(len(self.resumed), 3)
+        self.assertEqual(len(self.cards), 1)
 
     def test_a_scope_the_memory_cap_ended_is_not_resumed(self):
         directory = self.receipt("20260922-1313-capped", memory_cap_mb=4096,

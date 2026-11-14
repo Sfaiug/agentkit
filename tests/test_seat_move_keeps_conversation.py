@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, done_check, hand_in, notify, orch, statusbar, watch, worker
+from agentkit import config, done_check, hand_in, menu, notify, orch, statusbar, watch, worker
 from agentkit.harness import claude
 
 SEAT = "acme-fix"
@@ -79,6 +79,8 @@ class SeatMove(Sandbox):
                 return 0, "%7"
             if args[-1] == "#{pane_dead}":               # its harness's pane
                 return 0, str(int(self.ended))
+            if args[-1] == "#{pane_id}":
+                return 0, "%7"
             if args[0] == "display-message":
                 return 0, SEAT
             if args[0] == "capture-pane":
@@ -168,6 +170,19 @@ class SeatMove(Sandbox):
         self.assertEqual((self.record()["orchestrator"], self.record()["account"]),
                          ("fable", "second"))
 
+    def test_a_move_off_a_removed_login_keeps_the_login_a_recovery_put_it_on_meanwhile(self):
+        self.cfg["providers"]["anthropic"]["accounts"] = ["first", "second"]
+        config.update_session(SEAT, account="pro")    # removed: the move plans one listed
+        in_place = orch.switch_in_place
+
+        def recovered(*args, **kwargs):               # before the move's lock is taken
+            config.update_session(SEAT, account="second")
+            return in_place(*args, **kwargs)
+        with patch.object(orch, "_switch_plan", return_value=("", "first")), \
+                patch.object(orch, "switch_in_place", side_effect=recovered):
+            self.assertEqual(self.move("fable"), "")
+        self.assertEqual((self.respawned, self.record()["account"]), ([], "second"))
+
     def test_an_effort_move_in_place_refused_keeps_a_build_effort_saved_meanwhile(self):
         def saved_then_refused(*_a, **_kw):
             config.change_efforts(SEAT, lambda data: {
@@ -177,6 +192,37 @@ class SeatMove(Sandbox):
             self.assertIn("disk full", self.move("opus", effort="max"))
         self.assertEqual(self.record()["efforts"]["opus"],
                          {"effort": "xhigh", "exec_effort": "low", "review_effort": "xhigh"})
+
+    def test_a_move_that_fails_leaves_the_model_it_refused_on_its_entrys_efforts(self):
+        with patch.object(watch, "owe_line", side_effect=OSError("disk full")):
+            self.assertIn("disk full", self.move("fable"))
+        self.ended, self.refused = True, "tmux refused"       # a restart that fails
+        self.assertIn("tmux refused", self.move("fable"))
+        self.assertNotIn("fable", self.record()["efforts"])
+
+        update = config.update_session
+
+        def saved_meanwhile(name, **fields):    # a build effort saved as the move writes its own
+            if fields.get("orchestrator") == "fable":
+                menu.efforts_saved(self.cfg, name, None, [("fable", "exec_effort", "low")])
+            return update(name, **fields)
+        with patch.object(config, "update_session", side_effect=saved_meanwhile):
+            self.assertIn("tmux refused", self.move("fable", effort="max"))
+        self.assertEqual(self.record()["efforts"]["fable"],
+                         {"effort": "xhigh", "exec_effort": "low", "review_effort": "xhigh"})
+
+    def test_a_move_that_fails_keeps_the_effort_a_seat_holding_none_ran_at(self):
+        def entry_lowered_then_refused(*_a, **_kw):
+            config.save({**self.cfg, "models": {**self.cfg["models"], "opus": {
+                **self.cfg["models"]["opus"], "effort": "low"}}})
+            raise OSError("disk full")
+        for model, effort in (("opus", "max"), ("fable", None)):
+            config.save(self.cfg)
+            config.change_efforts(SEAT, lambda data: {"astra": data["efforts"]["astra"]})
+            with patch.object(watch, "owe_line", side_effect=entry_lowered_then_refused):
+                self.assertIn("disk full", self.move(model, effort=effort))
+            self.assertEqual(config.at_efforts(config.load(), self.record())["models"]["opus"]
+                             ["effort"], "xhigh")
 
     def test_a_turn_its_usage_cut_off_goes_on_after_a_move_in_place(self):
         watch.seat_write(SEAT, state="at_prompt", usage_wait={
@@ -295,7 +341,7 @@ class SeatMove(Sandbox):
             self.assertEqual(self.move("astra"), "")
             self.assertEqual(carried, [("claude", self.pane, "codex", [], True)])   # before it
             self.assertEqual(len(self.respawned), 1)
-            self.pane = ""                       # a capture that failed moves it as well
+            self.pane = ""                       # a pane showing nothing has no text to keep
             self.assertEqual(self.move("opus"), "")
             self.pane = capture("claude-draft-while-working-pane.txt")    # typed mid-turn
             self.assertEqual(self.move("astra"), "")

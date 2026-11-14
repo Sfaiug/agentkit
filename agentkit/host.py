@@ -93,13 +93,20 @@ def parents():
             and words[2][0] not in "ZX"}
 
 
+def boot_id():
+    """The host's boot now, which every restart of it changes; None where Linux cannot say."""
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    except OSError:
+        return None
+
+
 def process_identity(pid):
     """Linux process birth, including the boot so a reboot cannot recycle an identity."""
     stat = proc_stat(pid)
-    if stat is None or stat.exited:
+    if stat is None or stat.exited or (boot := boot_id()) is None:
         return None
     try:
-        boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
         btime = next(line.split()[1] for line in Path("/proc/stat").read_text().splitlines()
                      if line.startswith("btime "))
         return {"boot": boot, "ticks": stat.start,

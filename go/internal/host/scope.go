@@ -8,18 +8,6 @@ import (
 	"strings"
 )
 
-// SeatScope is every process in the seat's own scope that holds pid, below it too, as Python's
-// host.cgroup_pids(complete=True) reads them: false where pid is in no seat's scope
-// (`agentkit-seat-…`), nil where a list cannot be read, which may hide any process.
-func SeatScope(pid int) ([]int, bool) {
-	relative, ok := processCgroup(pid)
-	if !ok || !strings.HasPrefix(filepath.Base(relative), "agentkit-seat-") {
-		return nil, false
-	}
-	pids, _ := cgroupPids(relative)
-	return pids, true
-}
-
 // cgroupPids is every process in the cgroup at relative, below it too, Python's
 // host.cgroup_pids(complete=True): nil and false where a list cannot be read, which may hide any
 // process.

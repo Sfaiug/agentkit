@@ -15,6 +15,7 @@ import (
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
+	"agentkit/internal/update"
 )
 
 // ticking is one real tick under way.
@@ -48,6 +49,9 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (left string, failed bo
 	if runtime.GOOS == "windows" {
 		return beforePasses, false
 	}
+	// the version this tick is of, read first: a move swaps another in at its path at any moment
+	// (update.Final), and on a Mac the executable's path names what is there by then
+	version, _ := os.Stat(config.Repo())
 	// asked before any pass, where Python asks after them: no row says whether Go carries the
 	// GitHub passes, and the tick begins with the asking
 	began, asking := time.Now(), stepClock()
@@ -112,6 +116,7 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (left string, failed bo
 		return t.left, true
 	}
 	if carried {
+		update.Final(version)
 		ended(record.Get("ended_at"), t.log)
 	}
 	return t.left, false

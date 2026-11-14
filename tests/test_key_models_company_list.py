@@ -1,4 +1,4 @@
-"""`p` on the models screen lists your companies, a line each of its listed models, `●` on and `○`
+"""`p` on the models screen lists your companies, a line each of its listed models, `■` on and `□`
 off: at first the `[defaults]` models' companies, all on.  Space turns a model, or on a name its
 company's, on or off, saved at once; Esc drops a company left with none on, its releases without
 a score too, and those releases from `models_off`, and the answer compares only what is on.  `a`
@@ -24,9 +24,11 @@ from fixtures.akterm import SERVER, Terminal
 from test_key_models_answer import ENV, aa, lines
 from test_key_models_on import MODELS, boards as listed
 
-SAID = ("ak uses only the models that are on. Space turns one on or off, or, on a company's "
+SAID = ("ak uses only the models that are on. Space marks one on or off, or, on a company's "
         "name, all of them. A company with none on leaves the list.")
 TITLE = "agentkit · config · recommended · new seats · models"
+KEYS = "  ↑↓←→ move   ␣ mark   a add a company   esc back"
+ADD_KEYS = "  ↑↓ company   ⏎ add   esc back"     # `a`'s list of the other companies
 
 
 def boards():
@@ -54,25 +56,31 @@ class Opened(unittest.TestCase):
                                         "crux-flash-1\tCrux Flash 1\thigh\n")
         home.write(".agentkit/state/boards.json", boards())
 
-    def open(self, width=100, **settings):
-        """`p` on the models screen, [defaults] running Acme Mid 5 and Crux Flash 1, a release
-        without a score; the terminal and its screen."""
+    def menu(self, width=100, env=ENV, **settings):
+        """The menu in a terminal `width` cells wide, [defaults] running Acme Mid 5 and Crux
+        Flash 1, a release without a score."""
         akconfig.write(self.home, {name: MODELS[name] for name in ("mid", "bolt", "flash")},
                        settings=settings, orchestrator="mid", workers=["flash"])
         (self.home.path / ".agentkit/state/matrix.json").unlink(missing_ok=True)
-        term = Terminal(self.home, size=(width, 40), env=ENV)
+        term = Terminal(self.home, size=(width, 40), env=env)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
+        return term
+
+    def open(self, width=100, **settings):
+        """`p` on the models screen (`menu`); the terminal and its screen."""
+        term = self.menu(width, **settings)
         for wait, key in (("esc leave", "c"), ("r recommended", "r"), ("boards read", "p")):
             term.wait(wait)
             term.keys(key)
-        return term, self.whole(term, "esc done")
+        return term, self.whole(term)
 
     @staticmethod
-    def whole(term, last, *shown):
-        """The screen once drawn whole, its key line ending in `last`, holding the lines `shown`."""
-        return lines(term.wait(lambda screen: screen.rstrip().endswith(last)
-                               and set(shown) <= set(lines(screen))))
+    def whole(term, *shown, last=KEYS):
+        """The screen once drawn whole, its key line `last` however it folds, holding the lines
+        `shown`."""
+        return lines(term.wait(lambda screen: " ".join(screen.split()).endswith(
+            " ".join(last.split())) and set(shown) <= set(lines(screen))))
 
     def saved(self):
         held = akconfig.read(self.home)
@@ -86,28 +94,27 @@ class CompanyList(Opened):
         self.assertEqual(" ".join(line.strip() for line in shown[2:4]), SAID)
         # no Crux Flash 1, without a score, nor Bolt or Dyne, no company of yours
         self.assertEqual(shown[4:12], [
-            "", "›[Acme] ● Acme Max 5  ● Acme Mid 5", "  Crux  ● Crux 2", "  + add a company", "",
-            "  3 models on, from 2 companies · 2 more companies have benchmark scores", "",
-            "  ↑↓ company   ←→ model   ␣ on or off   a add a company   esc done"])
+            "", "›[Acme] ■ Acme Max 5  ■ Acme Mid 5", "  Crux  ■ Crux 2", "  + add a company", "",
+            "  3 models on, from 2 companies · 2 more companies have benchmark scores", "", KEYS])
         self.assertEqual(self.saved(), (None, None))
 
     def test_space_turns_a_model_and_on_a_name_its_companys_off_and_on(self):
         term, _ = self.open()
         term.keys("Right", "Space")
-        self.whole(term, "esc done", "› Acme [○ Acme Max 5] ● Acme Mid 5")
+        self.whole(term, "› Acme [□ Acme Max 5] ■ Acme Mid 5")
         self.assertEqual(self.saved(), (["Acme", "Crux"], ["acme-max-5"]))    # companies written
         term.keys("Space", "Left", "Space")
-        self.whole(term, "esc done", "›[Acme] ○ Acme Max 5  ○ Acme Mid 5",
+        self.whole(term, "›[Acme] □ Acme Max 5  □ Acme Mid 5",
                    "  1 model on, from 1 company · 2 more companies have benchmark scores")
         self.assertEqual(self.saved(), (["Acme", "Crux"], ["acme-max-5", "acme-mid-5"]))
         term.keys("Space")
-        self.whole(term, "esc done", "›[Acme] ● Acme Max 5  ● Acme Mid 5")
+        self.whole(term, "›[Acme] ■ Acme Max 5  ■ Acme Mid 5")
         self.assertEqual(self.saved(), (["Acme", "Crux"], None))
 
     def test_esc_drops_a_company_with_none_on_and_the_answer_compares_what_is_on(self):
         term, _ = self.open(companies=["Acme", "Crux", "Fenix"], models_off=["crux-flash-1"])
         term.keys("Right", "Space", "Down", "Left", "Space")
-        self.whole(term, "esc done", "›[Crux] ○ Crux 2")
+        self.whole(term, "›[Crux] □ Crux 2")
         self.assertEqual(self.saved(), (["Acme", "Crux", "Fenix"],
                                         ["acme-max-5", "crux-2", "crux-flash-1"]))
         term.keys("Escape")
@@ -122,27 +129,27 @@ class CompanyList(Opened):
     def test_a_lists_the_other_companies_strongest_first_and_enter_adds_one_all_on(self):
         term, _ = self.open(models_off=["dyne-lite-4-mini"])
         term.keys("a")
-        shown = self.whole(term, "esc back")
+        shown = self.whole(term, last=ADD_KEYS)
         self.assertTrue(shown[0].startswith(TITLE + " · add a company"), shown[0])
         self.assertEqual(shown[2:4], ["› Dyne  2 models  Dyne Ultra 4", "  Bolt  1 model   Bolt 3"])
         term.keys("Enter")
-        shown = self.whole(term, "esc done")
-        self.assertEqual(shown[5:9], ["  Acme  ● Acme Max 5  ● Acme Mid 5", "  Crux  ● Crux 2",
-                                      "›[Dyne] ● Dyne Ultra 4  ● Dyne Lite 4 Mini",
+        shown = self.whole(term)
+        self.assertEqual(shown[5:9], ["  Acme  ■ Acme Max 5  ■ Acme Mid 5", "  Crux  ■ Crux 2",
+                                      "›[Dyne] ■ Dyne Ultra 4  ■ Dyne Lite 4 Mini",
                                       "  + add a company"])
         self.assertEqual(self.saved(), (["Acme", "Crux", "Dyne"], None))
 
     def test_a_company_written_twice_is_one_row_and_down_goes_on_past_it(self):
         term, shown = self.open(companies=["Acme", "Acme", "Crux"])
-        self.assertEqual(shown[5:8], ["›[Acme] ● Acme Max 5  ● Acme Mid 5", "  Crux  ● Crux 2",
+        self.assertEqual(shown[5:8], ["›[Acme] ■ Acme Max 5  ■ Acme Mid 5", "  Crux  ■ Crux 2",
                                       "  + add a company"])
         term.keys("Down")
-        self.whole(term, "esc done", "›[Crux] ● Crux 2")
+        self.whole(term, "›[Crux] ■ Crux 2")
 
     def test_on_40_cells_a_companys_models_go_on_under_the_column_where_they_began(self):
         _, shown = self.open(width=40, companies=["Acme", "Dyne"])
-        at = shown.index("  Dyne  ● Dyne Ultra 4")
-        self.assertEqual(shown[at:at + 3], ["  Dyne  ● Dyne Ultra 4", "        ● Dyne Lite 4 Mini",
+        at = shown.index("  Dyne  ■ Dyne Ultra 4")
+        self.assertEqual(shown[at:at + 3], ["  Dyne  ■ Dyne Ultra 4", "        ■ Dyne Lite 4 Mini",
                                             "  + add a company"])
 
     def test_a_count_too_long_for_its_line_goes_on_at_its_words(self):

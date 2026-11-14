@@ -14,15 +14,15 @@ import (
 func init() {
 	plugins["muse"] = plugin{identity: museIdentity, auth: museAuth, usageTaken: museUsageTaken, usageRecorded: museUsageRecorded, recordTurn: museRecordTurn,
 		seats: true, looks: true, record: museRecord, keys: []string{"muse_launch"}, kept: museKept, forget: receiptGone("muse"),
-		opens: true, interactive: museInteractive, seatWords: museSeatWords, owned: museConversation, reported: museReported, launched: museLaunched, retire: receiptRetired("muse"),
+		opens: true, interactive: museInteractive, seatWords: museSeatWords, owned: museConversation, found: museFound, named: museNamed, reported: museReported, launched: museLaunched, retire: receiptRetired("muse"),
 		card: museCard, said: museSaid, typed: byName(museTyping), answered: museAnswered, answer: museAnswer, resumable: museResumable, tokens: museTokens,
 		tokenSources: museTokenSources, tokenUsage: museTokenUsage,
 		// its launch receipt reads as no session where Python's strict read raises: a session
-		// that is not UTF-8, or an `earlier` Python's set() refuses
+		// that is not UTF-8
 		loose: true,
 		hookEvent: func(event *run.Object, _ io.Writer, _ func(string) (string, error), _ func(string)) (*run.Object, int) {
 			return museHookEvent(event), 0
-		}}
+		}, follows: museFollows}
 }
 
 // museIdentity is Muse's release label plus the build its launcher installed, which the launcher

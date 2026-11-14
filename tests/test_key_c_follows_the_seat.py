@@ -72,10 +72,10 @@ class CFollowsTheSeat(unittest.TestCase):
 
         def followed(screen):
             opus = row(screen, "Opus 5.5")
-            astra = row(screen, "GPT-6-Astra")
+            astra = row(screen, "6 Astra")
             return (opus.startswith("›") and opus.split()[3:] == [
                 "○", "■", "━────", "low", "■", "━━━──", "high"]
-                and astra.split()[1:] == ["●", "━━━━━─", "max", "■", "━━━───", "high", "□"]
+                and astra.split()[2:] == ["●", "━━━━━─", "max", "■", "━━━───", "high", "□"]
                 and "␣ step" in screen)
         self.term.wait(followed, bound=5)
         self.term.keys("Space")                       # still Opus's build effort
@@ -87,7 +87,7 @@ class CFollowsTheSeat(unittest.TestCase):
         changed = json.loads(self.path.read_text())
         changed["efforts"]["astra"]["exec_effort"] = "low"
         self.home.write(".agentkit/state/replacement.json", changed).replace(self.path)
-        screen = self.term.wait(lambda screen: "low" in row(screen, "GPT-6-Astra"), bound=5)
+        screen = self.term.wait(lambda screen: "low" in row(screen, "6 Astra"), bound=5)
         self.assertIn("medium", row(screen, "Opus 5.5"))
         self.assertEqual(json.loads(self.path.read_text())["efforts"]["opus"]["exec_effort"],
                          "medium")

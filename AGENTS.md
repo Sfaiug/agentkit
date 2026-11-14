@@ -30,18 +30,18 @@ This section changes only with the owner's yes. Every other line has one home, a
 
 ## Lessons
 
-Mistakes no check catches and no one area of the code holds; one that becomes a check or a comment at its code leaves.
+Mistakes no check catches and no one area of code holds; one that becomes a check or a comment at its code leaves.
 
 - When wording changes, grep tests/ and fix assertions pinning it.
 - Comments say why.
 - Each run has a memory cap (exit 137). Commit before a test sweep; run three files at most at once.
-- Tests use temporary HOME, fake process tables, units, tmux, seats, transcripts and state, and injected kill/systemctl (`_proc_table()`, `AK_HOST_READINGS`). In-process `run.review`, `run.execute` and sweeps set `tests/fixtures/seats.py`'s run variables, or refusal SIGTERMs your run.
+- Tests use temporary HOME, fake process tables, units, tmux, seats, transcripts, state and injected kill/systemctl (`_proc_table()`, `AK_HOST_READINGS`). In-process `run.review`, `run.execute` and sweeps set `tests/fixtures/seats.py`'s run variables, or refusal SIGTERMs your run.
 - Commands call `bin/ak`, never bare `ak`. A changed signature: update every mock and fake of it in tests/; a fake takes `**_kw` for what it ignores.
 - agentkit is public: tests, docs and commits use invented names (`acme`, `fix-api`), never a real checkout, product or seat.
 - A final check stopped for silence names the hung process after `still running:`: fix the hang, or hand in blocked if origin/main hangs too; gate changes are their own task.
 - Decide from exit codes and files, never another program's output text, except the stop hook's `?` at a turn's end.
 - A test never asserts a plain word is absent from output that prints paths (worktree paths carry the run's title), nor a wall-clock duration (host load breaks it at landing). Inject the clock (`tests/fixtures/sandbox.py`, `tests/fixtures/clock.py`).
-- When review keeps finding races or recovery paths, delete state or simplify the design.
+- When review keeps finding races or recovery paths, delete state or simplify.
 - Refuse an input nobody uses (a linked AGENTS.md) plainly, never re-creating another system's semantics; a task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"): a reviewer measures every word.
 - A Go milestone answers to the keys its task names: exit 3 fails it only where they reach, a difference from Python only on input real homes hold; its PR names the rest for the shadow run.
 
@@ -53,4 +53,4 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 - ak ends a wait when that merges, closes or ends; a merge on a project with `health:`, once it is live or its window has passed. [4, 9 Oct 2026]
 - Each line of `AGENTS.md` and `orchestrator.md` (word maxima: `tests/test_boundaries.py`) explains a check or a judgement no check can make.
 - Every project meets one contract, enforced by checks and scaled by what is at stake: its suite runs every test file, and a live project proves it is live with a real `health:`, deploys only code ak tested, and puts the previous release back by itself when health breaks. How each project deploys stays its own; a ready-made deploy kit covers the common case. [5 Oct]
-- ak becomes one Go program for Linux, Mac and Windows (WSL2 first, native menu over ssh); Go may vendor modules. Uncapped (`.gitattributes`) `go/` milestones land in shadow until takeover, after black-box `AK_BIN` keys pass today's ak. Python then takes fixes (bugs, throughput, resources), the 20 Oct menu, 30 Oct pipeline, 2 Nov night read and 5 Nov models screen, each with a key Go ports. Reason: one fast program anyone installs. [20, 23, 24, 30 Oct, 2, 5 Nov 2026]
+- ak becomes one Go program for Linux, Mac and Windows (WSL2 first, native menu over ssh); Go may vendor modules. Uncapped (`.gitattributes`) `go/` milestones land in shadow until takeover, after black-box `AK_BIN` keys pass today's ak. Python then takes fixes (bugs, throughput, resources), the 20 Oct menu, 30 Oct pipeline, 2 Nov night read, 5 Nov models screen and 9 Nov standby, each with a key Go ports. Reason: one fast program anyone installs. [20, 23, 24, 30 Oct, 2, 5, 9 Nov 2026]

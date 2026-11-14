@@ -26,9 +26,10 @@ OPUS, FABLE = "claude-opus-5-5", "claude-fable-5-2"
 class RankedOnItsModel(unittest.TestCase):
     def logins(self, **used):
         """{model: the logins its worker turns ran on} for one run Opus executes and Fable
-        reviews, each login's week and Fable cap `used` as (week, cap)% used, two workers naming
-        no `meter`.  The two are named outright: what a turn's login is, not whether the pick
-        lets the model run."""
+        reviews, each login's week and Fable cap `used` as (week, cap)% used, or (week, cap,
+        opus) beside a cap of Opus's own by the same name, two workers naming no `meter`.  The
+        two are named outright: what a turn's login is, not whether the pick lets the model
+        run."""
         with Home() as home:
             rig = Rig(home)
             akconfig.write(home, {model: {"harness": "acme", "provider": "acme"}
@@ -39,11 +40,13 @@ class RankedOnItsModel(unittest.TestCase):
             fake = fakeadapter.install(home, acme="work")["acme"]
             now = time.time()
 
-            def reading(week, cap):
+            def reading(week, cap, *opus):
                 meter = {"used": week, "window_secs": 604800, "resets_at": now + 3 * 86400}
                 return {"provider": "acme", "resets": 0, "meters": [
                     {**meter, "name": "weekly_all"},
-                    {**meter, "name": "weekly_scoped", "scope": "Fable", "used": cap}]}
+                    {**meter, "name": "weekly_scoped", "scope": "Fable", "used": cap},
+                    *({**meter, "name": "weekly_scoped", "scope": "Opus", "used": used}
+                      for used in opus)]}
 
             accounts = {login: reading(*pair) for login, pair in used.items()}
             home.write(".agentkit/state/usage.json", {

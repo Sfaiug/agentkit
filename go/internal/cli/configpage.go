@@ -14,7 +14,8 @@ import (
 // asked again for every draw, false handing the page to Python, and `note` is said under them;
 // read with `c`'s keys until Esc, true back where it opened.  ↑/↓, k/j, the wheel and the pointer
 // move the highlight, the keys and the wheel through each page of a row taller than the page
-// first, and a row gone from under it leaves it on the row of its label, else the nearest.  Space
+// first, the pages of a row it comes to starting from it, and a row gone from under it leaves it
+// on the row of its label, else the nearest.  Space
 // flips a mark, Enter opens what a row opens, and a click does what the row's Space does, else its
 // Enter.  A row's list opens under it, the highlight on its first marked choice and moving through
 // its choices alone: Space flips one, the list staying open, and Enter closes it, in a list that
@@ -31,6 +32,7 @@ func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard 
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame
 	defer frame.Stop()
 	defer painter.Forget()
+	pointed := 0 // the row the last draw had the highlight on
 	for {
 		label := ""
 		if view.At < len(view.Rows) {
@@ -46,6 +48,7 @@ func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard 
 			view.Typed = nil // a field goes with its row
 		}
 		view.Rows, view.At = rows, max(0, min(view.At, len(rows)-1))
+		view.Arrived, pointed = view.At != pointed, view.At
 		screen := keyboard.Screen()
 		clock.Draw(motion.Now())
 		view.Motion, view.Clock = clock, time.Now().Format("15:04")

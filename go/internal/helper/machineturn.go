@@ -23,12 +23,14 @@ import (
 
 // A Turn is a model turn a machine took, Python's machine_turn.call once it is sent there: the
 // adapter's argv, run on the checkout cwd into the out dir, both at this host's absolute paths,
-// and the HOME and harness whose conversation comes home with its results, resuming session.
-// Once run, its exit there, and whether it ended of itself, its results there to come home.
+// and the HOME and harness whose conversation comes home with its results, resuming session, and
+// its login here, which it follows while it runs.  Once run, its exit there, and whether it ended
+// of itself, its results there to come home.
 type Turn struct {
 	away                             *Away
 	argv                             []string
 	cwd, out, home, harness, session string
+	follows                          *follower
 	code                             int
 	ended                            bool
 }
@@ -45,21 +47,23 @@ func Placed(model config.Model, argv []string, cwd, out string, env map[string]s
 	if out, err = filepath.Abs(out); err != nil {
 		return nil
 	}
-	files, err := turnFiles(model, argv[0], cwd, out, env, session)
+	follows := following(model, argv[0], cwd, env)
+	files, err := turnFiles(model, follows, cwd, out, env, session)
 	if err != nil || files == nil {
 		return nil
 	}
 	// 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768 MiB
 	// and p90 of 1868 MiB, test pieces included, with one at 5438 MiB.
-	away, _, err := start(cwd, 2, 2048, commandhelp.ShellJoin(argv), files, false, func(string) {})
+	away, _, err := start(cwd, 2, 2048, commandhelp.ShellJoin(argv), nil, files, false, func(string) {})
 	if err != nil || away == nil {
 		return nil
 	}
-	return &Turn{away: away, argv: argv, cwd: cwd, out: out, home: env["HOME"], harness: model.Harness, session: session}
+	return &Turn{away: away, argv: argv, cwd: cwd, out: out, home: env["HOME"], harness: model.Harness, session: session, follows: follows}
 }
 
 // Run runs the turn there until it ends or ctx does: its events stream into the out dir's
-// events.jsonl and the harness's stderr into its stderr.log, as a turn here writes them.  False
+// events.jsonl and the harness's stderr into its stderr.log, as a turn here writes them, and a
+// renewal of its login here reaches it, the following over before its results come home.  False
 // where its room went to another before it started, so it runs here.
 func (t *Turn) Run(ctx context.Context) bool {
 	t.code = lost
@@ -71,13 +75,11 @@ func (t *Turn) Run(ctx context.Context) bool {
 	cmd := remote(ctx, t.away.Alias, "turn", append(append(args, "--", t.cwd, checkout(), t.away.branch, t.away.base), t.argv...)...)
 	// the turn's container ends with the ssh session ctx ends
 	host.Group(cmd)
-	// the connection, which mac.sh's `renewals` reads for as long as the turn runs
-	connection, held, err := os.Pipe()
+	connection, stop, err := t.follows.follow()
 	if err != nil {
 		return true
 	}
-	defer held.Close()
-	defer connection.Close()
+	defer stop()
 	events, err := os.OpenFile(filepath.Join(t.out, "events.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {
 		return true

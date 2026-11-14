@@ -23,9 +23,9 @@ HELPER = '#!/bin/sh\ntest -e "$HOME/live-ok" || { echo deploying; exit 1; }\n'  
 FORKED = 0x40   # PF_FORKNOEXEC: a fork yet to exec what it starts, running nothing of its own
 
 
-def followers(home):
-    """The project of each process following that Home's merges to live, as its RUN names it."""
-    mark, found = f"HOME={home.path}".encode(), Counter()
+def following(home):
+    """Each process following that Home's merges to live, by pid: the project its RUN names."""
+    mark, found = f"HOME={home.path}".encode(), {}
     for entry in Path("/proc").glob("[0-9]*"):
         try:
             argv = (entry / "cmdline").read_bytes().split(b"\0")
@@ -34,9 +34,14 @@ def followers(home):
         except (OSError, IndexError, ValueError):     # gone meanwhile, or not ours to read
             continue
         if mark in env and not flags & FORKED:
-            found.update(argv[at + 2].split(b"-")[2].decode() for at in range(len(argv) - 2)
-                         if argv[at:at + 2] == [b"watch", b"--live"])
+            found.update((int(entry.name), argv[at + 2].split(b"-")[2].decode())
+                         for at in range(len(argv) - 2) if argv[at:at + 2] == [b"watch", b"--live"])
     return found
+
+
+def followers(home):
+    """The project of each process following that Home's merges to live, as its RUN names it."""
+    return Counter(following(home).values())
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -65,8 +70,9 @@ class FollowedMerges(unittest.TestCase):
         census.start()
         self.addCleanup(lambda: stop.set() or census.join())
 
-    def merge(self, project, name):
-        """A passed run of the seat's, its merge recorded by `ak run merge`, then read; its dir."""
+    def merge(self, project, name, **state):
+        """A passed run of the seat's, `state` added to its record, its merge recorded by
+        `ak run merge`, then read; its dir."""
         rig, branch, run_id = self.rigs[project], f"add-{name}", f"20261106-1200-{project}-{name}"
         sha = rig.branch(branch, {f"{name}.txt": f"{name}\n"})
         pr = self.github.open_pr(rig, branch, title=f"Add {name}")
@@ -85,7 +91,7 @@ class FollowedMerges(unittest.TestCase):
             "review": {"executor": "opus", "reviewer": "astra", "executor_provider": "anthropic",
                        "reviewer_provider": "openai", "verdict": "PASS", "returncode": 0,
                        "done_when": True, "head_sha": sha,
-                       "tree_sha": rig.git("rev-parse", f"{sha}^{{tree}}")}})
+                       "tree_sha": rig.git("rev-parse", f"{sha}^{{tree}}")}, **state})
         for command in (("merge", run_id), ("status", run_id)):
             # Its seat reads the merge's ending, so only the deployment is left to hear.
             done = self.home.ak("run", *command, env={"AGENTKIT_SESSION": "acme"}, timeout=300)

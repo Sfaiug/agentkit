@@ -52,7 +52,7 @@ class LanderWakes(Sandbox):
         self.real_checks = run.checks
         self.fixer_inputs = []
         self.stack.enter_context(patch.object(record, "process_active", return_value=False))
-        self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=999))
+        self.wake = self.stack.enter_context(patch.object(watch, "launch_resume", return_value=os.getpid()))
         self.stack.enter_context(patch.object(roundloop, "execute", side_effect=self.fixer))
         self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(deliver, "rights", return_value=("acme/widget", "WRITE")))

@@ -79,13 +79,12 @@ func tipCheckout(wt, path, tip string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := g.Must("clone", "--quiet", "--shared", "--no-checkout", wt, path); err != nil {
+	if err := g.CloneBorrowing(path, "--no-checkout"); err != nil {
 		return err
 	}
 	clone := gitcall.Git{Repo: path}
 	// the clone's origin is wt, whose local branches it took as origin's: they go with it
 	for _, args := range [][]string{
-		{"config", "ak.repository", gitcall.RepositoryID(wt)},
 		{"remote", "remove", "origin"},
 		{"remote", "add", "origin", origin},
 		{"fetch", "--quiet", "--no-tags", wt, "+refs/remotes/*:refs/remotes/*"},

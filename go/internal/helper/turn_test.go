@@ -102,7 +102,8 @@ func TestATurnsParcelHoldsWhatPythonsHolds(t *testing.T) {
 	env := map[string]string{"AGENTKIT_RUN": marker, "AK_ROUND": "2", "BASH_ENV": "/etc/ak-bash", "HOME": home,
 		"LANG": "C.UTF-8", "PATH": "/usr/bin:/bin", "SECRET": "kept here", "SHELL": "/bin/bash"}
 
-	files, err := turnFiles(config.Model{Harness: "gamma", Provider: "acme"}, filepath.Join(adapters, "gamma.sh"), work, out, env, id)
+	model := config.Model{Harness: "gamma", Provider: "acme"}
+	files, err := turnFiles(model, following(model, filepath.Join(adapters, "gamma.sh"), work, env), work, out, env, id)
 	if err != nil || files == nil {
 		t.Fatalf("the turn packs nothing: %v", err)
 	}

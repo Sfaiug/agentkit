@@ -11,6 +11,7 @@ Offline: throwaway HOME, fake launch/drive/tmux, and invented GitHub responses.
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import os
+import re
 from pathlib import Path
 import sys
 import unittest
@@ -150,11 +151,11 @@ class ExecutorsOptional(Sandbox):
                 patch.object(terminal, "colour_depth", return_value=8), \
                 patch.object(terminal, "utf8", return_value=True):
             lines, _ = menu.config_body(self.cfg, selected=self.selected())
-            rows = {terminal.plain(line).lstrip("› ").split()[0]: line
+            rows = {re.split(r" [[●○■□]", terminal.plain(line).lstrip("› "))[0]: line
                     for line in lines if any(char in marks for char in terminal.plain(line))}
-            self.assertIn(terminal.styled(" ■ ", "dim"), rows["Opus"])
+            self.assertIn(terminal.styled(" ■ ", "dim"), rows["Opus 5.5"])
             self.assertEqual(tuple("".join(char for char in terminal.plain(rows[name])
-                                           if char in marks) for name in ("Opus", "GPT-6-Astra")),
+                                           if char in marks) for name in ("Opus 5.5", "6 Astra")),
                              ("●■□", "○□■"))
 
     def test_defaults_without_executor_stay_without_on_the_new_session_screen(self):

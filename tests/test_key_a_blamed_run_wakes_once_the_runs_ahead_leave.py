@@ -2,9 +2,10 @@
 line, within the same pass: the line as it stands decides, not the line the pass started on.
 
 Black-box: the program `AK_BIN` names checks a landing line from outside through
-tests/fixtures/akline.py.  Of three members the second turns the suite red on top of the first
-and is blamed; the check of the stack rebuilt without it holds until the test lets it go.
-Meanwhile the first merges, and the second's resume is started, opening its `log.txt`.
+tests/fixtures/akline.py.  Of three members, their stacks checked side by side, the second turns
+the suite red on top of the first, which lands, and is blamed; the check of the stack rebuilt
+without it holds until the test lets it go.  Meanwhile the first merges, and the second's resume
+is started, opening its `log.txt`.
 """
 
 import json
@@ -14,7 +15,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akline import READINGS, Line
+from fixtures.akline import READINGS, Line, rules
 
 TESTS = {"t/bad.sh": 'test ! -f bad.txt\n',
          "t/hold.sh": """storage=$(git rev-parse --git-common-dir)
@@ -26,8 +27,11 @@ until [ -f "$storage/go" ]; do sleep 0.1; done
 
 class ABlamedRunWakesOnceTheRunsAheadLeave(unittest.TestCase):
     def test_a_blamed_run_wakes_within_the_pass_once_the_run_ahead_merges(self):
-        line = Line(TESTS)
+        # a suite naming no share takes one turn of those pinned: the three stacks fit
+        line = Line({**TESTS, "AGENTS.md": rules("sh suite.sh")})
         self.addCleanup(line.close)
+        config = line.home.path / ".agentkit" / "config.toml"
+        config.write_text("max_gates = 3\n" + config.read_text())
         for n in range(1, 4):
             line.member({f"member-{n}.txt": f"{n}\n", **({"bad.txt": "x\n"} if n == 2 else {})})
         storage, woken = line.rig.path / ".git", line.members[1] / "log.txt"

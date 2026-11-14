@@ -49,6 +49,8 @@ type workplace interface {
 	moved(path string, line int, since string) ([]int, bool, error)
 	// judged is the verdict as the place lets it stand, and what it adds to the evidence.
 	judged(l *loop, verdict string) (string, []any, error)
+	// held is whether the place still holds what the round's checks ran on, and that as evidence.
+	held() (bool, []any, error)
 	// finished follows a PASS.
 	finished(l *loop) error
 	// head is what opens a result of the run the record describes.
@@ -170,6 +172,6 @@ func (scratch) finished(*loop) error { return nil }
 func (scratch) head(_ string, record *run.Object) []string {
 	workspace := record.Str("worktree")
 	return []string{"workspace: " + workspace,
-		"executor: " + run.Field(record, "executor", "None") + "   reviewer: " + run.Field(record, "reviewer", "None"),
+		"executor: " + run.Field(record, "executor", "None") + "   reviewer: " + reviewedBy(record),
 		"", "## Deliverables", links(workspace)}
 }

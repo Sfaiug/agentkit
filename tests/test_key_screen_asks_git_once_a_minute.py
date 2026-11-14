@@ -45,7 +45,7 @@ def under(screen, heading, name):
 @unittest.skipUnless(REAL_TMUX and GIT, "no tmux or no git")
 class ScreenAsksGitOnceAMinute(unittest.TestCase):
     def setUp(self):
-        self.home = home = Home(tmux_log=False)
+        self.home = home = Home()
         self.addCleanup(home.close)
         akconfig.write(home, ["opus"])
         self.acme = home.path / "code" / "acme"

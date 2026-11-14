@@ -6,7 +6,7 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-import check_harness_contract as contract
+from agentkit import contract
 
 
 class RecalledTest(unittest.TestCase):

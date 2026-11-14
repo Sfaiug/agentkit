@@ -103,19 +103,22 @@ func TestAFixCapturesTheCurrentDefaultBranchPolicy(t *testing.T) {
 	}
 }
 
-// A fix whose project turned executors off since is refused in those words, and one that turned
-// review off is Python's: Go writes no receipt for either.
-func TestAFixGoDoesNotCarryGetsNoReceipt(t *testing.T) {
+// A fix whose project turned executors off since is refused in those words, with no receipt; one
+// that turned review off is launched holding to it.
+func TestAFixHoldsToItsProjectsNumbersNow(t *testing.T) {
 	_, repo := repoRig(t)
 	seatLaunchFixture(t)
-	for front, why := range map[string]string{"executor_lines: 0": config.ExecutorsOff, "review_rounds: 0": "Python's to carry"} {
+	for _, front := range []string{"executor_lines: 0", "review_rounds: 0"} {
 		os.WriteFile(filepath.Join(repo.repo, "AGENTS.md"), []byte("---\n"+front+"\n---\n"), 0o600)
 		shell(t, repo.repo, "git add AGENTS.md && git commit -qm policy && git update-ref refs/remotes/origin/main HEAD && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main")
-		child := filepath.Join(run.Runs(), "fix")
+		child := filepath.Join(run.Runs(), strings.ReplaceAll(front, ": ", "-"))
 		os.MkdirAll(child, 0o700)
 		os.WriteFile(filepath.Join(child, "task.md"), []byte("# Fix retry\n"), 0o600)
 		start, err := launchForSeat(child, run.Fields("launched_session", "acme"), run.Fields("repo", repo.repo))
-		if _, stat := os.Stat(filepath.Join(child, "run.json")); err == nil || !strings.HasSuffix(err.Error(), why) || start != nil || !os.IsNotExist(stat) {
+		record, _ := run.Read(child)
+		refused := err != nil && strings.HasSuffix(err.Error(), config.ExecutorsOff) && start == nil && record == nil
+		launched := err == nil && start != nil && record != nil && run.ReviewOff(record)
+		if front == "executor_lines: 0" && !refused || front == "review_rounds: 0" && !launched {
 			t.Fatalf("%s: launched %v, %v", front, start != nil, err)
 		}
 	}

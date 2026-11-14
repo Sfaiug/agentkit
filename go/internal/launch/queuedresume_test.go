@@ -25,11 +25,15 @@ import (
 	"agentkit/internal/run"
 )
 
-// TestMain is the box's first process, a run's driver or a `--bg` job's launcher, where a test
-// starts this program as one: a driver leaves in its run's `waits-as` the run AGENTKIT_RUN_DIR
-// names as it waits for its slot, or finds its task done where AK_TEST_DONE says so (done).
+// TestMain is the box's first process, a run's waiter, a run's driver or a `--bg` job's launcher,
+// where a test starts this program as one: a driver leaves in its run's `waits-as` the run
+// AGENTKIT_RUN_DIR names as it waits for its slot, or finds its task done where AK_TEST_DONE says
+// so (done).
 func TestMain(m *testing.M) {
 	if code, first := box.First(); first {
+		os.Exit(code)
+	}
+	if code, waiting := Waiter(); waiting {
 		os.Exit(code)
 	}
 	if len(os.Args) == 4 && os.Args[1] == "run" && os.Args[2] == "resume" {

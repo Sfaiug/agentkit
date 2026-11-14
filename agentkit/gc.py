@@ -116,7 +116,7 @@ def stale_seat_files(now):
 def model_report_stale(path):
     # a report's name may carry its call's moment after its conversation, whose id has no dot
     return (retention.safe(path) and path.is_file()
-            and path.name.removeprefix("model-").split(".")[0] not in {
+            and path.name.partition("-")[2].split(".")[0] not in {
                 conversation
                 for _, seat in config.seat_files("session", retention.children(config.STATE))
                 for conversation in recorded_conversations(retention.read_json(seat) or {})})
@@ -124,7 +124,8 @@ def model_report_stale(path):
 
 def stale_model_reports():
     for path in retention.children(config.STATE):
-        if path.match("model-*.json") and model_report_stale(path):
+        # what a status render reports of its conversation: its model and its limits
+        if (path.match("model-*.json") or path.match("limits-*.json")) and model_report_stale(path):
             yield {"action": "remove", "kind": "model-report", "path": str(path),
                    "why": "no seat names this conversation"}
 
@@ -660,10 +661,11 @@ def left_scratch():
 
 
 def clear_scratch(folder):
-    """Remove `folder`, one `left_scratch` named, its mark last: one a removal cannot finish
-    keeps it, and the next collection tries again.  Each folder is opened through the one
-    holding it, never through a link, and opened to its owner, as `TemporaryDirectory`'s own
-    removal opens what its command closed: a name a link took meanwhile fails the removal.
+    """Remove `folder`, one `left_scratch` named, its mark last, and back if `folder` itself
+    cannot go: one a removal cannot finish keeps it, and the next collection tries again.
+    Each folder is opened through the one holding it, never through a link, and opened to its
+    owner, as `TemporaryDirectory`'s own removal opens what its command closed: a name a link
+    took meanwhile fails the removal.
     Only the folder it is in stays open, so no depth meets a limit on open files or recursion:
     it climbs back through `..`, and one moved meanwhile, whose `..` is no longer the folder
     it came down from, fails the removal rather than lose that folder's names elsewhere."""
@@ -688,10 +690,19 @@ def clear_scratch(folder):
                 if not os.path.samestat(os.fstat(fd), came_from):
                     raise OSError(f"{name} moved while it was removed")
                 os.rmdir(name, dir_fd=fd)
+            with os.fdopen(os.open(record.SCRATCH, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd),
+                           "rb") as mark:
+                maker = mark.read()
             os.unlink(record.SCRATCH, dir_fd=fd)
+            try:
+                os.rmdir(folder.name, dir_fd=parent)
+            except OSError:
+                with os.fdopen(os.open(record.SCRATCH, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                                       0o600, dir_fd=fd), "wb") as mark:
+                    mark.write(maker)
+                raise
         finally:
             os.close(fd)
-        os.rmdir(folder.name, dir_fd=parent)
 
 
 def _opened(name, parent):

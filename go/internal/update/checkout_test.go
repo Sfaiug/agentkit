@@ -59,6 +59,10 @@ func TestGoLiveProtectsWorkAfterItsFirstSwap(t *testing.T) {
 				want := []string{"WARN agentkit did not go live at " + short(tip) + ":",
 					"  update: agentkit: left as it is: " + checkout + " is " + why}
 				if change == "clean" {
+					// the move before made final, as a tick of the version it put live makes it
+					if err := os.Remove(filepath.Join(home, ".agentkit", "tmp", "keep", "ak")); err != nil {
+						t.Fatal(err)
+					}
 					want = []string{"agentkit is live at " + short(tip)}
 				}
 				if got := tick(); !reflect.DeepEqual(got, want) {

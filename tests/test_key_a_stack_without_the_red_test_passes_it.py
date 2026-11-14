@@ -1,7 +1,7 @@
 """A stack whose tree does not hold the red test passes it: a narrowing step counts a test the
 suite names as not there as passing on that stack, so the member that added a failing test is
 blamed as soon as the probes reach the stack below it, with no stack checked whole on the way;
-the red test then runs alone on the top rebuilt without it, before any whole check.
+the red test then runs alone on the top rebuilt without it, before that top's whole check.
 
 Black-box: the program `AK_BIN` names checks a landing line from outside through
 tests/fixtures/akline.py, whose suite names a listed test its tree does not hold as not there;
@@ -54,18 +54,18 @@ class AStackWithoutTheRedTestPassesIt(unittest.TestCase):
         # alone, a probe there or a step here, leaves one naming the suite.
         whole = [stack for stack, _ in groupby(
             (run_id, tree) for run_id, tree, command, _ in rows if command != SUITE)]
-        # The top, red; the stack just below the sixth, once it is blamed; the top rebuilt.
-        self.assertEqual([run_id for run_id, _ in whole], ["fix-8", "fix-5", "fix-8"], rows)
+        # The top, red; the top rebuilt without the sixth, once it is blamed.
+        self.assertEqual([run_id for run_id, _ in whole], ["fix-8", "fix-8"], rows)
         first = max(index for index, row in enumerate(rows) if tuple(row[:2]) == whole[0])
-        below = min(index for index, row in enumerate(rows) if tuple(row[:2]) == whole[1])
-        between = rows[first + 1:below]
+        rebuilt = min(index for index, row in enumerate(rows) if index > first and row[2] != SUITE)
+        between = rows[first + 1:rebuilt]
         self.assertEqual({command for _, _, command, _ in between}, {SUITE}, rows)
         self.assertTrue(any(place == "acme-linux" for *_, place in between), rows)
         # Here: the step blaming the sixth, then the red test alone on the top rebuilt without it.
         here = [stack for stack, _ in groupby(
             (run_id, tree) for run_id, tree, _, place in between if place != "acme-linux")]
         self.assertEqual([run_id for run_id, _ in here], ["fix-6", "fix-8"], rows)
-        self.assertEqual(here[1], whole[2], rows)
+        self.assertEqual(here[1], whole[1], rows)
 
 
 if __name__ == "__main__":

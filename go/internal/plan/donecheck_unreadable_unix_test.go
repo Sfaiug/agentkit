@@ -69,7 +69,7 @@ func TestAnUnreadableOwnerMessageKeepsTheCheckOwed(t *testing.T) {
 		}
 	})
 	readOnceUnread(func() {
-		if line, owed, err := OwedLine("acme"); !owed || line != owedCheck || err != nil {
+		if line, owed, err := (Look{}).OwedLine("acme"); !owed || line != owedCheck || err != nil {
 			t.Errorf("its check reads as not owed: %q, %v, %v", line, owed, err)
 		}
 	})

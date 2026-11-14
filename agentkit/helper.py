@@ -35,7 +35,6 @@ BATTERY, FULL, BROKEN = 251, 252, 253   # mac.sh: off power, no room for the pie
 GONE = (LOST, SHORT, BATTERY, BROKEN)   # a piece's exit when the helper lost it
 TOOLS = config.REPO / "tools" / "helper"
 RECIPE = "tools/helper/Containerfile"     # a repository's recipe when `suite_image:` names none
-SSH = ("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15")
 # Linux's MAX_ARG_STRLEN, the most one argument holds, its closing NUL counted: ssh is given a
 # piece's whole line as one, and the machine's shell gets it as one, the piece's command in it.
 MAX_ARG_STRLEN = 128 * 1024
@@ -50,7 +49,7 @@ Away = namedtuple("Away", "alias key repo image count cpus memory_mb most branch
 
 
 def _remote(alias, verb, *args, **kwargs):
-    argv = [*SSH, *google_cloud.ssh_config(alias), alias, _line(verb, *args)]
+    argv = [*machines.ssh(alias), _line(verb, *args)]
     return subprocess.run(argv, capture_output=True, **kwargs) if kwargs else argv
 
 

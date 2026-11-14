@@ -1,5 +1,5 @@
 """`r recommended` on `c` names its keys, and ⏎ opens the why of the orchestrator's first
-choice, its model at its effort being no row.
+choice, its model at its effort being no row, Crux 2, which no configured model runs, being none.
 
 Black-box: the program `AK_BIN` names in a terminal (tests/fixtures/akterm.py), its harnesses
 fakes listing invented models, the boards held as just asked with invented rows and any board
@@ -89,7 +89,7 @@ class ModelsAnswer(unittest.TestCase):
     def test_enter_opens_the_why_of_the_orchestrators_first_choice(self):
         term, _ = self.models()
         term.keys("Enter")
-        term.wait("why Crux 2 low orchestrates")
+        term.wait("why Acme Mid 5 high orchestrates")
 
     def test_the_key_line_names_each_key(self):
         _, shown = self.models()

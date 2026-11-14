@@ -4,10 +4,11 @@ Such a turn's `turn_usage` rows in history.db hold, for each model, each type su
 messages its session's transcripts hold from its start to its last event, its subagent's too,
 each message once however many lines repeat it.  Where no transcript came home, as from a turn
 killed on a rented machine, each message counts as its stream reported it, and the run's
-executor tokens count each message once too.  A turn with its `result` keeps what the result
-gives.  A later turn resuming the session keeps what its result's total exceeds the rows kept
-for the session's turns: those of a killed turn whose transcript came home, and none of one
-whose transcript did not, which the session never held.  Black-box: AK_BIN runs tasks through
+executor tokens count each message once too.  Those of a turn killed before its stream showed
+a message count what its rows count.  A turn with its `result` keeps what the result gives.  A
+later turn resuming the session keeps what its result's total exceeds the rows kept for the
+session's turns: those of a killed turn whose transcript came home, and none of one whose
+transcript did not, which the session never held.  Black-box: AK_BIN runs tasks through
 tests/fixtures/akbin.py on a fake Claude harness.
 While the executor's turn waits, the test does what Claude Code would: it writes the turn's
 events, naming the session and the turn's working directory, and that session's transcripts in
@@ -73,14 +74,15 @@ def transcript(path, messages, times, sidechain=False):
     path.write_text("".join(json.dumps(line) + "\n" for line in lines))
 
 
-def events(workspace, result):
+def events(workspace, result, shown):
     """The turn's stream: its start, each message's first chunk once per content block, as Claude
-    Code repeats a message's id and usage, and the `result` if it has one."""
+    Code repeats a message's id and usage, unless it was killed before it showed one, and the
+    `result` if it has one."""
     lines = [{"type": "system", "subtype": "init", "cwd": workspace, "session_id": SESSION,
               "model": OPUS}]
     lines += [{"type": "assistant", "session_id": SESSION, "message": {
         "id": message, "model": model, "usage": dict(zip(TYPES, repeats[0]))}}
-        for message, model, repeats, when in MAIN + SUBAGENT if when == "during"
+        for message, model, repeats, when in MAIN + SUBAGENT if when == "during" and shown
         for _block in ("thinking", "text")]
     if result is not None:
         lines.append({"type": "result", "subtype": "success", "session_id": SESSION,
@@ -103,7 +105,7 @@ class Turn:
     where `fix` streams, a round 2 fix resuming the session."""
 
     @classmethod
-    def start(cls, result=None, transcripts=True, fix=None):
+    def start(cls, result=None, transcripts=True, fix=None, shown=True):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         rig = Rig(cls.home, "widgets")
@@ -130,7 +132,7 @@ class Turn:
         cls.run_dir = taskfile.only_run(cls.home)
         cls.out = max(cls.run_dir.glob("round-*/*/harness"),
                       key=lambda receipt: receipt.stat().st_mtime).parent
-        (cls.out / "events.jsonl").write_text(events(workspace, result))
+        (cls.out / "events.jsonl").write_text(events(workspace, result, shown))
         began = (cls.out / "harness").stat().st_mtime
         ended = (cls.out / "events.jsonl").stat().st_mtime
         times = {"before": began - 60, "during": (began + ended) / 2, "after": ended + 60}
@@ -196,6 +198,19 @@ class AKilledTurnWhoseTranscriptNeverCameHome(Turn, unittest.TestCase):
         # beside the fix's, which its result's own `usage` gives
         self.assertEqual(self.executor_tokens, sum(sum(counts) for _, *counts in self.kept())
                          + sum(GREW[OPUS]))
+
+
+class AKilledTurnWhoseStreamShowedNoMessage(Turn, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.start(shown=False)
+
+    def test_each_model_keeps_its_messages_its_transcripts_hold(self):
+        self.assertEqual(self.kept(), [(HAIKU, 5, 700, 0, 90), (OPUS, 10, 2300, 22000, 81575)])
+        self.assertEqual(len(self.rows), 2, self.rows)
+
+    def test_the_run_s_executor_tokens_are_what_they_count(self):
+        self.assertEqual(self.executor_tokens, sum(sum(counts) for _, *counts in self.kept()))
 
 
 class ATurnWithItsResult(Turn, unittest.TestCase):

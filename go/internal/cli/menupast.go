@@ -15,7 +15,6 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/menu"
-	"agentkit/internal/plan"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 )
@@ -24,13 +23,13 @@ var firstSentence = regexp.MustCompile(`(?s)^.*?[.!?](?:\s|$)`)
 
 func pastRow(each seat.Seat, now time.Time) (menu.PastSeat, bool) {
 	closed, restart, known := each.PastReady(now)
-	done, total := plan.Progress(each.Name)
-	said := strings.TrimSpace(plan.FirstDone(each.Name))
+	done, total := each.Progress()
+	said := strings.TrimSpace(each.FirstDone())
 	if sentence := firstSentence.FindString(said); sentence != "" {
 		said = strings.TrimSpace(sentence)
 	}
 	return menu.PastSeat{Seat: menu.Seat{Name: each.Name, Checkout: each.Checkout(), Model: each.Orchestrator,
-		Done: done, Total: total, Said: said}, Closed: closed, Restart: restart}, known
+		Done: done, Total: total}, Said: said, Closed: closed, Restart: restart}, known
 }
 
 func sortPast(past []menu.PastSeat) {

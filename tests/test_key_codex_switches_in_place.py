@@ -2,7 +2,7 @@
 --reasoning=<level>` in its harness's process, asking nothing, and runs on.
 
 The owner (30 Oct 2026), of a move within one harness: in place, with no restart, "for every
-harness".  Black-box: `AK_BIN`, as the popup over a seat on GPT-6-Astra whose pane keeps each
+harness".  Black-box: `AK_BIN`, as the popup over a seat on 6 Astra whose pane keeps each
 line typed into it, its harness a fake; fails against `/bin/false`."""
 
 import json
@@ -44,7 +44,7 @@ class CodexSwitchesInPlace(unittest.TestCase):
                         server=SERVER)
         term.wait("esc leave")
         term.keys("c")
-        term.wait(lambda screen: key_line(screen) == KEYS and "› GPT-6-Astra" in screen)
+        term.wait(lambda screen: key_line(screen) == KEYS and "› 6 Astra" in screen)
         pid = home.tmux("display-message", "-p", "-t", seat.pane, "#{pane_pid}").out
         path = home.path / ".agentkit" / "state" / f"session-{SEAT}.json"
         term.keys("Down", "Space")     # the other Codex model's orchestrator mark

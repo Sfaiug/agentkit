@@ -1,17 +1,18 @@
 """Each role's answer holds up to five choices a point apart, and the best of each other model.
-Of the rows compared that have a cost, whichever harness runs them, or none, the front holds
-each better than every cheaper one, the best last.  `choices`: its rows within 10 points of the
-best, cheapest first, each a point or more above the last kept, the best taking the place of
-one less than a point below it; the costliest five.  `others`: the best row of each release
-with no choice, best first, `beaten` by a choice, else a row of the front, as good and no
-dearer; on the front, `far below`, by null, more than 10 points under the best; else `close`
-to the nearest choice, less than a point from it; else `no room`, by null, a point or more under
-every choice, as the costliest five leave it.  Qualities exactly 10 or 1 apart are so, whatever
-a rating's roundoff, and a row a millionth of a point better still ranks above.
+Of the rows compared that have a cost and a configured model runs, the front holds each better
+than every cheaper one, the best last.  `choices`: its rows within 10 points of the best,
+cheapest first, each a point or more above the last kept, the best taking the place of one less
+than a point below it; the costliest five.  `others`: the best row of each release with no
+choice, best first, `beaten` by a choice, else a row of the front, as good and no dearer; on the
+front, `far below`, by null, more than 10 points under the best; else `close` to the nearest
+choice, less than a point from it; else `no room`, by null, a point or more under every choice,
+as the costliest five leave it.  Qualities exactly 10 or 1 apart are so, whatever a rating's
+roundoff, and a row a millionth of a point better still ranks above.  A row no configured model
+runs is no choice (tests/test_key_models_choices_are_yours.py).
 
 Black-box: AK_BIN in a temporary HOME, the boards held as just asked with invented releases of
-one maker, its one harness a fake running one of them; only `ak models --json` is observed.
-Fails against /bin/false.
+one maker, its one harness a fake running each, a configured model each; only `ak models
+--json` is observed.  Fails against /bin/false.
 """
 
 import json
@@ -37,7 +38,7 @@ ROWS = [("acme-step-1", "Acme Step 1", "low", 70, 0.5),     # a choice's release
         ("acme-wide-1", "Acme Wide 1", "high", 96, 8),
         ("acme-top-1", "Acme Top 1", "high", 97.5, 12),
         ("acme-edge-1", "Acme Edge 1", "high", 99.5, 16),   # half a point under the best
-        ("acme-best-1", "Acme Best 1", "high", 100, 20),    # the best, which no harness runs
+        ("acme-best-1", "Acme Best 1", "high", 100, 20),    # the best
         ("acme-dear-1", "Acme Dear 1", "high", 95, 30),     # beaten; its max as good, dearer
         ("acme-dear-1", "Acme Dear 1", "max", 95, 40)]
 CHOICES = [("Acme Mid 1", "high"), ("Acme Step 1", "high"), ("Acme Wide 1", "high"),
@@ -79,13 +80,16 @@ def hold(home, rows):
     home.write(".agentkit/state/boards.json", held)
 
 
-def answer(rows, runs):
-    """`ak models --json` over the boards holding `rows` (hold), its one harness running
-    release `runs` at `high`."""
+def answer(rows):
+    """`ak models --json` over the boards holding `rows` (hold), its one harness running each
+    release at every effort, a configured model each."""
+    releases = list(dict.fromkeys(release for release, *_ in rows))
     with Home() as home:
         fake = fakeadapter.install(home, claude="pass")["claude"]
-        fake.answer("models", f"{runs}\t{runs}\thigh\n")
-        akconfig.write(home, {"mine": {"harness": "claude", "model": runs}})
+        fake.answer("models", "".join(f"{release}\t{release}\tlow high max\n"
+                                      for release in releases))
+        akconfig.write(home, {release: {"harness": "claude", "model": release}
+                              for release in releases})
         hold(home, rows)
         done = home.ak("models", "--json", env=ENV)
         assert done.code == 0, done.out + done.err
@@ -95,15 +99,12 @@ def answer(rows, runs):
 class RoleChoices(unittest.TestCase):
     def test_each_role_holds_choices_a_point_apart_and_the_best_of_each_other_model(self):
         found = answer([(release, name, effort, quality / 100 - 0.1, cost)
-                        for release, name, effort, quality, cost in ROWS], "acme-mid-1")
+                        for release, name, effort, quality, cost in ROWS])
         for role in ROLES:
             with self.subTest(role=role):
                 said = found[role]
                 self.assertEqual([(row["name"], row["effort"]) for row in said["choices"]],
                                  CHOICES)
-                notes = {row["name"]: row["notes"] for row in said["choices"]}
-                self.assertIn("no harness", notes["Acme Best 1"])
-                self.assertNotIn("no harness", notes["Acme Mid 1"])
                 self.assertEqual([(row["name"], row["effort"], row["why"], row["by"])
                                   for row in said["others"]], OTHERS)
 
@@ -111,7 +112,7 @@ class RoleChoices(unittest.TestCase):
         for shares in EXACT:
             rows = [(f"acme-{n}-1", f"Acme {n} 1", "high", share, n + 1)
                     for n, share in enumerate(shares)]
-            found = answer(rows, "acme-0-1")
+            found = answer(rows)
             for role in ROLES:
                 with self.subTest(shares=shares, role=role):
                     self.assertEqual([row["release"] for row in found[role]["choices"]],
@@ -121,7 +122,7 @@ class RoleChoices(unittest.TestCase):
     def test_a_millionth_better_still_ranks_above(self):
         for rows, others in HAIR:
             found = answer([(release, release, effort, share, n + 1)
-                            for n, (release, effort, share) in enumerate(rows)], rows[0][0])
+                            for n, (release, effort, share) in enumerate(rows)])
             for role in ROLES:
                 with self.subTest(rows=rows, role=role):
                     self.assertEqual([row["release"] for row in found[role]["choices"]],

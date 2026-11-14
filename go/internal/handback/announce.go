@@ -21,15 +21,16 @@ func Awaiting(record *run.Object, now time.Time) bool {
 // job whose one line says it: up on ak's own server, nothing left of it (Orphaned), or neither, for
 // an ending that wakes nothing, recorded, riding on its next prompt or held for its change to go
 // live, as Python's announce decides before it wakes anything, or a job's task's gone from under
-// it (muted); else asleep where Go wakes it, for an ending typed into it.  Never where Go cannot
-// read how the seat hears it, or how its change going live meets it.  From census as Give reads it.
+// it (muted); else one an older ak put to sleep, for an ending owed it until the tick reopens it.
+// Never where Go cannot read how the seat hears it, or how its change going live meets it.  From
+// census as Give reads it.
 func Reaches(record *run.Object, census []*run.Object) bool {
 	reaches, _ := reach(record, census)
 	return reaches
 }
 
-// reach is Reaches, and whether Give wakes the seat first.
-func reach(record *run.Object, census []*run.Object) (reaches, wakes bool) {
+// reach is Reaches, and whether the seat is one an older ak put to sleep.
+func reach(record *run.Object, census []*run.Object) (reaches, slept bool) {
 	session := run.Seat(record)
 	held, _, err := liveEnding(record, census)
 	switch {
@@ -47,8 +48,8 @@ func reach(record *run.Object, census []*run.Object) (reaches, wakes bool) {
 	case recordOnly || pending || held || muted(record):
 		return true, false
 	}
-	wakes = seat.Wakes(session)
-	return wakes, wakes
+	slept = seat.Asleep(session)
+	return slept, slept
 }
 
 // Announce offers an ending through the run's own hand-back, from census as Give reads it, keeping

@@ -14,6 +14,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/notify"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
 	usages "agentkit/internal/usage"
@@ -25,7 +26,9 @@ const heldContinue = "Your process was ended, not by you, while it held backgrou
 
 // TickHome leaves live recovery to its tick row; ordinary views still require a word they
 // can publish immediately.
-func TickHome(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil, true) }
+func TickHome(now time.Time) (Home, bool) {
+	return reading(now, true, lookRuns, nil, plan.Look{}, true)
+}
 
 func accountName(record *run.Object, key string) string {
 	if account := record.Str(key); account != "" {

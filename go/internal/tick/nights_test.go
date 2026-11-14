@@ -43,8 +43,9 @@ func signedOut(t *testing.T, more string, env map[string]string) (ak, said strin
 	return ak, out.String(), err
 }
 
-// A night whose fix Go leaves to Python (its provider lists several logins, among which Python's
-// turn picks) hands the tick over with nothing written: no task, no file of names, no stamp.
+// A night whose fix Go leaves to Python (no adapter directory to read meters with, and logins its
+// provider lists that nothing here says are signed out) hands the tick over with nothing written:
+// no task, no file of names, no stamp.
 func TestANightLeftToPythonWritesNothing(t *testing.T) {
 	ak, _, err := signedOut(t, "accounts = ['shoal', 'reef']\n", map[string]string{"AK_RUN_DEPTH": "0", "AK_PARENT_RUN": ""})
 	if !errors.Is(err, errLeft) {

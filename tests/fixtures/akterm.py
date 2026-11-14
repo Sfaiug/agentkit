@@ -60,9 +60,11 @@ class Terminal:
     def resize(self, width, height):
         self._ask("resize-window", "-t", self.pane, "-x", str(width), "-y", str(height))
 
-    def screen(self, colours=False):
-        """What the terminal shows now; `colours` keeps the escape sequences that draw them."""
-        return self._ask("capture-pane", "-p", *(["-e"] if colours else []), "-t", self.pane)
+    def screen(self, colours=False, copied=False):
+        """What the terminal shows now; `colours` keeps the escape sequences that draw them, and
+        `copied` reads it as a person's selection copies it, a line the terminal wrapped whole."""
+        return self._ask("capture-pane", "-p", *(["-e"] if colours else []),
+                         *(["-J"] if copied else []), "-t", self.pane)
 
     def wait(self, shown, bound=30):
         """The screen once it shows that text, or that test of it holds; the program draws when

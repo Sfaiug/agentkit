@@ -56,6 +56,24 @@ class StopParity(unittest.TestCase):
                 self.look(f)
                 self.assertEqual(f.sent, ["continue"])
 
+    def test_a_move_owed_at_a_completion_goes_in_before_its_continue(self):
+        for harness in fixture.HARNESSES:
+            with self.subTest(harness=harness):
+                f = self.seat(harness)
+                watch.owe_line(fixture.SEAT, None, {"line": "/effort low", "switch": True})
+                take = f.tmux
+
+                def tmux(*args, **kwargs):
+                    done = take(*args, **kwargs)
+                    if args[-1] == "Enter" and f.sent[-1] == "/effort low":
+                        f.pane = f.screen("prompt")     # a move begins no turn
+                    return done
+
+                f.tmux = tmux
+                self.look(f)
+                self.assertEqual(f.sent, ["/effort low", "continue"])
+                self.assertFalse(watch.seat_read(fixture.SEAT).get("owed_lines"))
+
     def test_a_tick_can_also_judge_a_just_completed_turn(self):
         for harness in fixture.HARNESSES:
             with self.subTest(harness=harness):

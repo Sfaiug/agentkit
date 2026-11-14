@@ -23,7 +23,7 @@ from agentkit import config, menu, orch, terminal, transitions, update, watch  #
 
 SEAT = "acme-api"
 SPENT = "anthropic out of usage until 2026-10-15 20:00"
-RED = "be222a"
+RED = "fe756f"     # the black theme's error, a seat's bar's
 # The real menu on a pty (test_close_and_info's), its one seat out of usage until 19:20 today.
 CHILD = pty.CHILD.replace("sys.exit(menu.loop(", """
 import time
@@ -110,7 +110,7 @@ class OutOfUsageRow(Sandbox):
 
     def test_its_row_and_its_bar_say_when_it_comes_back_in_red(self):
         self.assertEqual(terminal.state_text("out of usage"), "○ out of usage")
-        self.assertEqual(terminal.colour("out of usage").rgb, RED)
+        self.assertEqual(terminal.colour("out of usage", tmux=True), RED)
         back = today_at(19, 20)
         self.assertEqual(terminal.plain(menu.last_column("out of usage", 3, 8, back=back)),
                          "back 19:20")
@@ -122,7 +122,7 @@ class OutOfUsageRow(Sandbox):
         # it outranks work going on, as it is what stops it
         self.assertEqual(menu.rollup(["working", "out of usage", "done"]), "out of usage")
 
-    def test_a_move_refuses_a_model_that_is_spent(self):
+    def test_a_move_by_hand_takes_a_model_that_is_spent(self):
         # fable full with no reset known
         self.cfg["models"] = {k: self.cfg["models"][k] for k in ("opus", "fable", "astra")}
         full = {"meters": [{"name": "weekly_all", "used": 100, "exhausted": True,
@@ -132,8 +132,9 @@ class OutOfUsageRow(Sandbox):
         config.save_session(self.cfg, SEAT, "opus", ["astra"], {"cwd": str(self.root)})
         with patch.object(config, "harness_present", return_value=True), \
                 patch.object(orch, "harness_plugin", return_value=Login({None})):
-            self.assertEqual(orch._switch_plan(self.cfg, SEAT, "fable", providers)[0],
-                             "fable is spent")
+            self.assertEqual(orch.spent_note(self.cfg, "fable", providers), "spent")
+            self.assertEqual(orch._switch_plan(self.cfg, SEAT, "fable", providers),
+                             ("", None))      # the owner's switch asks nothing of usage
 
     def test_a_move_by_hand_lands_on_a_login_on_credits(self):
         # astra's login with a window has expired; the one left holds only credits
@@ -161,7 +162,7 @@ class OutOfUsageRow(Sandbox):
                 patch.object(terminal, "colour_depth", return_value=24):
             tasks = menu.seat_tasks(SEAT, records=[run], now=10000)
             self.assertEqual([tuple(task) for task in tasks], [(1, "spent")])
-            self.assertIn("38;2;190;34;42m■■", menu.squares(tasks))
+            self.assertIn("38;2;254;117;111m■■", menu.squares(tasks))
 
 
 class OutOfUsageOnScreen(unittest.TestCase):

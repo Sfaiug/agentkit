@@ -3,6 +3,9 @@ package seat
 import (
 	"slices"
 	"time"
+
+	"agentkit/internal/plan"
+	"agentkit/internal/run"
 )
 
 // heldAgain is watch.announce_state with `look` for a seat tmux holds with its panes all dead: under
@@ -16,7 +19,7 @@ import (
 func (seat *Seat) heldAgain(state string, home Home) error {
 	return announcing(state, seat.Name, func() error {
 		now := time.Now()
-		again, known := reading(now, true, func([]string) judges { return home.found }, home.readers)
+		again, known := reading(now, true, func([]string) judges { return home.found }, home.readers, plan.Look{})
 		at := slices.IndexFunc(again.Seats, func(each Seat) bool { return each.Name == seat.Name })
 		if !known || at < 0 || !again.Seats[at].held {
 			return ErrUnread
@@ -31,7 +34,7 @@ func (seat *Seat) heldAgain(state string, home Home) error {
 func handBacks(mine []ran) int {
 	waiting := 0
 	for _, each := range mine {
-		if each.record.Truthy("handback_pending") {
+		if run.Waits(each.record) {
 			waiting++
 		}
 	}

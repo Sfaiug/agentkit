@@ -80,7 +80,7 @@ class CodexReadsIts0167Prompt(unittest.TestCase):
                         server=SERVER)
         term.wait("esc leave")
         term.keys("c")
-        term.wait(lambda shown: key_line(shown) == KEYS and "› GPT-6-Astra" in shown)
+        term.wait(lambda shown: key_line(shown) == KEYS and "› 6 Astra" in shown)
         term.keys("Down", "Space")     # the other Codex model's orchestrator mark
         self.assertEqual(seat.wait_lines(1), ["/model gpt-5.6-luna --reasoning=high"])
         state = home.path / ".agentkit" / "state" / f"seat-{SEAT}.json"

@@ -282,7 +282,7 @@ func (r *repoPlace) replay(l *loop, cmds []string, head string, laid []string, n
 	}
 	defer os.RemoveAll(tmp)
 	checkout := filepath.Join(tmp, "checkout")
-	if _, err := l.git(r.wt).Must("clone", "--quiet", "--shared", "--no-checkout", r.wt, checkout); err != nil {
+	if err := l.git(r.wt).CloneBorrowing(checkout, "--no-checkout"); err != nil {
 		return nil, err
 	}
 	c := l.git(checkout)

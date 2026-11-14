@@ -10,8 +10,8 @@ empty where the table does not say.  Given models -- each an id, or a listing's 
 has that id, else the listing's own, else the id; the listing's efforts where it says them, else
 the table's, else unsaid.  That is how a harness that lists only its ids gets their efforts,
 while one that lists its own keeps them.
-The table is the whole answer for a harness that cannot list its own models, and the fallback
-for one whose listing failed.
+The table is the whole answer for a harness that cannot list its own models.  One whose own
+listing fails answers nothing: config.catalog decides what stands in.
 """
 from pathlib import Path
 import sys

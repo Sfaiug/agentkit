@@ -124,7 +124,7 @@ class Highlight(Menu):
         self.shows(term, ON_BETA)
         term.type(WHEEL_DOWN)
         self.shows(term, ["  acme", "  beta", "› fix-api",
-                          "Opus 5.5 xhigh orchestrates   GPT-6-Astra xhigh builds, reviews"])
+                          "Opus 5.5 xhigh orchestrates   6 Astra xhigh builds, reviews"])
         # ↓ and the wheel on the last row stay there, or k would not land on beta
         term.keys("Down")
         term.type(WHEEL_DOWN)

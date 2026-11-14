@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"agentkit/internal/handback"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
@@ -56,7 +55,7 @@ func TestAContendedLookLeavesItsDeliveryAfterTheLockIsReleasedDuringOutput(t *te
 					t.Fatalf("exit=%d output=%s stderr=%s", code, shown.String(), other.String())
 				}
 				after, _ := run.Read(dir)
-				if !handback.Waiting(after) || after.Truthy("handed_back") {
+				if !run.Waits(after) || after.Truthy("handed_back") {
 					t.Fatal("the look took over the contended delivery", run.Line(after))
 				}
 				if _, err := os.Stat(filepath.Join(dir, "result.md")); !os.IsNotExist(err) {

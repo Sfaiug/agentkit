@@ -139,9 +139,9 @@ func verifying(ctx context.Context, name string, wait bool, fn func() error) err
 // one written last, since a renamed seat still writes under the name it was launched with; of
 // equal times, the later path, as Python's max of (mtime, path) picks.  One nothing can look at
 // is an error: an unread plan proves nothing done.
-func path(current string) (string, error) {
+func (look Look) path(current string) (string, error) {
 	found, newest := seatFile("plan", current, "md"), int64(-1)
-	for _, each := range Names(current) {
+	for _, each := range look.Names(current) {
 		plan := seatFile("plan", each, "md")
 		info, err := os.Stat(plan)
 		if os.IsNotExist(err) {
@@ -157,17 +157,8 @@ func path(current string) (string, error) {
 	return found, nil
 }
 
-// Names are the names a seat goes by: the one it has now, then every name renamed into it.
-func Names(current string) []string {
-	every := []string{current}
-	for _, record := range config.SeatFiles() {
-		old := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(record), "session-"), ".json")
-		if now, _, _ := config.ResolveSession(old); old != current && now == current {
-			every = append(every, old)
-		}
-	}
-	return every
-}
+// Names are the names a seat goes by, every rename pointer followed on disk (Look).
+func Names(current string) []string { return Look{}.Names(current) }
 
 // ReachedLive is whether the seat's own ssh reached the live host this turn: since the turn's
 // start hooks/seat-state.sh writes in its stop file.  Both are under the name its harness was
@@ -194,8 +185,10 @@ func ReachedLive(current string) bool {
 }
 
 // read is the plan's lines: none without a plan.
-func read(current string) ([]string, error) {
-	plan, err := path(current)
+func read(current string) ([]string, error) { return Look{}.read(current) }
+
+func (look Look) read(current string) ([]string, error) {
+	plan, err := look.path(current)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +203,7 @@ func read(current string) ([]string, error) {
 }
 
 func write(current string, lines []string) error {
-	plan, err := path(current)
+	plan, err := Look{}.path(current)
 	if err != nil {
 		return err
 	}

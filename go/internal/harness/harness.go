@@ -25,6 +25,9 @@ type plugin struct {
 	seatWords   func(words, env []string) []string
 	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int, changed func()) int
 	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error), reconciled func(seat string)) (*run.Object, int)
+	// follows is the conversation an adapter's hook event says the seat's own client went on in,
+	// or keeps (Python's plugin `follow`), nil for none.
+	follows func(event *run.Object) *Followed
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
 	seats   bool
@@ -47,9 +50,11 @@ type plugin struct {
 	resumable func(record *run.Object) bool
 	// owned is the conversation its own evidence names, which its harness reported (Python's
 	// plugin `conversation`), and found that and the error of evidence that is there and cannot be
-	// read, where Go reads it as strictly as Python's done check (harness.strictly).
+	// read, where Go reads it as strictly as Python's done check (harness.strictly); named is
+	// Named's, which every owned has: what owned reads, read as strictly as Named answers.
 	owned func(record map[string]any) string
 	found func(record map[string]any) (string, error)
+	named func(record map[string]any) (string, error)
 	// reported is the conversation its launch's evidence first named, which a line the launch
 	// opened on went into, where owned may since have moved on (WentInto); nil where owned is it.
 	reported func(record map[string]any) string
@@ -89,6 +94,8 @@ type plugin struct {
 	// and loose where it reads a record naming them less strictly than Python's done check does.
 	answered func(record map[string]any) ([]Turn, []Card, error)
 	loose    bool
+	// replies is whether a message typed says the owner's answers on a card (Replies).
+	replies func(text string) bool
 	// anew is whether Go opens only new seats of this harness, leaving reopening them to Python.
 	anew bool
 	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title
@@ -99,6 +106,9 @@ type plugin struct {
 	retire        func(*run.Object) error
 	handed        func(*run.Object) (string, bool)
 	moveReady     func() bool
+	// titleLine is TitleLine's: nil where Go types no title, as for a plugin that also says when
+	// one may go in (`title_ready`), which Go does not read.
+	titleLine func(name string) string
 	// mode is Mode's: nil where its own config says nothing of how a model of it is paid.
 	mode func(model config.Model) string
 	// usageTaken and usageRecorded are UsageTaken's and UsageRecorded's: nil where a usage read
@@ -136,6 +146,8 @@ type plugin struct {
 	// switchable is Switchable's: nil where its running seat takes every model at every effort
 	// from its `[switch]` lines.
 	switchable func(model, effort string) bool
+	// moves is Moves': nil where Follows carries every event that moves its seat.
+	moves func(event *run.Object) bool
 }
 
 var plugins = map[string]plugin{}

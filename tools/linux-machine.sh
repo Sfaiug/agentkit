@@ -18,7 +18,9 @@ LINUX_CHECK=com.agentkit.linux-machine
 # The Mac account's own name and /home/<name>, Lima's default being /home/<name>.linux: a server
 # moved in from a Linux VM with the same user keeps the absolute paths its run records hold.
 linux_user() { printf '%s' "${USER:-$(id -un)}"; }
-linux_dir() { printf '%s' "${LIMA_HOME:-$HOME/.lima}/$LINUX_INSTANCE"; }
+# Lima keeps its machines in the store LIMA_HOME names, else ~/.lima.
+linux_store() { printf '%s' "${LIMA_HOME:-$HOME/.lima}"; }
+linux_dir() { printf '%s' "$(linux_store)/$LINUX_INSTANCE"; }
 
 # What the machine takes of the Mac's `total`: macOS keeps a quarter for the desktop and its
 # renders, and never less than `floor` until that would be more than half, so a small Mac still
@@ -67,15 +69,22 @@ linux_machine_up() {
     echo "linux: this Mac's Linux machine starts when the Mac does"
   fi
   # Lima's daemon runs only at boot.  ak's own runs the check every minute; launchd reads a
-  # changed plist only as it loads it, so one already loaded is booted out first, and one not
-  # loaded, booted out or never loaded, is loaded.
-  local plist=$daemons/$LINUX_CHECK.plist daemon
+  # changed plist only as it loads it, so one loaded is booted out before its plist changes: one
+  # that will not go fails the install and keeps the old plist, which the next install finds
+  # changed still.  One not loaded, booted out or never loaded, is loaded.  The plist is compared
+  # as the account, so it is one the account reads, as Lima's is: it holds paths, no secret.
+  # install.sh's umask would leave root's tee a file only root reads, and tee keeps an existing
+  # file's mode, so the one an earlier install left so is written once more and made readable.
+  local plist=$daemons/$LINUX_CHECK.plist daemon loaded=
   daemon=$(linux_check_daemon "$name")
+  if launchctl print "system/$LINUX_CHECK" >/dev/null 2>&1; then loaded=1; fi
   if [ "$(cat -- "$plist" 2>/dev/null)" != "$daemon" ]; then
-    printf '%s\n' "$daemon" | sudo tee "$plist" >/dev/null || return 1
-    sudo launchctl bootout "system/$LINUX_CHECK" 2>/dev/null || true
+    if [ -n "$loaded" ]; then sudo launchctl bootout "system/$LINUX_CHECK" || return 1; fi
+    printf '%s\n' "$daemon" | sudo tee "$plist" >/dev/null && sudo chmod 644 "$plist" ||
+      return 1
+    loaded=
   fi
-  if ! launchctl print "system/$LINUX_CHECK" >/dev/null 2>&1; then
+  if [ -z "$loaded" ]; then
     sudo launchctl bootstrap system "$plist" || return 1
     echo "linux: this Mac's Linux machine starts again by itself when it stops or stops answering"
   fi
@@ -107,8 +116,9 @@ linux_machine_up() {
 # `limactl shell` puts a terminal on the command when its stdin is one.
 linux_machine_run() { limactl shell --workdir "/home/$(linux_user)" "$LINUX_INSTANCE" "$@"; }
 
-# ak's LaunchDaemon, run as the account <name>, which launchd gives neither its HOME nor
-# Homebrew's PATH.  The host agent a check's `limactl start` leaves outlives the check.
+# ak's LaunchDaemon, run as the account <name>, which launchd gives neither its HOME, Homebrew's
+# PATH nor the Lima store the install used.  The host agent a check's `limactl start` leaves
+# outlives the check.
 linux_check_daemon() {   # linux_check_daemon <name>
   local path
   path=$(dirname "$(command -v limactl)"):/usr/bin:/bin:/usr/sbin:/sbin
@@ -125,6 +135,7 @@ linux_check_daemon() {   # linux_check_daemon <name>
   <dict>
     <key>HOME</key><string>$(linux_xml "$HOME")</string>
     <key>PATH</key><string>$(linux_xml "$path")</string>
+    <key>LIMA_HOME</key><string>$(linux_xml "$(linux_store)")</string>
   </dict>
   <key>StartInterval</key><integer>60</integer>
   <key>AbandonProcessGroup</key><true/>

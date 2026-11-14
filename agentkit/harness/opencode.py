@@ -8,9 +8,10 @@ seat follows it there (`follow`) -- its first, or another the owner opened in th
 (`/new`, or one from its list).  Every launch also gets a receipt, a directory named in its
 environment, and ak alone writes into it the id of the session that seat is in, as the launch
 resumes it and as the seat follows a prompt: the session hooks/opencode-seat puts ak's title
-on, and the one a seat whose record names none yet comes back to.  The receipt's token is kept
-in the seat's record, so it follows a rename, and no other seat -- not one in the same
-directory -- reads or writes it.  Nothing here asks which session of a directory is the latest.
+on, and the one a seat whose record names none yet comes back to while no other seat's record
+names it.  The receipt's token is kept in the seat's record, so it follows a rename, and no
+other seat -- not one in the same directory -- reads or writes it.  Nothing here asks which
+session of a directory is the latest.
 
 OpenCode ends no session, and keeps each as rows of its database: gc ends a top-level one
 nobody updated for 30 days with OpenCode's own delete, which takes its children along.
@@ -44,9 +45,11 @@ def path_for(record):
 
 
 def conversation(record, cwd=None):
-    """The session the seat followed to (`follow`), else the one its launch's receipt names, or
-    None where neither names one yet."""
-    from . import unread
+    """The session the seat followed to (`follow`), else the one its launch's receipt names
+    while no other seat's record names it, or None where neither names one yet.  A receipt the
+    seat plugin wrote before ak alone did may name a session `claim` refused, and no seat's
+    claim counts a receipt: the seat's own record is found by the receipt's token."""
+    from . import named_elsewhere, unread
     if isinstance(record.get("conversation"), str) and SESSION.fullmatch(record["conversation"]):
         return record["conversation"]
     path = path_for(record)
@@ -55,7 +58,11 @@ def conversation(record, cwd=None):
     except OSError as exc:
         unread(exc)
         return None
-    return sid if SESSION.fullmatch(sid) else None
+    if not SESSION.fullmatch(sid):
+        return None
+    records = config.session_records()
+    name = next((name for name, kept in records.items() if path_for(kept) == path), None)
+    return None if sid in named_elsewhere(records, name) else sid
 
 
 def resumable(record, cwd, conversation):
@@ -84,7 +91,9 @@ def follow(launched, payload, pid):
 
     The session the seat is in then goes into its launch's receipt: whole, renamed over the last
     one, and only into the launch's own directory, which a seat stopped since has had removed.
-    Only what `claim` left in the record goes there, never a session it refused."""
+    Only what `claim` left in the record goes there, never a session it refused, and again until
+    the receipt names what the record does as it stands after the write: no lock waits on a
+    hook that stalls, and a hook whose write lands checks the receipt again."""
     from .. import orch
     from . import claim, rows
     session = payload.get("session_id") if isinstance(payload, dict) else None
@@ -100,14 +109,27 @@ def follow(launched, payload, pid):
                 pid = parent
         claim(launched, "opencode", session, str(database()),
               lambda record, session: database(), pid, opencode)
-        record = config.session_records().get(config.resolve_session(launched), {})
-        path, current = path_for(record), record.get("conversation")
-        if path and isinstance(current, str) and SESSION.fullmatch(current):
+        # A hook stalled in its write lands an older prompt's session late: by its rename, or
+        # into the receipt itself, where another hook that opened the same `session.next` has
+        # renamed it already.  Either way the hook that wrote looks again.
+        while True:
+            record = config.session_records().get(config.resolve_session(launched), {})
+            path, current = path_for(record), record.get("conversation")
+            if not (path and isinstance(current, str) and SESSION.fullmatch(current)):
+                return
+            receipt = path / "session"
             try:
+                if receipt.is_file() and receipt.read_text(encoding="utf-8") == current:
+                    return
                 (path / "session.next").write_text(current, encoding="utf-8")
-                (path / "session.next").replace(path / "session")
             except OSError:
-                pass        # the receipt says what it said before
+                return      # the receipt says what it said before
+            try:
+                (path / "session.next").replace(receipt)
+            except FileNotFoundError:
+                pass        # another hook renamed it, perhaps after this one's write landed
+            except OSError:
+                return
 
 
 def forget(record):

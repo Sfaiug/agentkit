@@ -28,7 +28,8 @@ file lists run, whatever the share, smoke.sh's among them, each named in the fil
 A file may name its failing parts, one per line, in the file FAILED_PARTS names (no AK_ name,
 as none reaches a file): it is then named `<file>::<part>`, one ID per part, and its re-run
 gives it just those parts as its arguments, as a run does for the `<file>::<part>` IDs AK_ONLY
-lists; a part it times as passed in the file PART_TIMES names is printed with its own seconds.
+lists; a part it times as passed in the file PART_TIMES names is printed with its own seconds,
+once, as soon as that file holds it, while the run goes on.
 A part is named as run only where a run of its file named it failing or timed it, and a run
 failing with no part named fails each part it did not time: a file given a part it does not
 hold, as one only a later change adds, fails naming and timing none, and may name it in the file
@@ -66,7 +67,8 @@ POLL = 0.1          # ceiling on polling waits: contention stops growth at the n
                     # while an idle host keeps admitting files even beyond its core count
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
 IMPORTS = "tests/every_file.py"   # the import check's test ID
-# A run is silent until it ends, and silence stops a landing: a quarter leaves a slow host room.
+# A run prints only as its parts pass and as it ends, and silence stops a landing: one whose parts
+# fail is silent throughout, and a quarter leaves a slow host room.
 PIECE = 60 * record.SILENCE_MINUTES / 4
 
 
@@ -150,8 +152,8 @@ def smoke_runs(smoke, offline):
 
 def run_file(root, path, env, parts=(), failed=None, timed=None, absent=None):
     """Run the file for `parts`, its arguments, all of it where there are none; `failed`, a
-    list, gets the parts it names as failing, `timed`, a dict, the passing ones' seconds, and
-    `absent`, a list, those it names as not there."""
+    list, gets the parts it names as failing, `timed`, a dict, the passing ones' seconds as the
+    run goes on, and `absent`, a list, those it names as not there."""
     began = time.monotonic()
     # Files can run beside smoke.sh in the same checkout. Their HOME and temp files must
     # not reach another file's sandbox; their bytecode is the piece's own (`env`).
@@ -164,16 +166,23 @@ def run_file(root, path, env, parts=(), failed=None, timed=None, absent=None):
                                 for name in ("failed-parts", "part-times", "not-there"))
         child_env = dict(env, HOME=sandbox, TMPDIR=sandbox, FAILED_PARTS=str(named),
                          PART_TIMES=str(seconds), NOT_THERE=str(gone))
-        proc = subprocess.run([sys.executable, str(path.relative_to(root)), *parts], cwd=root,
+        with subprocess.Popen([sys.executable, str(path.relative_to(root)), *parts], cwd=root,
                               env=child_env, stdin=subprocess.DEVNULL,
-                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
+            out = None
+            while out is None:
+                try:
+                    out = proc.communicate(timeout=POLL)[0]
+                except subprocess.TimeoutExpired:
+                    pass
+                # A record read mid-write is no JSON, so it times nothing (suite_times.read).
+                if timed is not None and seconds.is_file():
+                    timed.update(suite_times.read(seconds.read_text()))
         if failed is not None and named.is_file():
             failed.extend(part for part in named.read_text().splitlines() if part)
-        if timed is not None and seconds.is_file():
-            timed.update(suite_times.read(seconds.read_text()))
         if absent is not None and gone.is_file():
             absent.extend(part for part in gone.read_text().splitlines() if part)
-    return proc.returncode, proc.stdout.decode(errors="replace"), time.monotonic() - began
+    return proc.returncode, out.decode(errors="replace"), time.monotonic() - began
 
 
 def ids(name, parts):
@@ -186,11 +195,14 @@ def pass_line(name, parts, took):
     return f"PASS  {' '.join(ids(name, parts))}" if parts else suite_times.passed(name, took)
 
 
-def timed_lines(name, parts, timed):
-    """The lines a run of the file `name` for `parts` prints, pass or fail, of those it timed
-    (`timed`), and so passed: their seconds cut the next suite as soon as they are measured."""
+def timed_lines(name, parts, timed, shown):
+    """The lines a run of the file `name` for `parts` prints, pass or fail, of those it has timed
+    (`timed`), and so passed, since it last did (`shown`, which gets them): printed as each
+    passes, a run of many is silent only while one runs, and their seconds cut the next suite."""
+    new = [part for part in parts if part in timed and part not in shown]
+    shown.update(new)
     return "".join(f"{suite_times.passed(test, timed[part])}\n"
-                   for part, test in zip(parts, ids(name, parts)) if part in timed)
+                   for part, test in zip(new, ids(name, new)))
 
 
 def asked_parts(only, name):
@@ -347,12 +359,14 @@ def main(root, others=None):
         running = {}
         while path is not None or running:
             for done in list(running):
-                if not done.done():
-                    continue
-                (file, asked), named, timed, gone = running.pop(done)
+                (file, asked), named, timed, gone, shown = running[done]
                 name = file.relative_to(root)
+                ended = done.done()     # first: a run that has ended has timed all it will
+                print(timed_lines(name, asked, timed, shown), end="", flush=True)
+                if not ended:
+                    continue
+                del running[done]
                 code, out, took = done.result()
-                print(timed_lines(name, asked, timed), end="", flush=True)
                 ran.update(ids(name, [*named, *timed]))
                 absent.update(f"{name}::{part}" for part in gone)
                 if code == 0 and cases_run(out) > 0:
@@ -372,12 +386,11 @@ def main(root, others=None):
                     named, timed, gone = [], {}, []
                     job = pool.submit(run_file, root, path, env, parts=parts, failed=named,
                                       timed=timed, absent=gone)
-                    running[job] = (path, parts), named, timed, gone
+                    running[job] = (path, parts), named, timed, gone, set()
                     jobs = max(jobs, len(running))
                     path, parts, _ = next(pending, (None,) * 3)
             if running:
-                wait(running, timeout=POLL if path is not None else None,
-                     return_when=FIRST_COMPLETED)
+                wait(running, timeout=POLL, return_when=FIRST_COMPLETED)
             elif path is not None:
                 time.sleep(POLL)
         # Under load a timing test fails by chance: the gate would run the whole piece again
@@ -386,10 +399,14 @@ def main(root, others=None):
             os.read(others, 1)  # end-of-file: what landing.py ran beside the pool has ended
         # A file that named its failing parts runs just those again: one part's time, not all.
         for name, named, out in again:
-            still, timed, gone = [], {}, []
-            code, rerun, took = run_file(root, root / name, env, parts=named, failed=still,
-                                         timed=timed, absent=gone)
-            print(timed_lines(name, named, timed), end="")
+            still, timed, gone, shown = [], {}, [], set()
+            job = pool.submit(run_file, root, root / name, env, parts=named, failed=still,
+                              timed=timed, absent=gone)
+            ended = False
+            while not ended:
+                ended = bool(wait([job], timeout=POLL).done)
+                print(timed_lines(name, named, timed, shown), end="", flush=True)
+            code, rerun, took = job.result()
             ran.update(ids(name, [*still, *timed]))
             absent.update(f"{name}::{part}" for part in gone)
             if code == 0 and cases_run(rerun) > 0:

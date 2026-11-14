@@ -450,7 +450,7 @@ class ClosedSeat(Sandbox):
     def test_every_seats_bar_offers_the_menu(self):
         def key(word, last=""):
             return statusbar.lines("atoll", "fable", word, last)[2].replace(
-                "#[fg=#6c7086]", "").replace("#[default]", "")
+                "#[fg=#868d97]", "").replace("#[default]", "")
         for word in (None, "working", "needs you", "done"):
             self.assertEqual(key(word), "Ctrl-b m  menu ")
 

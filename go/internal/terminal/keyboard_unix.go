@@ -89,8 +89,8 @@ func (k *Keyboard) give(modes string) {
 // Sense asks what the terminal is, once a start, on a taken keyboard: whether it takes true colour
 // though COLORTERM does not say (what AGENTKIT_TERMFEATURES says, else inside tmux what tmux says,
 // which takes a process), and whether its background is light, by its answer to OSC 11 within a
-// tenth of a second.  DA1, which every terminal answers and in turn, ends the wait early.  Anything
-// typed meanwhile is kept for ReadKey.
+// second, as a busy host can take most of one to pass it on.  DA1, which every terminal answers and
+// in turn, ends the wait with the answers.  Anything typed meanwhile is kept for ReadKey.
 func (k *Keyboard) Sense() {
 	features, set := os.LookupEnv("AGENTKIT_TERMFEATURES")
 	if !set && os.Getenv("TMUX") != "" { // asked of the client this runs under, $TMUX kept
@@ -101,7 +101,7 @@ func (k *Keyboard) Sense() {
 	}
 	syscall.Write(outFD, []byte("\x1b]11;?\x1b\\\x1b[c"))
 	var heard []byte
-	until := time.Now().Add(100 * time.Millisecond)
+	until := time.Now().Add(time.Second)
 	for !attributesSaid.Match(heard) {
 		each, got := readByte(time.Until(until))
 		if !got {
@@ -110,16 +110,18 @@ func (k *Keyboard) Sense() {
 		heard = append(heard, each)
 	}
 	said := backgroundSaid.FindSubmatchIndex(heard)
-	light := false
+	in := black
 	if said != nil {
-		light = isLight(string(heard[said[2]:said[3]]))
+		if isLight(string(heard[said[2]:said[3]])) {
+			in = white
+		}
 		heard = append(heard[:said[0]:said[0]], heard[said[1]:]...)
 	}
 	if at := attributesSaid.FindIndex(heard); at != nil {
 		heard = append(heard[:at[0]:at[0]], heard[at[1]:]...)
 	}
 	k.keyed = append(heard, k.keyed...)
-	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), light: light}
+	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in}
 }
 
 // Screen is what Sense found, at the size the terminal is now.

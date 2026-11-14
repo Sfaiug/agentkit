@@ -274,11 +274,12 @@ func museAnswer(record *run.Object) (model, effort, at any, found bool) {
 	return modelOf(entry), field(record, "efforts", record.Str("orchestrator"), "effort"), run.Float(float64(micro) / 1e6), true
 }
 
-// museOwned is the session the seat's receipt names (museConversation), "" for none.
+// museOwned is the session the seat is in (museConversation), "" for none.
 func museOwned(record *run.Object) string {
-	return museConversation(map[string]any{"muse_launch": record.Get("muse_launch")})
+	return museConversation(map[string]any{"muse_launch": record.Get("muse_launch"),
+		"id_source": record.Get("id_source"), "conversation": record.Get("conversation")})
 }
 
-// museResumable is whether the seat owns a session to resume: the receipt is the whole answer, as
-// the launcher never issues a Muse id (muse.py `resumable`).
+// museResumable is whether the seat owns a session to resume: the receipt or the record is the
+// whole answer, as the launcher never issues a Muse id (muse.py `resumable`).
 func museResumable(record *run.Object) bool { return museOwned(record) != "" }

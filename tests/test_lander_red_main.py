@@ -224,8 +224,7 @@ class RedMain(unittest.TestCase):
         self.wake.reset_mock()
         land.check_line(self.turn)
         self.assertEqual(self.wait(first)["land"], tree)
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         self.assertEqual(self.wait(later)["land"], tree)
         # The repair's green tree is first's too, but first's own `# once` check still runs.
         self.assertEqual(len(self.checks), checks + 1)
@@ -445,8 +444,7 @@ class RedMain(unittest.TestCase):
             state.update(state="not_needed", slot_waiting=False)
         land.check_line(self.turn)
         self.assertIn("land", self.wait(first))
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
         self.assertEqual(len(self.prepared), 1)
         self.assertEqual(len(self.checks), 4)
         self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), tree)
@@ -542,8 +540,7 @@ class RedMain(unittest.TestCase):
         self.assertIn("land", self.wait(first))
         self.assertEqual(self.wait(later)["land"], self.wait(first)["land"])
         self.assertEqual(len(self.prepared), 1)
-        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
-                         [first.name, later.name])
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list], [first.name])
 
 
 if __name__ == "__main__":

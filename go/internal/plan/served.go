@@ -7,7 +7,7 @@ import "slices"
 // nothing.  ErrUnread where only lines Go cannot weigh could be unserved.
 func Unserved(name string, served []string) (bool, error) {
 	var unread error
-	for line, err := range owed(name, false) {
+	for line, err := range (Look{}).owed(name, false) {
 		if err != nil {
 			unread = err
 		} else if line.When == "" || !slices.Contains(served, line.What+" · written "+line.When) {

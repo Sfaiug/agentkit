@@ -115,7 +115,12 @@ func ChangeThen(dir string, change func(*Object) error, then func()) error {
 // an error.  Past recovery.lock on purpose: its caller holds delivery.lock, which Python's reap
 // takes inside recovery.lock, so taking that one here would invert their order.
 func Deliver(dir string, change func(*Object) error) error {
-	release, err := hold(dir, "")
+	return deliver(dir, hold, change)
+}
+
+// deliver is Deliver under the run directory's lock as take takes it.
+func deliver(dir string, take func(dir, name string) (func(), error), change func(*Object) error) error {
+	release, err := take(dir, "")
 	if err != nil {
 		return err
 	}

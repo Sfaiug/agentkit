@@ -17,24 +17,29 @@ var sgr = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
 // cube is each channel's steps in xterm's 6x6x6 colour cube.
 var cube = [6]int{0, 95, 135, 175, 215, 255}
 
-// Fade is text as a draw wrote it, every colour in it and the foreground its plain cells take,
-// amount (0 to 1) of the way to the background: a page coming up out of it as it opens, and the
-// line a row opens.  Where colour cannot move it is as it is.
+// Fade is text as a draw wrote it, every colour in it and the foreground its plain cells take, the
+// theme's text, amount (0 to 1) of the way to the theme's background: a page coming up out of it as
+// it opens, and the line a row opens.  Where colour cannot move it is as it is.
 func (s Screen) Fade(text string, amount float64) string {
 	if amount <= 0 || !s.Moves() {
 		return text
 	}
-	back := 0
-	if s.light {
-		back = 255
+	numbers := func(role string) []int {
+		var out []int
+		for _, part := range channels(colourOf(role, s.theme)) {
+			n, _ := strconv.Atoi(part)
+			out = append(out, n)
+		}
+		return out
 	}
+	back, fore := numbers("background"), numbers("text")
 	tone := func(rgb []int) string {
 		if rgb == nil {
-			rgb = []int{255 - back, 255 - back, 255 - back}
+			rgb = fore
 		}
 		mixed := make([]int, 3)
 		for i, channel := range rgb {
-			mixed[i] = int(math.RoundToEven(float64(channel)*(1-amount) + float64(back)*amount))
+			mixed[i] = int(math.RoundToEven(float64(channel)*(1-amount) + float64(back[i])*amount))
 		}
 		if s.depth == 24 {
 			return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", mixed[0], mixed[1], mixed[2])

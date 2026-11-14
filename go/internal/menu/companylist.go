@@ -40,13 +40,13 @@ func (view CompanyListView) Shown() []matrix.Company {
 // dim, how many models are on, from how many companies, and how many more have benchmark scores,
 // then the Note.
 func CompanyListFrame(s terminal.Screen, view CompanyListView) MatrixFrame {
-	keys := "↑↓ company   ←→ model   ␣ on or off   a add a company   esc done"
+	keys := "↑↓←→ move   ␣ mark   a add a company   esc back"
 	if s.ASCII() {
-		keys = "up/down company   left/right model   space on or off   a add a company   esc done"
+		keys = "arrows move   space mark   a add a company   esc back"
 	}
 	room, shown := s.LayoutWidth(), view.Shown()
 	var over []string
-	for _, part := range terminal.Wrap("ak uses only the models that are on. Space turns one on or off, or, on "+
+	for _, part := range terminal.Wrap("ak uses only the models that are on. Space marks one on or off, or, on "+
 		"a company's name, all of them. A company with none on leaves the list.", room-2) {
 		over = append(over, "  "+part)
 	}
@@ -111,15 +111,15 @@ func counted(count int, one, many string) string {
 	return strconv.Itoa(count) + " " + many
 }
 
-// companiesBody is a line for each company shown, its name, then each of its models, `●` on, or
-// `○` and dim where off; a model after the first that would pass the width, its space after
+// companiesBody is a line for each company shown, its name, then each of its models, `■` on in
+// the accent, or `□` and dim where off; a model after the first that would pass the width, its space after
 // aside, goes on a new line under the column where they began, its name cut to the room after
 // it.  The keys' cell, column of the row at, is reversed (Screen.Toggle) and its row highlighted.
 // Last, `+ add a company`.
 func companiesBody(s terminal.Screen, shown []matrix.Company, on map[string]bool, at, column int) []matrixRow {
-	room, lit, out := s.LayoutWidth(), "●", "○"
+	room, lit, out := s.LayoutWidth(), "■", "□"
 	if s.ASCII() {
-		lit, out = "*", "."
+		lit, out = "#", "-"
 	}
 	label := 0
 	for _, company := range shown {
@@ -130,7 +130,7 @@ func companiesBody(s terminal.Screen, shown []matrix.Company, on map[string]bool
 	for row, company := range shown {
 		texts, kinds := []string{company.Maker}, []string{""}
 		for _, model := range company.Models {
-			mark, kind := lit, ""
+			mark, kind := lit, "accent"
 			if !on[model[0]] {
 				mark, kind = out, "dim"
 			}

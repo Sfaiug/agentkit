@@ -17,7 +17,7 @@ import time
 from itertools import accumulate
 from pathlib import Path
 
-from . import config, gitcall, history, record as run_record, task as taskfile, turns
+from . import config, gitcall, history, host, record as run_record, task as taskfile, turns
 
 
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -829,6 +829,24 @@ def loop_death(state):
     return death
 
 
+def restart_ended(state):
+    """Whether a restart of the host, not a death of its own, ended the loop the record names
+    now: it was started under another boot (`process_identity`), so a restart came between its
+    start and its ending, however many and however close.  Its entry in `deaths` says so
+    (`restart`), and no such ending counts towards the third death in an hour that parks a run
+    or the ten minutes after a resume.  Once: an ending the tick has resumed (`resumed_at`) and
+    is asked about again is of a resume that never took the record over, a death like any
+    other, so a run that cannot be resumed is parked in the end.
+    """
+    ending = loop_death(state)
+    if ending is not None:
+        return bool(ending.get("restart")) and not ending.get("resumed_at")
+    identity = state.get("process_identity")
+    boot = identity.get("boot") if isinstance(identity, dict) else None
+    now = host.boot_id()
+    return bool(boot and now) and boot != now
+
+
 def dead_parked(state):
     """Whether the tick parked the loop the record names now, at its third death in an hour: a
     park an earlier loop's death carries ended when a resume started the next loop."""
@@ -1346,12 +1364,13 @@ def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
 
 def runs_on(*, pr=None, change=None, exclude=None):
     """The records of the runs on that pull request, whatever the spelling of its URL, or on
-    that change (`change_of`), but the run `exclude` names."""
+    that change (`change_of`), but the run `exclude` names: each every reader's (`read_state`),
+    so a PR launch reading them under the slot lock parses only the records that changed."""
     wanted = pr_key(pr)
     for run_dir in run_record.run_dirs():
         if exclude is not None and run_dir.name == Path(exclude).name:
             continue
-        state = run_record.read_state(run_dir)
+        state = run_record.read_state(run_dir, shared=True)
         if state and (wanted in pr_keys(state) or (change is not None and change_of(state) == change)):
             yield state
 

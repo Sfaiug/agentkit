@@ -54,6 +54,9 @@ func carry(args []string, out, errOut io.Writer) int {
 	if command == update.KeepVerb && len(rest) == 1 { // unlisted too: it marks itself
 		return update.Background(config.Repo(), rest[0])
 	}
+	if command == update.LiveVerb && len(rest) == 1 { // unlisted too: it marks itself
+		return update.LiveCheck(rest[0])
+	}
 	if !contains(commandhelp.Verbs, command) {
 		fmt.Fprintf(errOut, "ak: unknown subcommand %s; expected one of %s\n", commandhelp.Quote(command), strings.Join(commandhelp.Verbs, ", "))
 		return 2

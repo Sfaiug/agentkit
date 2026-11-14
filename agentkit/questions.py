@@ -46,7 +46,8 @@ def reminder(name, message):
         return ""
     return ("Write these unanswered questions and their choices in your closing assistant "
             "message, in the chat. The owner must see them there before you stop. "
-            "They are already recorded; do not register them again.\n\n" + "\n\n".join(missing))
+            "They are already recorded; do not register them again. One no longer needed: "
+            "ak notify settled.\n\n" + "\n\n".join(missing))
 
 
 def unseen(name, harness, found):

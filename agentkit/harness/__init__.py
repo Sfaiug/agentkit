@@ -8,8 +8,8 @@ hooks it has something to say about -- `claude.py` the transcript it writes and 
 model its results report, `codex.py` the launch receipt its thread is proven by,
 `grokbuild.py` the session directory it opens, `muse.py` its launcher build, the snapshot an
 upgrade is put back from, its own usage probe, the receipt its SessionStart hook writes its
-session into and its registry moves on `/new`,
-the session store its tokens and messages are in and the sessions gc ends,
+session into, the session each turn's end names, the session store its tokens and messages are
+in and the sessions gc ends,
 `opencode.py` the receipt it keeps its seat's session in, the endpoint that says
 how a model is paid and the sessions gc ends,
 `antigravity.py` the database each of its conversations is, and which one a seat's agy holds
@@ -41,7 +41,7 @@ LAUNCHER = "launcher"      # `id_source`: the id in the record is one the launch
 # harness's receipt, and the title that launch takes. A restart that fails puts these
 # back from the record as it was, so the seat keeps its own conversation; a typing receipt
 # keeps them where its conversation is not named yet (`Harness.receipt`).
-LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
+LAUNCH_KEYS = ("conversation", "transcript", "resumable", "id_source", "before", "codex_launch",
                "codex_history", "opencode_launch", "muse_launch", "antigravity_launch",
                "antigravity_open", "session_title", "title_sync")
 FRESH_WORDS = "no conversation recorded; it starts fresh"   # `[conversation] fresh_words`
@@ -334,9 +334,9 @@ def claims():
         yield
 
 
-def claim(launched, harness, conversation, transcript, filed, pid, is_client, **fields):
+def claim(launched, harness, conversation, path, filed, pid, is_client, keep=False, **fields):
     """The seat launched as `launched`, on `harness`, goes on in that conversation, `fields`
-    beside it, where a hook whose parent is `pid` reported it with `transcript`: only from the
+    beside it, where a hook whose parent is `pid` reported it at `path`: only from the
     seat's own interactive process (`orch.owns_hook`, by `is_client`), with that conversation's
     own file for the seat (`filed`), and no other seat's record naming it (`named_elsewhere`), as
     the records stand once no seat learns one meanwhile (`Harness.learning`).  The one its
@@ -345,13 +345,15 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
     launch's receipt, the database its agy holds open) may not have written it there yet.  Left,
     that one stays the seat's for its done check (`notify.conversations_of`); one it goes back to
     is its current one again, read once.  A seat in none yet, or only in another seat's, takes
-    this one as its first; one in a conversation its harness cannot resume stays there.  No
-    seat's lock, which a delivery holds while it types the very prompt a hook may report: the
-    seat's name holds under `claims` instead."""
+    this one as its first; one in a conversation its harness cannot resume stays there.  To
+    `keep` one is to add it to those it left, unless it is among them already, and move nothing:
+    a report that may come late or twice then undoes no move.  No seat's lock, which a delivery
+    holds while it types the very prompt a hook may report: the seat's name holds under `claims`
+    instead."""
     from .. import notify, orch
     if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(conversation, str)
             or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation) or conversation.startswith("-")
-            or not isinstance(transcript, str)):
+            or not isinstance(path, str)):
         return
     if config.session_records().get(config.resolve_session(launched), {}).get(
             "conversation") == conversation:
@@ -368,7 +370,8 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
         if current and record.get("conversation") != current:
             record = config.update_session(name, conversation=current) or record
         if (record.get("conversation") == conversation
-                or Path(transcript).resolve() != Path(filed(record, conversation)).resolve()):
+                or not (own := filed(record, conversation))
+                or Path(path).resolve() != Path(own).resolve()):
             return
         session = orch.find(name)
         if not session or not orch.owns_hook(session, pid, is_client):
@@ -376,10 +379,14 @@ def claim(launched, harness, conversation, transcript, filed, pid, is_client, **
         with plugin.learning():
             if conversation in named_elsewhere(config.session_records(), name):
                 return
-            left = [was for was in notify.left(record, harness, current)
-                    if was["conversation"] not in (conversation, None)]   # none to leave yet
-            while (config.update_session(name, conversation=conversation, left=left, **fields)
-                   is None and config.resolve_session(name) != name):
+            if keep and conversation in (was.get("conversation") for was in record.get("left", [])):
+                return
+            fields = ({"left": notify.left(record, harness, conversation)} if keep else
+                      {"conversation": conversation, **fields, "left": [
+                          was for was in notify.left(record, harness, current)
+                          if was["conversation"] not in (conversation, None)]})  # none to leave yet
+            while (config.update_session(name, **fields) is None
+                   and config.resolve_session(name) != name):
                 name = config.resolve_session(name)     # moved meanwhile: written where it went
 
 
@@ -532,6 +539,12 @@ class Harness:
         """Its `[plans]` table: each plan its `login-end` names, in those words, at its list
         price in US dollars a month."""
         return self._section("plans", {})
+
+    def plan_name(self, plan):
+        """What a screen calls `plan`, one its `login-end` names: its `[plan_names]` word for
+        it, else those words."""
+        named = self._section("plan_names", {}).get(plan)
+        return named if isinstance(named, str) else plan
 
     def lost(self, said):
         """Whether a failed turn's own output says the harness holds no such conversation: its
@@ -854,8 +867,8 @@ class Harness:
     def went_into(self, sent):
         """The conversation a receipt's line went into: the one it names, else the one its
         launch's own evidence reported (`receipt`), however far its harness has moved that
-        launch on since, as Muse's `/new` does (its module's `reported`); None while that names
-        none."""
+        launch's evidence on since, as Muse's registry once did (its module's `reported`); None
+        while that names none."""
         launch = sent.get("launch")
         if sent.get("conversation") or not isinstance(launch, dict):
             return sent.get("conversation")
@@ -1050,6 +1063,11 @@ class Harness:
         if hook:
             return hook(Path(out))
         return []
+
+    def status_meters(self, windows):
+        """The meters a seat's status render said of its own account (`watch.hook_meters`)."""
+        hook = self._hook("status_meters")
+        return hook(windows) if hook else []
 
 
 def load(name):

@@ -76,16 +76,6 @@ func TestALookReadsTheSeatGone(t *testing.T) {
 			write(t, state(home, "seat-acme.json"), `{"stopped_at": 5, "closed_by_owner": true}`)
 			runRecord(t, home, "merged", map[string]any{"state": "pass", "merged": true, "handback_pending": true})
 		}, "idle", "session closed by the owner: reopen it from past sessions · 1 hand-backs waiting"},
-		"asleep it names its way back": {func(t *testing.T, home string) {
-			record(t, home, "acme", map[string]any{"asleep": 9, "launched": 3})
-		}, "idle", "asleep: press 1 to wake it"},
-		"asleep and finished it is done, and keeps that way": {func(t *testing.T, home string) {
-			record(t, home, "acme", map[string]any{"asleep": 9, "launched": 3})
-			write(t, state(home, "plan-acme.md"), doneLine)
-		}, "done", "asleep: press 1 to wake it"},
-		"a sleep before its launch is over": {func(t *testing.T, home string) {
-			record(t, home, "acme", map[string]any{"asleep": 3, "launched": 9})
-		}, "idle", closedOne},
 		"its number counts the seats before it, whatever they hold": {func(t *testing.T, home string) {
 			record(t, home, "older", map[string]any{"created": 1_700_000_000, "launched": 3, "rulebook_sha": "x"})
 			write(t, state(home, "seat-older.json"), `{"rule": "prompt.composer", "word": "working"}`)

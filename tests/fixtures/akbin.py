@@ -159,14 +159,14 @@ exec {real} "$@"
 
 class Home:
     """A throwaway HOME the program runs in; `close` (or leaving `with`), or else the death of
-    the process that made it, ends every process it left and removes it.  `tmux_log=False` keeps
-    no log of the program's tmux calls (`calls`): each would start a Python, which a test counting
-    what the program reads would count.  `at` is where its commands find its root, if not where
-    it is: on a machine of tests/fixtures/twohomes.py, at the path every machine's is at.  Its
-    root is made in `at`, so that a machine's commands, finding theirs there, find no other, and
-    `at` empties, and goes, with the last of them."""
+    the process that made it, ends every process it left and removes it.  `tmux_log=True` keeps
+    a log of the program's tmux calls (`calls`), each of which then starts a Python: a tick makes
+    about a hundred, which a loaded host takes past `tick`'s bound.  `at` is where its commands
+    find its root, if not where it is: on a machine of tests/fixtures/twohomes.py, at the path
+    every machine's is at.  Its root is made in `at`, so that a machine's commands, finding theirs
+    there, find no other, and `at` empties, and goes, with the last of them."""
 
-    def __init__(self, tmux_log=True, at=None):
+    def __init__(self, tmux_log=False, at=None):
         self.root = Path(tempfile.mkdtemp(prefix="akbin-", dir=at)).resolve()
         self.at = Path(at or self.root)
         self.path = self.root / "home"
@@ -411,12 +411,16 @@ def _clear(root, tmux_dir, at):
                              text=True, timeout=30).stdout.strip()
         subprocess.run([*ask, "kill-server"], capture_output=True, timeout=30)
         _wait_gone(int(pid) if pid.isdigit() else None)
-    # what the program detached from them: a stray still writing would put the Home back
-    for pid in _strays(root, tmux_dir):
+    # what the program detached from them: a stray still writing would put the Home back.  All
+    # die before any is waited for: a parent a running `run` reaps goes only once its children
+    # let go of the pipes that `run` reads.
+    strays = _strays(root, tmux_dir, at)
+    for pid in strays:
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+    for pid in strays:
         _wait_gone(pid)
     shutil.rmtree(root, ignore_errors=True)
     shutil.rmtree(tmux_dir, ignore_errors=True)
@@ -426,13 +430,18 @@ def _clear(root, tmux_dir, at):
         pass
 
 
-def _strays(root, tmux_dir):
+def _strays(root, tmux_dir, at=None):
     """Processes still running in the Home at `root`: their environment names its home there as
-    HOME, or `tmux_dir`, its own, as TMUX_TMPDIR.  Every machine of tests/fixtures/twohomes.py
-    has its HOME at one path, no machine's root, so only the second marks a machine's.  Those
-    caught in an exec are read again till it ends, for `STUCK` seconds in all: an exec stuck
-    longer, the Home's or another's, would hold the cleanup up for good."""
+    HOME, or `tmux_dir`, its own, as TMUX_TMPDIR, or they see `root` at `at`, where its commands
+    find it.  Every machine of tests/fixtures/twohomes.py has its HOME at `at`, no machine's
+    root, and only its own commands see its root there, whatever they drop from their
+    environment.  Those caught in an exec are read again till it ends, for `STUCK` seconds in
+    all: an exec stuck longer, the Home's or another's, would hold the cleanup up for good."""
     marks = {f"HOME={Path(root, 'home')}".encode(), f"TMUX_TMPDIR={tmux_dir}".encode()}
+    try:     # a plain Home's root is where every process sees it, which marks none
+        seen = os.stat(root) if at and Path(at) != Path(root) else None
+    except FileNotFoundError:     # removed already: no process to tell by it
+        seen = None
     found, entries, deadline = [], Path("/proc").glob("[0-9]*"), time.monotonic() + STUCK
     while True:
         execing = []
@@ -443,12 +452,20 @@ def _strays(root, tmux_dir):
                 continue
             if env is None:
                 execing.append(entry)
-            elif marks.intersection(env.split(b"\0")):
+            elif marks.intersection(env.split(b"\0")) or seen and _sees(entry, at, seen):
                 found.append(int(entry.name))
         if not execing or time.monotonic() >= deadline:
             return found
         entries = execing
         time.sleep(0.001)
+
+
+def _sees(entry, at, seen):
+    """Whether the process at `entry` sees at `at` the folder `seen` stats."""
+    try:
+        return os.path.samestat(seen, os.stat(f"{entry}/root{at}"))
+    except OSError:      # nothing there, or not ours to look
+        return False
 
 
 def _environ(entry):

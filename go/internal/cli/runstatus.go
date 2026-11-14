@@ -81,6 +81,9 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		if _, _, _, no := listing(seat, wanted, showHistory, machine, now); no {
 			return notImplemented(errOut, "run status")
 		}
+		if !machine && lookLeft(caller, filepath.Join(run.Runs(), wanted)) {
+			return notImplemented(errOut, "run status")
+		}
 		// a mark that cannot be written is let go, as Python lets it go: what is shown
 		// never depends on it
 		err := run.Change(filepath.Join(run.Runs(), wanted), func(record *run.Object) (err error) {
@@ -194,7 +197,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	}
 	fmt.Fprintf(out, "%d older run(s) hidden; ak run status --history [--json] shows full history\n", hidden)
 	if showHistory {
-		fmt.Fprintln(out, strings.Join(append(scoreboard(screen, db, uncounted, now), sizeLines(db)...), "\n"))
+		fmt.Fprintln(out, strings.Join(append(readScoreboard(db, uncounted, now).render(screen), sizeLines(db)...), "\n"))
 	}
 	return 0
 }
@@ -325,7 +328,7 @@ func refused(entries []listed, wanted string) bool {
 		if _, err := look(entry.record.Copy()); actedOn(entry.record) || wanted != "" && err != nil {
 			return true
 		}
-		// a run with review off is Python's whole, its status too
+		// a review of a pull request with review off is Python's whole, its status too
 		if !run.Carries(entry.record) {
 			return true
 		}
@@ -418,7 +421,7 @@ func statusIDCell(name string, room int) string {
 	return head + current + "…"
 }
 
-// roundCell is `round 2/3`, with any extension.
+// roundCell is `round 2/3`, or `no review`, with any extension.
 func roundCell(record *run.Object) string {
 	done := len(record.List("round_summaries"))
 	total, _ := record.Num("rounds")
@@ -438,6 +441,9 @@ func roundCell(record *run.Object) string {
 		of = run.Text(record.Get("rounds"))
 	}
 	cell := "round " + shown + "/" + of
+	if run.ReviewOff(record) {
+		cell = "no review"
+	}
 	if record.Truthy("extended") {
 		cell += " (+" + run.Text(record.Get("extended")) + ")"
 	}
@@ -689,6 +695,9 @@ func printPlain(out io.Writer, screen terminal.Screen, entry listed, why bool, m
 	}
 	line := padded(name, 40) + " " + padded(word, 11) + " " + padded(run.Text(record.Get("verdict")), 5) + " " +
 		run.ExecutorLine(record) + "/" + run.Field(record, "reviewer", "?") + "  " + branch
+	if run.ReviewOff(record) {
+		line += "  no review"
+	}
 	outcome, step := run.Outcome(record, models), run.StepWord(record, now)
 	if record.Truthy("extended") {
 		line += fmt.Sprintf("  round %d/%s (+%s)", len(record.List("round_summaries")), run.Text(record.Get("rounds")), run.Text(record.Get("extended")))

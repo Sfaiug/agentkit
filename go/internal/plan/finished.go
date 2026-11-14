@@ -44,8 +44,10 @@ func open(line string) bool {
 // ak reads and nobody declares.  No plan, one nothing can read and one owing an open line or its
 // check are not; ErrUnread where only open deferred lines stand in the way, which Python owes only
 // while no run has them (`taken`), or where Go cannot weigh the check.
-func Finished(name string) (bool, error) {
-	lines, err := read(name)
+func Finished(name string) (bool, error) { return Look{}.Finished(name) }
+
+func (look Look) Finished(name string) (bool, error) {
+	lines, err := look.read(name)
 	if err != nil {
 		return false, nil
 	}

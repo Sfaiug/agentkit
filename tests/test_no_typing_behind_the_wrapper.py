@@ -45,7 +45,7 @@ for args in commands:
         owner = given['name'] if target in ('%7', '=' + given['name'] + ':') else 'acme-other'
         print(args[4].replace('#{pane_tty}', given['outer']).replace(
             '#{@ak_input_tty}', given['options'].get('@ak_input_tty', '')).replace(
-            '#{session_name}', owner))
+            '#{session_name}', owner).replace('#{pane_id}', '%7'))
     else:
         assert target in ('%7', '=' + given['name'] + ':')
         if args[0] == 'set-option':

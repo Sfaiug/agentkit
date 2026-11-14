@@ -12,8 +12,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, turns, usage, worker
-import check_harness_contract as contract
+from agentkit import config, contract, harness, turns, usage, worker
 
 PATHS = (
     "/tmp/acme-429/run/log.txt",
@@ -198,7 +197,7 @@ class PathIsNotARateLimit(unittest.TestCase):
                       f"HTTP 429; log: {RUN_DIR}/log.txt"):
             with self.subTest(error=error), \
                     patch.object(config, "run_adapter") as probe, \
-                    patch.object(usage, "_resets", return_value=0.0), \
+                    patch.object(usage, "_resets", return_value={"resets": 0.0}), \
                     patch.object(worker, "auth_ok", return_value=(True, "logged in")) as auth:
                 probe.return_value.returncode = 0
                 probe.return_value.stdout = json.dumps({"meters": [], "error": error})

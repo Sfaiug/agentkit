@@ -138,7 +138,7 @@ class GrowIn(Sandbox):
         lines = {n: terminal.ANSI.sub("", line) for n, line in enumerate(self.draw(), 1)}
         rows = [n for n, line in lines.items() if "━" in line and "acme" in line]
         self.clock, screen, filled = motion.Clock(fade=True), {}, []
-        with patch.object(terminal, "_LIGHT", False):
+        with patch.object(terminal, "THEME", terminal.BLACK):
             for n, now in enumerate((10, 10.05, 10.1, 10.15, 10.3, 10.5, 10.7)):
                 with patch.object(motion.time, "monotonic", return_value=now):
                     written = self.clock.frame() if n else (self.draw(), self.written)[1]

@@ -34,7 +34,9 @@ SEAT = "atoll-ask"
 # `x_custom` is a key ak does not know; config.toml is the owner's, so a save must keep it.
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh", "x_custom": 1},
           "astra": {"harness": "codex", "effort": "high"}}
-CATALOG = "m1\tModel One\tlow medium high"     # what the claude adapter's `models` lists
+# what the claude adapter's `models` lists: a model the config does not run, then Fable, which it
+# does
+CATALOG = "m1\tModel One\tlow medium high\nclaude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 HEADER = "# agentkit's config, written by the menu's `c` screen."
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # on a mark
 PAGE_KEYS = "  ↑↓←→ move   ⏎ open   esc back"   # a page under it, with no `r`
@@ -88,10 +90,10 @@ class ConfigScreenEdits(unittest.TestCase):
 
     def test_space_on_a_build_effort_steps_it_up_in_the_seat_s_record(self):
         self.term.keys("j", "Right", "Right")
-        self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ━━━───  high     ■  ━━━───  high"
+        self.term.wait(lambda screen: "› 6 Astra     ○                   ■  ━━━───  high     ■  ━━━───  high"
                        in rows(screen))
         self.term.keys("Space")
-        self.term.wait(lambda screen: "› GPT-6-Astra   ○                   ■  ━━━━──  xhigh    ■  ━━━───  high"
+        self.term.wait(lambda screen: "› 6 Astra     ○                   ■  ━━━━──  xhigh    ■  ━━━───  high"
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["efforts"]["astra"],
                          {"effort": "high", "exec_effort": "xhigh"})
@@ -117,13 +119,13 @@ class ConfigScreenEdits(unittest.TestCase):
         self.fakes["codex"].answer("interactive", f"sh -c 'echo $TMUX_PANE >{ran}; exec sleep 600'")
         # as Codex's adapter does: its TUI takes no conversation id of ak's making
         self.fakes["codex"].answer("interactive", "", 3, given=["new"])
-        marked = "› GPT-6-Astra  [○]                  ■  ━━━───  high     ■  ━━━───  high"
+        marked = "› 6 Astra    [○]                  ■  ━━━───  high     ■  ━━━───  high"
         self.term.keys("j")
         self.term.wait(lambda screen: marked in rows(screen))
         pane, record = self.pane(), self.record.read_text()
         opened = len(self.fakes["codex"].calls("interactive"))
         # asked, nothing moved yet; Esc keeps the record, the pane and config.toml as they were
-        self.asked("GPT-6-Astra")
+        self.asked("6 Astra")
         self.assertEqual((self.pane(), self.record.read_text()), (pane, record))
         self.term.keys("Escape")
         self.term.wait(lambda screen: key_line(screen) == KEYS and marked in rows(screen))
@@ -132,11 +134,11 @@ class ConfigScreenEdits(unittest.TestCase):
         self.assertFalse(ran.exists())
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)
         # asked again, and `Move` moves it
-        self.asked("GPT-6-Astra")
+        self.asked("6 Astra")
         self.term.keys("Down", "Enter")
-        self.term.wait(lambda screen: "› GPT-6-Astra  [●] ━━━───  high     ■  ━━━───  high     ■  ━━━───  high"
+        self.term.wait(lambda screen: "› 6 Astra    [●] ━━━───  high     ■  ━━━───  high     ■  ━━━───  high"
                        in rows(screen)
-                       and "  Fable 5.1     ○                   □                   □" in rows(screen)
+                       and "  Fable 5.1   ○                   □                   □" in rows(screen)
                        and key_line(screen) == KEYS)
         now = json.loads(self.record.read_text())
         self.assertEqual((now["orchestrator"], now["workers"]), ("astra", ["astra"]))
@@ -154,7 +156,7 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("k")
         self.asked("Fable 5.1")
         self.term.keys("Down", "Enter")
-        self.term.wait(lambda screen: "› Fable 5.1    [●] ━━━━─   xhigh    □                   □"
+        self.term.wait(lambda screen: "› Fable 5.1  [●] ━━━━─   xhigh    □                   □"
                        in rows(screen))
         self.assertEqual(json.loads(self.record.read_text())["orchestrator"], "fable")
 
@@ -166,14 +168,15 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("Enter")
         self.term.wait(lambda screen: rows(screen)[0].startswith("agentkit · config · models")
                        and body(screen)[:2] == ["› Claude Code  Fable 5.1",
-                                                "  Codex        GPT-6-Astra"]
+                                                "  Codex        6 Astra"]
                        and key_line(screen) == PAGE_KEYS)
-        # its list draws once the harness's models are asked of it
+        # its list draws once the harness's models are asked of it, the highlight on the one marked
         self.term.keys("Enter")
-        self.term.wait(lambda screen: body(screen)[:3] == ["  Claude Code  Fable 5.1",
-                                                           "›   □ Model One",
-                                                           "  Codex        GPT-6-Astra"])
-        self.term.keys("Space")
+        self.term.wait(lambda screen: body(screen)[:4] == ["  Claude Code  Fable 5.1",
+                                                           "    □ Model One",
+                                                           "›   ■ Fable 5.1",
+                                                           "  Codex        6 Astra"])
+        self.term.keys("Up", "Space")
         self.term.wait(lambda screen: "›   ■ Model One" in rows(screen))
         text = self.config.read_text()
         self.assertTrue(text.startswith(HEADER), text)

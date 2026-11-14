@@ -81,7 +81,7 @@ class Breathes(Sandbox):
             lines, clock = self.drawn("acme-api", width)
             row = self.cell(lines, lambda line: " acme-api " in line, "●")[0] + 1
             line = lines[row - 1]
-            self.assertRegex(line, f"^ +━*{tip}─+ 2 of 4$")
+            self.assertRegex(line, f"^ +━*{tip}─+ 2 of 4 · 2 tasks$")
             self.assertIn((row, terminal.cells(line[:line.rfind(tip)]) + 1), clock.cells)
 
     def test_draft_glyphs_stay_still_while_the_real_task_square_breathes(self):
@@ -107,7 +107,7 @@ class Breathes(Sandbox):
             for width in (100, 59, 40):
                 with self.subTest(depth=depth, light=light, width=width), \
                         patch.object(terminal, "colour_depth", return_value=depth), \
-                        patch.object(terminal, "_LIGHT", light):
+                        patch.object(terminal, "THEME", terminal.WHITE if light else terminal.BLACK):
                     lines, clock = self.drawn("acme-docs", width)
                     dot = self.cell(lines, lambda line: " acme-api " in line, "●")
                     row = dot[0] + (width < 60)

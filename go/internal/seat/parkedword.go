@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/plan"
 	"agentkit/internal/run"
 )
 
@@ -68,7 +67,7 @@ func runParked(facts climbing) (*answer, error) {
 // undecided, as the stop hook's third stop stands on it.  A seat nobody is in owes it at Python's
 // rung 4, and a FAIL's reason is its rounds and findings, neither of which Go reads here.
 func runUndecided(facts climbing) (*answer, error) {
-	if finished, err := plan.Finished(facts.name); err != nil || !finished {
+	if finished, err := facts.plans.Finished(facts.name); err != nil || !finished {
 		return nil, nil // planFinished reads the plan Go cannot
 	}
 	for _, each := range facts.mine {

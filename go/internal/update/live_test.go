@@ -3,13 +3,13 @@
 package update
 
 import (
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"agentkit/internal/config"
 )
@@ -38,8 +38,17 @@ func liveHome(t *testing.T) (home, checkout string, git func(string, ...string) 
 	return
 }
 
-func TestGoLiveHandsANewLiveScriptToPythonBeforeMoving(t *testing.T) {
+// TestMain is the check a test's GoLive starts, as this program is the one it starts.
+func TestMain(m *testing.M) {
+	if len(os.Args) == 3 && os.Args[1] == LiveVerb {
+		os.Exit(LiveCheck(os.Args[2]))
+	}
+	os.Exit(m.Run())
+}
+
+func TestGoLiveStartsTheCheckOfANewLiveScriptAndMovesNothing(t *testing.T) {
 	home, checkout, git := liveHome(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir()) // no user manager: the check starts plainly
 	before := git(checkout, "rev-parse", "HEAD")
 	origin := t.TempDir()
 	git(origin, "clone", "-q", checkout, ".")
@@ -51,28 +60,38 @@ func TestGoLiveHandsANewLiveScriptToPythonBeforeMoving(t *testing.T) {
 	}
 	git(origin, "add", ".")
 	git(origin, "-c", "user.name=acme", "-c", "user.email=acme@example.com", "commit", "-qm", "live check")
+	tip := git(origin, "rev-parse", "HEAD")
 	git(checkout, "remote", "add", "origin", origin)
 	if !LiveReady(checkout) {
 		t.Fatal("handed over before the fetch found the live script")
 	}
-	// a hold said on an earlier tick is Python's to clear as it starts the check
+	// a hold said on an earlier tick goes as the check starts
 	heard := filepath.Join(home, ".agentkit", "state", "live-check-held")
 	if err := os.WriteFile(heard, []byte("tests/live.sh waits: gamma's login lapses at 2026-11-13 12:00, before it could end"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var said []string
-	if err := GoLive(checkout, func(line string) { said = append(said, line) }); !errors.Is(err, ErrPython) {
+	if err := GoLive(checkout, func(line string) { said = append(said, line) }); err != nil {
 		t.Fatalf("live script gave %v", err)
 	}
-	if git(checkout, "rev-parse", "HEAD") != before || len(said) > 0 || exists(filepath.Join(home, ".agentkit", "state", "agentkit-install-pending")) || !exists(heard) {
-		t.Fatal("the handover moved or installed the unchecked commit, or cleared the hold Python clears")
+	want := []string{"checking agentkit at " + short(tip) + " with tests/live.sh before it goes live"}
+	if git(checkout, "rev-parse", "HEAD") != before || !reflect.DeepEqual(said, want) || exists(filepath.Join(home, ".agentkit", "state", "agentkit-install-pending")) || exists(heard) {
+		t.Fatalf("the start moved or installed the unchecked commit, or kept the hold, saying %q", said)
 	}
-	check := filepath.Join(home, ".agentkit", "state", "live-checks", "acme-1")
-	if err := os.MkdirAll(check, 0o700); err != nil {
-		t.Fatal(err)
+	checks, _ := filepath.Glob(filepath.Join(home, ".agentkit", "state", "live-checks", tip+"-*"))
+	if len(checks) != 1 {
+		t.Fatalf("checks %q", checks)
+	}
+	exit := filepath.Join(checks[0], "exit")
+	for until := time.Now().Add(time.Minute); !exists(exit) && time.Now().Before(until); {
+		time.Sleep(20 * time.Millisecond)
+	}
+	output, _ := os.ReadFile(filepath.Join(checks[0], "output"))
+	if code, err := os.ReadFile(exit); err != nil || string(code) != "0\n" || string(output) != "[exit 0]\n" || exists(filepath.Join(checks[0], "tree")) {
+		t.Fatalf("the check wrote %q, %v, and %q", code, err, output)
 	}
 	if LiveReady(checkout) {
-		t.Fatal("live checks were not left to Python")
+		t.Fatal("the check on record was not left to Python")
 	}
 	if err := GoLive(t.TempDir(), func(line string) { t.Errorf("another checkout said %q", line) }); err != nil {
 		t.Fatalf("another checkout acted on live checks: %v", err)

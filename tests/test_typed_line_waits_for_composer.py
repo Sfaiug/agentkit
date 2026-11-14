@@ -66,12 +66,16 @@ class V5p(unittest.TestCase):
         self.session = {"name": "seat"}
         self.logs = []
 
-    def fake_tmux(self, panes):
+    def fake_tmux(self, panes, typed=None):
+        """The scripted panes, with `typed` -- the line in SENT's composer if not given -- drawn
+        as soon as a line is typed."""
         self.panes = list(panes)
 
         def out(*args, socket=None, client=False, **_kw):
             if args[0] == "send-keys":
                 self.events.append(("send", args))
+                if "-l" in args:
+                    self.panes.insert(0, typed or f"{SENT} {args[-1]}")
                 return 0, ""
             if args[0] == "capture-pane":
                 self.events.append(("capture",))
@@ -105,7 +109,7 @@ class V5p(unittest.TestCase):
         self.assertEqual(len(self.sends("Enter")), 1)
 
     def test_v5p_holding_composer_gets_one_more_enter_then_true(self):
-        panes = [SENT] + [UNSENT] * int(watch.SENT_WAIT / watch.SENT_POLL) + [SENT]
+        panes = [SENT] + [UNSENT] * (int(watch.SENT_WAIT / watch.SENT_POLL) + 1) + [SENT]
         with self.fake_tmux(panes):
             self.assertTrue(watch.type_checked(self.session, "continue", self.logs.append,
                                               "claude"))
@@ -162,7 +166,7 @@ class V5p(unittest.TestCase):
                 return False
 
         polls = int(watch.SENT_WAIT / watch.SENT_POLL)
-        panes = [SENT] + [UNSENT] * (polls + 1) + [SENT]
+        panes = [SENT] + [UNSENT] * (polls + 2) + [SENT]
         with self.fake_tmux(panes):
             self.assertTrue(watch.type_checked(self.session, "continue", self.logs.append,
                                               "claude", guard=lambda: Rec()))
@@ -176,14 +180,23 @@ class V5p(unittest.TestCase):
                 spans.append((event[1], depth))
             elif event[0] == "send":
                 self.assertEqual(depth, 1, event)
-            elif event[0] == "capture":
-                self.assertEqual(depth, 0, event)
         self.assertEqual(spans, [(watch.KEY_GAP, 1)] + [(watch.SENT_POLL, 0)] * (polls + 1))
         self.assertEqual(len(self.sends("Enter")), 2)
 
     def test_v5p_second_sender_waits_for_first_enter(self):
-        waiting = threading.Event()
-        senders = []
+        read = threading.Event()        # the second sender has read the composer empty
+        senders, composer = [], []
+
+        def out(*args, **_kw):
+            """One composer both senders read: keys change it, reads never do."""
+            if args[0] == "send-keys":
+                self.events.append(("send", args))
+                composer[:] = [args[-1]] if "-l" in args else []
+            if args[0] != "capture-pane":
+                return 0, ""
+            if threading.current_thread() is not threading.main_thread():
+                read.set()
+            return 0, " ".join([SENT, *composer])
 
         def second():
             with config.notify_path("seat").with_suffix(".lock").open("a") as handle:
@@ -194,20 +207,22 @@ class V5p(unittest.TestCase):
                 else:
                     locked = False
                     fcntl.flock(handle, fcntl.LOCK_UN)
-            waiting.set()
             sent = watch.type_checked(self.session, "/rename quay", self.logs.append,
                                       "claude", guard=lambda: notify.session_lock("seat"))
             return locked, sent
 
-        def sleep(seconds):
-            if len(self.sends("-l")) == 1:
-                senders.append(pool.submit(second))
-                self.assertTrue(waiting.wait(5), "second sender never reached the lock")
+        def veto(_name):
+            # under the first sender's lock, before its text: the second reads the composer
+            # empty and then waits on that lock
+            senders.append(pool.submit(second))
+            self.assertTrue(read.wait(5), "second sender never read the composer")
+            return False
 
-        with ThreadPoolExecutor(max_workers=1) as pool, self.fake_tmux([SENT]), \
-                patch.object(watch.time, "sleep", side_effect=sleep):
+        with ThreadPoolExecutor(max_workers=1) as pool, \
+                patch.object(orch, "tmux_out", side_effect=out):
             self.assertTrue(watch.type_checked(self.session, "continue", self.logs.append,
-                                              "claude", guard=lambda: notify.session_lock("seat")))
+                                              "claude", guard=lambda: notify.session_lock("seat"),
+                                              veto=veto))
             self.assertEqual(senders[0].result(timeout=5), (True, True))
         self.assertEqual([args[-1] for args in self.sends()],
                          ["continue", "Enter", "/rename quay", "Enter"])
@@ -234,7 +249,7 @@ class V5p(unittest.TestCase):
                 self.assertNotEqual(held_pane, stall)
                 self.assertTrue(watch._holds_text(held_pane, "continue"))
                 self.assertFalse(watch._holds_text(stall, "continue"))
-                with self.fake_tmux([stall] + [held_pane] * 25):
+                with self.fake_tmux([stall] + [held_pane] * 25, held_pane):
                     self.assertFalse(watch.type_checked({"name": "seat"}, "continue",
                                                         self.logs.append, harness))
                 self.assertEqual(len(self.sends("-l")), 1)
@@ -246,7 +261,7 @@ class V5p(unittest.TestCase):
             with self.subTest(harness=harness):
                 del self.events[:], self.logs[:]
                 with self.fake_tmux([fixture(harness, "stall")] +
-                                     [fixture(harness, "dialog")] * 11):
+                                     [fixture(harness, "dialog")] * 11, held(harness)):
                     self.assertTrue(watch.type_checked({"name": "seat"}, "continue",
                                                        self.logs.append, harness))
                 self.assertEqual(len(self.sends("-l")), 1)

@@ -12,7 +12,7 @@ atoll
 
 agentkit
   3  herdr        Fable 5.1  ● working
-    ──────────────────────── no plan yet
+    ─────────────── no plan yet · 1 task
      Fable 5.1 xhigh orchestrates…   ■□□
 
 not assigned yet

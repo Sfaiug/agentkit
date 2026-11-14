@@ -135,8 +135,7 @@ func windowBudget(prov, week *run.Object, now float64) (float64, string) {
 	if prov.Truthy("error") {
 		return 0, text(prov.Get("error"))
 	}
-	since, dated := number(prov.Get("stale_since"))
-	if prov.Truthy("probe_error") && (!dated || !(now-since >= 0 && now-since <= trustedFor)) {
+	if stale(prov, now) {
 		return 0, text(prov.Get("probe_error"))
 	}
 	if week == nil || !numbers(week, "used") {
@@ -154,6 +153,13 @@ func windowBudget(prov, week *run.Object, now float64) (float64, string) {
 		return 0, "gate window has reset; awaiting fresh meters"
 	}
 	return left / remaining, ""
+}
+
+// stale is whether a reading no probe could refresh has stopped answering for anything, its
+// probes refused for longer than trustedFor: Python's usage._stale.
+func stale(prov *run.Object, now float64) bool {
+	since, dated := number(prov.Get("stale_since"))
+	return prov.Truthy("probe_error") && (!dated || !(now-since >= 0 && now-since <= trustedFor))
 }
 
 // weekly is a reading's tightest weekly meter, the session aside, nil where it has none.

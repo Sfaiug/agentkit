@@ -38,6 +38,17 @@ func Owned(name string, record map[string]any) (string, bool) {
 	return conversation, true
 }
 
+// Recorded is each conversation a seat's record proves beside the one it names, by every harness's
+// own evidence (harness.recorded_conversations, each plugin's `owned`): the one its Antigravity
+// launch saw, the one its Muse launch reported; "" for none.
+func Recorded(record *run.Object) []string {
+	return []string{antigravityMine(record), museReceived(map[string]any{"muse_launch": record.Get("muse_launch")})}
+}
+
+// Learns is whether that harness's own evidence names the conversation a seat is on (Current),
+// where its record may name none yet.
+func Learns(name string) bool { return plugins[name].owned != nil }
+
 // Current is the conversation a seat's record is on, as its plugin's `conversation` reads it
 // (notify.conversation_of): the one its harness reported where it reports its own, else the one
 // the record names, vouched for or not; "" for none.
@@ -53,17 +64,28 @@ func Current(name string, record map[string]any) string {
 // its launch's own evidence reported, "" while that names none.  A receipt keeps that evidence
 // where the harness had not named the conversation yet, as on a fresh Muse launch.
 func WentInto(name string, sent *run.Object) string {
+	conversation, _ := WentIntoFound(name, sent)
+	return conversation
+}
+
+// WentIntoFound is WentInto, and the error where that evidence is there and cannot be read, as
+// Python's `went_into` raises reading strictly (harness.unread).
+func WentIntoFound(name string, sent *run.Object) (string, error) {
 	launch := sent.Dict("launch")
 	if conversation := sent.Str("conversation"); conversation != "" || launch == nil {
-		return conversation
+		return conversation, nil
 	}
 	var evidence map[string]any // as config.ResolveSession reads a record
 	json.Unmarshal([]byte(run.Line(launch)), &evidence)
-	if reported := plugins[name].reported; reported != nil {
-		return reported(evidence)
+	own := plugins[name]
+	if own.reported != nil {
+		return own.reported(evidence), nil
+	}
+	if own.found != nil {
+		return own.found(evidence)
 	}
 	conversation, _ := Owned(name, evidence)
-	return conversation
+	return conversation, nil
 }
 
 // Opened is whether that harness has written the conversation a seat's record names down yet, as

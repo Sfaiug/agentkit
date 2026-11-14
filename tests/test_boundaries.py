@@ -102,7 +102,9 @@ RULES = [
     # A harness is its adapter pair and its plugin, and a model is bound to its harness and
     # provider by one config.default.toml entry: every other copy of a name is harness
     # knowledge that adding, renaming or dropping a harness has to find and change.
-    # Go embeds generated copies; TestEmbeddedDefault and TestEmbeddedAdapters refuse any
+    # A seat plugin's folder is named for its harness and goes with it, so nothing in it is a
+    # copy to find.  Go embeds generated copies, and ships one of the seat plugin;
+    # TestEmbeddedDefault, TestEmbeddedAdapters and TestShippedSeatPlugin refuse any
     # difference from the sources.  Go's plugins are go/internal/harness/.
     {"name": "harness and provider names",
      "flags": ("-i", "-w"),
@@ -110,8 +112,8 @@ RULES = [
                 "|xai|mimo|[\"']meta[\"']|[\"']google[\"']",
      "home": ("adapters/", "agentkit/harness/", "config.default.toml",
               "go/internal/config/default.toml", "go/internal/config/adapters/",
-              "go/internal/harness/"),
-     "max": 186},
+              "go/internal/harness/", "hooks/opencode-seat/", "go/hooks/opencode-seat/"),
+     "max": 177},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     # Every provider word counts, in code or comment, but none of ak's own names: the
@@ -121,15 +123,16 @@ RULES = [
     # subscription's week holds in tokens (`capacity.json`, `ak usage --json`'s
     # `capacity_tokens` and `capacity_pairs`) until it holds it in listed dollars, and
     # GitHub's hourly API allowance (gh's `api rate_limit` endpoint and the
-    # `github_rate_limit` key that waits on it).  Google Compute's refusal codes are
-    # agentkit/google_cloud.py's, the one module that knows Google.
+    # `github_rate_limit` key that waits on it).  Google Compute's refusal codes and limits are
+    # agentkit/google_cloud.py's and, in Go, go/internal/googlecloud/'s: the one place in each
+    # program that knows Google.
     {"name": "provider failure words",
      "flags": ("-i",),
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)"
               r"|capacity[._](json|tokens|pairs)|(\"api\", \"|github_)rate_limit",
      "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/",
-              "agentkit/google_cloud.py"),
+              "agentkit/google_cloud.py", "go/internal/googlecloud/"),
      "max": 57},
     # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the
@@ -243,17 +246,17 @@ RULES = [
      "pattern": r"\b(WITNESS|marked_pid|stop_placed)\b",
      "home": ("agentkit/orch.py",),
      "max": 0},
-    # ak draws only in the owner's palette (10 Nov 2026), one table in each build, a file of
-    # its own, so the next palette is that table.  Left, each a task of its own: a company's
-    # colour (menu.COLOURS, Go's harness.Company), each manifest's `colour`, in both builds,
-    # and the pointer's background (terminal.POINTED).  A git file mode and the zeros padding
-    # a fraction of a second are six digits in quotes, no colour.
+    # ak draws only in the owner's two themes (12 Nov 2026), one table in each build, a file of
+    # its own, so the next theme is a column of that table.  Left, a task of its own: a
+    # company's colour (menu.COLOURS, Go's harness.Company) and each manifest's `colour`, in
+    # both builds.  A git file mode and the zeros padding a fraction of a second are six digits
+    # in quotes, no colour.
     {"name": "colours",
      "flags": (),
      "pattern": r"#[0-9a-fA-F]{6}\b|[\"'`][0-9a-fA-F]{6}[\"'`]",
      "names": r'"100(644|755)"|"0{6}"\)\[:6\]',
-     "home": ("agentkit/palette.py", "go/internal/terminal/palette.go"),
-     "max": 16},
+     "home": ("agentkit/themes.py", "go/internal/terminal/themes.go"),
+     "max": 15},
     # A character has one shape in every terminal only where the terminal draws it itself (Box
     # Drawing and Block Elements) or every font it opens with carries it: SF Mono, Menlo,
     # JetBrains Mono, Cascadia Mono and DejaVu Sans Mono hold Windows-1252, `−≈≤≥` and
@@ -271,7 +274,7 @@ RULES = [
               "go/internal/seat/said.go", "go/internal/seat/screen.go",
               "agentkit/notify.py", "agentkit/alive.py", "go/internal/notify/",
               "go/internal/tick/alive.go", "go/internal/tick/stopped.go"),
-     "max": 22},
+     "max": 21},
 ]
 
 # Every model ak runs is handed these whole, so each word costs every task some of its attention
@@ -298,13 +301,17 @@ def outside(rule):
     return found
 
 
-def where_change_left_main(test, path):
-    """`path`'s text where this change left origin/main; an unreadable one skips `test`."""
+def left_main():
+    """The commit where this change left origin/main."""
     # against where this change started: a commit main has since moved past (as the host's
     # live check tests) is not held to what main changed after it
-    base = subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
+    return subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
                           capture_output=True, text=True).stdout.strip() or "origin/main"
-    proc = subprocess.run(["git", "-C", str(REPO), "show", f"{base}:{path}"],
+
+
+def where_change_left_main(test, path):
+    """`path`'s text where this change left origin/main; an unreadable one skips `test`."""
+    proc = subprocess.run(["git", "-C", str(REPO), "show", f"{left_main()}:{path}"],
                           capture_output=True, text=True)
     if proc.returncode:
         print(f"origin/main:{path} is not readable; skipping the comparison")

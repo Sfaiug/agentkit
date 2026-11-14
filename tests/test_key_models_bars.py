@@ -1,4 +1,4 @@
-"""Under the role lines, `r recommended` on `c` draws the role `▸` is on as bars: its choices,
+"""Under the role lines, `r recommended` on `c` draws the highlighted role as bars: its choices,
 then as many of its `others`, best first, as fill five places, shaded, side by side, cheapest on
 the left and the dearer taller; on each its cost, under it its quality, its name wrapped at words
 in its column, on 40 cells and on 100, and its effort, and under a shaded one, standing in whole

@@ -125,8 +125,10 @@ class UnreadPane(Seats):
 
     def test_stop_nudges_finish_the_line_that_began_before_the_terminal_froze(self):
         config.plan_path(SEAT).write_text("- [ ] the parser parses · check: `false` · acme · written 2026-10-09 12:00\n")        # the seat owes work: the nudge is due
-        for harness, model in (("muse", "spark"),
-                               ("opencode", "mimo")):
+        for harness, model, empty, drawn in (
+                ("muse", "spark", "\n❯\n", "\n❯ continue\n"),
+                ("opencode", "mimo", '┃  Ask anything… "What is the tech stack of this project?"',
+                 "┃  continue")):
             with self.subTest(harness=harness):
                 config.save_session(self.cfg, SEAT, model, ["astra"], {
                     "cwd": str(self.root), "created": 10})
@@ -137,10 +139,13 @@ class UnreadPane(Seats):
                                  stop_said_at=NOW - 3600, stop_nudged=None,
                                  stop_said=watch.progress_output(harness, watch.pane_tail(self.pane)))
                 watch.stop_nudge(self.seat, harness, self.pane, None, [], False, lambda _: None)
-                # The Enter completes this line; only a new literal line must wait for the
-                # tty to drain. No pending draft or extra receipt state is needed on recovery.
-                self.assertEqual(self.read_input(len(b"continue\r")), b"continue\r")
+                # A frozen screen never shows the line alone in its composer, so no Enter goes
+                # in blind; once the harness takes its input and draws it, the tick's own-line
+                # pass sends it.  No pending draft or extra receipt state is needed on recovery.
+                self.assertEqual(self.read_input(), b"continue")
                 self.frozen = False
+                self.pane = self.pane.replace(empty, drawn)
+                watch.finish_own_lines(self.cfg, lambda _: None)
                 self.pane = (REPO / f"tests/fixtures/{harness}-working-pane.txt").read_text()
                 for tick in range(1, 4):
                     with patch.object(watch.time, "time", return_value=NOW + tick * watch.STALL_WAIT * 2):

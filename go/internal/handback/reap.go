@@ -12,12 +12,17 @@ import (
 	"agentkit/internal/run"
 )
 
-// Reapable is whether Python's reap of the record is a sweep Go carries out and nothing more: an
-// interrupted run, dated, whose loop is gone and whose recovery was told, so notify_recovery
-// says nothing, and whose loop is swept already or leaves the sweep no unit to stop and its
-// stamp's write no wait in a landing line to count.
+// Reapable is whether Python's reap of the record is a sweep Go carries out and nothing more: one
+// Sweepable whose recovery was told, so notify_recovery says nothing.
 func Reapable(record *run.Object) bool {
-	return record.Str("state") == "interrupted" && record.Truthy("interrupted_at") && record.Truthy("recovery_notified") &&
+	return record.Truthy("recovery_notified") && Sweepable(record)
+}
+
+// Sweepable is whether Go carries the sweep Python's reap makes of the record: an interrupted run,
+// dated, whose loop is gone and is swept already or leaves the sweep no unit to stop and its
+// stamp's write no wait in a landing line to count.
+func Sweepable(record *run.Object) bool {
+	return record.Str("state") == "interrupted" && record.Truthy("interrupted_at") &&
 		!run.ProcessActive(record) && (swept(record) || !run.Lined(record) && !unitStopped(record))
 }
 

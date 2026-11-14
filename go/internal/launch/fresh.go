@@ -18,9 +18,9 @@ import (
 // asks it once every check before it passed: a job of several task files, whatever run directory
 // it carries, or a run carrying a directory Python resumes nothing for, which it ignores, saying so,
 // and launches afresh without asking for a change under way.  Refused where the seat's queue lacks
-// room for every task it starts; ErrPython for any other, which Python makes or refuses in its own
-// words: one from no seat or with no executor, a directory Python takes up or refuses, a task an
-// earlier check refuses, or a launch the queue lets through.
+// room for every task it starts at once, one for an ordered job; ErrPython for any other, which
+// Python makes or refuses in its own words: one from no seat or with no executor, a directory
+// Python takes up or refuses, a task an earlier check refuses, or a launch the queue lets through.
 func Fresh(paths []string, flags map[string]bool, errOut io.Writer) (int, string, error) {
 	seat, record, err := queueSeat()
 	if seat == "" || err != nil || os.Getenv("HOME") == "" || !readable(paths...) || len(paths) > 1 && flags["--no-worktree"] {
@@ -41,7 +41,11 @@ func Fresh(paths []string, flags map[string]bool, errOut io.Writer) (int, string
 		}
 		names[filepath.Base(path)] = true
 	}
-	why := seatFull(seat, len(paths))
+	asked := len(paths)
+	if flags["--in-order"] {
+		asked = 1
+	}
+	why := seatFull(seat, asked)
 	if why == "" {
 		return 0, "", ErrPython
 	}

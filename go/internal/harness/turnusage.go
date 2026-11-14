@@ -33,7 +33,9 @@ func Tokens(name, out string) (float64, bool) {
 }
 
 // jsonLines is each line of a text file as Python reads one with errors="replace", decoded, nil
-// where it holds no JSON; none where the file cannot be read.
+// where it holds no JSON; none where the file cannot be read.  Its callers only read what a line
+// counts, so a lone surrogate, which Python reads and a Go string cannot hold, is U+FFFD rather
+// than the loss of the whole line.
 func jsonLines(path string, keep func(line string) bool) ([]any, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -45,45 +47,50 @@ func jsonLines(path string, keep func(line string) bool) ([]any, bool) {
 			found = append(found, nil)
 			continue
 		}
-		decoded, _ := run.Decode([]byte(strings.ToValidUTF8(line, "�")))
+		decoded, _ := run.DecodeShown([]byte(strings.ToValidUTF8(line, "�")))
 		found = append(found, decoded)
 	}
 	return found, true
 }
 
 // eventTokens is what the event log at path says a turn spent, Python's history.event_tokens: the
-// harness's final usage over the messages it already includes, else the sum of each line's own.
+// harness's final usage over the messages it already includes, else each message once, at its
+// last usage, known by its id where that is a string and else by its line: a stream may carry a
+// message as an event for each content block, each repeating its id and usage.
 func eventTokens(path string) (float64, bool) {
 	events, read := jsonLines(path, nil)
 	if !read {
 		return 0, false
 	}
 	final, finished := 0.0, false
-	messages, any := 0.0, false
-	for _, event := range events {
-		own, said := 0.0, false
-		usages(event, false, func(value float64, cumulative bool) {
+	messages := map[any]float64{}
+	for line, event := range events {
+		usages(event, false, nil, func(value float64, cumulative bool, id any) {
 			if cumulative {
 				final, finished = value, true
+			} else if named, ok := id.(string); ok {
+				messages[named] = value
 			} else {
-				own, said = value, true // a line's last message usage is its own
+				messages[line] = value
 			}
 		})
-		if said {
-			messages, any = messages+own, true
-		}
 	}
 	if finished {
 		return math.Trunc(final), true
 	}
-	return math.Trunc(messages), any
+	total := 0.0
+	for _, value := range messages {
+		total += value
+	}
+	return math.Trunc(total), len(messages) > 0
 }
 
-// usages calls each with every usage the event node carries and whether it is cumulative, Python's
-// event_tokens `usages`: a running total or a turn's last is, as is any usage under a closing
-// event.  Only usage envelopes carry counters, as tool arguments and generated content may hold
-// any number; a `step_update` is one model call's own usage.
-func usages(node any, cumulative bool, each func(value float64, cumulative bool)) {
+// usages calls each with every usage the event node carries, whether it is cumulative and the id
+// nearest above it, Python's event_tokens `usages`: a running total or a turn's last is
+// cumulative, as is any usage under a closing event.  Only usage envelopes carry counters, as tool
+// arguments and generated content may hold any number; a `step_update` is one model call's own
+// usage.
+func usages(node any, cumulative bool, id any, each func(value float64, cumulative bool, id any)) {
 	event, ok := node.(*run.Object)
 	if !ok {
 		return
@@ -93,18 +100,21 @@ func usages(node any, cumulative bool, each func(value float64, cumulative bool)
 		kind = event.Get("type")
 	}
 	cumulative = cumulative || slices.Contains([]any{"result", "turn.completed", "run_terminal"}, kind)
+	if event.Has("id") {
+		id = event.Get("id")
+	}
 	for _, key := range []string{"total_token_usage", "last_token_usage"} {
 		if total, ok := counted(event.Get(key)); ok {
-			each(total, true)
+			each(total, true, id)
 			return
 		}
 	}
 	if value, ok := counted(event.Get("usage")); ok {
-		each(value, cumulative)
+		each(value, cumulative, id)
 		return
 	}
 	for _, key := range []string{"message", "payload", "info", "stream", "record", "modelUsage", "step_update"} {
-		usages(event.Get(key), cumulative, each)
+		usages(event.Get(key), cumulative, id, each)
 	}
 }
 

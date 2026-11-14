@@ -10,12 +10,12 @@ type entry struct {
 	usage, description, example string
 }
 
-var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move"}
+var Verbs = []string{"usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update", "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move", "standby"}
 var public = []string{"run", "plan", "notify", "wait", "usage", "models", "browser", "fetch"}
 
 // `adapter` and `hook`, what the stubs under go/adapters and go/hooks run, join the internal line
 // when Go takes over: until then the listing stays Python's, and cli.Main runs them unlisted.
-var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move"}
+var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move", "standby"}
 
 // Keep the shadow command's text in step with agentkit/command_help.py until the switch; its
 // placeholders say the numbers in force once config.InForce reads them, as Python's render does.
@@ -76,8 +76,8 @@ var entries = map[string]entry{
 		"ak hand-in not-needed \"The target already fixes empty input\"",
 	},
 	"run": {
-		"usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]\n              [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]\n       ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]\n       ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]\n       ak run resume ID [--rounds N] [--bg]\n       ak run stop ID [--keep]\n       ak run merge ID | ak run clean ID | ak run gc [--dry-run]",
-		"Execute, verify, review, push, open a PR and merge.\n$run_budget\n--anyway starts even when a run in the same repository looks already under way;\n$rounds_refusal\n--no-worktree uses the repo's current branch; --no-merge keeps work local.\n--bg detaches and prints a launch receipt, run ID and result path.\n--first admits the run ahead of every queued run without it, skipping the count cap and a pinned load gate; a heavy suite turn still goes by wait.\nFrom a seat, --exec, --review, --anyway and --first are refused: ak picks the models,\ndecides what goes first and refuses a second run of a change under way.\nSeveral task files run as one job of independent pieces; --parallel caps it.\nmax_runs caps the count when positive; 0 leaves host memory as the gate\n(config.toml or AK_MAX_RUNS).\n$pr_delivery\nTask size: $executor_size.\nSeat's work: $orchestrator_size.\nTask fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.",
+		"usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]\n              [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]\n              [--in-order]\n       ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]\n       ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]\n       ak run resume ID [--rounds N] [--bg]\n       ak run stop ID [--keep]\n       ak run merge ID | ak run clean ID | ak run gc [--dry-run]",
+		"Execute, verify, review, push, open a PR and merge.\n$run_budget\n--anyway starts even when a run in the same repository looks already under way;\n$rounds_refusal\n--no-worktree uses the repo's current branch; --no-merge keeps work local.\n--bg detaches and prints a launch receipt, run ID and result path.\n--first admits the run ahead of every queued run without it, skipping the count cap and a pinned load gate; a heavy suite turn still goes by wait.\nFrom a seat, --exec, --review, --anyway and --first are refused: ak picks the models,\ndecides what goes first and refuses a second run of a change under way.\nSeveral task files run as one job of independent pieces; --parallel caps it.\n--in-order starts each task once the one before it merged, and none after one that did not.\nmax_runs caps the count when positive; 0 leaves host memory as the gate\n(config.toml or AK_MAX_RUNS).\n$pr_delivery\nTask size: $executor_size.\nSeat's work: $orchestrator_size.\nTask fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.",
 		"ak run task.md --bg",
 	},
 	"run status": {
@@ -111,7 +111,7 @@ var entries = map[string]entry{
 		"ak run gc --dry-run",
 	},
 	"orch": {
-		"usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]\n       ak orch list [--why] | ak orch why NAME | ak orch check SEAT | ak orch look FILE\n       ak orch stop NAME | ak orch rename [--auto] [OLD] NEW\n       ak orch project [SEAT] CHECKOUT | ak orch rules CODE",
+		"usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]\n       ak orch list [--why] | ak orch why NAME | ak orch check SEAT | ak orch look FILE\n       ak orch stop NAME | ak orch rename [--auto] [OLD] NEW\n       ak orch project [SEAT] CHECKOUT | ak orch rules CODE | ak orch pair SEAT",
 		"Start or attach to a named orchestrator session; a new one opens only from a terminal.\n--dry-run prints the launch plan.",
 		"ak orch parser-fix",
 	},
@@ -119,6 +119,11 @@ var entries = map[string]entry{
 		"usage: ak orch rules CODE",
 		"Say this seat's conversation read the rulebook file its prompt named,\nwith the code on that file's last line: its prompts stop naming it until it changes.",
 		"ak orch rules 3f2a9c81d0e4",
+	},
+	"orch pair": {
+		"usage: ak orch pair SEAT",
+		"Print a code that pairs the provider's app with a seat's remote connection; it pages nobody.\nSEAT is the seat's name, a name it had, or the path of its home.",
+		"ak orch pair parser-fix",
 	},
 	"orch list": {
 		"usage: ak orch list [--why]",
@@ -235,6 +240,11 @@ var entries = map[string]entry{
 		"Copy this home to the same path on the machine `ssh ALIAS` reaches; run again, it\nsends only what changed and deletes there what was deleted here.  Each machine keeps\nits own of ak's tmp folder, ~/.ssh/authorized_keys and the browser profile's locks.\nRefused if ALIAS is this machine, its home has another path, its crontab holds ak's\ntick or fails, or one of those kept is a link or under one on either machine.",
 		"ak move acme-mini",
 	},
+	"standby": {
+		"usage: ak standby ALIAS",
+		"On a client of ALIAS, copy ak's folder from that home to the same path here, but its\nruns and checkouts.  It sends what changed, compressed, and what the home deleted goes\nhere too.  This machine keeps its own record of its server, ak's tmp folder, ak's\nrepository and its versions.  Refused on any other machine, or if one of those left\nout or kept is a link here, or under one in ak's folder.",
+		"ak standby acme-mini",
+	},
 }
 
 var purposes = map[string]string{
@@ -255,6 +265,7 @@ var purposes = map[string]string{
 	"fetch":     "copy requested Mac files to this host",
 	"macbridge": "macOS only: forward requested files to the server over SSH",
 	"move":      "copy this home to the same path on another machine",
+	"standby":   "copy ak's folder from the server to the same path here",
 }
 
 func Known(command string) bool {

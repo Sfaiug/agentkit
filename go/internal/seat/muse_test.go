@@ -18,7 +18,6 @@ func TestMuseReceiptIsReadAtTheListingBoundary(t *testing.T) {
 			record(t, home, "acme", map[string]any{"orchestrator": "spark", "workers": []string{"spark"},
 				"muse_launch": token, "id_source": nil})
 			receipt := stateFile(home, "muse-launch-"+token)
-			write(t, filepath.Join(receipt, "lineage"), `{"processes":[],"earlier":[]}`)
 			drawn(t, home, "acme", "Change approval defaults in /permissions\n")
 			before, err := os.ReadFile(stateFile(home, "session-acme.json"))
 			if err != nil {

@@ -1172,7 +1172,7 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         task_path = run_dir / "task.md"
         _, body, _ = taskfile.parse_task(task_path)
         plan_line = plan.served_line(session_at_launch, taskfile.done_when(body, task_path))
-    with gate.slot_lock():
+    with gate.admission():
         # two runs on one PR both land it, and the second fails on a head the first moved: read
         # under the lock its receipt is written in, so of two launches at once the second sees
         # the first

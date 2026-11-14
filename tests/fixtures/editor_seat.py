@@ -88,6 +88,8 @@ class EditorSeat(Seats):
         target = args[args.index("-t") + 1] if "-t" in args else ""
         pane = target if target.startswith("%") else self.selected
         process = 4200 + int(pane[1:])      # each pane its own
+        if args[0] == "display-message" and args[-1] == "#{pane_id}":
+            return 0, pane
         if args[0] == "display-message" and args[-1] == "#{pane_id}\t#{pane_pid}":
             return 0, f"{pane}\t{process}"
         if args[0] == "display-message" and args[-1] == "#{pane_id}\t#{pane_pid}\t#{pane_tty}":

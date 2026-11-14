@@ -84,7 +84,8 @@ func checkOwed(name string, lines []string) (bool, error) {
 
 // OwnerWords is each conversation of had, as notify.Conversations gives them, as its harness shows
 // it, and the owner's words in them, oldest first (done_check.owner_words): each message they wrote
-// the seat, then each answer they gave on its question cards.  Read strictly (harness.strictly):
+// the seat, then each answer they gave on its question cards, a message replying on a card counting
+// only as those answers (harness.Replies).  Read strictly (harness.strictly):
 // Answered reads each conversation whole, so one there that cannot be read is an error, though
 // notify.Conversations reads it as holding no message; one that is gone holds none.  ErrUnread
 // where Go reads the owner's words in none of that harness's (harness.Reads).
@@ -92,7 +93,9 @@ func OwnerWords(had []notify.Conversation) ([][]harness.Turn, []Said, error) {
 	var owner []Said
 	for _, each := range had {
 		for _, message := range each.Messages {
-			owner = append(owner, Said{message.At, message.Text, message.Text})
+			if !harness.Replies(each.Harness, message.Text) {
+				owner = append(owner, Said{message.At, message.Text, message.Text})
+			}
 		}
 	}
 	said := make([][]harness.Turn, len(had))

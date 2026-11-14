@@ -840,14 +840,37 @@ def account_config(check=False):
     os.environ["CLAUDE_CONFIG_DIR"] = str(directory)
 
 
+# The account's two windows as Claude Code names them, and the meters ak reads them as: the session
+# window is usage.SESSION_SECS; the week is seven days, as adapters/claude.sh names them off the
+# endpoint's groups.
+WINDOWS = (("five_hour", "session", 18000), ("seven_day", "weekly_all", 604800))
+
+
+def _meters(windows, used, resets, whole):
+    """Endpoint meters of each of WINDOWS that `windows` holds as an object: its `used` share of
+    `whole` and its `resets` epoch second, each a finite number in range; [] for none."""
+    def number(value):
+        return (not isinstance(value, bool) and isinstance(value, (int, float))
+                and math.isfinite(value))
+    meters = []
+    for key, name, window in WINDOWS:
+        reading = windows.get(key) if isinstance(windows, dict) else None
+        if not isinstance(reading, dict):
+            continue
+        share, at = reading.get(used), reading.get(resets)
+        if number(share) and 0 <= share <= whole and number(at) and at > 0:
+            meters.append({"name": name, "used": float(share) * (100.0 / whole),
+                           "resets_at": at, "window_secs": window})
+    return meters
+
+
 def turn_meters(out):
     """The account's limits this turn printed in its own stream, as endpoint meters, or [].
 
     Every `claude -p` turn prints `rate_limit_event`s carrying the account's five-hour
-    and seven-day utilizations (0 to 1) with their resets. The last one is the reading:
-    `five_hour` is the session meter and `seven_day` the weekly_all one, so the turn's
-    own account is measured with no request. A turn without the event, or with no valid
-    window in it, says nothing.
+    and seven-day utilizations (0 to 1) with their resets. The last one is the reading,
+    so the turn's own account is measured with no request. A turn without the event, or
+    with no valid window in it, says nothing.
     """
     path = Path(out)
     path = path if path.is_file() else path / "events.jsonl"
@@ -864,31 +887,23 @@ def turn_meters(out):
                 if not isinstance(event, dict) or event.get("type") != "rate_limit_event":
                     continue
                 info = event.get("rate_limit_info")
-                windows = info.get("unifiedWindows") if isinstance(info, dict) else None
-                if not isinstance(windows, dict):
-                    continue
-                meters = []
-                # The session window is usage.SESSION_SECS; the week is seven days, as
-                # adapters/claude.sh names them off the endpoint's groups.
-                for key, name, window in (("five_hour", "session", 18000),
-                                          ("seven_day", "weekly_all", 604800)):
-                    reading = windows.get(key)
-                    if not isinstance(reading, dict):
-                        continue
-                    share, resets = reading.get("utilization"), reading.get("resetsAt")
-                    if (isinstance(share, bool) or not isinstance(share, (int, float))
-                            or not math.isfinite(share) or not 0 <= share <= 1):
-                        continue
-                    if (isinstance(resets, bool) or not isinstance(resets, (int, float))
-                            or not math.isfinite(resets) or resets <= 0):
-                        continue
-                    meters.append({"name": name, "used": float(share) * 100.0,
-                                   "resets_at": resets, "window_secs": window})
+                meters = _meters(info.get("unifiedWindows") if isinstance(info, dict) else None,
+                                 "utilization", "resetsAt", 1)
                 if meters:
                     found = meters
     except OSError:
         return []
     return found or []
+
+
+def status_meters(windows):
+    """The account's limits a status render carried, as endpoint meters, or []: each window of
+    its `rate_limits` (2.1.322) as hooks/claude-status.sh's jq printed it, `{"seven_day":
+    "<used_percentage> <resets_at>"}`, there only while the API reports it and it has not reset.
+    """
+    limits = {window: dict(zip(("used_percentage", "resets_at"), map(float, words.split())))
+              for window, words in windows.items()}
+    return _meters(limits, "used_percentage", "resets_at", 100)
 
 
 if __name__ == "__main__":

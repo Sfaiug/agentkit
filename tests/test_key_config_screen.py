@@ -25,18 +25,17 @@ from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 from test_key_orch_list_rows import bar
 
-HEADS = "               orch                builds              reviews"
+HEADS = "             orch                builds              reviews"
 ROWS = ["Claude Code",
-        "› Fable 5.1    [●] ━━━━─   xhigh    □                   □",
+        "› Fable 5.1  [●] ━━━━─   xhigh    □                   □",
         "Codex",
-        "  GPT-6-Astra   ○                   ■  ━━━───  high     ■  ━━━───  high",
+        "  6 Astra     ○                   ■  ━━━───  high     ■  ━━━───  high",
         "",
         "  Models",
         "  Subscriptions",
         "  Discord       not connected",
-        # models by their full names, the line wrapped at a word under its value
-        "  Weekly audit  off · orch Fable 5.1 · builds Fable 5.1, GPT-6-Astra · reviews Fable 5.1,",
-        "                GPT-6-Astra",
+        # models by their full names
+        "  Weekly audit  off · orch Fable 5.1 · builds Fable 5.1, 6 Astra · reviews Fable 5.1, 6 Astra",
         "  Done check    on · the seat's reviewer",
         "  Machines      1 machine · Google Cloud off",
         "  Limits        review 3 rounds · executor 300 lines · orchestrator 50 lines",
@@ -108,12 +107,12 @@ class ConfigScreen(unittest.TestCase):
 
     def test_the_key_line_names_what_space_and_enter_do_under_the_highlight(self):
         self.term.keys("Right")
-        on_effort = self.term.wait("› Fable 5.1     ●  ━━━━─   xhigh    □                   □")
+        on_effort = self.term.wait("› Fable 5.1   ●  ━━━━─   xhigh    □                   □")
         self.assertEqual(key_line(on_effort), KEYS.replace("mark", "step"))
         self.term.keys("Down", "Down")
         on_row = self.term.wait("› Models")
         self.assertEqual(block(on_row)[1:7],
-                         [ROWS[0], "  Fable 5.1     ●  ━━━━─   xhigh    □                   □",
+                         [ROWS[0], "  Fable 5.1   ●  ━━━━─   xhigh    □                   □",
                           *ROWS[2:5], "› Models"])
         self.assertEqual(key_line(on_row), KEYS.replace("␣ mark", "⏎ open"))
         self.leave()
@@ -121,10 +120,10 @@ class ConfigScreen(unittest.TestCase):
     def test_marking_a_model_for_builds_rewrites_the_seats_record_and_bar_at_once(self):
         defaults = akconfig.read(self.home)["defaults"]
         self.term.keys("Right", "Right")
-        self.term.wait("› Fable 5.1     ●  ━━━━─   xhigh   [□]                  □")
+        self.term.wait("› Fable 5.1   ●  ━━━━─   xhigh   [□]                  □")
         self.assertNotIn("Fable 5.1 xhigh orchestrates, builds", bar(self.home, self.seat))
         self.term.keys("Space")
-        self.term.wait("› Fable 5.1     ●  ━━━━─   xhigh   [■] ━━━━─   xhigh    □")
+        self.term.wait("› Fable 5.1   ●  ━━━━─   xhigh   [■] ━━━━─   xhigh    □")
         deadline = time.monotonic() + 30
         while self.record().get("workers") != ["astra", "fable"] and time.monotonic() < deadline:
             time.sleep(0.05)

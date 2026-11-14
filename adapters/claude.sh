@@ -27,8 +27,7 @@
 #                                    that account reads it
 #                       hooks        -> wire this harness's lifecycle hooks, idempotently
 #                       models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
-#                                    Anthropic's models API, else the [catalog] table of
-#                                    adapters/claude.toml
+#                                    Anthropic's models API; 1 where that fails
 #                       $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
 #                       uses that subscription's own login, and no other
 set -uo pipefail
@@ -266,7 +265,8 @@ interactive)
     status=$(jq -c '.statusLine | objects | select(.command | strings | length > 0)' \
                 "$file" 2>/dev/null) && [ -n "$status" ] && break
   done
-  script=$(printf '%q' "$REPO/hooks/claude-status.sh")
+  # the hook reads each render's limits where Claude Code 2.1.322 puts them
+  script="$(printf '%q' "$REPO/hooks/claude-status.sh") rate_limits"
   PINS=$(jq -cn --argjson pins "$PINS" --argjson status "${status:-null}" --arg script "$script" '
     $pins + {statusLine: (if $status then $status | .command = ($script + " | { " + .command + "\n}")
                          else {type: "command", command: ($script + " >/dev/null")} end)}') || exit 2
@@ -369,11 +369,13 @@ reset)
   # Spend one usage-limit reset of the kind named, as Claude Code 2.1.322 spends one: the first
   # grant of that kind the status lists that can be spent now, claimed once, under a fresh
   # request id, for the login's own organization.  Only `reset` spent one; any other result is
-  # the endpoint's word for why not, and with no such grant nothing is asked.
+  # the endpoint's word for why not, and with no such grant nothing is asked.  No kind named
+  # is no such grant, known before the status is even read.
+  [ -n "${1:-}" ] || { echo '{"code":"unavailable"}'; exit 0; }
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   login; status
   [ "$code" = 200 ] || err "HTTP ${code:-000} from api.anthropic.com/api/oauth/usage"
-  grant=$(jq -r --arg kind "${1:-}" "$READ"' first(grants[] | select(.kind == $kind
+  grant=$(jq -r --arg kind "$1" "$READ"' first(grants[] | select(.kind == $kind
       and .usable_now == true)) | .id | strings' <<<"$body" 2>/dev/null)
   [ -n "$grant" ] || { echo '{"code":"unavailable"}'; exit 0; }
   left=$(jq "$READ"' held - 1' <<<"$body" 2>/dev/null)
@@ -634,18 +636,18 @@ models)
   # (`claude-haiku-4-5-20251001`) answers as the table's, so a model added from the table stays
   # marked as added.  The worker token asks, else the seat's own login, never renewed for this;
   # $ANTHROPIC_BASE_URL is claude's own, and where the tests' fake API lives.  A listing that
-  # fails, outlasts ten seconds or names nothing leaves the table as it is.
+  # fails or names nothing, or no login to ask with, fails: config.catalog decides what stands
+  # in, and how long it waits.
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   table=$(python3 "$REPO/tools/catalog.py" claude)
   at=${CLAUDE_CODE_OAUTH_TOKEN:-}
   [ -n "$at" ] || at=$(cat "$TOKEN" 2>/dev/null) || at=
   [ -n "$at" ] || at=$( { security find-generic-password -s "Claude Code-credentials" -w ||
       cat "$CREDS"; } 2>/dev/null | jq -r '.claudeAiOauth.accessToken // empty' 2>/dev/null)
-  pages= after= deadline=$(( $(date +%s) + 10 ))
+  pages= after=
   while [ -n "$at" ]; do
-    left=$(( deadline - $(date +%s) ))
     # the header on stdin, from a builtin: the token is in no argument list and no file
-    page=$([ "$left" -gt 0 ] && printf 'Authorization: Bearer %s\n' "$at" | curl -sf -m "$left" \
+    page=$(printf 'Authorization: Bearer %s\n' "$at" | curl -sf \
         -H @- -H 'anthropic-beta: oauth-2025-04-20' -H 'anthropic-version: 2023-06-01' \
         "${ANTHROPIC_BASE_URL:-https://api.anthropic.com}/v1/models?limit=1000${after:+&after_id=$after}") &&
       after=$(jq -r 'select(.has_more == true) | .last_id // ""' <<<"$page") || { pages=; break; }
@@ -661,8 +663,8 @@ models)
             then [to_entries[] | select(.value | type == "object" and .supported == true) | .key]
               | join(" ")
             else "none" end)]
-      | @tsv' 2>/dev/null) || listed=
-  printf '%s\n' "${listed:-$table}" ;;
+      | @tsv' 2>/dev/null) && [ -n "$listed" ] || exit 1
+  printf '%s\n' "$listed" ;;
 *)
   echo "usage: claude.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | claude.sh usage | claude.sh reset <kind> | claude.sh interactive <model> <effort> [session-id [new]] | claude.sh install | claude.sh login [again] | claude.sh logout | claude.sh forget | claude.sh login-end | claude.sh lend <home> [own] | claude.sh auth [seat] | claude.sh hooks | claude.sh models" >&2
   exit 2 ;;

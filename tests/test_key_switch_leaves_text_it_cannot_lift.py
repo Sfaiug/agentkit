@@ -1,12 +1,14 @@
 """A seat moved on `c` whose model has left the config restarts only over an input field ak
-read empty, through the harness its pane runs; text it cannot lift stays with that harness.
+read empty, through the harness its pane runs; text it cannot read or lift stays with that harness.
 
 ak answered such a seat's text kept without reading its field, and the restart took the text
-with the old harness.  Black-box: `AK_BIN`, as the popup over a seat whose record names a model
-the config no longer has, its pane tests/fixtures/akpane.py running as `claude`.  Judged by the
-pane's process, what it shows and the seat's record."""
+with the old harness; a capture of its pane that failed it took for a field read empty.
+Black-box: `AK_BIN`, as the popup over a seat whose record names a model the config no longer
+has, its pane tests/fixtures/akpane.py running as `claude`.  Judged by the pane's process, what
+it shows and the seat's record."""
 
 import json
+import shlex
 import sys
 from pathlib import Path
 import time
@@ -60,7 +62,9 @@ class SwitchLeavesTextItCannotLift(unittest.TestCase):
         term.keys("Down", "Enter")     # Move
         return term.wait(settled)
 
-    def test_text_in_its_field_stays_with_the_harness_it_runs(self):
+    def stays(self):
+        """Text typed into its field stays there, and the seat on the harness it runs, through
+        a move."""
         self.home.tmux("send-keys", "-t", self.seat.pane, "-l", DRAFT)
         deadline = time.monotonic() + 30
         while f"❯ {DRAFT}" not in self.seat.capture():     # drawn before ak reads the field
@@ -70,6 +74,15 @@ class SwitchLeavesTextItCannotLift(unittest.TestCase):
         self.move(f"{SEAT} stays on retired: the text in its input field could not be kept")
         self.assertEqual((self.process(), self.orchestrator()), (ran, "retired"))
         self.assertIn(f"❯ {DRAFT}", self.seat.capture())
+
+    def test_text_in_its_field_stays_with_the_harness_it_runs(self):
+        self.stays()
+
+    def test_text_in_a_field_ak_cannot_capture_stays_too(self):
+        tmux = (self.home.bin / "tmux").rename(self.home.bin / "tmux-shim")
+        self.home.fake("tmux", "#!/bin/sh\nfor a do [ \"$a\" = capture-pane ] && exit 1; done\n"
+                               f'exec {shlex.quote(str(tmux))} "$@"\n')
+        self.stays()
 
     def test_a_field_read_empty_moves_it(self):
         ran = self.process()

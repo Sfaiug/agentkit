@@ -2,8 +2,8 @@
 
 The seat choice (`model_spent`), the new-session screen (`spent_meter`) and the credits rank
 (`on_credits`) read the same meters the pick does: a session window scoped to Fable neither stops
-Opus nor puts it on credits, while one naming no scope stops every model of the subscription,
-a model naming its own weekly `meter` too.
+Opus nor puts it on credits, nor one scoped to Opus a Fable naming its own weekly `meter`, while
+one naming no scope stops every model of the subscription, a model naming its `meter` too.
 """
 
 from pathlib import Path
@@ -40,6 +40,10 @@ class ScopedSessionCap(unittest.TestCase):
         self.assertTrue(done)
         self.assertEqual(worst["name"], "session")
         self.assertTrue(spent("fable", scope="Fable", credits=1)[2])
+
+    def test_a_window_scoped_to_opus_leaves_a_model_naming_its_meter_alone(self):
+        self.assertEqual(spent("fable", scope="Opus", meter="weekly_scoped"), (False, None, False))
+        self.assertFalse(spent("fable", scope="Opus", meter="weekly_scoped", credits=1)[2])
 
     def test_a_window_naming_no_scope_spends_every_model(self):
         for name in MODELS:

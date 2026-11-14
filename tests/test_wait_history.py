@@ -126,7 +126,8 @@ class WaitHistory(unittest.TestCase):
         self.checked = self.stack.enter_context(patch.object(
             land, "_check_members", side_effect=lambda turn, candidates, *args, **_kw: {
                 member: {"land": "checked-tree"} for member, _ in candidates}))
-        self.wake = self.stack.enter_context(patch.object(watch, "launch_resume"))
+        self.wake = self.stack.enter_context(patch.object(watch, "launch_resume",
+                                                          return_value=os.getpid()))
         history.start_run(directory.name, repo=repo, started_at=self.clock[0])
         lp.write()
         return lp, delivery.turn_path(lp, "origin/main")

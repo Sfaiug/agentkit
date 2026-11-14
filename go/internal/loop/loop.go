@@ -33,6 +33,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -63,7 +64,7 @@ var ErrStopped = errors.New("a run a stop ended")
 const followEvery = 200 * time.Millisecond
 
 // landerAgain is how often a terminal following a run parked in its line starts its lander again.
-const landerAgain = time.Minute
+var landerAgain = time.Minute
 
 // errStop is a run a stop landed on: the record says so, and nothing is written over it.
 var errStop = errors.New("the run was stopped")
@@ -133,6 +134,14 @@ func spawn(dir string, detached bool, record *run.Object) (int, error) {
 			return 0, err
 		}
 	}
+	cmd.Env = slices.DeleteFunc(cmd.Environ(), func(pair string) bool {
+		return strings.HasPrefix(pair, "AGENTKIT_RUN_DIR=")
+	})
+	if detached {
+		// the detached launch's own process, as Python's spawn_bg names it: it alone moves to an
+		// install landing while it waits for its slot (launch's pickUp)
+		cmd.Env = append(cmd.Env, "AGENTKIT_RUN_DIR="+dir)
+	}
 	return place(dir, cmd, detached, record)
 }
 
@@ -163,8 +172,7 @@ func Follow(dir string, offset int64, out, errOut io.Writer) int {
 
 // Await follows the run at dir until its driver is gone and it waits in no landing line, calling
 // look before each look at it, and answers its record then, nil for none.  Its lander is started
-// again now and then, as Python's job_await does: the one its run started on leaving can die, and
-// a sandbox runs no tick at all.
+// again now and then, counted from the driver's leaving, as Python's job_await does.
 func Await(dir string, look func()) *run.Object {
 	asked := time.Now()
 	for {
@@ -179,7 +187,10 @@ func Await(dir string, look func()) *run.Object {
 			}
 			continue
 		}
-		if parkedInLine(record) && time.Since(asked) >= landerAgain {
+		switch {
+		case run.ProcessActive(record):
+			asked = time.Now()
+		case parkedInLine(record) && time.Since(asked) >= landerAgain:
 			asked = time.Now()
 			startLine(filepath.Join(run.Runs(), landingLine(record)), io.Discard)
 		}
@@ -228,6 +239,7 @@ type loop struct {
 	reviewer      string
 	workers       []string // the lists the run was launched with, nil where none was bound
 	reviewers     []string
+	alone         bool // review off (run.ReviewOff): no reviewer, its checks judge the work (judgeOnChecks)
 	efforts       *run.Object
 	silence       time.Duration
 	ceiling       time.Duration
@@ -323,6 +335,7 @@ func (l *loop) adopt() error {
 		l.prior = record.Truthy("worktree")
 		l.pull = record.Str("review_pr")
 		l.workers, l.reviewers = names(record.List("workers")), names(record.List("reviewers"))
+		l.alone = run.ReviewOff(record)
 		l.efforts = record.Dict("efforts")
 		minutes, _ := record.Num("silence_minutes")
 		hours, _ := record.Num("ceiling_hours")
@@ -554,12 +567,18 @@ func names(list []any) (found []string) {
 }
 
 // rules is what every pick of this run reads: the lists it was launched with, Python's run_workers
-// and run_reviewers, as the config can change while it lives; the config's own where none was bound.
-func (l *loop) rules() (*pick.Rules, bool) {
+// and run_reviewers, as the config can change while it lives; the home's where none was bound
+// (pick.Load), a seat's own inside one.  With review off its executor is picked alone.
+func (l *loop) rules() (rules *pick.Rules, ok bool) {
 	if l.workers == nil {
-		return pick.Load()
+		rules, ok = pick.Load()
+	} else {
+		rules, ok = pick.Within(l.workers, l.reviewers)
 	}
-	return pick.Within(l.workers, l.reviewers)
+	if ok && l.alone {
+		rules = rules.Alone()
+	}
+	return rules, ok
 }
 
 // pick chooses who executes and who reviews, as Python's pick_models and best_pair: a harness that
@@ -571,7 +590,7 @@ func (l *loop) pick() error {
 	}
 	if l.prior {
 		l.executor, l.reviewer = record.Str("executor"), record.Str("reviewer")
-		l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", l.executor, l.reviewer, l.budget))
+		l.say(l.staffed(l.budget))
 		return nil
 	}
 	rules, ok := l.rules()
@@ -614,12 +633,12 @@ func (l *loop) pick() error {
 	l.executor, l.reviewer = executor, reviewer
 	var rounds int
 	if err := l.save(func(record *run.Object) {
-		run.SetAll(record, "executor", executor, "reviewer", reviewer)
+		run.SetAll(record, "executor", executor, "reviewer", none(reviewer))
 		rounds, _ = record.Int("rounds")
 	}); err != nil {
 		return err
 	}
-	l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", executor, reviewer, rounds))
+	l.say(l.staffed(rounds))
 	l.sayLaunched()
 	return nil
 }

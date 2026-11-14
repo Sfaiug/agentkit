@@ -7,8 +7,8 @@ import (
 )
 
 // FirstDone is the first done line's words, what a past seat set out to do and did.
-func FirstDone(name string) string {
-	lines, _ := read(name)
+func (look Look) FirstDone(name string) string {
+	lines, _ := look.read(name)
 	for _, line := range lines {
 		if boxed(line) && !open(line) {
 			return doneWords(line)

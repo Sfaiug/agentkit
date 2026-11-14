@@ -4,8 +4,8 @@
 // hides ssh, the remote script and the parcel: each verb is one line over ssh, `bash -c <script>
 // mac.sh VERB ...`, the script tools/helper's linux.sh and mac.sh as this program carries them, and
 // a suite reaches the machine as one tar on `prepare`'s stdin: the recipe and the files it copies,
-// the piece's script, the heads under test and the history the machine lacks, and a model turn's
-// own files where it carries one.  A machine ak rents is reached by the route the tick keeps.
+// the piece's script and the files each piece reads, the heads under test and the history the
+// machine lacks, and a model turn's own files where it carries one.  A machine ak rents is reached by the route the tick keeps.
 package helper
 
 import (
@@ -80,19 +80,20 @@ type Away struct {
 
 // Start sends the suite to the machine with the most room that takes it, and on to the next where
 // one turns it away, Python's start: the Away there, or nil and why its pieces run here.  command
-// is what each piece runs there, handed times (pinned); cpus and memoryMB one piece's cost; what it has to say goes to say.  A model turn's,
+// is what each piece runs there, handed times in a file (pinned); cpus and memoryMB one piece's cost; what it has to say goes to say.  A model turn's,
 // with its own files for the parcel (turnFiles), is one piece that goes to the machine with the
 // least room that takes turns, holding its cpus there until it starts, not half the machine.  It
 // passes over a rental Google ends before the work would start there, a turn's before the hour its
 // login is lent for (lentFor) is out there, and asks the tick for a machine (need) where none took
 // it, or none with room outlives the chosen one by a rent and a pass.
 func Start(cwd string, cpus, memoryMB float64, command, times string, turn map[string]file, say func(string)) (*Away, string, error) {
-	return start(cwd, cpus, memoryMB, pinned(command, times, nil), turn, false, say)
+	line, handed := pinned(command, times, nil)
+	return start(cwd, cpus, memoryMB, line, handed, turn, false, say)
 }
 
-// start is Start of the line command each piece runs there, as pinned; with one, a probe's, it
-// holds only the CPUs its one piece gets (Probe).
-func start(cwd string, cpus, memoryMB float64, command string, turn map[string]file, one bool, say func(string)) (*Away, string, error) {
+// start is Start of the line command each piece runs there and the files handed it, as pinned;
+// with one, a probe's, it holds only the CPUs its one piece gets (Probe).
+func start(cwd string, cpus, memoryMB float64, command string, handed, turn map[string]file, one bool, say func(string)) (*Away, string, error) {
 	work, first, holds, lasting := "tests", -1, []string(nil), time.Duration(0)
 	if turn != nil {
 		work, first, holds, lasting = "turns", 1, []string{strconv.FormatFloat(cpus, 'f', -1, 64)}, lentFor*time.Second
@@ -113,6 +114,7 @@ func start(cwd string, cpus, memoryMB float64, command string, turn map[string]f
 		return nil, "no recipe for the suite helper", nil
 	}
 	away.image = image
+	maps.Copy(files, handed)
 	maps.Copy(files, turn)
 	g := gitcall.Git{Repo: cwd}
 	if code, branch, err := g.Out("symbolic-ref", "-q", "--short", "HEAD"); err == nil && code == 0 {
@@ -235,6 +237,9 @@ func (a *Away) prepare(cwd string, known []string, files map[string]file, holds 
 	if err != nil {
 		return lost
 	}
+	// nameless at once, as Python's TemporaryFile: a turn's holds its login, and `prepare` runs on
+	// long after reading it.  Windows removes no open file: there it goes as it closes.
+	os.Remove(parcel.Name())
 	defer os.Remove(parcel.Name())
 	defer parcel.Close()
 	if err := a.pack(cwd, known, files, parcel); err != nil {

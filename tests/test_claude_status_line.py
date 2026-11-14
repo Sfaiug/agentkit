@@ -1,6 +1,7 @@
 """Status-line composition, conversation reports and their collection, with a temporary HOME."""
 
 from datetime import datetime, timezone
+from functools import partial
 import json
 import os
 import shlex
@@ -9,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, gc
+from agentkit import config, gc, usage, watch
 from agentkit.harness import claude
 
 
@@ -106,6 +107,45 @@ class ClaudeStatusLine(Sandbox):
                 patch.object(gc.jobs, "forget_owner_words"):
             self.assertEqual(gc.gc(lambda _: None), [str(self.report)])
         self.assertFalse(self.report.exists())
+
+    def render(self, limits, shell='. "$0" rate_limits', **env):
+        """The hook run in `shell` on a render carrying `limits`, waited out with all it started."""
+        end, held = os.pipe()
+        self.addCleanup(os.close, end)
+        subprocess.run(["bash", "-c", shell, REPO / "hooks/claude-status.sh"], env={**self.env, **env},
+                       input=json.dumps({**json.loads(self.payload), "rate_limits": limits}),
+                       text=True, capture_output=True, timeout=30, pass_fds=(held,))
+        os.close(held)
+        self.assertEqual(os.read(end, 1), b"")
+
+    def test_renders_are_judged_in_the_order_they_were_rendered(self):
+        config.save_session(self.cfg, "acme", "opus", ["opus"], {"conversation": "conv-acme"})
+        hand_in = partial(watch.hook_meters, "acme", "conv-acme", "")
+        # a worker's turn, at 10000; then renders begun before it, a later one's hand-in first
+        usage.record_turn_meters(self.cfg, "anthropic", [{"name": "weekly_all", "used": 50}])
+        hand_in("1000", "five_hour 20 30000", "seven_day 20 900000")
+        hand_in("3000", "seven_day 40 900000")
+        hand_in("2000", "five_hour 30 30000", "seven_day 20 900000")
+        note = (config.STATE / "limits-conv-acme.json").read_text()
+        # the same numbers, however the JSON spells them
+        limits = {"five_hour": {"used_percentage": 30.0, "resets_at": 30000},
+                  "seven_day": {"used_percentage": 40, "resets_at": 900000.0}}
+        self.render(limits)
+        self.assertEqual((config.STATE / "limits-conv-acme.json").read_text(), note)
+        self.assertEqual({meter["name"]: meter["used"]
+                          for meter in usage._cached_provider("anthropic")["meters"]},
+                         {"session": 30, "weekly_all": 50})
+
+    def test_a_bash_without_a_clock_hands_in_no_limits(self):
+        config.save_session(self.cfg, "acme", "opus", ["opus"], {"conversation": "conv-acme"})
+        watch.hook_meters("acme", "conv-acme", "", "1000", "seven_day 20 900000")
+        watch.hook_meters("acme", "conv-acme", "", "2000", "seven_day 30 900000")
+        note = config.STATE / "limits-conv-acme.json"
+        held = note.read_text(), usage._cached_provider("anthropic")
+        self.render({"seven_day": {"used_percentage": 40, "resets_at": 900000}},
+                    'unset EPOCHREALTIME; . "$0" rate_limits')
+        self.assertEqual((note.read_text(), usage._cached_provider("anthropic")), held)
+        self.assertEqual([meter["used"] for meter in held[1]["meters"]], [30])
 
 
 if __name__ == "__main__":

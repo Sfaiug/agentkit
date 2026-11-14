@@ -86,7 +86,7 @@ class Acme(unittest.TestCase):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             stack.enter_context(patch.object(config, name, self.home / name.lower()))
         stack.enter_context(patch.dict(config._MANIFESTS))
-        stack.enter_context(patch.dict(config._CATALOGS))
+        stack.enter_context(patch.dict(config._ASKED))
         stack.enter_context(patch.object(terminal, "width", return_value=100))
         stack.enter_context(patch.object(terminal, "height", return_value=30))
         config.ensure_dirs()

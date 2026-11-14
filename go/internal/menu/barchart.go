@@ -35,10 +35,7 @@ func barChart(s terminal.Screen, heading string, bars []bar) []string {
 	if !folded {
 		size -= wide
 	}
-	lines := []string{""}
-	for _, part := range terminal.Wrap(heading, room-2) {
-		lines = append(lines, "  "+part)
-	}
+	lines := Told(s, heading)
 	for _, each := range bars {
 		tail := s.ShareLine(each.share, max(1, size), each.word)
 		for n, cell := range each.cells {

@@ -2,6 +2,7 @@ package handin
 
 import (
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -167,7 +168,7 @@ func (r *Review) FollowupRecords() (checks, commits, defects *run.Object) {
 	for _, row := range r.Of("follow-up") {
 		item, evidence := itemText(row), row.Dict("evidence")
 		if command := evidence.Str("run"); evidence.Has("run") && planCheck(command, "") {
-			checks.Set(item, command)
+			checks.Set(item, unbounded(evidence))
 		}
 		if evidence.Has("commit") {
 			commits.Set(item, evidence.Get("commit"))
@@ -175,6 +176,22 @@ func (r *Review) FollowupRecords() (checks, commits, defects *run.Object) {
 		defects.Set(item, defectOf(row))
 	}
 	return checks, commits, defects
+}
+
+var reviewersBound = regexp.MustCompile(`^timeout\s+\d+(?:\.\d+)?[smhd]?\s+`)
+
+// unbounded is the proof's command as a follow-up's check, without the `timeout N` its reviewer
+// began it with, Python's hand_in.unbounded: a plan line and a fix run's done-when each bound it
+// themselves, and on a loaded host a right fix ran past the reviewer's 120 s, which ended its
+// fix run blocked (12 Nov 2026).  A proof that ended in 124 keeps its bound: there the bound is
+// what fails.
+func unbounded(evidence *run.Object) string {
+	command := evidence.Str("run")
+	bound := reviewersBound.FindString(command)
+	if code, _ := evidence.Int("returncode"); bound == "" || bound == command || code == 124 {
+		return command
+	}
+	return command[len(bound):]
 }
 
 // defectOf is what a follow-up names, without the proof's commit, exit status and output.

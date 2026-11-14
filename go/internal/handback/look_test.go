@@ -44,7 +44,7 @@ func TestALookLeavesAConcurrentDeliveryItsNoticeAndRecord(t *testing.T) {
 	}
 	printed()
 	said, _ := run.Read(dir)
-	if Waiting(said) || !handedBack(said) || !said.Truthy("reported") {
+	if run.Waits(said) || !handedBack(said) || !said.Truthy("reported") {
 		t.Fatal("the printed ending was not handed back", run.Line(said))
 	}
 }

@@ -13,18 +13,19 @@ import (
 var errUnrecorded = errors.New("its live notice could not be written down")
 
 // LiveLeft is whether telling that the merged run `record` went live is Python's: not told yet,
-// and typed alone into its seat (livePass), its seat's other runs read from census.
+// and a line typed for it waiting for its Enter, or what decides it unread (livePass), its seat's
+// other runs read from census.
 func LiveLeft(record *run.Object, census []*run.Object) bool {
-	_, left := livePass(record, census)
-	return !record.Truthy("live_notified") && left
+	return !record.Truthy("live_notified") && livePass(record, census) == liveLeft
 }
 
 // Live is a merge gone live at `at`, as Python's live_passed tells it under the run's delivery
 // lock, on the attempt snapshot is of and not told yet: said by its ending's own line, riding on
-// its seat's next prompt, or written down and never typed (livePass).  Untold where LiveLeft holds
-// by then: the next tick, reading it owed before it writes, hands it over.  Its own record is read
-// again under the lock, and its seat's other runs from census.  A dry tick decides the same, takes
-// no lock and writes nothing: it says what it would record.
+// its seat's next prompt, typed alone into its seat (tellLive), or written down and never typed
+// (livePass).  Untold where LiveLeft holds by then: the next tick, reading it owed before it
+// writes, hands it over.  Its own record is read again under the lock, and its seat's other runs
+// from census.  A dry tick decides the same, takes no lock and writes nothing: it says what it
+// would record or tell.
 func Live(dir string, snapshot *run.Object, census []*run.Object, at float64, say func(string), dry bool) error {
 	if !dry {
 		held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
@@ -37,10 +38,12 @@ func Live(dir string, snapshot *run.Object, census []*run.Object, at float64, sa
 	if current == nil || !sameAttempt(snapshot, current) || current.Truthy("live_notified") {
 		return nil
 	}
-	if recorded, left := livePass(current, census); left || !recorded {
+	switch pass := livePass(current, census); {
+	case pass == liveTyped:
+		return tellLive(dir, current, at, say, dry)
+	case pass != liveRecorded:
 		return nil
-	}
-	if dry {
+	case dry:
 		say("would record, not type: " + liveSentence(current, dir))
 		return nil
 	}

@@ -11,10 +11,10 @@ import (
 	"agentkit/internal/sqlite"
 )
 
-// An OpenCode seat whose receipt names no session has no current conversation, as Python's
-// conversations_of reads it, whatever session its record kept: a card answered there holds no
-// finished plan.  The same card in a session the seat left does.
-func TestAFinishedPlanOwesNoCheckForASessionItsReceiptDoesNotName(t *testing.T) {
+// An OpenCode seat's record names its conversation where its receipt names none, as Python's
+// conversations_of reads it (a follow whose receipt write failed): a card answered there holds a
+// finished plan, as the same card in a session the seat left does.
+func TestAFinishedPlanOwesACheckForTheSessionItsRecordNames(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -50,12 +50,12 @@ func TestAFinishedPlanOwesNoCheckForASessionItsReceiptDoesNotName(t *testing.T) 
 		t.Fatal(err)
 	}
 	launch := `"orchestrator": "mid", "opencode_launch": "` + token + `"`
-	for record, owes := range map[string]bool{
-		`{` + launch + `, "conversation": "ses_Previous", "id_source": "launcher"}`:           false,
-		`{` + launch + `, "left": [{"harness": "opencode", "conversation": "ses_Previous"}]}`: true,
+	for _, record := range []string{
+		`{` + launch + `, "conversation": "ses_Previous", "id_source": "opencode-hook"}`,
+		`{` + launch + `, "left": [{"harness": "opencode", "conversation": "ses_Previous"}]}`,
 	} {
 		write(filepath.Join(state, "session-acme.json"), record)
-		if finished, err := Finished("acme"); err != nil || finished == owes {
+		if finished, err := Finished("acme"); err != nil || finished {
 			t.Errorf("%s: finished %v (%v)", record, finished, err)
 		}
 	}

@@ -690,14 +690,24 @@ class ThreeStates(Sandbox):
         # send that failed -- or a tick killed in its warmup -- is tried by the next tick.
         live, reopened = self.reboot_fixture({"atoll": ("UserPromptSubmit", "")})
         landed, typed, logs = [False, True], [], []
+        prompt = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
 
         def send_line(session, text, log, landing=lambda: None, **_kw):
             typed.append(session["name"])
-            return landed.pop(0) if landed else False
+            sent = landed.pop(0) if landed else False
+            if sent:        # the line stands in the composer until its Enter
+                self.pane = prompt.replace("❯\xa0\n", f"❯\xa0{text}\n")
+            return sent
+
+        def tmux(*args, **kwargs):
+            if args[0] == "send-keys" and args[-1] == "Enter":
+                self.pane = prompt
+            return self.tmux(*args, **kwargs)
 
         with patch.object(watch, "boot_id", return_value="after"), \
                 patch.object(orch, "sessions", side_effect=lambda: list(live)), \
                 patch.object(orch, "resume", side_effect=reopened) as resume, \
+                patch.object(orch, "tmux_out", side_effect=tmux), \
                 patch.object(watch, "_send_line", side_effect=send_line), \
                 patch.object(watch.time, "sleep"):
             watch.resume_after_boot(self.cfg, log=logs.append)

@@ -23,7 +23,7 @@ func TestTheLineOwedIsTheFirstInItsOwnWords(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(state, "plan-acme.md"), []byte(text), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		line, owes, err := OwedLine("acme")
+		line, owes, err := Look{}.OwedLine("acme")
 		if line != want || owes != (want != "") || err != nil {
 			t.Errorf("%q: %q %v %v, want %q", text, line, owes, err, want)
 		}

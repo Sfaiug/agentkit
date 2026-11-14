@@ -75,7 +75,7 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 	if err != nil || !back || facts.notice != nil {
 		return found, err
 	}
-	line, _, err := plan.OwedLine(seat.Name)
+	line, _, err := seat.plans.OwedLine(seat.Name)
 	if err != nil || line == "" {
 		return found, err
 	}

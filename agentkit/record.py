@@ -98,11 +98,17 @@ def run_dirs():
         return []
 
 
-def runs():
+def runs_now():
     """Every run's (directory, record), those with a readable one, each every reader's
-    (`read_state`), so only read; in a pass, as its first ask on this thread found them (`look`)."""
-    return look.once("runs", lambda: [(directory, state) for directory in run_dirs()
-                                      if (state := read_state(directory, shared=True)) is not None])
+    (`read_state`), so only read: each record's stat asked now, and parsed again only once its
+    file changed since this process last parsed it."""
+    return [(directory, state) for directory in run_dirs()
+            if (state := read_state(directory, shared=True)) is not None]
+
+
+def runs():
+    """`runs_now()`; in a pass, as its first ask on this thread found them (`look`)."""
+    return look.once("runs", runs_now)
 
 
 def process_owner(pid=None):

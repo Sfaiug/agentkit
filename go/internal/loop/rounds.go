@@ -43,8 +43,8 @@ func (l *loop) rounds() (bool, error) {
 			return passed, err
 		}
 	}
-	for l.rnd < l.budget {
-		if err := l.allowed(); err != nil {
+	for {
+		if more, err := l.allowed(); err != nil || !more {
 			return false, err
 		}
 		l.rnd++
@@ -52,24 +52,31 @@ func (l *loop) rounds() (bool, error) {
 			return passed, err
 		}
 	}
-	return false, nil
 }
 
-// allowed ends the run blocked once its change has no round left across its runs, Python's
-// round_allowed: the task is what changes then, split or redesigned, and nothing a resume could spend.
-func (l *loop) allowed() error {
+// allowed is whether the run may spend another round, Python's round_allowed: one of its budget
+// left, and one left on its change across its runs, else the run ends blocked, as the task is what
+// changes then, split or redesigned, and nothing a resume could spend.  Review off has one round,
+// which spends none of the change's.
+func (l *loop) allowed() (bool, error) {
+	if l.alone {
+		return l.rnd < 1, nil
+	}
+	if l.rnd >= l.budget {
+		return false, nil
+	}
 	record, err := run.Read(l.dir)
 	if record == nil {
-		return err
+		return false, err
 	}
 	left, why, err := run.ChangeLeft(record, l.dir, l.budget, l.rnd, time.Now())
 	if err != nil {
-		return err
+		return false, err
 	}
 	if left < 1 {
-		return &blocked{why, "## Blocked\n\n" + why}
+		return false, &blocked{why, "## Blocked\n\n" + why}
 	}
-	return nil
+	return true, nil
 }
 
 // round is one round from its turn to its verdict: round 1 builds, a later one fixes what the last

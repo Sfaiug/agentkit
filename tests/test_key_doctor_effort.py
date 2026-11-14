@@ -29,11 +29,11 @@ FITS = "effort  every model takes the effort it is set to"
 
 
 class DoctorEffort(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.home = Home()
-        cls.addClassCleanup(cls.home.close)
-        cls.home.ticked()
+    def setUp(self):
+        # a home each: a listing echo's adapter answered stands in it for every test after
+        self.home = Home()
+        self.addCleanup(self.home.close)
+        self.home.ticked()
 
     def adapters(self, name, *, script=None, manifest=""):
         """A directory of echo's adapter, its script or manifest changed as the test says."""

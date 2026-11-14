@@ -72,10 +72,10 @@ class AuditSetting(unittest.TestCase):
 
     def test_the_row_says_on_or_off_and_the_three_roles_by_full_name(self):
         self.assertEqual(menu.audit_value(config.load()),
-                         "on · orch Opus 5.5 · builds Opus 5.5, GPT-6-Astra · reviews Opus 5.5, GPT-6-Astra")
+                         "on · orch Opus 5.5 · builds Opus 5.5, 6 Astra · reviews Opus 5.5, 6 Astra")
         self.write('on = false\nworkers = []\nreviewers = ["astra"]\n')
         self.assertEqual(menu.audit_value(config.load()),
-                         "off · orch Opus 5.5 · builds nobody · reviews GPT-6-Astra")
+                         "off · orch Opus 5.5 · builds nobody · reviews 6 Astra")
 
     def page(self, *keys):
         """The page against `keys`, then Esc until it is gone, on a phone's 40 columns; the
@@ -124,7 +124,7 @@ class AuditSetting(unittest.TestCase):
         # a click past On's line is on nothing: the list stays open, nothing written
         frames = self.page("down", "enter", Key("click", col=30, row=3), "down")
         self.assertIn("›   ● Opus 5.5", frames[-3])
-        self.assertIn("›   ○ GPT-6-Astra", frames[-2])
+        self.assertIn("›   ○ 6 Astra", frames[-2])
         self.assertEqual(self.path.read_text(), before)
         self.write('reviewers = ["astra"]\n')
         before = self.path.read_text()
@@ -168,7 +168,7 @@ class AuditSetting(unittest.TestCase):
         self.assertEqual(read.call_count, 0)
         text = terminal.ANSI.sub("", out.getvalue())
         self.assertIn("Weekly audit", text)
-        self.assertIn("on · orch Opus 5.5 · builds Opus 5.5, GPT-6-Astra · reviews Opus 5.5, GPT-6-Astra",
+        self.assertIn("on · orch Opus 5.5 · builds Opus 5.5, 6 Astra · reviews Opus 5.5, 6 Astra",
                       " ".join(text.split()))
         rows = [line.split()[0] for line in text.splitlines() if line.startswith("  ")]
         self.assertLess(rows.index("Discord"), rows.index("Weekly"))

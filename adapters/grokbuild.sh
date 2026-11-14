@@ -47,7 +47,7 @@
 #                        TUI always trusts them, in agentkit's own file beside the user's
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `grok models`, with the efforts of the [catalog] table of
-#                                  adapters/grokbuild.toml
+#                                  adapters/grokbuild.toml; 1 where that fails
 #                     $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
 #                                  uses that subscription's own login, and no other
 # Seat state rides the hooks, not the screen: UserPromptSubmit/Stop/Notification carry
@@ -480,11 +480,11 @@ PY
 models)
   # `grok models` names the models this login runs (`  * grok-4.7 (default)`, `  - grok-4.6`)
   # and no effort: each takes the efforts the [catalog] table gives it, and one the table
-  # does not know goes unsaid.  A listing that fails, outlasts ten seconds or names nothing
-  # leaves the table as it is, and so does a host with no `timeout` to bound it (stock
-  # macOS): nothing waits on a listing it cannot stop.
-  ids=$(command -v timeout >/dev/null && command -v grok >/dev/null && timeout -k 1 10 grok models \
-    2>/dev/null | awk '($1 == "*" || $1 == "-") && $2 ~ /^[A-Za-z0-9._\/-]+$/ { print $2 }') || ids=""
+  # does not know goes unsaid.  A listing that fails or names nothing fails: config.catalog
+  # decides what stands in, and how long it waits.
+  ids=$(grok models 2>/dev/null \
+    | awk '($1 == "*" || $1 == "-") && $2 ~ /^[A-Za-z0-9._\/-]+$/ { print $2 }') && [ -n "$ids" ] \
+    || exit 1
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   python3 "$REPO/tools/catalog.py" grokbuild $ids ;;
 *)

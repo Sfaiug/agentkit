@@ -115,8 +115,8 @@ class OnlyWhatIsDrawn(unittest.TestCase):
         shown = lines(self.term.wait(lambda screen: "› Fable 5.1" in screen
                                      and "esc back" in screen))
         config = (self.home.path / ".agentkit" / "config.toml").read_bytes()
-        row = next(n for n, line in enumerate(shown) if line.startswith("  GPT-6-Astra "))
-        gap = len("  GPT-6-Astra") + 2
+        row = next(n for n, line in enumerate(shown) if line.startswith("  6 Astra "))
+        gap = len("  6 Astra") + 2
         self.assertEqual(shown[row][gap - 1], " ")
         self.term.type(point(gap, row + 1))
         after = lines(self.term.wait(lit_none))

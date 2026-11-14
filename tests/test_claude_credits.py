@@ -151,7 +151,7 @@ class Shown(unittest.TestCase):
                 "error": None}
         answer = subprocess.CompletedProcess([], 0, stdout=json.dumps(said), stderr="")
         with patch.object(config, "run_adapter", return_value=answer), \
-                patch.object(usage, "_resets", return_value=0.0):
+                patch.object(usage, "_resets", return_value={"resets": 0.0}):
             read = usage._probe(self.cfg, "anthropic", self.now)
         self.assertEqual((read["credits"], read["currency"]), (12.4, "USD"))
         kept = usage._kept({**read, "probed_at": self.now},
@@ -181,7 +181,7 @@ class Shown(unittest.TestCase):
                 "error": None}
         answer = subprocess.CompletedProcess([], 0, stdout=json.dumps(said), stderr="")
         with patch.object(config, "run_adapter", return_value=answer), \
-                patch.object(usage, "_resets", return_value=0.0):
+                patch.object(usage, "_resets", return_value={"resets": 0.0}):
             read = usage._probe(self.cfg, "anthropic", self.now)
         self.assertEqual(read["credits"], "unlimited")
         providers = usage._gate_flags({"anthropic": {**read, "resets": 0}}, self.now, self.cfg)

@@ -452,9 +452,9 @@ func (r *reads) conversations() []Item {
 		return names
 	}) {
 		for _, path := range glob(store.Root, store.Pattern) {
-			why := r.conversationStale(path, paths)
+			why := r.conversationStale(path, paths, store.Names)
 			if named := store.ID.FindStringSubmatch(filepath.Base(path)); why != "" && named != nil && r.free(store.Harness, named[1]) {
-				found = append(found, Item{"remove", "conversation", path, why, takeConversation(store.Harness, path, named[1])})
+				found = append(found, Item{"remove", "conversation", path, why, takeConversation(store, path, named[1])})
 			}
 		}
 	}
@@ -584,9 +584,10 @@ func glob(root, pattern string) []string {
 	return found
 }
 
-// conversationStale is why that conversation goes, "" where it stays (gc.conversation_stale).
-func (r *reads) conversationStale(path string, paths []string) string {
-	if !safe(path) || busy(path, paths) {
+// conversationStale is why that conversation goes, "" where it stays, its file safe with up to
+// `names` names (gc.conversation_stale).
+func (r *reads) conversationStale(path string, paths []string, names int) string {
+	if !safeNamed(path, names) || busy(path, paths) {
 		return ""
 	}
 	at, ok := lastFileWrite(path)

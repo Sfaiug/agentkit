@@ -33,8 +33,7 @@
 #                                  `seat` is the same login here, and is accepted and ignored
 #                     hooks        -> hooks are installed per launch by interactive; writes nothing
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
-#                                  `agy models` folded, else the [catalog] table of
-#                                  adapters/antigravity.toml
+#                                  `agy models` folded; 1 where that fails
 #                     $AGENTKIT_ACCOUNT names one of the provider's `accounts`: every verb then
 #                     uses that subscription's own login, and no other
 # Verified against agy 1.2.9; see tests/fixtures/README.md for the captures.
@@ -365,11 +364,9 @@ models)
   # `agy models` prints one id per model and effort beside its label, strongest first
   # (`gemini-3.8-flash-high<TAB>Gemini 3.8 Flash (High)`).  They fold into the model `run`
   # hands to --model, with the words it hands to --effort strongest last; an id with no
-  # effort word is a model agy runs at no effort, `none`.  A listing that fails,
-  # outlasts ten seconds or says nothing leaves the [catalog] table, and so does a host with
-  # no `timeout` to bound it (stock macOS): nothing waits on a listing it cannot stop.
-  listed=$(command -v timeout >/dev/null && command -v agy >/dev/null \
-    && timeout -k 1 10 agy ${DATA:+"$DATA"} models 2>/dev/null | awk -F'\t' '
+  # effort word is a model agy runs at no effort, `none`.  A listing that fails or says
+  # nothing fails: config.catalog decides what stands in, and how long it waits.
+  listed=$(agy ${DATA:+"$DATA"} models 2>/dev/null | awk -F'\t' '
     NF >= 2 {
       id = $1; label = $2; effort = ""
       if (match(id, /-(low|medium|high)$/)) {
@@ -386,10 +383,8 @@ models)
         for (j = 1; j <= 3; j++) if ((id, ladder[j]) in took) words = words (words == "" ? "" : " ") ladder[j]
         printf "%s\t%s\t%s\n", id, labels[id], (words == "" ? "none" : words)
       }
-    }') || listed=""
-  [ -n "$listed" ] && { printf '%s\n' "$listed"; exit 0; }
-  REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-  python3 "$REPO/tools/catalog.py" antigravity ;;
+    }') && [ -n "$listed" ] || exit 1
+  printf '%s\n' "$listed" ;;
 *)
   echo "usage: antigravity.sh run <model> <effort> <workspace> <prompt-file> <out-dir> [session-id] | antigravity.sh usage | antigravity.sh interactive <model> <effort> [session-id [new]] | antigravity.sh install | antigravity.sh login [again] | antigravity.sh logout | antigravity.sh forget | antigravity.sh login-end | antigravity.sh lend <home> [own] | antigravity.sh auth [seat] | antigravity.sh hooks | antigravity.sh models" >&2
   exit 2 ;;

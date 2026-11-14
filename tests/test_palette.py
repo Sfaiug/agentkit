@@ -49,7 +49,7 @@ class Palette(unittest.TestCase):
         for end in (stdin, stdout):
             self.addCleanup(end.close)
         self.addCleanup(os.close, self.master)
-        for target, name, value in ((terminal, "_RGB", False), (terminal, "_LIGHT", False),
+        for target, name, value in ((terminal, "_RGB", False), (terminal, "THEME", terminal.BLACK),
                                     (terminal, "_KEYED", b""), (sys, "stdin", stdin),
                                     (sys, "stdout", stdout)):
             patcher = patch.object(target, name, value)
@@ -91,8 +91,8 @@ class Palette(unittest.TestCase):
                                                               "-p", "#{client_termfeatures}"])
                     self.assertEqual(terminal.colour_depth(), depth)
                     self.assertEqual(terminal.styled("working", "working"),
-                                     "\033[38;2;0;103;198mworking\033[0m" if depth == 24 else
-                                     "\033[38;5;26mworking\033[0m")
+                                     "\033[38;2;77;163;255mworking\033[0m" if depth == 24 else
+                                     "\033[38;5;75mworking\033[0m")
                     with patch.dict(os.environ, {"NO_COLOR": ""}):
                         self.assertEqual(terminal.colour_depth(), 0)   # whatever tmux says
         # outside tmux nothing is asked of it
@@ -109,48 +109,47 @@ class Palette(unittest.TestCase):
                 self.sense()
                 self.assertIs(terminal._RGB, rgb)
 
-    def test_a_white_answer_turns_needs_you_orange_and_none_in_time_leaves_it_yellow(self):
+    def test_a_white_answer_puts_the_white_theme_in_force_and_none_in_time_the_black(self):
         self.assertFalse(self.sense(WHITE, ATTRIBUTES))
-        self.assertTrue(terminal._LIGHT)
+        self.assertEqual(terminal.THEME, terminal.WHITE)
         with patch.object(terminal, "colour_depth", return_value=24):
-            # yellow cannot be read on white; every other colour is the owner's on both
             for kind, rgb in (("accent", "0;103;198"), ("working", "0;103;198"),
-                              ("needs you", "222;104;0"), ("done", "0;126;70"),
-                              ("FAIL", "190;34;42"), ("dim", "108;112;134")):
+                              ("needs you", "142;94;0"), ("done", "0;121;53"),
+                              ("FAIL", "197;42;47"), ("dim", "111;117;126")):
                 self.assertIn(f"38;2;{rgb}m", terminal.styled("x", kind), kind)
             self.assertIn("38;2;0;103;198m", terminal.highlight(" row"))
-        # a dark answer, BEL-ended, and no answer at all within a tenth of a second: dark
+        # a dark answer, BEL-ended, and no answer at all within a second: black
         self.sense(b"\033]11;rgb:1e1e/1e1e/2e2e\007", ATTRIBUTES)
-        self.assertFalse(terminal._LIGHT)
-        terminal._LIGHT = True
+        self.assertEqual(terminal.THEME, terminal.BLACK)
+        terminal.THEME = terminal.WHITE
         self.assertTrue(self.sense())
-        self.assertFalse(terminal._LIGHT)
+        self.assertEqual(terminal.THEME, terminal.BLACK)
         with patch.object(terminal, "colour_depth", return_value=24):
-            self.assertIn("38;2;246;196;0m", terminal.styled("x", "needs you"))
+            self.assertIn("38;2;215;146;0m", terminal.styled("x", "needs you"))
 
     def test_attributes_alone_end_the_wait_at_once_and_read_as_dark(self):
         # tmux, in a popup: no answer to OSC 11, its own to DA1 at once
-        terminal._LIGHT = True
+        terminal.THEME = terminal.WHITE
         self.assertFalse(self.sense(b"\033[?1;2;4c"))
-        self.assertFalse(terminal._LIGHT)
+        self.assertEqual(terminal.THEME, terminal.BLACK)
         self.assertIsNone(terminal.read_key(0.2))
 
     def test_the_answer_never_reaches_read_key_as_keys(self):
         # a key typed while the answers were awaited is kept for read_key, the answers are not,
         # and one typed after them is the keyboard's own
         self.sense(b"j", WHITE, b"k", ATTRIBUTES, b"l")
-        self.assertTrue(terminal._LIGHT)
+        self.assertEqual(terminal.THEME, terminal.WHITE)
         for char in "jkl":
             self.assertEqual(terminal.read_key(0.2), terminal.Key("char", char))
         self.assertIsNone(terminal.read_key(0.2))
-        # answers come after their tenth of a second are swallowed whole by read_key
+        # answers come after their second are swallowed whole by read_key
         self.sense()
-        self.assertFalse(terminal._LIGHT)
+        self.assertEqual(terminal.THEME, terminal.BLACK)
         os.write(self.master, WHITE + ATTRIBUTES + b"k")
         self.assertEqual(terminal.read_key(0.5), terminal.Key("char", "k"))
         os.write(self.master, b"\033]11;rgb:ffff/ffff/ffff\007")
         self.assertIsNone(terminal.read_key(0.2))
-        # and one cut short by the tenth of a second is swallowed from where it was cut
+        # and one cut short by the second is swallowed from where it was cut
         self.sense(WHITE[:9])
         os.write(self.master, WHITE[9:] + ATTRIBUTES + b"q")
         self.assertEqual(terminal.read_key(0.5), terminal.Key("char", "q"))
@@ -182,7 +181,7 @@ class Bars(Sandbox):
         self.cfg["providers"].update({name: {"colour": own} for name, own in owns.items() if own})
         with patch.object(terminal, "colour_depth", return_value=24):
             dark = [terminal.styled("█", menu.colour(self.cfg, name)) for name in owns]
-            with patch.object(terminal, "_LIGHT", True):
+            with patch.object(terminal, "THEME", terminal.WHITE):
                 light = [terminal.styled("█", menu.colour(self.cfg, name)) for name in owns]
                 # a fade is a colour as it reads here already: light toward a light background
                 fade = terminal.faded("dim", 0.5)
@@ -197,7 +196,7 @@ class Bars(Sandbox):
         self.assertEqual(light, ["\033[38;2;0;0;0m█\033[0m", "\033[38;2;55;55;63m█\033[0m",
                                  "\033[38;2;48;48;48m█\033[0m", "\033[38;2;217;119;87m█\033[0m"])
         with patch.object(terminal, "colour_depth", return_value=8), \
-                patch.object(terminal, "_LIGHT", True):
+                patch.object(terminal, "THEME", terminal.WHITE):
             self.assertEqual(terminal.styled("█", menu.colour(self.cfg, "acme")), "\033[30m█\033[0m")
 
 

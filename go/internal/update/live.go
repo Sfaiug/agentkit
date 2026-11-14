@@ -30,8 +30,7 @@ func LiveReady(repo string) bool {
 
 // GoLive is Python's go_live where no tests/live.sh holds a move: fetch silently offline, move
 // only when ahead, and retry an install owed until it passes, under the same move lock.  A move
-// to an origin/main holding one waits for its check: held while a login it lends would lapse
-// first (liveHeld), else Python's to start.
+// to an origin/main holding one waits for its check (startLive).
 func GoLive(repo string, say func(string)) error {
 	if !LiveHere(repo) {
 		return nil
@@ -65,8 +64,10 @@ func GoLive(repo string, say func(string)) error {
 		if err != nil {
 			return err
 		}
-		if code == 0 && !liveHeld(say) {
-			return ErrPython
+		if code == 0 {
+			if err := startLive(checkout, target, env, say); err != nil {
+				return err
+			}
 		}
 		moved = code != 0
 	}

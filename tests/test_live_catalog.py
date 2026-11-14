@@ -3,7 +3,8 @@
 `adapters/claude.sh models` asks Anthropic's models API a page at a time and answers each model
 with its label and the efforts its `capabilities.effort` supports, weakest first, `none` where
 it takes none; `adapters/muse.sh models` asks `muse serve`'s `model/list`.  A listing that
-fails, is slow or names nothing leaves the `[catalog]` table, as before.
+fails or names nothing fails, and config.catalog decides what stands in
+(tests/test_catalog.py).
 
 Offline: every HOME is a temporary directory holding a dummy token, $ANTHROPIC_BASE_URL names a
 fake models API on the loopback, and `muse` is a stub first on PATH that answers MSP from the
@@ -14,17 +15,13 @@ import http.server
 import json
 import shlex
 import subprocess
-import sys
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
-from agentkit import config  # noqa: E402
 
 TOKEN = "sk-ant-oat01-acme-worker"
 LEVELS = ("low", "medium", "high", "xhigh", "max")
@@ -60,11 +57,10 @@ MUSE_LIST = {"models": [
      "variants": "unknown"},
 ], "profileId": "tbh", "providerId": "meta", "source": "providerCatalog"}
 
-# A stub `muse`: logs its arguments and what it was sent, sleeps its seconds, then answers.
+# A stub `muse`: logs its arguments and what it was sent, then answers.
 MUSE = """#!/usr/bin/env bash
 printf '%s\\n' "$*" >>"$STUB_LOG"
 cat >>"$STUB_LOG.stdin"
-[ {sleep} = 0 ] || sleep {sleep}
 cat -- {listing}
 exit {rc}
 """
@@ -75,9 +71,6 @@ class FakeAPI(http.server.BaseHTTPRequestHandler):
         server = self.server
         server.asked.append((self.path, dict(self.headers)))
         after = parse_qs(urlsplit(self.path).query).get("after_id", [None])[0]
-        if server.slow:
-            server.release.wait(30)
-            return
         if after in server.fail or urlsplit(self.path).path != "/v1/models":
             self.send_error(500)
             return
@@ -116,32 +109,26 @@ class LiveCatalog(unittest.TestCase):
         self.stub_muse(rc=1)
         self.api = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeAPI)
         self.api.daemon_threads = True
-        self.api.asked, self.api.fail, self.api.slow = [], set(), False
-        self.api.release = threading.Event()
+        self.api.asked, self.api.fail = [], set()
         threading.Thread(target=self.api.serve_forever, daemon=True).start()
         self.addCleanup(self.api.server_close)
         self.addCleanup(self.api.shutdown)
-        self.addCleanup(self.api.release.set)
         # a clean environment: no login, account or config home of the caller's reaches it
         self.env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/local/bin:/usr/bin:/bin",
                     "LANG": "C.UTF-8", "STUB_LOG": str(self.log),
                     "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{self.api.server_address[1]}"}
 
-    def stub_muse(self, listing="/dev/null", rc=0, sleep=0):
+    def stub_muse(self, listing="/dev/null", rc=0):
         path = self.bin / "muse"
-        path.write_text(MUSE.format(listing=shlex.quote(str(listing)), rc=rc, sleep=sleep))
+        path.write_text(MUSE.format(listing=shlex.quote(str(listing)), rc=rc))
         path.chmod(0o755)
 
-    def models(self, harness, **env):
+    def models(self, harness, code=0, **env):
         proc = subprocess.run(["bash", str(REPO / f"adapters/{harness}.sh"), "models"],
                               capture_output=True, text=True, timeout=60,
                               env={**self.env, **env})
-        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.returncode, code, proc.stderr)
         return lines(proc.stdout)
-
-    def table(self, harness):
-        return [[model["id"], model["label"], " ".join(model["efforts"])]
-                for model in config.catalog_table(harness)]
 
     # -- Claude -------------------------------------------------------------------------------
 
@@ -178,20 +165,15 @@ class LiveCatalog(unittest.TestCase):
         self.assertEqual([headers["Authorization"] for _, headers in self.api.asked[::3]],
                          ["Bearer sk-ant-oat01-acme-second", "Bearer sk-ant-oat01-acme-seat"])
 
-    def test_claude_falls_back_to_the_table_when_the_api_fails_or_is_slow(self):
-        table = self.table("claude")
+    def test_claude_fails_when_the_api_fails_or_no_login_can_ask(self):
         self.api.fail = {None}                                   # refused at once
-        self.assertEqual(self.models("claude"), table)
+        self.assertEqual(self.models("claude", 1), [])
         self.api.fail = {"claude-haiku-4-5-20251001"}            # the last page refused
-        self.assertEqual(self.models("claude"), table, "never half a listing")
-        self.api.fail, self.api.slow = set(), True
-        started = time.monotonic()
-        self.assertEqual(self.models("claude"), table)
-        self.assertLess(time.monotonic() - started, 15, "the listing is given ten seconds")
+        self.assertEqual(self.models("claude", 1), [])                              # never half a listing
         # and with no login at all nothing is asked
         (self.home / ".agentkit/secrets/claude_oauth_token").unlink()
         asked = len(self.api.asked)
-        self.assertEqual(self.models("claude"), table)
+        self.assertEqual(self.models("claude", 1), [])
         self.assertEqual(len(self.api.asked), asked)
 
     # -- Muse ---------------------------------------------------------------------------------
@@ -217,18 +199,13 @@ class LiveCatalog(unittest.TestCase):
                          ["initialize", "initialized", "model/list"])
         self.assertEqual(sent[2]["id"], 2)
 
-    def test_muse_falls_back_to_the_table_when_its_list_fails_is_slow_or_empty(self):
-        table = self.table("muse")
+    def test_muse_fails_when_its_list_fails_or_is_empty(self):
         self.stub_muse(self.muse_answer(MUSE_LIST), rc=1)
-        self.assertEqual(self.models("muse"), table)
+        self.assertEqual(self.models("muse", 1), [])
         # a login-less host answers from a bundled catalog with nothing in it
         self.stub_muse(self.muse_answer({"models": [], "profileId": None, "providerId": "meta",
                                          "source": "bundledCatalog"}))
-        self.assertEqual(self.models("muse"), table)
-        self.stub_muse(self.muse_answer(MUSE_LIST), sleep=30)
-        started = time.monotonic()
-        self.assertEqual(self.models("muse"), table)
-        self.assertLess(time.monotonic() - started, 20, "the listing is given ten seconds")
+        self.assertEqual(self.models("muse", 1), [])
 
 
 if __name__ == "__main__":

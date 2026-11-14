@@ -15,6 +15,9 @@ func Decision(record *Object, dir, word, why, move string, report bool) string {
 		rounds = Text(record.Get("rounds"))
 	}
 	spent := fmt.Sprintf("(%d of %s)", len(record.List("round_summaries")), rounds)
+	if ReviewOff(record) {
+		spent = "(no review)"
+	}
 	why = strings.Join(strings.Fields(why), " ")
 	if why == "" {
 		why = "no reason was recorded"

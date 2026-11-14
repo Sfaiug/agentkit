@@ -11,8 +11,8 @@ import (
 	"agentkit/internal/suitetimes"
 )
 
-// Each piece here is handed the record of the tests' seconds (AK_TIMES), as one there is in its
-// command, so the pieces of one suite cut the same shares wherever each runs.
+// Each piece here is handed the record of the tests' seconds in the file AK_TIMES names, as one
+// there is, so the pieces of one suite cut the same shares wherever each runs.
 func TestEachPieceHereIsHandedTheTimes(t *testing.T) {
 	l := rig(t, time.Minute)
 	t.Setenv("AK_HOST_READINGS", `{"cpus":8,"free_mb":16400,"mem_total_mb":65536}`)
@@ -21,7 +21,7 @@ func TestEachPieceHereIsHandedTheTimes(t *testing.T) {
 	}
 	suitetimes.Keep(l.workspace, map[string]float64{"t.sh": 1.5})
 	times := suitetimes.Handed(l.workspace)
-	if ok, text := l.checked(t, `printf %s "$AK_TIMES" >"times-${AK_SHARD%/*}" # AK_SHARD`); !ok || times == "" {
+	if ok, text := l.checked(t, `cat "$AK_TIMES" >"times-${AK_SHARD%/*}" # AK_SHARD`); !ok || times == "" {
 		t.Fatalf("ok=%v, times %q:\n%s", ok, times, text)
 	}
 	handed, _ := filepath.Glob(filepath.Join(l.workspace, "times-*"))

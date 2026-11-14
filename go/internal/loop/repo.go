@@ -306,6 +306,6 @@ func (r *repoPlace) head(_ string, record *run.Object) []string {
 		executor = record.Str("executor")
 	}
 	return append(parts, "worktree: "+record.Str("worktree"),
-		"executor: "+executor+"   reviewer: "+run.Field(record, "reviewer", "None"),
+		"executor: "+executor+"   reviewer: "+reviewedBy(record),
 		"", "## Diff stat", "```", stat, "```")
 }

@@ -51,3 +51,28 @@ func TestAReviewSaysItsVerdictAndItsText(t *testing.T) {
 		t.Fatalf("verdict %s, text %q, want %q", review.Verdict(), review.Text(), want)
 	}
 }
+
+func TestAFollowUpsCheckRunsWithoutItsReviewersBound(t *testing.T) {
+	const check = "tools/test.sh tests/test_api.py::test_cleanup -q"
+	for proof, each := range map[string]struct {
+		code string
+		want string
+	}{
+		"timeout 120 " + check: {"1", check},
+		"timeout 15s " + check: {"1", check},
+		"timeout 20 " + check:  {"124", "timeout 20 " + check},
+	} {
+		path := filepath.Join(t.TempDir(), File)
+		text := `{"kind": "turn", "workspace": "/w", "role": "reviewer", "findings": []}` + "\n" +
+			`{"kind": "follow-up", "path": "api.py", "line": 2, "what": "expired rows stay", "why": "cleanup lags", "evidence": {"run": "` +
+			proof + `", "returncode": ` + each.code + `, "output": ""}}` + "\n" + `{"kind": "done"}` + "\n"
+		if err := os.WriteFile(path, []byte(text), 0o666); err != nil {
+			t.Fatal(err)
+		}
+		review, _ := Read(path)
+		checks, _, _ := review.FollowupRecords()
+		if got := checks.Str(review.Followups()[0].(string)); got != each.want {
+			t.Errorf("%s ending in %s: check %q, want %q", proof, each.code, got, each.want)
+		}
+	}
+}

@@ -39,13 +39,12 @@ STALL_RESUME_GRACE = 600        # the tick stopped this loop and its resume is o
 
 
 def followup_place(text):
-    """The review's site, independent of its wording or Markdown decoration: the whole path a
-    follow-up begins with (`hand_in.item_text`), past the backticks or stars that open it, its
-    own spaces and stars and all, so `beta app/api.py:1` is not `alpha app/api.py:1` nor
-    `beta*/api.py:1` `alpha*/api.py:1`, and its line."""
-    site = re.match(r"[`*\s]*(?:\./)?(.+?):(\d+)\b", text)
+    """The review's site, independent of its wording: the path a follow-up begins with
+    (`hand_in.item_text`, relative to the checkout), every character of it, and its line, so
+    `beta app/api.py:1`, `beta*/api.py:1` and `*alpha/api.py:1` are not `alpha...`'s."""
+    site = re.match(r".+?:\d+\b", text)
     if site:
-        return f"{site[1]}:{int(site[2])}"
+        return site[0]
     return text.splitlines()[0].strip()
 
 
@@ -103,8 +102,7 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
     target's `tip`: the target is everybody's.  A suite split holds its line forever, and its repository while
     open.
     """
-    for directory in run_record.run_dirs():
-        other = run_record.read_state(directory) or {}
+    for directory, other in run_record.runs_now():
         if split:
             if (other.get("repo") == state.get("repo") and other.get("split_suite")
                     and (other["split_suite"] == split or followup_open(other))):
@@ -2096,7 +2094,9 @@ def reap(run_dir, state, memory_probe=None):
                 # events are what say it was the cap, and stopping drops them.
                 conclude_memory_cap(run_dir, state, cap_reason)
             else:
-                reason = ("Queued launcher exited before starting work." if status == "queued" else
+                restart = transitions.restart_ended(state)
+                reason = ("A restart of the host ended the run's loop." if restart else
+                          "Queued launcher exited before starting work." if status == "queued" else
                           "Run process exited or its identity changed.")
                 if status == "running":
                     turns.stop_run_tree(state)
@@ -2105,11 +2105,12 @@ def reap(run_dir, state, memory_probe=None):
                 if transitions.tick_resumes(state) and not (ending and not ending.get("resumed_at")):
                     # Whoever notices the death records it, so the tick's dead-loop pass reads
                     # this record as a loop to carry on rather than as an interruption somebody
-                    # was already told about -- and so it counts towards the third death. Once:
-                    # one the tick recorded and held for its backoff is already there.
+                    # was already told about -- and so it counts towards the third death, unless
+                    # a restart caused it. Once: one the tick recorded and held for its backoff
+                    # is already there.
                     state["deaths"] = [*(state.get("deaths") or []),
                                        {"at": time.time(), "pid": state.get("pid"),
-                                        "reason": reason}]
+                                        "reason": reason, **({"restart": True} if restart else {})}]
                 run_record.save_state(run_dir, state)
         elif status == "interrupted" and not state.get("interrupted_at"):
             transitions.interrupt(state, state.get("error") or "Earlier interruption; detection time recorded now.")

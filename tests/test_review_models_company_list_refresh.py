@@ -29,8 +29,8 @@ class CompanyListRefresh(Opened):
                 row["values"] = scores
         self.home.write(".agentkit/state/matrix.json", held)
         term.keys("Right")
-        shown = self.whole(term, "esc done", "  Fenix  ● Fenix 1")
-        self.assertEqual(shown[5:7], ["  Fenix  ● Fenix 1", "› + add a company"])
+        shown = self.whole(term, "  Fenix  ■ Fenix 1")
+        self.assertEqual(shown[5:7], ["  Fenix  ■ Fenix 1", "› + add a company"])
 
 
 if __name__ == "__main__":

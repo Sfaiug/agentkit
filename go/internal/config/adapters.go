@@ -143,6 +143,16 @@ func plain(value any) any {
 	return value
 }
 
+// PlanName is what a screen calls plan, one that harness's `login-end` names, as Python's
+// Harness.plan_name: its manifest's `[plan_names]` word for it, else those words.
+func PlanName(harness, plan string) string {
+	names, _ := Section(harness, "plan_names")
+	if named, ok := names[plan].(string); ok {
+		return named
+	}
+	return plan
+}
+
 // Words is the strings a harness's manifest lists under one key of one section.
 func Words(harness, section, key string) ([]string, error) {
 	manifests, err := manifests()
@@ -230,10 +240,16 @@ func SeatEnv() ([]string, error) {
 // Programs is the names a harness's process goes by, as patterns: each adapter's own name,
 // the first word of its `[update] version` command (`grok` for Grok's), and its `[launch]
 // programs`, what that command goes on to run (Muse's launcher execs `muse-bin-<build>`).
-func Programs() ([]string, error) {
+func Programs() ([]string, error) { return ProgramsOf("") }
+
+// ProgramsOf is Programs of that harness alone, every harness's for "" (orch.agent_programs).
+func ProgramsOf(harness string) ([]string, error) {
 	manifests, err := manifests()
 	var names []string
 	for name, root := range manifests {
+		if harness != "" && name != harness {
+			continue
+		}
 		names = append(names, name)
 		if version := words(root, "update", "version"); len(version) > 0 {
 			names = append(names, path.Base(version[0]))

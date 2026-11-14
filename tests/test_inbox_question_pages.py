@@ -48,7 +48,7 @@ class InboxQuestionPages(unittest.TestCase):
         stack.enter_context(redirect_stdout(io.StringIO()))
         stack.enter_context(redirect_stderr(io.StringIO()))
         config.ensure_dirs()
-        self.typed, self.posts = [], []
+        self.typed, self.posts, self.composer = [], [], ""
         seat = {"name": SEAT, "path": str(root), "created": 100, "attached": False,
                 "exited": False, "legacy": False}
         stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
@@ -60,11 +60,13 @@ class InboxQuestionPages(unittest.TestCase):
         stack.enter_context(patch.object(notify.urllib.request, "urlopen", side_effect=self.post))
 
     def tmux(self, *args, **_kw):
-        if args[0] == "send-keys" and "-l" in args:
-            self.typed.append(args[-1])
+        if args[0] == "send-keys":
+            # what is typed shows in the composer until its Enter takes it
+            self.composer = args[-1] if "-l" in args else ""
+            self.typed += [args[-1]] if "-l" in args else []
         if args[0] == "display-message" and args[-1] == "#{socket_path}\t#{session_name}":
             return 0, f"/fake/agentkit-test\t{SEAT}"
-        return 0, "❯" if args[0] == "capture-pane" else ""     # an empty composer
+        return 0, f"❯ {self.composer}" if args[0] == "capture-pane" else ""
 
     def post(self, request, **_kw):
         self.posts.append(json.loads(request.data))

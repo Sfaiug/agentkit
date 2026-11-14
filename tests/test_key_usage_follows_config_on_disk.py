@@ -102,7 +102,7 @@ class UsageFollowsConfigOnDisk(unittest.TestCase):
         owner = self.open()                           # `c` never probes; the menu open before does
         owner.keys("c")
         owner.wait("› Fable 5.1")
-        owner.keys("Down", "Down", "Down")            # past GPT-6-Astra and `Models`
+        owner.keys("Down", "Down", "Down")            # past 6 Astra and `Models`
         owner.wait("› Subscriptions")
         owner.keys("Enter")
         owner.wait(lambda screen: title(screen) == PAGE)

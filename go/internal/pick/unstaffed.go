@@ -12,8 +12,8 @@ import (
 // each can, or where every reviewer is barred from reviewing, which Python words otherwise.
 func (r *Rules) Unstaffed(cannot map[string]string) string {
 	able := func(name string) bool { return cannot[name] == "" }
-	lacksExecutor, lacksReviewer := !slices.ContainsFunc(r.executors, able), !slices.ContainsFunc(r.reviewers, able)
-	if len(r.reviewers) == 0 || !lacksExecutor && !lacksReviewer {
+	lacksExecutor, lacksReviewer := !slices.ContainsFunc(r.executors, able), !r.alone && !slices.ContainsFunc(r.reviewers, able)
+	if !r.alone && len(r.reviewers) == 0 || !lacksExecutor && !lacksReviewer {
 		return ""
 	}
 	var missing, why []string

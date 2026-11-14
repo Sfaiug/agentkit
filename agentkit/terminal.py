@@ -15,39 +15,34 @@ from collections import namedtuple
 from functools import lru_cache, wraps
 
 from . import guard, motion, warm
-from .palette import PALETTE
+from .themes import BLACK, ROLES, WHITE
 
-# glyph, ASCII glyph, colour of the palette, eight-colour tone, emphasis. Words remain the
+# glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
-# table, and its colour is the same on any background but where LIGHT gives one.
+# table, its colour the role's in the theme in force (`THEME`).
 # The five words a session reads, and the two presentation-only kinds the screens ask for
 # by name: `dim` for a note beside a row, `FAIL` for a verdict, which is no session state.
 STATE_STYLES = {
-    "needs you": ("!", "!", "yellow", "33", "1"),
-    "working": ("●", "*", "blue", "36", ""),
-    "done": ("✓", "v", "green", "32", ""),
+    "needs you": ("!", "!", "warning", "33", "1"),
+    "working": ("●", "*", "accent", "36", ""),
+    "done": ("✓", "v", "success", "32", ""),
     # nothing running, asked or owed: quiet, as the eye should pass over it
-    "idle": ("○", "o", "grey", "37", "2"),
-    # its subscriptions are spent: red, as nothing moves until usage comes back or the owner
+    "idle": ("○", "o", "dim", "37", "2"),
+    # its subscriptions are spent: an error, as nothing moves until usage comes back or the owner
     # moves it, and idle's open circle says it comes back by itself
-    "out of usage": ("○", "o", "red", "31", ""),
-    "FAIL": ("×", "x", "red", "31", ""),
-    "dim": ("·", ".", "grey", "37", "2"),
+    "out of usage": ("○", "o", "error", "31", ""),
+    "FAIL": ("×", "x", "error", "31", ""),
+    "dim": ("·", ".", "dim", "37", "2"),
     # No session word: a run parked on something that lifts by itself says what it waits for
     # instead of a word, and the open circle is what says nobody has to act on it.
-    "waiting": ("○", "o", "grey", "37", "2"),
+    "waiting": ("○", "o", "dim", "37", "2"),
 }
-# A word's own colour on a light background (`sense`): yellow cannot be read on white.
-LIGHT = {"needs you": "orange"}
 GREY = 0.15        # saturation under which a colour is a grey rather than a hue
-# The background the pointer lights a key-line item or a cell on: a step off the terminal's own,
-# Mocha's surface0 on a dark one and Latte's on a light one.
-POINTED = {False: "313244", True: "ccd0da"}
 # The kinds a screen asks `styled` for by what they mean, and the word whose colour each is.
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
-_LIGHT = False     # its background is light (`sense`)
+THEME = BLACK      # the theme in force: white where `sense` finds the background light
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
@@ -78,11 +73,13 @@ def style_of(word):
     return STATE_STYLES.get(word) or STATE_STYLES.get(str(word).split(" ")[0])
 
 
-def colour(word, light=False):
-    """`word`'s colour of the palette -- a state's, or a kind's as `styled` reads it -- with the
-    text that reads on it; `light`, on a light background."""
-    word = KINDS.get(word, word)
-    return PALETTE[light and LIGHT.get(word) or STATE_STYLES[word][2]]
+def colour(word, tmux=False):
+    """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
+    force; with `tmux`, in a tmux format (a seat's bar, a popup's border), black's whichever
+    process writes it: tmux shows it on a terminal ak never asks, and the menu's writes and the
+    tick's never disagree."""
+    role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
+    return ROLES[role][BLACK if tmux else THEME]
 
 
 def glyph(word):
@@ -143,7 +140,7 @@ def on_background(kind):
     """A caller's own colour -- `#RRGGBB`, or a kind as `styled` reads it -- as it reads here: on
     a light background a light grey is drawn as its mirror tone, so a white company reads black;
     a hue or a dark grey reads on both."""
-    if _LIGHT and kind.startswith("#") and light_grey(kind[1:]):
+    if THEME == WHITE and kind.startswith("#") and light_grey(kind[1:]):
         return "#" + "".join(f"{255 - int(kind[i:i + 2], 16):02x}" for i in (1, 3, 5))
     return kind
 
@@ -157,10 +154,10 @@ def faded(word, amount):
     """`word`'s colour -- or a kind's, as `styled` reads it -- `amount` (0 to 1) of the way to the
     background, or with a negative one that far toward the foreground, where it is lit; as
     `#RRGGBB` for `styled`."""
-    rgb = word[1:] if word.startswith("#") else colour(word, _LIGHT).rgb
-    to, amount = (255 if _LIGHT else 0) if amount >= 0 else (0 if _LIGHT else 255), abs(amount)
-    return "#" + "".join(f"{round(int(rgb[i:i + 2], 16) * (1 - amount) + to * amount):02x}"
-                         for i in (0, 2, 4))
+    rgb = word[1:] if word.startswith("#") else colour(word)
+    to, amount = bytes.fromhex(colour("background" if amount >= 0 else "text")), abs(amount)
+    return "#" + "".join(f"{round(c * (1 - amount) + t * amount):02x}"
+                         for c, t in zip(bytes.fromhex(rgb), to))
 
 
 def fade(text, amount):
@@ -171,10 +168,10 @@ def fade(text, amount):
     depth = colour_depth()
     if amount <= 0 or depth <= 8:
         return text
-    back = 255 if _LIGHT else 0
+    back, fore = bytes.fromhex(colour("background")), bytes.fromhex(colour("text"))
 
     def tone(rgb):
-        mixed = [round(c * (1 - amount) + back * amount) for c in rgb or (255 - back,) * 3]
+        mixed = [round(c * (1 - amount) + b * amount) for c, b in zip(rgb or fore, back)]
         return ("\033[38;2;{};{};{}m".format(*mixed) if depth == 24 else
                 f"\033[38;5;{xterm_colour(''.join(f'{c:02x}' for c in mixed))}m")
 
@@ -368,7 +365,7 @@ def styled(text, kind):
         # and takes the nearest the terminal has, as a state's colour does
         own = kind.startswith("#") and kind[1:]
         tone, emphasis = (basic_colour(own), "") if own else STATE_STYLES[word][3:]
-        rgb = own or colour(word, _LIGHT).rgb
+        rgb = own or colour(word)
         code = ("38;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4))
                 if depth == 24 else f"38;5;{xterm_colour(rgb)}" if depth == 256 else tone)
         if kind == "dim" and depth == 8:
@@ -552,20 +549,24 @@ def key_line(text, term_width=None, first=None):
 NO_PLAN = "no plan yet"     # a working seat's count where it has no plan (`plan_bar`)
 
 
-def plan_bar(done, total, room=8, least=8, word="working", tmux=False):
+def plan_bar(done, total, room=8, least=8, word="working", tmux=False, tasks=0):
     """A seat's progress in `room` cells, its count included: a smooth line of how much of its
-    plan is done (`share_line`), then `done of total` -- never under `least` cells of line, which
-    a row too short for it then draws under itself.  It says nothing of the tasks in flight,
-    which the line under a highlighted row has.  With no `least`, a room too small for a cell of
-    line beside the count draws the count alone.  With no plan (`total` 0) it is the same line
-    with nothing done, `no plan yet` in the count's place."""
+    plan is done (`share_line`), then `done of total`, then ` · 2 tasks` while it has `tasks` in
+    flight, `, 2 tasks` without UTF-8 -- never under `least` cells of line, which a row too short
+    for it then draws under itself.  The count stays the plan's, as a task mostly builds a plan line, and the tasks
+    follow it (the owner's pick of 11 Nov 2026).  With no `least`, a room too small for a cell
+    of line beside the count draws the count alone, and one too small for its tasks too the
+    plan's count alone.  With no plan (`total` 0) it is the same line with nothing done, `no
+    plan yet` in the count's place."""
     total = max(0, int(total or 0))
     done = max(0, min(int(done or 0), total))
     count = f"{done} of {total}" if total else NO_PLAN
-    size = max(least, room - len(count) - 1)
+    joint = " · " if utf8() else ", "
+    going = f"{count}{joint}{tasks} task{'s' * (tasks != 1)}" if tasks else count
+    size = max(least, room - len(going) - 1)
     if size < 1:
-        return count
-    return share_line(done / (total or 1), size, word, tmux) + f" {count}"
+        return going if len(going) <= room else count
+    return share_line(done / (total or 1), size, word, tmux) + f" {going}"
 
 
 def share_parts(share, size):
@@ -581,12 +582,10 @@ def share_parts(share, size):
 
 def share_line(share, size, word="working", tmux=False):
     """The bar (`share_parts`) its full part in `word`'s colour, the rest dim.  `tmux` draws it
-    as a tmux format, a seat's bar's, the same line in a dark terminal's colours whichever
-    process writes the bar, as the bar's colours are, so the menu's draws and the tick's never
-    disagree."""
+    as a tmux format, a seat's bar's (`colour`)."""
     cells, rest = share_parts(share, size)
     if tmux:
-        return "".join(f"#[fg=#{colour(kind).rgb}]{text}"
+        return "".join(f"#[fg=#{colour(kind, tmux)}]{text}"
                        for kind, text in ((word, cells), ("dim", rest)) if text) + "#[default]"
     if colour_depth() <= 8:   # nothing breathes there
         return styled(cells, word) + styled(rest, "dim")
@@ -605,10 +604,12 @@ def effort_cells(count, filled):
 
 
 def toggle(mark, width, kind=None):
-    """A mark -- `●`, `■`, their open `○`, `□` -- in its column `width` cells wide, the one way a
-    screen draws one and its frames move it (motion.toggled): ` ■ ` from the column's middle in
-    `kind`, dim where it is off, reversed where the keys are, bracketed `[■]` where there is no
-    colour to reverse; a cell's words, `● Acme 5` on the company list, are drawn as one."""
+    """A mark -- `●` and its open `○` for one of several and for a switch that says its word,
+    `■` and `□` where any may be on -- in its column `width` cells wide, the one way a screen
+    draws one and its frames move it (motion.toggled): ` ■ ` from the column's middle in `kind`,
+    the accent where it is on and dim where it is off, reversed where the keys are, bracketed
+    `[■]` where there is no colour to reverse; a cell's words, `■ Acme 5` on the company list,
+    are drawn as one."""
     size = cells(mark) + 2
     shown, lead = f" {mark} ", (width - size) // 2
     if kind == "reverse" and not colour_depth():
@@ -987,14 +988,14 @@ def sense():
     True colour where COLORTERM does not say so: inside tmux, when its client has the `RGB`
     (or `Tc`) feature -- tmux and ssh both drop COLORTERM on the way in -- as the popup was
     handed them (FEATURES_ENV), else as tmux says, which takes a process.  And whether the
-    background is light, from the terminal's answer to OSC 11 within a tenth of a second; no
+    background is light, from the terminal's answer to OSC 11 within a second; no
     answer by then is a dark one.  Its attributes are asked for after it (DA1), which every
     terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
-    is none, so a terminal that never answers it -- tmux, in a popup -- costs no tenth.  The
+    is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
     answers are read here and never as keys: anything typed while they were awaited is kept for
     `read_key`, and one that comes later is `_sequence`'s.
     """
-    global _RGB, _LIGHT, _KEYED
+    global _RGB, THEME, _KEYED
     features = os.environ.get(FEATURES_ENV)
     if features is None and os.environ.get("TMUX"):
         try:
@@ -1007,7 +1008,7 @@ def sense():
     _RGB = bool({"RGB", "Tc"} & set((features or "").strip().split(",")))
     fd = sys.stdin.fileno()
     os.write(sys.stdout.fileno(), b"\033]11;?\033\\\033[c")
-    heard, until = b"", time.monotonic() + 0.1
+    heard, until = b"", time.monotonic() + 1     # a busy host takes most of one to pass it on
     while not _ATTRIBUTES.search(heard):
         left = until - time.monotonic()
         if left <= 0 or not select.select([fd], [], [], left)[0]:
@@ -1023,7 +1024,7 @@ def sense():
                       found.group(1)) if found else None
     red, green, blue = ([int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
                         if colour else (0, 0, 0))
-    _LIGHT = 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5   # its luma, past half way
+    THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK   # its luma
 
 
 def _byte(fd, wait=None):
@@ -1306,7 +1307,7 @@ def pointer_spot(spots):
 
 def lit(lines, spots):
     """`lines`, a screen from its first row, with the cell under the pointer -- a key-line item, a
-    cell of a row -- on a subtle background (POINTED), in place of the reverse the keys give a
+    cell of a row -- on the theme's selection, in place of the reverse the keys give a
     cell, so the pointer and the keys never show two; at eight colours it is reversed.  `spots`
     are the screen's, kept as what the pointer is read against (`read_key`), each row given the
     line it is drawn on (`under`).  Rows are the
@@ -1330,7 +1331,7 @@ def lit(lines, spots):
             or not 0 < _POINTER.row <= len(lines)):
         return lines
     _PAINTED = [*lines[:_POINTER.row - 1],
-                backed(lines[_POINTER.row - 1], POINTED[_LIGHT], _POINTED.first, _POINTED.last),
+                backed(lines[_POINTER.row - 1], colour("selection"), _POINTED.first, _POINTED.last),
                 *lines[_POINTER.row:]]
     return _PAINTED
 
@@ -1352,7 +1353,7 @@ def pointed(row, column, text):
     if first > last:
         return text
     # A shake's reverse can start before the cell under the pointer.
-    return backed(text.replace("\033[7m", ""), POINTED[_LIGHT], first, last)
+    return backed(text.replace("\033[7m", ""), colour("selection"), first, last)
 
 
 def cell_texts(line):
@@ -1433,9 +1434,27 @@ def relight(spots=None):
 
 def _cleared(line):
     """`line`, then its row's tail cleared, so no cell that is text before and after is ever blank
-    between.  A line filling the last column gets no clear: it leaves the cursor on that column,
+    between.  A line ending on the last column gets no clear: it leaves the cursor on that column,
     and a clear there erases it -- the clock's last digit on a terminal no wider than the layout."""
-    return line if cells(line) >= width() else f"{line}\033[K"
+    return line if cells(line) and not (_PAD + cells(line)) % (width() + 2 * _PAD) \
+        else f"{line}\033[K"
+
+
+def unbroken(text):
+    """`text`, a line to paste, as the rows of a screen: on one line however wide, the blank rows
+    under it left for the terminal to wrap it onto (`written`), so its selection copies one line
+    where one wrapped at words (docs/cli-design.md, for every other line) would paste as several."""
+    return [text, *[""] * (-(-(_PAD + cells(text)) // (width() + 2 * _PAD)) - 1)]
+
+
+def _starts(rows):
+    """{row: line} of `rows`, a screen from its first row, but the blank rows under a line wider
+    than the terminal that it wraps onto (`unbroken`)."""
+    starts, row = {}, 1
+    while row <= len(rows):
+        starts[row], under = rows[row - 1], len(unbroken(rows[row - 1])) - 1
+        row += 1 + under * (not any(rows[row:row + under]))
+    return starts
 
 
 def _differing(rows):
@@ -1468,14 +1487,17 @@ def written(lines, frame="", rising=False, screen=None):
     first as they are, on a cleared screen."""
     global _UP, _UP_OF, _WHOLE
     rows = [_LIST.get(row, line) for row, line in enumerate(lines, 1)]
+    starts = _starts(rows)
     if (rising or not _UP or screen != _UP_OF or len(rows) >= height()
             or time.monotonic() >= _WHOLE + TICK):
         _WHOLE, text = time.monotonic(), "\033[H" + "".join(
-            _cleared(line) + "\n" for line in (() if rising else rows)) + "\033[J"
+            _cleared(line) + "\n" for line in (() if rising else starts.values())) + "\033[J"
     else:
-        text = _differing(enumerate(rows, 1))
+        text = _differing(starts.items())
         text += f"\033[{len(rows) + 1};1H\033[J" if text or len(rows) < len(_UP) else ""
-    _UP, _UP_OF = None if _UP is None else rows, screen
+    # a row a line wraps onto is no row of its own: once it is one again, it is written
+    _UP = None if _UP is None else [starts.get(row) for row in range(1, len(rows) + 1)]
+    _UP_OF = screen
     over(frame, text)
 
 

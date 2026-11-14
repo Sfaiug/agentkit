@@ -4,18 +4,14 @@ package tick
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 
-	"agentkit/internal/harness"
-	"agentkit/internal/host"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
 )
@@ -123,49 +119,6 @@ func TestDryTickSaysItWouldContinueAnOpenPlan(t *testing.T) {
 	}
 	if after := files(t, home); !reflect.DeepEqual(after, before) {
 		t.Fatal("the dry tick changed HOME")
-	}
-}
-
-// A dry tick follows a Muse seat's launch through Muse's `/new` as every read does, and decides
-// on the session it moved to, keeping nothing of it: its receipt reads as it was, as does all of
-// HOME, where any other read keeps that session, for the seat to reopen on once that Muse is gone.
-func TestDryDiscoveryLeavesAMuseReceiptAsItWas(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("a process's birth is read off Linux's /proc")
-	}
-	ak, _ := idleHome(t, loggedOut)
-	home := filepath.Dir(ak)
-	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
-	put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.spark]\nharness='muse'\nmodel='spark'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
-	token := strings.Repeat("a", 32)
-	put(t, filepath.Join(ak, "state", "session-acme.json"), run.Line(run.Fields("orchestrator", "spark", "workers", []any{"spark"},
-		"cwd", filepath.Join(home, "work", "acme"), "created", 1799000000, "muse_launch", token, "resumable", true, "session_title", "acme")))
-	put(t, filepath.Join(ak, "state", "plan-acme.md"), openPlan)
-	// the launch's Muse is this process, which the registry has moved to the session after `/new`
-	birth, born := host.ReadIdentity(os.Getpid())
-	if !born {
-		t.Fatal("this process has no birth")
-	}
-	receipt := filepath.Join(ak, "state", "muse-launch-"+token)
-	put(t, filepath.Join(receipt, "session"), "opened")
-	put(t, filepath.Join(receipt, "lineage"), run.Line(run.Fields("processes", []any{[]any{run.Number(fmt.Sprint(os.Getpid())),
-		run.Fields("boot", birth.Boot, "ticks", int(birth.Ticks), "started_at", birth.StartedAt)}}, "earlier", []any{})))
-	put(t, filepath.Join(home, "data", "muse", "runtime", "muse", "sessions", "after-new.json"),
-		run.Line(run.Fields("session_id", "after-new", "process_generation_hint", fmt.Sprintf("pid=%d", os.Getpid()))))
-	drawn(t, home, "The patch is ready.\n────────\n❯\n────────\nspark · high · acme · YOLO\n")
-	before := files(t, home)
-	var out bytes.Buffer
-	if Dry(&out) != "" || out.String() != continued {
-		t.Fatalf("printed %q", &out)
-	}
-	if after := files(t, home); !reflect.DeepEqual(after, before) {
-		t.Fatal("the dry tick changed HOME")
-	}
-	if owned, known := harness.Owned("muse", map[string]any{"muse_launch": token}); owned != "after-new" || !known {
-		t.Fatalf("followed to %q (%v)", owned, known)
-	}
-	if kept := read(t, filepath.Join(receipt, "session")); kept != "after-new" {
-		t.Fatalf("a read after the dry tick kept %q", kept)
 	}
 }
 

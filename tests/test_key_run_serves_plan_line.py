@@ -2,7 +2,7 @@
 
 Black-box: AK_BIN launches tasks from an akseat seat. Host readings hold them at
 admission so both run.json and history.db must already name the line. A check
-replacement keeps that link; an ambiguous unmatched task still launches.
+replacement keeps that link; a task running no open line's check names none.
 """
 
 from contextlib import closing
@@ -84,11 +84,11 @@ class RunServesPlanLine(unittest.TestCase):
         _, linked = self.launch("test -f notes.txt")
         self.assertIsNone(linked)
 
-    def test_an_unmatched_task_names_the_only_line_still_open(self):
+    def test_an_unmatched_task_names_no_line_though_one_line_is_open(self):
         self.rig.commit({"api.txt": "api\n"}, "ship api")
-        expected = self.line(2)  # listing ticks the api line
+        self.assertIn("- [x] acme api", self.ak("plan"))
         _, linked = self.launch("test -f notes.txt")
-        self.assertEqual(linked, expected)
+        self.assertIsNone(linked)
 
     def test_a_launch_outside_a_seat_names_no_line(self):
         _, linked = self.launch("test -f web.txt", seat=None)

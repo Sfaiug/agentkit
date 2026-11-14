@@ -210,10 +210,10 @@ func (t *ticking) follow(address, session string) error {
 
 // say is Python's say: on the run that opened the pull request once, where the menu and `ak run
 // status` showed `waiting for the maintainer`, then typed at the quiet prompt of the seat
-// answering for it, woken first where it sleeps, the line's mark kept on the run
-// (`decision_typed`) so one typed and never seen sent gets its Enter, not a second copy; a merge
-// only where its seat owes work for it (untyped).  Said is whether it landed everywhere
-// it goes, or has nowhere left to.
+// answering for it, owed one an older ak put to sleep until the tick reopens it, the line's mark
+// kept on the run (`decision_typed`) so one typed and never seen sent gets its Enter, not a second
+// copy; a merge only where its seat owes work for it (untyped).  Said is whether it landed
+// everywhere it goes, or has nowhere left to.
 func (t *ticking) say(text, address, session string, merged bool) (said bool, err error) {
 	if t.dry {
 		t.log.line("would hand on: " + text + " (" + address + ")")
@@ -224,7 +224,7 @@ func (t *ticking) say(text, address, session string, merged bool) (said bool, er
 		"for you to act on or not."
 	held := record.Dict("decision_typed")
 	name, _, err := config.ResolveSession(session)
-	// what Go does not type or wake is Python's, before anything is written: Python's seat_notice
+	// what Go does not type is Python's, before anything is written: Python's seat_notice
 	// points to result.md where the line would not fit, its editor reads a mark naming a pane, it
 	// sends a hand-back's line left unsent, which a merge's notice replaces (endings), it starts a
 	// merge's follow-up that has no command, and it weighs the seat's plan where Go cannot
@@ -242,13 +242,8 @@ func (t *ticking) say(text, address, session string, merged bool) (said bool, er
 	if merged && (dir == "" || untyped(record)) {
 		return t.endRoutine(dir, record, line)
 	}
-	if session != "" {
-		switch awake, woken := seat.Wake(name, t.log.line); {
-		case !woken:
-			return false, errLeft
-		case !awake:
-			return false, nil // owed its line: the next tick wakes it
-		}
+	if session != "" && seat.Asleep(name) {
+		return false, nil // the line is owed it, and the tick reopens it first
 	}
 	if session == "" || !seat.Watching(name) {
 		if dir == "" {
@@ -288,11 +283,10 @@ func keep(dir string, record *run.Object, mark any) error {
 	return errors.New("run " + filepath.Base(dir) + ": the mark of the line typed into its seat could not be written")
 }
 
-// reaches is whether Go carries a line to that seat: none up or asleep to take it, or one whose
-// harness Go types into, asleep only where Go wakes it.
+// reaches is whether Go carries a line to that seat: none up to take it, or one whose harness Go
+// types into.
 func reaches(name string) bool {
-	asleep := seat.Asleep(name)
-	return !asleep && !seat.Watching(name) || seat.Typable(name) && (!asleep || seat.Wakes(name))
+	return !seat.Watching(name) || seat.Typable(name)
 }
 
 // sentPending is Python's sent_pending: whether no line typed about the run's pull request is

@@ -45,7 +45,9 @@ class TypedLineHasNoControlCode(unittest.TestCase):
         fakes = [(watch, {
             "_send_line": send_line, "_send_enter": send_enter,
             "composer_holds": holds, "kept_asked_first": lambda *_a, **_kw: None,
-            "seat_model": lambda *_a: (None, None), "owner_question": lambda *_a: False,
+            "seat_model": lambda *_a: ("claude", None), "pane_text": lambda *_a: "",
+            "composer_draft": lambda *_a: "", "_wait_sent": lambda *_a: True,
+            "owner_question": lambda *_a: False,
             "pinned": lambda session: session, "_past_text": lambda *_a: None,
             "takes_line": lambda *_a, **_kw: True, "quiet_prompt": lambda *_a: True,
             "_editor_kept": lambda *_a: {}, "pane_unread": lambda *_a: False}),

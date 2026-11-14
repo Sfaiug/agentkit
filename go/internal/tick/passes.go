@@ -38,6 +38,15 @@ func table(t *ticking) []pass {
 	return []pass{
 		{"merge checks", true, nil, t.mergeChecks},
 		{"boot resume", true, configured, t.bootResume},
+		// The owner, 9 Nov 2026: a seat stays open until the owner closes it, whatever its rest and
+		// whatever memory reads.  One an older ak put to sleep comes back here, as after a reboot.
+		{"slept seats", false, configured, func() error {
+			carried, err := seat.ReopenSlept(t.log.line)
+			if !carried {
+				return errLeft
+			}
+			return err
+		}},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
 		{"rebooted turns", false, configured, continueTurns(false)},
@@ -69,6 +78,7 @@ func table(t *ticking) []pass {
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, checkoutsSeen, t.retire},
 		{"seat tokens", false, nil, seatTokens},
+		{"conversation names", false, nil, keepConversations},
 		{"history sync", false, nil, func() error {
 			if !history.Agree(t.log.line) {
 				return errLeft
@@ -117,6 +127,7 @@ func table(t *ticking) []pass {
 		{"project setups", false, checkoutsSeen, setups},
 		{"alive checks", false, nil, t.alive},
 		{"night reads", false, nil, t.nights},
+		{"night review", false, nil, t.nightReview},
 		{"live update", false, liveUpdateIdle, t.liveUpdate},
 		{"harness upgrade", false, nil, t.harnessUpgrade},
 	}

@@ -21,7 +21,7 @@ func endingLines(entries []listed, caller, wanted string) {
 		}
 		if wanted != "" {
 			entries[i].ending, entries[i].recordEnding = handback.LookLine(entry.dir, entry.record)
-		} else if handback.Waiting(entry.record) {
+		} else if run.Waits(entry.record) {
 			entries[i].ending = "its ending waits for you: ak run status " + entry.name()
 		}
 	}

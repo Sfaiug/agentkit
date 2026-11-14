@@ -128,18 +128,26 @@ func ownerGaps(ctx context.Context, seat string, errOut io.Writer) (string, []*r
 // gaps is ownerGaps of a seat resolved, with the fingerprint of what a check that found no gap
 // read ("" for any other end).
 func gaps(ctx context.Context, name string, record map[string]any, errOut io.Writer) ([]*run.Object, string, error) {
-	// a record a harness's reader reads loosely is read, as before: only the reader deciding whether
-	// a check is owed, which ends a seat it reads as done, waits for one as strict as Python's
-	had, err := notify.Conversations(name, false)
-	if errors.Is(err, notify.ErrUnread) {
+	// a harness whose reader reads less strictly than Python's is checked, as before: only the
+	// reader deciding whether a check is owed, which ends a seat it reads as done, waits for one as
+	// strict as Python's
+	current, had, err := notify.Listed(name, false)
+	// before any is read, as reading one may take a claim's lock or keep what its evidence follows
+	if errors.Is(err, notify.ErrUnread) || err == nil && slices.ContainsFunc(had, func(each notify.Conversation) bool {
+		return !harness.Reads(each.Harness, false)
+	}) {
 		return nil, "", errLeft
 	} else if err != nil {
 		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
 	}
-	if len(had) == 0 || had[len(had)-1].Name == "" {
+	if len(had) == 0 {
 		return nil, "", fmt.Errorf("no seat named %s whose conversation ak can read", name)
 	}
-	said, owner, err := plan.OwnerWords(had)
+	var said [][]harness.Turn
+	var owner []plan.Said
+	if err = notify.Read(current, had, true); err == nil {
+		said, owner, err = plan.OwnerWords(had)
+	}
 	if errors.Is(err, notify.ErrUnread) {
 		return nil, "", errLeft
 	} else if err != nil {
@@ -194,11 +202,16 @@ func gaps(ctx context.Context, name string, record map[string]any, errOut io.Wri
 		}
 	}
 	// an existing role, the reviewer's of a workspace, whose hand-in takes findings and refuses a
-	// quote its file does not hold
+	// quote its file does not hold; on the login a run's turn takes, as its provider's usual one
+	// may be signed out or spent while another has room
 	ask := strings.NewReplacer("{name}", name, "{workspace}", workspace,
 		"{pictures}", cmp.Or(strings.Join(shown, "\n"), "  none kept")).Replace(checkAsk)
+	account, _, err := usage.TurnAccount(model, "")
+	if err != nil {
+		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
+	}
 	var expired *worker.LoginExpired
-	switch _, _, err := worker.Turn(model, "reviewer-scratch", ask, workspace, into, "", worker.Given{Context: ctx}, errOut); {
+	switch _, _, err := worker.Turn(model, "reviewer-scratch", ask, workspace, into, "", worker.Given{Context: ctx, Account: account}, errOut); {
 	case errors.Is(err, worker.ErrInterrupted), errors.As(err, &expired):
 		return nil, "", err
 	case err != nil && !errors.Is(err, worker.ErrSilent):
@@ -376,13 +389,20 @@ func checker(name string, record map[string]any) (string, error) {
 	return order[0], nil
 }
 
-// goTurn is nil where Go runs that model's turn, errLeft where Python does.
+// goTurn is nil where Go runs that model's turn, on the login a run's turn takes
+// (usage.TurnAccount), errLeft where Python does.
 func goTurn(model string) error {
 	entry, err := config.ModelNamed(model)
 	if err != nil {
 		return err
 	}
-	if _, err := worker.Adapter(entry, ""); errors.Is(err, worker.ErrPython) {
+	account, _, err := usage.TurnAccount(model, "")
+	if errors.Is(err, usage.ErrPython) {
+		return errLeft
+	} else if err != nil {
+		return err
+	}
+	if _, err := worker.Adapter(entry, account); errors.Is(err, worker.ErrPython) {
 		return errLeft
 	}
 	return nil

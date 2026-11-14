@@ -12,8 +12,8 @@ of a Mac's own copy of it, runs in an answer-key Home that is the account's own
 (tests/fixtures/installer.py), on a Mac of fakes: `uname`, `df`, `brew`, `fdesetup`, a `sysctl`
 whose boot time is `<root>/boot` and whose boot's id `<root>/session`, a `launchctl` keeping what
 launchd has loaded in `<root>/launchd.json`, a `pmset` keeping its settings in `<root>/pmset.json`,
-a `sudo` that runs only `pmset`, `tee` and `launchctl`, and a `limactl` whose machine is a
-directory, `<root>/guest`, in the state `<root>/machine` names.
+a `sudo` that runs only `pmset`, `tee`, `chmod` and `launchctl`, as root, and a `limactl` whose
+machine is a directory, `<root>/guest`, in the state `<root>/machine` names.
 """
 
 import json
@@ -43,7 +43,8 @@ from pathlib import Path
 args, root = sys.argv[1:], Path({root!r})
 with open(root / "logs/limactl.log", "a") as log:
     log.write(json.dumps(args) + "\\n")
-machine, memory = root / "machine", root / "memory"
+machine = root / "machine"
+memory = root / "memory"
 status = machine.read_text() if machine.exists() else "Stopped"
 for arg in args:
     if arg.startswith("--memory="):
@@ -51,7 +52,7 @@ for arg in args:
 if args[:2] == ["autostart", "--help"]:
     sys.exit(0)
 if args[0] == "create":
-    lima = Path(os.environ["HOME"], ".lima/ak")
+    lima = Path(os.environ.get("LIMA_HOME", os.environ["HOME"] + "/.lima"), "ak")
     lima.mkdir(parents=True)
     (lima / "lima.yaml").write_text("")
     (lima / "ssh.config").write_text("Host lima-ak\\n")
@@ -107,8 +108,16 @@ for source in {{"-a": list(sources), "-c": ["AC Power"], "-b": ["Battery Power"]
     sources[source].update((name, int(value)) for name, value in zip(args[1::2], args[2::2]))
 path.write_text(json.dumps(sources))
 """
-SUDO = LOG + 'case $1 in pmset|tee|launchctl) ;;\n' \
-    '  *) echo "sudo: not scripted in this test" >&2; exit 1 ;;\nesac\nSUDO_USER=acme exec "$@"\n'
+# Root reads and writes every file; the account, whose files all are here, reads and writes one
+# that root's command named only where that leaves others to read it, as for a file root owns.
+SUDO = LOG + """case $1 in pmset|tee|chmod|launchctl) ;;
+  *) echo "sudo: not scripted in this test" >&2; exit 1 ;;
+esac
+for arg; do [ ! -f "$arg" ] || chmod u+rw "$arg"; done
+SUDO_USER=acme "$@"; code=$?
+for arg; do [ ! -f "$arg" ] || [ -n "$(find "$arg" -perm -0004)" ] || chmod u-rw "$arg"; done
+exit $code
+"""
 # launchd as launchctl shows it: `bootstrap DOMAIN PLIST` loads the service the plist labels,
 # which must parse and not be loaded yet; `bootout DOMAIN/LABEL` or `bootout DOMAIN PLIST` unloads
 # it; `print DOMAIN/LABEL` succeeds while it is loaded.

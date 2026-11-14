@@ -1,4 +1,6 @@
-"""A pass stops checking once the line changes under it, so the next pass sees it as it is.
+"""A pass stops checking once its first member changes under it, as every tree it checks stands
+on that member, so the next pass sees the line as it is.  A change behind costs only the
+verdicts stacked on it (test_key_every_pass_moves_the_line).
 
 Offline: local Git and real suites, with isolated state and fake wakes, as in test_lander.
 """
@@ -39,10 +41,10 @@ class StalePassEnds(fixture.LanderFixture, unittest.TestCase):
             land.check_line(self.turn)
 
     def test_a_change_during_a_narrowing_check_starts_no_further_check(self):
-        *ahead, last = self.line()
-        self.checked_with_a_change_during(1, last)
+        members = self.line()
+        self.checked_with_a_change_during(1, members[0])
         self.assertEqual(len(self.checks), 1)
-        for directory in ahead:
+        for directory in members:
             self.assertEqual(set(self.wait(directory)), {"line", "joined"})
         self.wake.assert_not_called()
 
@@ -55,10 +57,10 @@ class StalePassEnds(fixture.LanderFixture, unittest.TestCase):
         self.wake.assert_not_called()
 
     def test_a_change_before_a_verdict_writes_none_and_stops(self):
-        *ahead, last = self.line()
-        self.checked_with_a_change_during(2, last)
+        members = self.line()
+        self.checked_with_a_change_during(2, members[0])
         self.assertEqual(len(self.checks), 2)
-        for directory in ahead:
+        for directory in members:
             self.assertEqual(set(self.wait(directory)), {"line", "joined"})
         self.wake.assert_not_called()
 

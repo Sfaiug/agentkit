@@ -83,9 +83,9 @@ class ConfigKeys(unittest.TestCase):
 
     def test_space_flips_a_builds_mark_and_enter_leaves_it(self):
         self.term.keys("Right", "Right")
-        self.term.wait(shows("› Fable 5.1     ●  ━━━━─   xhigh   [■]", MARK_KEYS))
+        self.term.wait(shows("› Fable 5.1   ●  ━━━━─   xhigh   [■]", MARK_KEYS))
         self.term.keys("Enter", "Space")
-        self.term.wait("› Fable 5.1     ●  ━━━━─   xhigh   [□]")
+        self.term.wait("› Fable 5.1   ●  ━━━━─   xhigh   [□]")
         until(lambda: akconfig.read(self.home)["defaults"]["workers"] == ["astra"])
 
     def test_space_steps_an_effort_once_and_enter_leaves_it(self):

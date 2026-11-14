@@ -47,10 +47,11 @@ BARS = [("Acme Low 1", "89.0", "≈$1.00", "░ far below", "medium"),
         ("Acme Dear 1", "95.0", "≈$6.00", "░ beaten", "high"),
         ("Acme Top 1", "100.0", "≈$8.00", None, "high")]
 HEADING = "reviewer · three choices · two more shaded"
-# Low reviews at medium, on [defaults] and on the seat, Top does the rest; Step runs nowhere
+# Low reviews at medium, on [defaults] and on the seat, Top does the rest; every choice is a
+# configured model's, as only those are choices (tests/test_key_models_choices_are_yours.py)
 MODELS = {"low": {"harness": "claude", "model": "acme-low-1", "review_effort": "medium"},
-          "base": {"harness": "claude", "model": "acme-base-1"},
-          "top": {"harness": "claude", "model": "acme-top-1"}}
+          **{word: {"harness": "claude", "model": f"acme-{word}-1"}
+             for word in ("base", "mid", "step", "wide", "top")}}
 CREW = {"orchestrator": "top", "workers": ["top"], "reviewers": ["low"]}
 EFFORTS = {"low": {"effort": "high", "review_effort": "medium"}}
 
@@ -61,7 +62,7 @@ def want(marked):
 
 
 def held(home, rows):
-    """`home` holding the boards of `rows`, the harness running Low, Base and Top, and
+    """`home` holding the boards of `rows`, the harness running those MODELS names, and
     [defaults] CREW."""
     fakeadapter.install(home, claude="pass")["claude"].answer("models", "".join(
         f"{release}\t{name}\tmedium high\n" for release, name, *_ in rows
@@ -85,7 +86,7 @@ class OwnRow(unittest.TestCase):
         self.home.write(f".agentkit/state/session-{SEAT}.json", self.seat.record)
 
     def reviewer(self, width, seat=None):
-        """`r` on `c`, `width` cells wide, over `seat` or in a window of its own, `▸` moved to
+        """`r` on `c`, `width` cells wide, over `seat` or in a window of its own, `›` moved to
         the reviewer once its bars stand with Low in use."""
         term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=(width, 60),
                         env={**ENV, **({"AGENTKIT_SESSION": seat} if seat else {})})

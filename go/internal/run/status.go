@@ -113,6 +113,9 @@ func ReviewPass(record *Object, models map[string]config.Model) bool {
 	if record.Truthy("repo") && !(evidence.Truthy("head_sha") && evidence.Truthy("tree_sha")) {
 		return false
 	}
+	if ReviewOff(record) {
+		return checksPassed(record, evidence)
+	}
 	checked := evidence.Get("done_when") == true || record.Truthy("review_pr") && evidence.Has("done_when") && evidence.Get("done_when") == nil
 	if !zero(evidence.Get("returncode")) || evidence.Str("verdict") != "PASS" || !checked ||
 		!Equal(evidence.Get("executor"), record.Get("executor")) || !evidence.Truthy("reviewer") ||

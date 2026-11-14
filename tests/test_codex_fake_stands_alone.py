@@ -83,11 +83,11 @@ class StandsAlone(unittest.TestCase):
                 self.assertEqual(json.loads(meta)["payload"]["thread_source"], "user")
                 for word in words:
                     self.assertIn(json.dumps(word), "".join(said))
-        # The TUI's first thread starts as it opens; one /new opened or /resume went back to
-        # starts at its next prompt.
+        # The TUI's first thread starts as it opens, and one /new opened at its next prompt; /resume
+        # back to the first, which its server still holds, starts nothing (0.169).
         starts = [json.loads(line) for line in (self.root / "starts.jsonl").read_text().splitlines()]
         self.assertEqual([(start["session_id"], start["source"]) for start in starts],
-                         [(first, "startup"), (second, "startup"), (first, "resume")])
+                         [(first, "startup"), (second, "startup")])
 
         native = json.loads((self.root / ".codex/fake-server.json").read_text())["pid"]
         self.assertNotEqual(native, self.server.pid)

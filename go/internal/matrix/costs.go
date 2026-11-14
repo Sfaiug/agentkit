@@ -5,6 +5,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/quality"
 	"agentkit/internal/run"
+	"agentkit/internal/usage"
 )
 
 // ConfigRoles is the config's word for each role ak answers, the one ak's runs measure it under.
@@ -23,8 +24,8 @@ func Shares() (*run.Object, error) { return shares(boards.Cached()) }
 // its effort, the first such model that measured one; any other costs its board dollars times the
 // pooled shares over board dollars of its provider's measured rows (the model's, else the one its
 // board's maker names), else of every measured row.  A role without a measured row stays in board
-// dollars; one with is in money, each share times its provider's price, only where every provider
-// of the lineup has a price.
+// dollars; one with is in money, each share (points of a week) at its provider's price a month,
+// only where every provider of the lineup has a price.
 func Answer(rows []quality.Row, compared map[string]bool, shares *run.Object) (map[string]*quality.Said, error) {
 	names, err := config.Offered()
 	if err != nil {
@@ -38,9 +39,11 @@ func Answer(rows []quality.Row, compared map[string]bool, shares *run.Object) (m
 	if err != nil {
 		return nil, err
 	}
-	monthly := map[string]*float64{}
+	monthly := map[string]*float64{} // each provider's usual login's
 	for _, sub := range subs {
-		monthly[sub.Name] = sub.Price
+		if monthly[sub.Name], err = usage.Price(sub, ""); err != nil {
+			return nil, err
+		}
 	}
 	makers := map[string]string{"": ""} // a row whose board names no maker names no provider
 	for _, row := range rows {
@@ -151,7 +154,8 @@ func Answer(rows []quality.Row, compared map[string]bool, shares *run.Object) (m
 				row.Cost = &cost
 			}
 			if money && row.Cost != nil {
-				cost := *row.Cost * *monthly[provider]
+				// a point is a hundredth of a week, and a week 12/52 of the month a price pays for
+				cost := *row.Cost / 100 * *monthly[provider] * 12 / 52
 				row.Cost = &cost
 			}
 		}

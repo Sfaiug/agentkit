@@ -6,9 +6,9 @@ OpenCode lists its free DeepSeek without saying its efforts; the bar counts, and
 the low, high and max its `[catalog]` row gives, never the generic list's six.  A Muse Wonder
 model at `max` stands at the end of its own list: its bar is full and a step goes no further.
 
-Offline: a temporary HOME, the OpenCode listing put in config's cache as if just asked, so
-nothing asks a harness; the screen is menu.config_body, drawn without UTF-8 so a full cell is
-`#` and an open one `-`, and nothing is saved past the temporary HOME.
+Offline: a temporary HOME, the OpenCode and Muse listings kept in its state as if read before,
+and no harness asked; the screen is menu.config_body, drawn without UTF-8 so a full cell is `#`
+and an open one `-`, and nothing is saved past the temporary HOME.
 """
 
 from contextlib import ExitStack
@@ -17,7 +17,6 @@ from pathlib import Path
 import shutil
 import sys
 import tempfile
-import time
 import unittest
 from unittest.mock import patch
 
@@ -63,12 +62,13 @@ class OneList(unittest.TestCase):
         stack.enter_context(patch.object(config, "HOME", home))
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             stack.enter_context(patch.object(config, name, home / name.lower()))
-        stack.enter_context(patch.dict(config._CATALOGS, clear=True))
+        stack.enter_context(patch.object(config, "_ask", lambda *_: None))
         stack.enter_context(patch.object(terminal, "width", return_value=100))
-        config._CATALOGS["opencode", config.DEFAULT_ACCOUNT] = (time.monotonic(), LISTING)
-        config._CATALOGS["muse", config.DEFAULT_ACCOUNT] = (time.monotonic(), [
-            {"id": WONDER, "label": WONDER, "efforts": []}])
         config.ensure_dirs()
+        for harness, listed in (("opencode", LISTING),
+                                ("muse", [{"id": WONDER, "label": WONDER, "efforts": []}])):
+            with patch.object(config, "_listed", return_value=listed):
+                config._keep(config._kept(harness), harness, config.DEFAULT_ACCOUNT)
         (home / config.CONFIG_NAME).write_text(CONFIG)
         self.cfg = config.load()
 

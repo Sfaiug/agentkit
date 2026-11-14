@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"maps"
 	"math"
-	"math/big"
 	"os"
 	"os/exec"
 	"path"
@@ -46,14 +45,14 @@ var told = []string{host.Marker, "HOME", "LANG", "SHELL", "TMPDIR"}
 // has _parcel add it, for the model's turn its adapter runs on the checkout cwd into the out dir
 // with env, resuming session where it names one: turn.sh, the out dir, ak, the uncommitted paths
 // (`paths` lists them all, `dirty/` holds those the checkout has), info/exclude, and under `home/`
-// a .gitconfig naming the checkout's git user, the login lent (`lent` lists its paths, which
-// mac.sh's `turn` removes) and the conversation it resumes; then the program (`harness`, and
+// a .gitconfig naming the checkout's git user, the login follows lent (`lent` lists its paths,
+// which mac.sh's `turn` removes) and the conversation it resumes; then the program (`harness`, and
 // `fetch/` where each kind of machine gets it) and the environment's variables a turn there is
 // told, in name order, its TMPDIR the machine's.  None, where the turn runs here: its harness keeps
 // no conversation a turn there could bring home (`[worker] sessions`), no program for it can be
 // fetched, the conversation is nowhere under env's HOME, as here is where a later resume would
 // look for it too, or no login is lent lasting long enough.
-func turnFiles(model config.Model, adapter, cwd, out string, env map[string]string, session string) (map[string]file, error) {
+func turnFiles(model config.Model, follows *follower, cwd, out string, env map[string]string, session string) (map[string]file, error) {
 	places, _ := config.Words(model.Harness, "worker", "sessions")
 	if len(places) == 0 {
 		return nil, nil
@@ -63,7 +62,7 @@ func turnFiles(model config.Model, adapter, cwd, out string, env map[string]stri
 	if program == "" || session != "" && len(held) == 0 {
 		return nil, nil
 	}
-	lent := lend(model, adapter, env)
+	lent := follows.lent()
 	if len(lent) == 0 {
 		return nil, nil
 	}
@@ -255,19 +254,11 @@ func conversation(places []string, home, session string) []string {
 
 // lend is the login the adapter lends the model's turn for the account env names, Python's
 // machine_turn._lend: each file it wrote under a HOME of its own, by its path there, read whole
-// before that HOME goes; none where it lends none lasting the seconds the harness's `[worker]
-// lent_for` says, else lentFor.  The account is the lend's alone: the machine's adapter runs with
-// none, reading the copy where the usual login lives.  Which login it read is the adapter's alone
-// too, so it holds one whose renewal no file shows to lentFor itself (`AK_UNFOLLOWED_LASTS`).
-func lend(model config.Model, adapter string, env map[string]string) map[string]file {
-	lasting := float64(lentFor)
-	worker, _ := config.Section(model.Harness, "worker")
-	switch seconds := worker["lent_for"].(type) {
-	case *big.Int:
-		lasting, _ = new(big.Float).SetInt(seconds).Float64()
-	case float64:
-		lasting = seconds
-	}
+// before that HOME goes; none where it lends none lasting `lasting` seconds.  The account is the
+// lend's alone: the machine's adapter runs with none, reading the copy where the usual login
+// lives.  Which login it read is the adapter's alone too, so it holds one whose renewal no file
+// shows to lentFor itself (`AK_UNFOLLOWED_LASTS`).
+func lend(model config.Model, adapter string, env map[string]string, lasting float64) map[string]file {
 	home, err := os.MkdirTemp("", "ak-lend-")
 	if err != nil {
 		return nil

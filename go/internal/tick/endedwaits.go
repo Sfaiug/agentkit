@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"agentkit/internal/config"
 	"agentkit/internal/handback"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
@@ -17,9 +16,10 @@ import (
 // written on the wait as `over` the moment it is seen.  A seat gone without the owner closing it is
 // then reopened through the revival's reopen and typed that wait's line, once; one the owner closed
 // or stopped, or one out of usage, stays down.  Under the lifecycle lock, as the revival is, so an
-// owner's close cannot land between the decision and the reopen.  A wait on a run of the seat's own
-// that its run's own notice told is told with it.  A wait on a pull request, a live seat's line at
-// its prompt and the ending a seat's own run still hands back are Python's.
+// owner's close cannot land between the decision and the reopen.  A wait on a run or job of the
+// seat's own that its own notice told is told with it, and a live seat's on a job is told at its
+// prompt (tellLive).  A wait on a pull request, a live seat's other lines and the ending a seat's own
+// run still hands back are Python's.
 func (t *ticking) endedWaits() error {
 	var paged []string
 	err := locked(func() error {
@@ -56,11 +56,11 @@ func (t *ticking) endedWaits() error {
 // reopened.
 func (t *ticking) endWait(each seat.Revival) (bool, error) {
 	wait := each.File.Dict("wait")
-	if wait.Str("kind") != "run" {
+	if wait.Str("kind") != "run" && wait.Str("kind") != "job" {
 		return false, errLeft
 	}
 	if !wait.Truthy("over") {
-		over, line, ended, err := waitfact.Run(wait.Str("on"), t.clock())
+		over, line, ended, err := waitFact(wait, t.clock())
 		if err == nil && !over {
 			// a stray wait no longer holds a seat whose own work is done (24 Oct)
 			line, err = waitfact.WorkLive(each.Name)
@@ -79,6 +79,9 @@ func (t *ticking) endWait(each seat.Revival) (bool, error) {
 		if wait, err = seat.MarkWait(each.Name, wait, "over", line, "run", reached); err != nil || wait == nil || wait.Truthy("told") {
 			return false, err
 		}
+	}
+	if own, err := t.ownJob(each.Name, wait); own || err != nil {
+		return false, err
 	}
 	if ran := wait.Str("run"); ran != "" {
 		record, err := run.Read(filepath.Join(run.Runs(), ran))
@@ -100,7 +103,7 @@ func (t *ticking) endWait(each seat.Revival) (bool, error) {
 	}
 	file := each.File
 	if each.Live {
-		return false, errLeft
+		return false, t.tellLive(each.Name, wait)
 	}
 	if file.Truthy("stopped_at") || file.Truthy("closed_by_owner") || file.Truthy("usage_wait") {
 		return false, nil
@@ -117,8 +120,7 @@ func (t *ticking) endWait(each seat.Revival) (bool, error) {
 		t.log.line(each.Name + ": told that " + over + ", left closed: its work is done")
 		return false, nil
 	}
-	// one line, whatever it said over several: a newline typed is a key of its own
-	why, err := t.reopen(each, config.Fold(over)+"; your wait is over. Decide the next step.")
+	why, err := t.reopen(each, waitLine(wait))
 	if err != nil || why == "" {
 		if err == nil {
 			t.log.line(each.Name + ": reopened and told that " + over + "; its wait is over")

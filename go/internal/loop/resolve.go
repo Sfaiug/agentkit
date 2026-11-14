@@ -192,8 +192,8 @@ func (l *loop) suite(cwd, cmd, path, label string) (int, string, bool, error) {
 // each a task round, its fixer handed the findings and the red the review judged, its work checked
 // and reviewed again, until a review passes or the budget is spent.
 func (r *repoPlace) fixReview(l *loop, what string) (bool, error) {
-	for l.rnd < l.budget {
-		if err := l.allowed(); err != nil {
+	for {
+		if more, err := l.allowed(); err != nil || !more {
 			return false, err
 		}
 		record, err := read(l)
@@ -230,7 +230,6 @@ func (r *repoPlace) fixReview(l *loop, what string) (bool, error) {
 			return passed, err
 		}
 	}
-	return false, nil
 }
 
 // fixConflicts is the fixer rounds on the one stopped git, each on the files no fixer was handed

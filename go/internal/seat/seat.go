@@ -24,6 +24,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/machines"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
@@ -52,7 +53,7 @@ type Seat struct {
 	back                                              any      // when it comes back, out of usage
 	unsent                                            string   // what nobody sent, left in its composer
 	wordFrom                                          []any    // what its word was decided from (watch.word_from), none for one nobody is in
-	asleep                                            bool     // put to sleep since its harness launched (sleep.asleep)
+	asleep                                            bool     // an older ak put it to sleep, and it is not back yet (watch.slept)
 	handBacks                                         int      // its runs' hand-backs waiting on the owner's reopening it
 	home                                              []string // where the menu files it (orch.home_key)
 	follow                                            move     // what its last answer moves in its record
@@ -62,7 +63,8 @@ type Seat struct {
 	path   string
 	seen   sight
 
-	bars *func() ([]barRow, bool) // the bars as the reading that read it listed them, once until it writes one (barTell)
+	bars  *func() ([]barRow, bool) // the bars as the reading that read it listed them, once until it writes one (barTell)
+	plans plan.Look                // how that reading looks its plan up: once a frame on an open screen (MenuRead)
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -128,12 +130,12 @@ type ran struct {
 // Read is the home, and whether Go knows it: no record where milestone 6b found none, else
 // only seats on no tmux server or whose panes have all died there, with records, seat files and
 // runs it follows.  Looking also takes seats whose panes run on.
-func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil) }
+func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil, plan.Look{}) }
 
 // Looking is Read with seats whose panes still run among them, where Go reads their screens.
-func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil) }
+func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil, plan.Look{}) }
 
-func reading(now time.Time, looking bool, readRuns readsRuns, readers recordReaders, pending ...bool) (Home, bool) {
+func reading(now time.Time, looking bool, readRuns readsRuns, readers recordReaders, plans plan.Look, pending ...bool) (Home, bool) {
 	began := time.Now()
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
@@ -164,12 +166,12 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		// reading it keeps, the tick's lock, its log's, its page that ticks stopped ending and the
 		// hourly stamps of its reads, the seat weights' lock, the lock seats claim conversations under
 		// (claims), the outages of the seats' products, what the collection keeps, what each machine
-		// is and ak's tmux config say nothing a word hangs on:
+		// is, ak's tmux config and a suite's measured cost say nothing a word hangs on:
 		// a seat's own wait on its usage is in its seat file, and the browser's tabs no seat opened
 		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || updateRecord(entry) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || entry.Name() == "front.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
 			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "watch.tick.page.json", "watch.tick.page.lock", "retire.json", "alive.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock", "tmux.conf", "conversations.lock"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
-			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || entry.Name() == "stuck.json" || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || browser.Owns(entry.Name()) || recommendationState(entry.Name()) ||
+			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || entry.Name() == "stuck.json" || suiteCost(entry.Name()) || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || browser.Owns(entry.Name()) || recommendationState(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
@@ -208,7 +210,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 			if !ok {
 				return Home{}, false
 			}
-			seat.home, seat.bars = homeKey("", stands), &bars
+			seat.home, seat.bars, seat.plans = homeKey("", stands), &bars, plans
 			home.Seats = append(home.Seats, seat)
 			continue
 		}
@@ -218,7 +220,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		if !ok {
 			return Home{}, false
 		}
-		seat.held, seat.live, seat.bars = slices.Contains(held, name), isLive, &bars
+		seat.held, seat.live, seat.bars, seat.plans = slices.Contains(held, name), isLive, &bars, plans
 		if seat.live {
 			facts := climbingOf(state, seat, sight{}, seconds(now))
 			if deferred {

@@ -13,11 +13,12 @@ import (
 )
 
 // menuLimits is `Limits` on `c` (menu.config_limits): each of config's numbers a row under its
-// plain name (limitNames), its value and `default N` where that is not ak's default, and its own
-// note, what it means and the board rows it moves; under `Review rounds`' how the runs ended, and
-// under each line limit how changes of each size did at its value, read as the page opens.  ← and
-// → move the pointed one a step (limitStep), saved to config.toml at once.  The rows are read once
-// and again after each save, as Python's page reads the config it holds.
+// plain name (limitNames), its value and `default N` where that is not ak's default, and under the
+// rows the pointed one's lines: what it means, as a sentence of its own, then under `Review
+// rounds`' how the runs ended, and under each line limit how changes of each size did at its
+// value, read as the page opens.  ← and → move the pointed one a step (limitStep), saved to
+// config.toml at once.  The rows are read once and again after each save, as Python's page reads
+// the config it holds.
 func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	ended := history.RoundEndings()
 	builds, own := history.FirstReviewSizes()
@@ -32,7 +33,7 @@ func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 		}
 		for _, limit := range numbers.Limits() {
 			words := limitNames[limit.Key]
-			row := menu.PageRow{Label: words.name, Value: limitShown(limit.Value), Note: words.off,
+			row := menu.PageRow{Label: words.name, Value: limitShown(limit.Value),
 				Step: func(by int) func() string {
 					value := limitStep(limit.Key, limit.Value, by)
 					if value == nil {
@@ -46,21 +47,24 @@ func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			if limit.Value != limit.Default {
 				row.Aside = fmt.Sprint("default ", limit.Default)
 			}
-			if limit.Value != 0 {
-				row.Note = fmt.Sprintf("%s%s; it moves %s.", strings.ToUpper(limit.Meaning[:1]), limit.Meaning[1:], strings.Join(limit.Moves, ", "))
+			if limit.Value == 0 { // what off does, said as its note until its lines say it (milestone 207h)
+				row.Note = words.off
 			}
+			var chart func(terminal.Screen) []string
 			switch limit.Key {
 			case "review_rounds":
-				row.Under = func(s terminal.Screen) []string { return menu.RoundsChart(s, ended) }
+				chart = func(s terminal.Screen) []string { return menu.RoundsChart(s, ended) }
 			case "executor_lines":
-				row.Under = func(s terminal.Screen) []string {
+				chart = func(s terminal.Screen) []string {
 					return menu.SizeChart(s, builds, limit.Value, 100, "how often a build passed its first review, by size", "build")
 				}
 			case "orchestrator_lines":
-				row.Under = func(s terminal.Screen) []string {
+				chart = func(s terminal.Screen) []string {
 					return menu.SizeChart(s, own, limit.Value, 25, "how often an orchestrator's own pull request merged in its first round, by size", "")
 				}
 			}
+			meant := strings.ToUpper(limit.Meaning[:1]) + limit.Meaning[1:] + "."
+			row.Under = func(s terminal.Screen) []string { return append(menu.Told(s, meant), chart(s)...) }
 			rows = append(rows, row)
 		}
 		return rows, true

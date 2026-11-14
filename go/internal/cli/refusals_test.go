@@ -255,14 +255,18 @@ func TestRunRecognizesJobs(t *testing.T) {
 	for _, args := range [][]string{
 		{"run", "status", "batch", "--json"},
 		{"run", "show", "batch", "--json"},
-		{"run", "stop", "batch"},
-		{"run", "stop", "batch", "--keep"},
 	} {
 		suffix := ""
 		if args[1] != "show" {
 			suffix = " " + args[1]
 		}
 		assertCall(t, args, 3, "", "ak run"+suffix+": not implemented in Go yet\n")
+	}
+	// a finished job's stop is refused under the lock it takes first, as Python's stop_job is
+	write(t, job, `{"job_id":"batch","tasks":[{"name":"a.md","state":"merged"}],"finished_at":1}`)
+	write(t, filepath.Join(filepath.Dir(job), "recovery.lock"), "")
+	for _, args := range [][]string{{"run", "stop", "batch"}, {"run", "stop", "batch", "--keep"}} {
+		assertCall(t, args, 2, "", "ak run: batch is already finished; only unfinished work can be stopped\n")
 	}
 }
 

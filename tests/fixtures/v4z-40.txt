@@ -10,7 +10,7 @@ agentkit                           14:02
 
 ATOLL
   1  atoll-fix   Fable 5.1  ● working
-    ──────────────────────── no plan yet
+    ─────────────── no plan yet · 1 task
      Fable 5.1 xhigh orchestrates…   ■□□
   2  atoll-plan  Fable 5.1  ! needs you
      Fable 5.1 xhigh orchestrates…

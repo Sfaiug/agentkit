@@ -58,7 +58,7 @@ func swap(env []string, live, commit string) string {
 		err = os.Chmod(next, info.Mode()&(os.ModePerm|os.ModeSetuid|os.ModeSetgid|os.ModeSticky))
 	}
 	if err == nil {
-		err = exchange(live, next)
+		err = keep(live, next)
 	}
 	if err != nil {
 		remove(env, next)
@@ -140,10 +140,16 @@ func finish(live string) {
 	}
 }
 
-// tidy takes away each version under versions no process uses, and that holds nothing git finds
-// changed or added in it.  Each version's record of where it is is put right first: one swap cut
-// off before it left the two crossed, and git would remove the wrong one's.
+// tidy takes away, under the versions hold, each version under versions no process uses or move
+// keeps (keptVersion), and that holds nothing git finds changed or added in it.  Each version's
+// record of where it is is put right first: one swap cut off before it left the two crossed, and
+// git would remove the wrong one's.
 func tidy(env []string, live, versions string) {
+	hold, err := holding()
+	if err != nil {
+		return
+	}
+	defer hold.Close()
 	entries, err := os.ReadDir(versions)
 	if err != nil {
 		return
@@ -156,18 +162,19 @@ func tidy(env []string, live, versions string) {
 		return // a record still crossed would have git remove the live one's
 	}
 	held, proof := host.Held()
+	replaced := keptVersion()
 	for _, path := range found {
 		changes, ok := versionGit(env, path, "--no-optional-locks", "status", "--porcelain")
 		// a checkout cut off part way lists only what it never wrote: nobody's work; a status
 		// git could not read proves nothing
-		kept := !ok || slices.ContainsFunc(config.SplitLines(changes), func(line string) bool {
+		changed := !ok || slices.ContainsFunc(config.SplitLines(changes), func(line string) bool {
 			return line[:min(2, len(line))] != " D" && line[:min(2, len(line))] != "D "
 		})
 		resolved := config.Resolve(path)
 		busy := !proof || slices.ContainsFunc(held, func(named string) bool {
 			return named == resolved || strings.HasPrefix(named, resolved+"/")
 		})
-		if !kept && !busy {
+		if !changed && !busy && path != replaced {
 			remove(env, path)
 		}
 	}

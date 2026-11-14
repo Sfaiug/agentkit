@@ -343,7 +343,8 @@ def resume_age(state, now=None):
 
 
 def death_lines(state):
-    """One line per recorded death, for `ak run status <id>`."""
+    """One line per recorded ending of a loop, for `ak run status <id>`: a death, or the host's
+    restart (`transitions.restart_ended`)."""
     lines = []
     for death in state.get("deaths") or []:
         if not isinstance(death, dict):
@@ -355,7 +356,8 @@ def death_lines(state):
             clock = "?"
         reason = death.get("reason") or ""
         parked = " parked" if death.get("parked") else ""
-        lines.append(f"  death {clock} pid {death.get('pid')}{parked}: {reason}")
+        ended = "host restart" if death.get("restart") else "death"
+        lines.append(f"  {ended} {clock} pid {death.get('pid')}{parked}: {reason}")
     return lines
 
 

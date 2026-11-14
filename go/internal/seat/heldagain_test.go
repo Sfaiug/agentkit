@@ -32,9 +32,6 @@ func TestAQueuedAnnounceDecidesFromTheNewestFacts(t *testing.T) {
 			write(t, file(home, "seat-acme.json"), `{"stopped_at": 2, "closed_by_owner": true}`)
 		}, "idle", "session closed by the owner: reopen it from past sessions · 1 hand-backs waiting",
 			map[string]any{"state": "pass", "merged": true, "finished_at": seconds(time.Now()) - 20000, "handback_pending": true}},
-		"put to sleep": {func(t *testing.T, home, _ string) {
-			record(t, home, "acme", map[string]any{"asleep": 9, "launched": 3})
-		}, "idle", "asleep: press 1 to wake it", nil},
 		"its panes running again": {func(t *testing.T, home, pane string) {
 			if _, err := tmux.Ask(tmux.Own(), "respawn-pane", "-k", "-t", pane, "sleep 60"); err != nil {
 				t.Fatal(err)

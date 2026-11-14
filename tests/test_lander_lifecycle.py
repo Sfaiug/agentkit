@@ -48,7 +48,7 @@ class LanderLifecycle(unittest.TestCase):
 
     def start(self, argv, unit, env, output, log=lambda _: None, **kw):
         self.starts.append((argv, unit, env, output, kw))
-        return 999
+        return os.getpid()
 
     def member(self, name="fix-api", turn=None, **extra):
         directory = config.RUNS / name
@@ -308,7 +308,7 @@ class LanderDelivery(unittest.TestCase):
                     free = False
             self.starts.append((len(self.case.merges),
                                 record.read_state(self.case.directory).get("waiting_on"), free))
-            return 999
+            return os.getpid()
 
         self.case.stack.enter_context(patch.object(orch, "start_in_slice", side_effect=start))
         land.start_line.side_effect = start_line

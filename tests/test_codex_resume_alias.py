@@ -31,7 +31,9 @@ class CodexResumeAlias(Sandbox):
         other = self.root / 'another.jsonl'
         other.write_text(original.read_text())
         codex.capture(receipt, dict(event, transcript_path=str(other), source='resume'))
-        self.assertIsNone(codex.conversation(record))
+        # neither read nor marking the receipt: only the seat's own Codex moves it (`follow`)
+        read = codex.conversation(record), codex.transcript(record, self.root, 'acme-thread')
+        self.assertEqual(read, ('acme-thread', str(original.resolve())))
 
 
 if __name__ == '__main__':

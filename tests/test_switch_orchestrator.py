@@ -6,8 +6,8 @@ directory, and the runs, plan file and record stay, with the new orchestrator in
 record. The new seat's rulebook ends on `ak plan`, `ak run status` and the file the old
 conversation is handed on in, and nothing is typed for it; a turn it was in is typed on by
 the tick where its harness takes no first prompt. A model whose harness is not installed or
-not logged in, or whose meter is spent, is refused in one line with the seat as it was, as
-is a restart that fails.
+not logged in is refused in one line with the seat as it was, as is a restart that fails; one
+whose meter is spent is not.
 
 Offline: a temporary HOME, fake harness adapters and binaries, a fake tmux, and no real
 process signalled. The seat listing is faked live or gone; the session records, plan
@@ -87,7 +87,8 @@ class Switch(Sandbox):
             path.chmod(0o755)
         self.stack.enter_context(patch.dict(
             os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
-        self.calls, self.fail, self.pid = [], set(), None    # `pid`: the pane's process, named
+        self.calls, self.fail, self.composer = [], set(), ""
+        self.pid = None     # the pane's process, named
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.seat = {"name": "fix-api", "path": str(self.root), "created": 100,
                      "attached": False, "exited": False, "legacy": False}
@@ -120,9 +121,14 @@ class Switch(Sandbox):
         self.calls.append(pane.resolved(args))
         if args[0] in self.fail:
             return 1, "boom"
+        if args[-1] == "#{pane_id}":
+            return 0, "%7"      # the session's pane, as tmux names it
         if self.pid and args[-1] == "#{pane_id}\t#{pane_pid}":
             return 0, f"%7\t{self.pid}"
-        return 0, PROMPT if args[0] == "capture-pane" else ""
+        if args[0] == "send-keys":     # a typed line stands in the composer until its Enter
+            self.composer = args[-1] if "-l" in args else ""
+        return 0, (PROMPT.replace("❯\xa0\n", f"❯\xa0{self.composer}\n")
+                   if args[0] == "capture-pane" else "")
 
     def rulebook(self, name="fix-api"):
         return config.rulebook_path(name).read_text()
@@ -239,8 +245,10 @@ class Switch(Sandbox):
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
                          "")
         self.assertEqual(config.load_session(self.cfg, "ship-api")["orchestrator"], "astra")
-        respawns = [args for args in self.calls if args[0] == "respawn-pane"]
-        self.assertEqual([args[args.index("-t") + 1] for args in respawns], ["=ship-api:"])
+        # its pane, named under the new name, is the one respawned
+        respawns = [args for args in self.calls if args[0] == "respawn-pane"
+                    or args[0] == "display-message" and args[-1] == "#{pane_id}"]
+        self.assertEqual([args[args.index("-t") + 1] for args in respawns], ["=ship-api:", "%7"])
         self.assertEqual([args for args in self.calls if "new-session" in args], [])
         self.assertIn("## Its conversation on opus", self.handover("ship-api"))
 
@@ -260,7 +268,7 @@ class Switch(Sandbox):
         self.assertEqual(note, "adapter boom second line")
         self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
 
-    def test_a_harness_not_installed_logged_out_or_spent_is_refused_in_one_line(self):
+    def test_a_harness_not_installed_or_logged_out_is_refused_in_one_line(self):
         selected = self.selected()
         before = config.load_session(self.cfg, "fix-api")
         with patch.object(config, "harness_binary", return_value=""):
@@ -269,12 +277,6 @@ class Switch(Sandbox):
         (self.fixture / "logged-out-codex").write_text("yes\n")
         refused.append(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}))
         self.assertIn("not logged in", refused[1])
-        (self.fixture / "logged-out-codex").unlink()
-        spent = {"openai": {"meters": [{"name": "weekly_all", "used": 100,
-                                        "resets_at": time.time() + 86400,
-                                        "window_secs": 604800}]}}
-        refused.append(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, spent))
-        self.assertIn("spent", refused[2])
         for note in refused:
             self.assertTrue(note)
             self.assertNotIn("\n", note)
@@ -285,6 +287,27 @@ class Switch(Sandbox):
         self.assertIsNone(watch.seat_read("fix-api").get("midturn"))
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "opus", 0, {}), "")
         self.assertEqual(self.calls, [])
+
+    def test_a_spent_model_takes_the_move(self):
+        spent = {"openai": {"meters": [{"name": "weekly_all", "used": 100,
+                                        "resets_at": time.time() + 86400,
+                                        "window_secs": 604800}]}}
+        self.assertTrue(orch.spent_note(self.cfg, "astra", spent))
+        selected = self.selected()
+        self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, spent), "")
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["orchestrator"], "astra")
+        self.assertEqual(len([args for args in self.calls if args[0] == "respawn-pane"]), 1)
+
+    def test_a_removed_login_is_never_asked_even_where_no_listed_one_passes(self):
+        self.cfg["providers"]["anthropic"]["accounts"] = ["second"]   # its usual login removed
+        asked = []
+
+        def auth(_harness, seat=False, account=None, **_kw):
+            asked.append(account)
+            return False, f"{account}: not logged in; run login"
+        with patch("agentkit.worker.auth_ok", side_effect=auth):
+            note = orch.switch_orchestrator(self.cfg, "fix-api", "fable", {})
+        self.assertEqual((note, asked), ("fable: second: not logged in; run login", ["second"]))
 
     def at_xhigh(self):
         """fix-api's record holding opus's orchestrator effort at xhigh: the record as it is."""
@@ -320,8 +343,8 @@ class Switch(Sandbox):
                           if args[0] in ("respawn-pane", "new-session")], [])
         self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
 
-    def test_a_move_in_place_within_the_provider_skips_auth_and_still_refuses_spent(self):
-        before = self.at_xhigh()
+    def test_a_move_in_place_within_the_provider_skips_auth_and_asks_nothing_of_usage(self):
+        self.at_xhigh()
         (self.fixture / "logged-out-claude").write_text("yes\n")
         spent = {"anthropic": {"meters": [{"name": "weekly_all", "used": 100,
                                            "resets_at": time.time() + 86400,
@@ -337,14 +360,12 @@ class Switch(Sandbox):
 
         with patch.object(orch, "tmux_out", side_effect=live_tmux), \
                 patch.object(watch, "move_behind"), patch.object(watch, "announce_state"):
-            self.assertIn("spent", orch.switch_orchestrator(self.cfg, "fix-api", "fable", spent))
-            self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
-            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "opus", {},
+            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "opus", spent,
                                                       effort="max"), "")
-            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "fable", {}), "")
+            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "fable", spent), "")
             self.assertEqual([owed["line"] for owed in watch.seat_read("fix-api")["owed_lines"]],
                              ["/effort max", "/model claude-fable-5-1", "/effort xhigh"])
-            dead = "1"      # pane dead: restarts, so auth runs first even beside a spent meter
+            dead = "1"      # pane dead: restarts, so auth runs first
             self.assertIn("not logged in",
                           orch.switch_orchestrator(self.cfg, "fix-api", "opus", spent))
 
@@ -436,11 +457,11 @@ class Switch(Sandbox):
             lines, _ = menu.config_body(self.cfg, ("model", "opus"), 0,
                                         self.selected())
         self.assertEqual(lines[0].split(), ["orch", "builds", "reviews"])
-        rows = {terminal.plain(line).lstrip("› ").split()[0]: "".join(
+        rows = {re.split(r" [[●○■□]", terminal.plain(line).lstrip("› "))[0]: "".join(
             char for char in terminal.plain(line) if char in "●○■□") for line in lines
                 if any(char in terminal.plain(line) for char in "●○■□")}
-        self.assertEqual(rows["Opus"], "●■□")
-        self.assertEqual(rows["GPT-6-Astra"], "○■■")
+        self.assertEqual(rows["Opus 5.5"], "●■□")
+        self.assertEqual(rows["6 Astra"], "○■■")
         with patch.object(menu.update, "agentkit_version", return_value="fixture"), \
                 patch.object(menu.usage, "collect", return_value={}), \
                 patch.object(terminal, "layout_width", return_value=100), \

@@ -70,7 +70,7 @@ func (l *loop) handExecutor(why, detail string, dry map[string]bool) (string, er
 	}
 	if err := l.save(func(record *run.Object) {
 		noteHandover(record, before, next, why, l.rnd)
-		run.SetAll(record, "executor", next, "reviewer", reviewer, "exec_session", nil, "review_session", none(l.reviewSession))
+		run.SetAll(record, "executor", next, "reviewer", none(reviewer), "exec_session", nil, "review_session", none(l.reviewSession))
 	}); err != nil {
 		return "", err
 	}

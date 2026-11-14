@@ -34,7 +34,7 @@ def keyed(screen):
 
 
 def costs(screen, word):
-    """The costs on `word`'s bars, left to right, and the role lines, `▸` at `word`; None before
+    """The costs on `word`'s bars, left to right, and the role lines, `›` at `word`; None before
     they are drawn."""
     try:
         return ([bar["cost"] for bar in bars(screen, word)], " ".join(said(screen)))
@@ -86,7 +86,7 @@ class ModelsBarsFit(unittest.TestCase):
 
     def test_on_40_by_24_each_role_keeps_its_lines_every_bars_cost_and_the_key_line(self):
         want_costs = lambda word: ([cost for _, _, cost, _ in BARS], ROLE_LINES.format(
-            *("▸ " if role == word else "" for role in USES)))
+            *("› " if role == word else "" for role in USES)))
         list(self.roles(self.models((40, 24)),
                         lambda screen, word: costs(screen, word) == want_costs(word)))
 

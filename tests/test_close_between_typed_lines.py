@@ -82,6 +82,8 @@ class CloseBetweenTypedLines(Sandbox):
         lock_inodes = []
         lock_path = config.notify_path(SEAT).with_suffix(".lock")
 
+        composer = [""]     # what is typed shows there until its Enter takes it
+
         def tmux(*args, **_kw):
             if args[0] == "kill-session":
                 self.seat = None
@@ -93,7 +95,8 @@ class CloseBetweenTypedLines(Sandbox):
                         raise AssertionError("first sender was not released")
                 elif args[-1] == "second":
                     second_typed.set()
-            return 0, "❯" if args[0] == "capture-pane" else ""     # an empty composer
+                composer[0] = args[-1] if "-l" in args else ""
+            return 0, f"❯ {composer[0]}" if args[0] == "capture-pane" else ""
 
         def start(*_args, **_kw):
             self.seat = {"name": SEAT, "path": str(self.root), "created": 200, "legacy": False}

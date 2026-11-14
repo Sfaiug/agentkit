@@ -20,7 +20,7 @@ func asIs(dir string, record *run.Object, rules *pick.Rules, room ready) bool {
 // and harnesses as they stand.  A dry tick's pick probes nothing, as Python's (watch.local_passes):
 // it reads the usage snapshot as it stands, where a read of it is Go's, and asks no harness.
 func picking(record *run.Object, dry bool) (*pick.Rules, ready, bool) {
-	l := &loop{workers: names(record.List("workers")), reviewers: names(record.List("reviewers"))}
+	l := &loop{workers: names(record.List("workers")), reviewers: names(record.List("reviewers")), alone: run.ReviewOff(record)}
 	rules, ok := l.rules()
 	if dry {
 		readings, err := usage.Cached()

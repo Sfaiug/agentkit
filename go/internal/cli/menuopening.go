@@ -12,7 +12,7 @@ import (
 // as Python resumes after a reboot before its maintenance, then swept but on a dry run or the
 // overlay (orch.maintenance).  False where Go hands the screen over.
 func openedFrame(none bool) (reading, []string, bool) {
-	first, known := readFrame(time.Now(), true)
+	first, known := readFrame(time.Now(), seat.Home.Announce)
 	if !known || first.handoff || none {
 		return first, nil, known && !first.handoff
 	}
@@ -68,7 +68,7 @@ func swept() (*reading, []string, bool) {
 	if len(said) == 0 {
 		return nil, said, carried
 	}
-	found, known := readFrame(time.Now(), true)
+	found, known := readFrame(time.Now(), seat.Home.Announce)
 	if !known {
 		return nil, said, false
 	}

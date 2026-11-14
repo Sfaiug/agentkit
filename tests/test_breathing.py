@@ -28,7 +28,7 @@ from agentkit import config, menu, motion, orch, terminal
 
 Key = terminal.Key
 TERMINAL = terminal.Keyboard       # the real one, for a stdin that is a pipe
-WORKING = (0x00, 0x67, 0xc6)       # `working` on a dark background
+WORKING = (0x4d, 0xa3, 0xff)       # `working` in the black theme
 # one dot rewritten: its cell, its colour, and on the highlighted row the row's brightness too
 DOT = re.compile(r"\x1b\[(\d+);(\d+)H(?:\x1b\[1m)?\x1b\[38;2;(\d+);(\d+);(\d+)m●"
                  r"\x1b\[0(?:;1m\x1b\[0)?m")

@@ -13,6 +13,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/plan"
 	"agentkit/internal/pyre"
 	"agentkit/internal/run"
 	"agentkit/internal/screen"
@@ -224,7 +225,7 @@ var ErrUnread = errors.New("Go does not read this seat yet")
 
 // liveSeat is the home and the seat by that name, where Go reads them and its panes still run on.
 func liveSeat(name string, now time.Time, runs readsRuns, readers recordReaders, pending ...bool) (Home, Seat, bool) {
-	home, known := reading(now, true, runs, readers, pending...)
+	home, known := reading(now, true, runs, readers, plan.Look{}, pending...)
 	at := slices.IndexFunc(home.Seats, func(each Seat) bool { return each.Name == name })
 	if !known || at < 0 || !home.Seats[at].live {
 		return home, Seat{}, false
