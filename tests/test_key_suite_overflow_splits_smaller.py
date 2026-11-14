@@ -67,7 +67,8 @@ elif verb == "run":
         kernel.recv(1)
 """
 # The line's checker, started in a scope of its own: the cgroup holds it alone.
-LANDER = """import os, sys
+LANDER = """#!{python}
+import os, sys
 with open({procs!r}, "w") as procs:
     procs.write(f"{{os.getpid()}}\\n")
 os.execv({ak!r}, [{ak!r}, *sys.argv[1:]])
@@ -183,7 +184,8 @@ def passes(case, cap=UNCAPPED, swap_cap=0, helper=False):
         home.env.pop("AK_MAX_RUNS")
     akconfig.write(home, ["opus", "astra"], settings={"suite_helper": "acme-mac"} if helper else None)
     claude = fakeadapter.install(home, claude="work", codex="pass")["claude"]
-    home.write(".local/bin/ak", LANDER.format(procs=str(unit / "cgroup.procs"), ak=AK))
+    home.write(".local/bin/ak", LANDER.format(python=sys.executable, procs=str(unit / "cgroup.procs"),
+                                              ak=AK)).chmod(0o755)
     for made in ("retry.txt", "notes.txt"):
         if helper:
             battery.touch()
