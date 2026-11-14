@@ -2,6 +2,7 @@ package harness
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -87,6 +88,36 @@ func TestClaudeLogoutRemovesTheTokenAsRmF(t *testing.T) {
 		}
 		if info, err := os.Stat(token); each.layout == "directory" && (err != nil || !info.IsDir()) {
 			t.Errorf("%s: the directory went: %v", each.layout, err)
+		}
+	}
+}
+
+// Claude Code's sign-out ends as bash gives it: 128 and the signal's number where a signal ends it,
+// 126 for a file on $PATH it may not run, 127 for an interpreter that is not there, and a file
+// with no `#!` read as a shell script.
+func TestClaudeLogoutEndsAsBashGivesIt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake Claude Code is a shell script")
+	}
+	for _, each := range []struct {
+		script string
+		mode   os.FileMode
+		code   int
+	}{
+		{"#!/bin/sh\nkill -TERM $$\n", 0o700, 143},
+		{"#!/bin/sh\nexit 7\n", 0o600, 126},
+		{"#!/missing-acme-interpreter\nexit 7\n", 0o700, 127},
+		{"exit 7\n", 0o700, 7},
+	} {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("PATH", home)
+		t.Setenv("AGENTKIT_ACCOUNT", "")
+		t.Setenv("CLAUDE_CONFIG_DIR", home)
+		os.WriteFile(filepath.Join(home, ".credentials.json"), []byte("{}"), 0o600)
+		os.WriteFile(filepath.Join(home, "claude"), []byte(each.script), each.mode)
+		if code := Verb("claude", "logout")(nil, io.Discard, io.Discard); code != each.code {
+			t.Errorf("%q, mode %o: exit %d, not %d", each.script, each.mode, code, each.code)
 		}
 	}
 }
