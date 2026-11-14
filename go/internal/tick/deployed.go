@@ -100,8 +100,11 @@ func reverting(key string, merges []*merge, probes map[[3]string]probe, dry bool
 			each.record = current
 			return nil
 		})
-		if err != nil || !said.passed {
+		if err != nil {
 			return err
+		}
+		if !said.passed {
+			continue // not served: an older release may be the one live
 		}
 		failures, _ := each.record.Num("health_failures")
 		deployed, _ := dated(each.record, "deployed_at")
