@@ -153,6 +153,11 @@ func (c *call) attempt(body, target string) (*try, error) {
 		previous = c.previous
 	}
 	t := &try{out: target, resumed: c.session, asked: c.calls == 0}
+	var places []string // a fix run's builder writes its regression test
+	regression := filepath.Dir(run.Regression(l.dir))
+	if info, err := os.Stat(regression); err == nil && info.IsDir() && (c.role == "executor" || c.role == "fixer") {
+		places = []string{regression}
+	}
 	turn := func(cwd string) (failed error) {
 		told, at := body, l.workspace
 		if cwd != "" {
@@ -160,7 +165,7 @@ func (c *call) attempt(body, target string) (*try, error) {
 		}
 		t.code, t.session, failed = worker.Turn(c.name, c.role, told, at, target, c.session, worker.Given{
 			Context: l.ctx, Account: account, Efforts: c.model.Efforts, Silence: l.silence, UsersAt: l.usersAt, Checks: c.checks, Findings: c.findings, Previous: previous,
-			Env: []string{"AK_RUN_ROLE=worker", "AK_RUN_LOG=" + filepath.Join(l.dir, "log.txt")},
+			Env: []string{"AK_RUN_ROLE=worker", "AK_RUN_LOG=" + filepath.Join(l.dir, "log.txt")}, Places: places,
 		}, stampedLog{l.dir})
 		if failed == nil || errors.Is(failed, worker.ErrSilent) { // a turn that ran
 			usage.Turned(c.model, account, target)

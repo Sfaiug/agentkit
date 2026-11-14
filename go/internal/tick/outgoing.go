@@ -226,11 +226,11 @@ func (t *ticking) say(text, address, session string, merged bool) (said bool, er
 	name, _, err := config.ResolveSession(session)
 	// what Go does not type is Python's, before anything is written: Python's seat_notice
 	// points to result.md where the line would not fit, its editor reads a mark naming a pane, it
-	// sends a hand-back's line left unsent, which a merge's notice replaces (endings), it starts a
-	// merge's follow-up that has no command, and it weighs the seat's plan where Go cannot
+	// sends a hand-back's line left unsent, which a merge's notice replaces (endings), and it
+	// weighs the seat's plan where Go cannot
 	if session != "" && (err != nil || !reaches(name)) || config.TooLong(line) ||
 		record.Truthy("decision_typed") && (held == nil || held.Has("pane")) ||
-		merged && (record.Truthy("handback_typed") || handback.Unclaimed(record) || plan.Readable(run.Seat(record)) != nil) {
+		merged && (record.Truthy("handback_typed") || plan.Readable(run.Seat(record)) != nil) {
 		return false, errLeft
 	}
 	if note := config.Fold(text); dir != "" && (record.Str("merge_note") != note || merged && !record.Truthy("merged")) {

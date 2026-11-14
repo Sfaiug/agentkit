@@ -100,7 +100,7 @@ func TestAStoppedRebaseTurnsHere(t *testing.T) {
 				t.Fatal("the sequencer's pick is still stopped")
 			}
 			before := offered
-			turn := elsewhere(config.Model{Harness: "acme"}, []string{"acme.sh", "turn"}, wt, t.TempDir(), map[string]string{"HOME": home}, "")
+			turn := elsewhere(config.Model{Harness: "acme"}, []string{"acme.sh", "turn"}, wt, t.TempDir(), map[string]string{"HOME": home}, "", nil)
 			switch {
 			case turn != nil:
 				t.Fatal("a turn went to a machine")
