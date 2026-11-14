@@ -10,11 +10,12 @@ import (
 
 const looked = "read by its seat's own ak run status or ak wait: printed there, not typed"
 
-// LookLine reads the tick's line and returns an action to record it after successful output.
-// A contended look leaves both the full notice and the record to that delivery, even if its
-// lock is released during output. No lock spans the output itself.
+// LookLine reads the tick's line for a look that owes it (lookOwes) and returns an action to
+// record it after successful output.  A contended look leaves both the full notice and the
+// record to that delivery, even if its lock is released during output. No lock spans the output
+// itself.
 func LookLine(dir string, record *run.Object) (string, func()) {
-	if !run.Waits(record) {
+	if !lookOwes(record) {
 		return "", nil
 	}
 	held, err := lock.Try(filepath.Join(dir, "delivery.lock"))
@@ -40,7 +41,7 @@ func printedAtLook(dir string, snapshot *run.Object) {
 	}
 	defer held.Close()
 	said, _ := run.Read(dir)
-	if said != nil && sameAttempt(snapshot, said) && run.Waits(said) {
+	if said != nil && sameAttempt(snapshot, said) && lookOwes(said) {
 		// the line printed was the snapshot's: health landing since leaves its live notice owed
 		told := looksLive(snapshot) && run.Equal(snapshot.Get("live_at"), said.Get("live_at")) && !said.Truthy("live_typed")
 		mark(dir, said, append([]any{"handed_back", now(), "reported", true,

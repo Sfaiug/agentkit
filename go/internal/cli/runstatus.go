@@ -81,6 +81,9 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		if _, _, _, no := listing(seat, wanted, showHistory, machine, now); no {
 			return notImplemented(errOut, "run status")
 		}
+		if !machine && lookLeft(caller, filepath.Join(run.Runs(), wanted)) {
+			return notImplemented(errOut, "run status")
+		}
 		// a mark that cannot be written is let go, as Python lets it go: what is shown
 		// never depends on it
 		err := run.Change(filepath.Join(run.Runs(), wanted), func(record *run.Object) (err error) {

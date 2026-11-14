@@ -50,6 +50,9 @@ func wait(args []string, out, errOut io.Writer) int {
 	if err == nil && why == "" && kind == "pr" {
 		own, err = ownRun(name, on, now)
 	}
+	if err == nil && over && kind == "run" && lookLeft(name, filepath.Join(run.Runs(), on)) {
+		return notImplemented(errOut, "wait")
+	}
 	switch {
 	case errors.Is(err, errLeft), errors.Is(err, waitfact.ErrPython):
 		return notImplemented(errOut, "wait")
