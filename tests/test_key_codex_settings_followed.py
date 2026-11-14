@@ -5,6 +5,7 @@ Black-box against AK_BIN: the fake server speaks Codex 0.166's settings notifica
 rollout event, refusing the subscription until its rollout is available.
 """
 from datetime import datetime, timezone
+import itertools
 import json
 from pathlib import Path
 import shlex
@@ -87,11 +88,18 @@ class CodexSettingsFollowed(unittest.TestCase):
                                      ("luna", "5.6 Luna", "medium"),
                                      ("astra", "6 Astra", "high")):
             follows(THREAD, model, label, effort)
-        # The seat moves to the thread /new opens at its first prompt, and its settings with it.
+        # The seat moves to the thread /new opens at its first prompt, and its settings with it,
+        # while the thread it left goes on printing a background terminal's output.
         for keys in (("-l", "/new"), ("Enter",), ("-l", "Go on."), ("Enter",)):
             self.assertEqual(home.tmux("send-keys", "-t", "=acme:", *keys).code, 0)
-        until(lambda: json.loads(subscribed.read_text())["threadId"] != THREAD,
-              "subscribed to the thread /new opened")
+        lines = itertools.count()
+
+        def moved():
+            home.write("notification.tmp", {"method": "item/commandExecution/outputDelta",
+                "params": {"threadId": THREAD, "delta": f"line {next(lines)}\n"}}).replace(
+                subscribed.parent / "settings-notification.json")
+            return json.loads(subscribed.read_text())["threadId"] != THREAD
+        until(moved, "subscribed to the thread /new opened while the one left went on")
         follows(json.loads(subscribed.read_text())["threadId"], "luna", "5.6 Luna", "low")
 
 
