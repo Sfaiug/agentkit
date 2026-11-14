@@ -1446,13 +1446,34 @@ def shared_week(cfg, provider, prov, now=None):
     that cannot be drawn is better than a wrong one.
     The picker is unaffected -- it ranks each model on the meters gating it (`_gating_meters`).
 
-    The menu's row and the `resets` column of the table both read this one answer, so the two
-    can never disagree about which week they are naming the reset time of.
+    The menu's row and the table's row (`rows`) both read this one answer, so the two can never
+    disagree about which week they are naming.
     """
-    meters = readable(prov, time.time() if now is None else now)
-    claimed = {entry["meter"] for entry in cfg["models"].values()
-               if entry.get("provider") == provider and entry.get("meter")}
-    return _worst([m for m in meters if m.get("name") not in claimed and not m.get("scope")])
+    return _worst([m for m in readable(prov, time.time() if now is None else now)
+                   if not _own_cap(cfg, provider, m)])
+
+
+def _own_cap(cfg, provider, meter):
+    """Whether this meter of `provider` is one model's own cap: its provider names its owner
+    (`scope`), or a `meter` in config.toml claims it."""
+    return bool(meter.get("scope")) or any(
+        entry.get("provider") == provider and entry.get("meter") == meter.get("name")
+        for entry in cfg["models"].values() if entry.get("meter"))
+
+
+def _as_shared(cfg, provider, prov, week):
+    """This login as its row in `ak usage` reads it: `week`, its shared week, its one weekly
+    meter beside its 5h session, or the login as it is where it has none.  It is spent as its
+    flags say unless the only meters spent are models' own caps: Opus still runs on a login
+    whose Fable cap is full.  Only the row: the pick, `--json` and each model's gate read the
+    flags as they are."""
+    if week is None:
+        return prov
+    meters = prov.get("meters") or []
+    spent = [m for m in meters if m.get("exhausted")]
+    capped = spent and all(_own_cap(cfg, provider, m) for m in spent)
+    return {**prov, "meters": [week, *(m for m in meters if m.get("window_secs") == SESSION_SECS)],
+            **({"exhausted": False, "on_credits": False} if capped else {})}
 
 
 def provider_headroom(prov, cfg, provider=None):
@@ -1893,25 +1914,24 @@ def _accounts(cfg, providers):
 def rows(cfg, providers):
     """One row per provider, in plain words: what is left of its week and session, and how long.
 
-    `left` is the tightest weekly meter, because that is what the picker ranks on;
-    `resets` is the shared week's, because that is the week the menu row names and the two
-    must say the same thing, `holds` is what that same week of its plan holds at list prices
-    and `a month` that login's price (`price`).  On a split allowance they can be different
-    meters, which is why the two lines under the table print both.  A provider with several
-    accounts is a row per account, `Claude II`, each on its own meters and its own plan.
+    Every number reads the shared week (`_as_shared`), the one the menu row names; a row with
+    no shared week reads the tightest weekly meter.  `holds` is what that week of its plan holds
+    at list prices and `a month` that login's price (`price`).  A provider with several accounts
+    is a row per account, `Claude II`, each on its own meters and its own plan.
     """
     now = time.time()
     weeks = plan_weeks(cfg, providers, now)
     out = []
     for label, name, prov, account in _accounts(cfg, providers):
+        shared = shared_week(cfg, name, prov, now)
+        prov = _as_shared(cfg, name, prov, shared)
         week = _weekly(prov)
         session = _worst([m for m in prov.get("meters") or []
                           if m.get("window_secs") == SESSION_SECS])
-        shared = shared_week(cfg, name, prov, now) or {}
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
-                    _held(weeks[name][account][1], shared), _digits(price(cfg, name, account)),
-                    reset_when(shared, now) or "-",
+                    _held(weeks[name][account][1], shared or {}),
+                    _digits(price(cfg, name, account)), reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
                     _num(_number(prov.get("resets")), 0),

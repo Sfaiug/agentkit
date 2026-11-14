@@ -156,10 +156,9 @@ class UsageRow(Sandbox):
             self.cache()
             self.assertEqual(said(self.cfg)["Claude"],
                              f"{left}% left · resets Sun 00:00 · {note} · 5h spent until 00:00")
-            # the picker and the table keep ranking on the tightest meter, as they always did
+            # and `ak usage` says the same week (the picker ranks each model on its own gates)
             table = {"anthropic": {"meters": [{**m, "elapsed": 50, "pace": 0} for m in meters]}}
-            self.assertEqual(usage.rows(self.cfg, table)[0][2],
-                             f"{min(100 - all_used, 100 - scoped_used)}%")
+            self.assertEqual(usage.rows(self.cfg, table)[0][2], f"{left}%")
         # a provider whose every readable week is one model's own cap has no shared week at
         # all, and borrowing the cap would be exactly the number the report called wrong
         self.providers["anthropic"]["meters"] = [self.meter("weekly_scoped", 9)]
@@ -169,7 +168,7 @@ class UsageRow(Sandbox):
                                            "elapsed": 50, "pace": 0}]}}
         row = dict(zip(usage.HEADERS, usage.rows(self.cfg, table)[0]))
         self.assertEqual(row["resets"], "-")             # no shared week to name the reset of
-        self.assertEqual(row["left"], "91%")             # the picker still ranks on the cap
+        self.assertEqual(row["left"], "91%")             # nor a week, so the tightest meter
         # a meter nothing can be drawn from never hides one that can: an expired scoped week
         # at 100% leaves the shared week the row, and a shared week without a number leaves
         # no row at all rather than Fable's cap wearing Claude's name
