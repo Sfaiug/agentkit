@@ -107,7 +107,8 @@ def _release_index(releases):
 
 
 def lineup(boards, offers):
-    """A row per current release (`catalog.current`) and effort, with its `values` as the
+    """A row per current release (`catalog.current`) and effort, `name` as ak says it
+    (config.release_label) and `board_name` as the board does, with its `values` as the
     catalog joins them and `yours`: each model of `offers` ({harness: config.catalog(harness)})
     that `found` matches to this release alone, as {"harness", "model"}, at each effort it
     lists and at a row naming no effort, which is the model however it is run, or at the
@@ -126,7 +127,8 @@ def lineup(boards, offers):
                 if effort["effort"] in words if words else effort["default"]:
                     yours.setdefault((release["slug"], effort["effort"]), []).append(
                         {"harness": harness, "model": model["id"]})
-    return [{"release": release["slug"], "name": release["name"], "maker": release["maker"],
+    return [{"release": release["slug"], "name": config.release_label(release["name"]),
+             "board_name": release["name"], "maker": release["maker"],
              "effort": effort["effort"], "values": effort["values"],
              "yours": yours.get((release["slug"], effort["effort"]), [])}
             for release in releases for effort in release["efforts"]]
@@ -171,7 +173,9 @@ def _costs(rated, lineup, cfg, logins, shares):
     # decide, the owner answered "Costs only", as quality comes from the boards.
     from . import usage
     rows = {(row["release"], row["effort"]): row for row in lineup}
-    index = _release_index({row["release"]: {"slug": row["release"], "name": row.get("name")}
+    # matched as `lineup` matched, on the name the board spells, not the one ak says
+    index = _release_index({row["release"]: {"slug": row["release"],
+                                             "name": row.get("board_name")}
                             for row in lineup}.values())
     providers = {}  # each release's provider: its first offered model's
     measured = {}   # (role, release, effort): [(provider, points, runs, listed)], a model's each
