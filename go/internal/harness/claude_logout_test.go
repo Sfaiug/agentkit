@@ -94,7 +94,7 @@ func TestClaudeLogoutRemovesTheTokenAsRmF(t *testing.T) {
 
 // Claude Code's sign-out ends as bash gives it: 128 and the signal's number where a signal ends it,
 // 126 for a file on $PATH it may not run, 127 for an interpreter that is not there, and a file
-// with no `#!` read as a shell script.
+// with no `#!` read as a bash script, or refused with 126 where it is binary.
 func TestClaudeLogoutEndsAsBashGivesIt(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake Claude Code is a shell script")
@@ -107,7 +107,8 @@ func TestClaudeLogoutEndsAsBashGivesIt(t *testing.T) {
 		{"#!/bin/sh\nkill -TERM $$\n", 0o700, 143},
 		{"#!/bin/sh\nexit 7\n", 0o600, 126},
 		{"#!/missing-acme-interpreter\nexit 7\n", 0o700, 127},
-		{"exit 7\n", 0o700, 7},
+		{"[[ $* == 'auth logout' ]] && exit 7\n", 0o700, 7},
+		{"exit 7\x00\n", 0o700, 126},
 	} {
 		home := t.TempDir()
 		t.Setenv("HOME", home)

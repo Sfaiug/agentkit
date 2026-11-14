@@ -66,8 +66,9 @@ func claudeLogout(_ []string, out, errOut io.Writer) int {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, out, errOut
 	err = cmd.Run()
 	if errors.Is(err, syscall.ENOEXEC) {
-		// a file the system starts no program from, bash reads as a shell script
-		script := exec.Command("/bin/sh", program, "auth", "logout")
+		// a file the system starts no program from, bash reads as its own script, as it reads one
+		// named to it, and refuses with 126 where it cannot read it or finds it binary
+		script := exec.Command("/bin/bash", program, "auth", "logout")
 		script.Env, script.Stdin, script.Stdout, script.Stderr = cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr
 		cmd, err = script, script.Run()
 	}
