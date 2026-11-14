@@ -108,11 +108,11 @@ class ModelFollowedInsideAntigravity(unittest.TestCase):
                         env={"NO_COLOR": "1", "AGENTKIT_SESSION": "acme-new"})
         self.addCleanup(home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
-        term.wait(lambda screen: any("acme-new" in line and "Gemini 4 Argon" in line
+        term.wait(lambda screen: any("acme-new" in line and "4 Argon" in line
                                      for line in screen.split("\n")))
         term.keys("c")
         term.wait(lambda screen: "esc back" in screen
-                  and marked(screen) == ("Gemini 4 Argon", "low"))
+                  and marked(screen) == ("4 Argon", "low"))
 
 
 if __name__ == "__main__":

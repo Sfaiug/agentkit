@@ -2449,7 +2449,9 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     for a seat that was live all along.
 
     `account` reopens even a live pane on that subscription, without changing its selection
-    or surrendering its conversation. Ordinary resumes keep the account already recorded.
+    or surrendering its conversation, and is its home from then on where its provider lists
+    the one it had no more (`config.lists`). Ordinary resumes keep the account already
+    recorded.
     `still` is `_start_harness`'s.  `line`, such a caller's, is what the conversation, where it
     comes back with its past, opens on.
     """
@@ -2487,8 +2489,10 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
             ok, why = harness_plugin(harness).seat_auth(account)
             if ok is not True:
                 raise config.Error(f"{name}: {account} cannot open a seat: {why}")
+        homed = ({} if config.lists(cfg, provider, record.get("home_account"))
+                 else {"home_account": account})
     else:
-        account = record.get("account")
+        account, homed = record.get("account"), {}
     # the directory it ran in, unless that is gone -- a run's worktree, a checkout since
     # deleted -- in which case the seat opens where a new one would rather than not at all.
     # Whether its harness has opened that conversation yet is still asked where it ran: a
@@ -2514,7 +2518,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
         print(shlex.join(cmd))
         return 0
     launch(name, orchestrator, cwd, cmd, conversation, session, still, line=line)
-    config.update_session(name, account=account)
+    config.update_session(name, account=account, **homed)
     if hand_over:
         return 0           # detached: restarting is neither attaching nor reading the seat
     # its own conversation only where the harness has opened it: an id nothing wrote
@@ -2760,16 +2764,26 @@ FROZEN_MOST = 10
 FROZEN_OPTION = "@ak_frozen"
 
 
-def harness_pane(name, server):
-    """The pane our launch created, even if another window is active; if it was removed, the
-    session's current pane, as older launches used."""
+def launch_pane(name, server):
+    """The pane our launch created, even if another window is active; None once it is gone."""
     rc, pane = tmux_out("show-options", "-qv", "-t", f"={name}:", PANE_OPTION, socket=server)
     if rc == 0 and re.fullmatch(r"%[0-9]+", pane):
         rc, owner = tmux_out("display-message", "-p", "-t", pane, "#{session_name}",
                              socket=server)
         if rc == 0 and owner == name:
             return pane
-    return f"={name}:"
+    return None
+
+
+def harness_pane(name, server):
+    """The pane our launch created (`launch_pane`); if it was removed, the session's current
+    pane, as older launches used, by id: what is read there is what a respawn replaces,
+    whichever window the owner selects meanwhile.  None where tmux names none."""
+    pane = launch_pane(name, server)
+    if pane:
+        return pane
+    rc, pane = tmux_out("display-message", "-p", "-t", f"={name}:", "#{pane_id}", socket=server)
+    return pane if rc == 0 and re.fullmatch(r"%[0-9]+", pane) else None
 
 
 def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=None):
@@ -2783,6 +2797,8 @@ def _start_harness(name, model, cwd, cmd, session, started=lambda: None, still=N
     if session:
         server = seat_socket(session)
         target = session.get("pane") or harness_pane(name, server)
+        if not target:
+            raise config.Error(f"cannot resume the session {name}: tmux named no pane of it")
         values = seat_env(name, server)
         command, launch = seat_command(name, cmd, server)
         thaw = ("set-option", "-pu", "-t", target, FROZEN_OPTION, ";",
@@ -4475,12 +4491,12 @@ def switch_lines(cfg, name, model, effort=None):
         return None         # its model is gone: nothing says what runs in its pane
     block = config.manifest(entry["harness"]).get("switch") or {}
     server = seat_socket(find(name))
-    pane = harness_pane(name, server)   # no id once it is gone, whatever other window lives on
+    pane = launch_pane(name, server)    # none once it is gone, whatever other window lives on
     if (was["harness"] != entry["harness"]
             or was["provider"] != entry["provider"] and not config.one_login(entry["harness"])
             or not config.lists(cfg, was["provider"], record.get("account"))
             or "model" not in block or entry["model"] in ("", config.DEFAULT_MODEL)
-            or not pane.startswith("%") or tmux_out(
+            or not pane or tmux_out(
                 "display-message", "-p", "-t", pane, "#{pane_dead}", socket=server) != (0, "0")):
         return None
     at = effort or config.role_effort(config.at_efforts(cfg, record)["models"][model],
@@ -4498,15 +4514,18 @@ def take_efforts(cfg, name, model, effort):
     """`model`'s efforts in that seat's record as a move onto it runs them, at `effort` where
     given (config.orchestrating_at), its entry's where the record holds none (config.own_efforts):
     written ahead of the move's fields, which then give it none, in one hold of the record's lock
-    so nothing saved meanwhile counts as the move's.  (before, after): its efforts as the record
-    held them, None for none, and as written, for effort_back."""
+    so nothing saved meanwhile counts as the move's.  Each model the seat runs is held first at
+    the efforts it runs at, so a config saved while the move waits moves none, and one the move
+    gives back keeps them.  (before, after): its efforts as the seat ran them, None for one it ran
+    not, and as written, for effort_back."""
     taken = []
 
     def take(data):
-        moved = config.own_efforts(cfg["models"], name, {**data, "orchestrator": model})
+        held = config.own_efforts(cfg["models"], name, data)
+        moved = config.own_efforts(cfg["models"], name, {**held, "orchestrator": model})
         efforts = (moved.get("efforts") if effort is None
                    else config.orchestrating_at(cfg["models"], moved, model, effort))
-        taken[:] = [(data.get("efforts") or {}).get(model), (efforts or {}).get(model)]
+        taken[:] = [(held.get("efforts") or {}).get(model), (efforts or {}).get(model)]
         return efforts
     config.change_efforts(name, take)
     return taken
@@ -4659,6 +4678,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     session = find(name)
     if session:
         session = dict(session, pane=harness_pane(name, seat_socket(session)))
+        if not session["pane"]:
+            return f"{name} stays on {old_model}: tmux named no pane of it"
     pane = (watch.pane_capture(session)
             if session and not any(session.get(key) for key in CLOSED) else "")
     live = watch.look_at(session, cfg=cfg, pane=pane)[1] if pane and pane.strip() else {}

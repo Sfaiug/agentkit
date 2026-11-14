@@ -3,11 +3,12 @@
 A model the config runs that its harness's catalog does not list had no row, so nothing on the
 screen took it out though the page promises `■` for each model the config runs.  It is a `■` row
 after the listed ones, named as every screen names it, and Space takes it out of config.toml and
-back in as it was; so is one taken in on the page that a login then leaves out of the listing.
+back in as it was; so is one taken in on the page that a login then leaves out of the listing,
+and one on a harness whose providers cannot be read, the reason on a line after it.
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its
 harnesses the fakes of tests/fixtures/fakeadapter.py, the fake OpenCode listing `acme/nova-7-1`
-only until its `login` runs, judged by what the terminal shows and config.toml; this test fails
-against `/bin/false`.  The terminal has no colour (NO_COLOR).
+only until its `login` runs, or its `providers` failing, judged by what the terminal shows and
+config.toml; this test fails against `/bin/false`.  The terminal has no colour (NO_COLOR).
 """
 
 import sys
@@ -110,6 +111,36 @@ class ModelsListsWhatTheConfigRuns(unittest.TestCase):
         term.wait(lambda screen: "›   □ Nova 7.1" in lines(screen))
         self.assertEqual([entry["model"] for entry in akconfig.read(home)["models"].values()],
                          ["acme/one-1"])
+
+    def test_a_model_keeps_its_row_when_its_harness_lists_no_provider(self):
+        home = Home()
+        self.addCleanup(home.close)
+        fakes = fakeadapter.install(home, claude="pass", opencode="pass")
+        fakes["opencode"].answer("providers", "", 1)
+        akconfig.write(home, {"fable": "claude",
+                              "nova": {"harness": "opencode", "model": "acme/nova-7-1",
+                                       "provider": "acme"}},
+                       providers={"acme": {"mode": "payg"}})
+        given = akconfig.read(home)
+        term = Terminal(home, size=(100, 30), env={"NO_COLOR": "1"})
+        term.wait(lambda screen: key_line(screen) == MAIN_KEYS)
+        term.keys("c")
+        term.wait(lambda screen: key_line(screen) == MARK_KEYS and "› Fable 5.1" in screen)
+        term.keys("j", "j")
+        term.wait(lambda screen: "› Models" in lines(screen))
+        term.keys("Enter")
+        term.wait(lambda screen: "› Claude Code  Fable 5.1" in lines(screen))
+        term.keys("j", "Enter")
+        term.wait(lambda screen: "›   ■ Nova 7.1" in lines(screen)
+                  and "    config: opencode lists no provider" in lines(screen))
+        term.keys("Space")
+        term.wait(lambda screen: "›   □ Nova 7.1" in lines(screen))
+        self.assertNotIn("nova", akconfig.read(home)["models"])
+        term.keys("Space")
+        term.wait(lambda screen: "›   ■ Nova 7.1" in lines(screen))
+        saved = akconfig.read(home)
+        self.assertEqual((saved["models"], saved["providers"]),
+                         (given["models"], given["providers"]))
 
 
 if __name__ == "__main__":

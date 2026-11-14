@@ -28,6 +28,8 @@ class RefusedRespawn(Sandbox):
         def tmux(*args, **_kw):
             if args[0] == "capture-pane":
                 return 0, self.pane
+            if args[0] == "display-message":
+                return 0, "%7"      # the seat's pane, as tmux names it
             if args[0] == "respawn-pane" and self.refused:
                 return 1, self.refused
             return 0, ""

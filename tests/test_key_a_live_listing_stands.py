@@ -48,7 +48,7 @@ class LiveListingStands(unittest.TestCase):
         term.wait(lambda screen: MAIN_KEYS in lines(screen))
         term.keys("c")
         term.wait("› Fable 5.1")
-        term.keys("Down", "Down", "Down")             # past GPT-6-Astra and `Models`
+        term.keys("Down", "Down", "Down")             # past 6 Astra and `Models`
         term.wait("› Subscriptions")
         term.keys("Enter")
         term.wait("+ add a subscription")

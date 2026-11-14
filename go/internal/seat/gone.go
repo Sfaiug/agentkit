@@ -68,28 +68,24 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 		return Seat{}, nil, false
 	}
 	seat.closed = file != nil && file.Truthy("closed_by_owner")
-	seat.asleep = putToSleep(record, file)
 	if err := seat.goneAt(state, at+1, now); err != nil {
 		return Seat{}, nil, false
 	}
 	return seat, models, true
 }
 
-// putToSleep is whether the seat was put to sleep since its harness launched, and not closed since
-// (sleep.asleep).
+// putToSleep is whether an older ak put the seat to sleep since its harness launched, and the owner
+// has not closed it since (watch.slept).
 func putToSleep(record, file *run.Object) bool {
 	asleep, _ := number(record.Get("asleep"))
 	launched, _ := number(record.Get("launched"))
-	return asleep > launched && (file == nil || !file.Truthy("stopped_at"))
+	return asleep > launched && (file == nil || !file.Truthy("closed_by_owner"))
 }
 
 // closedReason is why a seat nobody is in reads as it does, and its way back in, that way being
 // its number on the menu (watch._session_state's rung 4).
 func (seat Seat) closedReason(place int) string {
 	reason := fmt.Sprintf("session closed: press %d to reopen", place)
-	if seat.asleep {
-		reason = fmt.Sprintf("asleep: press %d to wake it", place)
-	}
 	if seat.closed {
 		reason = "session closed by the owner: reopen it from past sessions"
 		if seat.handBacks > 0 {

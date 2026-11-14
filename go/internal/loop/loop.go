@@ -64,7 +64,7 @@ var ErrStopped = errors.New("a run a stop ended")
 const followEvery = 200 * time.Millisecond
 
 // landerAgain is how often a terminal following a run parked in its line starts its lander again.
-const landerAgain = time.Minute
+var landerAgain = time.Minute
 
 // errStop is a run a stop landed on: the record says so, and nothing is written over it.
 var errStop = errors.New("the run was stopped")
@@ -173,7 +173,9 @@ func Follow(dir string, offset int64, out, errOut io.Writer) int {
 // Await follows the run at dir until its driver is gone and it waits in no landing line, calling
 // look before each look at it, and answers its record then, nil for none.  Its lander is started
 // again now and then, as Python's job_await does: the one its run started on leaving can die, and
-// a sandbox runs no tick at all.
+// a sandbox runs no tick at all.  Unlike job_await, it counts from that leaving, not from the
+// follow's start: a start racing the one the leaving makes, before that one holds the line's
+// lock, is a second lander for the same pass.
 func Await(dir string, look func()) *run.Object {
 	asked := time.Now()
 	for {
@@ -188,7 +190,10 @@ func Await(dir string, look func()) *run.Object {
 			}
 			continue
 		}
-		if parkedInLine(record) && time.Since(asked) >= landerAgain {
+		switch {
+		case run.ProcessActive(record):
+			asked = time.Now()
+		case parkedInLine(record) && time.Since(asked) >= landerAgain:
 			asked = time.Now()
 			startLine(filepath.Join(run.Runs(), landingLine(record)), io.Discard)
 		}
@@ -565,8 +570,8 @@ func names(list []any) (found []string) {
 }
 
 // rules is what every pick of this run reads: the lists it was launched with, Python's run_workers
-// and run_reviewers, as the config can change while it lives; the config's own where none was bound.
-// With review off its executor is picked alone.
+// and run_reviewers, as the config can change while it lives; the home's where none was bound
+// (pick.Load), a seat's own inside one.  With review off its executor is picked alone.
 func (l *loop) rules() (rules *pick.Rules, ok bool) {
 	if l.workers == nil {
 		rules, ok = pick.Load()

@@ -6,12 +6,12 @@ import (
 	"agentkit/internal/run"
 )
 
-// museTokenSources is each log of the session the seat's launch reported, and its child
-// sessions' logs beside it (muse.py `seat_token_sources`).
+// museTokenSources is each log of the session the seat is in, and its child sessions' logs beside
+// it (muse.py `seat_token_sources`).
 func museTokenSources(record *run.Object) []string {
 	var sources []string
 	// a folder it cannot read hides nothing, as Python's glob skips one
-	logs, _ := museSessionLogs(museConversation(map[string]any{"muse_launch": record.Get("muse_launch")}))
+	logs, _ := museSessionLogs(museOwned(record))
 	for _, log := range logs {
 		sources = append(append(sources, log), below(filepath.Join(filepath.Dir(log), "subagent"), "session.jsonl")...)
 	}

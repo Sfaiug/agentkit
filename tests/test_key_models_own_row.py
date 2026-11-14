@@ -86,7 +86,7 @@ class OwnRow(unittest.TestCase):
         self.home.write(f".agentkit/state/session-{SEAT}.json", self.seat.record)
 
     def reviewer(self, width, seat=None):
-        """`r` on `c`, `width` cells wide, over `seat` or in a window of its own, `▸` moved to
+        """`r` on `c`, `width` cells wide, over `seat` or in a window of its own, `›` moved to
         the reviewer once its bars stand with Low in use."""
         term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=(width, 60),
                         env={**ENV, **({"AGENTKIT_SESSION": seat} if seat else {})})

@@ -148,8 +148,8 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 		pending = run.Fields("sha", broke.sha, "line", fmt.Sprintf("%s failed on %s after this merge. %s. Fix the target.", broke.check, target, broke.at),
 			"typed", nil, "run", broke.name, "check", broke.check, "source", "health", "finished", run.Float(broke.finished),
 			"target", target, "session", session)
-		// kept until it is told or its repository goes green: a seat asleep or in a turn is
-		// told at its next prompt, past the window its merge leaves meanwhile.  Until watch.json
+		// kept until it is told or its repository goes green: a seat in a turn is told at its
+		// next prompt, past the window its merge leaves meanwhile.  Until watch.json
 		// keeps it, its run's health is its only record, so it waits a tick, that left in place.
 		episodes.Set(key, run.Fields("pending", pending))
 		if !t.keep() {
@@ -215,8 +215,8 @@ func (t *ticking) tellBreak(name, session, key, line string, typed *run.Object, 
 }
 
 // tellSeat is after_merge_seat and its telling: the line goes through the hand-back into the
-// seat its mark names while that one is up, else session's own, woken where it sleeps and none
-// until then, else the newest seat up whose runs merged into the repository key names; only at
+// seat its mark names while that one is up, else session's own, none while it is slept
+// (seat.Asleep), else the newest seat up whose runs merged into the repository key names; only at
 // that seat's prompt.  The seat told, "" for none.
 func (t *ticking) tellSeat(session, key, line string, typed *run.Object, receipt func(*run.Object) error) (string, error) {
 	tell := func(name string) string { return handback.Tell(name, line, typed, receipt, t.log.line) }

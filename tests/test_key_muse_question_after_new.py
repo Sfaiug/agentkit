@@ -1,17 +1,19 @@
 """A Muse seat follows its conversation through Muse's own `/new`.
 
 `/new` fires no hook: the SessionStart hooks on a launch's line ran in the session it opened and
-not in the next.  What moves is Muse's registry under its data home, `runtime/muse/sessions/`,
-where the entry naming the launch's process goes and one for the new session, the same process
-holding it, takes its place.  A question asked there, then the owner's reply written in that new
-session's store, answers it; another seat in the same directory, its own Muse with its own
-entry, keeps its question; and the seat reopens on the new session.  Its launch's receipt keeps
-the session it reported as `reported`: a line ak typed before the launch named its session went
-into that one, so once the seat has reopened the owner's same words in the new session are the
-owner's, and answer a question asked there.  Black-box: seats opened by `ak orch` from a
-person's terminal on a fake muse that fires each SessionStart hook its line carries as Muse
-1.4.12 does and lists its session in Muse's registry (tests/fixtures/musetui.py), its log in
-Muse's store, under the Home; this test fails against `/bin/false`.
+not in the next.  The next turn's end does, its Stop naming the session it ran in, and the seat
+goes on there.  A question asked there, then the owner's reply written in that new session's
+store, answers it; another seat in the same directory, its own Muse in its own session, keeps its
+question; and the seat reopens on the new session.  An Esc's Interrupt, which Muse runs beside
+the turn and may hand on again or after a later Stop, moves the seat nowhere: a session whose
+turn the owner interrupted is kept once as one the seat left, for its done check, and the seat
+still reopens on its last Stop's.  A line ak typed before the launch named its session went into
+the session that launch reported, so once the seat has reopened the owner's same words in the new
+session are the owner's, and answer a question asked there.  Black-box: seats opened by `ak orch`
+from a person's terminal on a fake muse that fires each hook its line carries as Muse 1.4.12
+does -- its own child, `sh -c`, the event's JSON on stdin, none of the seat's environment -- and
+writes its session as Muse does, under the Home (tests/fixtures/musetui.py); this test fails
+against `/bin/false`.
 """
 
 import json
@@ -51,12 +53,12 @@ class MuseQuestionAfterNew(unittest.TestCase):
             raise AssertionError(f"no muse started for {name}; the terminal shows:\n"
                                  f"{term.screen()}") from None
 
-    def new(self, muse):
-        """The owner types `/new`: the same Muse opens another session, at another endpoint,
-        and its registry entry moves there; no hook runs."""
+    def new(self, name, prompt, ended="Stop"):
+        """The owner types `/new` and then `prompt`: the same Muse opens another session, and no
+        hook runs until that prompt's turn ends, or the owner's Esc ends it."""
         session = str(uuid.uuid4())
-        musetui.register(self.home.path, session, muse["pid"])
-        self.said(session, "Lay out the acme dashboard.", time.time() - 30)
+        self.said(session, prompt, time.time() - 30)
+        musetui.stop(self.home, name, session, ended)
         return session
 
     def said(self, session, text, at, event=None):
@@ -93,7 +95,7 @@ class MuseQuestionAfterNew(unittest.TestCase):
                                  "harness": "muse", "conversation": None, "after": 0,
                                  "launch": {"muse_launch": record["muse_launch"]}}) + "\n")
         self.said(muses["acme"]["session"], LINE, time.time())
-        session = self.new(muses["acme"])
+        session = self.new("acme", "Lay out the acme dashboard.")
         for name, question in ASKED.items():
             self.ask(name, question, session if name == "acme" else muses[name]["session"])
         self.assertTrue(all(self.standing(name) for name in ASKED))
@@ -103,13 +105,19 @@ class MuseQuestionAfterNew(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertFalse(self.standing("acme"), "the owner's reply after /new left it standing")
         self.assertTrue(self.standing("beta"), "another seat's reply answered its question")
-        receipt = self.home.path / f".agentkit/state/muse-launch-{record['muse_launch']}"
-        self.assertEqual((receipt / "reported").read_text(), muses["acme"]["session"])
 
+        escaped = self.new("acme", "Draw the acme chart.", "Interrupt")
+        for late in (escaped, session):     # handed on again, and after its own turn's Stop
+            musetui.stop(self.home, "acme", late, "Interrupt")
         done = self.home.tmux("kill-session", "-t", "=acme")
         self.assertEqual(done.code, 0, done.err)
         argv = self.launch("acme")["argv"]
-        self.assertEqual(argv[argv.index("resume") + 1], session, argv)
+        self.assertEqual(argv[argv.index("resume") + 1], session,
+                         f"the seat reopened elsewhere than its last Stop's session: {argv}")
+        record = json.loads((self.home.path / ".agentkit/state/session-acme.json").read_text())
+        self.assertEqual([was["conversation"] for was in record["left"]],
+                         [muses["acme"]["session"], escaped],
+                         "the session an Esc ended is not kept once for the seat's done check")
 
         self.ask("acme", AGAIN, session)
         self.assertTrue(self.standing("acme", AGAIN))

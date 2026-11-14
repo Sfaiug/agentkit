@@ -1,8 +1,7 @@
 #!/bin/bash
 # Makes a Debian or Ubuntu machine ready for ak, as root, and prints the address the home reaches
-# it by:
-#   curl -fsSL https://raw.githubusercontent.com/Sfaiug/agentkit/main/tools/join.sh |
-#     sudo bash -s -- '<the home's public ssh key>' [tailscale]
+# it by, from the line `+ add a machine` shows on `c` (agentkit/machines.py's join_line):
+#   curl -fsSL <this file's raw URL> | sudo bash -s -- '<the home's public ssh key>' [tailscale]
 # A machine ak rents runs these same lines after its own mounts (agentkit/google_cloud.py's
 # STARTUP).  Run again, it changes nothing that is already right.  The work is one function that
 # the last line calls in braces, so a download cut short anywhere runs nothing.
@@ -25,7 +24,8 @@ join() {
   # sshd where the system came without it; docker's client has been a package of its own since
   # Debian 13, and Docker's daemon is what makes group docker.
   if ! type -P dockerd docker git jq sshd >/dev/null; then
-    apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -qy docker.io \
+    apt-get update -q
+    DEBIAN_FRONTEND=noninteractive apt-get install -qy docker.io \
       $(apt-cache show docker-cli >/dev/null 2>&1 && echo docker-cli) git jq \
       $(type -P sshd >/dev/null || echo openssh-server)
   fi
@@ -34,6 +34,8 @@ join() {
   # logged in made each ssh from the home exit 255 at once (tried on 2 Nov 2026, the day 247
   # pieces went so in 3 minutes): only ak's key gets in.  A setting this sshd does not know
   # (OpenSSH 9.8 brought PerSourcePenalties) is left out: it would keep sshd from starting.
+  # sshd -t refuses all without its runtime directory, which ssh.service makes only as it starts.
+  mkdir -pm 755 /run/sshd
   local setting known=
   for setting in 'MaxStartups 500:30:1000' 'PerSourcePenalties no'; do
     ! sshd -t -o "$setting" 2>/dev/null || known+=$setting$'\n'

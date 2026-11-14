@@ -35,6 +35,11 @@ func TestMain(m *testing.M) {
 		os.WriteFile(os.Getenv("AK_TEST_WAKE_ENDED"), nil, 0o644)
 		os.Exit(0)
 	}
+	// a lander, which says how it was started where AK_TEST_LANDER names
+	if len(os.Args) == 4 && os.Args[1] == "run" && os.Args[2] == "--lander" {
+		os.WriteFile(os.Getenv("AK_TEST_LANDER"), []byte(strings.Join(os.Args, " ")), 0o644)
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
 }
 

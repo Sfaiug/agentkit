@@ -403,7 +403,7 @@ class SeatFollowsClear(Sandbox):
                                              account=None if exited else "default",
                                              log=lambda _: None), "resumed")
                 respawn = next(args for args in self.tmux_calls if args[0] == "respawn-pane")
-                self.assertEqual(respawn[respawn.index("-t") + 1], "=lagoon:")
+                self.assertEqual(respawn[respawn.index("-t") + 1], "%8")
                 self.assertIn("--resume before-clear", respawn[-1])
                 self.assertEqual(self.bound_pane, "%8")
 

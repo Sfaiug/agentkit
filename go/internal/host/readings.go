@@ -51,12 +51,8 @@ func Read() Readings {
 	readings.set("free_mb", free, ok)
 	total, ok := meminfo["MemTotal"]
 	readings.set("mem_total_mb", total, ok)
-	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
-		if fields := strings.Fields(string(data)); len(fields) > 0 {
-			load, err := strconv.ParseFloat(fields[0], 64)
-			readings.set("load", load, err == nil)
-		}
-	}
+	load, ok := procLoad()
+	readings.set("load", load, ok)
 	slice, runs := sliceCgroup(), RunsCgroup()
 	if limit := unitLimit(); limit != nil {
 		readings["unit_limits"] = []any{limit}
@@ -95,6 +91,17 @@ func Read() Readings {
 	readings.set("slice_memory_pressure", share, ok)
 	readings["runs_memory_swap_mb"] = swapMB(runs)
 	return readings
+}
+
+// procLoad is the one-minute load in /proc/loadavg, where Linux keeps it.
+func procLoad() (float64, bool) {
+	data, err := os.ReadFile("/proc/loadavg")
+	fields := strings.Fields(string(data))
+	if err != nil || len(fields) == 0 {
+		return 0, false
+	}
+	load, err := strconv.ParseFloat(fields[0], 64)
+	return load, err == nil
 }
 
 func isDir(path string) bool {

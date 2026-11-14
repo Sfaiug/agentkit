@@ -27,7 +27,8 @@ var (
 )
 
 // ErrLeft is a slot wait Go leaves to Python: nothing of it written, its waiter's going leaves it for
-// Python's tick, which takes up a waiter whose process is gone.
+// Python's tick, which takes up a waiter whose process is gone. A tick's launch it ends leaves the
+// rest of that tick to Python, nothing of the launch written.
 var ErrLeft = errors.New("a slot wait left to Python")
 
 // launchForSeat prepares a sibling run with the seat's lists now, not the ending's slot,
@@ -35,15 +36,7 @@ var ErrLeft = errors.New("a slot wait left to Python")
 // recoverable by Python's tick if cut off. The returned start runs only after its plan line is
 // written.
 func launchForSeat(dir string, state, origin *run.Object) (func() error, error) {
-	session, lists, err := config.ResolveSession(run.Seat(state))
-	if err != nil {
-		return nil, err
-	}
-	bound, err := config.BindSeat(lists)
-	if err != nil {
-		return nil, err
-	}
-	policy, err := run.TaskPolicy(origin.Str("repo"))
+	session, bound, policy, err := bindSeat(state, origin)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +78,21 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 		seat.Redress(session)
 		return Start(dir, io.Discard, true)
 	}, nil
+}
+
+// bindSeat is what a launch for the seat state names binds: the seat by its name now, its lists,
+// and its project's numbers.
+func bindSeat(state, origin *run.Object) (string, config.Binding, config.Numbers, error) {
+	session, lists, err := config.ResolveSession(run.Seat(state))
+	if err != nil {
+		return "", config.Binding{}, config.Numbers{}, err
+	}
+	bound, err := config.BindSeat(lists)
+	if err != nil {
+		return "", config.Binding{}, config.Numbers{}, err
+	}
+	policy, err := run.TaskPolicy(origin.Str("repo"))
+	return session, bound, policy, err
 }
 
 // siblingEnv drops the ending's process-sweep marker and turn variables. The fix's own

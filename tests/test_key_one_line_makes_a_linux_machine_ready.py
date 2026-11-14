@@ -2,7 +2,8 @@
 ready for ak and prints the address the home reaches it by: the user ak holding KEY on a line of
 its own where only ak and root write, docker, git, jq and sshd, ak in group docker, and sshd's
 settings, those it knows; with `tailscale`, Tailscale and its login on a machine on no tailnet.
-Run again it changes nothing.  Elsewhere, or cut short, it changes nothing.  A machine ak rents
+Run again it changes nothing.  Elsewhere, or cut short, it changes nothing.  Package lists it
+cannot fetch stop it before sshd, with apt-get's exit code.  A machine ak rents
 runs it after its own mounts, holding the setup's commands of 13 Nov 2026 in their order.
 
 Black-box: bubblewrap binds a directory of the test's over each of root's files the script reaches,
@@ -64,6 +65,9 @@ def sshd_test(options):    # what sshd -t says of its settings and `options`
         if line.split(" ")[0] in world["refuses"]:
             print(f"command-line line 0: Bad configuration option: {{line}}", file=sys.stderr)
             return 255
+    if not os.path.isdir("/run/sshd"):
+        print("Missing privilege separation directory: /run/sshd", file=sys.stderr)
+        return 255
     return 0
 with (root / "log").open("a") as log:
     print(json.dumps({{"run": [name, *words], "keys": read(keys), "sshd": read(conf),
@@ -129,10 +133,12 @@ PROGRAMS = ("useradd", "usermod", "chown", "mount", "mkdir", "touch", "apt-get",
 @unittest.skipUnless(BWRAP, "no bubblewrap here to bind root's files")
 class OneLineMakesALinuxMachineReady(unittest.TestCase):
     def machine(self, system=DEBIAN, docker_cli=True, refuses=(), sshd=True, ssh_active=True):
-        """A machine's root as files: none of ak's, sshd's settings directory empty."""
+        """A machine's root as files: none of ak's, sshd's settings directory empty, and its
+        runtime directory only where ssh runs."""
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root)
-        for path in ("bin", "home", "ssh/sshd_config.d" if sshd else "ssh", "lib", "run"):
+        for path in ("bin", "home", "ssh/sshd_config.d" if sshd else "ssh", "lib",
+                     "run/sshd" if ssh_active else "run"):
             (root / path).mkdir(parents=True)
         (root / "os-release").write_text(system)
         (root / "passwd").write_text("root:x:0:0:root:/root:/bin/bash\n")
@@ -227,6 +233,17 @@ class OneLineMakesALinuxMachineReady(unittest.TestCase):
         started = next(one for one in log if one["run"] == ["systemctl", "start", "ssh"])
         self.assertEqual(started["sshd"], SSHD)
         self.assertTrue(json.loads((root / "world.json").read_text())["ssh_active"])
+
+    def test_package_lists_it_cannot_fetch_stop_it_before_sshd(self):
+        root = self.machine()
+        (root / "group").write_text("root:x:0:\ndocker:x:999:\n")     # usermod would pass
+        apt = root / "bin/apt-get"
+        apt.unlink()
+        apt.write_text("#!/bin/sh\nexit 100\n")
+        apt.chmod(0o755)
+        ran, log = self.run_on(root, JOIN, KEY)
+        self.assertEqual(ran.returncode, 100, ran.stdout + ran.stderr)
+        self.assertNotIn("systemctl", [one["run"][0] for one in log])
 
     def test_a_key_file_whose_last_line_lacks_its_newline_keeps_it_and_gets_the_key(self):
         root = self.machine()

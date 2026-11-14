@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import Terminal
 
-INTERNAL = "internal:  orch  worker  hand-in  watch  update  macbridge  attach  doctor  move"
+INTERNAL = "internal:  orch  worker  hand-in  watch  update  macbridge  attach  doctor  move  standby"
 DIM = "\x1b[2m"
 RESET = "\x1b[0m"
 GREY = "\x1b[38;2;134;141;151m"      # the black theme's dim, #868d97

@@ -1,9 +1,9 @@
-"""⏎ on the models screen opens the why of the row the role `▸` is on uses, as the owner drew it
+"""⏎ on the models screen opens the why of the row the highlighted role uses, as the owner drew it
 on 5 Nov 2026, a label column beside values that wrap at words in their own: its quality give
 or take 1.96 standard errors, the benchmarks that scored it and how far below the role's best
 choice it is; its cost, `≈` before one no runs measured, and where that comes from -- its runs,
 its board price times what runs on its provider or on every provider cost a board dollar, or
-its board price alone.  Esc returns with `▸` where it was, and a page taller than the screen
+its board price alone.  Esc returns with `›` where it was, and a page taller than the screen
 turns with ↓ and ↑.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
@@ -176,7 +176,7 @@ class ModelsWhy(unittest.TestCase):
         term = self.models()
         self.assertEqual(self.why(term, "Down"), MAX_HIGH_BUILDS)
         term.keys("Escape")
-        self.assertIn("\n  ▸ executor      Acme Max 5 high ", term.wait("comparing all"))
+        self.assertIn("\n› executor      Acme Max 5 high ", term.wait("comparing all"))
         self.assertEqual(self.why(term, "Down")[:len(MAX_MAX_REVIEWS)], MAX_MAX_REVIEWS)
 
     def test_with_nothing_priced_its_cost_is_none_and_its_quality_still_below_the_best(self):
@@ -189,7 +189,7 @@ class ModelsWhy(unittest.TestCase):
         term = self.models()
         self.assertEqual(self.why(term, "Down"), MID_BUILDS)
         term.keys("Escape")
-        term.wait("\n  ▸ executor ")
+        term.wait("\n› executor ")
         self.assertEqual(self.why(term, "Down"), CRUX_REVIEWS)
 
     def test_on_40_cells_each_value_wraps_at_words_in_its_column(self):

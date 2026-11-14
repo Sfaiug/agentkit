@@ -49,7 +49,7 @@ class GoKeysPieces(unittest.TestCase):
         shutil.copy(REPO / "go/install.sh", self.root / "go")
         (self.root / "tests/smoke.sh").write_text("")
         (self.root / "tests/test_go.py").write_text(TEST_GO)
-        for file in ("test_go_keys.py", "suite_shares.py"):
+        for file in ("test_go_keys.py", "test_go_builds.py", "suite_shares.py"):
             shutil.copy(REPO / "tests" / file, self.root / "tests")
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         (self.sandbox / "go").write_text(GO)

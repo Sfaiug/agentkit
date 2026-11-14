@@ -40,7 +40,8 @@ func carriedOn(dir string, record *run.Object) bool {
 	return (record.Truthy("no_merge") || landingReview(record)) && cutOff(dir, record) && pairReady(dir, record)
 }
 
-// cutOff is whether the record holds what the loop takes the run up from, at a point it goes on from.
+// cutOff is whether the record holds what the loop takes the run up from, at a point it goes on from:
+// a run with review off holds no reviewer.
 func cutOff(dir string, record *run.Object) bool {
 	for _, key := range pythonRoads {
 		if record.Truthy(key) {
@@ -48,7 +49,7 @@ func cutOff(dir string, record *run.Object) bool {
 		}
 	}
 	if run.Lined(record) || record.Str("verdict") == "PASS" || !unitless(record) ||
-		!record.Truthy("executor") || !record.Truthy("reviewer") || !record.Has("round_summaries") || !isDir(record.Str("worktree")) {
+		!record.Truthy("executor") || !record.Truthy("reviewer") && !run.ReviewOff(record) || !record.Has("round_summaries") || !isDir(record.Str("worktree")) {
 		return false
 	}
 	if !record.Truthy("scratch") {
@@ -113,6 +114,9 @@ func point(dir string, record *run.Object) bool {
 			}
 		}
 		return err == nil && numbered && round <= left && pending.Has("summary") && len(pending.List("failed")) == 0
+	}
+	if run.ReviewOff(record) {
+		rounds = 1 // its one round, which a budget of 0 does not count (allowed)
 	}
 	if spent >= rounds || spent > 0 && !exists(filepath.Join(filepath.Dir(record.Str("findings_file")), "findings.json")) {
 		return false

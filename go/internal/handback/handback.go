@@ -4,12 +4,13 @@
 // `handback_typed`, as mark_delivery writes them), the one line the seat is told in, and the send
 // that types it at the seat's quiet prompt (seat.TypeAtPrompt).
 //
-// Go hands back as Python's hand_back does, to a seat up on ak's own server, a sleeping one woken
-// for an ending typed into it; an ending it does not type is marked pending, which the tick offers
-// at the next quiet prompt: a seat that takes no line now, or a line whose compact form cannot fit.
+// Go hands back as Python's hand_back does, to a seat up on ak's own server; an ending it does not
+// type is marked pending, which the tick offers at the next quiet prompt: a seat that takes no line
+// now, one an older ak put to sleep, which the tick reopens first, or a line whose compact form
+// cannot fit.
 // A seat nothing is left of has its ending reported to the owner (Orphaned), and a job's task's,
-// gone, its job's one line (muted); any other seat not up there is still Python's to wake, reopen
-// or wait for, but for an ending that wakes nothing (Reaches).
+// gone, its job's one line (muted); any other seat not up there is still Python's to reopen or
+// wait for, but for an ending that reaches no seat (Reaches).
 package handback
 
 import (
@@ -44,21 +45,15 @@ func Give(dir string, census []*run.Object, say func(string)) bool {
 		record.Str("state") == "error" && run.Going(record, time.Now()) {
 		return false
 	}
-	reaches, wakes := reach(record, census)
+	reaches, slept := reach(record, census)
 	if !reaches {
 		return false
 	}
-	gone := !seat.Watching(session)
-	if wakes {
-		awake, carried := seat.Wake(session, say)
-		if carried && !awake {
-			mark(dir, record, "handback_pending", true) // owed: what next wakes it hands it back
-		}
-		if !awake {
-			return false
-		}
-		gone = false
+	if slept {
+		mark(dir, record, "handback_pending", true) // owed: the tick reopens it first
+		return false
 	}
+	gone := !seat.Watching(session)
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
 		return false

@@ -63,10 +63,10 @@ class ModelsPageDefaults(unittest.TestCase):
         term.wait(lambda screen: "› Claude Code" in screen and "■" not in screen)
         term.keys("Escape")
         screen = term.wait(lambda screen: key_line(screen) == OPEN_KEYS and "› Models" in screen)
-        self.assertEqual(orch_mark(screen, "GPT-6-Astra"), "●")
+        self.assertEqual(orch_mark(screen, "6 Astra"), "●")
         self.assertFalse(any(line[2:].startswith("Fable 5.1 ") for line in lines(screen)), screen)
-        self.assertIn("  Weekly audit  off · orch GPT-6-Astra · builds GPT-6-Astra · reviews "
-                      "GPT-6-Astra", lines(screen))
+        self.assertIn("  Weekly audit  off · orch 6 Astra · builds 6 Astra · reviews "
+                      "6 Astra", lines(screen))
         self.assertEqual(akconfig.read(home)["defaults"],
                          {"orchestrator": "astra", "workers": ["astra"]})
 

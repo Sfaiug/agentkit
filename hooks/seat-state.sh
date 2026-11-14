@@ -33,19 +33,8 @@ look() {
   local seat=$1 answered=${2:-} said=${3:-} event=${4:-}
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
   # the owner's words go on its stdin: on its command line, a long one would never run it
-  ( printf '%s' "$said" | /usr/bin/env python3 -c '
-import json, os, sys
-from pathlib import Path
-try:
-    os.setsid()     # a session of its own: a harness ending the hook group ends none of this
-except OSError:
-    pass
-sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
-from agentkit import watch
-said, card = sys.stdin.read(), sys.argv[4] == "PostToolUse"
-watch.hook_look(sys.argv[2], float(sys.argv[3]) if sys.argv[3] else None, "" if card else said,
-                prompt=sys.argv[4] == "UserPromptSubmit", card=json.loads(said) if card else None)
-' "${BASH_SOURCE[0]}" "$seat" "$answered" "$event" >/dev/null 2>&1 & )
+  ( printf '%s' "$said" | /usr/bin/env python3 "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" \
+      "$seat" "$answered" "$event" >/dev/null 2>&1 & )
 }
 
 # The moment that seat heard its event, on its own clock (`config.heard_at`), which never runs

@@ -89,14 +89,14 @@ class DoneCheckSetting(unittest.TestCase):
 
         self.term.keys("Down", "Enter")
         self.term.wait(shows(r"›   ● the seat's reviewer", r"    ○ Fable 5.1",
-                             r"    ○ GPT-6-Astra", keys=PICK))
+                             r"    ○ 6 Astra", keys=PICK))
         self.term.keys("Down", "Down", "Enter")
-        self.term.wait(shows(r"› Model +GPT-6-Astra", keys=OPEN))
+        self.term.wait(shows(r"› Model +6 Astra", keys=OPEN))
         self.assertEqual(self.setting(), {"on": True, "model": "astra"})
         self.assertEqual(self.check(), {"codex"})
 
         self.term.keys("Enter")
-        self.term.wait(shows(r"    ○ the seat's reviewer", r"›   ● GPT-6-Astra", keys=PICK))
+        self.term.wait(shows(r"    ○ the seat's reviewer", r"›   ● 6 Astra", keys=PICK))
         self.term.keys("Up", "Up", "Enter")
         self.term.wait(shows(r"› Model +the seat's reviewer", keys=OPEN))
         self.assertEqual(self.setting(), {"on": True})

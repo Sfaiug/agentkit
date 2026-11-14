@@ -14,7 +14,6 @@ import (
 	"agentkit/internal/agent"
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
-	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
@@ -189,7 +188,7 @@ func (seat Seat) publish(state string, models map[string]config.Model, changed b
 		return
 	}
 	model, builds, reviews := barSelection(state, seat.Name, models)
-	done, total := plan.Progress(seat.Name)
+	done, total := seat.Progress()
 	barTell(state, seat.Name, seat.barOptions(terminal.For(os.Stderr), model, builds, reviews, done, total), seat.bars)
 	if changed {
 		barTell(state, "", nil, seat.bars)

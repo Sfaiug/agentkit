@@ -14,7 +14,7 @@ import (
 // LaunchValues and LaunchSwitches are the options Python's launch_opts records, in order.
 var (
 	LaunchValues   = []string{"--rounds", "--exec", "--review", "--review-pr", "--parallel"}
-	LaunchSwitches = []string{"--no-worktree", "--no-merge", "--bg", "--anyway", "--first"}
+	LaunchSwitches = []string{"--no-worktree", "--no-merge", "--bg", "--anyway", "--first", "--in-order"}
 )
 
 // Capture builds a launch receipt as Python's capture_launch does. The caller writes it

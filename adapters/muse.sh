@@ -24,7 +24,8 @@
 #                     hook         -> one hook event of a seat's muse, on stdin: its SessionStart
 #                                  written into that launch's receipt, any other handed on to
 #                                  hooks/seat-state.sh, a Stop with the background work its
-#                                  session's log has running: what that launch's hooks run
+#                                  session's log has running, a turn's end with the seat
+#                                  following it: what that launch's hooks run
 #                     call         -> one model call of a seat's muse, on stdin: its model and
 #                                  effort kept as its session's report: what that launch's
 #                                  PreLLMCall hook runs
@@ -337,15 +338,22 @@ print(subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", sys.argv[1]],
       /Request user input .* — running / { q = ""; under = 1; next }
       under && NF { q = $0; under = 0 }
       END { gsub(/^ +| +$/, "", q); print q }')
-  # A Stop hands over the work its session's log has running in the background, as Claude's
-  # does (`background_tasks`); a log it cannot read hands over nothing, as before.
+  # A turn's end -- a Stop, an Esc's Interrupt -- names the session it ran in, which the seat
+  # goes on in or keeps (agentkit/harness/muse.py `follow`) before hooks/seat-state.sh's look
+  # reads it.  A Stop hands over the work its session's log has running in the background, as
+  # Claude's does (`background_tasks`); a log it cannot read hands over nothing, as before.
   held=null
-  [ "$(jq -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null)" = Stop ] &&
-    held=$(python3 -c 'import json, sys
+  case $(jq -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null) in Stop|Interrupt)
+    held=$(python3 -c 'import contextlib, json, sys
 sys.path.insert(0, sys.argv[1])
 from agentkit.harness import muse
-print(json.dumps(muse.background(json.load(sys.stdin)["session_id"])))' "$REPO" <<<"$payload" 2>/dev/null) ||
-    held=null
+event = json.load(sys.stdin)
+with contextlib.suppress(Exception):    # the seat stays where it was, and its state still goes
+    muse.follow(sys.argv[2], event, int(sys.argv[3]))
+print(json.dumps(muse.background(event["session_id"]) if event["hook_event_name"] == "Stop"
+                 else None))' "$REPO" "${AGENTKIT_SESSION:-}" "$PPID" <<<"$payload" 2>/dev/null) ||
+      held=null ;;
+  esac
   jq -c --arg asked "$asked" --argjson held "$held" '(if .tool_calls then .tool_name //= .tool_calls[0].tool_name else . end)
     | if $asked == "" then . else .message = $asked end
     | if $held == null then . else .background_tasks = $held end' <<<"$payload" |

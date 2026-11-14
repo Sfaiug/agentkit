@@ -30,13 +30,14 @@ usage: ak [command]
   browser  inspect the shared browser, sign in, register MCP tools, or install the stack
   fetch    copy requested Mac files to this host
 
-internal:  orch  worker  hand-in  watch  update  macbridge  attach  doctor  move
+internal:  orch  worker  hand-in  watch  update  macbridge  attach  doctor  move  standby
 
 Use -h or --help after any command.
 Example: ak run task.md --bg
 """
 VERBS = ("run", "plan", "notify", "wait", "usage", "models", "browser", "fetch",
-         "orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move")
+         "orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move",
+         "standby")
 
 
 class Listing(unittest.TestCase):

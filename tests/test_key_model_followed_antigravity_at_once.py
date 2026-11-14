@@ -42,7 +42,7 @@ class ModelFollowedAntigravityAtOnce(unittest.TestCase):
         term.wait(seat.name)
         done = home.ak("orch", "why", seat.name)
         self.assertEqual(done.code, 0, done.err)
-        term.wait("Gemini 3.8 Flash high")
+        term.wait("3.8 Flash high")
 
         def render(conversation, label, effort):
             done = home.run("sh", "-c", command, cwd=seat.cwd, env=env, input=json.dumps({
@@ -60,7 +60,7 @@ class ModelFollowedAntigravityAtOnce(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, path.read_text())
             time.sleep(0.05)
         self.assertEqual(json.loads(path.read_text())["orchestrator"], "argon")
-        term.wait("Gemini 4 Argon low")
+        term.wait("4 Argon low")
         render("another-conversation", "Gemini 3.8 Flash (High)", "high")
         done = home.ak("orch", "why", seat.name)
         self.assertEqual(done.code, 0, done.err)

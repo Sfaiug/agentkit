@@ -161,6 +161,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                      "ak orch project acme"),
     "notify": (NOTIFY_USAGE,
                "Record a needs-you question.\n"
+               "ak notify settled takes back every question this seat asks; ask again any needed.\n"
                "--session and --dry-run apply to needs; --check checks without posting.",
                'ak notify needs "Which branch?" --session parser-fix --dry-run'),
     "notify needs": (f"usage: {NOTIFY_NEEDS}",
@@ -228,13 +229,21 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
              "Refused if ALIAS is this machine, its home has another path, its crontab holds ak's\n"
              "tick or fails, or one of those kept is a link or under one on either machine.",
              "ak move acme-mini"),
+    "standby": ("usage: ak standby ALIAS",
+                "On a client of ALIAS, copy ak's folder from that home to the same path here, but its\n"
+                "runs and checkouts.  It sends what changed, compressed, and what the home deleted goes\n"
+                "here too.  This machine keeps its own record of its server, ak's tmp folder, ak's\n"
+                "repository and its versions.  Refused on any other machine, or if one of those left\n"
+                "out or kept is a link here, or under one in ak's folder.",
+                "ak standby acme-mini"),
 }
 
 
 # `ak --help` is one screen: the menu, then the commands an orchestrator uses, one line
 # each, and under one dim `internal:` line the ones the toolkit runs for itself.
 ORCHESTRATOR = ("run", "plan", "notify", "wait", "usage", "models", "browser", "fetch")
-INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move")
+INTERNAL = ("orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move",
+            "standby")
 
 PURPOSES = {
     "run": "execute a task file to a merged PR",
@@ -254,6 +263,7 @@ PURPOSES = {
     "fetch": "copy requested Mac files to this host",
     "macbridge": "macOS only: forward requested files to the server over SSH",
     "move": "copy this home to the same path on another machine",
+    "standby": "copy ak's folder from the server to the same path here",
 }
 
 

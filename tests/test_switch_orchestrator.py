@@ -121,6 +121,8 @@ class Switch(Sandbox):
         self.calls.append(pane.resolved(args))
         if args[0] in self.fail:
             return 1, "boom"
+        if args[-1] == "#{pane_id}":
+            return 0, "%7"      # the session's pane, as tmux names it
         if self.pid and args[-1] == "#{pane_id}\t#{pane_pid}":
             return 0, f"%7\t{self.pid}"
         if args[0] == "send-keys":     # a typed line stands in the composer until its Enter
@@ -243,8 +245,10 @@ class Switch(Sandbox):
         self.assertEqual(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}),
                          "")
         self.assertEqual(config.load_session(self.cfg, "ship-api")["orchestrator"], "astra")
-        respawns = [args for args in self.calls if args[0] == "respawn-pane"]
-        self.assertEqual([args[args.index("-t") + 1] for args in respawns], ["=ship-api:"])
+        # its pane, named under the new name, is the one respawned
+        respawns = [args for args in self.calls if args[0] == "respawn-pane"
+                    or args[0] == "display-message" and args[-1] == "#{pane_id}"]
+        self.assertEqual([args[args.index("-t") + 1] for args in respawns], ["=ship-api:", "%7"])
         self.assertEqual([args for args in self.calls if "new-session" in args], [])
         self.assertIn("## Its conversation on opus", self.handover("ship-api"))
 
@@ -453,11 +457,11 @@ class Switch(Sandbox):
             lines, _ = menu.config_body(self.cfg, ("model", "opus"), 0,
                                         self.selected())
         self.assertEqual(lines[0].split(), ["orch", "builds", "reviews"])
-        rows = {terminal.plain(line).lstrip("› ").split()[0]: "".join(
+        rows = {re.split(r" [[●○■□]", terminal.plain(line).lstrip("› "))[0]: "".join(
             char for char in terminal.plain(line) if char in "●○■□") for line in lines
                 if any(char in terminal.plain(line) for char in "●○■□")}
-        self.assertEqual(rows["Opus"], "●■□")
-        self.assertEqual(rows["GPT-6-Astra"], "○■■")
+        self.assertEqual(rows["Opus 5.5"], "●■□")
+        self.assertEqual(rows["6 Astra"], "○■■")
         with patch.object(menu.update, "agentkit_version", return_value="fixture"), \
                 patch.object(menu.usage, "collect", return_value={}), \
                 patch.object(terminal, "layout_width", return_value=100), \

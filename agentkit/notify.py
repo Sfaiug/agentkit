@@ -847,6 +847,29 @@ def clear(session, *, notice=None, prefix=None, wait=True):
                seen=True)
 
 
+def settled():
+    """`ak notify settled`: the seat it runs in takes back every question it asks, standing or
+    kept back for its turn's end, as the owner's stop ends them (`clear`); a watcher's alert
+    is no question of the seat's, and with none asked it stays.  Only the seat's own word: a
+    question over without the owner is the asker's to know."""
+    from . import questions
+    if worker_blocked("settled"):
+        return 0
+    name = config.current_session()
+    if not name:
+        raise config.Error("notify settled takes back the questions of the seat it runs in: "
+                           "run it inside that seat")
+    with session_lock(name) as name:
+        taken = questions.pending(name)
+        if taken:
+            clear(name)
+    for question in taken:
+        print(f"{name}: took back {question}")
+    if not taken:
+        print(f"{name}: asks no question")
+    return 0
+
+
 def outbox():
     return config.STATE / "notification-outbox"
 
@@ -1782,6 +1805,8 @@ def main(argv):
         return 0
     if argv == ["--check"]:
         return check()
+    if argv == ["settled"]:
+        return settled()
     kind = argv[0] if argv[:1] == ["needs"] else None
     rest, session, dry_run, i = [], None, False, 1 if kind else 0
     while i < len(argv):

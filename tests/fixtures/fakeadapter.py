@@ -39,9 +39,9 @@ call's account lasting a day or `lasts(seconds)` (`place`): `lent(account)` at L
 home named.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
-`behave(*steps)` scripts its next turns, `answer(verb, out, code, given)` sets what another verb
-prints, and `dir`, `script` and `manifest` are its files.  A file in `dir` is one a turn and
-the test both see, such as a release a step's `sh` waits for.
+`behave(*steps)` scripts its next turns, `answer(verb, out, code, given, account)` sets what
+another verb prints, and `dir`, `script` and `manifest` are its files.  A file in `dir` is one a
+turn and the test both see, such as a release a step's `sh` waits for.
 
     from fixtures.akbin import Home
     from fixtures import fakeadapter
@@ -138,12 +138,14 @@ class Adapter:
     def lasts(self, seconds):
         self._put("lasts", json.dumps(seconds))
 
-    def answer(self, verb, out, code=0, given=()):
+    def answer(self, verb, out, code=0, given=(), account=None):
         """What a verb other than `run` prints, and its exit status, from now on: for its calls
-        whose arguments end in `given`, every call when it is empty.  A `code` of None waits
-        for a line on its terminal, then exits 0; ^C there ends it with 130."""
+        whose arguments end in `given`, every call when it is empty, on the login `account`
+        (AGENTKIT_ACCOUNT) alone where one is named.  A `code` of None waits for a line on its
+        terminal, then exits 0; ^C there ends it with 130."""
         answers = self._json("answers") or {}
-        self._put("answers", json.dumps({**answers, " ".join([verb, *given]): [out, code]}))
+        key = " ".join([verb, *given]) + (f" @{account}" if account else "")
+        self._put("answers", json.dumps({**answers, key: [out, code]}))
 
     @property
     def n(self):
@@ -214,10 +216,11 @@ def main(directory, harness, ak, verb="", *args):
         code = place(*(*args, LENT)[:2], int(time.time()) + (fake._json("lasts") or 86400),
                      lent(os.environ.get("AGENTKIT_ACCOUNT")))
     elif verb != "run":
-        # the answer set for the most of the arguments this call ends in
-        answers = fake._json("answers") or {}
-        out, code = next((answers[key] for key in (" ".join([verb, *args[i:]])
-                                                   for i in range(len(args) + 1))
+        # the answer set for the most of the arguments this call ends in, its login's first
+        answers, login = fake._json("answers") or {}, os.environ.get("AGENTKIT_ACCOUNT")
+        out, code = next((answers[key] for tail in (" ".join([verb, *args[i:]])
+                                                    for i in range(len(args) + 1))
+                          for key in ((f"{tail} @{login}",) if login else ()) + (tail,)
                           if key in answers), [ANSWERS.get(verb, f"fake {harness}: {verb}"), 0])
         print(out, flush=True)
         if code is None:    # a sign-in waiting on a code typed at its terminal, keys not taken

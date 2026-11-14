@@ -18,6 +18,7 @@ import functools
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -543,10 +544,12 @@ def _file(test):
 def _first_holding(stacks, red, tests):
     """The first of `stacks` whose tree holds a file (`_file`) of `tests`, where the stack at
     `red` holds each one's, else 0: a test named by no file there may fail anywhere.  Each path
-    is read as a revision names it, so `./t/a.sh` is `t/a.sh`, and a directory, or a name no
-    path can be, is no file."""
+    is read as a revision names it once rid of what changes nothing on disk, a leading `./` and
+    a `/` or `./` after a `/`, so `./t/a.sh` and `t//a.sh` are `t/a.sh`.  The rest stays, so a
+    `..` (a symlink may stand before it), a trailing `/` or `/.` (a directory's), a directory,
+    or a name no path can be, is no file."""
     from . import run
-    files = {_file(test) for test in tests}
+    files = {re.sub(r"^(\./)+|(?<=/)\.?/", "", _file(test)) for test in tests}
 
     def holds(index):
         return [run.git_out(stacks[red][2], "cat-file", "-t", f"{stacks[index][3]}:{path}")

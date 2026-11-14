@@ -30,7 +30,6 @@ func TestDryHealthSaysTheReminderOfAQuestionKeptBack(t *testing.T) {
 	record(t, home, "acme", map[string]any{"orchestrator": "spark", "workers": []string{"spark"},
 		"muse_launch": token, "id_source": nil})
 	receipt := stateFile(home, "muse-launch-"+token)
-	write(t, filepath.Join(receipt, "lineage"), `{"processes":[],"earlier":[]}`)
 	write(t, filepath.Join(receipt, "session"), "session_1")
 	now := time.Now()
 	var log []string

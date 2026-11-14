@@ -465,14 +465,14 @@ def link(found):
 
 
 def served_line(name, commands):
-    """The first open line matching a task's check, else the sole open line, else None.
+    """The first open line whose check is one of a task's, else None: a task that runs no
+    line's check serves none, however few are open.
 
     Outcome and written stamp keep the link when `ak plan check` replaces the check.
     """
-    opened = [LINE.match(line) for line in open_lines(name)]
     checks = {" ".join(command.split()) for command in commands}
-    found = next((line for line in opened if " ".join(line["check"].split()) in checks),
-                 opened[0] if len(opened) == 1 else None)
+    found = next((line for line in map(LINE.match, open_lines(name))
+                  if " ".join(line["check"].split()) in checks), None)
     return link(found) if found else None
 
 

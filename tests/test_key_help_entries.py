@@ -1,6 +1,6 @@
 """Every help entry has one shape, and a nested entry is chosen by the word right after the verb.
 
-Each of the 39 entries (the 16 verbs and the sub-verbs of hand-in, run, orch, notify and
+Each of the 41 entries (the 18 verbs and the sub-verbs of hand-in, run, orch, notify and
 browser) prints its purpose, a blank line, its usage, any more it has to say, and an `Example:`
 of its own form last, each block once and apart, for `-h` and `--help` alike.  A model reads
 the usage to learn which flags exist, so the flags each command takes are pinned, and the lines
@@ -25,7 +25,8 @@ NESTED = {"hand-in": ("finding", "follow-up", "dispute", "done", "blocked", "not
           "notify": ("needs",),
           "browser": ("status", "login", "mcp-register", "install")}
 VERBS = ("models", "usage", "worker", "hand-in", "run", "orch", "notify", "wait", "plan",
-         "update", "watch", "browser", "doctor", "attach", "fetch", "macbridge", "move")
+         "update", "watch", "browser", "doctor", "attach", "fetch", "macbridge", "move",
+         "standby")
 ENTRIES = tuple(entry for verb in VERBS
                 for entry in (verb, *(f"{verb} {sub}" for sub in NESTED.get(verb, ()))))
 PUBLIC = ("run", "plan", "notify", "wait", "usage", "models", "browser", "fetch")
@@ -39,6 +40,7 @@ INTERNAL_PURPOSE = {
     "attach": "the menu",
     "doctor": "show the slice, the tick, the machines, and any model set to an effort it does not take",
     "move": "copy this home to the same path on another machine",
+    "standby": "copy ak's folder from the server to the same path here",
 }
 FLAGS = {
     "usage": ("[--json]",),
@@ -80,7 +82,7 @@ class Entries(unittest.TestCase):
         return self.helped[entry][0].out
 
     def test_every_entry_prints_the_same_help_for_both_flags_on_stdout_alone(self):
-        self.assertEqual(len(ENTRIES), 40)
+        self.assertEqual(len(ENTRIES), 41)
         for entry, (long, short) in self.helped.items():
             with self.subTest(entry):
                 self.assertEqual((long.code, long.err), (0, ""))

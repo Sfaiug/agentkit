@@ -62,7 +62,7 @@ class APartTheTipLacksProvesNothing(Sandbox):
         super().setUp()
         self.tip = self.root / "tip"
         (self.tip / "tests").mkdir(parents=True)
-        for name in ("test_go.py", "test_go_keys.py", "suite_shares.py"):
+        for name in ("test_go.py", "test_go_keys.py", "test_go_builds.py", "suite_shares.py"):
             shutil.copy(REPO / "tests" / name, self.tip / "tests")
         (self.tip / "tests/test_key_acme.py").write_text(KEY)
         # what the copy switched as each claim's is takes from go/

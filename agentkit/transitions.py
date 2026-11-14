@@ -1364,12 +1364,13 @@ def rounds_spent_elsewhere(*, pr=None, change=None, exclude=None):
 
 def runs_on(*, pr=None, change=None, exclude=None):
     """The records of the runs on that pull request, whatever the spelling of its URL, or on
-    that change (`change_of`), but the run `exclude` names."""
+    that change (`change_of`), but the run `exclude` names: each every reader's (`read_state`),
+    so a PR launch reading them under the slot lock parses only the records that changed."""
     wanted = pr_key(pr)
     for run_dir in run_record.run_dirs():
         if exclude is not None and run_dir.name == Path(exclude).name:
             continue
-        state = run_record.read_state(run_dir)
+        state = run_record.read_state(run_dir, shared=True)
         if state and (wanted in pr_keys(state) or (change is not None and change_of(state) == change)):
             yield state
 

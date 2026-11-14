@@ -1,15 +1,15 @@
 """A Muse seat needs its owner while its own question card blocks, `/new` or not.
 
-`/new` drops the hooks on a launch's line, so the session it opens fires no Notification and no
-PostToolBatch; Muse still logs each card going up and its settling, answered or interrupted, as
-run events of the session the seat owns.  The card on screen reads `needs you` in its own words;
-its own settling ends that wait, and only its own: an older card's does not, nor a request in
-another session or quoted in a message.  An Esc rests the seat, its plan unfinished, until its
-next prompt.  A settled card stays closed, its seat neither reopened to ask it again after its
-process dies nor shown it once reopened on that session.  Black-box: a seat opened by `ak orch`
-from a person's terminal on a fake muse that fires its line's SessionStart hooks as Muse 1.4.12
-does and lists its sessions in Muse's registry (tests/fixtures/musetui.py), its log in Muse's
-store, under the Home; this test fails against `/bin/false`.
+`/new` fires no hook, and the seat goes on in the session it opens once a turn its own Muse
+completes there names it; its cards fire none here: Muse still logs each card going up and its
+settling, answered or interrupted, as run events of the session the seat owns.  The card on
+screen reads `needs you` in its own words; its own settling ends that wait, and only its own: an
+older card's does not, nor a request in another session or quoted in a message.  An Esc rests
+the seat, its plan unfinished, until its next prompt.  A settled card stays closed, its seat
+neither reopened to ask it again after its process dies nor shown it once reopened on that
+session.  Black-box: a seat opened by `ak orch` from a person's terminal on a fake muse that
+fires its line's hooks as Muse 1.4.12 does (tests/fixtures/musetui.py), its log in Muse's store,
+under the Home; this test fails against `/bin/false`.
 """
 
 import json
@@ -93,10 +93,13 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         self.drawn()
         return muse
 
-    def new(self, muse):
-        """The owner types `/new`: the same Muse moves to another session; no hook runs."""
+    def new(self):
+        """The owner types `/new`, which runs no hook, and a prompt: the same Muse moves to
+        another session, and that prompt's turn's end names it."""
         session = str(uuid.uuid4())
-        musetui.register(self.home.path, session, muse["pid"])
+        self.logs(session, {"kind": "started", "prompt": "Shape the acme logo."},
+                  {"kind": "terminal", "terminal": "completed"})
+        musetui.stop(self.home, "acme", session)
         return session
 
     def logs(self, session, *events):
@@ -120,8 +123,8 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         self.home.write(".agentkit/state/plan-acme.md", PLAN_LINE + "\n")     # work owed
         self.logs(muse["session"], {"kind": "started", "prompt": "Build the acme parser."},
                   {"kind": "terminal", "terminal": "completed"})
-        session = self.new(muse)
-        self.logs(session, {"kind": "started", "prompt": "Shape the acme logo."})
+        session = self.new()
+        self.logs(session, {"kind": "started", "prompt": "Pick the acme logo's shape."})
 
         self.show("muse-working-pane.txt")
         self.logs(muse["session"], card("old-prompt", "requested", **ASK))

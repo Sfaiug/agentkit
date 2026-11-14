@@ -81,6 +81,7 @@ MATRIX = [
     ("fetch", "usage: ak fetch PATH", ["--serve"], {"--serve"}),
     ("macbridge", "usage: ak macbridge [--reader]", ["--lock-fd"], {"--reader"}),
     ("move", "usage: ak move ALIAS", ["acme-mini"], set()),
+    ("standby", "usage: ak standby ALIAS", ["acme-mini"], set()),
 ]
 
 

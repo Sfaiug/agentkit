@@ -39,12 +39,12 @@ class NoModelScreen(unittest.TestCase):
         term.keys("c")
         term.wait(lambda screen: key_line(screen) == MARK_KEYS and "› Fable 5.1" in screen)
         term.keys("Down")
-        term.wait(lambda screen: "› GPT-6-Astra" in screen)
+        term.wait(lambda screen: "› 6 Astra" in screen)
         term.keys("Left", "Space")
-        screen = term.wait(lambda screen: "config · GPT-6-Astra" in screen
-                           or mark(screen, "GPT-6-Astra") == "●")
+        screen = term.wait(lambda screen: "config · 6 Astra" in screen
+                           or mark(screen, "6 Astra") == "●")
         self.assertEqual(lines(screen)[0].split()[:-1], ["agentkit", "·", "config"], screen)
-        self.assertEqual(mark(screen, "GPT-6-Astra"), "●")
+        self.assertEqual(mark(screen, "6 Astra"), "●")
         self.assertEqual(akconfig.read(home)["defaults"]["orchestrator"], "astra")
 
 

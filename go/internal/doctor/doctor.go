@@ -1,6 +1,6 @@
 // Package doctor is `ak doctor`, as Python's watch.doctor: where the agents run, whether the tick
-// is alive, what each machine ak may use is, any model set to an effort it does not take, and
-// what ak rents. It changes nothing.
+// is alive, whether the night review is armed, what each machine ak may use is, any model set to
+// an effort it does not take, and what ak rents. It changes nothing.
 package doctor
 
 import (
@@ -38,6 +38,10 @@ func Report(out, errOut io.Writer) (int, bool) {
 	if !read {
 		return 0, false
 	}
+	nights, read := tick.NightReviewLine()
+	if !read {
+		return 0, false
+	}
 	bill, read := googlecloud.Bill()
 	if !read {
 		return 0, false
@@ -46,6 +50,7 @@ func Report(out, errOut io.Writer) (int, bool) {
 	fmt.Fprintln(out, "tick  "+health)
 	fmt.Fprintln(out, "runs  "+runs)
 	fmt.Fprintln(out, "gates  "+gates)
+	fmt.Fprintln(out, nights)
 	var wrong []string
 	if refused == nil {
 		for _, machine := range machines.Known() {

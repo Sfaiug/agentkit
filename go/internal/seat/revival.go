@@ -55,7 +55,7 @@ func (home Home) Revivals() []Revival {
 			_, canOpen = back.goesOn(How{})
 		}
 		supported := each.supportsRunRevival(record)
-		seats = append(seats, Revival{Name: each.Name, Live: each.live, Closed: each.closed || each.asleep,
+		seats = append(seats, Revival{Name: each.Name, Live: each.live, Closed: each.closed,
 			CanOpen: canOpen, Supported: supported, Fresh: back.conversation == "" || !back.opened, File: file,
 			Failed: revivalFailure(notify.Last(each.Name))})
 	}
@@ -134,7 +134,7 @@ func (seat reopening) launchable(record map[string]any) bool {
 
 // ReviveTurns is watch.revive_seats at each seat's turn, for a seat cut off owing (owing): in a
 // turn, while it asked or holding background work.  reviving names the seats the run revival
-// takes. A live seat clears its death history, and a stopped or sleeping seat stays down.
+// takes. A live seat clears its death history, and a stopped seat stays down.
 func (home Home) ReviveTurns(now time.Time, reviving map[string]string, log func(string), errOut io.Writer) (bool, error) {
 	for _, seat := range home.Seats {
 		file := revivalFile(seat.Name)
@@ -146,7 +146,7 @@ func (home Home) ReviveTurns(now time.Time, reviving map[string]string, log func
 			}
 			continue
 		}
-		if seat.closed || seat.asleep || seat.waitsGone() || reviving[seat.Name] != "" {
+		if seat.closed || seat.waitsGone() || reviving[seat.Name] != "" {
 			continue
 		}
 		cut, known := seat.revivalLine()

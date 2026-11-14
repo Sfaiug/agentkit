@@ -22,7 +22,6 @@ func TestAQuestionAboutToBeAskedIsClimbedAsItWillStand(t *testing.T) {
 	record(t, home, "acme", map[string]any{"orchestrator": "spark", "workers": []string{"spark"},
 		"muse_launch": token, "id_source": nil})
 	receipt := stateFile(home, "muse-launch-"+token)
-	write(t, filepath.Join(receipt, "lineage"), `{"processes":[],"earlier":[]}`)
 	write(t, filepath.Join(receipt, "session"), "session_1")
 	log := filepath.Join(home, ".local", "share", "muse", "sessions", "2026", "10", "24", "session_1", "session.jsonl")
 	said := func(event map[string]any) {

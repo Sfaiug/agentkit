@@ -2562,9 +2562,11 @@ def percent_left(meter):
 
 def in_hand(prov):
     """`1 reset in hand`, `2 resets in hand`: the usage-limit resets this subscription holds,
-    for the owner to spend on `c` (config_spend_reset); "" with none, or none known."""
+    for the owner to spend on `c` (config_spend_reset); "" with none, or none known.  Where its
+    reading names their kinds it says them in its order: `1 weekly, 3 Fable resets in hand`."""
     held = int(usage._number(prov.get("resets")) or 0)
-    return f"{held} reset{'' if held == 1 else 's'} in hand" if held > 0 else ""
+    kinds = ", ".join(f"{kind['left']:g} {kind['kind']}" for kind in prov.get("reset_kinds") or [])
+    return f"{kinds or held} reset{'' if held == 1 else 's'} in hand" if held > 0 else ""
 
 
 def resets_note(meter, now):
@@ -3272,12 +3274,12 @@ def packed(parts, gap, room):
 
 
 def models_body(said, at=None):
-    """The models screen's lines and {line: (("row", role), [])}: per role (models_said) `▸` at
-    `at`, its word, its row and what follows, under `quality` and its unit where that changes.
-    A row too wide beside the words goes on the lines under its word, wrapped at its words, what
-    follows it staying on the word's line: a model is named in full (docs/cli-design.md)."""
+    """The models screen's lines and {line: (("row", role), [])}: per role (models_said) its
+    word, its row and what follows, under `quality` and its unit where that changes, `at`'s
+    highlighted (terminal.highlight).  A row too wide beside the words goes on the lines under
+    its word, wrapped at its words, what follows it staying on the word's line: a model is named
+    in full (docs/cli-design.md)."""
     room = terminal.layout_width()
-    mark = terminal.styled("▸" if terminal.utf8() else ">", "accent")
     word = max(terminal.cells(matrix.CONFIG_ROLES[role]) for role, *_ in said)
     numbers = [after for _, _, after, _ in said if isinstance(after, tuple)]
     widths = [max(map(terminal.cells, column)) for column in zip(
@@ -3291,21 +3293,22 @@ def models_body(said, at=None):
               for _, row, *_ in said]
     full = max(map(terminal.cells, models))
     tail = max(terminal.cells(follows(after)) for _, _, after, _ in said)
-    wide = 2 + 2 + word + 2 + full + tail <= room
-    column = 2 + 2 + word + (2 + full if wide else 0)      # where what follows a row begins
+    wide = 2 + word + 2 + full + tail <= room
+    column = 2 + word + (2 + full if wide else 0)      # where what follows a row begins
     lines, places, unit = [], {}, None
     for (role, row, after, its), model in zip(said, models):
         if isinstance(after, tuple) and its != unit:     # a role with no numbers heads nothing
             unit = its
             lines.append(" " * (column + 2) + terminal.styled(
                 f"{'quality':>{widths[0]}}  {its:>{widths[1]}}", "dim"))
-        lead = f"  {mark if role == at else ' '} {terminal.pad(matrix.CONFIG_ROLES[role], word)}"
+        lead = "  " + terminal.pad(matrix.CONFIG_ROLES[role], word)
         own = [lead + "  " + model] if wide else [
             lead, *("    " + part for part in columned(model, room - 4))]
         own[0] += " " * (column - terminal.cells(own[0])) + follows(after)
-        for line in own:
+        for number, line in enumerate(own):
             places[len(lines)] = (("row", role), [])
-            lines.append(line.rstrip())
+            lines.append(terminal.highlight(line.rstrip(), number == 0) if role == at
+                         else line.rstrip())
     return lines, places
 
 
@@ -3484,12 +3487,12 @@ def models_why(found, role, row):
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, `config · recommended · <seat>` or `· new seats`: what each role
-    of `selected` uses (models_body), the bars of the role `▸` is on (models_bars) as tall as the
-    page leaves room for, over models_read until Esc, the boards read as it opens
+    of `selected` uses (models_body), the bars of the highlighted role (models_bars) as tall as
+    the page leaves room for, over models_read until Esc, the boards read as it opens
     (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
-    bottom (matrix_key).  ↑/↓ move `▸`, and ← and → take the next cheaper or better choice
-    for its role at once (next_choice, take_choice), the owner's design of 5 Nov 2026, the last
-    row a role was shown using that is no choice staying one of its bars and steps; ⏎ or a
+    bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or better
+    choice for its role at once (next_choice, take_choice), the owner's design of 5 Nov 2026, the
+    last row a role was shown using that is no choice staying one of its bars and steps; ⏎ or a
     click opens the why (models_why) of the row the role uses, else of its first choice.  `p`
     lists companies (company_list)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
@@ -3594,11 +3597,11 @@ def models_listed(cfg, yours, off):
 
 def companies_body(makers, yours, off, at=None, column=0):
     """The company list's lines and {line: (row, cells)}: each of `yours` with a listed model a
-    line, its name, then each of those models (`makers`), `●` on, or `○` and dim where `off`
-    holds it; where the width runs out they go on under the column where they began.  The keys'
-    cell, `column` of the row `at` (its name 0), is reversed (terminal.toggle).  Last,
-    `+ add a company`."""
-    room, (on, out) = terminal.layout_width(), "●○" if terminal.utf8() else "*."
+    line, its name, then each of those models (`makers`), `■` on in the accent, or `□` and dim
+    where `off` holds it; where the width runs out they go on under the column where they
+    began.  The keys' cell, `column` of the row `at` (its name 0), is reversed
+    (terminal.toggle).  Last, `+ add a company`."""
+    room, (on, out) = terminal.layout_width(), "■□" if terminal.utf8() else "#-"
     shown = [maker for maker in yours if maker in makers]
     label = max((terminal.cells(maker) for maker in shown), default=0)
     start = label + 4         # the models' first column: after a space, the name's cell and one
@@ -3607,7 +3610,7 @@ def companies_body(makers, yours, off, at=None, column=0):
         row, parts = ("company", maker), [[" ", []]]
         texts = [(maker, None), *((f"{out if slug in off else on} "
                                    f"{terminal.cut(name, room - start - 2)}",
-                                   "dim" if slug in off else None)
+                                   "dim" if slug in off else "accent")
                                   for slug, name in makers[maker].items())]
         for number, (text, kind) in enumerate(texts):
             first, width = terminal.cells(parts[-1][0]) + 1, terminal.cells(text) + 2
@@ -3633,7 +3636,7 @@ def company_list(cfg, title):
     """`p` on the models screen, `<title> · models`: your companies (companies_body) over how
     many models are on (matrix.compared), from how many companies, and how many more have
     benchmark scores, until Esc.  ↑/↓ move between companies, ←/→ between a company's name and
-    its models; Space or a click turns the model pointed at on or off, and on a name all its
+    its models; Space or a click marks the model pointed at on or off, and on a name all its
     models on, or off where all are on, each change saved at once (models_listed).  `a`, or
     Space or ⏎ on `+ add a company`, adds one all on (company_add).  Esc drops each company
     left with none on from `companies`, and all its releases from `models_off`.  What to say,
@@ -3655,11 +3658,10 @@ def company_list(cfg, title):
                                       column)
         act, here, clicked, top = matrix_key(
             title, body, places, rows, here, top, note, terminal.keys(
-                "a add a company", "esc done", space="on or off", enter=None,
-                move=("company", "model")),
+                "a add a company", "esc back", space="mark", enter=None),
             marks=1 + max(map(len, makers.values()), default=0), keyed=column,
             over=[*("  " + part for part in terminal.wrap(
-                "ak uses only the models that are on. Space turns one on or off, or, on a "
+                "ak uses only the models that are on. Space marks one on or off, or, on a "
                 "company's name, all of them. A company with none on leaves the list.",
                 room - 2)), ""],
             under=["", *("  " + terminal.styled(part, "dim")
@@ -3822,7 +3824,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 text = texts[number] if number < 3 else efforts[name, number]
                 kind = ("reverse" if at == ("model", name) and number == column else
                         "dim" if note or text in (marks[1], marks[3]) or builds and number % 3 == 1
-                        else None)
+                        else "accent" if number < 3 else None)
                 if number >= 3:   # the keys' effort is its word reversed, its cells before it
                     lead = leads[name, number]
                     lead = terminal.styled(terminal.plain(lead, True), kind) if (
@@ -4052,7 +4054,7 @@ def matrix_page(body, places, here, top, under, keys, over=(), lead=None, keyed=
     room = max(1, page_room(under, keys, over, lead))
     # A page too short for every row follows `here` rather than keep its top, which a review of
     # 7 Nov 2026 asked for: on 40×12 no layout of the models screen shows every role's line, so
-    # a page kept at its top would hide the role `▸` moves to.
+    # a page kept at its top would hide the role the highlight moves to.
     drawn = [number for number, (row, cells) in places.items()
              if row == here or any(here in cell[3:] for cell in cells)] or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
@@ -4200,6 +4202,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         "config", session or NEW_SEATS, CONFIG_ROWS, bool(selected))
     seat = (session, selected) if session or born else None     # whose efforts a step changes
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
+    refused = {}      # what the last `a` said (apply_defaults), fitted under the rows each draw
     while True:
         if not session and not born and selected is not None:   # a page that took a model out
             selected.update(copy.deepcopy(cfg["defaults"]))      # moved them
@@ -4228,7 +4231,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         body, places = config_body(cfg, None if terminal.away() else here, column,
                                    selected, providers, moves, subs, lit, scope, under)
         # agentkit's build, read under the page so every page shows it, and what was said under it
-        told = "\n".join(filter(None, (f"Version {version or '?'}", note or standing)))
+        told = said_once("\n".join(filter(None, (f"Version {version or '?'}", note or standing))),
+                         refused, page_room((), keys, over) - len(body))
         over, meters, body, places, moves = meters_led((over, meters), body, places,
                                                        note_lines(told), keys, moves)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
@@ -4241,7 +4245,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if session and selected is not None:
                 seat_read(cfg, session, selected)
             continue                  # a resize or the pointer: drawn again
-        note = ""
+        note, refused = "", {}
 
         def around(card, keys):   # the matrix laid out at this draw's size, the question under it
             over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
@@ -4254,7 +4258,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             return act == "enter" if born else cfg
         if act == "a" and fresh:
             clock.forget()            # the card: the matrix back from it replays nothing
-            note = apply_defaults(cfg, around)
+            refused = apply_defaults(cfg, around)
             continue
         if act == "r" and advice:     # a record that will not read has nobody to take it
             clock.forget()            # another screen: the matrix back from it replays nothing
@@ -5231,20 +5235,28 @@ def models_page(cfg, keyboard):
     ran = {}
 
     def listing(harness):     # what a harness's row opens onto: (model, the provider it is
-        if harness not in config.provider_hosts():      # listed under) each, (None, one to log in)
-            rows = [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
-        else:
-            listed = waited(lambda: config.listed_providers(harness), "config · models",
-                            doing=f"asking {config.provider_hosts()[harness]} which providers it has")
-            by = {row[0]: row for row in listed}
-            rows = [(model, by[provider]) for (((_, provider), model), _)
-                    in _through_choices(cfg, harness, listed, ("config · models",))
-                    if model or provider in cfg["providers"]]
+        said = ""             # listed under) each, (None, one to log in), and why none is, or ""
+        try:
+            if harness not in config.provider_hosts():
+                rows = [(model, None) for model in _offered(harness, "config · models", cfg=cfg)]
+            else:
+                listed = waited(lambda: config.listed_providers(harness), "config · models",
+                                doing=f"asking {config.provider_hosts()[harness]} "
+                                      "which providers it has")
+                by = {row[0]: row for row in listed}
+                rows = [(model, by[provider]) for (((_, provider), model), _)
+                        in _through_choices(cfg, harness, listed, ("config · models",))
+                        if model or provider in cfg["providers"]]
+        except config.Error as exc:     # what the config runs there comes out with no listing
+            rows, said = [], f"config: {exc}"
+        except Back:
+            rows, said = [], "not read: esc and open it again"
         ran.setdefault(harness, {}).update((cfg["models"][name]["model"],
                                             config.model_name(cfg, name)) for name in on(harness))
         ids = {model["id"] for model, _ in rows if model}
-        return rows + [({"id": model, "label": label}, None)
-                       for model, label in ran[harness].items() if model not in ids]
+        rows += [({"id": model, "label": label}, None)
+                 for model, label in ran[harness].items() if model not in ids]
+        return rows, said or ("" if rows else "its catalog lists no model")
 
     def ticks(harness):       # the list a harness's row opens
         got = []
@@ -5258,21 +5270,15 @@ def models_page(cfg, keyboard):
 
         def choices():
             if not got:
-                try:
-                    got.append(listing(harness) or "its catalog lists no model")
-                except config.Error as exc:
-                    got.append(f"config: {exc}")
-                except Back:
-                    got.append("not read: esc and open it again")
-            if isinstance(got[0], str):
-                return [([(got[0], "dim")], lambda: "", "")]
+                got.append(listing(harness))
+            rows, said = got[0]
             return [([(full, "accent") if on(harness, model["id"]) else (empty, "dim"),
                       (model["label"], None)],
                      lambda model=model, row=row: tick(harness, model, row),
                      bool(on(harness, model["id"]))) if model else
                     ([(row[1], None), (_logs_in(row[3]), "dim")], lambda row=row: log_in(row),
                      "log in")
-                    for model, row in got[0]]
+                    for model, row in rows] + ([([(said, "dim")], lambda: "", "")] if said else [])
         return choices, True
 
     def page():
@@ -5317,7 +5323,7 @@ def discord_secret(draw, name, hint):
 def audit_value(cfg):
     """`Weekly audit`'s value: on or off, and who orchestrates, executes and reviews it, under
     the matrix's own column words, each model by its full name, `on · orch Opus 5.5 · builds
-    Opus 5.5, GPT-6-Astra · reviews GPT-6-Astra`; a setting the config cannot read is shown as
+    Opus 5.5, 6 Astra · reviews 6 Astra`; a setting the config cannot read is shown as
     the error that says why."""
     try:
         setting = config.audit(cfg)
@@ -5498,7 +5504,8 @@ def work_words(name, cfg):
 def config_machines(cfg):
     """Recorded machines; Enter opens their work marks, and the cloud's monthly cap.  Last,
     `+ add a machine` takes an ssh address and writes it to config.toml once it answers
-    (machines.add), else says why not."""
+    (machines.add), else says why not, the line making a new machine one it adds under its
+    field (machines.join_line)."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def save(key, value):
@@ -5516,8 +5523,15 @@ def config_machines(cfg):
         return save("max_month", int(value))
 
     def add_field(draw):
+        join = machines.join_line()
+
+        def around(line):             # under the field, the line a new machine is added by
+            said = terminal.wrap("Run this on a new Linux machine, then type above the address "
+                                 "it prints:", terminal.layout_width() - 4)
+            return draw([line, "", *(terminal.styled(f"    {part}", "dim") for part in said),
+                         *terminal.unbroken(f"    {join}")])
         name = terminal.field("    ", "its ssh address: a Host of ~/.ssh/config, a host name or "
-                              "user@host", around=lambda line: draw([line]))
+                              "user@host", around=around)
         name = "" if name is None or terminal.is_esc(name) else name.strip()
         if not name:
             return ""
@@ -5865,14 +5879,16 @@ def apply_defaults(cfg, around):
     changes, so a move refused or failed leaves its record on the one its harness runs, its
     other changes kept.  Listed: it has a row on the main screen, gone from tmux
     too.  Each one's bar names what it took at once (handback.redress_seat).
-    config.toml is not written.  What to say under the rows, one line a seat refused, or ""."""
+    config.toml is not written.  What to say under the rows (said_once): {each reason a seat was
+    refused for: the seats it held}, in the order the seats are listed, a reason no seat
+    holds said alone."""
     from . import audit     # here, not at the top: audit imports this module
     defaults, records = cfg["defaults"], config.session_records()
     skip = config.resolve_session(audit.NAME)
     seats = {s["name"]: records[s["name"]] for s in orch.listing(reconcile=False)
              if not s.get("closed") and s["name"] in records and s["name"] != skip}
     if not seats:
-        return "no session to apply them to"
+        return {"no session to apply them to": []}
     lead = defaults["orchestrator"]
     effort = config.efforts_of(cfg["models"][lead])["effort"]
     moving = [name for name, record in seats.items() if record.get("orchestrator") != lead
@@ -5883,7 +5899,7 @@ def apply_defaults(cfg, around):
              f"{config.model_name(cfg, lead)} at {effort}." if restarts
              else "No session restarts.")
     if not terminal.confirm(APPLY_ASK.format(count), means, APPLY_ANSWER, around):
-        return ""
+        return {}
     runs = [lead, *defaults["workers"], *defaults.get("reviewers", defaults["workers"])]
     taken = {model: config.efforts_of(cfg["models"][model]) for model in runs}
     providers = usage.held(cfg)       # what orders a move's logins, as `c` reads them
@@ -5901,7 +5917,7 @@ def apply_defaults(cfg, around):
         at = config.at_efforts(cfg, held)["models"][own]["effort"]
         return config.orchestrating_at(cfg["models"], {"efforts": efforts}, own, at)
 
-    said = []
+    held = {}
     for name in seats:
         try:
             config.change_efforts(name, given)
@@ -5909,15 +5925,49 @@ def apply_defaults(cfg, around):
             config.update_session(name, workers=defaults["workers"],
                                   reviewers=defaults.get("reviewers"))
         except (config.Error, OSError) as exc:
-            said.append(f"{name}: {exc}")
-            continue
-        if name in moving:
-            note = orch.switch_orchestrator(cfg, name, lead, providers, effort=effort)
-            if note:
-                said.append(f"{name}: {note}")
-        # after the move, a restart's launch dressing a bar with no roles yet
-        handback.redress_seat(name)
-    return "\n".join(said)
+            note = str(exc)
+        else:
+            note = name in moving and orch.switch_orchestrator(cfg, name, lead, providers,
+                                                               effort=effort)
+            # after the move, a restart's launch dressing a bar with no roles yet
+            handback.redress_seat(name)
+        if note:
+            held.setdefault(terminal.plain(note), []).append(name)
+    return held
+
+
+def said_once(told, held, room):
+    """`told`, then what `a` said (apply_defaults), `held`, in the `room` lines the rows leave a
+    note (note_lines) and no more, at this draw's width: each reason once, led by the seats it
+    held, every name where they fit its line, else the first ones and how many more; where the
+    reasons do not fit, the most of the first that do, and a last line saying how many more there
+    are, before which `told`'s own lines give way."""
+    if not held:
+        return told
+    width = terminal.layout_width() - 2       # a note's line (note_lines)
+
+    def led(names):
+        for count in range(len(names), 0, -1):
+            lead = ", ".join(names[:count]) + (f" and {len(names) - count} more"
+                                               if count < len(names) else "")
+            if count == 1 or terminal.cells(lead) < width:     # and its colon
+                return lead
+
+    def tall(lines):
+        return sum(len(terminal.wrap(line, width)) for line in lines)
+
+    head = told.splitlines()
+    reasons = [f"{led(names)}: {why}" if names else why for why, names in held.items()]
+    shown = len(reasons)
+    while shown and tall(head + reasons[:shown]) + (shown < len(reasons)) >= room:
+        shown -= 1
+    if tall(reasons[shown:]) == 1:
+        shown = len(reasons)        # its count would take its line and say less
+    more = len(reasons) - shown
+    said = [*reasons[:shown], *([f"{more} more reason{'s' * (more > 1)}"] if more else [])]
+    while head and tall(head + said) >= room:
+        head.pop()
+    return "\n".join(head + said)
 
 
 def born_mark(cfg, selected, model, column, providers):
