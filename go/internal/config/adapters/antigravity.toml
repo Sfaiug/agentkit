@@ -5,7 +5,8 @@
 # for the captures.
 version = 1
 name = "Antigravity"
-family = "Gemini"
+# No `family`: agy lists three makers' models, so one it has no label for keeps its maker's
+# word, as the labels in [catalog] do: `Gemini 5 Neon` beside `Claude Opus 5.5`.
 colour = "#203B9B"
 
 [check]
