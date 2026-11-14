@@ -8,7 +8,7 @@ import (
 	"agentkit/internal/run"
 )
 
-// museAnswered reads the session the seat's receipt names once for muse.py's `said` and
+// museAnswered reads the session the seat is in (museConversation) once for muse.py's `said` and
 // `answers`: its conversation as museSaid reads it, and each question the owner answered on one
 // of its question cards.  A record of a session the seat left holds no receipt, and names that
 // session (notify.Conversations).  Unlike museSaid's, this read is the done check's: a log that
