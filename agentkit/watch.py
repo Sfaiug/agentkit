@@ -1800,16 +1800,20 @@ def follow_model(cfg, name, asked=None):
 def _taken_in(cfg, left, ran, asked):
     """[name] of the entry made for the model a seat's harness recorded (`ran`, as follow_model
     reads it) where no entry of `cfg` runs it there, as `add a subscription` makes one: on the
-    harness and provider of `left`, the entry the seat leaves, with its mode where it has one,
-    at the effort recorded where the model takes it, else the last it takes, named from its
-    label, and added to the file and to `cfg` (config.add_model).  [] for a harness that runs
-    any provider it logs in to, since nothing read says which runs the model; a model neither
-    its listing as held nor its `[catalog]` table names, nor, for a pass, its listing as the
-    pass asked it (config.catalog), once at most into `asked` ({harness: listing}) however long
-    the pass runs, as an id recorded for an error or a fallback; or an add that fails."""
-    harness = left["harness"]
+    harness of `left`, the entry the seat leaves, and its provider -- for a harness that runs
+    any provider it logs in to, the one the id names, `<provider>/<model>` as OpenCode records
+    it -- with the mode of `left` where it has one on that provider, at the effort recorded
+    where the model takes it, else the last it takes, named from its label, and added to the
+    file and to `cfg` (config.add_model).  [] for an id that names no provider `cfg` has a
+    table for, on such a harness; a model neither its listing as held nor its `[catalog]`
+    table names, nor, for a pass, its listing as the pass asked it (config.catalog), once at
+    most into `asked` ({harness: listing}) however long the pass runs, as an id recorded for
+    an error or a fallback; or an add that fails."""
+    harness, provider = left["harness"], left["provider"]
     if harness in config.provider_hosts():
-        return []
+        provider, named_one, _ = ran[0].partition("/")
+        if not named_one or provider not in cfg["providers"]:
+            return []
 
     def named(models):
         return next((model for model in models if model["id"] == ran[0]), None)
@@ -1825,9 +1829,10 @@ def _taken_in(cfg, left, ran, asked):
         return []
     levels = config.efforts(harness, ran[0], lambda _: models)
     label = config.model_label(harness, ran[0], listed["label"])   # a table row's as any screen's
-    entry = config.model_entry(harness, ran[0], label, provider=left["provider"],
+    entry = config.model_entry(harness, ran[0], label, provider=provider,
                                effort=ran[1] if ran[1] in levels else levels[-1],
-                               **{key: left[key] for key in ("mode",) if key in left})
+                               **{key: left[key] for key in ("mode",) if key in left
+                                  and left["provider"] == provider})
     try:
         return [config.add_model(cfg, entry, label)]
     except (config.Error, OSError):
