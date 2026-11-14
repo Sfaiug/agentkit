@@ -2,11 +2,14 @@
 
 The owner (27 Oct 2026): "everywhere enter is for like opening, new page and stuff like that,
 and space should be select / unselect".  On `Models` Space takes a model in or out and its
-list stays open, Enter closing it, each key line naming only what Space and Enter do there; on
-`Subscriptions` Enter or a click runs the lit act and Space runs nothing.  Black-box:
-`AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py), its harnesses faked
-(tests/fixtures/fakeadapter.py), judged by what the terminal shows, config.toml and the logins
-run; NO_COLOR.  This test fails against `/bin/false`.
+list stays open, Enter closing it; on `Weekly audit` Space flips `On`, Enter opens
+`Orchestrator`'s list, where Space moves the ● and Enter takes the highlighted model and closes
+it, each key line naming only what Space and Enter do there; on `Subscriptions` Enter or a
+click runs the lit act and Space runs nothing.  Black-box: `AK_BIN`'s menu in a terminal
+(tests/fixtures/akterm.py), its harnesses faked (tests/fixtures/fakeadapter.py), judged by
+what the terminal shows, config.toml and the logins run; NO_COLOR.  This test fails against
+`/bin/false`.  No row on `c` opens `Weekly audit` since 10 Nov 2026 (menu.CONFIG_ROWS): its
+page, Python ak's, runs in that terminal by itself.
 """
 
 import json
@@ -21,7 +24,8 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
-OPEN = "  ↑↓←→ move   ⏎ open   esc back"
+MARK, OPEN = "  ↑↓←→ move   ␣ mark   esc back", "  ↑↓←→ move   ⏎ open   esc back"
+PICK = "  ↑↓←→ move   ␣ mark   ⏎ pick   esc back"
 CLOSE = "  ↑↓←→ move   ␣ mark   ⏎ close   esc back"
 FABLE_LISTED = "claude-fable-5-1\tFable 5.1\tlow medium high xhigh max"
 
@@ -65,6 +69,9 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
             self.term.wait(lambda screen: lines(screen)[now] != shown[now])
         self.fail(f"the highlight never reached {row}")
 
+    def audit(self):
+        return akconfig.read(self.home)["audit"]
+
     def test_on_models_space_takes_a_model_in_and_out_and_enter_closes_the_list(self):
         self.to("Models", "  ↑↓←→ move   ⏎ open   r recommended   a apply to all sessions"
                           "   esc back")
@@ -86,6 +93,28 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.term.wait(lambda screen: "› Claude Code" in screen and "Fable 5.1" in screen
                        and "■" not in screen and key_line(screen) == OPEN)
         self.assertEqual(akconfig.read(self.home), before)
+
+    def test_on_weekly_audit_space_flips_on_and_enter_opens_orchestrator_s_list_to_pick(self):
+        self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"}, page="config_audit")
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
+                        "sleep 86400", server=SERVER)
+        self.to("On", MARK)
+        self.term.keys("Enter")                       # nothing: On is a mark
+        self.term.keys("Space")
+        self.term.wait("› On            ● on")
+        self.assertIs(self.audit()["on"], True)
+        self.term.keys("Enter", "Down")               # nothing, then onto Orchestrator
+        self.to("Orchestrator", OPEN)
+        self.assertIs(self.audit()["on"], True)
+        self.term.keys("Enter")
+        self.to("  ● Fable 5.1", PICK)
+        self.term.keys("Down", "Space")
+        self.to("  ● 6 Astra", PICK)              # the ● moved, the list open still
+        self.assertEqual(self.audit()["orchestrator"], "astra")
+        self.term.keys("Up", "Enter")
+        self.to("Orchestrator  Fable 5.1", OPEN)      # taken, and the list closed
+        self.assertNotIn("○", self.term.screen())
+        self.assertEqual(self.audit()["orchestrator"], "fable")
 
     def test_on_subscriptions_enter_or_a_click_runs_an_act_and_space_runs_nothing(self):
         acts = "  ↑↓←→ move   ⏎ log in again   esc back"

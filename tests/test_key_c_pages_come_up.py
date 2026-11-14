@@ -1,14 +1,16 @@
 """The pages `c` opens come up and move as `c` does: `Models` opening is written a frame whose
 header has `agentkit` and only part of `config · models` before the frame with all of it, and
-Space on Done check's `On`, off, is written the half-way mark, `●` in the ink `○` had, before
-the new one.
+Space on Weekly audit's `On` is written the half-way mark, `●` in the ink `○` had, before the new
+one.
 
 The owner's ask of 27 Oct 2026, every screen moving as the main menu does.  Black-box: the
 program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) with its colours,
 its harnesses the fakes of tests/fixtures/fakeadapter.py.  Its clock injected: `AK_MOTION_CLOCK`
 names a file of seconds that stands still until the test moves it, so a motion's frame is
 written however late the host's load makes it; what the pane is written is read from tmux's
-`pipe-pane`, never timed off a capture.  Fails against `/bin/false`.
+`pipe-pane`, never timed off a capture.  Fails against `/bin/false`.  No row on `c` opens
+`Weekly audit` since 10 Nov 2026 (menu.CONFIG_ROWS): its page, Python ak's, runs in a terminal
+by itself.
 """
 
 import re
@@ -34,18 +36,23 @@ class CPagesComeUp(unittest.TestCase):
         self.addCleanup(self.home.close)
         fakeadapter.install(self.home, claude="pass", codex="pass")
         akconfig.write(self.home, {"fable": {"harness": "claude", "effort": "xhigh"},
-                                   "astra": {"harness": "codex", "effort": "high"}},
-                       extra="[done_check]\non = false")
+                                   "astra": {"harness": "codex", "effort": "high"}})
         self.clock = self.home.root / "clock"
         self.at(1000)
-        self.term = Terminal(self.home, size=(100, 30), env={"AK_MOTION_CLOCK": str(self.clock)})
+        self.opened()
         self.term.wait("esc leave")
-        self.raw = self.home.root / "raw"
+        self.term.keys("c", "j", "j")
+        self.term.wait("› Models")
+
+    def opened(self, page=None):
+        """A terminal of its own on the clock, ak's menu or `page` (akterm.Terminal), what its
+        pane is written piped to `raw`."""
+        self.term = Terminal(self.home, size=(100, 30), env={"AK_MOTION_CLOCK": str(self.clock)},
+                             page=page)
+        self.raw = self.home.root / f"raw{self.term.pane}"
         piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane, f"cat >>{self.raw}",
                                server=SERVER)
         self.assertEqual(piped.code, 0, piped.err)
-        self.term.keys("c", "j", "j")
-        self.term.wait("› Models")
 
     def at(self, seconds):
         """ak's motion at `seconds` from now on: its clock's file swapped whole, never read half
@@ -76,8 +83,8 @@ class CPagesComeUp(unittest.TestCase):
         self.at(self.now + 10)
         self.written(f"{NOTE}.*agentkit{NAME} ")      # and then all of it
 
-    def test_space_on_done_checks_on_is_written_half_way_before_the_new_mark(self):
-        self.term.keys("j", "j", "j", "Enter")
+    def test_space_on_audits_on_is_written_half_way_before_the_new_mark(self):
+        self.opened("config_audit")
         self.term.wait(lambda screen: re.search(r"› On +○ off", screen))
         self.at(self.now + 10)          # the page up
         shown = r"On +(\x1b\[[\d;]*m)○"        # its ink alone: the page up, no fade over it
