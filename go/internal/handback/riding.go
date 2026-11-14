@@ -28,13 +28,13 @@ type ridingLine struct {
 
 // Riding decides what a prompt starting a turn in the seat `session` carries of its runs, as
 // Python's handback.riding tells it, and tell tells it, oldest first, each marked told: every
-// ending waiting for the seat (Waiting) and not held for its change going live, saying it went live
-// too where that ends the seat's wait, and each merged change gone live the seat is still owed in no
-// line already in a composer.  The prompt never waits: a run whose delivery lock is held is being
-// told this moment, perhaps as this very prompt, and is passed over, as is one moved on or
-// unreadable, and one whose record cannot be written now stays owed.  Every run is decided, under
-// its lock, before tell writes anything, so an error, where Go cannot decide one as Python does,
-// writes nothing and holds nothing.
+// ending waiting for the seat (run.Waits) and not held for its change going live, saying it went
+// live too where that ends the seat's wait, and each merged change gone live the seat is still
+// owed in no line already in a composer.  The prompt never waits: a run whose delivery lock is
+// held is being told this moment, perhaps as this very prompt, and is passed over, as is one moved
+// on or unreadable, and one whose record cannot be written now stays owed.  Every run is decided,
+// under its lock, before tell writes anything, so an error, where Go cannot decide one as Python
+// does, writes nothing and holds nothing.
 func Riding(session string) (tell func() string, err error) {
 	var riders []rider
 	var locks []*os.File
@@ -70,7 +70,7 @@ func Riding(session string) (tell func() string, err error) {
 		if said == nil || !sameAttempt(record, said) {
 			continue
 		}
-		each := rider{dir: dir, said: said, ending: Waiting(said)}
+		each := rider{dir: dir, said: said, ending: run.Waits(said)}
 		if each.ending {
 			holds, carries, err := liveEnding(said, nil)
 			if err != nil {
