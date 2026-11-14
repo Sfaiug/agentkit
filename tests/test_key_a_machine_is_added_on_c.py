@@ -1,9 +1,10 @@
 """A machine is added on `c` by its ssh address, asked once as the tick asks each machine.
 
 Owner, 29 Oct and 3 Nov 2026: add another machine on the settings screen, and ak tells what it
-is.  Black-box: AK_BIN runs under a terminal in a temporary HOME.  ssh is a fake: an address in
-ANSWERING runs the command it is given, the real probe, on a Mac's tools, after a login banner
-longer than a pipe holds; any other is refused as ssh refuses a key, with a warning before it.
+is.  Black-box: AK_BIN runs under a terminal in a temporary HOME.  ssh is a fake: asked what its
+config gives an address (-G), it has none; an address in ANSWERING runs the command it is given,
+the real probe, on a Mac's tools, after a login banner longer than a pipe holds; any other is
+refused as ssh refuses a key, with a warning before it.
 """
 
 import json
@@ -19,8 +20,8 @@ from fixtures.akterm import Terminal
 
 ANSWERING = ("acme-box", "acme@acme-mini.example")
 SSH = """#!/bin/sh
-while :; do case $1 in --) shift; break ;; -[bcDEeFIiJLlmOoPpQRSWw]) shift 2 ;; -*) shift ;;
-  *) break ;; esac; done
+while :; do case $1 in -G) exit ;; --) shift; break ;; -[bcDEeFIiJLlmOoPpQRSWw]) shift 2 ;;
+  -*) shift ;; *) break ;; esac; done
 echo "$1" >>{asked}
 if grep -qxF -e "$1" {answering}; then
   yes 'Welcome to acme.' | head -c 200000 >&2

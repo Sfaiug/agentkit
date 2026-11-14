@@ -1,7 +1,8 @@
 """The machines ak may use and what each one is: this one, each `[machines.<ssh alias>]` of
 config.toml, the `suite_helper` and those ak rents that serve.  Hidden here: the probe,
 tools/machine.sh, each tick's on all of them side by side and one on a machine `c` adds, over ssh
-but for this one; its ssh options; and their answers, state/machines.json, the last three days'
+but for this one; how ak's ssh reaches each, with ak's key to those it adds, and the line that
+makes a new machine one of them; and their answers, state/machines.json, the last three days'
 checks.
 """
 
@@ -14,12 +15,14 @@ import signal
 import subprocess
 import time
 
-from . import config, google_cloud
+from . import config, gitcall, google_cloud
 
 HERE = "this one"
 PROBE = config.REPO / "tools" / "machine.sh"
 TIMEOUT = 10        # the seconds a machine that does not answer holds the tick, all of them
-SSH = ("ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={TIMEOUT}")
+SSH = ("ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={TIMEOUT}",
+       "-o", "ServerAliveInterval=15")
+KEY = "machines-ssh"    # in config.SECRETS: the key pair ak reaches the machines it adds by
 DAY = 86400
 KEPT = 3 * DAY      # the checks "always on" is judged on; older ones go
 # What the probe says, each read as its type; an answer missing one is no answer.
@@ -118,7 +121,9 @@ def add(name):
     if name in (HERE, *helpers()):
         return f"{name} is a machine already"
     now = time.time()
-    [(answer, errors)] = ask([_probe(name)])
+    # typing it answers the question ssh would ask of a host key it has not seen: that one is
+    # learned, and one it knows otherwise still refused
+    [(answer, errors)] = ask([_probe(name, "-o", "StrictHostKeyChecking=accept-new")])
     said = _said(answer)
     if not said:
         last = (errors or "").strip().splitlines()[-1:]     # ssh's own, or the probe's
@@ -129,11 +134,57 @@ def add(name):
     return ""
 
 
-def _probe(name):
-    """The command asking `name` what it is."""
+def ssh(name, *options):
+    """The words of ak's ssh to `name` with ssh's `options`, its command after them: a rental by
+    its route (google_cloud.ssh_config), any other by SSH's own config, ak's key, once made,
+    offered after the keys that gives it."""
+    route = google_cloud.ssh_config(name) or [word for path in _keys(name)
+                                              for word in ("-o", f'IdentityFile="{path}"')]
+    return [*SSH, *options, *route, "--", name]
+
+
+def _keys(name):
+    """The key files ak's ssh names for `name`: none until ak's key is made, then the ones SSH's
+    own config gives `name` (`ssh -G`), in its order, and ak's last, so a machine set up by hand
+    is offered first what it was.  Naming any ends the defaults ssh offers while none is, so
+    they are named too; the config's own it drops as named twice."""
+    key = config.SECRETS / KEY
+    if not key.exists():
+        return []
+    [(shown, _)] = ask([["ssh", "-G", "--", name]])     # bounded, a config's `Match exec` with it
+    read = (line.partition(" ") for line in (shown or "").splitlines())
+    return [*(path for setting, _, path in read if setting == "identityfile"), key]
+
+
+def public_key():
+    """The public half of ak's key (`ssh`), the pair made the first time it is asked for, its
+    private half its owner's alone."""
+    key = config.SECRETS / KEY
+    config.ensure_dirs()
+    with config._record_lock(key):      # two screens asking at once make one pair
+        if not key.exists():
+            subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ak", "-f", key],
+                           stdin=subprocess.DEVNULL, capture_output=True, check=True)
+    return key.with_name(f"{KEY}.pub").read_text().strip()
+
+
+def join_line():
+    """The line that makes a new Linux machine one ak reaches by its key, over Tailscale:
+    tools/join.sh as this install's origin has it on its default branch, so a fork's is its own,
+    or on GitHub's name for that branch where the clone has none."""
+    origin = gitcall.git(config.REPO, "remote", "get-url", "origin", check=False)
+    branch = gitcall.git(config.REPO, "symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD",
+                         check=False).removeprefix("origin/") or "HEAD"
+    url = (f"https://raw.githubusercontent.com/{gitcall.owner_name(origin)}/{branch}/"
+           f"{google_cloud.JOIN.relative_to(config.REPO)}")
+    return f"curl -fsSL {url} | sudo bash -s -- {shlex.quote(public_key())} tailscale"
+
+
+def _probe(name, *options):
+    """The command asking `name` what it is, over ssh given `options`."""
     script = PROBE.read_text()
     return (["bash", "-c", script] if name == HERE else
-            [*SSH, *google_cloud.ssh_config(name), "--", name, shlex.join(["bash", "-c", script])])
+            [*ssh(name, *options), shlex.join(["bash", "-c", script])])
 
 
 def _record():

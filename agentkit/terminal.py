@@ -1434,9 +1434,27 @@ def relight(spots=None):
 
 def _cleared(line):
     """`line`, then its row's tail cleared, so no cell that is text before and after is ever blank
-    between.  A line filling the last column gets no clear: it leaves the cursor on that column,
+    between.  A line ending on the last column gets no clear: it leaves the cursor on that column,
     and a clear there erases it -- the clock's last digit on a terminal no wider than the layout."""
-    return line if cells(line) >= width() else f"{line}\033[K"
+    return line if cells(line) and not (_PAD + cells(line)) % (width() + 2 * _PAD) \
+        else f"{line}\033[K"
+
+
+def unbroken(text):
+    """`text`, a line to paste, as the rows of a screen: on one line however wide, the blank rows
+    under it left for the terminal to wrap it onto (`written`), so its selection copies one line
+    where one wrapped at words (docs/cli-design.md, for every other line) would paste as several."""
+    return [text, *[""] * (-(-(_PAD + cells(text)) // (width() + 2 * _PAD)) - 1)]
+
+
+def _starts(rows):
+    """{row: line} of `rows`, a screen from its first row, but the blank rows under a line wider
+    than the terminal that it wraps onto (`unbroken`)."""
+    starts, row = {}, 1
+    while row <= len(rows):
+        starts[row], under = rows[row - 1], len(unbroken(rows[row - 1])) - 1
+        row += 1 + under * (not any(rows[row:row + under]))
+    return starts
 
 
 def _differing(rows):
@@ -1469,14 +1487,17 @@ def written(lines, frame="", rising=False, screen=None):
     first as they are, on a cleared screen."""
     global _UP, _UP_OF, _WHOLE
     rows = [_LIST.get(row, line) for row, line in enumerate(lines, 1)]
+    starts = _starts(rows)
     if (rising or not _UP or screen != _UP_OF or len(rows) >= height()
             or time.monotonic() >= _WHOLE + TICK):
         _WHOLE, text = time.monotonic(), "\033[H" + "".join(
-            _cleared(line) + "\n" for line in (() if rising else rows)) + "\033[J"
+            _cleared(line) + "\n" for line in (() if rising else starts.values())) + "\033[J"
     else:
-        text = _differing(enumerate(rows, 1))
+        text = _differing(starts.items())
         text += f"\033[{len(rows) + 1};1H\033[J" if text or len(rows) < len(_UP) else ""
-    _UP, _UP_OF = None if _UP is None else rows, screen
+    # a row a line wraps onto is no row of its own: once it is one again, it is written
+    _UP = None if _UP is None else [starts.get(row) for row in range(1, len(rows) + 1)]
+    _UP_OF = screen
     over(frame, text)
 
 
