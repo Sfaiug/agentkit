@@ -70,20 +70,13 @@ carries the colour (`terminal.state_text`, `terminal.state_colour`).
 
 Every screen reads the same keys, one key at a time, with no Enter.
 
-- **Arrows, Space and Enter:** the arrows move the highlight, a bold row behind an accent `›`
-  (`terminal.highlight`), Space marks what it is on, and Enter goes forward (`terminal.keys`).
-- **One highlight:** what Enter or a click acts on stands on the theme's `selection`, all of it
-  and nothing else, drawn alike by the keys and the pointer (`terminal.selected`). A row acted
-  on whole, a seat or a choice, is on it from its first column to the layout's last, each line
-  of it; a cell, a mark the width of its column, an act or a key with a cell before and after,
-  and its row then has no band. Below 256 colours a cell is reversed and a row has its `›`
-  alone; with no colour a mark is bracketed, `[■]`.
+- **Arrows, Space and Enter:** the arrows move the highlight, Space marks what it is on, and
+  Enter goes forward (`terminal.keys`).
 - **Esc:** Esc goes back, and on the main screen it leaves.
 - **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
 - **Digits:** a digit opens that seat.
-- **Pointer:** a click does what the key would do, anywhere on what is lit (`terminal.under`).
-  The pointer lights what a click there would act on, never a second highlight or more words;
-  on what no click acts on, a model's name or the arrows' words, it is as on blank space.
+- **Pointer:** a click does what the key would do. The highlight, the keys' and the pointer's
+  alike, is what Enter or a click acts on, all of it and nothing else (`terminal.highlight`).
 
 A key that does nothing says nothing. Every key is answered within 100 ms.
 From a pipe or file the menu reads a line at a time: a key, then Enter. Helpers:
