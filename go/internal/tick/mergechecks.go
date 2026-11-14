@@ -121,7 +121,7 @@ func (t *ticking) mergeChecks() error {
 			return cmp.Or(cmp.Compare(a.finished, b.finished), strings.Compare(a.name, b.name))
 		})
 		for _, each := range found {
-			if err := t.verdict(each, key, now, probes, census); errors.Is(err, errLeft) {
+			if err := verdict(each, key, now, probes, census, t.log.line, t.dry); errors.Is(err, errLeft) {
 				return err
 			} else if err != nil && (each.record.Truthy("health") || each.record.Truthy("live_at")) {
 				each.verdict = "unknown"
@@ -135,9 +135,10 @@ func (t *ticking) mergeChecks() error {
 	return nil
 }
 
-// verdict is after_merge_checks's reading of one merge: a pass told before is one still, and any
-// other is followed at its merge commit, the run's own, else the one GitHub names.
-func (t *ticking) verdict(each *merge, key string, now float64, probes map[[2]string]probe, census []*run.Object) error {
+// verdict is after_merge_checks's reading of one merge, and a live follower's: a pass told before
+// is one still, and any other is followed at its merge commit, the run's own, else the one GitHub
+// names.
+func verdict(each *merge, key string, now float64, probes map[[2]string]probe, census []*run.Object, say func(string), dry bool) error {
 	record := each.record
 	if passedBefore(record, now) {
 		each.sha, each.verdict = record.Str("merge_sha"), "passed"
@@ -153,12 +154,12 @@ func (t *ticking) verdict(each *merge, key string, now float64, probes map[[2]st
 		}
 		if each.sha == "" {
 			said := []rune(config.Fold(why))
-			t.log.line(fmt.Sprintf("WARN %s: cannot read its merge commit: %s", each.pr, string(said[:min(len(said), 160)])))
+			say(fmt.Sprintf("WARN %s: cannot read its merge commit: %s", each.pr, string(said[:min(len(said), 160)])))
 			each.verdict = "unknown"
 			return nil
 		}
 	}
-	return mergeHealth(each, key, now, probes, census, t.log.line, t.dry)
+	return mergeHealth(each, key, now, probes, census, say, dry)
 }
 
 // recordedSHA is the merge commit the run holds, "" for none (after_merge_sha).
