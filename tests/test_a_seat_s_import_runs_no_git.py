@@ -1,9 +1,7 @@
 """Importing agentkit inside a seat starts no git.
 
-`agentkit.browser` once rendered its usage text as it was imported, and a seat's help reads its
-project's numbers from git (`config.policy`): seven git calls, about two seconds on a loaded
-host, in every hook and every `ak` a seat ran, before any of it did its work.  Black-box: a
-Python started as a seat's is, with a git that writes down each call.
+`agentkit.browser` once rendered its usage as it was imported, and a seat's help reads its
+project's numbers from git (`config.policy`): seven git calls in every hook and `ak` a seat ran.
 """
 
 import json
@@ -40,8 +38,7 @@ class ASeatsImportRunsNoGit(unittest.TestCase):
                 return said
 
             self.assertEqual(started("from agentkit import browser, watch"), "")
-            # and the usage it no longer renders at import does read git, so the line above
-            # would have caught it
+            # the usage it no longer renders there does read git: the line above would catch it
             self.assertIn("rev-parse", started(
                 "from agentkit import command_help; command_help.render('browser')"))
 
