@@ -416,6 +416,7 @@ test_key_plan_list_format
 test_key_plan_list_ticks
 test_key_plan_needs_seat
 test_key_plan_reads_ultra
+test_key_plan_prices
 test_key_plan_rename
 test_key_plugin_model_seat
 test_key_pointer_only_on_what_is_drawn

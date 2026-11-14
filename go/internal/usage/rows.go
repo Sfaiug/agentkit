@@ -38,7 +38,7 @@ func (r *Readings) Rows(screen terminal.Screen, plans map[Week]Plan) [][]string 
 		resets, counted := reading(prov, "resets")
 		room, known := headroom(week)
 		rows = append(rows, []string{each.label, cmp.Or(strings.Join(src.Models, ", "), "-"), percent(left(week)),
-			heldText(screen, plans[r.week(each)], shared), digits(src.Price),
+			heldText(screen, plans[r.week(each)], shared), digits(r.price(each)),
 			cmp.Or(resetWhen(shared, r.now), "-"), percent(reading(week, "elapsed")),
 			percent(left(sess)), fixed(resets, counted, 0), fixed(room, known, 1),
 			budgetLabel(providerBudget(prov, r.now)), outlook(prov)})
