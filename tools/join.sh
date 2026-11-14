@@ -35,6 +35,8 @@ join() {
   # logged in made each ssh from the home exit 255 at once (tried on 2 Nov 2026, the day 247
   # pieces went so in 3 minutes): only ak's key gets in.  A setting this sshd does not know
   # (OpenSSH 9.8 brought PerSourcePenalties) is left out: it would keep sshd from starting.
+  # sshd -t refuses all without its runtime directory, which ssh.service makes only as it starts.
+  mkdir -pm 755 /run/sshd
   local setting known=
   for setting in 'MaxStartups 500:30:1000' 'PerSourcePenalties no'; do
     ! sshd -t -o "$setting" 2>/dev/null || known+=$setting$'\n'
