@@ -42,11 +42,22 @@ type Rules struct {
 	alone                bool            // review off: no reviewer is picked (Alone)
 }
 
-// Load is the Rules of the home's groups as they stand.
+// Load is the Rules of the home's groups as they stand: in a seat the seat's own, as a launch from
+// it binds them (config.BindSeat), which Python's role_groups reads for whatever bound none.
 func Load() (*Rules, bool) {
 	executors, reviewers, err := config.Groups()
-	// in a seat the groups are its own, which only a launch binds (config.BindSeat)
-	if _, seat, unread := config.CurrentSession(); err != nil || unread != nil || seat != nil {
+	_, seat, unread := config.CurrentSession()
+	if seat != nil {
+		bound, unbound := config.BindSeat(seat)
+		executors, reviewers, err = nil, nil, unbound
+		for _, name := range bound.Workers {
+			executors = append(executors, name.(string))
+		}
+		for _, name := range bound.Reviewers {
+			reviewers = append(reviewers, name.(string))
+		}
+	}
+	if err != nil || unread != nil {
 		return nil, false
 	}
 	return Within(executors, reviewers)

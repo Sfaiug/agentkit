@@ -17,14 +17,15 @@ import (
 func TestADeclinedResumeLeavesPythonAnUnthrottledWait(t *testing.T) {
 	dir, record, tick := waiter(t)
 	ak := filepath.Dir(filepath.Dir(dir))
-	put(t, filepath.Join(ak, "config.toml"), "[defaults]\nworkers=['opus','astra']\n[models.opus]\nharness='claude'\nmodel='opus'\neffort='high'\nprovider='anthropic'\n[models.astra]\nharness='codex'\nmodel='astra'\neffort='high'\nprovider='openai'\n[providers.anthropic]\nmode='subscription'\n[providers.openai]\nmode='subscription'\naccounts=['shoal','reef']\n")
+	put(t, filepath.Join(ak, "config.toml"), "[defaults]\nworkers=['opus','astra']\n[models.opus]\nharness='claude'\nmodel='opus'\neffort='high'\nprovider='anthropic'\n[models.astra]\nharness='codex'\nmodel='astra'\neffort='high'\nprovider='openai'\n[providers.anthropic]\nmode='subscription'\n[providers.openai]\nmode='subscription'\n")
 	t.Setenv("AK_MAX_RUNS", "0")
 	t.Setenv("AK_RUN_DEPTH", "0")
 	t.Setenv("AGENTKIT_RUN_DIR", "")
 	bin := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
 	adapters := t.TempDir()
-	for _, name := range []string{"claude", "codex", "bwrap"} {
-		put(t, filepath.Join(bin, name), "#!/bin/sh\nexit 0\n")
+	// a host that cannot build a worker's box, whose resume Go leaves Python to refuse in its words
+	for name, exit := range map[string]string{"claude": "0", "codex": "0", "bwrap": "1"} {
+		put(t, filepath.Join(bin, name), "#!/bin/sh\nexit "+exit+"\n")
 		if err := os.Chmod(filepath.Join(bin, name), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +55,7 @@ func TestADeclinedResumeLeavesPythonAnUnthrottledWait(t *testing.T) {
 		now := start.Add(time.Duration(attempt) * 601 * time.Second)
 		tick.clock = func() time.Time { return now }
 		if err := tick.waiting(); !errors.Is(err, errLeft) {
-			t.Fatalf("did not hand the resume on several logins to Python: %v", err)
+			t.Fatalf("did not hand the boxless host's resume to Python: %v", err)
 		}
 		if read(t, filepath.Join(dir, "run.json")) != before {
 			t.Fatal("declined resume rewrote or throttled Python's wait")
