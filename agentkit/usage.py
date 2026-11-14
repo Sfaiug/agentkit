@@ -111,10 +111,9 @@ def _resets(harness, account=None, said=None):
 
     Only an adapter whose manifest says `[usage] reset` has any: the others hold 0 without
     being asked, because a count nobody can spend is not an unknown.  Where its `usage` answer,
-    `said`, counts them they are its, because an endpoint may take one request an ask
-    (Claude's: tests/test_claude_usage_polite.py); elsewhere `reset-status` counts them.  They
-    are read beside the meters and cached with them, for the owner to spend by hand; they rank
-    nothing.
+    `said`, counts them they are its, because an endpoint may take one request an ask;
+    elsewhere `reset-status` counts them.  They are read beside the meters and cached with
+    them, for the owner to spend by hand; they rank nothing.
     """
     if not harness_plugin(harness).usage["reset"]:
         return {"resets": 0.0}
@@ -127,7 +126,7 @@ def _resets(harness, account=None, said=None):
 def _reset_counts(count, kinds=None):
     """`resets`, a count of usage-limit resets or None when unknown, and beside a known one
     `reset_kinds` where the adapter names kinds holding any: what each refills differs by kind,
-    a weekly reset beside Fable ones on one Claude login, each `{"kind", "left", "usable"}`."""
+    a weekly reset beside Fable ones on one login, each `{"kind", "left", "usable"}`."""
     count = _number(count)
     if count is None:
         return {"resets": None}
