@@ -74,6 +74,14 @@ class ARefusedLoginReadsInPlainWords(unittest.TestCase):
         Seat(self.home, SEAT, model="opus", record={"reviewers": ["astra"]})
         self.refused(line, "GPT-6-Astra: ChatGPT is signed out")     # another provider's
 
+    def test_a_login_its_provider_lists_no_more_is_named_as_its_one_subscription(self):
+        line = self.said_no("claude")
+        akconfig.write(self.home, ["opus", "fable"], workers=["opus"])     # no `accounts`
+        seat = Seat(self.home, SEAT, model="opus", record={"account": "second"})
+        self.home.tmux("new-window", "-d", "-t", f"={SEAT}:", "sleep 86400")
+        self.home.tmux("kill-pane", "-t", seat.pane)       # gone: the move restarts it
+        self.refused(line, "Fable 5.1: Claude is signed out")
+
     def test_one_of_several_subscriptions_is_named_by_its_place(self):
         line = self.said_no("claude")
         akconfig.write(self.home, ["opus", "fable"], workers=["opus"],
