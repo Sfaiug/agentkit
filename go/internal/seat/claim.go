@@ -30,8 +30,8 @@ var plainID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // already, and move nothing.  The seat's
 // lock, which a delivery holds while it types the very prompt a hook may report, is never taken:
 // its name holds under `claims`.  False where Go does not carry it, with nothing written.  first,
-// where given, runs right before the move is written, and false writes none: what its hook writes
-// before the move, written only where Go carries the claim.
+// where given, runs right before the move is written, once its record has read under its lock,
+// and false writes none: what its hook writes before the move, written only where Go carries it.
 func Claim(launched string, to harness.Followed, pid int, first func() bool) bool {
 	id, named := to.Conversation.(string)
 	file, filed := to.Transcript.(string)
@@ -126,9 +126,6 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 	}) {
 		return true // kept already: a report that comes late or twice undoes no move
 	}
-	if first != nil && !first() {
-		return true
-	}
 	changes := []field{{"conversation", id}, {"left", gone}, {"id_source", to.Source}}
 	if to.Keep {
 		changes = []field{{"left", gone}}
@@ -138,7 +135,8 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 		found := false
 		err := update(state, name, func(data *run.Object) bool {
 			found = true
-			return moved(data)
+			// only once the record reads under its lock: one Go cannot write hands over unlatched
+			return (first == nil || first()) && moved(data)
 		})
 		next, _, unresolved := config.ResolveSession(name)
 		if found || err != nil || unresolved != nil || next == name {
