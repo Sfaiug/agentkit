@@ -85,8 +85,6 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
         # the first stack's red repeats on the tip alone, by name: the target's, repaired at once
         repair = self.prepared[0][0]
         self.assertEqual((self.red()["tests"], self.red()["run"]), ([WIDGET], repair.name))
-        with record.record(third) as state:     # its fix came before the red was known
-            del state["waiting_on"]["fix"]
         said = []
         land.check_line(self.turn, said.append)
         self.assertEqual(len(self.prepared), 1)

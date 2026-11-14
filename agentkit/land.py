@@ -406,7 +406,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
     target's one repair (`_repair`); a repeat of named tests keeps them in the entry, with those
-    it kept before, and walks for the commit that first turned the target red (`_blame_tip`).
+    it kept before, excuses them in the fixes the line gave before (`_excuse`), and walks for
+    the commit that first turned the target red (`_blame_tip`).
     Where the stack excused `over`, the target's named red, the suite whole decides instead: red
     there in nothing else, the red is the member's own, and the entry stays as it is."""
     path = directory / "target-probe.log"
@@ -455,11 +456,27 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
         # A red that named no test blames nobody: on an earlier commit a piece's number holds
         # other tests, and six whole suites are not worth a history row.
         if again:
+            _excuse(turn, red["tests"])
             _blame_tip(directory, state, scratch, tip, suite, piece, again, log)
     else:
         log(f"{upstream} at {tip[:12]} fails {what} alone: the line waits, nobody is blamed; "
             f"probed again in {turns.transient_delay(probes) // 60} min")
     return False
+
+
+def _excuse(turn, tests):
+    """Name `tests`, the target's own red just found, `excused` in each parked fix the line's
+    checks gave (`red_part`): one given before they were known, often on the very pass that
+    found them, tells its fixer of them as one given after does (`prompts.excused`)."""
+    for directory, state in line(turn):
+        fix = state["waiting_on"].get("fix") or {}
+        if "command" not in fix or fix.get("excused") == tests:  # a conflict, moved head or rule
+            continue
+        with record.recovery_lock(directory):
+            if record.read_state(directory) == state and not record.process_active(state):
+                with record.record(directory) as current:
+                    current["waiting_on"] = {**current["waiting_on"],
+                                             "fix": {**fix, "excused": tests}}
 
 
 def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
