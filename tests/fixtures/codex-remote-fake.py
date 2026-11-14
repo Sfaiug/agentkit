@@ -16,6 +16,7 @@ import sys
 import threading
 import time
 import tomllib
+import tty
 import uuid
 from datetime import datetime, timezone
 
@@ -274,8 +275,11 @@ else:
                           if 'resume' in args else ('thread/start', {}))
         send({'id': 0, 'method': method, 'params': params})
         sid = receive(wire)['result']['thread']['id']
-        if os.environ.get('FAKE_SCREEN'):       # the screen a TUI at its prompt draws
-            print(Path(os.environ['FAKE_SCREEN']).read_text(), end='', flush=True)
+        screen = Path(os.environ.get('FAKE_SCREEN') or os.devnull).read_text()
+        drawn = bool(os.environ.get('FAKE_SCREEN')) and os.isatty(0)
+        if drawn:       # on a terminal, each key as it comes, for its composer to draw
+            tty.setcbreak(0)
+        print(screen, end='', flush=True)       # the screen a TUI at its prompt draws
         publish('fake-tui', {'argv': args, 'pid': os.getpid()})
         typed = b''
         while os.environ.get('FAKE_HOLD'):
@@ -285,7 +289,13 @@ else:
             # (tests/fixtures/codex-title-index.jsonl), and its server takes the rest; a line
             # longer than one read waits for its end
             if os.environ.get('FAKE_SCREEN') and select.select([0], [], [], 0)[0]:
-                *lines, typed = (typed + os.read(0, 4096)).split(b'\n')
+                *lines, typed = (typed + os.read(0, 4096)).replace(b'\r', b'\n').split(b'\n')
+                if drawn:   # what is typed shows on its composer's `›` row until its Enter
+                    rows = screen.split('\n')
+                    at = [i for i, row in enumerate(rows) if row.startswith('›')]
+                    if at and typed:
+                        rows[at[-1]] = '› ' + typed.decode(errors='replace')
+                    print('\x1b[H\x1b[2J' + '\n'.join(rows), end='', flush=True)
                 for line in filter(str.strip, (line.decode(errors='replace') for line in lines)):
                     command, _, rest = line.partition(' ')
                     if command == '/rename':

@@ -33,12 +33,21 @@ class SpentSeat(SeatAccount):
         self.assertTrue(watch.owner_question(notify.last(NAME)))
 
     def sent(self, step):
-        """`step`, typing through the real veto; what reached the pane."""
-        sent = []
+        """`step`, typing through the real veto; what reached the pane, whose composer shows it
+        until its Enter."""
+        sent, pane = [], self.pane
+
+        def line(_seat, text, *_a, **_kw):
+            sent.append(text)
+            self.pane = f"❯ {text}"
+            return True
+
+        def enter(*_a, **_kw):
+            self.pane = pane
+            return True
         with patch.object(watch, "type_into", TYPE_INTO), \
-                patch.object(watch, "_send_line", side_effect=lambda s, text, *a, **k:
-                             sent.append(text) or True), \
-                patch.object(watch, "_send_enter", return_value=True), \
+                patch.object(watch, "_send_line", side_effect=line), \
+                patch.object(watch, "_send_enter", side_effect=enter), \
                 patch.object(watch, "_wait_sent", return_value=True):
             step()
         return sent

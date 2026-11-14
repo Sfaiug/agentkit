@@ -87,7 +87,8 @@ class Switch(Sandbox):
             path.chmod(0o755)
         self.stack.enter_context(patch.dict(
             os.environ, {"PATH": f"{self.bin}:{os.environ['PATH']}"}))
-        self.calls, self.fail, self.pid = [], set(), None    # `pid`: the pane's process, named
+        self.calls, self.fail, self.composer = [], set(), ""
+        self.pid = None     # the pane's process, named
         self.stack.enter_context(patch.object(orch, "tmux_out", side_effect=self.tmux))
         self.seat = {"name": "fix-api", "path": str(self.root), "created": 100,
                      "attached": False, "exited": False, "legacy": False}
@@ -122,7 +123,10 @@ class Switch(Sandbox):
             return 1, "boom"
         if self.pid and args[-1] == "#{pane_id}\t#{pane_pid}":
             return 0, f"%7\t{self.pid}"
-        return 0, PROMPT if args[0] == "capture-pane" else ""
+        if args[0] == "send-keys":     # a typed line stands in the composer until its Enter
+            self.composer = args[-1] if "-l" in args else ""
+        return 0, (PROMPT.replace("❯\xa0\n", f"❯\xa0{self.composer}\n")
+                   if args[0] == "capture-pane" else "")
 
     def rulebook(self, name="fix-api"):
         return config.rulebook_path(name).read_text()

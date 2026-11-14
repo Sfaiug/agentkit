@@ -4851,23 +4851,25 @@ cfg = config.load()
 config.ensure_dirs()
 
 
-def seat(name, line, model, record=True):
-    """Replay a captured pane and write down whatever the watcher types into it."""
-    import shlex
+def seat(name, line, model, record=True, composer="❯"):
+    """Replay a captured pane, its composer (that mark's last row) drawing what is typed until
+    its Enter, as a harness's does, and write down whatever the watcher types into it
+    (tests/fixtures/akpane.py)."""
     pane = typed / f"{name}.pane"
     pane.write_text(line + "\n")
     if record:
         config.save_session(cfg, name, model, ["opus", "astra"],
                             {"cwd": str(typed), "created": int(time.time()), "session_title": name})
-    orch.start(name, str(typed), ["sh", "-c",
-               f"stty -echo; sleep .3; cat {shlex.quote(str(pane))}; "
-               f"cat > {shlex.quote(str(typed / (name + '.txt')))}"], model)
+    orch.start(name, str(typed), [sys.executable, str(config.REPO / "tests/fixtures/akpane.py"),
+                                  str(pane), str(typed / f"{name}.txt"), composer], model)
     orch.tmux_out("resize-window", "-t", f"={name}:", "-x", "100", "-y", "40")
 
 
 def typed_into(name):
-    path = typed / f"{name}.txt"
-    return path.read_text() if path.exists() else ""
+    """Each line entered in that seat, ended by a newline."""
+    path = typed / f"{name}.txt.lines"
+    return "".join(json.loads(line) + "\n"
+                   for line in path.read_text().splitlines()) if path.exists() else ""
 
 
 def meta_window(seconds_from_now):
@@ -4882,9 +4884,10 @@ claude_pane = (fixtures / "claude-stall-pane.txt").read_text()
 codex_pane = (fixtures / "codex-stall-pane.txt").read_text()
 seat(CLAUDE, claude_pane, "opus")
 seat("stall-codex-goal", codex_pane.replace("exceeded retry limit, last status: 429 Too Many Requests",
-                                          "Goal stalled: no progress after three attempts"), "astra")
-seat("stall-codex-quota", codex_pane, "astra")
-seat("stall-muse", (fixtures / "muse-stall-pane.txt").read_text(), "spark")
+                                          "Goal stalled: no progress after three attempts"), "astra",
+     composer="›")
+seat("stall-codex-quota", codex_pane, "astra", composer="›")
+seat("stall-muse", (fixtures / "muse-stall-pane.txt").read_text(), "spark", composer="⟩")
 seat("fine-seat", "reading the tests", "opus")
 seat("by-hand", claude_pane, "opus", record=False)
 time.sleep(1.5)                     # the panes have to have painted before anything reads them
