@@ -268,6 +268,12 @@ def checked_site(site, workspace, quote=None):
     path = (root / name).resolve()
     if not path.is_relative_to(root) or not path.is_file():
         raise config.Error("name a file that exists inside this checkout")
+    # `item_text` writes the site as text and `handback.followup_place` reads it back from there
+    name = str(path.relative_to(root))
+    if re.search(r"[\r\n]|:\d", name) or name != name.strip():
+        raise config.Error("name a file whose path holds no line break, no colon before a digit "
+                           "and no whitespace at either end: ak reads the site back from its "
+                           "path:line text")
     content = path.read_text(errors="replace")
     line = int(line)
     if not 1 <= line <= len(content.splitlines()):
