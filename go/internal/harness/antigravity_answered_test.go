@@ -100,18 +100,27 @@ func TestAntigravityOwnerWordsAreReadStrictly(t *testing.T) {
 	if said, cards, err := Answered("antigravity", map[string]any{"conversation": "conv-acme", "id_source": "launcher"}); said != nil || cards != nil || err != nil {
 		t.Fatalf("read a store that is gone: %v %v %v", said, cards, err)
 	}
-	// a launch whose conversation is learned under a lock that cannot be taken
-	state := filepath.Join(home, ".agentkit", "state")
-	if err := os.MkdirAll(state, 0o700); err != nil {
+	// a launch whose conversation is learned under a lock that cannot be taken: a folder in its
+	// place, or a link to itself
+	claim := filepath.Join(home, ".agentkit", "state", "antigravity-claim.lock")
+	unclaimed := func(why string) {
+		t.Helper()
+		if _, _, err := Answered("antigravity", map[string]any{"antigravity_launch": "token"}); err == nil {
+			t.Fatalf("%s: read", why)
+		}
+		if _, _, known, err := Typed("antigravity", map[string]any{"antigravity_launch": "token"}, ""); !known || err == nil {
+			t.Fatalf("%s: typed %v %v", why, known, err)
+		}
+	}
+	if err := os.MkdirAll(claim, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("antigravity-claim.lock", filepath.Join(state, "antigravity-claim.lock")); err != nil {
+	unclaimed("a folder")
+	if err := os.Remove(claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("antigravity-claim.lock", claim); err != nil {
 		t.Skip(err)
 	}
-	if _, _, err := Answered("antigravity", map[string]any{"antigravity_launch": "token"}); err == nil {
-		t.Fatal("read a launch whose claim cannot be read")
-	}
-	if _, _, known, err := Typed("antigravity", map[string]any{"antigravity_launch": "token"}, ""); !known || err == nil {
-		t.Fatalf("typed a launch whose claim cannot be read: %v %v", known, err)
-	}
+	unclaimed("a link to itself")
 }

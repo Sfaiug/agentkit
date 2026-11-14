@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
@@ -63,7 +64,7 @@ func antigravityLearn(record *run.Object, learn bool) (string, error) {
 	// launch's claim, and another seat's may land while the fds are read.  An ask answers a
 	// moment early, as one reading just before that claim landed would.
 	if learn {
-		claiming, err := lock.Wait(context.Background(), antigravityClaimLock())
+		claiming, err := antigravityClaiming()
 		if errors.Is(err, fs.ErrNotExist) { // no state folder: Python's unread reads no record either
 			return "", nil
 		} else if err != nil {
@@ -111,7 +112,7 @@ func Claim(carried bool) {
 	if !carried || len(claims) == 0 {
 		return
 	}
-	claiming, err := lock.Wait(context.Background(), antigravityClaimLock())
+	claiming, err := antigravityClaiming()
 	if err != nil {
 		return
 	}
@@ -121,9 +122,24 @@ func Claim(carried bool) {
 	}
 }
 
-// antigravityClaimLock is the lock Python's claim takes too, one at a time across seats.
-func antigravityClaimLock() string {
-	return filepath.Join(config.Home(), "state", "antigravity-claim.lock")
+// antigravityClaiming takes the lock Python's claim takes too, one at a time across seats, as
+// Python's `learning` opens it: to append, so a folder in its place is an error, whose lock
+// lock.Wait would take.
+func antigravityClaiming() (*os.File, error) {
+	path := filepath.Join(config.Home(), "state", "antigravity-claim.lock")
+	claiming, err := lock.Wait(context.Background(), path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := claiming.Stat()
+	if err == nil && info.IsDir() {
+		err = &fs.PathError{Op: "open", Path: path, Err: syscall.EISDIR}
+	}
+	if err != nil {
+		claiming.Close()
+		return nil, err
+	}
+	return claiming, nil
 }
 
 // antigravityHook is the id_source of a conversation the seat's own agy took a prompt in, which
