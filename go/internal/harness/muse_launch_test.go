@@ -17,6 +17,7 @@ func TestMuseLaunchQuotesThePanesEnvironmentIntoItsHookCommands(t *testing.T) {
 		t.Skip("the fake Muse is a shell script")
 	}
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "") // a launch wires the settings file under HOME
 	program := filepath.Join(t.TempDir(), "muse")
 	if err := os.WriteFile(program, []byte("#!/bin/sh\nprintf '%s' '\"notification\"' >\"$4/schema.json\"\n"), 0o700); err != nil {
 		t.Fatal(err)
