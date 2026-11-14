@@ -75,9 +75,8 @@ class PRBodyListsFindings(unittest.TestCase):
     def test_the_findings_stand_before_the_records_that_can_fill_the_limit(self):
         body = self.merged_body(self.found, 0)
         self.assertLess(body.index("- run:"), body.index("## Findings\n"))
-        self.assertLess(body.index("## Findings\n"), body.index("## Executor's summary\n"))
-        if "## Notes\n" in body:
-            self.assertLess(body.index("## Findings\n"), body.index("## Notes\n"))
+        self.assertLess(body.index("## Findings\n"), body.index("## Notes\n"))
+        self.assertLess(body.index("## Notes\n"), body.index("## Executor's summary\n"))
 
     def test_a_run_whose_review_found_nothing_has_no_findings_section(self):
         body = self.merged_body(self.clean, 1)
