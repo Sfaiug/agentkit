@@ -4,7 +4,8 @@
 // not keep, routing ssh to the rest and renting for a need (Watch), and what that pass last said
 // (Bill), in words another provider can be one more package of. It alone knows Google: the
 // service-account key, the token its JWT buys, Compute Engine's Spot price list, machine types,
-// machines and quota limits, how a call to Google fails, and the time it reads.
+// machines and quota limits, Cloud Quotas' asks to raise those, how a call to Google fails, and the
+// time it reads.
 package googlecloud
 
 import (
@@ -266,16 +267,17 @@ func signed(email, private, audience string) (string, error) {
 	return unsigned + "." + b64(signature), err
 }
 
-// listing is a page of one of Google's listings: the price list's entries, or each zone's
-// machine types or machines.
+// listing is a page of one of Google's listings: the price list's entries, each zone's machine
+// types or machines, or the project's quota preferences.
 type listing struct {
 	Skus  []json.RawMessage
 	Items map[string]struct {
 		MachineTypes []json.RawMessage
 		Instances    []instance
 	}
-	NextPageToken string
-	Unreachables  []string
+	QuotaPreferences []preference
+	NextPageToken    string
+	Unreachables     []string
 }
 
 // pages hands each page of a listing to read; a page missing part of it fails it, as the

@@ -22,8 +22,7 @@ import (
 // merge's notice as its hand-back, recorded where the seat owes nothing or the run is a task of an
 // ordered job, and riding its next prompt where another run serves what it owes, an earlier run
 // parked or not; one that cannot be written fails the tick, and the next writes it.  A hand-back's
-// line left unsent, a follow-up with no command, or a plan line Go cannot weigh is Python's, with
-// nothing written.
+// line left unsent or a plan line Go cannot weigh is Python's, with nothing written.
 func TestAForkPRsMergeIsTypedOnlyWhereItsSeatOwesWork(t *testing.T) {
 	address := "https://github.com/acme/widgets/pull/7"
 	merged := "PR #7 Add retry file: merged by the maintainer"
@@ -49,7 +48,6 @@ func TestAForkPRsMergeIsTypedOnlyWhereItsSeatOwesWork(t *testing.T) {
 		{name: "a task of an ordered job, its seat owing work", plan: owed, ordered: true},
 		{name: "a plan line Go cannot weigh", plan: "- [ ] Finish API · check: `false` · WORKTREE/../widgets#SHA · deferred · written 2026-10-23 09:00\n", left: errLeft},
 		{name: "a hand-back's line left unsent", more: []any{"handback_typed", run.Fields("line", "run 20261107-0900-add-retry-file finished", "seat", 1000)}, left: errLeft},
-		{name: "a follow-up with no command", more: []any{"followups", []any{"retry.go:1 - flaky retry needs a regression test"}}, left: errLeft},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			ak, home := forkSeat(t)

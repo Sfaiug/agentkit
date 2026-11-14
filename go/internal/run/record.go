@@ -48,6 +48,12 @@ func Runs() string {
 	return filepath.Join(config.Home(), "runs")
 }
 
+// Regression is a fix run's check where its review gave none, in a folder of its own: the run's
+// directory is the loop's, read-only to its turns, and its executor and fixer write this one.
+func Regression(dir string) string {
+	return filepath.Join(dir, "regression", "regression.sh")
+}
+
 // Dirs are the run directories, in name order.
 func Dirs() []string {
 	entries, err := os.ReadDir(Runs())

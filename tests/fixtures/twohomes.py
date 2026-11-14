@@ -9,11 +9,12 @@ reaches every machine by its name and fails as ssh does, 255, for any other.
 
 The key, the tick and ssh start every command on a machine one way, `Machine._popen`: in its
 home, with its environment alone and its fakes first on PATH, so that what is on one machine is
-there for all three.  ssh asks the machine's sshd, which this process runs outside every
-machine, as a real one runs outside the machine that calls it: no machine sees another's files,
-nor its own where the test's side keeps them (`path`, `write`, `calls`).  A path given to a
-command (`cwd`) is one on the machine.  akbin's `boxable()` says whether bubblewrap can build
-the machines here.
+there for all three: a variable a key sets in a machine's `env` too, and its `AK_CGROUP_ROOT`,
+an empty folder of its own outside its home (`root / "cgroups"` on the test's side).  ssh asks
+the machine's sshd, which this process runs outside every machine, as a real one runs outside
+the machine that calls it: no machine sees another's files, nor its own where the test's side
+keeps them (`path`, `write`, `calls`).  A path given to a command (`cwd`) is one on the
+machine.  akbin's `boxable()` says whether bubblewrap can build the machines here.
 
 A key holds one machine: `vm.client_of(mini)` makes it the other's client, as install.sh records
 it; `mini.silence()` turns it off and `mini.hang()` has it take ssh and answer nothing, till
@@ -62,6 +63,10 @@ class Machine(Home):
         self.down = None    # how ssh to it fails: "silent", or "hang"
         self._starting, self._started = threading.Lock(), []
         self.sshd = self.tmux_dir / "sshd.sock"     # short, as a socket's path must be
+        # ak's cgroups beside its home, never in it: a copy of a home carries none to another
+        # machine, and what a key freezes or empties there is none of the host's
+        (self.root / "cgroups").mkdir()
+        self.env["AK_CGROUP_ROOT"] = str(self.at / "cgroups")
         self.fake("ssh", f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -I -c "
                          f'{shlex.quote(SSH)} {shlex.quote(str(self.sshd))} "$@"\n')
 

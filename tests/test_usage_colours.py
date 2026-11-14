@@ -61,7 +61,7 @@ class UsageColours(Sandbox):
             read = {name: {**prov, "meters": [{**self.meter(50), "elapsed": 50, "pace": 0}]}
                     for name, prov in providers.items()}
             rendered = usage.render(self.cfg, usage._gate_flags(read, 10000, self.cfg), [])
-        self.assertRegex(rendered, r"note: anthropic as of (\w+ )?\d\d:\d\d")
+        self.assertRegex(rendered, r"note: Claude as of (\w+ )?\d\d:\d\d")
         self.assertNotRegex(rendered, r"\bold\b|last reading")
 
     def test_the_six_companies_have_their_own_colours(self):

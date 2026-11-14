@@ -29,16 +29,16 @@ class SubscriptionValue(Sandbox):
             provider: {"provider": provider, "meters": [week], "error": None, "resets": 0.0,
                        "probed_at": now} for provider in ("anthropic", "openai")}}))
 
-    def month(self, provider):
+    def month(self, label):
         return next(row for row in usage.rows(self.cfg, usage.collect(self.cfg))
-                    if row[0] == provider)[usage.HEADERS.index("a month")]
+                    if row[0] == label)[usage.HEADERS.index("a month")]
 
     def test_the_price_stands_after_the_week_in_its_digits(self):
         self.assertEqual(usage.HEADERS[usage.HEADERS.index("holds") + 1], "a month")
         for price, shown in ((200, "200"), (5_000_000, "5,000,000"), (0.000012, "0.000012")):
             self.cfg["providers"]["anthropic"]["price"] = price
-            self.assertEqual(self.month("anthropic"), shown)
-        self.assertEqual(self.month("openai"), "-")
+            self.assertEqual(self.month("Claude"), shown)
+        self.assertEqual(self.month("ChatGPT"), "-")
 
     def test_usage_json_carries_the_price(self):
         self.cfg["providers"]["anthropic"]["price"] = 200

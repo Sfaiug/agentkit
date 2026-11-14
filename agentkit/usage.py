@@ -39,8 +39,8 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
-from . import (command_help, config, gitcall, history, matrix, spend, staffing, terminal, turns,
-               usage_probe, worker)
+from . import (command_help, config, gitcall, history, logins, matrix, spend, staffing,
+               terminal, turns, usage_probe, worker)
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -495,7 +495,6 @@ def _keep_probed(provider, account, cached, fresh):
 def _keep(provider, account, meters, at, source):
     """One fresh reading's meters, each a row of history.db's `meter_readings`, with the plan
     its login is on as state/logins.json names it now and the scope its provider names."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     account = account or config.DEFAULT_ACCOUNT
     plan = logins.whose(provider, account)[1]
     history.keep_readings([(provider, account, meter["name"], meter["used"],
@@ -1749,7 +1748,6 @@ def price(cfg, provider, account=None):
     """What `provider`'s login `account` (None, its usual one) costs a month: the `price` on the
     provider's table, in whatever its owner pays in, else the list price of the plan the login
     is on now (state/logins.json) on the `[plans]` of the harness that asks it; or None."""
-    from . import logins    # here, not at the top: logins names subscriptions through the menu
     own = _number(((cfg.get("providers") or {}).get(provider) or {}).get("price"))
     if own is not None:
         return own
@@ -1886,10 +1884,10 @@ def _accounts(cfg, providers):
     for name, prov in providers.items():
         accounts = prov.get("accounts")
         if isinstance(accounts, dict) and accounts:
-            yield from ((config.account_label(cfg, name, account, name), name, record, account)
+            yield from ((config.account_label(cfg, name, account), name, record, account)
                         for account, record in accounts.items())
         else:
-            yield name, name, prov, None
+            yield config.account_label(cfg, name, None), name, prov, None
 
 
 def rows(cfg, providers):
@@ -1900,7 +1898,7 @@ def rows(cfg, providers):
     must say the same thing, `holds` is what that same week of its plan holds at list prices
     and `a month` that login's price (`price`).  On a split allowance they can be different
     meters, which is why the two lines under the table print both.  A provider with several
-    accounts is a row per account, `anthropic II`, each on its own meters and its own plan.
+    accounts is a row per account, `Claude II`, each on its own meters and its own plan.
     """
     now = time.time()
     weeks = plan_weeks(cfg, providers, now)
@@ -1936,16 +1934,14 @@ def review_pair(cfg, providers):
 def render(cfg, providers, order, *, repo=None):
     now = time.time()
     table = [HEADERS] + rows(cfg, providers)
-    widths = [max(len(row[i]) for row in table) for i in range(len(HEADERS))]
+    widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
     width = terminal.width()
     if width >= 60 and sum(widths) + len(widths) - 1 > width:
         table[0] = ("provider", "model(s)", "left", "holds", "month", "resets", "elapsed",
                     "session", "held", "room", "budget", "outlook")
         widths = [max(terminal.cells(row[i]) for row in table) for i in range(len(HEADERS))]
-        # an account's row keeps its whole name: `anthropic I…` would not say which one it is
-        named = max((terminal.cells(label) for label, name, *_ in _accounts(cfg, providers)
-                     if label != name), default=0)
-        for i, cap in ((1, 14), (0, max(12, named)), (11, 18)):   # model(s), provider, outlook
+        # a subscription keeps its whole name: `Claude I…` would not say which one it is
+        for i, cap in ((1, 14), (11, 18)):   # model(s), outlook
             widths[i] = min(widths[i], cap)
     if sum(widths) + len(widths) - 1 <= width:
         lines = [" ".join(terminal.pad(cell, w) for cell, w in zip(row, widths)).rstrip()
@@ -1972,7 +1968,8 @@ def render(cfg, providers, order, *, repo=None):
         scoped, gap = split["scoped"], split["gap"]
         models = [(n, e) for n, e in cfg["models"].items() if e["provider"] == name]
         # the same polarity as the column; the gap stays in points of the week spent
-        lines += [f"{name}: weekly_all {_pct(_left(split['all_used']))} left, "
+        lines += [f"{config.provider_name(cfg, name)}: "
+                  f"weekly_all {_pct(_left(split['all_used']))} left, "
                   f"{scoped['name']} {_pct(_left(scoped['used']))} left, gap {gap:g}"]
         budgets = [(n, model_budget(cfg, n, providers, now)) for n, _ in models]
         if len({value for _, value in budgets}) > 1:
@@ -1991,7 +1988,7 @@ def render(cfg, providers, order, *, repo=None):
         if note and any(not _past(meter, now) for meter in meters):
             lines.append(terminal.styled(f"note: {name} {note}", "dim"))
     # a reset the owner spent, for as long as the meters it went and re-read stay cached
-    lines += [f"{name}: {note}" for name, prov in providers.items()
+    lines += [f"{config.provider_name(cfg, name)}: {note}" for name, prov in providers.items()
               for note in prov.get("notes") or []]
     lines += [f"{name}: {credits_note(prov)}" for name, _, prov, _ in _accounts(cfg, providers)
               if credits_note(prov)]

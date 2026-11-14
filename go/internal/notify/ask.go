@@ -39,8 +39,8 @@ type field struct {
 // episode going out once.  It decides from the record and files it finds holding the seat's notice
 // lock.  It answers the exit code and whether Go decided it at all: where the seat's word hangs on
 // a record Go does not read yet, a file it reads is one Go cannot read as Python does, or a
-// question's retirement waits for that lock (which Python's holder carries out first), it records
-// nothing and leaves the ask to Python.
+// question's retirement waits for that lock (which Python's holder carries out first), or Go cannot
+// name the seat's conversation (owed), it records nothing and leaves the ask to Python.
 func Ask(name string, record map[string]any, question string, asked Asked, out, errOut io.Writer) (int, bool) {
 	_, ownerErr := secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id")
 	if _, webhookErr := webhook(false, io.Discard); ownerErr != nil || webhookErr != nil {
@@ -80,9 +80,10 @@ func Ask(name string, record map[string]any, question string, asked Asked, out, 
 			previous = nil // no question of the seat's: what Python's last reads as none
 		}
 	}
-	notice, readable := said(name, []Kept{{Text: question}}, previous, false)
+	notice, fresh, readable := said(name, []Kept{{Text: question}}, previous, false)
 	card, carried := carded(name)
-	if unkept || !readable || !carried {
+	rows, named := owed(name, notice, fresh)
+	if unkept || !readable || !carried || !named {
 		return 0, false
 	}
 	now := time.Now() // the command's moment, which its word and its episode begin at
@@ -96,6 +97,7 @@ func Ask(name string, record map[string]any, question string, asked Asked, out, 
 		fmt.Fprintf(errOut, "notify: record could not be persisted (%s); retry required\n", failed(err))
 		return 1, true
 	}
+	rows()
 	code, err := worded(name, card, notice, word, since, asking && attached, float64(now.UnixNano())/1e9, errOut)
 	if err != nil {
 		fmt.Fprintf(out, "WARN card transition for %s failed (%s); retry required\n", name, failed(err))
@@ -104,14 +106,14 @@ func Ask(name string, record map[string]any, question string, asked Asked, out, 
 	return code, true
 }
 
-// said is the seat's notice once it asks those questions, as Python's _said records it, and
-// whether Go reads the notice it replaces as Python does: each joins those still standing
-// unanswered, each once, in the order asked, and one asked again keeps its first words and is
-// dated anew.  `kept` questions were said before their turn's end, which dates them, never before
-// those they are asked beside; a delayed Stop's older copy of one moves nothing it was said at, and
-// the notice keeps the latest moment any question it asks was said.  A newer notice carries the
-// answer to the one it replaced.
-func said(name string, asked []Kept, previous *run.Object, kept bool) (*run.Object, bool) {
+// said is the seat's notice once it asks those questions, as Python's _said records it, the
+// questions it asks for the first time, and whether Go reads the notice it replaces as Python
+// does: each joins those still standing unanswered, each once, in the order asked, and one asked
+// again keeps its first words and is dated anew.  `kept` questions were said before their turn's
+// end, which dates them, never before those they are asked beside; a delayed Stop's older copy of
+// one moves nothing it was said at, and the notice keeps the latest moment any question it asks
+// was said.  A newer notice carries the answer to the one it replaced.
+func said(name string, asked []Kept, previous *run.Object, kept bool) (*run.Object, []string, bool) {
 	var standing []string
 	dated, dates, ids := run.NewObject(), run.NewObject(), run.NewObject()
 	stands := previous != nil && previous.Get("watcher") != true && !resolved(previous)
@@ -119,13 +121,13 @@ func said(name string, asked []Kept, previous *run.Object, kept bool) (*run.Obje
 		standing = questions(previous)
 		var read bool
 		if dated, read = copied(previous, "asked_at", run.NewObject()); !read {
-			return nil, false
+			return nil, nil, false
 		}
 		if dates, read = copied(previous, "question_times", dated); !read {
-			return nil, false
+			return nil, nil, false
 		}
 		if ids, read = copied(previous, "question_ids", run.NewObject()); !read {
-			return nil, false
+			return nil, nil, false
 		}
 	}
 	now := clock()
@@ -189,7 +191,7 @@ func said(name string, asked []Kept, previous *run.Object, kept bool) (*run.Obje
 			notice.Set("earlier_answer_at", previous.Get(earlier))
 		}
 	}
-	return notice, true
+	return notice, listed[len(standing):], true
 }
 
 // copied is a copy of the notice's map under key, or of `or` for none, as Python's

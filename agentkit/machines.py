@@ -2,8 +2,8 @@
 config.toml, the `suite_helper` and those ak rents that serve.  Hidden here: the probe,
 tools/machine.sh, each tick's on all of them side by side and one on a machine `c` adds, over ssh
 but for this one; how ak's ssh reaches each, with ak's key to those it adds, and the line that
-makes a new machine one of them; and their answers, state/machines.json, the last three days'
-checks.
+makes a new machine one of them, and how one that ran it is found; and their answers,
+state/machines.json, the last three days' checks.
 """
 
 from collections import namedtuple
@@ -124,14 +124,55 @@ def add(name):
     # typing it answers the question ssh would ask of a host key it has not seen: that one is
     # learned, and one it knows otherwise still refused
     [(answer, errors)] = ask([_probe(name, "-o", "StrictHostKeyChecking=accept-new")])
-    said = _said(answer)
-    if not said:
+    if not _recorded(name, answer, now):
         last = (errors or "").strip().splitlines()[-1:]     # ssh's own, or the probe's
         return (f"{name} did not answer in {TIMEOUT} seconds" if errors is None
                 else f"{name} did not answer" + "".join(f": {line}" for line in last))
-    _write(lambda record: record.update({name: {"checks": [[now, True]],
-                                                "said": {**said, "at": now}}}))
     return ""
+
+
+def found():
+    """Each machine that ran the line (join_line) on the home's Tailscale network: of each peer
+    online, on Linux, of the home's Tailscale user and no machine already (a listed one known by
+    the host `ssh -G` gives its name), asked once as `add` asks one, but as `ak@<its Tailscale
+    name>` by ak's key alone.  Those that answered, each recorded as `add` records one, and "";
+    else none, and why."""
+    try:
+        [(shown, _)] = ask([["tailscale", "status", "--json"]])
+        status = json.loads(shown or "{}")
+    except (OSError, ValueError):       # no tailscale here, or no status from it
+        status = {}
+    if status.get("BackendState") != "Running":
+        return [], "no Tailscale network here to look through"
+    named = helpers()
+    hosts = {line.partition(" ")[2].lower().removesuffix(".")
+             for name, (shown, _) in zip(named, ask([["ssh", "-G", "--", name] for name in named]))
+             for line in (shown or f"hostname {name.rpartition('@')[2]}").splitlines()
+             if line.startswith("hostname ")}
+    me, names = (status.get("Self") or {}).get("UserID"), []
+    for peer in (status.get("Peer") or {}).values():
+        dns = (peer.get("DNSName") or "").lower().removesuffix(".")
+        if (dns and peer.get("Online") and peer.get("OS") == "linux" and peer.get("UserID") == me
+                and not hosts & {dns, dns.split(".")[0], *(peer.get("TailscaleIPs") or ())}):
+            names.append(f"ak@{dns}")
+    # no config read, so no key but ak's is offered; a host key is learned as a typed address's
+    # is, Tailscale vouching for whom it reaches
+    alone = ("-F", "none", "-o", "IdentitiesOnly=yes", "-o",
+             f'IdentityFile="{config.SECRETS / KEY}"', "-o", "StrictHostKeyChecking=accept-new")
+    now = time.time()
+    answers = ask([[*SSH, *alone, "--", name, shlex.join(_probe(HERE))] for name in names])
+    names = [name for name, (answer, _) in zip(names, answers) if _recorded(name, answer, now)]
+    return names, "" if names else "no machine on your Tailscale network answered ak's key"
+
+
+def _recorded(name, answer, now):
+    """Whether `name`'s answer to the probe asked at `now` says what it is, recorded if so as
+    its first check."""
+    said = _said(answer)
+    if said:
+        _write(lambda record: record.update({name: {"checks": [[now, True]],
+                                                    "said": {**said, "at": now}}}))
+    return bool(said)
 
 
 def ssh(name, *options):

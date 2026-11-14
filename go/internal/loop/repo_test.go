@@ -178,6 +178,34 @@ func TestAProofRunsOnItsRevisionAndTheCheckoutComesBack(t *testing.T) {
 	}
 }
 
+// A fix run's regression.sh shows its defect only by failing on base: one that passes there holds
+// the round back, and one shown is not asked again.
+func TestAFixRunsRegressionMustFailOnBase(t *testing.T) {
+	l, r := repoRig(t)
+	script := run.Regression(l.dir)
+	if err := os.MkdirAll(filepath.Dir(script), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	shell(t, r.wt, "printf 'x = 2\\n' > widget.txt; git commit -qam fixed")
+	head := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
+	for _, each := range []struct{ script, why string }{
+		{"test -f widget.txt\n", "regression.sh passes on base " + r.baseSHA + ": it does not show the defect"},
+		{"grep -qx 'x = 2' widget.txt\n", ""},
+		{"true\n", ""},
+	} {
+		if err := os.WriteFile(script, []byte(each.script), 0o666); err != nil {
+			t.Fatal(err)
+		}
+		why, err := r.regressionFailsBefore(l, head)
+		if err != nil {
+			t.Skip(err) // no box here
+		}
+		if record, _ := run.Read(l.dir); why != each.why || record.Truthy("regression_checked") != (why == "") {
+			t.Fatalf("%q on base: %q, recorded as %s", each.script, why, run.Line(record))
+		}
+	}
+}
+
 func TestAFindingOutsideTheChangeThatFailsOnBaseIsAFollowUp(t *testing.T) {
 	l, r := repoRig(t)
 	if err := os.MkdirAll(filepath.Join(l.roundDir()), 0o777); err != nil {

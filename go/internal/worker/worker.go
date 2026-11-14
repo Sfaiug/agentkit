@@ -116,7 +116,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 		return 0, "", err
 	}
 	began := time.Now()
-	away := elsewhere(model, argv, workspace, out, env, session)
+	away := elsewhere(model, argv, workspace, out, env, session, given.Places)
 	words := loggedOut(model.Harness, out)
 	interrupt, restore := signal.NotifyContext(cmp.Or(given.Context, context.Background()), os.Interrupt)
 	heartbeats, _ := config.Words(model.Harness, "worker", "heartbeats")
@@ -141,7 +141,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	}
 	if !there {
 		stopped = launch(box.Up(out), host.Declared(env[host.Marker]), func(ctx context.Context) {
-			code, left, err = box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
+			code, left, err = box.Run(ctx, argv, env, workspace, out, state, given.Places, logins, config.Unswitched(model.Harness, env, workspace), said)
 		})
 	}
 	interrupted := interrupt.Err() != nil

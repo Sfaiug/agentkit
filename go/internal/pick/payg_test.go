@@ -3,6 +3,8 @@ package pick
 import (
 	"slices"
 	"testing"
+
+	"agentkit/internal/config"
 )
 
 // paces is a read where each model has room, a budget and the pace given, none where it is absent.
@@ -17,7 +19,10 @@ func (p paces) Pace(name string) (float64, bool) {
 }
 
 func TestAPaygModelWaitsUntilEverySubscriptionRunsAheadOfPace(t *testing.T) {
-	rules := &Rules{executors: []string{"opus", "mimo"}, payg: map[string]bool{"mimo": true}, margin: 10}
+	unranked := func(bool, map[string]config.Model, []string) func(a, b string) int {
+		return func(string, string) int { return 0 }
+	}
+	rules := &Rules{executors: []string{"opus", "mimo"}, payg: map[string]bool{"mimo": true}, margin: 10, rank: unranked}
 	for _, each := range []struct {
 		room paces
 		want []string

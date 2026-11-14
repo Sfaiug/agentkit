@@ -82,11 +82,12 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	}); err != nil {
 		return 0, "", err
 	}
-	code, err := underWay(dir, []string{"--- preflight",
-		fmt.Sprintf("repo: %s/%s | base: %s | target: %s | merge: none (review only)", pull.Owner, pull.Name, pull.Base, pull.Base),
-		fmt.Sprintf("delivery: review %s at %s; publish findings", url, pull.Head),
-		"done-when: AGENTS.md tests: command from the target, else the PR checkout",
-	}, "notification: verdict on GitHub; PASS with green checks offered to "+config.Inbox()+" and needs to Discord (stderr if unconfigured)", flags, log, out, errOut)
+	merge, delivery := "none (review only)", fmt.Sprintf("review %s at %s; publish findings", url, pull.Head)
+	notification := "notification: verdict on GitHub; PASS with green checks offered to " + config.Inbox() + " and needs to Discord (stderr if unconfigured)"
+	if numbersIn.Rounds == 0 {
+		merge, delivery, notification = unreviewed(url, pull.Head, "")
+	}
+	code, err := underWay(dir, pullPreflight(pull, merge, delivery), notification, flags, log, out, errOut)
 	return code, "", err
 }
 
@@ -113,6 +114,15 @@ func receiveReview(dir, url string, receipt *run.Object, admitted *admission) (s
 	defer slots.Close()
 	taken := runOn(url)
 	return taken, run.Create(dir, receipt)
+}
+
+// pullPreflight is the preflight's lines of a review of that pull request, merged so and delivered so.
+func pullPreflight(pull *gh.Pull, merge, delivery string) []string {
+	return []string{"--- preflight",
+		fmt.Sprintf("repo: %s/%s | base: %s | target: %s | merge: %s", pull.Owner, pull.Name, pull.Base, pull.Base, merge),
+		"delivery: " + delivery,
+		"done-when: AGENTS.md tests: command from the target, else the PR checkout",
+	}
 }
 
 // unreadRun is whether a run's record holds what Go cannot read: it may be on this pull request.

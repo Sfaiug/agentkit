@@ -41,7 +41,7 @@ func TestACommandStillRunningAfterItsGraceIsNamedAmongWhatTheBoxStopped(t *testi
 		}
 	}()
 	argv := []string{"/bin/sh", "-c", `trap '' TERM; echo $$ >"$0"; exec sleep 60`, written}
-	code, left, err := Run(ctx, argv, map[string]string{"PATH": os.Getenv("PATH"), "HOME": dir}, dir, dir, nil, nil, nil, os.Stderr)
+	code, left, err := Run(ctx, argv, map[string]string{"PATH": os.Getenv("PATH"), "HOME": dir}, dir, dir, nil, nil, nil, nil, os.Stderr)
 	if err != nil {
 		t.Fatal(err)
 	}

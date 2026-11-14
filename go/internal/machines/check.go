@@ -67,9 +67,6 @@ func Check() error {
 	return os.Rename(temp, path())
 }
 
-// Owns is whether an entry of ak's state folder is the record or the file it is written through.
-func Owns(name string) bool { return name == "machines.json" || name == "machines.tmp" }
-
 // ask is what each machine printed of the probe, all asked at once, here or over ssh: "" where it
 // failed or had not answered whole within the tick's wait.
 func ask(names []string) []string {

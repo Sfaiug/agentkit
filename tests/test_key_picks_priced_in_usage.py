@@ -238,9 +238,9 @@ class PicksPricedInUsage(unittest.TestCase):
         self.assertAlmostEqual(dune["cost"], 10 * dollars(2, 100) / 2)
         self.assertEqual(dune["cost_rule"], "provider")
 
-    def test_the_models_column_names_the_unit_every_role_is_in(self):
-        self.assertRegex(self.command(), r"quality +week %\n +orchestrator +Anvil high +90\.0 +"
-                                         r"≈0\.20%\n +executor +Anvil high +90\.0 +0\.20%\n")
+    def test_every_role_is_in_dollars_a_task_none_without_a_price(self):
+        self.assertRegex(self.command(), r"quality +\$ a task\n +orchestrator +Anvil high +90\.0 +"
+                                         r"-\n +executor +Anvil high +90\.0 +-\n")
         self.assertRegex(self.command(prices=PRICES), r"quality +\$ a task\n +orchestrator .*\n"
                                                       r" +executor +Anvil high +90\.0 +\$0\.09\n")
 
@@ -254,7 +254,7 @@ class PicksPricedInUsage(unittest.TestCase):
              if row["model"] == "Echo")["values"].pop("aa.terminalBench40")
         self.home.write(".agentkit/state/boards.json", held)
         shown = self.command(["echo-1"], workers=["echo"], reviewers=["bloom"])
-        self.assertRegex(shown, r"quality +week %\n +orchestrator .*\n +executor .* not on the "
+        self.assertRegex(shown, r"quality +\$ a task\n +orchestrator .*\n +executor .* not on the "
                                 r"boards\n +reviewer ")
 
 

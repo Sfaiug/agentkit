@@ -11,11 +11,6 @@ import (
 	"agentkit/internal/run"
 )
 
-// tickLogins are what the tick leaves in watch.json of the logins a seat cannot move without:
-// what each harness's `auth` verb answered, gh found logged out, and the daily ask of each worker
-// token.  The ladder's first rungs read them, and nothing else of a word does.
-var tickLogins = []string{"auth_out", "gh_out", "worker_tokens"}
-
 // loginOut: [1] the tick found the seat's own login refused, asking its harness's `auth` verb
 // (watch.logged_out); anything but a recorded no blocks nothing, and a seat nobody is in, or one no
 // record names a harness for, has no login to ask about.

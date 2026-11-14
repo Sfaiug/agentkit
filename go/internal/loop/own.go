@@ -38,7 +38,8 @@ type overtaken struct{ why string }
 func (o *overtaken) Error() string { return o.why }
 
 // ownPull is a seat's own pull request under review: judged as a task reviewer judges a task, its
-// writer named in the task, its suite left to landing and only the project's rules checked.
+// writer named in the task, its suite left to landing and only the project's rules checked.  With
+// review off any pull request lands so (lands).
 type ownPull struct{ *pullPlace }
 
 func (p *ownPull) role(word string) string { return word }
@@ -50,8 +51,12 @@ func (p *ownPull) landing() (bool, string) { return true, "" }
 func (p *ownPull) beforeTurn(*loop) {}
 
 // verify is the project's rules on the head, Python's review_pr_round for `is_own`: no suite stands
-// in for the one landing runs.
-func (p *ownPull) verify(l *loop, _ string) (bool, string, error) {
+// in for the one landing runs.  A round left a suite to run, as a review with review off launched
+// with --no-merge is, runs it as a review of somebody else's PR does.
+func (p *ownPull) verify(l *loop, path string) (bool, string, error) {
+	if len(l.every) > 0 {
+		return p.pullPlace.verify(l, path)
+	}
 	head, tree, err := p.identity()
 	if err != nil {
 		return false, "", err
@@ -372,10 +377,8 @@ func (l *loop) ownRound() error {
 			return err
 		}
 	}
-	var cmds []string
-	if tests := cmp.Or(gitcall.DeclaredAt(wt, targetSHA, "tests"), gitcall.Declared(wt, "tests")); tests != "" {
-		cmds = []string{tests + "  # once"}
-	}
+	// its suite runs at landing, but in the round of a review with review off launched with --no-merge
+	cmds := pullChecks(cmp.Or(gitcall.DeclaredAt(wt, targetSHA, "tests"), gitcall.Declared(wt, "tests")), !l.alone || !repoFrom(prior).noMerge)
 	title := fmt.Sprintf("Review PR #%s: %s", pull.Number, pull.Title)
 	// what the seat wrote of its own PR stays on GitHub: its reviewer judges the diff against the
 	// plan ak holds, never the author's account of its work
@@ -418,21 +421,28 @@ func (l *loop) ownRound() error {
 	if err := place.settle(l); err != nil {
 		return err
 	}
-	// preflight refused it before the launch; here again on the head checked out, which may have moved
-	if why, err := ownFirstReview(l.dir, repo, l.pull, pull.Number, targetSHA, pull.Head); err != nil {
-		return err
-	} else if why = cmp.Or(unanswered(repo, pull.Head), why); why != "" {
+	// preflight refused it before the launch; here again on the head checked out, which may have
+	// moved, but for a first review that review off never has
+	first := ""
+	if !l.alone {
+		if first, err = ownFirstReview(l.dir, repo, l.pull, pull.Number, targetSHA, pull.Head); err != nil {
+			return err
+		}
+	}
+	if why := cmp.Or(unanswered(repo, pull.Head), first); why != "" {
 		return &blocked{why, "## Blocked\n\n" + why}
 	}
 	l.cmds = cmds
 	l.every, l.once = task.Group(cmds)
 	l.body = body + place.rules()
 	l.prompt = place.context(pull.Number, l.body) // what landing's fixers are told first
-	if err := l.pickReviewer(fmt.Sprintf("own PR of the %s seat; picked against orchestrator %s", owner, writer)); err != nil {
-		return err
-	}
-	if !prior.Truthy("reviewer") {
-		l.sayLaunched() // the first pick starts the review
+	if !l.alone {
+		if err := l.pickReviewer(fmt.Sprintf("own PR of the %s seat; picked against orchestrator %s", owner, writer)); err != nil {
+			return err
+		}
+		if !prior.Truthy("reviewer") {
+			l.sayLaunched() // the first pick starts the review
+		}
 	}
 	if err := os.MkdirAll(l.roundDir(), 0o777); err != nil {
 		return err
@@ -475,7 +485,7 @@ func (p *ownPull) settled(l *loop, pull *gh.Pull) error {
 	if err != nil {
 		return err
 	}
-	posted, why, err := p.post(l, pull, record)
+	posted, why, err := p.published(l, pull, record)
 	if err != nil {
 		return err
 	}

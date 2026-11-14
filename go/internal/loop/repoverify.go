@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"agentkit/internal/commandhelp"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/history"
 	"agentkit/internal/run"
@@ -62,8 +63,56 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 			text += "\n\n" + failure
 		}
 	}
+	if ok {
+		failure, err := r.regressionFailsBefore(l, head)
+		if err != nil {
+			return false, "", err
+		}
+		if failure != "" {
+			ok = false
+			text += "\n\n$ regression.sh must fail on base\n[exit 1]\n" + failure
+		}
+	}
 	text = fmt.Sprintf("Commit: %s\nTree: %s\n\n%s", head, tree, text)
 	return ok, text, os.WriteFile(path, []byte(text), 0o666)
+}
+
+// regressionFailsBefore is why a fix run's regression.sh does not show its defect, "" once it has:
+// it fails on base with the branch's changed tests laid over, or on base as it is where the branch
+// changes nothing else, as laying those over would make base the branch.  Shown once, it holds
+// across rounds and resumes; a script that passes must be fixed before it earns that.
+func (r *repoPlace) regressionFailsBefore(l *loop, head string) (string, error) {
+	script := run.Regression(l.dir)
+	checked := false
+	if err := l.save(func(record *run.Object) { checked = record.Truthy("regression_checked") }); err != nil {
+		return "", err
+	}
+	if info, err := os.Stat(script); err != nil || info.IsDir() || checked {
+		return "", nil
+	}
+	listed, err := l.git(r.wt).Must("diff", "--name-only", "-z", "--no-renames", r.baseSHA+"..."+head)
+	if err != nil {
+		return "", err
+	}
+	tests, err := r.changedTests(l, head, true)
+	if err != nil {
+		return "", err
+	}
+	from := head
+	if slices.Equal(tests, paths(listed)) {
+		from = ""
+	}
+	proof, err := r.proofOn(l, "bash "+commandhelp.ShellJoin([]string{script}), filepath.Join(l.dir, "regression-base.log"), r.baseSHA, from)
+	if err != nil {
+		return "", err
+	}
+	switch code, _ := proof.Int("returncode"); {
+	case proof.Truthy("killed") || code < 0:
+		return "regression.sh did not finish on base " + r.baseSHA + ": it does not show the defect", nil
+	case code == 0:
+		return "regression.sh passes on base " + r.baseSHA + ": it does not show the defect", nil
+	}
+	return "", l.save(func(record *run.Object) { record.Set("regression_checked", true) })
 }
 
 // checks runs the commands in the checkout, keeping on the record what they newly dirty: the

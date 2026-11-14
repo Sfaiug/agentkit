@@ -21,7 +21,7 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config
-from agentkit.harness.codex import (CAPTURE_ENV, SEAT_STATE, STOP_RULE, Client, conversation,
+from agentkit.harness.codex import (SEAT_STATE, STOP_RULE, Client, claimed, conversation,
                                     drop_closed_seat, first_prompt, in_flight, main, pairing_home,
                                     remote_home, seat_conversations)
 
@@ -211,29 +211,36 @@ def serve(cmd, receipt, parent):
 
 
 def settings_changed(path, stopped):
-    """Subscribe off the seat's path: a new thread may not have a rollout to resume yet."""
-    receipt = os.environ.get(CAPTURE_ENV)
-    if not receipt:
-        return
+    """Subscribe off the seat's path: a new thread may not have a rollout to resume yet.  The
+    thread is the seat's, as its record names it once `follow` has moved it on `/new` or
+    `/resume`, which the launch receipt never does.  Each notification, and each second without
+    one, reads the record's claim again (`claimed`), cheap where proving it is not, and a new
+    claim takes the subscription along however much the old thread still says."""
+    name = os.environ.get(config.SESSION_ENV)
+
+    def record():
+        return config.session_record(config.resolve_session(name)) or {}
     while not stopped.is_set():
         client = None
         try:
-            with Path(receipt).open() as fh:
-                fcntl.flock(fh, fcntl.LOCK_SH)
-                record = {"codex_launch": json.load(fh)["launch"]}
-            thread = conversation(record)
+            seat = record()
+            thread = conversation(seat)
             if thread:
+                found = claimed(seat)
                 client = Client(str(path))
                 client.call("thread/resume", {"threadId": thread, "excludeTurns": True})
                 from agentkit import watch
                 # Catch a change made before this client could subscribe, too.
-                watch.start_look(os.environ[config.SESSION_ENV])
-                client.socket.settimeout(None)
-                while not stopped.is_set():
-                    event = client.receive()
+                watch.start_look(name)
+                client.socket.settimeout(1)
+                while not stopped.is_set() and claimed(record()) == found:
+                    try:
+                        event = client.receive()
+                    except TimeoutError:
+                        continue
                     if (event.get("method") == "thread/settings/updated"
                             and (event.get("params") or {}).get("threadId") == thread):
-                        watch.start_look(os.environ[config.SESSION_ENV])
+                        watch.start_look(name)
         except (OSError, ValueError, KeyError, TypeError, AttributeError, config.Error):
             pass
         finally:

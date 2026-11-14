@@ -352,31 +352,6 @@ func stopped(seat *run.Object) (bool, bool) {
 	return true, finite && at != 0 && seat.Get("closed_by_owner") == true
 }
 
-// quiet is whether watch.json holds nothing a seat's word reads but what Go reads, the logins the
-// tick found among it, which the ladder reads itself (tickLogins): what watch.forget leaves where
-// the watch kept nothing else, every map but the alert generations, the heads the tick reviewed,
-// the PRs it follows and a merge's break empty, and stalls only those a word reads as held and told
-// (wordStalls), beside the boot the tick last saw, the record of how the last tick went and when
-// the last tick ended whole.
-func quiet(path string) bool {
-	data, err := run.ReadJSON(path)
-	if err != nil || data == nil {
-		return false
-	}
-	data.Delete("boot_resume") // the seats the tick reopened after the boot it last saw
-	for _, key := range data.Keys() {
-		if key == "boot_id" || key == "tick" || key == "tick_completed_at" || slices.Contains(tickLogins, key) {
-			continue
-		}
-		held := data.Dict(key)
-		if !slices.Contains(watchKeys, key) || held == nil || key != "seen_at" && key != "reviewed" && key != "own" && key != "after_merge" && len(held.Keys()) > 0 &&
-			!(key == "stalls" && wordStalls(held)) {
-			return false
-		}
-	}
-	return true
-}
-
 // sessionFile is the seat a state file is the record or rename pointer of: `session-<seat>.json`.
 func sessionFile(file string) (string, bool) {
 	seat, prefixed := strings.CutPrefix(file, "session-")

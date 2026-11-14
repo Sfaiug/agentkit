@@ -25,8 +25,7 @@ import (
 // living what the cap leaves, asked for as Python asks; a refusal of stock moves on to the next
 // zone, another refusal ends the rent, and a create Google does not answer stays on the meter by
 // name. Nothing is rented while one comes up, while ak may not rent, or where the cap leaves less
-// than ten minutes, each line said as Python says it. Where Google lists a quota limit in a region
-// offered the pass is Python's, nothing written; a limit read Google does not answer lists none.
+// than ten minutes, each line said as Python says it; a limit read Google does not answer lists none.
 func TestARentTakesTheCheapestCoreForWhatTheCapLeaves(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -69,15 +68,14 @@ func TestARentTakesTheCheapestCoreForWhatTheCapLeaves(t *testing.T) {
 	write("state/google-cloud-ledger.json", `{"answered": 1793575800.0, "spent": 1.5, "machines": {
 		"1": {"price": 1.0, "until": 1793584800.0}}}`)
 
-	// Google: a token for any JWT, acme-1 listed, c4a-highcpu-8 offered in europe-west4-a unless the
-	// listing is not answered, no quota limit unless europe-west4's CPUS is listed, or the read of
-	// them not answered; each create's body kept, answered by the next of answers, else made, and
-	// operation-1 done.
+	// Google: a token for any JWT, acme-1 listed, c4a-highcpu-8 offered in europe-west4-a, no quota
+	// limit, or the read of them not answered; each create's body kept, answered by the next of
+	// answers, else made, and operation-1 done.
 	const project = "/compute/v1/projects/acme-build"
 	var held sync.Mutex
 	var made []map[string]any
 	var answers []func(http.ResponseWriter)
-	limit, catalogue := "", ""
+	limit := ""
 	reply := func(code int, body string) func(http.ResponseWriter) {
 		return func(w http.ResponseWriter) {
 			w.WriteHeader(code)
@@ -103,12 +101,8 @@ func TestARentTakesTheCheapestCoreForWhatTheCapLeaves(t *testing.T) {
 			silent(w)
 		case strings.HasSuffix(path, "/compute.googleapis.com/cpus_per_vm_family"):
 			io.WriteString(w, `{"consumerQuotaLimits": [{"quotaBuckets": [{"dimensions": {"region": "europe-west4"}}]}]}`)
-		case path == "/regions/europe-west4" && limit == "listed":
-			io.WriteString(w, `{"quotas": [{"metric": "CPUS", "limit": 24.0}]}`)
 		case strings.HasPrefix(path, "/regions/"):
 			io.WriteString(w, `{"quotas": [{"metric": "INSTANCES", "limit": 24.0}]}`)
-		case path == "/v1/services/6F81-5844-456A/skus" && catalogue == "silent":
-			silent(w)
 		case path == "/v1/services/6F81-5844-456A/skus":
 			sku := func(description, region string, nanos int, unit string) string {
 				return fmt.Sprintf(`{"description": %q, "serviceRegions": [%q], "pricingInfo": [{"pricingExpression":
@@ -265,22 +259,5 @@ func TestARentTakesTheCheapestCoreForWhatTheCapLeaves(t *testing.T) {
 	carried, err, creates = pass(midnight+1560, renting("50"), "8192 tests\n")
 	if !carried || err != nil || len(creates) > 0 || !reflect.DeepEqual(said(), []string{"nothing offered with 8192 MiB a vCPU"}) {
 		t.Errorf("nothing fits: carried %v, %v, creating %q, said %q", carried, err, where(creates), said())
-	}
-
-	// Where Google lists a quota limit in a region offered the pass is Python's, nothing written, the
-	// need included, whatever the cap leaves: offers kept a day are listed anew first, and where
-	// Google does not answer that listing, those kept are offered.
-	ledger, late := read("state/google-cloud-ledger.json"), read("state/google-cloud-late.json")
-	for _, kept := range []struct{ catalogue, region string }{{"", "us-central1"}, {"silent", "europe-west4"}} {
-		set(func() { limit, catalogue = "listed", kept.catalogue })
-		offers := fmt.Sprintf(`{"at": 1793491200.0, "offers": [["c4a-highcpu-8", %[1]q, 8, 16384, 2.0, ["%[1]s-a"],
-			"projects/debian-cloud/global/images/family/debian-13-arm64", "hyperdisk-balanced"]]}`, kept.region)
-		write("state/google-cloud-offers.json", offers)
-		carried, err, creates = pass(midnight+1740, renting("1"), "456 tests\n")
-		if carried || err != nil || len(creates) > 0 || read("state/google-cloud-need") != "456 tests\n" ||
-			read("state/google-cloud-ledger.json") != ledger || read("state/google-cloud-late.json") != late ||
-			read("state/google-cloud-offers.json") != offers {
-			t.Errorf("%+v: carried %v, %v, creating %q", kept, carried, err, where(creates))
-		}
 	}
 }

@@ -6,9 +6,6 @@ import (
 	"agentkit/internal/run"
 )
 
-// antigravityKept is the claim's lock, and the folder adapters/antigravity.sh makes each launch's
-// agent and hooks in, which no seat's word hangs on.
-var antigravityKept = regexp.MustCompile(`^antigravity(?:-claim\.lock)?$`)
 var antigravityConversation = regexp.MustCompile(`^[\pL\pN_-]+$`)
 
 // antigravityRecord admits the conversation the seat owns, its launcher's or the one its launch's

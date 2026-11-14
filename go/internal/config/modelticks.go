@@ -169,7 +169,7 @@ func (t *ModelTicks) Tick(harness, id, label string, levels []string, under *Lis
 				provider, _ = first.get("provider").(string)
 				effort, _ = first.get("effort").(string)
 			}
-			entry := modelEntry(harness, id, nearestEffort(effort, levels), provider)
+			entry := modelEntry(harness, id, label, nearestEffort(effort, levels), provider)
 			if under != nil {
 				entry.put("provider", under.ID)
 				takeIn(providers, entry, *under)

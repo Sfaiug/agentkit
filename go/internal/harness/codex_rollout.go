@@ -23,10 +23,6 @@ const codexLaunch, codexSource = "codex_launch", "codex-session-start"
 // launchToken is a launch receipt's own name for itself (codex.py `path_for`).
 var launchToken = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
-// codexKept are the files state/ holds for a Codex seat beside its record (codex.py `path_for`,
-// `remote_home` and its `.forgotten` mark), each named by a uuid4's hex.
-var codexKept = regexp.MustCompile(`^codex-(?:launch-[0-9a-f]{32}\.json|remote-[0-9a-f]{32}(?:\.forgotten)?)$`)
-
 // codexReceipt is the receipt of the launch the record names (codex.py `read`), read under a shared
 // lock, beside other readers and never beside its SessionStart hook writing it in place, which
 // never makes the file; nil where it names none, another launch's, or none that reads.

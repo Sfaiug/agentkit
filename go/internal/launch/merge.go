@@ -26,7 +26,7 @@ func Merge(id string, out, errOut io.Writer) (int, string, error) {
 		return 0, "", ErrPython
 	}
 	if !run.Carries(record) {
-		return 0, "", ErrPython // review off lands on its checks, and only Python delivers that yet
+		return 0, "", ErrPython // numbers Go cannot read are Python's to say
 	}
 	if !run.ReviewPass(record, run.Models()) {
 		return 2, id + ": merge requires a successful reviewer allowed by the model policy; run ak run resume " + id + " to obtain review", nil

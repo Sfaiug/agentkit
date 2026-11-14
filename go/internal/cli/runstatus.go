@@ -328,7 +328,7 @@ func refused(entries []listed, wanted string) bool {
 		if _, err := look(entry.record.Copy()); actedOn(entry.record) || wanted != "" && err != nil {
 			return true
 		}
-		// a review of a pull request with review off is Python's whole, its status too
+		// numbers Go cannot read are Python's to say, its status too
 		if !run.Carries(entry.record) {
 			return true
 		}

@@ -187,7 +187,7 @@ class WeeklyBalance(unittest.TestCase):
             self.assertEqual(usage.main([]), 0)
         rendered = out.getvalue()
         header = next(line for line in rendered.splitlines() if line.startswith("provider "))
-        row = next(line for line in rendered.splitlines() if line.startswith("openai "))
+        row = next(line for line in rendered.splitlines() if line.startswith("ChatGPT "))
         held = header.index("resets held")
         self.assertEqual(row[held:].split()[0], "2")    # the count the owner spends from
         self.assertIn("0.5 ahead", row)
@@ -233,11 +233,11 @@ class WeeklyBalance(unittest.TestCase):
             self.assertEqual(usage.main([]), 0)
         rendered = out.getvalue()
         self.assertIn("budget", rendered.splitlines()[0])
-        for name, label in (("anthropic", "1.4 slack"), ("openai", "0.6 ahead"), ("meta", "unknown")):
+        for name, label in (("Claude", "1.4 slack"), ("ChatGPT", "0.6 ahead"), ("Muse", "unknown")):
             row = next(line for line in rendered.splitlines() if line.startswith(name + " "))
             self.assertIn(label, row)
         self.assertIn("pick order: opus, astra, spark", rendered)
-        self.assertIn("note: meta probe failed", rendered)
+        self.assertIn("note: Muse probe failed", rendered)
         with patch.object(usage, "collect", return_value=providers), \
                 redirect_stdout(io.StringIO()) as out, redirect_stderr(io.StringIO()):
             self.assertEqual(usage.main(["--json"]), 0)

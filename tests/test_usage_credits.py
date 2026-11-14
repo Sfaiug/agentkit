@@ -194,7 +194,7 @@ class Picks(unittest.TestCase):
                          ["ChatGPT"])
         with patch.object(usage, "review_pair", return_value=None):
             shown = terminal.plain(usage.render(self.cfg, providers, self.order(providers)))
-        self.assertIn("openai: 62,469 credits left", shown)
+        self.assertIn("ChatGPT: 62,469 credits left", shown)
         self.assertNotIn("exhausted", shown)
 
 

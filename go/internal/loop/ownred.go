@@ -16,7 +16,8 @@ import (
 // past them the run fails, its PR left open.
 
 // failLanding is the red handed to the writer, Python's fail_pr_landing for a landing red: the
-// record leaves the line on it and waits for the fix, or fails past the bound.
+// record leaves the line on it and waits for the fix, or fails past the bound.  Somebody else's PR,
+// which lands with review off, has no writer here: it fails at once.
 func (p *ownPull) failLanding(l *loop, record, fix *run.Object) error {
 	if road := landingFixHandoff(record); road != "" {
 		return notYet(fmt.Sprintf("its landing failed: %s; see %s", fix.Str("line"), fix.Str("log")), road)
@@ -50,7 +51,7 @@ func (p *ownPull) failLanding(l *loop, record, fix *run.Object) error {
 		if red {
 			record.Set("landing_red_patches", append(record.List("landing_red_patches"), patch))
 		}
-		if reds <= conflictRounds {
+		if record.Truthy("own_pr") && reds <= conflictRounds {
 			run.SetAll(record, "state", "running", "finished_at", nil, "own_pr_wait", record.Get("head_sha"), "landing_fix", true)
 			return
 		}

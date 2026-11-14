@@ -135,16 +135,16 @@ class Text(unittest.TestCase):
 
     def test_each_provider_has_its_row(self):
         week = time.strftime("%a %H:%M", time.gmtime(self.meter.resets_at))   # a Home is UTC
-        rows = {"acme": ("anvil, easel", "60%", "-", "-", week, "86%", "-", "0", "0.6",
+        rows = {"Acme": ("anvil, easel", "60%", "-", "-", week, "86%", "-", "0", "0.6",
                          "4.2 slack", "on track"),
-                "brine": ("bolt", "30%", "-", "-", week, "86%", "-", "0", "0.3", "2.1 slack",
+                "Brine": ("bolt", "30%", "-", "-", week, "86%", "-", "0", "0.3", "2.1 slack",
                           "on track"),
-                "coral": ("cask", "-", "-", "-", "-", "-", "-", "0", "-", "unknown", "unknown"),
-                "dune": ("drum", "0%", "-", "-", week, "86%", "-", "0", "0.0", "0.0 ahead",
+                "Coral": ("cask", "-", "-", "-", "-", "-", "-", "0", "-", "unknown", "unknown"),
+                "Dune": ("drum", "0%", "-", "-", week, "86%", "-", "0", "0.0", "0.0 ahead",
                          "exhausted")}
-        for provider, row in rows.items():
-            with self.subTest(provider):
-                self.assertEqual(tuple(meters.cell(self.out, provider, heading)
+        for label, row in rows.items():
+            with self.subTest(label):
+                self.assertEqual(tuple(meters.cell(self.out, label, heading)
                                        for heading in HEADINGS), row)
 
     def test_the_pick_order_and_the_review_pair_have_their_lines(self):

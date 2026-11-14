@@ -251,8 +251,13 @@ func (s *narrowingStack) check(checks []string, suite, kind string, selection *c
 	return run.Fields("fix", fix), nil
 }
 
+// checkTests is the stack's answer from just the selection's tests of command, Python's
+// land._check_tests: one passing what its tree holds lands, as a test a later member adds does.
 func (s *narrowingStack) checkTests(command, suite string, selection *checkSelection) (*run.Object, error) {
 	answer, err := s.check([]string{command}, suite, "landing", selection)
+	if err == nil && !selection.handoff && selection.holds {
+		answer = run.Fields("land", s.tree)
+	}
 	if err == nil {
 		err = s.putBack(s.head)
 	}

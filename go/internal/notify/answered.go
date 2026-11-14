@@ -74,7 +74,9 @@ func spokenAt(notice *run.Object) float64 {
 	return number(notice, "time")
 }
 
-// AskKept is the seat's kept questions as its notice, under its notice lock, which the caller holds.
+// AskKept is the seat's kept questions as its notice, under its notice lock, which the caller holds,
+// each it asks for the first time the owner's time from then (owed).  ErrUnread, with nothing
+// written, where Go does not read the notice it replaces or cannot name the seat's conversation.
 func AskKept(name string, asked []Kept) error {
 	previous, err := run.ReadJSON(seatFile("notify", name, "json"))
 	if errors.Is(err, run.ErrLoneSurrogate) {
@@ -85,11 +87,16 @@ func AskKept(name string, asked []Kept) error {
 			previous = nil // no question of the seat's: what Python's last reads as none
 		}
 	}
-	notice, readable := said(name, asked, previous, true)
-	if !readable {
+	notice, fresh, readable := said(name, asked, previous, true)
+	rows, named := owed(name, notice, fresh)
+	if !readable || !named {
 		return ErrUnread
 	}
-	return writeNotice(name, notice)
+	if err := writeNotice(name, notice); err != nil {
+		return err
+	}
+	rows()
+	return nil
 }
 
 // AskedAt is when what the owner would answer in that seat was said: its own question standing, else

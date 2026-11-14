@@ -55,12 +55,4 @@ func TestMuseRecordStaysPythonsAndOwnsOnlyASessionMuseNames(t *testing.T) {
 	if !RecordReadOnly("muse") {
 		t.Fatal("Muse's record must remain Python's")
 	}
-	for entry, kept := range map[string]bool{
-		"muse-launch-" + token: true, "muse-launch-" + token + ".gone": true,
-		"muse-launch-x": false, "muse-launch-" + token + ".json": false,
-	} {
-		if KeptInState(entry) != kept {
-			t.Errorf("%s kept: %v", entry, !kept)
-		}
-	}
 }

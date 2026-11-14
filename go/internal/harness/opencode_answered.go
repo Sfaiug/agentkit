@@ -88,7 +88,7 @@ func opencodeMessages(session string) ([]opencodeMessage, error) {
 // answered on a card.  It is the done check's read: a receipt or database that is there and
 // cannot be read is an error, never an owner who said nothing.
 func opencodeAnswered(record map[string]any) (said []Turn, cards []Card, err error) {
-	session, err := opencodeFound(record)
+	session, err := opencodeFound(record, false)
 	if err != nil {
 		return nil, nil, err
 	}

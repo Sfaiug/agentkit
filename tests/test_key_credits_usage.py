@@ -74,9 +74,9 @@ class SpentWeekWithCredits(unittest.TestCase):
         self.assertEqual(self.json["pick_order"], ["echo"])
 
     def test_ak_usage_says_how_many_are_left_and_that_its_row_is_on_credits(self):
-        self.assertIn("test II: 12 credits left", self.text.splitlines())
-        self.assertEqual(meters.cell(self.text, "test II", "outlook"), "on credits")
-        self.assertEqual(meters.cell(self.text, "test I", "outlook"), "exhausted")
+        self.assertIn("Test II: 12 credits left", self.text.splitlines())
+        self.assertEqual(meters.cell(self.text, "Test II", "outlook"), "on credits")
+        self.assertEqual(meters.cell(self.text, "Test I", "outlook"), "exhausted")
 
     def test_a_new_seat_opens_on_the_account_holding_credits(self):
         self.assertTrue(self.seat[-1].startswith("env AGENTKIT_ACCOUNT=reef "), self.seat)
@@ -95,7 +95,7 @@ class NoCreditsLeft(unittest.TestCase):
         self.assertEqual(test["accounts"]["reef"]["exhausted"], True)
         self.assertEqual(self.json["pick_order"], [])
         self.assertNotIn("credit", self.text)
-        self.assertEqual(meters.cell(self.text, "test II", "outlook"), "exhausted")
+        self.assertEqual(meters.cell(self.text, "Test II", "outlook"), "exhausted")
 
     def test_a_new_seat_then_opens_on_the_first_account(self):
         self.assertTrue(self.seat[-1].startswith("env AGENTKIT_ACCOUNT=shoal "), self.seat)
@@ -108,7 +108,7 @@ class CreditsGoAfterEveryWindow(unittest.TestCase):
         test = usage(home)["providers"]["test"]
         self.assertEqual((test["account"], test["on_credits"]), ("default", False))
         self.assertEqual(test["accounts"]["reef"]["on_credits"], True)
-        self.assertIn("test II: 12 credits left", shown(home).splitlines())
+        self.assertIn("Test II: 12 credits left", shown(home).splitlines())
         # the usual login is the one no account is named for
         self.assertTrue(seat(home, "--model", "echo")[-1].startswith("env AGENTKIT_ACCOUNT= "))
 
@@ -128,10 +128,10 @@ class CreditsGoAfterEveryWindow(unittest.TestCase):
 
 class CreditsInTheirOwnUnit(unittest.TestCase):
     def test_the_note_says_one_credit_money_or_no_bound(self):
-        for credits, note in (({"credits": 1}, "test II: 1 credit left"),
+        for credits, note in (({"credits": 1}, "Test II: 1 credit left"),
                               ({"credits": 12.4, "currency": "USD"},
-                               "test II: $12.40 credits left"),
-                              ({"credits": "unlimited"}, "test II: unlimited credits")):
+                               "Test II: $12.40 credits left"),
+                              ({"credits": "unlimited"}, "Test II: unlimited credits")):
             with self.subTest(credits=credits):
                 home = home_on(self.addCleanup, {("test", "shoal"): SPENT,
                                                  ("test", "reef"): (100, credits)})
