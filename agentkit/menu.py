@@ -3210,7 +3210,7 @@ SOURCES = {"measured": "from {runs} of your {run}s",
            "provider": "estimated: its board price, times what your runs on its provider cost "
                        "a board dollar",
            "global": "estimated: its board price, times what your runs on every provider cost "
-                     "a board dollar",
+                     "a board dollar at list prices, at its own plan's rate",
            "board": "its board price alone: no {run} of yours priced a model"}
 # why each of a role's `others` is no choice, by its `why` (matrix._why)
 WHYS = {"beaten": "beaten by {by}", "close": "within {apart} of {by}",
@@ -3261,7 +3261,7 @@ def cost_said(found, row, unit):
     side fit 40 cells (models_bars), or `50` a week; `≈` before one no runs measured -- the
     owner, 3 Nov 2026: a cost on screen must never look more certain than it is.  `-` where it
     has none in `unit`: dollars, where no run's provider has a price (matrix._costs's `share`),
-    and a week, where no run measured its provider's (its `points`)."""
+    and a week, where it has no `points` of one (matrix._costs)."""
     points = row["points"]
     value = {"$ a task": None if found["cost_unit"] == "share" else row["cost"],
              "% of a week": points, "a week": 100 / points if points else None}[unit]

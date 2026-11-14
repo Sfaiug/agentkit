@@ -3,11 +3,11 @@ on 5 Nov 2026, a label column as wide as its widest label beside values that wra
 their own: its quality give or take 1.96 standard errors, the benchmarks that scored it and how
 far below the role's best choice it is, of the two qualities as shown; its cost, `≈` against one
 no runs measured, and where that comes from -- its runs, its board price times what runs on its
-provider or on every provider cost a board dollar, or its board price alone; the rule that makes
-the choices; and under `others`, in the order of the role's others, why each is none --
-beaten, within a point of a choice, far below the best, no room, or not set up -- a role with
-none having no `others`.  Esc returns with `›` where it was, and a page taller than the screen
-turns with ↓ and ↑.
+provider cost a board dollar, or on every provider at list prices at its own plan's rate, or its
+board price alone; the rule that makes the choices; and under `others`, in the order of the
+role's others, why each is none -- beaten, within a point of a choice, far below the best, no
+room, or not set up -- a role with none having no `others`.  Esc returns with `›` where it was,
+and a page taller than the screen turns with ↓ and ↑.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
 harnesses fakes listing invented models, the boards held as just asked with invented rows, and
@@ -106,7 +106,7 @@ CRUX_REVIEWS = [
     "           16.6 below the best, Acme Mid 5 max",
     "",
     "  cost     ≈$1.00 a review   estimated: its board price, times what your runs on every provider cost",
-    "           a board dollar",
+    "           a board dollar at list prices, at its own plan's rate",
     "",
     CHOICES,
     "  others   Acme Max 5 max, 100.0 for ≈$20.00: would be a choice, but no model of yours runs it",
