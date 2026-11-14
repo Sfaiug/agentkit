@@ -24,12 +24,13 @@ const screenChanged = Refusal("the seat's screen changed; keep its input before 
 const movedLine = "This seat moved to you in the middle of a turn. Continue that turn from where the conversation your instructions point you to leaves it; do not start over."
 
 // A seatMove is what a move writes in the seat's record: from the orchestrator it held (`was`,
-// run by `own`), the fields it takes (`chosen`), and its orchestrator's effort where one is given
-// (`effort` on `model`, its entry among `models`); when a restart began.
+// run by `own`), the fields it takes (`chosen`), as made from those the record must still hold
+// (`from`), and its orchestrator's effort where one is given (`effort` on `model`, its entry among
+// `models`); when a restart began.
 type seatMove struct {
 	was, own, model, effort string
 	models                  map[string]config.Model
-	chosen                  []field
+	chosen, from            []field
 	at                      float64
 }
 
@@ -189,7 +190,7 @@ func (plan *plannedMove) carry(asked func(bool) (bool, bool)) (bool, error) {
 	text := ""
 	if !kept {
 		if text, known = harness.Handover(was.Harness, record); !known {
-			return true, Refusal("the seat's conversation changed before it could move")
+			return true, conversationChanged
 		}
 	}
 	handed := ownFile("handover", name)
@@ -249,8 +250,13 @@ func (moving *seatMove) sight(name string, held bool) (sight, bool) {
 func (moving *seatMove) launch(state, name string, launch func() error) error {
 	return announcing(state, name, func() error {
 		var before *run.Object
+		refused := Refusal("the seat's orchestrator changed before it could move")
 		err := update(state, name, func(data *run.Object) bool {
 			if data.Str("orchestrator") != moving.was {
+				return false
+			}
+			if !moving.holds(data) {
+				refused = conversationChanged
 				return false
 			}
 			before = data.Copy()
@@ -264,7 +270,7 @@ func (moving *seatMove) launch(state, name string, launch func() error) error {
 			return err
 		}
 		if before == nil {
-			return Refusal("the seat's orchestrator changed before it could move")
+			return refused
 		}
 		if err = launch(); err != nil {
 			update(state, name, func(data *run.Object) bool {

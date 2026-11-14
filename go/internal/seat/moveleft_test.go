@@ -3,7 +3,6 @@
 package seat
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -14,37 +13,45 @@ import (
 
 // A Claude seat moved onto Codex keeps the conversation it leaves last in `left`, beside the
 // account and directory it was written under, and each one already there takes those where it
-// has none; a move whose launch fails puts `left` back as it was, so one the record lacked is gone.
+// has none; a move whose launch fails puts `left` back as it was, so one the record lacked is gone;
+// and a /clear claimed while the owner was asked stands, the move refused.
 func TestAMoveKeepsTheConversationItLeaves(t *testing.T) {
-	for _, start := range []bool{true, false} {
-		t.Run(map[bool]string{true: "moved", false: "failed"}[start], func(t *testing.T) {
+	for _, scenario := range []string{"moved", "failed", "cleared meanwhile"} {
+		t.Run(scenario, func(t *testing.T) {
 			home := moveHome(t)
-			if start {
+			if scenario != "failed" {
 				write(t, filepath.Join(home, "respawns"), "")
 				record(t, home, "acme", map[string]any{"orchestrator": "fable", "workers": []string{"astra"},
 					"left": []any{map[string]any{"harness": "claude", "conversation": "conv-cleared"}}})
 			}
-			before, _ := os.ReadFile(stateFile(home, "session-acme.json"))
 			_, fields, _ := config.ResolveSession("acme")
 			transcript, _ := harness.Conversation("claude", fields)
 			write(t, transcript, "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"keep working\"}}\n")
-			known, err := Move("acme", "astra", "", func(bool) (bool, bool) { return true, true })
-			if !known || (err == nil) != start {
+			claimed := []any{run.Fields("harness", "claude", "conversation", "conv-acme")}
+			known, err := Move("acme", "astra", "", func(bool) (bool, bool) {
+				if scenario == "cleared meanwhile" {
+					state := filepath.Join(home, ".agentkit", "state")
+					if err := update(state, "acme", set([]field{{"conversation", "conv-after"}, {"left", claimed}})); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return true, true
+			})
+			if !known || (err == nil) != (scenario == "moved") {
 				t.Fatal(known, err)
 			}
 			after, _ := run.ReadJSON(stateFile(home, "session-acme.json"))
-			if !start {
-				if after.Has("left") || after.Str("orchestrator") != "fable" {
-					t.Fatal("a failed launch left its write", string(before), run.Line(after))
-				}
-				return
-			}
 			cwd := run.Line(filepath.Join(home, "work", "acme"))
-			want := `[{"account": null, "cwd": ` + cwd + `, "conversation": "conv-cleared", "harness": "claude"}, ` +
-				`{"harness": "claude", "conversation": "conv-acme", "account": null, "cwd": ` + cwd +
-				`, "transcript": ` + run.Line(transcript) + `}]`
-			if got := run.Line(after.Get("left")); after.Str("orchestrator") != "astra" || got != want {
-				t.Fatalf("left differs:\n got %s\nwant %s", got, want)
+			want := map[string]string{
+				"moved": `[{"account": null, "cwd": ` + cwd + `, "conversation": "conv-cleared", "harness": "claude"}, ` +
+					`{"harness": "claude", "conversation": "conv-acme", "account": null, "cwd": ` + cwd +
+					`, "transcript": ` + run.Line(transcript) + `}]`,
+				"failed":            "null",
+				"cleared meanwhile": run.Line(claimed),
+			}[scenario]
+			orchestrator := map[bool]string{true: "astra", false: "fable"}[scenario == "moved"]
+			if got := run.Line(after.Get("left")); after.Str("orchestrator") != orchestrator || got != want {
+				t.Fatalf("left differs on %s:\n got %s\nwant %s", after.Str("orchestrator"), got, want)
 			}
 		})
 	}
