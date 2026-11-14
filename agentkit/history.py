@@ -772,6 +772,11 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
         turn = str(out.resolve())
         if turn not in counted:
             value = plugin.tokens(out)
+            usages = _turn_usage(connection, plugin, run_id, out)
+            if value is None and usages:
+                # a turn killed before its stream showed a usage, its session's transcripts
+                # holding its messages, totals its counts
+                value = sum(sum(usage[4:]) for usage in usages)
             if value is not None:
                 values.append(value)
                 counted.add(turn)
@@ -779,8 +784,7 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
                 connection.executemany(
                     "INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, "
                     "input, cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    [(turn, run_id, role, *usage)
-                     for usage in _turn_usage(connection, plugin, run_id, out)])
+                    [(turn, run_id, role, *usage) for usage in usages])
     if not values:
         return
     # The total, its rows by model and the turns they include survive or roll back together,
