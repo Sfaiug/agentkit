@@ -58,7 +58,10 @@ func (db *DB) spend(id any, name, out string) error {
 		return nil
 	}
 	tokens, said := harness.Tokens(name, out)
-	usage := turnUsage(id, name, out)
+	usage, err := db.turnUsage(id, name, out)
+	if err != nil {
+		return err
+	}
 	if !said {
 		if len(usage) == 0 {
 			return nil
@@ -95,32 +98,16 @@ func (db *DB) spend(id any, name, out string) error {
 
 // turnUsage is the turn_usage columns past its role of each model the turn in out reported, Python's
 // _turn_usage: the login it ran on, the model, when it began (its harness receipt) and ended (its
-// last event), and its counts by kind, those totalling its session less what the session's
-// latest earlier turn in the run had reached.
-func turnUsage(id any, name, out string) [][]any {
-	session, counts, reported := harness.TurnCounts(name, out)
+// last event), and its counts by kind, its share of its session where it names one.
+func (db *DB) turnUsage(id any, name, out string) ([][]any, error) {
+	session, totals, counts, reported := harness.TurnCounts(name, out)
 	if !reported {
-		return nil
+		return nil, nil
 	}
 	began, dated := moment(filepath.Join(out, "harness"))
 	if session != nil && dated {
-		latest, before := 0.0, map[any][4]int64{}
-		for _, receipt := range receipts(id) {
-			when, dated := moment(receipt)
-			if !dated || when >= began || len(before) > 0 && when <= latest {
-				continue
-			}
-			if kept, earlier, ok := harness.TurnCounts(name, filepath.Dir(receipt)); ok && run.Equal(kept, session) {
-				latest, before = when, map[any][4]int64{}
-				for _, each := range earlier {
-					before[each.Model] = each.Spent
-				}
-			}
-		}
-		for at, each := range counts {
-			for kind, then := range before[each.Model] {
-				counts[at].Spent[kind] = max(0, each.Spent[kind]-then)
-			}
+		if err := db.share(id, name, session, totals, began, counts); err != nil {
+			return nil, err
 		}
 	}
 	var account any
@@ -132,7 +119,7 @@ func turnUsage(id any, name, out string) [][]any {
 		rows = append(rows, []any{account, each.Model, known(began, dated), known(moment(filepath.Join(out, "events.jsonl"))),
 			each.Spent[0], each.Spent[1], each.Spent[2], each.Spent[3]})
 	}
-	return rows
+	return rows, nil
 }
 
 // receipts are the harness receipts of the run id's turns, each in its turn's directory.

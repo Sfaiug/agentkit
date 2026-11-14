@@ -122,7 +122,7 @@ type plugin struct {
 	turnMeters func(out string) []any
 	tokens     func(out string) (float64, bool)
 	// turnCounts is TurnCounts': nil where a turn reports no counts by model and kind.
-	turnCounts func(out string) (any, []Counts, bool)
+	turnCounts func(out string) (any, bool, []Counts, bool)
 	// tokenSources and tokenUsage are TokenSources' and Spends': nil where no reader counts what
 	// its seats spend.
 	tokenSources func(record *run.Object) []string

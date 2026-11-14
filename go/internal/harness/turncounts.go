@@ -7,11 +7,11 @@ type Counts struct {
 }
 
 // TurnCounts is what the turn in out reported it spent, by model, Python's plugin `turn_usage`: the
-// session its counts total, nil where they count this turn alone; false where it reported none, as
-// a harness does by default.
-func TurnCounts(name, out string) (session any, counts []Counts, reported bool) {
+// session holding its usage, nil where none does, and whether its counts total that session rather
+// than count this turn alone; false where it reported none, as a harness does by default.
+func TurnCounts(name, out string) (session any, totals bool, counts []Counts, reported bool) {
 	if hook := plugins[name].turnCounts; hook != nil {
 		return hook(out)
 	}
-	return nil, nil, false
+	return nil, false, nil, false
 }
