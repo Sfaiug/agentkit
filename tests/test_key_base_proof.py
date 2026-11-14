@@ -107,7 +107,7 @@ class NewTestFailingOnBase(Passes, unittest.TestCase):
     def test_the_merged_pr_says_the_change_is_proven(self):
         self.assertTrue(self.state["merged"])
         body = self.gh.pr(1)["body"]
-        self.assertEqual(body, (self.run_dir / "pr-body.md").read_text())
+        self.assertTrue(body.startswith((self.run_dir / "pr-body.md").read_text().rstrip()), body)
         self.assertIn(f"- {PROVEN}", body.splitlines())
 
 

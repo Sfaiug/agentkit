@@ -105,13 +105,15 @@ def git_push(lp, *args):
     return gitcall.git_out(lp.wt, "push", *args)
 
 
-def github_body(text, run_id):
-    """Keep publication within GitHub's limit; the run retains the complete records."""
+def github_body(text, run_id, tail=""):
+    """`text`, then `tail`, within GitHub's limit: `text` is what is cut, as the run retains the
+    complete records."""
+    room = GITHUB_BODY_CAP - len(tail.encode("utf-8"))
     data = text.encode("utf-8")
-    if len(data) <= GITHUB_BODY_CAP:
-        return text
+    if len(data) <= room:
+        return text + tail
     note = f"\n\n[body truncated; complete findings and summaries are in agentkit run {run_id}]\n"
-    return data[:GITHUB_BODY_CAP - len(note.encode("utf-8"))].decode("utf-8", "ignore") + note
+    return data[:room - len(note.encode("utf-8"))].decode("utf-8", "ignore") + note + tail
 
 
 def pr_body(state):
@@ -566,6 +568,30 @@ def merged(lp, url, method):
     return True
 
 
+def say_how_to_revert(lp, url, method):
+    """Append `## How to revert` to the description of the PR this run's own merge call just
+    merged: the command undoing the one commit that merge made on the target.  Only that call
+    knows how the PR landed, so a merge found done any other way gets none, nor does a rebase,
+    which lands a commit per commit.  A failure is logged and never retried: the merge stands."""
+    if method == "rebase":
+        return
+    try:
+        current = pr_head(lp.run_dir, url)
+        sha = current.get("merged") and current.get("merge_commit_sha")
+        if not sha:
+            raise config.Error("GitHub does not call it merged")
+        api, owner, repo, number = pr_parts(url)
+        revert = f"git revert {'-m 1 ' if method == 'merge' else ''}{sha}"
+        body = github_body((current.get("body") or "").rstrip(), lp.run_dir.name,
+                           f"\n\n## How to revert\n\n```bash\n{revert}\n```\n")
+        rc, out = gitcall.gh(lp.run_dir, *api, "-X", "PATCH", f"repos/{owner}/{repo}/pulls/{number}",
+                             "-f", f"body={body}")
+        if rc != 0:
+            raise config.Error(out[-400:] or "gh timed out")
+    except config.Error as exc:     # a stopped gh too: the merge is done whatever it answers
+        lp.log(f"WARN could not add how to revert it to {url}: {exc}")
+
+
 def is_delivery(lp, current, upstream):
     """Is this PR (`pr_head`) still this run's delivery: the reviewed head, aimed at `upstream`?"""
     return (current["head"]["sha"] == lp.state["delivery_sha"]
@@ -683,7 +709,9 @@ def do_merge(lp, url, upstream):
                 # uses the remaining retries to re-check before authorizing a merge.
                 ready = current.get("mergeable") is True
         if rc == 0:
-            return merged(lp, url, method)
+            merged(lp, url, method)
+            say_how_to_revert(lp, url, method)
+            return True
         if lost:
             # the last attempt's 5xx may have merged too, and no re-check followed it
             if merged_anyway(lp, url, upstream):

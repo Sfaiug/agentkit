@@ -34,7 +34,7 @@ class DecidedLines(unittest.TestCase):
     def test_the_task_runs_and_the_pr_lists_only_accepted_lines_as_risk(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         body = self.gh.prs()[0]["body"]
-        self.assertEqual(body, (self.run_dir / "pr-body.md").read_text())
+        self.assertTrue(body.startswith((self.run_dir / "pr-body.md").read_text().rstrip()), body)
         self.assertIn("## Risk\n\n- " + "\n- ".join(DECISIONS[1:]), body)
         self.assertNotIn(NOT_WANTED, body)
 
