@@ -191,11 +191,8 @@ func (s Screen) Styled(text, word string) string {
 		return text
 	}
 	code := look.tone
-	switch s.depth {
-	case 24:
-		code = "38;2;" + strings.Join(channels(rgb), ";")
-	case 256:
-		code = "38;5;" + strconv.Itoa(xterm(rgb))
+	if s.Moves() {
+		code = s.ink(rgb, "38")
 	}
 	if (word == "dim" || word == "idle") && s.depth == 8 {
 		code = "2"
@@ -203,6 +200,15 @@ func (s Screen) Styled(text, word string) string {
 		code = look.emphasis + ";" + code
 	}
 	return "\x1b[" + code + "m" + text + "\x1b[0m"
+}
+
+// ink is rgb as the code that draws it nearest above eight colours: the text's, or with ground 48
+// the background's.
+func (s Screen) ink(rgb, ground string) string {
+	if s.depth == 24 {
+		return ground + ";2;" + strings.Join(channels(rgb), ";")
+	}
+	return ground + ";5;" + strconv.Itoa(xterm(rgb))
 }
 
 func channels(rgb string) []string {

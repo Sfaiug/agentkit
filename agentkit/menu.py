@@ -6826,8 +6826,8 @@ def main(argv):
         if arg not in flags:
             raise config.Error(f"{USAGE}  (got {arg!r})")
         flags[arg] = True
-    if flags["--overlay"]:
-        terminal.inset()                  # inside the border, what the popup asks to be left
+    # painted, and in a popup inside the border what it asks to be left
+    terminal.screens(popup=flags["--overlay"])
     if not flags["--dry-run"]:
         from . import macbridge
         macbridge.start_background()

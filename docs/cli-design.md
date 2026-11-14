@@ -6,9 +6,9 @@ code and tests.
 
 ## Frame
 
-Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit`
-and the screen's name at the left, the clock at the right. Under it comes one dim rule, the
-rows, one blank line, and the key line, always last. On the main screen and on
+Every screen, painted in its theme, has the same frame, a notice's (`note`) too. The header is
+one line: `agentkit` and the screen's name left, the clock right. Under it comes one dim rule,
+the rows, one blank line, and the key line, always last. On the main screen and on
 `c`, the usage sits under the header.
 The rule is ak's one progress indicator. It fills while ak updates itself, and a segment
 glides along it while a screen waits on what it shows. Ctrl-b m's popup over a seat has a

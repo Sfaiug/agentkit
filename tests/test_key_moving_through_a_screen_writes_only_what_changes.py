@@ -122,7 +122,8 @@ class Moving(unittest.TestCase):
             menu.press(keys)
             self.assertEqual(menu.screen.broken, set(), (keys, menu.screen.lines()))
         self.assertEqual(re.sub(rb"\x1b\[\?2026h.*?\x1b\[\?2026l|\x1b\[\?[\d;]*[hl]|\x1b\]11;\?\x1b\\"
-                                rb"|\x1b\[c", b"", menu.sent, flags=re.S), b"", "modes and asks aside")
+                                rb"|\x1b\[c|\x1b\[[\d;]*m", b"", menu.sent, flags=re.S), b"",
+                         "modes, colours and asks aside")
 
     def test_back_from_c_the_screen_is_whole_and_a_row_filling_it_keeps_its_last_cell(self):
         menu = Menu(self, cols=80)
