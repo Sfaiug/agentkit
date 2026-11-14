@@ -37,7 +37,7 @@ at = args.index("--") + 1 if "--" in args else next(
 membership = pathlib.Path({memberships}, unit)
 membership.write_text("0::/{service}/agentkit.slice/" + unit + ".scope\\n")
 os.environ["AK_CGROUP_FILE"] = str(membership)
-os.execvp(args[at], args[at:])
+{starts}os.execvp(args[at], args[at:])
 '''
 # The target moves the first time a delivery asks for the check's weight: before it fetches.
 MOVE = ('case " $* " in *" CPUWeight=10000 "*) [ -e {done} ] || {{ : >{done}; cd {clone} && '
@@ -50,6 +50,9 @@ def weight(unit, value):
 
 
 class Delivery:
+    # Python the systemd-run fake runs as each scope's command starts, `{root}` the test's folder.
+    starts = ""
+
     def deliver(self, answers="", moved=False):
         """A task's run, from its start to its end, beside a manager that answers set-property
         as the shell case arms `answers` say first, `{root}` the test's own folder, and 0 where
@@ -67,7 +70,8 @@ class Delivery:
                         AK_CGROUP_FILE=str(memberships / "shell"))
         home.fake("busctl", "#!/bin/sh\nexit 1\n")     # nor does the manager move a process
         home.fake("systemd-run", SYSTEMD_RUN.format(
-            python=sys.executable, memberships=repr(str(memberships)), service=SERVICE))
+            python=sys.executable, memberships=repr(str(memberships)), service=SERVICE,
+            starts=self.starts.format(root=repr(str(home.root)))))
         move = ""
         if moved:
             clone = home.root / "elsewhere"
@@ -104,12 +108,12 @@ class DeliveringRunHasTheLandingWeight(Delivery, unittest.TestCase):
         unit = self.deliver()["scope"]
         self.assertTrue(unit.startswith("agentkit-run-"), unit)
         idle, top = weight(unit, "idle"), weight(unit, 10000)
-        self.assertEqual(self.asked(unit), [idle, idle, top])
+        self.assertEqual(self.asked(unit), [idle, top, top])
 
     def test_a_refusing_manager_costs_a_warn_line_a_weight_but_idle_and_the_run_merges(self):
         unit = self.deliver('*" set-property "*) exit 1 ;; ')["scope"]
         idle, run, top = weight(unit, "idle"), weight(unit, 40), weight(unit, 10000)
-        self.assertEqual(self.asked(unit), [idle, run, idle, run, top])
+        self.assertEqual(self.asked(unit), [idle, run, top, top])
         self.assertEqual(len(self.warned()), 3, self.warned())
 
 
