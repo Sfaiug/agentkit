@@ -14,8 +14,9 @@ import (
 // still standing there, and carded at once by the transition on the word `word` climbs the
 // seat's ladder to under its lock.  `taken` is told once the ask is Go's, before anything is
 // written for it.  It answers the exit code and whether Go decided it: where a file it reads is
-// one Go cannot read as Python does, `word` cannot climb or `taken` fails, nothing is written;
-// where the word is no `needs you`, the notice stands for Python's transition to card.
+// one Go cannot read as Python does, Go cannot name the seat's conversation (owed), `word` cannot
+// climb or `taken` fails, nothing is written; where the word is no `needs you`, the notice stands
+// for Python's transition to card.
 func Orphan(name, text, source string, word func(string) (string, any), taken func() error, out, errOut io.Writer) (int, bool) {
 	if Suppressed(false, errOut) {
 		return 0, taken() == nil // a worker asks nothing, which Python's announce counts as said
@@ -35,10 +36,12 @@ func Orphan(name, text, source string, word func(string) (string, any), taken fu
 				previous = nil // no question of the seat's: what Python's last reads as none
 			}
 		}
-		notice := previous // its event's notice is recorded once
+		notice, rows := previous, func() {} // its event's notice is recorded once
 		if previous == nil || !run.Equal(previous.Get("source"), source) {
-			var readable bool
-			if notice, readable = said(current, []Kept{{Text: text}}, previous, false); !readable {
+			var fresh []string
+			var readable, named bool
+			notice, fresh, readable = said(current, []Kept{{Text: text}}, previous, false)
+			if rows, named = owed(current, notice, fresh); !readable || !named {
 				return nil
 			}
 			notice.Set("source", source)
@@ -60,6 +63,7 @@ func Orphan(name, text, source string, word func(string) (string, any), taken fu
 				fmt.Fprintf(errOut, "notify: record could not be persisted (%s); retry required\n", failed(err))
 				return nil
 			}
+			rows()
 		}
 		if climbed, _ := word(current); climbed != "needs you" {
 			decided, code = false, 0

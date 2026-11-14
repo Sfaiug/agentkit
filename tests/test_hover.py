@@ -464,7 +464,7 @@ class Screens(Sandbox):
         self.assertEqual(highlighted(screens[-1]), [])
 
     def test_the_models_screen_draws_no_highlight_off_every_row(self):
-        said = [(role, {"name": "Alpha", "effort": "high"}, ("100.0", "$1.00"), "a task")
+        said = [(role, {"name": "Alpha", "effort": "high"}, ("100.0", "$1.00"))
                 for role in menu.quality.ROLES]
         empty = {role: {"choices": [], "others": [], "whys": {}} for role in menu.quality.ROLES}
         for name, value in (("stored", {}), ("refresh", ({}, None)), ("answer", empty),

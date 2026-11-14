@@ -239,11 +239,12 @@ func TestTheTickMetersRentalsAndGivesBackThoseItMayNotKeep(t *testing.T) {
 
 	// At 06:00 acme-11 and ak-aaa, gone, are paid to their ends, ak-bbb past its end is paid whole,
 	// and acme-13 goes back past the cap, which leaves nothing to rent for the need with: Google,
-	// refusing to list quota limits, lists none, the need is taken, and no machine is asked for.
+	// refusing to list quota limits for the rent, lists none, every machine is listed for it, the
+	// need is taken, and no machine is asked for.
 	write("state/google-cloud-need", "4096 tests\n")
 	set(func() { listing = []map[string]any{thirteen} })
 	carried, err, got = pass(november+6*hour, strings.Replace(renting, "50", "20", 1))
-	if !carried || err != nil || !slices.Equal(got, []string{listed, limits, "GET acme-13", "DELETE acme-13"}) {
+	if !carried || err != nil || !slices.Equal(got, []string{listed, "GET acme-13", "DELETE acme-13", limits, listed}) {
 		t.Errorf("past the cap: carried %v, %v, asking %q", carried, err, got)
 	}
 	if !gone("state/google-cloud-need") || read("state/google-cloud-need.taken") != "4096 tests\n" {

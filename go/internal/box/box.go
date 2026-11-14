@@ -67,12 +67,12 @@ var credentials = []string{"~/.config/gh/hosts.yml", "$XDG_CONFIG_HOME/gh/hosts.
 
 // Run runs argv in a box, its stderr into stderr, until it ends, or ctx ends and the box's first
 // process with it (supervise): how it ended (First), and what the box's end stopped, by pid.
-// The box writes only the manifest paths of state for env, made where missing, the targets of
-// the links among the manifest paths of logins, the workspace and its git directories, and out;
+// The box writes only the manifest paths of state for env, made where missing, places, the targets
+// of the links among the manifest paths of logins, the workspace and its git directories, and out;
 // the files and folders hidden read empty there, as the account's credentials do.
-func Run(ctx context.Context, argv []string, env map[string]string, workspace, out string, state, logins, hidden []string, stderr *os.File) (int, map[int]string, error) {
+func Run(ctx context.Context, argv []string, env map[string]string, workspace, out string, state, places, logins, hidden []string, stderr *os.File) (int, map[int]string, error) {
 	file := filepath.Join(config.Resolve(out), Report)
-	cmd, done, err := command(append([]string{exe, file}, argv...), env, workspace, out, state, logins, hidden, nil)
+	cmd, done, err := command(append([]string{exe, file}, argv...), env, workspace, out, state, places, logins, hidden, nil)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -137,7 +137,7 @@ func supervised(ctx context.Context, cmd *exec.Cmd, box *look) (int, map[int]str
 // launch has none yet, what env names relative is read from the current folder, and nothing is
 // written there.  Each of homes a command writes as a throwaway overlay, beneath the writable
 // places and the masks.
-func command(argv []string, env map[string]string, workspace, out string, state, logins, hidden, homes []string) (*exec.Cmd, func(), error) {
+func command(argv []string, env map[string]string, workspace, out string, state, places, logins, hidden, homes []string) (*exec.Cmd, func(), error) {
 	if _, err := exec.LookPath("bwrap"); err != nil {
 		return nil, nil, errors.New("worker box needs bubblewrap; run `" + install + "`")
 	}
@@ -156,7 +156,7 @@ func command(argv []string, env map[string]string, workspace, out string, state,
 	if err != nil {
 		return nil, nil, err
 	}
-	places, err := writable(env, dir, workspace, out, state, logins)
+	places, err = writable(env, dir, workspace, out, state, places, logins)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -271,9 +271,9 @@ func walls() []string {
 }
 
 // writable is every place the box writes through to, its relative manifest paths under dir.
-func writable(env map[string]string, dir, workspace, out string, state, logins []string) ([]string, error) {
+func writable(env map[string]string, dir, workspace, out string, state, given, logins []string) ([]string, error) {
 	var places []string
-	for _, path := range config.ManifestPaths(state, env, dir) {
+	for _, path := range append(config.ManifestPaths(state, env, dir), given...) {
 		path = config.Resolve(path)
 		if err := os.MkdirAll(path, 0o777); err != nil {
 			return nil, err

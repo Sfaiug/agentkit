@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"agentkit/internal/config"
@@ -25,8 +24,8 @@ type plugin struct {
 	seatWords   func(words, env []string) []string
 	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int, changed func()) int
 	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error), reconciled func(seat string)) (*run.Object, int)
-	// follows is the conversation an adapter's hook event says the seat's own client went on in,
-	// or keeps (Python's plugin `follow`), nil for none.
+	// follows is the conversation a hook's event says the seat's own client went on in, or keeps
+	// (Python's plugin `follow`), nil for none.
 	follows func(event *run.Object) *Followed
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
@@ -63,11 +62,10 @@ type plugin struct {
 	owning func(record *run.Object) string
 	// record freezes the evidence of a record Go leaves to Python to reconcile; false hands it
 	// back before writing. The returned hooks use that evidence throughout this listing.
-	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.
+	// keys are the record keys this harness keeps beyond everyone's.
 	record func(name string, record *run.Object) (plugin, bool)
 	heard  func(name string) hookfact.Fact
 	keys   []string
-	kept   *regexp.Regexp
 	// reconcile is what Reconcile writes into its seats' records; nil leaves that to Python.
 	reconcile func(record *run.Object) *run.Object
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one

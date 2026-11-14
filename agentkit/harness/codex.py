@@ -762,12 +762,6 @@ class Client:
             raise config.Error("Codex app server closed its socket")
         self.buffer += chunk
 
-    def read(self, size):
-        while len(self.buffer) < size:
-            self.more()
-        data, self.buffer = self.buffer[:size], self.buffer[size:]
-        return data
-
     def send(self, value, opcode=1):
         data = json.dumps(value).encode() if opcode == 1 else value
         size, mask = len(data), os.urandom(4)
@@ -776,17 +770,26 @@ class Client:
         self.socket.sendall(header + mask + bytes(c ^ mask[i % 4] for i, c in enumerate(data)))
 
     def receive(self):
-        fragments = bytearray()
+        """The next message.  Its bytes leave the buffer once it is whole, as a control frame's
+        between messages once answered, so a timeout (`settimeout`) partway loses none of them."""
+        fragments, at = bytearray(), 0
+
+        def read(size):
+            nonlocal at
+            while len(self.buffer) < at + size:
+                self.more()
+            at += size
+            return self.buffer[at - size:at]
         while True:
-            first, second = self.read(2)
+            first, second = read(2)
             size = second & 127
             if size == 126:
-                size = struct.unpack("!H", self.read(2))[0]
+                size = struct.unpack("!H", read(2))[0]
             elif size == 127:
-                size = struct.unpack("!Q", self.read(8))[0]
+                size = struct.unpack("!Q", read(8))[0]
             if second & 128 or size + len(fragments) > 16 * 1024 * 1024:
                 raise config.Error("Invalid Codex WebSocket frame")
-            data = self.read(size)
+            data = read(size)
             opcode = first & 15
             if opcode == 8:
                 raise config.Error("Codex app server closed its connection")
@@ -795,7 +798,10 @@ class Client:
             elif opcode in (0, 1):
                 fragments.extend(data)
                 if first & 128:
+                    self.buffer = self.buffer[at:]
                     return json.loads(fragments)
+            if not fragments:
+                self.buffer, at = self.buffer[at:], 0
 
     def call(self, method, params=None):
         self.serial += 1

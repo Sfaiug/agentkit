@@ -5,7 +5,8 @@ The tip fails tests/test_widget.py alone, by name: stacks red in nothing else la
 helper pieces too, unproven and with no trailer; one red in another test gets a fix naming that
 alone, its fixer told of the target's, and one the tip cannot name is the member's where the
 tip, run whole, fails nothing else.  The repair lands once its stack passes the test, or is the
-culprit, a stack of one tree with it answered apart.  Offline: the lander fixture, a shell
+culprit, a stack of one tree with it answered apart; a member behind it red in that test waits
+for it, as on the tip alone the target's red fails that test whoever stands there.  Offline: the lander fixture, a shell
 suite, fake launches, wakes and helper, merges by a push.
 """
 
@@ -135,6 +136,19 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
                          [[WIDGET]] * 2)
         self.assertEqual(self.wait(repair)["fix"]["tests"], [WIDGET])
         self.assertNotIn("excused", self.wait(repair)["fix"])
+
+    def test_a_member_red_in_the_targets_red_behind_its_repair_waits_for_the_repair(self):
+        # on the tip alone the target's red fails that test, whoever stands there: it proves
+        # nothing of the member, which waits for the repair under it to land
+        self.line(**{"broken.txt": "target breakage\n"})
+        land.check_line(self.turn)
+        repair = self.prepared[0][0]
+        self.ready_repair(repair)
+        worse = self.member("worse", 101, **{"worse.txt": "worse\n"})
+        land.check_line(self.turn)
+        wait = self.wait(worse)
+        self.assertEqual(wait["fix"]["tests"], [WIDGET])
+        self.assertIn(repair.name, wait["after"])
 
     def first_in_line(self, **files):
         """The fix of a member first in line adding `files` beside the target's named red: the

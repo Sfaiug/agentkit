@@ -17,10 +17,10 @@ import (
 // no activity to the silence watchdog.
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
-	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, last: claudeLast, answer: claudeAnswer, answered: claudeAnswered, report: asReported, status: claudeStatus, conversation: claudeConversation, readBy: claudeReadBy, owns: claudeOwns, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
+	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, last: claudeLast, answer: claudeAnswer, answered: claudeAnswered, report: asReported, status: claudeStatus, conversation: claudeConversation, readBy: claudeReadBy, owns: claudeOwns, follows: claudeFollows, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
 		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true, titleLine: claudeTitleLine, handed: claudeHanded, registerMCP: claudeRegisterMCP, title: claudeTitle, wrapped: claudeWrapped, failed: claudeFailed, turnMeters: claudeTurnMeters,
 		tokenSources: claudeTokenSources, tokenUsage: claudeTokenUsage, yolo: claudeYolo, rulebook: ".claude/CLAUDE.md",
-		turnCounts: claudeTurnCounts, kept: claudeKeptIn}
+		turnCounts: claudeTurnCounts}
 }
 
 // claudeOwns is whether the record names that conversation on a launcher-issued id or its own

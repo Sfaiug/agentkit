@@ -25,7 +25,7 @@ func adapterHook(name string, stems []string, out io.Writer) (code int) {
 	if event, code = harness.HookEvent(name, event, out, seat.QuestionRefused, seat.Reconciled); event == nil {
 		return code
 	}
-	if to := harness.HookFollows(name, event); to != nil && !seat.Claim(os.Getenv("AGENTKIT_SESSION"), *to, os.Getppid()) {
+	if to := harness.HookFollows(name, event); to != nil && !seat.Claim(os.Getenv("AGENTKIT_SESSION"), *to, os.Getppid(), nil) {
 		return leftToPython()
 	}
 	if len(stems) == 0 {

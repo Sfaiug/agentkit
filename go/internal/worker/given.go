@@ -36,4 +36,7 @@ type Given struct {
 	Findings string
 	// Previous is the record file of the turn this one resumes, "" for none.
 	Previous string
+	// Places are folders the turn writes beside its workspace, out and harness state: a turn
+	// given any runs here, in the box, never on a machine that takes turns.
+	Places []string
 }

@@ -38,8 +38,8 @@ func Serve(name string, words, env []string, errOut io.Writer, terminal func(wor
 	return terminal(words, env)
 }
 
-// HookFollows is the conversation an adapter's hook event, as HookEvent read it, says the seat's
-// own client went on in, or keeps, as that harness's plugin `follow` reads it: nil for none.
+// HookFollows is the conversation a hook's event, an adapter's as HookEvent read it, says the
+// seat's own client went on in, or keeps, as that harness's plugin `follow` reads it: nil for none.
 func HookFollows(name string, event *run.Object) *Followed {
 	if hook := plugins[name].follows; hook != nil && event != nil {
 		return hook(event)

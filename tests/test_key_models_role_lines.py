@@ -30,16 +30,17 @@ DEFAULTS = {"plain": None, "bare": "medium"}
 MODELS = {"fast": {"effort": "low"}, "top": {"effort": "low", "exec_effort": "high"},
           "plain": {"effort": "high"}, "bare": {"effort": "none"}}
 # New seats: Bare orchestrates, Top ranks over Plain to build, Plain reviews; only Top's is
-# measured, its 0.2 points over $8, so every other row is 0.025 points a board dollar
-NEW_SEATS = {"orchestrate": ("orchestrator", "Acme Bare 1 medium", "70.0", "≈0.03%"),
-             "execute": ("executor", "Acme Top 1 high", "100.0", "0.20%"),
-             "review": ("reviewer", "Acme Plain 1", "95.0", "≈0.25%")}
+# measured, its 0.2 points at $1.20 a point, $0.24, over $8, so every other row is 3 cents a
+# board dollar
+NEW_SEATS = {"orchestrate": ("orchestrator", "Acme Bare 1 medium", "70.0", "≈$0.03"),
+             "execute": ("executor", "Acme Top 1 high", "100.0", "$0.24"),
+             "review": ("reviewer", "Acme Plain 1", "95.0", "≈$0.30")}
 # A seat running Fast at high, and Top at low to build and at high to review
 SEAT = {"orchestrator": "fast", "workers": ["top"], "reviewers": ["top"], "efforts": {
     "fast": {"effort": "high"}, "top": {"effort": "low", "review_effort": "high"}}}
-AT_SEAT = {"orchestrate": ("orchestrator", "Acme Fast 1 high", "90.0", "≈0.15%"),
-           "execute": ("executor", "Acme Top 1 low", "85.0", "≈0.08%"),
-           "review": ("reviewer", "Acme Top 1 high", "100.0", "≈0.20%")}
+AT_SEAT = {"orchestrate": ("orchestrator", "Acme Fast 1 high", "90.0", "≈$0.18"),
+           "execute": ("executor", "Acme Top 1 low", "85.0", "≈$0.09"),
+           "review": ("reviewer", "Acme Top 1 high", "100.0", "≈$0.24")}
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
 
 
@@ -52,8 +53,8 @@ def said(screen):
 
 
 def role_lines(answer, at=None):
-    """Each role's line, `›` before `at`'s, under the column heads: every role's in week shares."""
-    return ["quality week %", *(" ".join(["›"] * (role == at) + list(line))
+    """Each role's line, `›` before `at`'s, under the column heads: every role's in dollars."""
+    return ["quality $ a task", *(" ".join(["›"] * (role == at) + list(line))
                                 for role, line in answer.items())]
 
 
@@ -68,7 +69,9 @@ class ModelsRoleLines(unittest.TestCase):
             for name in MODELS))
         akconfig.write(home, {name: {"harness": "claude", "model": f"acme-{name}-1", **entry}
                               for name, entry in MODELS.items()},
-                       orchestrator="bare", workers=["plain", "top"], reviewers=["plain"])
+                       orchestrator="bare", workers=["plain", "top"], reviewers=["plain"],
+                       # $520 a month, so a week of it $120 and a point of that $1.20
+                       providers={"anthropic": {"mode": "subscription", "price": 520}})
         held = boards()
         for board in held.values():
             board["rows"] = [row for row in board["rows"] if row["model"] == "Old 1"]

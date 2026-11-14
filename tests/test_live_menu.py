@@ -286,8 +286,8 @@ class LiveMenu(Sandbox):
                                                       "window_secs": WEEK,
                                                       "resets_in": 3 * 86400}]}))
         self.assertIn("69% left · resets in 3d", said(self.cfg)["ChatGPT"])
-        # `ak usage` keeps the columns that left the menu, and its `resets` is the row's:
-        # the shared week's, even when the tightest meter it ranks on resets at another hour.
+        # `ak usage` keeps the columns that left the menu, and reads the row's week: the shared
+        # week's, even when Fable's tighter cap resets at another hour.
         meters = [self.meter("weekly_all", 48),
                   self.meter("weekly_scoped", 59, resets_at=LATER)]
         self.cache(self.providers(anthropic={"meters": meters}))
@@ -296,7 +296,7 @@ class LiveMenu(Sandbox):
         row = dict(zip(usage.HEADERS, usage.rows(self.cfg, table)[0]))
         self.assertIn("52% left · resets Fri 14:00 · Fable 41%", said(self.cfg)["Claude"])
         self.assertEqual(row["resets"], "Fri 14:00")     # and never the scoped week's Sat 09:00
-        self.assertEqual(row["left"], "41%")             # the picker still reads the tightest
+        self.assertEqual(row["left"], "52%")             # and never the scoped week's 41%
         # Everything else the table knows stays in the table, the resets in hand among them.
         for kept in ("week elapsed", "session", "resets held", "headroom", "budget", "outlook"):
             self.assertIn(kept, usage.HEADERS)

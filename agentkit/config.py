@@ -1292,14 +1292,26 @@ def run_efforts(cfg, record):
 
 def model_name(cfg, name):
     """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
-    running `claude-opus-5-5`, `Nova 7.1` for `claude-nova-7-1` (model_label, off its id alone so
-    no draw waits on a listing).  `name` itself where it is no entry or names no id of its own
-    (`default`: the harness picks).
+    running `claude-opus-5-5`, `Nova 7.1` for `claude-nova-7-1` (model_label, off the entry's own
+    `label` where it has one, model_entry, else its id, so no draw waits on a listing).  `name`
+    itself where it is no entry or names no id of its own (`default`: the harness picks).
     """
     entry = (cfg.get("models") or {}).get(name)
     if not isinstance(entry, dict) or entry.get("model") in (None, "", DEFAULT_MODEL):
         return name
-    return model_label(entry.get("harness") or "", entry["model"])
+    label = entry.get("label")
+    return model_label(entry.get("harness") or "", entry["model"],
+                       label if isinstance(label, str) else "")
+
+
+def model_entry(harness, model, label, **fields):
+    """The [models.*] entry, `fields` beside, that runs that harness's `model`, which its listing
+    names `label`: the listing is at hand only where a model is added, so a label that names it
+    (model_label) otherwise than its id, `LongCat 2.5 Free` for `longcat-2.5-free`, is kept in
+    it."""
+    if model_label(harness, model, label) != model_label(harness, model):
+        fields["label"] = label
+    return {"harness": harness, "model": model, **fields}
 
 
 def model_at(cfg, record, name, role):

@@ -22,17 +22,22 @@ import (
 var opencodeSession = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 
 // opencodeConversation is the session that seat's record followed to, else the one its launch
-// reported into its receipt (opencode.py `conversation`), "" where neither names one yet:
-// OpenCode's TUI is never told an id.
+// reported into its receipt while no other seat's record names it (opencode.py `conversation`),
+// "" where neither names one yet: OpenCode's TUI is never told an id.
 func opencodeConversation(record map[string]any) string {
-	session, _ := opencodeFound(record)
+	session, _ := opencodeFound(record, false)
 	return session
 }
 
+// opencodeNamed is opencodeFound read strictly, naming none only where its launch's receipt holds
+// no session file, or one naming a session another seat's record keeps.
+func opencodeNamed(record map[string]any) (string, error) { return opencodeFound(record, true) }
+
 // opencodeFound is opencodeConversation, and the error of a receipt that is there and cannot be
 // read, or is not UTF-8, as Python's raises where it reads strictly (harness.unread): one that is
-// gone names none.  The record comes first, as a follow whose receipt write failed keeps it alone.
-func opencodeFound(record map[string]any) (string, error) {
+// gone names none, as does one there naming no session, unless read strictly.  The record comes
+// first, as a follow whose receipt write failed keeps it alone.
+func opencodeFound(record map[string]any, strictly bool) (string, error) {
 	if session, _ := record["conversation"].(string); opencodeSession.MatchString(session) {
 		return session, nil
 	}
@@ -49,10 +54,13 @@ func opencodeFound(record map[string]any) (string, error) {
 	} else if !utf8.Valid(reported) {
 		return "", fmt.Errorf("%s is not UTF-8", path)
 	}
-	if session := strings.TrimFunc(string(reported), config.Space); opencodeSession.MatchString(session) {
-		return session, nil
+	session := strings.TrimFunc(string(reported), config.Space)
+	if !opencodeSession.MatchString(session) && strictly {
+		return "", fmt.Errorf("%s names no OpenCode session", path)
+	} else if !opencodeSession.MatchString(session) || namedElsewhere("opencode_launch", token, session) {
+		return "", nil
 	}
-	return "", nil
+	return session, nil
 }
 
 // opencodeEnd is `opencode session delete`, which takes the session with its children and

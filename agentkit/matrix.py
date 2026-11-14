@@ -160,8 +160,10 @@ def _costs(rated, lineup, cfg, shares):
     first such model measured; any other, its board price times the cost per board dollar of
     every measurement of its role, rated or not, on its provider where one is, else over all of
     them; a role with none, as no run measures an orchestrator, takes every role's.  Each row
-    keeps its `board_cost`, the `runs` its measured cost is the mean of (0 for none), and
-    `cost_rule` says which rule priced it."""
+    keeps its `board_cost`, the `runs` its measured cost is the mean of (0 for none), `cost_rule`
+    says which rule priced it, and `points` the points of a week it takes: of the provider whose
+    runs measured it, else of its own (its first offered model's, else its maker's) where runs
+    of yours measured that one, else None."""
     # ak's own runs price a role and never rate it: asked on 5 Nov 2026 what their runs should
     # decide, the owner answered "Costs only", as quality comes from the boards.
     from . import usage
@@ -184,7 +186,7 @@ def _costs(rated, lineup, cfg, shares):
                         (entry["provider"], *roles[word]))
     for each in rated.values():
         for row in each:
-            row.update(board_cost=row["cost"], cost_rule="board", runs=0)
+            row.update(board_cost=row["cost"], cost_rule="board", runs=0, points=None)
     if not measured:
         return "board_dollars"
     # every provider your runs measured, though no row the boards rate is its measured model
@@ -197,27 +199,33 @@ def _costs(rated, lineup, cfg, shares):
         price = mean if prices[provider] is None else prices[provider]
         # a point is a hundredth of a week, and a week 12/52 of the month a price pays for
         return points if price is None else points / 100 * price * 12 / 52
-    samples = [(role, provider, cost(provider, points), board)
+    samples = [(role, provider, cost(provider, points), board, points)
                for (role, release, effort), each in measured.items() for provider, points, _ in each
                for board in [rows[release, effort]["values"].get(quality.COSTS[role])]
-               if board is not None and board > 0]     # (role, provider, cost, board dollars)
+               if board is not None and board > 0]     # (role, provider, cost, board $, points)
 
-    def per_board_dollar(some):
-        return sum(one[2] for one in some) / sum(one[3] for one in some) if some else None
+    def per_board_dollar(some, what=2):     # the cost, or with `what` 4 the points, of one
+        return sum(one[what] for one in some) / sum(one[3] for one in some) if some else None
     for role, each in rated.items():
         pool = [one for one in samples if one[0] == role] or samples
         for row in each:
             mine = measured.get((role, row["release"], row["effort"]))
             if mine:
                 provider, points, runs = mine[0]
-                row.update(cost=cost(provider, points), cost_rule="measured", runs=runs)
+                row.update(cost=cost(provider, points), cost_rule="measured", runs=runs,
+                           points=points)
                 continue
             provider = providers.get(row["release"]) or config.company(cfg, row.get("maker"))
             own = [one for one in pool if one[1] == provider]
-            factor = per_board_dollar(own or pool)
+            factor, board = per_board_dollar(own or pool), row["board_cost"]
+            point = provider in prices and cost(provider, 1)    # what a point of its week costs
             # Without board dollars or a measured conversion, no same-unit estimate exists.
-            row.update(cost_rule="provider" if own else "global", cost=None if factor is None
-                       or row["board_cost"] is None else row["board_cost"] * factor)
+            priced = None if factor is None or board is None else board * factor
+            # its provider's own runs count its points as they count its cost, whatever its plan
+            # costs; others' cost a board dollar counts them only at what a point of it costs
+            points = (None if priced is None else board * per_board_dollar(own, 4) if own
+                      else priced / point if point else None)
+            row.update(cost_rule="provider" if own else "global", cost=priced, points=points)
     return "share" if mean is None else "money"
 
 
@@ -614,10 +622,10 @@ def main(argv):
         print()
         return 0
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
-    used = uses(cfg, seat, found)
-    body, _ = menu.models_body(menu.models_said(cfg, found, used))
+    used, unit = uses(cfg, seat, found), menu.models_unit()     # the screen's, as it was left
+    body, _ = menu.models_body(menu.models_said(cfg, found, used, unit), unit)
     bars = [line for role in found
-            for line in menu.models_bars(found[role], role, used[role][2], used[role][2])]
+            for line in menu.models_bars(found[role], role, used[role][2], used[role][2], unit)]
     print("\n".join([*body, *bars, "", *menu.models_read(marked, len(ours(cfg)),
                                                    stored().get("fetched_at")),
                       *(["", *live_lines(own)] if own else [])]))

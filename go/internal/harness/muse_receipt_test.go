@@ -109,7 +109,7 @@ func TestMuseReceiptKeepsItsLaunchsSessionIntoTheReopen(t *testing.T) {
 	if os.MkdirAll(filepath.Dir(log), 0o700) != nil || os.WriteFile(log, nil, 0o600) != nil {
 		t.Fatal("no log")
 	}
-	if to := ended("Stop"); to == nil || to.Transcript != log || to.Filed("after-new") != log ||
+	if to := ended("Stop"); to == nil || to.Transcript != log || to.Filed(nil, "after-new") != log ||
 		to.Keep || to.Source != museHook || !to.Client([]string{"/opt/muse/muse-bin-1.4.12", "resume"}) ||
 		to.Client([]string{"/usr/bin/sh", "-c", "muse"}) {
 		t.Fatalf("a Stop follows %+v", to)

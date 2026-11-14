@@ -22,17 +22,19 @@ import (
 // ones that failed again (confirmed); the tests that failed, then passed (flaky: AK_FLAKY, or
 // failed tests that passed run again); and every test its red repeated (reds), Python's confirmed
 // by share: each red piece's confirmed, or a whole command's failed when it failed twice; and
-// whether a red piece repeated none (unnamed), so no test explains its red.
+// whether a red piece repeated none (unnamed), so no test explains its red; and, run as just its
+// listed tests, whether it passed each one its tree holds (holds: passesWhatItHolds).
 type testReport struct {
 	piece                          string
 	failed, confirmed, flaky, reds []string
-	unnamed                        bool
+	unnamed, holds                 bool
 }
 
 // A checkSelection is what a landing check is asked to run, and what it saw: the tests that
 // failed, then passed, every command's repeated reds (as `.flakes` keeps them, but for tree, time
 // and log), whether a red piece repeated none, each command that passed with the tests it ran, nil
-// for all, and each piece's goes' exits; and the history rows it left, taken back where it is
+// for all, each piece's goes' exits, and whether its last go of the listed tests passed what its
+// tree holds; and the history rows it left, taken back where it is
 // handed on.  A whole check refuses a change that adds a test file slower than the piece target
 // of one of its suites, each on its own pass (suitetimes.Refusal), counting the files it adds
 // since base.
@@ -49,6 +51,7 @@ type checkSelection struct {
 	unnamed bool
 	passed  map[string][]string
 	exits   [][]*int
+	holds   bool
 }
 
 func selectedCheck(selections []*checkSelection) *checkSelection {
@@ -77,6 +80,9 @@ func (s *checkSelection) observe(command string, result ran) {
 		return
 	}
 	s.flaky, s.exits, s.unnamed = append(s.flaky, result.flaky...), append(s.exits, result.exits...), s.unnamed || result.unnamed
+	// the last go's, as a re-run decides; one its watch stopped or the host's memory killed ended
+	// on no test of its own, so it holds nothing, as Python reads no names from a killed run
+	s.holds = result.holds && result.stopped == "" && !result.starved
 	if len(result.reds) > 0 {
 		s.reds = append(s.reds, run.Fields("command", command, "tests", toList(result.reds)))
 	}
@@ -116,7 +122,7 @@ func nameTests(env map[string]string, out string, only [][]string) error {
 	if len(only) == 0 || only[0] == nil {
 		return nil
 	}
-	env["AK_ONLY"], env["AK_SHARD"] = filepath.Join(out, "AK_ONLY"), "1/1"
+	env["AK_ONLY"], env["AK_SHARD"], env["AK_NOT_THERE"] = filepath.Join(out, "AK_ONLY"), "1/1", filepath.Join(out, "AK_NOT_THERE")
 	return os.WriteFile(env["AK_ONLY"], []byte(strings.Join(only[0], "\n")+"\n"), 0o666)
 }
 
@@ -142,6 +148,7 @@ func reportedTests(result ran, out string, only [][]string, output io.Writer) ra
 		return result
 	}
 	seen := testNames(filepath.Join(out, "AK_RAN"))
+	result.holds = passesWhatItHolds(result.code, only[0], seen, result.failed, testNames(filepath.Join(out, "AK_NOT_THERE")))
 	var missing []string
 	for _, test := range only[0] {
 		if !slices.Contains(seen, test) {

@@ -1,27 +1,23 @@
 package harness
 
-import (
-	"regexp"
+import "agentkit/internal/run"
 
-	"agentkit/internal/run"
-)
-
-var opencodeKept = regexp.MustCompile(`^opencode-launch-[0-9a-f]{32}(?:\.gone)?$`)
-
-// opencodeRecord reads what opencode.db says of the session this launch reported (opencode.py
-// `conversation`), the seat's own and resumable, once for the whole listing: a report or a row
-// landing while it waits to publish the word is the next listing's.  False where Go cannot read
-// that database as Python does.
+// opencodeRecord reads what opencode.db says of the session this record followed to, else the one
+// its launch reported (opencode.py `conversation`), the seat's own and resumable, once for the
+// whole listing: a report or a row landing while it waits to publish the word is the next
+// listing's.  False where Go cannot read that database as Python does.
 func opencodeRecord(_ string, record *run.Object) (plugin, bool) {
 	own := plugins["opencode"]
-	token := record.Str("opencode_launch")
-	session := opencodeConversation(map[string]any{"opencode_launch": token})
+	followed, token := record.Str("conversation"), record.Str("opencode_launch")
+	session := opencodeConversation(map[string]any{"conversation": followed, "opencode_launch": token})
 	if session == "" {
 		return own, true
 	}
 	turn, known := opencodeRead(session)
-	// a record that names another launch since is another session's
-	this := func(current *run.Object) bool { return current.Str("opencode_launch") == token }
+	// a record that names another session or launch since is another session's
+	this := func(current *run.Object) bool {
+		return current.Str("conversation") == followed && current.Str("opencode_launch") == token
+	}
 	own.resumable = this
 	own.recorded = func(current *run.Object) (string, bool) {
 		if !this(current) || !turn.ended {

@@ -3,6 +3,7 @@ package harness
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -115,5 +116,24 @@ func TestCodexClientAnswersAPingWithItsPayload(t *testing.T) {
 	}
 	if got := <-pong; string(got) != "ak?" {
 		t.Fatalf("pong payload %q", got)
+	}
+}
+
+// A message codex.py's Client refuses is refused in its json.loads's words; one it reads, a lone
+// surrogate in it, is read.
+func TestCodexClientReadsMessagesAsPythonDoes(t *testing.T) {
+	for message, want := range map[string]string{
+		`{`:                 "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+		`{"text":"\ud800"}`: "<nil>",
+	} {
+		conn, server := net.Pipe()
+		go server.Write(append([]byte{0x81, byte(len(message))}, message...))
+		conn.SetDeadline(time.Now().Add(5 * time.Second))
+		_, err := (&codexClient{conn: conn, read: bufio.NewReader(conn)}).receive()
+		if got := fmt.Sprint(err); got != want {
+			t.Errorf("%s: %s, want %s", message, got, want)
+		}
+		conn.Close()
+		server.Close()
 	}
 }

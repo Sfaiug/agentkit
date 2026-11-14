@@ -50,7 +50,7 @@ type workplace interface {
 	// judged is the verdict as the place lets it stand, and what it adds to the evidence.
 	judged(l *loop, verdict string) (string, []any, error)
 	// held is whether the place still holds what the round's checks ran on, and that as evidence.
-	held() (bool, []any, error)
+	held(l *loop) (bool, []any, error)
 	// finished follows a PASS.
 	finished(l *loop) error
 	// head is what opens a result of the run the record describes.
@@ -59,7 +59,7 @@ type workplace interface {
 
 // placeOf is the workplace a record describes, for what reads a run from outside its driver.
 func placeOf(record *run.Object) workplace {
-	if record.Truthy("own_pr") {
+	if lands(record) {
 		return &ownPull{pullFrom(record)}
 	}
 	if record.Truthy("review_pr") {

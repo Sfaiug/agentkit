@@ -181,9 +181,11 @@ class ConfigScreenEdits(unittest.TestCase):
         text = self.config.read_text()
         self.assertTrue(text.startswith(HEADER), text)
         models = tomllib.loads(text)["models"]
-        # at the effort of its harness's first model, as near as it goes
+        # at the effort of its harness's first model, as near as it goes, under the name it is
+        # listed by, which its id, `M1`, does not say
         self.assertEqual(models["model-one"], {"harness": "claude", "model": "m1",
-                                               "effort": "high", "provider": "anthropic"})
+                                               "effort": "high", "provider": "anthropic",
+                                               "label": "Model One"})
         self.assertEqual({name: models[name] for name in MODELS}, self.given["models"])
         self.term.keys("Space")
         self.term.wait(lambda screen: "›   □ Model One" in rows(screen))
