@@ -186,7 +186,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"state/watch.json#run login":       `{"stalls": {"acme": {"kind": "auth", "harness": "claude", "evidence": "run", "notice": "", "told": 1}}}`,
 		"state/watch.json#surrogate":       `{"mine": "\ud800"}`,
 		"config.toml":                      "[audit]\non = true\n",
-		"config.toml#absent":               "",
 	} {
 		t.Run(path, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)

@@ -2,8 +2,9 @@
 `audit` seat once, after the week's line, so ak repairs itself without the owner.  Each lander
 keeps the time of its passes that checked something.
 
-Offline: a temporary HOME holding the shipped default config, line records written by hand, and
-the seat finder, opener and typer faked; nothing starts a seat, a lander or tmux.
+Offline: a temporary HOME holding the shipped default config with the audit on, line records
+written by hand, and the seat finder, opener and typer faked; nothing starts a seat, a lander or
+tmux.
 """
 
 from contextlib import ExitStack
@@ -40,7 +41,7 @@ class PassFarPastItsUsual(unittest.TestCase):
             stack.enter_context(patch.object(config, name, self.root / ".agentkit" / name.lower()))
         stack.enter_context(patch.object(config, "CODE", self.root / "code"))
         config.ensure_dirs()
-        self.cfg = config.load()
+        self.cfg = {**config.load(), "audit": {"on": True}}
         self.log = []
         stack.enter_context(patch.object(watch, "seat_closed_by_owner", return_value=False))
         stack.enter_context(patch.object(orch, "find", return_value={"name": "audit", "created": 7}))

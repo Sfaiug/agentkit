@@ -1,11 +1,12 @@
 """Once a week ak audits itself: the first tick of an ISO week writes the board with its largest
 loss against the vision and the line the `audit` seat is told; each tick after opens that seat
 with `[audit]`'s models when none is open and types the line at its quiet prompt, at least
-once, until it is delivered.  The owner closing the seat keeps it closed; `[audit].on = false`
-runs nothing.
+once, until it is delivered.  The owner closing the seat keeps it closed; it runs only where
+config.toml says `[audit] on = true`.
 
-Offline: a temporary HOME holding the shipped default config, a fixed two-week board in place
-of the history, and the seat finder, opener and typer faked; nothing starts a seat or tmux.
+Offline: a temporary HOME holding the shipped default config with the audit on, a fixed two-week
+board in place of the history, and the seat finder, opener and typer faked; nothing starts a seat
+or tmux.
 """
 
 from contextlib import ExitStack
@@ -54,7 +55,8 @@ class Weekly(unittest.TestCase):
             self.stack.enter_context(patch.object(config, name, self.root / ".agentkit" / name.lower()))
         self.stack.enter_context(patch.object(config, "CODE", self.root / "code"))
         config.ensure_dirs()
-        self.cfg = config.load()
+        self.default = (REPO / config.DEFAULT_CONFIG_NAME).read_text()
+        self.cfg = self.load("on = true\n")
         self.log = []
         self.compute = self.stack.enter_context(patch.object(scoreboard, "compute", return_value=BOARD))
         self.stack.enter_context(patch.object(terminal, "content_width", return_value=200))
@@ -63,6 +65,12 @@ class Weekly(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "records", return_value={}))
         self.ensure = self.stack.enter_context(patch.object(orch, "ensure", return_value=True))
         self.typed = self.stack.enter_context(patch.object(watch, "type_at_prompt", return_value=False))
+
+    def load(self, audit):
+        """The config the shipped one is with `audit` as its [audit] table, or none for None."""
+        (config.HOME / config.CONFIG_NAME).write_text(
+            self.default + ("" if audit is None else "\n[audit]\n" + audit))
+        return config.load()
 
     def tick(self, now=NOW):
         watch.tell_audit(self.cfg, self.log.append, now)
@@ -181,14 +189,13 @@ class Weekly(unittest.TestCase):
         self.assertEqual(self.log.count("audit: the audit seat was closed by the owner; its "
                                         "line about week 2027-W02 waits for them to open it"), 1)
 
-    def test_off_or_unreadable_runs_nothing(self):
-        default = (REPO / config.DEFAULT_CONFIG_NAME).read_text()
-        (config.HOME / config.CONFIG_NAME).write_text(default + "\n[audit]\non = false\n")
-        self.cfg = config.load()
-        self.tick()
-        self.assertEqual((self.compute.call_count, audit.read(), self.ensure.call_count), (0, {}, 0))
-        (config.HOME / config.CONFIG_NAME).write_text(default + '\n[audit]\norchestrator = "nova"\n')
-        self.cfg = config.load()
+    def test_off_said_nowhere_or_unreadable_runs_nothing(self):
+        for table in (None, "on = false\n"):
+            self.cfg = self.load(table)
+            self.tick()
+            self.assertEqual((self.compute.call_count, audit.read(), self.ensure.call_count),
+                             (0, {}, 0))
+        self.cfg = self.load('on = true\norchestrator = "nova"\n')
         self.tick()
         self.assertEqual((self.compute.call_count, audit.read()), (0, {}))
         self.assertIn("WARN the weekly audit is not run: unknown model 'nova'", self.log[-1])

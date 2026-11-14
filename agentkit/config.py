@@ -1987,16 +1987,18 @@ def reviewers(cfg, seat=None):
 
 
 def audit(cfg):
-    """The weekly audit's setting, `[audit]` in config.toml: whether it runs (`on`, true until
-    written false) and the models its seat takes, `orchestrator`, `workers` and `reviewers`,
+    """The weekly audit's setting, `[audit]` in config.toml: whether it runs (`on`, false until
+    written true) and the models its seat takes, `orchestrator`, `workers` and `reviewers`,
     each `[defaults]`'s where the table leaves it out.  A name no `[models.*]` entry offers,
-    or an empty reviewer list, is an Error naming it, so the `c` row and the tick say the same
+    or an empty reviewer list, is an Error naming it, so its page and the tick say the same
     thing."""
     table = cfg.get("audit", {})
     if not isinstance(table, dict):
         raise Error(f"~/.agentkit/{CONFIG_NAME}: [audit] must be a table")
     defaults = cfg["defaults"]
-    on = table.get("on", True)
+    # Owner, 10 Nov 2026: "Remove the weekly audit feature for now. Dont delete it, but remove
+    # it."  Off where config.toml says nothing; `on = true` brings it back as it was.
+    on = table.get("on", False)
     if not isinstance(on, bool):
         raise Error(f"~/.agentkit/{CONFIG_NAME}: [audit].on must be true or false (got {on!r})")
     setting = {"on": on, "orchestrator": table.get("orchestrator", defaults["orchestrator"]),

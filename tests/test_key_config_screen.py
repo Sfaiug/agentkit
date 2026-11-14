@@ -33,12 +33,10 @@ ROWS = ["Claude Code",
         "",
         "  Models",
         "  Subscriptions",
-        "  Discord       not connected",
-        # models by their full names
-        "  Weekly audit  off · orch Fable 5.1 · builds Fable 5.1, 6 Astra · reviews Fable 5.1, 6 Astra",
-        "  Done check    on · the seat's reviewer",
-        "  Machines      1 machine · Google Cloud off",
-        "  Limits        review 3 rounds · executor 300 lines · orchestrator 50 lines",
+        "  Discord     not connected",
+        "  Done check  on · the seat's reviewer",
+        "  Machines    1 machine · Google Cloud off",
+        "  Limits      review 3 rounds · executor 300 lines · orchestrator 50 lines",
         ""]
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # a seat's, on a mark
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   x stop   c config   esc leave"

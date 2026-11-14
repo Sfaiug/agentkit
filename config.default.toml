@@ -32,9 +32,9 @@ pace_margin = 10          # a subscription more than this far ahead of pace no l
 # removes a worker even without a reset time, and so does a harness that is not
 # installed or not logged in; an unknown budget comes after every known one of the same
 # matrix rank. The menu's `c` screen changes both defaults.
-# [audit] is the weekly audit's setting, edited on the `c` screen's `Weekly audit` row:
-# on = false switches it off, and orchestrator, workers and reviewers name the models its
-# seat takes, [defaults]'s for whatever the table leaves out. Absent, it is on with [defaults].
+# [audit] is the weekly audit's setting: on = true switches it on, and orchestrator, workers
+# and reviewers name the models its seat takes, [defaults]'s for whatever the table leaves out.
+# Absent, it is off.
 # [done_check] is the done check's setting, edited on the `c` screen's `Done check` row: model
 # = "<name>" is the model `ak orch check SEAT` asks whether a seat's work holds everything its
 # owner asked of it; absent, one of the seat's reviewers that can run now. A seat whose plan has

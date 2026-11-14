@@ -1,7 +1,7 @@
 """The pages `c` opens come up and move as `c` does: `Models` opening is written a frame whose
 header has `agentkit` and only part of `config · models` before the frame with all of it, and
-Space on Weekly audit's `On` is written the half-way mark, `●` in the ink `○` had, before the new
-one.
+Space on Done check's `On`, off, is written the half-way mark, `●` in the ink `○` had, before
+the new one.
 
 The owner's ask of 27 Oct 2026, every screen moving as the main menu does.  Black-box: the
 program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) with its colours,
@@ -34,7 +34,8 @@ class CPagesComeUp(unittest.TestCase):
         self.addCleanup(self.home.close)
         fakeadapter.install(self.home, claude="pass", codex="pass")
         akconfig.write(self.home, {"fable": {"harness": "claude", "effort": "xhigh"},
-                                   "astra": {"harness": "codex", "effort": "high"}})
+                                   "astra": {"harness": "codex", "effort": "high"}},
+                       extra="[done_check]\non = false")
         self.clock = self.home.root / "clock"
         self.at(1000)
         self.term = Terminal(self.home, size=(100, 30), env={"AK_MOTION_CLOCK": str(self.clock)})
@@ -75,7 +76,7 @@ class CPagesComeUp(unittest.TestCase):
         self.at(self.now + 10)
         self.written(f"{NOTE}.*agentkit{NAME} ")      # and then all of it
 
-    def test_space_on_audits_on_is_written_half_way_before_the_new_mark(self):
+    def test_space_on_done_checks_on_is_written_half_way_before_the_new_mark(self):
         self.term.keys("j", "j", "j", "Enter")
         self.term.wait(lambda screen: re.search(r"› On +○ off", screen))
         self.at(self.now + 10)          # the page up
