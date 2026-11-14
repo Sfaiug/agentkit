@@ -3745,7 +3745,7 @@ def config_columns(selected, name):
     """The cells the keys stop on along `name`'s row of `c`, in CONFIG_ORDER: each role's mark
     of `selected` and, where it is marked, that role's effort beside it; with no marks, the
     three efforts."""
-    texts = orch.role_texts(selected, name, "●○■□")[0] if selected else "●●●"
+    texts = orch.role_texts(selected, name, "●○■□") if selected else "●●●"
     return tuple(number for number in CONFIG_ORDER
                  if selected and number < 3 or number >= 3 and texts[number - 3] in "●■")
 
@@ -3825,7 +3825,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         lines.append(model_heading(harness))
         for name in (name for name in names if models[name]["harness"] == harness):
             provider = models[name]["provider"]
-            texts, builds = orch.role_texts(selected, name, marks) if selected else ((), False)
+            texts = orch.role_texts(selected, name, marks) if selected else ()
             note = orch.spent_note(cfg, name, providers) if providers else ""
             shown = model_label(cfg, name, label)
             on = [number for number, (each, *_) in enumerate(subs, 1) if each == provider]
@@ -3850,7 +3850,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                     continue
                 text = texts[number] if number < 3 else efforts[name, number]
                 kind = ("reverse" if at == ("model", name) and number == column else
-                        "dim" if note or text in (marks[1], marks[3]) or builds and number % 3 == 1
+                        "dim" if note or text in (marks[1], marks[3])
                         else "accent" if number < 3 else None)
                 if number >= 3:   # the keys' effort is its word reversed, its cells before it
                     lead = leads[name, number]

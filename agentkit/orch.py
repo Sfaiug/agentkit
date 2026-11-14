@@ -4339,12 +4339,11 @@ def role_refusal(cfg, selected, providers):
 
 def role_texts(selected, name, marks):
     """The orch, exec and review marks of one model's row.  With no executor marked the
-    orchestrator builds everything, so its own exec mark is drawn filled, and dim."""
+    orchestrator builds everything, so its own exec mark is drawn filled."""
     builds = not selected["workers"] and name == selected["orchestrator"]
-    return ((marks[0] if name == selected["orchestrator"] else marks[1],
-             marks[2] if name in selected["workers"] or builds else marks[3],
-             marks[2] if name in selected.get("reviewers", selected["workers"]) else marks[3]),
-            builds)
+    return (marks[0] if name == selected["orchestrator"] else marks[1],
+            marks[2] if name in selected["workers"] or builds else marks[3],
+            marks[2] if name in selected.get("reviewers", selected["workers"]) else marks[3])
 
 
 def role_groups(cfg, selected, providers, **groups):
