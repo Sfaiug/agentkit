@@ -40,7 +40,7 @@ import unittest
 from unittest.mock import patch
 
 from suite_shares import claims, name_failed, name_timed
-from test_go import ENV
+from test_go_builds import build as go_build
 
 REPO = Path(__file__).resolve().parents[1]
 # Another file of the suite may be writing or removing the rest of these as this copies.
@@ -79,10 +79,8 @@ def checkout(build):
             if named:
                 # copied in, so the checkout it finds itself in is this one (config.Repo)
                 shutil.copy2(REPO / named, program)
-        # Trimmed, a build in this piece's own tree finds what others cached (every_file).
-        built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"], env=ENV,
-                               cwd=Path(tree, "go"), capture_output=True,
-                               text=True) if build and not named else None
+        # As the piece's static check built it, so this finds that build cached (every_file).
+        built = go_build(Path(tree, "go"), program) if build and not named else None
         # a checkout, as Go finds the one it runs from (config.Repo), without the history; its
         # files staged, so what reads the checkout's tracked files (akinstall.py) finds them as
         # it does in the checkout Python runs from
