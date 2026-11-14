@@ -12,13 +12,16 @@ import (
 
 // handBackJob is the end of Python's run_job_loop, under the job's delivery lock, as a tick may
 // hold a line an earlier pass left pending and only one of them types it: the receipt saved
-// finished with the job's line on it, so a wait that sees the ending sees its hand-back on the way,
-// then the line typed into the seat that launched it; left for the tick to type at the seat's next
-// quiet prompt where it is mid-turn, or one an older ak put to sleep the tick has yet to reopen; or,
-// the seat gone, the owner carded.  A job no seat launched is said here alone.  False for a card not
-// accepted.
+// finished with the job's line on it, fitted to its seat (JobLine), so a wait that sees the ending
+// sees its hand-back on the way, then the line typed into the seat that launched it; left for the
+// tick to type at the seat's next quiet prompt where it is mid-turn, or one an older ak put to
+// sleep the tick has yet to reopen; or, the seat gone, the owner carded.  A job no seat launched
+// is said here alone.  False for a card not accepted.
 func handBackJob(dir string, receipt *run.Object, name, text string, say func(string)) (bool, error) {
-	line := text + ". Result: " + filepath.Join(dir, "log.txt") + ". Decide the next step."
+	line, err := handback.JobLine(dir, text+". Result: "+filepath.Join(dir, "log.txt")+". Decide the next step.")
+	if err != nil {
+		return false, err
+	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
 		return false, err
