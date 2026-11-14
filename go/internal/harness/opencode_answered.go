@@ -82,18 +82,15 @@ func opencodeMessages(session string) ([]opencodeMessage, error) {
 	return read, nil
 }
 
-// opencodeAnswered reads the session the seat's receipt names, or the one a record of a session
-// the seat left names (notify.Conversations), once for opencode.py's `said` and `answers`: each
-// user row's `text` and each answer's text parts, and each question the owner answered on a card.
-// It is the done check's read: a receipt or database that is there and cannot be read is an
-// error, never an owner who said nothing.
+// opencodeAnswered reads the session the seat's record or receipt names, or the one a record of
+// a session the seat left names (notify.Conversations), once for opencode.py's `said` and
+// `answers`: each user row's `text` and each answer's text parts, and each question the owner
+// answered on a card.  It is the done check's read: a receipt or database that is there and
+// cannot be read is an error, never an owner who said nothing.
 func opencodeAnswered(record map[string]any) (said []Turn, cards []Card, err error) {
 	session, err := opencodeFound(record)
 	if err != nil {
 		return nil, nil, err
-	}
-	if session == "" {
-		session, _ = record["conversation"].(string)
 	}
 	rows, err := opencodeMessages(session)
 	if err != nil {

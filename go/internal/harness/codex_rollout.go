@@ -27,9 +27,9 @@ var launchToken = regexp.MustCompile(`^[0-9a-f]{32}$`)
 // `remote_home` and its `.forgotten` mark), each named by a uuid4's hex.
 var codexKept = regexp.MustCompile(`^codex-(?:launch-[0-9a-f]{32}\.json|remote-[0-9a-f]{32}(?:\.forgotten)?)$`)
 
-// codexReceipt is the receipt of the launch the record names (codex.py `read`), read under the
-// lock its SessionStart hook writes it in place under, which never makes the file; nil where it
-// names none, another launch's, or none that reads.
+// codexReceipt is the receipt of the launch the record names (codex.py `read`), read under a shared
+// lock, beside other readers and never beside its SessionStart hook writing it in place, which
+// never makes the file; nil where it names none, another launch's, or none that reads.
 func codexReceipt(record *run.Object) *run.Object {
 	receipt, _ := codexReceiptRead(record)
 	return receipt
@@ -43,7 +43,7 @@ func codexReceiptRead(record *run.Object) (*run.Object, error) {
 		return nil, nil
 	}
 	path := filepath.Join(config.Home(), "state", "codex-launch-"+token+".json")
-	file, err := lock.Edit(path)
+	file, err := lock.Read(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	} else if err != nil {

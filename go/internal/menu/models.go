@@ -1,91 +1,25 @@
-// Package menu draws ak's screens.  This file is each role's answer as `ak models` prints it: each
-// role's line of best quality for the money, from its best, and the legend.
+// Package menu draws ak's screens.  This file is what `ak models` prints: the models screen's role
+// lines, how many models are compared, and ak's own numbers.
 package menu
 
 import (
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"agentkit/internal/quality"
 	"agentkit/internal/terminal"
 )
 
-const (
-	mark  = 7     // a row's mark's column, as wide as `r takes`
-	named = 13    // the cells before a legend line's words: its name's column
-	gap   = " · " // between two things said on one line
-)
+const gap = " · " // between two things said on one line
 
-var (
-	heads  = map[string]string{"orchestrate": "orch", "execute": "builds", "review": "reviews"}
-	legend = [][2]string{{"left out", "a row no better than a cheaper one, yours compared with yours"}}
-)
-
-// A Line is one row of a role's answer, or the words Said where it says something else.
-type Line struct {
-	Said, Mark, Name, Word, Quality, Cost string
-	Cells, Notes                          []string
-	Near                                  float64
-}
-
-// A Role is what the screen says of one role's answer: its head, full frontier and its cost
-// column's head, the unit its costs are in.
-type Role struct {
-	Head, Unit string
-	Lines      []Line
-}
-
-// ModelsSaid matches Python's models_said: each role's head and frontier, pick and take
-// marked, quality full at the best and empty ten points behind.
-func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup []quality.Row) []Role {
-	levels := map[string][]string{} // each release's efforts on the boards, weakest first
-	for _, row := range lineup {
-		levels[row.Release] = append(levels[row.Release], row.Effort)
+// ModelsLines is what `ak models` prints of view, as Python's matrix.main does: the models screen's
+// role lines, no role pointed at, then a blank line and how many models are compared.
+func ModelsLines(s terminal.Screen, view ModelsView) []string {
+	var lines []string
+	for _, row := range roleLines(s, view, -1) {
+		lines = append(lines, row.line)
 	}
-	var said []Role
-	for _, role := range quality.Roles {
-		found := answer[role]
-		var out Role
-		for _, row := range found.Front {
-			var notes []string
-			if missing := row.Missing(); missing > 0 {
-				notes = append(notes, screen.Styled(strconv.Itoa(missing)+" missing", "dim"))
-			}
-			if !row.Yours {
-				notes = append(notes, screen.Styled("no harness", "dim"))
-			}
-			if row.CostRule == "measured" {
-				notes = append(notes, screen.Styled("measured", "dim"))
-			}
-			taken := levels[row.Release]
-			line := Line{Name: row.Name, Word: row.Effort, Notes: notes,
-				Cells:   screen.EffortCells(len(taken), slices.Index(taken, row.Effort)+1),
-				Near:    max(0, 1-(*found.Best-row.Quality)/10),
-				Quality: strconv.FormatFloat(row.Quality, 'f', 1, 64),
-				Cost:    found.CostText(row)}
-			switch row {
-			case found.Pick:
-				line.Mark = screen.Styled("pick", "working")
-			case found.Take:
-				line.Mark = "r takes"
-			}
-			out.Lines = append(out.Lines, line)
-			if row == found.Pick && found.Take == nil {
-				out.Lines = append(out.Lines, Line{Said: "no harness of yours runs a model this good"})
-			}
-		}
-		// the first row is the best but where the best has no cost, so the head says it then
-		out.Head, out.Unit = heads[role], units[found.CostUnit]
-		if len(found.Front) == 0 {
-			out.Head += gap + "none"
-		} else if found.Front[0].Quality < *found.Best {
-			out.Head += gap + "best " + strconv.FormatFloat(*found.Best, 'f', 1, 64)
-		}
-		said = append(said, out)
-	}
-	return said
+	return append(append(lines, ""), modelsRead(s, view.Compared, view.Total, view.Fetched)...)
 }
 
 // packed is parts on as few lines of room cells as hold them, separator between two on one line; a
@@ -103,145 +37,6 @@ func packed(parts []string, room int) []string {
 		}
 	}
 	return lines
-}
-
-// ModelsBody is the lines `ak models` prints.  Per role, a blank line between two, its head, beside
-// it the columns' heads where it heads them (headed), then its lines: a row's mark in `mark` cells,
-// its name, its effort -- its cells, then its word, in one column after the most cells any row has
-// -- its line, taking the room the other columns leave, then its quality, cost and notes, these one
-// under another in a column as wide as the widest. Every column fits the full frontier.
-// Where that leaves the line under 8 cells, the notes' column gives
-// way first, each row's notes going under it; where the line is still under 8 cells, each row's
-// mark, then its name and effort, take a line and its line, numbers and notes the next, the name
-// alone cut; the notes that do not fit beside the numbers then go under the row, broken only
-// between two. Then the legend, how many of the total listed models of your companies are
-// compared and when the boards were read (modelsRead).
-func ModelsBody(screen terminal.Screen, said []Role, compared map[string]bool, total int, fetched float64) []string {
-	room := screen.LayoutWidth()
-	var rows []Line
-	for _, role := range said {
-		for _, line := range role.Lines {
-			if line.Said == "" {
-				rows = append(rows, line)
-			}
-		}
-	}
-	tall := 0
-	for _, row := range rows {
-		tall = max(tall, len(row.Cells))
-	}
-	effort := func(row Line) string {
-		if row.Word == "" {
-			return ""
-		}
-		if tall == 0 {
-			return row.Word
-		}
-		return strings.Join(row.Cells, "") + strings.Repeat(" ", tall-len(row.Cells)+2) + row.Word
-	}
-	label, levelled, notesWide := 0, 0, 0
-	qualityWide, costWide := terminal.Cells("quality"), 0
-	for _, role := range said {
-		costWide = max(costWide, terminal.Cells(role.Unit))
-	}
-	for _, row := range rows {
-		label = max(label, terminal.Cells(row.Name))
-		levelled = max(levelled, terminal.Cells(effort(row)))
-		qualityWide = max(qualityWide, terminal.Cells(row.Quality))
-		costWide = max(costWide, terminal.Cells(row.Cost))
-		for _, note := range row.Notes {
-			notesWide = max(notesWide, terminal.Cells(note))
-		}
-	}
-	after := 2 + qualityWide + 2 + costWide + 2 + notesWide // the columns after the line
-	before := 2 + mark + 2 + label + 2 + levelled + 2       // the cells before a row's line
-	if room-before-after < 8 && 8 <= room-before-after+2+notesWide {
-		after -= 2 + notesWide // notes are rare, so they go under their row before it folds
-	}
-	wide := room-before-after >= 8
-	if !wide {
-		before = 4 // folded, the line under the name
-	}
-	size := max(8, room-before-after)
-	under := 6 // 2 cells in from a row's name
-	if wide {
-		under = 2 + mark + 2 + 2
-	}
-	unit := "" // the last role with rows' unit
-	var lines []string
-	put := func(line string) { lines = append(lines, strings.TrimRight(line, " ")) }
-	fill := func(text string, width int) string { return strings.Repeat(" ", max(0, width-terminal.Cells(text))) }
-	for number, role := range said {
-		if number > 0 {
-			put("")
-		}
-		headings := headed(role, unit)
-		if len(role.Lines) > 0 {
-			unit = role.Unit
-		}
-		if !headings || !wide {
-			put("  " + role.Head)
-		}
-		if headings {
-			head := ""
-			if wide {
-				head = role.Head
-			}
-			put("  " + terminal.Pad(head, before+size-2) + "  " +
-				fill("quality", qualityWide) + screen.Styled("quality", "dim") + "  " +
-				fill(role.Unit, costWide) + screen.Styled(role.Unit, "dim"))
-		}
-		for _, line := range role.Lines {
-			if line.Said != "" { // the words under the pick, wrapped at words, are its row's
-				for _, part := range terminal.Wrap(line.Said, room-under) {
-					put(strings.Repeat(" ", under) + part)
-				}
-				continue
-			}
-			text := effort(line)
-			nameRoom := label
-			if !wide {
-				nameRoom = min(label, room-6-levelled)
-			}
-			lead := terminal.Pad(line.Name, nameRoom) + "  " + text + fill(text, levelled) + "  "
-			if wide {
-				lead = "  " + line.Mark + fill(line.Mark, mark) + "  " + lead
-			} else {
-				if line.Mark != "" {
-					put("    " + line.Mark)
-				}
-				put("    " + lead)
-				lead = "    "
-			}
-			tail := lead + screen.ShareLine(line.Near, size, "quiet") + "  " +
-				fill(line.Quality, qualityWide) + line.Quality + "  " + fill(line.Cost, costWide) + line.Cost + "  "
-			fit := 0 // the notes that fit, the rest under
-			for n := range len(line.Notes) + 1 {
-				if terminal.Cells(tail+strings.Join(line.Notes[:n], gap)) <= room {
-					fit = n
-				}
-			}
-			put(tail + strings.Join(line.Notes[:fit], gap))
-			column := terminal.Cells(tail) // the notes', one under another where it fits
-			if column+notesWide > room {
-				column = under
-			}
-			for _, part := range packed(line.Notes[fit:], room-column) {
-				put(strings.Repeat(" ", column) + part)
-			}
-		}
-	}
-	put("")
-	for _, entry := range legendOf(said) {
-		for number, part := range terminal.Wrap(entry[1], room-named) {
-			name := entry[0]
-			if number > 0 {
-				name = ""
-			}
-			put("  " + screen.TableRow([]string{name, part}, []int{9, room - named}, []string{"", "dim"}))
-		}
-	}
-	return append(lines, modelsRead(screen, compared, total, fetched)...)
 }
 
 // modelsRead is how many of your companies' total listed models are compared (matrix.Compared),

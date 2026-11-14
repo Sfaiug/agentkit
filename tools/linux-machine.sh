@@ -71,13 +71,17 @@ linux_machine_up() {
   # Lima's daemon runs only at boot.  ak's own runs the check every minute; launchd reads a
   # changed plist only as it loads it, so one loaded is booted out before its plist changes: one
   # that will not go fails the install and keeps the old plist, which the next install finds
-  # changed still.  One not loaded, booted out or never loaded, is loaded.
+  # changed still.  One not loaded, booted out or never loaded, is loaded.  The plist is compared
+  # as the account, so it is one the account reads, as Lima's is: it holds paths, no secret.
+  # install.sh's umask would leave root's tee a file only root reads, and tee keeps an existing
+  # file's mode, so the one an earlier install left so is written once more and made readable.
   local plist=$daemons/$LINUX_CHECK.plist daemon loaded=
   daemon=$(linux_check_daemon "$name")
   if launchctl print "system/$LINUX_CHECK" >/dev/null 2>&1; then loaded=1; fi
   if [ "$(cat -- "$plist" 2>/dev/null)" != "$daemon" ]; then
     if [ -n "$loaded" ]; then sudo launchctl bootout "system/$LINUX_CHECK" || return 1; fi
-    printf '%s\n' "$daemon" | sudo tee "$plist" >/dev/null || return 1
+    printf '%s\n' "$daemon" | sudo tee "$plist" >/dev/null && sudo chmod 644 "$plist" ||
+      return 1
     loaded=
   fi
   if [ -z "$loaded" ]; then

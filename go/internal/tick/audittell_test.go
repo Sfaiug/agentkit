@@ -29,7 +29,7 @@ func TestAnAuditLeavesATypedLineItDoesNotFinishToPython(t *testing.T) {
 	before := `{"week":"2026-W44","line":"earlier work","typed":{"line":"earlier work","seat":1,"pane":"%3"},"delivered":null}`
 	put(t, path, before)
 	tick := &ticking{clock: func() time.Time { return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC) }, log: newLog(io.Discard, io.Discard)}
-	tick.report = func(time.Time) ([]string, string) { return nil, "fixture loss" }
+	tick.report = func(time.Time) ([]string, string, bool) { return nil, "fixture loss", true }
 	if err := tick.audit(); !errors.Is(err, errLeft) || read(t, path) != before {
 		t.Fatal(err, read(t, path))
 	}

@@ -28,7 +28,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, suite_times, transitions, turns, update
+from . import config, gitcall, prompts, record, suite_times, transitions, turns, update, versions
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -339,13 +339,8 @@ def start_line(turn, log=lambda _: None):
                     config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
             env.pop(key, None)
         env["AK_RUN_DEPTH"] = "0"
-        # Owner, 5 Nov 2026: a lander fix takes effect when installed, and changes
-        # launched on different versions stack, so the lander runs the installed ak.
-        installed = Path.home() / ".local" / "bin" / "ak"
-        if not installed.is_file():
-            installed = config.REPO / "bin" / "ak"
         return orch.start_in_slice(
-            [sys.executable, str(installed), "run", "--lander", turn.name],
+            [sys.executable, str(versions.installed_ak()), "run", "--lander", turn.name],
             f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
             env, turn.with_suffix(".log"), log, target_slice=orch.run_slice_name(),
             properties=properties, nice=True)

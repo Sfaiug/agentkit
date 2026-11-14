@@ -88,7 +88,7 @@ esac
 			// typed into the harness that went: the seat's birth, the pane's first process
 			put(t, path, run.Line(run.Fields("week", each.week, "line", each.line, "typed", run.Fields("line", each.line, "seat", 1000, "pid", 1), "delivered", nil)))
 			tick := &ticking{clock: func() time.Time { return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC) }, log: newLog(io.Discard, io.Discard)}
-			tick.report = func(time.Time) ([]string, string) { return nil, "fixture loss" }
+			tick.report = func(time.Time) ([]string, string, bool) { return nil, "fixture loss", true }
 			pass := func() *run.Object {
 				t.Helper()
 				if err := tick.audit(); err != nil {

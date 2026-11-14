@@ -6,9 +6,9 @@ cron line runs it with --when-broken before each tick, which puts the move back 
 passed from the link's time: the move gives it, and the tick that made the move sets it to its
 own end.  `ak back` puts it back at once, and so does the move itself where the version it put
 live reads the home as broken and the one it replaced does not (`update.update_agentkit`).  The
-commit put back first gets a ref under `update.FAILED`, so no move goes to it again, and the
-owner is paged once it is back.  Every later step reads and runs from the version put back at
-~/agentkit.
+commit put back first gets a ref under `update.FAILED`, so no move goes to it again; once it is
+back the owner is paged, and a seat is handed it to fix (`update.put_back_hand_back`).  Every
+later step reads and runs from the version put back at ~/agentkit.
 """
 
 import fcntl
@@ -81,6 +81,7 @@ def put_back(why, wait=0):
     said = f"went back from {moved[:12]} to {back[:12]}{why}"
     print(f"ak back: {said}")
     notify.page(f"back:{moved}", "ak", f"🔴 ak {said}", line=f"🔴 ak {said}", happened=True)
+    update.put_back_hand_back(moved, said)
     code, output = versions.run([str(live / "install.sh")], live, **update.PINS)
     if code:
         print(f"{output}\nak back: {live / 'install.sh'} exited {code}", file=sys.stderr)

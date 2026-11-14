@@ -41,7 +41,9 @@ func (db *DB) spendAll(id any) error {
 // spend adds what the turn in out, of the harness name, spent to its role's total in the run's
 // row, and its counts by model, unless the row counts that turn already, Python's _add_turn_tokens:
 // the total, the turns it includes and their counts go in or roll back together.  A turn its
-// harness says nothing of stays uncounted, for a later reading.
+// harness says nothing of stays uncounted, for a later reading; one whose total it does not say,
+// as a turn killed before its stream showed a usage whose session's transcripts hold its
+// messages, totals its counts.
 func (db *DB) spend(id any, name, out string) error {
 	found, err := db.rows("SELECT counted_turns FROM runs WHERE run_id=?", id)
 	if err != nil || len(found) == 0 {
@@ -56,8 +58,16 @@ func (db *DB) spend(id any, name, out string) error {
 		return nil
 	}
 	tokens, said := harness.Tokens(name, out)
+	usage := turnUsage(id, name, out)
 	if !said {
-		return nil
+		if len(usage) == 0 {
+			return nil
+		}
+		for _, row := range usage {
+			for _, count := range row[4:] {
+				tokens += float64(count.(int64))
+			}
+		}
 	}
 	role := "executor"
 	if strings.HasPrefix(filepath.Base(out), "reviewer") {
@@ -74,9 +84,9 @@ func (db *DB) spend(id any, name, out string) error {
 		int64(tokens), run.Line(listed), id); err != nil {
 		return err
 	}
-	for _, usage := range turnUsage(id, name, out) {
+	for _, row := range usage {
 		if err := db.exec("INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, input, "+
-			"cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)", append([]any{turn, id, role}, usage...)...); err != nil {
+			"cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)", append([]any{turn, id, role}, row...)...); err != nil {
 			return err
 		}
 	}

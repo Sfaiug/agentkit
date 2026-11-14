@@ -833,7 +833,9 @@ def job_await(run_dir, poll=lambda: None):
     its ending, a wait for budget or a login, or what the tick left for a person.  While it
     waits in the landing line its lander is started again at the picker's rate, as the tick
     does: the one its run started on leaving can die with that run's unit, and a sandbox
-    runs no tick at all.
+    runs no tick at all.  That rate counts from the leaving, not the follow's start: a start
+    racing the leaving's, before that one holds the line's lock, is a second lander for the
+    same pass.
     """
     asked = time.time()
     while True:
@@ -850,6 +852,8 @@ def job_await(run_dir, poll=lambda: None):
             if line and time.time() - asked >= JOB_PICKER_INTERVAL:
                 asked = time.time()
                 land.start_line(config.RUNS / line)
+        else:
+            asked = time.time()
         time.sleep(JOB_TICK)
 
 

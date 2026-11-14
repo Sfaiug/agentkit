@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -30,7 +31,15 @@ func validate(command string, args []string) string {
 				return fmt.Sprintf("%s  (got %s)", usage, commandhelp.Quote(arg))
 			}
 		}
-	case "update", "watch":
+	case "watch":
+		if len(args) > 0 && args[0] == "--live" { // a run's plain name, as Python's live_follower takes it
+			if len(args) != 2 || filepath.Base(args[1]) != args[1] || args[1] == "." || args[1] == ".." {
+				return "usage: ak watch --live RUN"
+			}
+			return ""
+		}
+		fallthrough
+	case "update":
 		if len(args) > 0 && !(len(args) == 1 && args[0] == "--dry-run") {
 			return fmt.Sprintf("%s  (got %s)", usage, commandhelp.Quote(args[0]))
 		}

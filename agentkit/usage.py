@@ -579,21 +579,17 @@ def _gate_flags(providers, now, cfg):
     and headroom and budget are re-derived here with it.
     """
     for name, prov in providers.items():
-        listed = config.accounts(cfg, name)
-        accounts = prov.get("accounts") if listed else None
-        if isinstance(accounts, dict):
-            # Several subscriptions: each is flagged on its own, and the provider is the one a
-            # worker turn runs on next -- another account with room before the usual login,
-            # the usual one only when none of them has any, then the most budget, then the
-            # order the config lists them in -- so it is spent only when all of them are.
-            # An account nobody could read ranks with the usual login and after it: its
-            # login may be the very thing that failed, and a turn there parks on it.
-            accounts = _gate_flags({account: accounts[account] for account in listed
-                                    if isinstance(accounts.get(account), dict)}, now, cfg)
-            if accounts:
-                best = min(accounts, key=lambda account: _worker_rank(account, accounts[account]))
-                prov.clear()
-                prov.update(accounts[best], accounts=accounts, account=best)
+        # Several subscriptions: each is flagged on its own, and the provider is the one a
+        # worker turn runs on next -- another account with room before the usual login,
+        # the usual one only when none of them has any, then the most budget, then the
+        # order the config lists them in -- so it is spent only when all of them are.
+        # An account nobody could read ranks with the usual login and after it: its
+        # login may be the very thing that failed, and a turn there parks on it.
+        accounts = _gate_flags(_logins(cfg, name, prov), now, cfg)
+        if accounts:
+            best = min(accounts, key=lambda account: _worker_rank(account, accounts[account]))
+            prov.clear()
+            prov.update(accounts[best], accounts=accounts, account=best)
         # A quota the harness recorded when it refused a run is the reading at once: it is a
         # file and no request, so neither the snapshot's five minutes nor the probe's cadence
         # stands between it and a pick.  It is normalized as a probed meter is, because every
@@ -1257,11 +1253,9 @@ def account(cfg, provider, model=None):
 
     The one `_gate_flags` put first: another account with room before the usual login,
     the usual one only when none of them has any, then the most budget, then the order
-    the config lists them in; for a `model`, each on what that model reads there
-    (`_worker_rank`).  (None, None) for a provider that lists no accounts, which is asked
-    nothing: it is one login, exactly as it always was.
-    For a model launched from a seat on this provider, spend the seat's account only once
-    the others are spent or cannot authenticate; the model pick still reads the same meters.
+    the config lists them in; for a `model`, the one `_login` chooses for it.  (None, None)
+    for a provider that lists no accounts, which is asked nothing: it is one login, exactly
+    as it always was.
     """
     names = config.accounts(_on_disk(cfg), provider)
     if not names:
@@ -1270,30 +1264,80 @@ def account(cfg, provider, model=None):
     if prov.get("account") in names:
         if model is None:
             return prov["account"], not prov.get("exhausted")
-        readings = prov["accounts"]
-
-        def spent(account):
-            return model_exhausted(cfg, model, {provider: readings[account]})[0]
-
-        order = sorted(readings, key=lambda a: _worker_rank(a, readings[a], cfg, model))
-        best = order[0]
-        state = getattr(gitcall._RUN_CONTEXT, "state", {})
-        if "launched_session" in state or "session" in state:
-            # An explicit no-seat launch survives a resume inside another seat.
-            name = state.get("launched_session", state.get("session"))
-            seat = config.load_session(cfg, name, required=False) if name else None
-        else:
-            seat = config.active_session(cfg)
-        if seat and cfg["models"].get(seat["orchestrator"], {}).get("provider") == provider:
-            own = seat.get("account") or config.DEFAULT_ACCOUNT
-            if own in readings:
-                harness = config.model(cfg, model)["harness"]
-                best = next((a for a in order if a != own and not spent(a)
-                             and worker.auth_ok(harness, account=a, provider=provider)[0]
-                             is not False), own)
-        return best, not spent(best)
+        best, reading = _login(cfg, provider, model, prov)
+        return best, not model_exhausted(cfg, model, {provider: reading})[0]
     spare = next((a for a in names if a != config.DEFAULT_ACCOUNT), names[0])
     return spare, not prov.get("exhausted")
+
+
+def _logins(cfg, provider, prov):
+    """{account: its reading} for each login of `provider` that `cfg` lists and `prov`, the
+    provider's reading, holds, in the order listed: {} for a provider listing none, which is
+    one login read off its own reading."""
+    held = _record(prov.get("accounts"))
+    return {account: held[account] for account in config.accounts(cfg, provider)
+            if isinstance(held.get(account), dict)}
+
+
+def _login(cfg, provider, model, prov):
+    """(the login a worker turn of `model` runs on, its reading), among the logins config.toml
+    lists now that `prov`, its provider's reading, holds; (None, None) for none.
+
+    The first on what that model reads there (`_worker_rank`).  For a turn launched from a
+    seat on this provider, the seat's own login only once the others are spent or cannot
+    authenticate.  The logins are config.toml's and not `cfg`'s, a copy its caller can hold
+    for hours, and those the reading holds: a snapshot or a raw cache can still carry a login
+    removed since, and none of a login added since.
+    """
+    readings = _logins(_on_disk(cfg), provider, prov)
+    if not readings:
+        return None, None
+
+    def spent(account):
+        return model_exhausted(cfg, model, {provider: readings[account]})[0]
+
+    order = sorted(readings, key=lambda a: _worker_rank(a, readings[a], cfg, model))
+    best = order[0]
+    state = getattr(gitcall._RUN_CONTEXT, "state", {})
+    if "launched_session" in state or "session" in state:
+        # An explicit no-seat launch survives a resume inside another seat.
+        name = state.get("launched_session", state.get("session"))
+        seat = config.load_session(cfg, name, required=False) if name else None
+    else:
+        seat = config.active_session(cfg)
+    if seat and cfg["models"].get(seat["orchestrator"], {}).get("provider") == provider:
+        own = seat.get("account") or config.DEFAULT_ACCOUNT
+        if own in readings:
+            harness = config.model(cfg, model)["harness"]
+            best = next((a for a in order if a != own and not spent(a)
+                         and worker.auth_ok(harness, account=a, provider=provider)[0]
+                         is not False), own)
+    return best, readings[best]
+
+
+def _read(cfg, name, providers):
+    """`providers` as this model is read off them, its provider's `accounts` left out: what
+    every reader of the model's meters, and of the mark and credits beside them, reads.
+
+    A provider listing several logins is read off the one `_gate_flags` put first on every
+    model's meters, where a login whose week is spent ranks with one where only another
+    model's cap is: this model was called spent there though a turn of it runs, with room,
+    on another (`_login`).  So where it is spent on its provider's reading and not on that
+    login, that login is read; anywhere else the provider's reading stands, and a reading
+    of one login, which holds no `accounts`, asks config.toml nothing.
+    """
+    provider = config.model(cfg, name)["provider"]
+    prov = providers.get(provider)
+    if not isinstance(prov, dict) or "accounts" not in prov:
+        return providers
+    here = {**providers, provider: {key: value for key, value in prov.items()
+                                    if key != "accounts"}}
+    if not model_exhausted(cfg, name, here)[0]:
+        return here
+    reading = _login(cfg, provider, name, prov)[1]
+    if reading is None or model_exhausted(cfg, name, {provider: reading})[0]:
+        return here
+    return {**providers, provider: reading}
 
 
 def _split_week(cfg, provider, prov):
@@ -1321,8 +1365,9 @@ def _gating_meters(cfg, name, providers):
     or of the name every screen shows it by (`Fable` names `acme-fable-5-2`); without a
     `scope`, the model's whose `meter` claims it.  Of the rest, a model naming a `meter` is
     gated by that one, the shared weekly_all and the 5h session window, which every model of
-    the subscription runs inside; any other model by all of them.
+    the subscription runs inside; any other model by all of them.  Read where `_read` reads it.
     """
+    providers = _read(cfg, name, providers)
     entry = config.model(cfg, name)
 
     def words(text):
@@ -1482,6 +1527,7 @@ def on_credits(cfg, name, providers):
     Credits cost money and the subscription is already paid, so every pick puts such a model
     after every model with a window left; it is spent only once the credits are gone too.
     """
+    providers = _read(cfg, name, providers)
     prov = providers.get(config.model(cfg, name)["provider"])
     return bool(credits_left(prov)) and any(m.get("used", 0) >= 100
                                             for m in _gating_meters(cfg, name, providers)[0])
@@ -1500,6 +1546,7 @@ def provider_budget(prov, now=None):
 
 def model_budget(cfg, name, providers, now=None):
     """(budget, unknown reason) from this worker's tightest budget."""
+    providers = _read(cfg, name, providers)
     meters, _ = _gating_meters(cfg, name, providers)
     prov = providers.get(config.model(cfg, name)["provider"], {})
     return provider_budget({**prov, "meters": meters}, now)
@@ -1514,6 +1561,7 @@ def model_exhausted(cfg, name, providers):
     Tier B requires a later probe before spending a full meter again, even without a reset
     timestamp. Tier A retains its existing cached flags in `model_spent`.
     """
+    providers = _read(cfg, name, providers)
     meters, _ = _gating_meters(cfg, name, providers)
     provider = config.model(cfg, name)["provider"]
     prov = providers.get(provider, {})
@@ -1548,6 +1596,7 @@ def spent_meter(cfg, name, providers):
     """The worst meter gating this model that reads 100% used, or None: what the new-session
     screen calls spent.  Unlike `model_spent`, a meter whose reset nobody knows counts too --
     the screen only declines to choose the model for him, and says when it resets if it can."""
+    providers = _read(cfg, name, providers)
     if on_credits(cfg, name, providers):
         return None
     spent = [m for m in _gating_meters(cfg, name, providers)[0] if m.get("used", 0) >= 100]
@@ -1573,6 +1622,7 @@ def model_spent(cfg, name, providers):
     The meters gating the model, the used side only -- that choice does not read pace, because
     being ahead of pace is not a reason to refuse the seat the user works from.
     """
+    providers = _read(cfg, name, providers)
     watched, label = _gating_meters(cfg, name, providers)
     spent = [m for m in watched if m.get("tier_a_exhausted", m.get("exhausted"))]
     left = credits_note(providers.get(config.model(cfg, name)["provider"]))

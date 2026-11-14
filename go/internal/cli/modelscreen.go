@@ -46,7 +46,7 @@ func menuModels(title string, c *matrix.Configuration, keyboard *terminal.Keyboa
 		read <- reading{found, err}
 		keyboard.Wake()
 	}()
-	view := menu.ModelsView{Title: title} // `▸` on the orchestrator, where the boards landing leaves it
+	view := menu.ModelsView{Title: title} // the orchestrator highlighted, where the boards landing leaves it
 	defer painter.Forget()
 	for {
 		select {
@@ -74,7 +74,7 @@ func menuModels(title string, c *matrix.Configuration, keyboard *terminal.Keyboa
 		case key.Name == "wake": // the boards landed: drawn again
 			continue
 		case view.Away && key.Name == "enter":
-			view.Away = false // pressed with no `▸` drawn: it only comes back where the keys left it
+			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
 		}
 		view.Away = false

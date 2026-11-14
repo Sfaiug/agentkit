@@ -147,17 +147,18 @@ func checkStopOwner(record *run.Object) error {
 	return nil
 }
 
-// goStops is whether this stop is the record, the result, the process tree, the history row and
-// the checkout, all Go does: no process but a Go driver or waiter of this run alive, nothing of a
-// job or a review to tell, no landing line, nothing in history Python records (historyHolds), no
-// browser tab to shut, and no unit that may hold it, as Python stops a unit by its name.
+// goStops is goEnds of a run of no job: a job's live launcher may still drive it, whose tree
+// Python's stop of the run spares, and only StopJob ends that launcher first.
 func goStops(dir string, record *run.Object) bool {
-	for _, key := range []string{"job_id", "review_pr"} {
-		if record.Truthy(key) {
-			return false
-		}
-	}
-	return unitless(record) && !host.UserManager() && !run.Lined(record) && !historyHolds(filepath.Base(dir), record) && !tabbed(filepath.Base(dir)) &&
+	return !record.Truthy("job_id") && goEnds(dir, record)
+}
+
+// goEnds is whether this stop is the record, the result, the process tree, the history row and
+// the checkout, all Go does: no process but a Go driver or waiter of this run alive, nothing of a
+// review to tell, no landing line, nothing in history Python records (historyHolds), no browser
+// tab to shut, and no unit that may hold it, as Python stops a unit by its name.
+func goEnds(dir string, record *run.Object) bool {
+	return !record.Truthy("review_pr") && unitless(record) && !host.UserManager() && !run.Lined(record) && !historyHolds(filepath.Base(dir), record) && !tabbed(filepath.Base(dir)) &&
 		(!run.ProcessActive(record) || driving(record, dir))
 }
 

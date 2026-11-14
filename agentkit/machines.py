@@ -177,7 +177,7 @@ def join_line():
                          check=False).removeprefix("origin/") or "HEAD"
     url = (f"https://raw.githubusercontent.com/{gitcall.owner_name(origin)}/{branch}/"
            f"{google_cloud.JOIN.relative_to(config.REPO)}")
-    return f"curl -fsSL {url} | sudo bash -s -- {shlex.quote(public_key())} tailscale"
+    return f"curl -fsSL {shlex.quote(url)} | sudo bash -s -- {shlex.quote(public_key())} tailscale"
 
 
 def _probe(name, *options):

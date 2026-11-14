@@ -202,11 +202,16 @@ func gaps(ctx context.Context, name string, record map[string]any, errOut io.Wri
 		}
 	}
 	// an existing role, the reviewer's of a workspace, whose hand-in takes findings and refuses a
-	// quote its file does not hold
+	// quote its file does not hold; on the login a run's turn takes, as its provider's usual one
+	// may be signed out or spent while another has room
 	ask := strings.NewReplacer("{name}", name, "{workspace}", workspace,
 		"{pictures}", cmp.Or(strings.Join(shown, "\n"), "  none kept")).Replace(checkAsk)
+	account, _, err := usage.TurnAccount(model, "")
+	if err != nil {
+		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
+	}
 	var expired *worker.LoginExpired
-	switch _, _, err := worker.Turn(model, "reviewer-scratch", ask, workspace, into, "", worker.Given{Context: ctx}, errOut); {
+	switch _, _, err := worker.Turn(model, "reviewer-scratch", ask, workspace, into, "", worker.Given{Context: ctx, Account: account}, errOut); {
 	case errors.Is(err, worker.ErrInterrupted), errors.As(err, &expired):
 		return nil, "", err
 	case err != nil && !errors.Is(err, worker.ErrSilent):
@@ -384,13 +389,20 @@ func checker(name string, record map[string]any) (string, error) {
 	return order[0], nil
 }
 
-// goTurn is nil where Go runs that model's turn, errLeft where Python does.
+// goTurn is nil where Go runs that model's turn, on the login a run's turn takes
+// (usage.TurnAccount), errLeft where Python does.
 func goTurn(model string) error {
 	entry, err := config.ModelNamed(model)
 	if err != nil {
 		return err
 	}
-	if _, err := worker.Adapter(entry, ""); errors.Is(err, worker.ErrPython) {
+	account, _, err := usage.TurnAccount(model, "")
+	if errors.Is(err, usage.ErrPython) {
+		return errLeft
+	} else if err != nil {
+		return err
+	}
+	if _, err := worker.Adapter(entry, account); errors.Is(err, worker.ErrPython) {
 		return errLeft
 	}
 	return nil

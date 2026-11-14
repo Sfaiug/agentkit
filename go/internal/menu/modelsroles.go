@@ -18,8 +18,8 @@ const (
 
 // ModelsView is what the models screen, `r recommended` on `c`, draws: what each role Uses off
 // its Answer (matrix.Uses), Models naming a model on no row; how many of Total models are
-// Compared, and when the boards were Fetched; `▸` on the role At, by its place in quality.Roles,
-// unless the pointer is Away; Top the first line shown and Note what is said under the rest.
+// Compared, and when the boards were Fetched; the role At, by its place in quality.Roles,
+// highlighted unless the pointer is Away; Top the first line shown and Note what is said under the rest.
 type ModelsView struct {
 	Title    string
 	Answer   map[string]*quality.Said
@@ -71,7 +71,7 @@ func ModelsFrame(s terminal.Screen, view ModelsView) MatrixFrame {
 	return MatrixFrame{Panel(s, view.Title, time.Now().Format("15:04"), append(lines, under...), keys), top, spots}
 }
 
-// RoleStep is the role ↑/↓ and the wheel move `▸` to, by roles on from at, held at the first and
+// RoleStep is the role ↑/↓ and the wheel move the highlight to, by roles on from at, held at the first and
 // the last.
 func RoleStep(at, by int) int {
 	return min(max(at+by, 0), len(quality.Roles)-1)
@@ -116,8 +116,8 @@ func rolesSaid(s terminal.Screen, view ModelsView) []roleSaid {
 	return said
 }
 
-// roleLines is Python's models_body: per role `▸` where it is at (-1 for none), its word, the row it
-// uses and what follows, under `quality` and its unit wherever the unit changes.  A row too wide
+// roleLines is Python's models_body: per role its word, the row it uses and what follows, under
+// `quality` and its unit wherever the unit changes, the role at highlighted (-1 for none).  A row too wide
 // beside the words goes on the lines under its word (columned), what follows it staying on the
 // word's line, else on a line of its own under the row: a model is named in full and its numbers
 // shown whole (docs/cli-design.md).  Each line's row is its role's place in quality.Roles, -1 on a
@@ -125,10 +125,6 @@ func rolesSaid(s terminal.Screen, view ModelsView) []roleSaid {
 func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 	said := rolesSaid(s, view)
 	room := s.LayoutWidth()
-	mark := "▸"
-	if s.ASCII() {
-		mark = ">"
-	}
 	word, qualityWide, costWide := 0, terminal.Cells("quality"), 0
 	for i, one := range said {
 		word = max(word, terminal.Cells(matrix.ConfigRoles[quality.Roles[i]]))
@@ -156,9 +152,9 @@ func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 		models[i] = terminal.Plain(one.name + " " + one.effort)
 		full, tail = max(full, terminal.Cells(models[i])), max(tail, terminal.Cells(follows(one)))
 	}
-	wide := 2+2+word+2+full+tail <= room
-	beside := 2+2+word+tail <= room // what follows a row fits on its word's line
-	column := 2 + 2 + word          // where what follows a row begins
+	wide := 2+word+2+full+tail <= room
+	beside := 2+word+tail <= room // what follows a row fits on its word's line
+	column := 2 + word            // where what follows a row begins
 	if wide {
 		column += 2 + full
 	} else if !beside {
@@ -172,11 +168,7 @@ func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 			lines = append(lines, matrixRow{line: strings.Repeat(" ", column+2) +
 				s.Styled(right("quality", qualityWide)+"  "+right(unit, costWide), "dim"), row: -1})
 		}
-		pointer := " "
-		if i == at {
-			pointer = s.Styled(mark, "accent")
-		}
-		lead := "  " + pointer + " " + terminal.Pad(matrix.ConfigRoles[quality.Roles[i]], word)
+		lead := "  " + terminal.Pad(matrix.ConfigRoles[quality.Roles[i]], word)
 		own := []string{lead + "  " + models[i]}
 		if !wide {
 			own = []string{lead}
@@ -189,8 +181,12 @@ func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 		} else if after := follows(one); after != "" {
 			own = append(own, strings.Repeat(" ", column)+after)
 		}
-		for _, line := range own {
-			lines = append(lines, matrixRow{line: strings.TrimRight(line, " "), row: i})
+		for n, line := range own {
+			line = strings.TrimRight(line, " ")
+			if i == at {
+				line = s.Highlight(line, n == 0)
+			}
+			lines = append(lines, matrixRow{line: line, row: i})
 		}
 	}
 	return lines

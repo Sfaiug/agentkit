@@ -8,24 +8,21 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/history"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
 
-// AuditReport gives the tick a report and its loss from the CLI's one scoreboard reader.
-type AuditReport func(time.Time) (lines []string, loss string)
+// AuditReport is the week's board the CLI's scoreboard renders and its loss; false, having written
+// nothing, where the board is Python ak's to read.
+type AuditReport func(time.Time) (lines []string, loss string, read bool)
 
-// audit carries the audit seat's line into it, as Python's watch.tell_audit: the week's, its
-// report written with a bare history (weekly), else a stall's (stuck), each through the same
-// steps (tellAudit). A fresh seat uses the same launch as an owner's.
+// audit carries the audit seat's line into it, as Python's watch.tell_audit: the week's (weekly),
+// else a stall's (stuck), each through the same steps (tellAudit). A fresh seat uses the same
+// launch as an owner's.
 func (t *ticking) audit() error {
 	roles, on, err := config.Audit()
 	if err != nil || !on {
 		return err
-	}
-	if !history.Bare() {
-		return errLeft
 	}
 	file := statePath("audit.json")
 	state, err := t.weekly(file)
@@ -88,7 +85,10 @@ func (t *ticking) weekly(file string) (*run.Object, error) {
 		if t.report == nil {
 			return nil, errLeft
 		}
-		body, loss := t.report(now)
+		body, loss, read := t.report(now)
+		if !read {
+			return nil, errLeft
+		}
 		report := statePath(filepath.Join("audit", stamp+".md"))
 		if err := os.MkdirAll(filepath.Dir(report), 0o777); err != nil {
 			return nil, err

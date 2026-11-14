@@ -456,6 +456,30 @@ class JoinLine(Sandbox):
                 self.assertEqual([call.args for call in self.start.call_args_list],
                                  [(line,), (line,)])
 
+    def test_a_follower_starts_no_lander_as_the_driver_leaves(self):
+        # The driver starts one as it leaves; a second started before that one holds the line's
+        # lock checks the same pass beside it, however long the driver ran before it left.
+        run.merge(self.lp)    # parked, its driver this process
+        left = 1000 + 2 * job.JOB_PICKER_INTERVAL
+        clock, starts = [1000.0], []
+
+        class Waited(Exception):
+            pass
+
+        def sleep(seconds):
+            clock[0] += seconds
+            if clock[0] == left:
+                run.release_line(self.directory, self.lp.log)
+            if clock[0] > left + job.JOB_PICKER_INTERVAL:
+                raise Waited
+
+        self.start.side_effect = lambda *_args: starts.append(clock[0])
+        with patch.object(job.time, "time", side_effect=lambda: clock[0]), \
+                patch.object(job.time, "sleep", side_effect=sleep), self.assertRaises(Waited):
+            job.job_await(self.directory)
+        # the driver's as it left, then the follower's a picker interval after it last saw it
+        self.assertEqual(starts, [left, left - job.JOB_TICK + job.JOB_PICKER_INTERVAL])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
