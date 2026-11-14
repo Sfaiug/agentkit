@@ -576,11 +576,11 @@ def say_how_to_revert(lp, url, method):
     if method == "rebase":
         return
     try:
-        current = pr_head(lp.run_dir, url)
-        sha = current.get("merged") and current.get("merge_commit_sha")
-        if not sha:
-            raise config.Error("GitHub does not call it merged")
         api, owner, repo, number = pr_parts(url)
+        current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}")
+        sha = isinstance(current, dict) and current.get("merged") and current.get("merge_commit_sha")
+        if not sha:
+            raise config.Error(why or "GitHub does not call it merged")
         revert = f"git revert {'-m 1 ' if method == 'merge' else ''}{sha}"
         body = github_body((current.get("body") or "").rstrip(), lp.run_dir.name,
                            f"\n\n## How to revert\n\n```bash\n{revert}\n```\n")
