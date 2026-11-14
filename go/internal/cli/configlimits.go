@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"agentkit/internal/config"
@@ -16,9 +17,9 @@ import (
 // plain name (limitNames), its value and `default N` where that is not ak's default, and under the
 // rows the pointed one's lines: what it means, as a sentence of its own, then under `Review
 // rounds`' how the runs ended, and under each line limit how changes of each size did at its
-// value, read as the page opens.  ← and → move the pointed one a step (limitStep), saved to
-// config.toml at once.  The rows are read once and again after each save, as Python's page reads
-// the config it holds.
+// value, read as the page opens, then what those runs would have done at its value.  ← and → move
+// the pointed one a step (limitStep), saved to config.toml at once.  The rows are read once and
+// again after each save, as Python's page reads the config it holds.
 func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	ended := history.RoundEndings()
 	builds, own := history.FirstReviewSizes()
@@ -32,8 +33,7 @@ func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			return nil, false
 		}
 		for _, limit := range numbers.Limits() {
-			words := limitNames[limit.Key]
-			row := menu.PageRow{Label: words.name, Value: limitShown(limit.Value),
+			row := menu.PageRow{Label: limitNames[limit.Key].name, Value: limitShown(limit.Value),
 				Step: func(by int) func() string {
 					value := limitStep(limit.Key, limit.Value, by)
 					if value == nil {
@@ -47,24 +47,27 @@ func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			if limit.Value != limit.Default {
 				row.Aside = fmt.Sprint("default ", limit.Default)
 			}
-			if limit.Value == 0 { // what off does, said as its note until its lines say it (milestone 207h)
-				row.Note = words.off
-			}
 			var chart func(terminal.Screen) []string
+			var said string
 			switch limit.Key {
 			case "review_rounds":
 				chart = func(s terminal.Screen) []string { return menu.RoundsChart(s, ended) }
+				said = menu.RoundsSaid(ended, limit.Value.(int))
 			case "executor_lines":
 				chart = func(s terminal.Screen) []string {
 					return menu.SizeChart(s, builds, limit.Value, 100, "how often a build passed its first review, by size", "build")
 				}
+				said = menu.LinesSaid(builds, limit.Value, false)
 			case "orchestrator_lines":
 				chart = func(s terminal.Screen) []string {
 					return menu.SizeChart(s, own, limit.Value, 25, "how often an orchestrator's own pull request merged in its first round, by size", "")
 				}
+				said = menu.LinesSaid(own, limit.Value, true)
 			}
 			meant := strings.ToUpper(limit.Meaning[:1]) + limit.Meaning[1:] + "."
-			row.Under = func(s terminal.Screen) []string { return append(menu.Told(s, meant), chart(s)...) }
+			row.Under = func(s terminal.Screen) []string {
+				return slices.Concat(menu.Told(s, meant), chart(s), menu.Told(s, said))
+			}
 			rows = append(rows, row)
 		}
 		return rows, true
