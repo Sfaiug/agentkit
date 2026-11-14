@@ -40,7 +40,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from . import (command_help, config, gitcall, history, logins, matrix, spend, staffing,
-               terminal, turns, usage_probe, worker)
+               terminal, turns, usage_probe, usage_turn, worker)
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -266,10 +266,10 @@ def _cached_provider(provider, account=None):
     return prov if isinstance(prov, dict) else {}
 
 
-def _lock(provider, account=None):
-    """The file one provider's probe -- or one account's of it -- is taken under, and dated by."""
-    return config.STATE / (f"{provider}-probe.lock" if account is None
-                           else f"{provider}.{account}-probe.lock")
+def _lock(provider, account=None, kind="probe"):
+    """The file one provider's probe or turn -- or one account's -- is taken under, and dated by."""
+    return config.STATE / (f"{provider}-{kind}.lock" if account is None
+                           else f"{provider}.{account}-{kind}.lock")
 
 
 def _probe_every(cfg, provider):
@@ -323,17 +323,21 @@ def _cooling(provider, account=None, every=None):
     """
     every = PROBE_EVERY if every is None else every
     now = time.time()
-    try:
-        asked = _number(float(_lock(provider, account).read_text()))
-    except (OSError, ValueError):
-        asked = None
-    if asked is not None and 0 <= now - asked < every:
+    if _within(_lock(provider, account), every, now):
         return True
     try:
         until = _number(float(_retry_file(provider, account).read_text()))
     except (OSError, ValueError):
         return False
     return until is not None and now < until
+
+
+def _within(path, every, now):
+    """Whether the moment `path` holds is less than `every` seconds before `now`."""
+    try:
+        return 0 <= now - float(path.read_text()) < every
+    except (OSError, ValueError):
+        return False
 
 
 def _kept(cached, fresh, now):
@@ -425,7 +429,7 @@ def _meter_asked(prov):
             if isinstance(name, str) and (at := _number(value)) is not None}
 
 
-def _probe_gently(cfg, provider, account=None):
+def _probe_gently(cfg, provider, account=None, turn=False):
     """`_probe`, but at most once per cadence per provider across this whole host.
 
     Whoever asks -- the tick, an open menu, `ak usage`, a pick, a refused worker, a spent
@@ -448,12 +452,12 @@ def _probe_gently(cfg, provider, account=None):
     A provider that lists `accounts` is each of them read that way, every one with its own
     mark, under the provider: the provider's own fields are then the account a worker turn
     runs on next (`_gate_flags`).  What comes back is the record as the cache holds it, with
-    the mark in force on it.
+    the mark in force on it; with `turn`, inside the cadence, as a turn read it (`_read_by_turn`).
     """
     names = config.accounts(cfg, provider) if account is None else []
     if names:
         now = time.time()
-        read = {name: _without_past(_probe_gently(cfg, provider, name), now, "the adapter")
+        read = {name: _without_past(_probe_gently(cfg, provider, name, turn), now, "the adapter")
                 for name in names}
         return _gate_flags({provider: {"provider": provider, "accounts": read}}, now, cfg)[provider]
     lock = _lock(provider, account)
@@ -471,16 +475,57 @@ def _probe_gently(cfg, provider, account=None):
         fcntl.flock(handle, fcntl.LOCK_EX)
         # Whoever we waited for has written their answer by now, and it is this one.
         cached = _cached_provider(provider, account)
-        if _cooling(provider, account, _probe_every(cfg, provider)):
+        if not _cooling(provider, account, _probe_every(cfg, provider)):
+            now = time.time()
+            lock.write_text(repr(now))
+            fresh = _ask_probe(cfg, provider, now, account)
+            _note_retry(provider, fresh, time.time(), account)
+            _keep_probed(provider, account, cached, fresh)
+            # The mark on disk travels with the record that replaces it (`_onto`), not the one
+            # `cached` held: a mark made since, or a credit that lifted it since, is the later
+            # word.
+            return _patch(provider, _kept(cached, fresh, now), account)
+    # out of the lock, which the turn's reading is written under (`record_turn_meters`)
+    return _read_by_turn(cfg, provider, account, cached) if turn else cached
+
+
+def _read_by_turn(cfg, provider, account, cached):
+    """`cached`, or where a meter its harness's turns read (`turn_windows`) is spent in it and
+    not past its reset, what one turn on that login read (`usage_turn`), measured as it began:
+    between two asks of the endpoint a login with room is read by its own turns and seats, and
+    a spent one has neither, so a window back early showed up to eighteen minutes late.
+
+    One turn a login inside PROBE_EVERY, whoever refreshes: its lock file holds when the last
+    began, written under that lock, and a caller finding it held reads what is kept rather than
+    wait on the turn in flight.
+    """
+    try:
+        harness, _ = config.provider_harness(cfg, provider)
+    except config.Error:
+        return cached
+    windows, now = harness_plugin(harness).turn_windows, time.time()
+    if not any(isinstance(m, dict) and m.get("name") in windows and not _past(m, now)
+               and (_number(m.get("used")) or 0) >= 100 for m in cached.get("meters") or []):
+        return cached
+    # the usual login goes by None and `default`, by whether accounts are listed: one login
+    lock = _lock(provider, None if account == config.DEFAULT_ACCOUNT else account, "turn")
+    try:
+        handle = lock.open("a")
+    except OSError:
+        return cached
+    with handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
             return cached
-        now = time.time()
-        lock.write_text(repr(now))
-        fresh = _ask_probe(cfg, provider, now, account)
-        _note_retry(provider, fresh, time.time(), account)
-        _keep_probed(provider, account, cached, fresh)
-        # The mark on disk travels with the record that replaces it (`_onto`), not the one
-        # `cached` held: a mark made since, or a credit that lifted it since, is the later word.
-        return _patch(provider, _kept(cached, fresh, now), account)
+        began = time.time()     # under the lock, so never before the last turn began
+        if _within(lock, PROBE_EVERY, began):
+            return cached
+        lock.write_text(repr(began))
+        if record_turn_meters(cfg, provider, usage_turn.meters(harness, account), account,
+                              now=began, asked=True):
+            return _cached_provider(provider, account)
+    return cached
 
 
 def _keep_probed(provider, account, cached, fresh):
@@ -920,7 +965,7 @@ def collect(cfg, *, refresh=False):
                 return Readings(_gate_flags(providers, now, cfg))
         except (OSError, ValueError, TypeError, KeyError):
             pass
-    providers = {name: _without_past(_probe_gently(cfg, name), now, "the adapter")
+    providers = {name: _without_past(_probe_gently(cfg, name, turn=refresh), now, "the adapter")
                  for name in cfg["providers"]}
     # What is answered is what was written, a mark another worker made meanwhile included.
     providers = _store(cfg, providers, now, now)
@@ -1155,7 +1200,7 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
     return float(until)
 
 
-def record_turn_meters(cfg, provider, meters, account=None, now=None):
+def record_turn_meters(cfg, provider, meters, account=None, now=None, asked=False):
     """The meters a worker turn, or a seat's status render (`watch.hook_meters`), reported about
     the account it ran on become that reading.
 
@@ -1167,6 +1212,8 @@ def record_turn_meters(cfg, provider, meters, account=None, now=None):
     turn that said nothing changes nothing, and an older reading never replaces a
     newer one: the write shares the probe's own lock, so a probe in flight cannot
     write back the reading from before the turn. Returns whether anything was written.
+    `asked`: ak ran the turn to read them (`_read_by_turn`), so they were asked for as it
+    began, as a probe's are, and a fall they show ends a refusal's mark (`_fresh_window`).
 
     The usual login goes by two names, None and `default`, and its reading is kept where
     config.toml now says (`_on_disk`): under `default` where the provider lists it, else
@@ -1196,13 +1243,13 @@ def record_turn_meters(cfg, provider, meters, account=None, now=None):
     except OSError:
         handle = None
     if handle is None:
-        return _record_turn_meters(cfg, provider, fresh, account, measured)
+        return _record_turn_meters(cfg, provider, fresh, account, measured, asked)
     with handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
-        return _record_turn_meters(cfg, provider, fresh, account, measured)
+        return _record_turn_meters(cfg, provider, fresh, account, measured, asked)
 
 
-def _record_turn_meters(cfg, provider, fresh, account, measured):
+def _record_turn_meters(cfg, provider, fresh, account, measured, asked):
     """The read-modify-write itself, with the account's probe lock held."""
     cached = _cached_provider(provider, account)
     cached = cached if isinstance(cached, dict) else {}
@@ -1223,7 +1270,9 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     _keep(provider, account, fresh, measured, "turn")
     # Normalized as a probed meter is, because every reader of the snapshot reads one.
     new = {m["name"]: {**_normalized(m, measured), "measured_at": measured} for m in fresh}
-    asked = {name: at for name, at in _meter_asked(cached).items() if name not in new}
+    probed = {name: at for name, at in _meter_asked(cached).items() if name not in new}
+    if asked:
+        probed.update(dict.fromkeys(new, measured))
     merged = [new.get(m["name"], m) for m in old]
     merged += [meter for name, meter in new.items() if name not in held]
     prov = dict(cached)
@@ -1235,7 +1284,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
             prov.setdefault("via", via)
         except config.Error:
             pass
-    prov.update(meters=merged, probed_at=max(measured, stood or 0), probed_meters=asked,
+    prov.update(meters=merged, probed_at=max(measured, stood or 0), probed_meters=probed,
                 error=None, pace=max((m["pace"] for m in merged if m.get("pace") is not None),
                                      default=None))
     for key in ("fetched_at", "probe_error", "probe_failed_at", "stale_since"):
