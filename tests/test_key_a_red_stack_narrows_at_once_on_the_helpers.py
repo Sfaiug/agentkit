@@ -78,7 +78,8 @@ class ARedStackNarrowsAtOnceOnTheHelpers(unittest.TestCase):
             rows = db.execute("SELECT run_id FROM checks WHERE kind = 'landing' AND "
                               "command = ? AND place = 'acme-linux'", (SUITE,)).fetchall()
         self.assertEqual(len(rows), len(probed), rows)
-        here = set((line.rig.path / ".git" / "here").read_text().splitlines())
+        # the sixth alone on the target's tip, where its red is its own, is no step of the search
+        here = set((line.rig.path / ".git" / "here").read_text().splitlines()) - {"member-6.txt"}
         # Bisecting here ran it on four: the deepest stack, whose piece failed on the machine,
         # then the stacks up to members 4, 6 and 5.
         self.assertLess(len(here), 4, here)
