@@ -103,8 +103,7 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
     target's `tip`: the target is everybody's.  A suite split holds its line forever, and its repository while
     open.
     """
-    for directory in run_record.run_dirs():
-        other = run_record.read_state(directory) or {}
+    for directory, other in run_record.runs_now():
         if split:
             if (other.get("repo") == state.get("repo") and other.get("split_suite")
                     and (other["split_suite"] == split or followup_open(other))):

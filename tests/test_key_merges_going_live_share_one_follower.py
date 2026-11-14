@@ -23,9 +23,9 @@ HELPER = '#!/bin/sh\ntest -e "$HOME/live-ok" || { echo deploying; exit 1; }\n'  
 FORKED = 0x40   # PF_FORKNOEXEC: a fork yet to exec what it starts, running nothing of its own
 
 
-def followers(home):
-    """The project of each process following that Home's merges to live, as its RUN names it."""
-    mark, found = f"HOME={home.path}".encode(), Counter()
+def following(home):
+    """Each process following that Home's merges to live, by pid: the project its RUN names."""
+    mark, found = f"HOME={home.path}".encode(), {}
     for entry in Path("/proc").glob("[0-9]*"):
         try:
             argv = (entry / "cmdline").read_bytes().split(b"\0")
@@ -34,9 +34,14 @@ def followers(home):
         except (OSError, IndexError, ValueError):     # gone meanwhile, or not ours to read
             continue
         if mark in env and not flags & FORKED:
-            found.update(argv[at + 2].split(b"-")[2].decode() for at in range(len(argv) - 2)
-                         if argv[at:at + 2] == [b"watch", b"--live"])
+            found.update((int(entry.name), argv[at + 2].split(b"-")[2].decode())
+                         for at in range(len(argv) - 2) if argv[at:at + 2] == [b"watch", b"--live"])
     return found
+
+
+def followers(home):
+    """The project of each process following that Home's merges to live, as its RUN names it."""
+    return Counter(following(home).values())
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
