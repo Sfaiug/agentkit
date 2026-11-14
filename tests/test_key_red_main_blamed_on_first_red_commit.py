@@ -1,7 +1,8 @@
 """A red target's first red first-parent commit gets the after-merge blame, not its tip.
 
 Black-box through AK_BIN and akline: changes merged by acme-a, acme-b and acme-c pass
-until a marker appears. Named failures repeat on the tip, starting its repair at once.
+until a marker appears. Named failures repeat on the tip, starting its repair at once, and
+the line lands over them while it is under way.
 History keeps the culprit and each probe; old reds, flakes and a red that named no test blame
 nobody.
 """
@@ -97,12 +98,12 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
         self.assertEqual(self.blame(line), {"acme-b": "tip"})
         self.assertEqual(self.probes(line, b), [1, 1])
         self.assertEqual(self.probes(line, line.rig.head("ak/acme-b")), [])
-        before = (line.members[0] / "run.json").read_bytes()
         done = line.land()
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual(self.blame(line), {"acme-b": "tip"})
         self.assertEqual(self.probes(line, b), [1, 1])
-        self.assertEqual((line.members[0] / "run.json").read_bytes(), before)
+        # while the repair is under way, the member red in nothing else lands over its red
+        self.assertEqual(line.verdict(1)["over"], ["bad.sh"])
 
     def test_red_before_the_range_blames_nobody(self):
         line, (oldest, _, _, _) = self.line(old=True)

@@ -41,10 +41,7 @@ func (s Screen) Fade(text string, amount float64) string {
 		for i, channel := range rgb {
 			mixed[i] = int(math.RoundToEven(float64(channel)*(1-amount) + float64(back[i])*amount))
 		}
-		if s.depth == 24 {
-			return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", mixed[0], mixed[1], mixed[2])
-		}
-		return "\x1b[38;5;" + strconv.Itoa(xterm(fmt.Sprintf("%02x%02x%02x", mixed[0], mixed[1], mixed[2]))) + "m"
+		return "\x1b[" + s.ink(fmt.Sprintf("%02x%02x%02x", mixed[0], mixed[1], mixed[2]), "38") + "m"
 	}
 	var out strings.Builder
 	var rgb []int

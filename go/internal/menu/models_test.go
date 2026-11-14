@@ -10,10 +10,6 @@ import (
 	"agentkit/internal/terminal"
 )
 
-func answerOf(rows []quality.Row) map[string]*quality.Said {
-	return quality.Answer(rows, nil, nil)
-}
-
 func screenAt(t *testing.T, columns string) terminal.Screen {
 	t.Helper()
 	t.Setenv("COLUMNS", columns)
@@ -34,50 +30,17 @@ func modelRow(release, effort string, yours bool, value float64) quality.Row {
 	return quality.Row{Release: release, Name: release, Effort: effort, Values: values, Yours: yours}
 }
 
-func TestEveryWidthDrawsWithinItsRoomOrFolds(t *testing.T) {
+func TestEveryWidthSaysHowManyModelsAreCompared(t *testing.T) {
 	rows := []quality.Row{modelRow("acme", "max", false, 0.9), modelRow("acme", "high", true, 0.8), modelRow("bolt", "", true, 0.7)}
 	for _, columns := range []string{"1", "2", "13", "24", "30", "40", "60", "100", "200"} {
-		screen := screenAt(t, columns)
-		lines := ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), map[string]bool{"acme": true, "bolt": true}, 2, 0)
+		view := ModelsView{Answer: quality.Answer(rows, nil, nil), Compared: map[string]bool{"acme": true, "bolt": true}, Total: 2}
+		joined := strings.Join(ModelsLines(screenAt(t, columns), view), "\n")
 		// said at every width, going on at its words where its line is too narrow
-		if joined := strings.Join(lines, "\n"); !strings.Contains(strings.Join(strings.Fields(joined), ""), "comparingall2models") {
+		if !strings.Contains(strings.Join(strings.Fields(joined), ""), "comparingall2models") {
 			t.Errorf("at %s columns: %s", columns, joined)
 		}
-		if strings.Contains(strings.Join(lines, "\n"), "boards read") {
+		if strings.Contains(joined, "boards read") {
 			t.Errorf("at %s columns boards never read were said read", columns)
-		}
-	}
-}
-
-func TestNothingYoursRunsThePickSaysSo(t *testing.T) {
-	rows := []quality.Row{modelRow("acme", "max", false, 0.9)}
-	screen := screenAt(t, "100")
-	joined := strings.Join(ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), map[string]bool{"acme": true}, 1, 0), "\n")
-	if !strings.Contains(joined, "no harness of yours runs a model this good") || strings.Contains(joined, "r takes") {
-		t.Fatal(joined)
-	}
-}
-
-func TestARoleWithNoRowIsSaidNone(t *testing.T) {
-	screen := screenAt(t, "100")
-	joined := strings.Join(ModelsBody(screen, ModelsSaid(screen, answerOf(nil), nil), map[string]bool{"x": true}, 3, 0), "\n")
-	for _, want := range []string{"  orch · none", "  builds · none", "  reviews · none", "comparing 1 of 3 models"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("%q not in\n%s", want, joined)
-		}
-	}
-}
-
-func TestAnUnpricedBestIsSaidInTheHead(t *testing.T) {
-	best := modelRow("best", "max", false, 0.9)
-	best.Values.Delete("aa.intelligenceIndexEvaluations.frontiercode-2-0.costPerTask")
-	best.Values.Delete("aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask")
-	rows := []quality.Row{best, modelRow("far", "low", true, 0.2)}
-	screen := screenAt(t, "100")
-	joined := strings.Join(ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), map[string]bool{"best": true, "far": true}, 2, 0), "\n")
-	for _, want := range []string{"builds · best 100.0", "  pick"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("%q not in\n%s", want, joined)
 		}
 	}
 }

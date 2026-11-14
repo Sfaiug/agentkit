@@ -1,4 +1,4 @@
-"""A delivered PR opens with the task and recorded checks; the executor's words come last."""
+"""A PR ak opens starts with the task and recorded checks; the executor's words come last."""
 
 import json
 import sys
@@ -43,8 +43,8 @@ class PRBodyFromRecords(unittest.TestCase):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         prs = self.gh.prs()
         self.assertEqual(len(prs), 1, prs)
-        body = prs[0]["body"]
-        self.assertEqual(body, (self.run_dir / "pr-body.md").read_text())
+        body = (self.run_dir / "pr-body.md").read_text()
+        self.assertTrue(prs[0]["body"].startswith(body.rstrip()), prs[0]["body"])
         return body
 
     def test_goal_opens_with_the_task_title_and_goal_text(self):

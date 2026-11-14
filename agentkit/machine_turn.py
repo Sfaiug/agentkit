@@ -48,6 +48,12 @@ def _sessions(harness):
             config.manifest(harness).get("worker", {}).get("sessions", ())]
 
 
+def conversations(harness):
+    """The folders under HOME the harness's conversations are in, those `sessions` start from:
+    all of a turn's HOME that comes home, and what a standby's pass copies beside the logins."""
+    return {os.path.dirname(re.split(r"[*?[{]", place)[0]) for place in _sessions(harness)}
+
+
 def _conversation(harness, session):
     """The globs under HOME of the conversation `session`: it is what they match and all under
     that. An id with a `/` names no file, so an id a turn reported reaches nowhere else."""
@@ -278,8 +284,8 @@ def _home(away, harness, cwd, out_dir, home):
     travel."""
     from .turns import session_of    # here, not at the top: the worker calls this module
     try:
-        folders = {os.path.dirname(re.split(r"[*?[{]", place)[0]) for place in _sessions(harness)}
-        reply = helper._remote(away.alias, "collect", away.key, *folders, timeout=600)
+        reply = helper._remote(away.alias, "collect", away.key, *conversations(harness),
+                               timeout=600)
         if reply.returncode:
             return None
         # Its regular files by relative name alone, each part a name: nothing it sends reaches

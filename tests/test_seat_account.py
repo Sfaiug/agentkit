@@ -610,7 +610,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
             self.assertTrue(replenish(self.cfg, "openai", account="second")[0])
             self.now += watch.STALL_WAIT
             self.tick()
-        adapter.assert_called_once_with("codex", "reset", 60, "second")
+        adapter.assert_called_once_with("codex", "reset", 60, "second", words=[])
         self.replenish.assert_not_called()
         cached = json.loads((config.STATE / "usage.json").read_text())["providers"]["openai"]
         self.assertGreater(cached["accounts"]["default"]["exhausted_until"], self.now)

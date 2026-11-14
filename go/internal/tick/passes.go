@@ -78,6 +78,7 @@ func table(t *ticking) []pass {
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, checkoutsSeen, t.retire},
 		{"seat tokens", false, nil, seatTokens},
+		{"conversation names", false, nil, keepConversations},
 		{"history sync", false, nil, func() error {
 			if !history.Agree(t.log.line) {
 				return errLeft

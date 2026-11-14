@@ -48,7 +48,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, box, browser, command_help, config, front, gc, gitcall, handback,
-               history, host, login_refusals, look, notify, orch, owner, parsed, questions,
+               history, host, login_refusals, logins, look, notify, orch, owner, parsed, questions,
                seat_tokens, staffing, statusbar, transitions, turns, update, usage, versions,
                worker)
 from . import record as run_record
@@ -816,7 +816,8 @@ def continue_turns(cfg, log, accounts=False, names=None):
 
 
 def finish_own_lines(cfg, log):
-    """Finish a fixed ak line left in its composer, even after its retries were spent.
+    """Finish a fixed ak line, or one ak typed into the seat's conversation (`own_line`), left in
+    its composer, even after its retries were spent.
 
     The screen decides, without a mark: only that line alone gets its locked Enter.  A seat's
     `continue_turns` mark is the one exception: its line, a handover's too, was typed past an
@@ -835,14 +836,19 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
-                     key):
+
+        def ours(held):
+            # read again under the send lock: the seat may have moved to another conversation
+            return (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
+                    key, own_line(held, harness, session))
+
+        for line in ours(name):
             if not line or composer_holds(name, session, line, cfg, exact=True) != "line":
                 continue
             if (type_checked(session, line, log, harness, pending=True,
                              guard=lambda: notify.session_lock(name),
                              veto=lambda held: line != marked
-                             and owner_question(notify.last(held)))
+                             and (owner_question(notify.last(held)) or line not in ours(held)))
                     and line == marked):
                 replace_midturn(name, mark)
             break
@@ -1195,7 +1201,6 @@ def remind_worker_tokens(token_out, now=None):
     """Page the owner once a local day while a worker token ends within a login's window
     (`logins.REMIND_WITHIN`), as a login's end does: nearer than the ak screen's line alone
     says, and before it is every seat's word (`token_dead`)."""
-    from . import logins   # here, as the tick takes it: logins reads through the menu
     now = time.time() if now is None else now
     day = time.strftime("%Y-%m-%d", time.localtime(now))
     for harness, record in sorted(token_out.items() if isinstance(token_out, dict) else ()):
@@ -2672,9 +2677,7 @@ def unsent(name, harness, found, session, cfg=None):
             or found.get("state") != "draft"
             or not (seat_read(name).get("usage_wait") or _composer_open(harness, found))):
         return ""
-    # what ak typed there, whole, is its own to send (`composer_holds`), not the owner's
-    last = next(reversed([*entries(config.seat_file("input", name))]), None)
-    if last and composer_holds(name, session, str(last.get("text")), cfg, exact=True) == "line":
+    if own_line(name, harness, session):
         return ""
     return " ".join(str(found.get("evidence") or "").split())
 
@@ -3020,7 +3023,7 @@ def news_owed(name, mine, read=True):
     one, which is never typed, and one riding on its next prompt, `handback.ending_rides`).
     Only the first while no rule or hook `read` its screen: the harness of a seat just reopened
     is still drawing its prompt.  A move's line (`switch`) is none of them: it tells the seat
-    nothing, and waits only for its next quiet prompt."""
+    nothing, and waits only for a prompt that takes it (`takes_line`)."""
     marks = seat_read(name)
     if any(not owed.get("switch") for owed in marks.get("owed_lines") or ()):
         return "telling it what it missed while it was gone"
@@ -4206,8 +4209,8 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     and another's top goes above the read; or the harness's fold of a line longer than `[screen]
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
-    owner's.  It is also a composer read whole holding that line joined in order with the
-    others ak typed there last (`_joined`): a line drawn late joins the next.
+    owner's.  It is also a composer read whole holding that line joined in order with others
+    ak typed there (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
     scrolled composer, suffix or paste fold is no proof without a delivery mark.  `harness`,
     given, is the one a caller read the seat as, and the composer is read as that one's.
@@ -4236,19 +4239,41 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     # lines drawn joined are ak's only off a composer read whole: owner text can sit above a crop
     read = re.sub(r"\s+", "", "".join(
         (rows if exact else _composer_rows(harness, pane, exact=True)) or ()))
-    return "line" if read and whole in _joined(name, read) else "other"
+    return "line" if read and whole in [re.sub(r"\s+", "", typed)
+                                        for typed in _joined(name, read)] else "other"
+
+
+def own_line(name, harness, session):
+    """A line ak typed there that its composer, read whole, holds alone or joined (`_joined`),
+    else None: ak's to send, never the owner's unsent text.  On 14 Nov 2026 a line its harness
+    never took was back whole in a seat's composer after an idle compaction, eleven lines and a
+    day after ak typed it."""
+    held = re.sub(r"\s+", "", "".join(_composer_rows(harness, pane_text(session), exact=True)
+                                      or ()))
+    return next(reversed(_joined(name, held)), None) if held else None
 
 
 def _joined(name, held):
-    """The lines ak typed into that seat last, whitespace aside, that the composer text `held`
-    is all of joined in order, else none: a harness that draws a line late joins it to the next
-    one ak types there, and both are still ak's to send (22 Oct 2026)."""
-    typed = [re.sub(r"\s+", "", str(sent.get("text"))) for sent in entries(
-        config.seat_file("input", name))]
-    lines = []
-    while typed and len("".join(lines)) < len(held):
-        lines.insert(0, typed.pop())
-    return lines if "".join(lines) == held else []
+    """The lines ak typed one after another into that seat's current conversation that the
+    composer text `held` is all of, whitespace aside, joined in order, else none: one of them,
+    whichever, or several, as a harness that draws a line late joins it to the next one ak types
+    there, and both are still ak's to send (22 Oct 2026).  One typed into a conversation the seat
+    has left is no longer the seat's to be sent, and none is proven its own while its harness
+    names no conversation: receipts of two launches that named none look alike."""
+    seat = notify.conversation_of(name)
+    if seat is None or not seat[3]:
+        return []
+    plugin, conversation = seat[0], seat[3]
+    typed = [str(sent.get("text")) for sent in entries(config.seat_file("input", name))
+             if sent.get("harness") == plugin.name and plugin.went_into(sent) == conversation]
+    bare = [re.sub(r"\s+", "", line) for line in typed]
+    for end in range(len(bare), 0, -1):     # the latest first
+        start = end
+        while start and len("".join(bare[start:end])) < len(held):
+            start -= 1
+        if "".join(bare[start:end]) == held:
+            return typed[start:end]
+    return []
 
 
 def _composer_parts(chrome, raws, rows, at, stop):
@@ -4393,9 +4418,11 @@ def _free(harness, found):
     return found.get("state") == "at_prompt" and not _turn_in_flight(harness, found)[0]
 
 
-def takes_line(session, cfg=None, pane=None):
+def takes_line(session, cfg=None, pane=None, *, switch=False):
     """May a line be typed into that seat now: at its own prompt, or stopped on background work,
-    whose composer stays open and sends a typed line at once (`background` on that hook event)."""
+    whose composer stays open and sends a typed line at once (`background` on that hook event);
+    a move's line (`switch`) also in a turn, of a harness that takes one there (`[switch]
+    midturn`)."""
     if at_prompt(session, cfg=cfg, pane=pane):
         return True
     if any(session.get(key) for key in orch.CLOSED):
@@ -4408,12 +4435,14 @@ def takes_line(session, cfg=None, pane=None):
         if not pane.strip():
             return False
         found = live_state(session, harness, pane=pane, cfg=cfg)
+        midturn = switch and (config.manifest(harness).get("switch") or {}).get("midturn") is True
     except (config.Error, OSError):
         return False
-    return found.get("hooked_event") in marked_events(harness, "background")
+    return (found.get("hooked_event") in marked_events(harness, "background")
+            or midturn and _turn_in_flight(harness, found)[0])
 
 
-def quiet_prompt(session, held, cfg=None):
+def quiet_prompt(session, held, cfg=None, *, switch=False):
     """May a new line go into that seat, the one its send lock calls `held`?
 
     One capture under that lock, right before the first key, says all of it: the seat at its
@@ -4425,7 +4454,7 @@ def quiet_prompt(session, held, cfg=None):
         harness = seat_model(config.load() if cfg is None else cfg, held)[0]
     except (config.Error, OSError):
         return False
-    return bool(harness and takes_line(session, cfg=cfg, pane=pane)
+    return bool(harness and takes_line(session, cfg=cfg, pane=pane, switch=switch)
                 and not asking(held, harness, pane) and composer_draft(harness, pane) == "")
 
 
@@ -4763,8 +4792,9 @@ def _asks(session, name, text, log, cfg, answered):
 
 
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
-                   source="ak", stale=lambda held: False, answered=None):
-    """One line into a seat, and only while its harness sits at its own prompt.
+                   source="ak", stale=lambda held: False, answered=None, switch=False):
+    """One line into a seat, and only while its harness sits at its own prompt -- a move's line
+    (`switch`) in a turn too, where its harness takes one there (`takes_line`).
 
     The prompt is tested twice: once here, and once more inside the send lock, because two
     runs ending together would both find the seat free and the second would then type into
@@ -4841,7 +4871,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             kept_asked_first(dict(session, name=held))
             return _line_through(dict(session, name=held), where, held, mark, log, receipt, cfg,
                                  source=source)
-    if not takes_line(session, cfg=cfg):
+    if not takes_line(session, cfg=cfg, switch=switch):
         return False
     composed = []
 
@@ -4852,7 +4882,7 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
             return False        # the text is typed; what is left is the Enter that sends it
         composed.append(True)
         # text ak's editor keeps, or gave back, can be drawn late: only that editor reads it
-        return not quiet_prompt(session, held, cfg) or _editor_kept(session) != {}
+        return not quiet_prompt(session, held, cfg, switch=switch) or _editor_kept(session) != {}
 
     return (type_checked(session, text, log, None,
                          guard=lambda: notify.session_lock(session["name"]), veto=veto,
@@ -5131,7 +5161,8 @@ def tell_owed(name, log, cfg=None):
 
     asks = owed.get("switch") and owed.get("answered") != owed.get("typed")
     if type_at_prompt(seat, line, log, cfg=cfg, typed=owed.get("typed"), receipt=kept,
-                      stale=overtaken, answered=answered if asks else None):
+                      stale=overtaken, answered=answered if asks else None,
+                      switch=bool(owed.get("switch"))):
         if owed.get("switch"):
             seat_write(name, switched=time.time())     # written before its line is no longer owed
         owe_line(name, read[0])
@@ -5145,8 +5176,8 @@ def tell_moves(name, log, cfg=None):
     (`switch`): one types the line, the next answers what its harness asks in its composer's
     place, the next reads that composer back and types the next line, so a move is in within
     seconds.  Over once its lines stand as they were for MOVE_STANDS: a harness slower than
-    that, or busy in a turn, has its lines from the look its next event starts (`hook_look`), or
-    the tick.  One pass where none is owed."""
+    that, or busy in a turn that takes no move (`takes_line`), has its lines from the look its
+    next event starts (`hook_look`), or the tick.  One pass where none is owed."""
     last = stood = None
     while True:
         tell_owed(name, log, cfg)
@@ -7870,7 +7901,7 @@ def start_live_probe(run_dir):
                 return
             with os.fdopen(follower):   # on its stdin, held from its fork (`live_follower`)
                 orch.start_in_slice(
-                    [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
+                    [sys.executable, str(versions.installed_ak()), "watch", "--live", run_dir.name],
                     f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
                     target_slice=orch.run_slice_name(), stdin=follower)
     except (OSError, config.Error):

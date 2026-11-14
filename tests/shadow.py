@@ -465,10 +465,16 @@ def previews(found, python, go, home, scratch, until):
     try:
         for n, argv in enumerate(PREVIEWS):
             written = scratch / f"{n}.json"
-            shadows.append((written, subprocess.Popen(
-                [sys.executable, __file__, "--python", python, "--go", go, "--home", home,
-                 "--record", written, "--", *argv],
-                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)))
+            # A stop waits till `shadows` holds the run, or the run would outlive a caller that
+            # goes on.
+            try:
+                signal.pthread_sigmask(signal.SIG_BLOCK, STOPS)
+                shadows.append((written, subprocess.Popen(
+                    [sys.executable, __file__, "--python", python, "--go", go, "--home", home,
+                     "--record", written, "--", *argv],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)))
+            finally:
+                signal.pthread_sigmask(signal.SIG_UNBLOCK, STOPS)
         for _, proc in shadows:
             try:
                 proc.wait(max(0, until - time.monotonic()))
@@ -513,6 +519,9 @@ def main():
     why = None
     # A shadow gives the host's real work way: the build and every run at nice 19.
     os.nice(19)
+    # Not the stops a preview's shadow held to start this run: one already sent ends it here,
+    # before there is anything to clean up.
+    signal.pthread_sigmask(signal.SIG_UNBLOCK, STOPS)
     _on_stop(_stopped)
     until = time.monotonic() + WHOLE if every else math.inf
     scratch = Path(tempfile.mkdtemp(prefix="shadow-", dir="/var/tmp"))

@@ -21,7 +21,7 @@ AGENTKIT_ACCOUNT (`default` for the usual login), and answers:
         meter = meters.install(home, reset=True)
         meter.week("acme", "default", used=100, credits=12)
         akconfig.write(home, {"beta": {"harness": "echo", "provider": "acme"}})
-        assert meters.cell(home.ak("usage").out, "acme", "outlook") == "on credits"
+        assert meters.cell(home.ak("usage").out, "Acme", "outlook") == "on credits"
         assert "reset" not in [verb for verb, *_ in meter.calls()]
 """
 
@@ -88,7 +88,7 @@ def install(home, *, reset=False):
 
 
 def cell(out, label, heading):
-    """What `ak usage` printed in its table's row for `label` (`acme II`) under `heading`
+    """What `ak usage` printed in its table's row for `label` (`Acme II`) under `heading`
     (`held`, `a month`): from where that heading starts to where the next one does."""
     lines = out.splitlines()
     head = next(line for line in lines if line.startswith("provider "))

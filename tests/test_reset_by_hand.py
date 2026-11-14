@@ -51,18 +51,27 @@ class ResetByHand(unittest.TestCase):
         stack.enter_context(patch.object(usage, "_probe_every", return_value=0))
         # each subscription by the name its adapter is told: "" the usual login
         self.used, self.held, self.spent = {"": 100, "second": 100}, {"": 2, "second": 1}, []
+        # the kinds a usage answer counts its resets by, where it does; the kinds each spend
+        # named; and whether every usage ask is refused
+        self.kinds, self.named, self.refusing = {}, [], False
         until = time.time() + WEEK / 2
 
         def adapter(argv, env=None, **_kw):
             # `usage` is told its account on its command line, the reset verbs in their env
             account = (env[config.ACCOUNT_ENV] if env else argv[1].split("=", 1)[1])
-            verb = argv[-1]
+            verb = argv[1] if env else argv[-1]
             if verb == "reset":
                 self.spent.append(account)
+                self.named.append(argv[2:])
                 self.held[account] -= 1
                 self.used[account] = 0
-            data = ({"meters": [{"name": "weekly", "used": self.used[account],
-                                 "resets_at": until, "window_secs": WEEK}]} if verb == "usage"
+            counted = ({"resets": self.held[account], "reset_kinds": self.kinds[account]}
+                       if account in self.kinds else {})
+            data = ({"meters": [], "error": "unknown: HTTP 429 from acme.test"}
+                    if verb == "usage" and self.refusing
+                    else {"meters": [{"name": "weekly", "used": self.used[account],
+                                      "resets_at": until, "window_secs": WEEK}], **counted}
+                    if verb == "usage"
                     else {"available": self.held[account]} if verb == "reset-status"
                     else {"code": "reset", "available": self.held[account], "weekly_used": 0,
                           "resets_at": until})
@@ -107,6 +116,19 @@ class ResetByHand(unittest.TestCase):
         self.offered(1)                                   # Esc on the list spends nothing
         self.assertEqual(self.spent, ["second"])
 
+    def test_a_spend_of_a_kind_stands_as_its_own_answer_read_it(self):
+        # resets counted by kind, a spend whose answer names none, and every probe after it
+        # refused: the kind spent holds one less, and nothing puts back the week it replaced
+        self.kinds[""] = [{"kind": "weekly", "left": 1, "usable": True},
+                          {"kind": "Fable", "left": 1, "usable": True}]
+        usage.collect(self.cfg, refresh=True)
+        self.refusing = True
+        self.assertEqual(self.offered(1, "→ spend a Fable reset"),
+                         [([AGAIN, "→ spend a weekly reset", "→ spend a Fable reset"], AGAIN)])
+        self.assertEqual(self.named, [["Fable"]])
+        self.assertEqual(self.note, "ChatGPT I · 100% left")
+        self.assertRegex(self.rows()[0], r" · 1 weekly reset in hand$")
+
     def test_a_meter_reads_its_week_back_by_its_name_as_written(self):
         self.cfg["providers"]["openai"]["name"] = "Acme  Plan"     # spaced as its owner typed it
         usage.collect(self.cfg, refresh=True)
@@ -119,7 +141,7 @@ class ResetByHand(unittest.TestCase):
                 patch.object(usage, "replenish", return_value=(False, 1)) as replenish:
             self.assertEqual(self.offered(1), [([AGAIN], AGAIN)])   # not its own
             self.offered(2, "→ spend a reset")
-        replenish.assert_called_once_with(self.cfg, "acme", account=None)
+        replenish.assert_called_once_with(self.cfg, "acme", account=None, kind=None)
 
     def test_only_the_owners_act_spends_one(self):
         callers = [(path.name, inside) for path in sorted((REPO / "agentkit").rglob("*.py"))

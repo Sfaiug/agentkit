@@ -2072,8 +2072,12 @@ def adapter(harness, code=None):
     providers
         a harness that runs any provider it can log in to: an `id<TAB>name<TAB>mode` line each,
         those it can run first with `subscription` or `payg`, the rest with no mode.
-    reset-status / reset
-        optional, where the provider hands out usage-limit resets.
+    reset-status / reset [kind]
+        optional, where the provider hands out usage-limit resets: `reset-status` counts them
+        in `available`; `reset` spends one, of the kind `usage` names where it names kinds,
+        `code` `reset` only where one went, with the resets left in `available` and what it
+        read back after: every meter in `meters` and the count by kind in `reset_kinds`, as
+        `usage` says them, or the week alone in `weekly_used` and `resets_at`.
 
     `usage`, `auth`, `login` and `lend` are told the providers they answer for in
     $AGENTKIT_PROVIDER, space-separated; a harness that runs one provider may ignore it.  Each
@@ -2479,12 +2483,29 @@ def lists(cfg, provider, account):
     return not listed or (account or DEFAULT_ACCOUNT) in listed
 
 
-def account_label(cfg, provider, account, name):
-    """What a person reads for one of a provider's subscriptions: `name`, the provider's own,
-    and for one of several its place in `accounts` in roman numerals -- `Claude II`.  The
-    account's name in `accounts` is ak's own and is never shown; one no longer listed there
-    keeps it, since no place would say which one it is."""
-    listed = accounts(cfg, provider)
+# Each company's own name, for its provider where that names none of its own (provider_name); a
+# model sits under its harness's instead (menu.model_heading).
+NAMES = {"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok",
+         "google": "Gemini", "mimo": "MiMo"}
+
+
+def provider_name(cfg, provider):
+    """This provider's name wherever ak names it: its own `name` key -- the one its harness
+    gives it, written by `+ add` (`Z.AI Coding Plan`) -- else the company's, else its key
+    capitalised."""
+    entry = cfg["providers"].get(provider)
+    own = entry.get("name") if isinstance(entry, dict) else None
+    return (own.strip() if isinstance(own, str) and own.strip()
+            else NAMES.get(provider, provider.title()))
+
+
+def account_label(cfg, provider, account):
+    """What a person reads for one of a provider's subscriptions, wherever ak names it (a
+    screen, `ak usage`, a page): the provider's name, and for one of several its place in
+    `accounts` in roman numerals -- `Claude II`.  The account's name in `accounts` is ak's own
+    and is never shown; one no longer listed there keeps it, since no place would say which
+    one it is.  The account None is the provider's one login."""
+    name, listed = provider_name(cfg, provider), accounts(cfg, provider)
     if account not in listed:
         return name if account in (None, DEFAULT_ACCOUNT) else f"{name} {account}"
     if len(listed) < 2:

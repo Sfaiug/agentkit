@@ -130,6 +130,13 @@ def xterm_colour(rgb):
                key=lambda item: sum((a - b) ** 2 for a, b in zip(wanted, item[1])))[0]
 
 
+def ink(rgb, ground="38"):
+    """`rgb` as the code that draws it nearest above eight colours: the text's, or with `ground`
+    48 the background's."""
+    return (f"{ground};2;" + ";".join(map(str, bytes.fromhex(rgb))) if colour_depth() == 24
+            else f"{ground};5;{xterm_colour(rgb)}")
+
+
 def light_grey(rgb):
     """Is this a light grey, the one kind of colour a light background cannot draw as it is?"""
     r, g, b = (int(rgb[i:i + 2], 16) for i in (0, 2, 4))
@@ -173,8 +180,7 @@ def fade(text, amount):
 
     def tone(rgb):
         mixed = [round(c * (1 - amount) + b * amount) for c, b in zip(rgb or fore, back)]
-        return ("\033[38;2;{};{};{}m".format(*mixed) if depth == 24 else
-                f"\033[38;5;{xterm_colour(''.join(f'{c:02x}' for c in mixed))}m")
+        return f"\033[{ink(bytes(mixed).hex())}m"
 
     out, rgb, at = tone(None), None, 0
     for code in _SGR.finditer(text):
@@ -203,9 +209,21 @@ def height():
     return max(1, shutil.get_terminal_size((100, 24)).lines - 2 * _PAD)
 
 
-class _Padded:
-    """stdout `_PAD` cells in from every edge: each place a screen writes at, and the start of
-    each line it begins, moved in by them."""
+class _Screen:
+    """stdout as a screen leaves for the terminal (`screens`): painted in the theme in force, and
+    `_PAD` cells in from every edge.
+
+    Each write starts in the theme's background and text, puts them back after every reset and
+    ends in the terminal's own colours: every cell a draw, a frame or a clear touches is on the
+    background and text of no colour is the theme's, whichever helper drew it, and the terminal is
+    its own again between writes, for whatever has it next -- a program ak starts, a signal, the
+    shell.  Nothing is painted while a `Keyboard` has given the terminal back (`_GIVEN`), nor at
+    eight colours, whose tones read on any background.
+
+    Each place a screen writes at, and the start of each line it begins, is moved in by the
+    padding, and painted it too: a place on the first column takes the padding to its left, and
+    the first row's the rows above it.
+    """
 
     PLACES = re.compile(r"\x1b\[(?:(\d+);(\d+))?H|\r|\n")
 
@@ -217,30 +235,52 @@ class _Padded:
 
     def write(self, text):
         def moved(place):
-            if place.group() in "\r\n":
-                return f"{place.group()}\033[{_PAD + 1}G"
-            return f"\033[{int(place.group(1) or 1) + _PAD};{int(place.group(2) or 1) + _PAD}H"
-        self.stream.write(self.PLACES.sub(moved, text))
+            row, column = int(place.group(1) or 1), int(place.group(2) or 1)
+            to = (f"{place.group()}\033[{_PAD + 1}G" if place.group() in "\r\n" else
+                  f"\033[{row + _PAD};{column + _PAD}H")
+            return to + ("" if column > 1 else "\033[1J" if place.group().endswith("H")
+                         and row == 1 else "\033[1K")
+        out = self.PLACES.sub(moved, text) if _PAD else text
+        self.stream.write(_painted(out) if out and not _GIVEN and colour_depth() > 8 else out)
         return len(text)
 
 
-def inset():
-    """Leave the cells the popup this runs in asks for (PAD_ENV) blank inside its border.
+def _painted(text):
+    """`text` on the theme's background, in its text where it sets no colour (`_Screen`)."""
+    back, fore = ink(colour("background"), "48"), ink(colour("text"))
+    again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
+
+    def put_back(code):
+        parts, out = code[1].split(";"), []
+        while parts:
+            part = parts.pop(0)
+            out.append(again.get(part, part))
+            if part in ("38", "48"):    # its colour's own numbers, which are no reset
+                size = 4 if parts[:1] == ["2"] else 2
+                out, parts = out + parts[:size], parts[size:]
+        return f"\033[{';'.join(out)}m"
+    return f"\033[{back};{fore}m{_SGR.sub(put_back, text)}\033[0m"
+
+
+def screens(popup=False):
+    """Where stdout is a terminal, this process's screens leave for it through `_Screen`, painted;
+    in a `popup`, inside the cells it asks for (PAD_ENV) to be left blank inside its border.
 
     tmux 3.5a borders a popup but pads nothing inside the border, so the screens leave the
     padding themselves: they lay out to the room inside it (`width`, `height`), what they write
     is moved in by it, and a click is read back to the cell it means.  Anywhere the variable is
     not set -- a phone's popup, which spares no cell, and every screen outside one -- nothing
-    changes.
+    moves.
     """
     global _PAD
     try:
-        wanted = max(0, int(os.environ.get(PAD_ENV) or 0))
+        wanted = max(0, int(os.environ.get(PAD_ENV) or 0)) if popup else 0
     except ValueError:
         wanted = 0
-    if wanted and sys.stdout.isatty():
-        _PAD, sys.stdout = wanted, _Padded(sys.stdout)
-        sys.stdout.write("\033[H")    # what is written before a screen places itself is in too
+    if sys.stdout.isatty():
+        _PAD, sys.stdout = wanted, _Screen(sys.stdout)
+        if wanted:
+            sys.stdout.write("\033[H")    # what is written before a screen places itself is in too
 
 
 def plain(text, spaced=False):
@@ -367,8 +407,7 @@ def styled(text, kind):
         own = kind.startswith("#") and kind[1:]
         tone, emphasis = (basic_colour(own), "") if own else STATE_STYLES[word][3:]
         rgb = own or colour(word)
-        code = ("38;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4))
-                if depth == 24 else f"38;5;{xterm_colour(rgb)}" if depth == 256 else tone)
+        code = ink(rgb) if depth > 8 else tone
         if kind == "dim" and depth == 8:
             code = "2"  # the existing eight-colour notes
         elif emphasis:
@@ -783,6 +822,7 @@ GIVE = "\033[?1006l\033[?1003l\033[?25h\033[?1049l"
 HOLD, RELEASE = "\033[?2026h", "\033[?2026l"
 FRAME = "AK_MENU_FRAME"   # the descriptor a menu starting itself again leaves its last frame on
 _TAKEN = None      # the Keyboard that has the terminal now, or None
+_GIVEN = False     # one gave it back, and no screen is ak's: what is written keeps its colours
 _KEYED = b""       # what a keyboard sent past the key it was read for, or while `sense` asked
 _PRESSED = False   # the left button went down and has not been read coming up
 _ASKED = False     # a resize or a return from ^Z asked for a draw (`asked_again`)
@@ -870,21 +910,20 @@ class Keyboard:
 
     def take(self):
         """Keys one at a time from here on; True when there is a terminal to take at all."""
-        global _TAKEN, _UP
+        global _TAKEN, _UP, _GIVEN
         if self.fd is None:
             return False
         if _TAKEN is self:
             return True
         self.saved = termios.tcgetattr(self.fd)
         _TAKEN, _UP = self, []   # before anything changes, so a signal from here on gives it back
+        _GIVEN = not self.sequences[0]
         self._handle()
         attrs = termios.tcgetattr(self.fd)
         attrs[3] &= ~(termios.ICANON | termios.ECHO)
         attrs[6][termios.VMIN], attrs[6][termios.VTIME] = 1, 0
         termios.tcsetattr(self.fd, termios.TCSADRAIN, attrs)
         self._send(self.sequences[0])
-        if self.sequences[0]:
-            _last_frame()
         return True
 
     def give(self, held=False):
@@ -899,12 +938,13 @@ class Keyboard:
         ends the hold (HOLD).  Without, any hold is ended, so a notice or a crash in a program
         started under one shows at once.
         """
-        global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD, _UP
+        global _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD, _UP, _GIVEN
         if _TAKEN is not self:
             return
         self._send(HOLD + self.sequences[1] if held else self.sequences[1] + RELEASE)
         termios.tcsetattr(self.fd, termios.TCSADRAIN, self.saved)
         _TAKEN, _PRESSED, _POINTER, _AWAY, _HELD, _UP = None, False, None, False, None, None
+        _GIVEN = True
         for number, handler in self.kept.items():
             signals.signal(number, handler)
         self.kept = {}
@@ -994,7 +1034,8 @@ def sense():
     terminal answers, and answers in turn: once they are in, an OSC 11 answer not in before them
     is none, so a terminal that never answers it -- tmux, in a popup -- costs no wait.  The
     answers are read here and never as keys: anything typed while they were awaited is kept for
-    `read_key`, and one that comes later is `_sequence`'s.
+    `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
+    back up in what it found (`_last_frame`), the hold it was given back under hiding the wait.
     """
     global _RGB, THEME, _KEYED
     features = os.environ.get(FEATURES_ENV)
@@ -1026,6 +1067,7 @@ def sense():
     red, green, blue = ([int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
                         if colour else (0, 0, 0))
     THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK   # its luma
+    _last_frame()
 
 
 def _byte(fd, wait=None):
@@ -1424,10 +1466,7 @@ def backed_as(text, line, cell):
 def backed(line, rgb, first, last):
     """`line` with its cells `first` to `last`, counted from 1, on the background `rgb`, every
     style in them kept and any past its end blank; reversed at eight colours."""
-    depth = colour_depth()
-    return _on(line, "48;2;" + ";".join(str(int(rgb[i:i + 2], 16)) for i in (0, 2, 4))
-               if depth == 24 else f"48;5;{xterm_colour(rgb)}" if depth > 8 else "7",
-               first, last)
+    return _on(line, ink(rgb, "48") if colour_depth() > 8 else "7", first, last)
 
 
 def _on(line, back, first, last):

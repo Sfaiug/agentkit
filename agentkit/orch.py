@@ -2451,7 +2451,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     `account` reopens even a live pane on that subscription, without changing its selection
     or surrendering its conversation, and is its home from then on where its provider lists
     the one it had no more (`config.lists`). Ordinary resumes keep the account already
-    recorded.
+    recorded while its provider lists it, else take `listed_login`'s, homed the same way.
     `still` is `_start_harness`'s.  `line`, such a caller's, is what the conversation, where it
     comes back with its past, opens on.
     """
@@ -2479,20 +2479,26 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     orchestrator = selection["orchestrator"]
     harness = config.model(cfg, orchestrator)["harness"]
     recorded = seat_conversation(record, harness)
-    if account is not None:
-        provider = config.model(cfg, orchestrator)["provider"]
-        if account not in (config.accounts(cfg, provider) or [config.DEFAULT_ACCOUNT]):
-            raise config.Error(f"{name}: no {provider} account {account!r}")
-        if (session and session.get("legacy")) or not resumable(record):
-            raise config.Error(f"{name}: cannot change accounts without an owned conversation")
-        if account != (record.get("account") or config.DEFAULT_ACCOUNT):
-            ok, why = harness_plugin(harness).seat_auth(account)
-            if ok is not True:
+    provider = config.model(cfg, orchestrator)["provider"]
+    if account is None and config.lists(cfg, provider, record.get("account")):
+        account, homed = record.get("account"), {}
+    else:
+        if account is None:
+            # its login signed out (`config.lists`): it opens on a listed one, as a move would
+            account, (ok, why) = listed_login(cfg, orchestrator, usage.collect(cfg))
+            if ok is False:
                 raise config.Error(f"{name}: {account} cannot open a seat: {why}")
+        else:
+            if account not in (config.accounts(cfg, provider) or [config.DEFAULT_ACCOUNT]):
+                raise config.Error(f"{name}: no {provider} account {account!r}")
+            if (session and session.get("legacy")) or not resumable(record):
+                raise config.Error(f"{name}: cannot change accounts without an owned conversation")
+            if account != (record.get("account") or config.DEFAULT_ACCOUNT):
+                ok, why = harness_plugin(harness).seat_auth(account)
+                if ok is not True:
+                    raise config.Error(f"{name}: {account} cannot open a seat: {why}")
         homed = ({} if config.lists(cfg, provider, record.get("home_account"))
                  else {"home_account": account})
-    else:
-        account, homed = record.get("account"), {}
     # the directory it ran in, unless that is gone -- a run's worktree, a checkout since
     # deleted -- in which case the seat opens where a new one would rather than not at all.
     # Whether its harness has opened that conversation yet is still asked where it ran: a
@@ -4333,12 +4339,11 @@ def role_refusal(cfg, selected, providers):
 
 def role_texts(selected, name, marks):
     """The orch, exec and review marks of one model's row.  With no executor marked the
-    orchestrator builds everything, so its own exec mark is drawn filled, and dim."""
+    orchestrator builds everything, so its own exec mark is drawn filled."""
     builds = not selected["workers"] and name == selected["orchestrator"]
-    return ((marks[0] if name == selected["orchestrator"] else marks[1],
-             marks[2] if name in selected["workers"] or builds else marks[3],
-             marks[2] if name in selected.get("reviewers", selected["workers"]) else marks[3]),
-            builds)
+    return (marks[0] if name == selected["orchestrator"] else marks[1],
+            marks[2] if name in selected["workers"] or builds else marks[3],
+            marks[2] if name in selected.get("reviewers", selected["workers"]) else marks[3])
 
 
 def role_groups(cfg, selected, providers, **groups):
@@ -4408,10 +4413,9 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
     login once: installed is read off the filesystem, the seat login off the kept or
     picked account, the order of accounts off the cache. The same provider keeps its login
     while it lists it (`config.lists`), and a move within it that `in_place` takes in the
-    running harness asks none; another provider, or a login it lists no more, takes the first
-    of its accounts whose seat login passes, in the seat's order, else the first of them,
-    judged by what it said. No answer withholds nothing, the way a turn goes ahead on an
-    `auth` verb that said nothing.
+    running harness asks none; another provider, or a login it lists no more, takes
+    `listed_login`'s, judged by what it said. No answer withholds nothing, the way a turn goes
+    ahead on an `auth` verb that said nothing.
     """
     def provider_of(current):
         try:
@@ -4436,7 +4440,7 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
         return f"{model}: {harness} is not installed", None
     old_provider = provider_of(record["orchestrator"])
     new_provider = config.model(cfg, model)["provider"]
-    known, account = None, record.get("account")
+    account = record.get("account")
     # No meter refuses it: the owner, 12 Nov 2026, "Regardless of remaining usage I want to be
     # able to switch model and effort of any role."  A seat moved onto a spent model reads out of
     # usage and goes on when it is back, as any seat does.
@@ -4452,20 +4456,31 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
             return f"session: {name} has no saved models", None
         old_provider, account = provider_of(record["orchestrator"]), record.get("account")
     if new_provider != old_provider or not config.lists(cfg, new_provider, account):
-        accounts, account = config.accounts(cfg, new_provider), None
-        if accounts:
-            order = account_order(cfg, model,
-                                  providers.get(new_provider, {}).get("accounts") or {})
-            for cand in [*order, *(a for a in accounts if a not in order)]:
-                ok, why = harness_plugin(harness).seat_auth(cand)
-                if known is None or ok is True:
-                    account, known = cand, (ok, why)
-                if ok is True:
-                    break
-    ok, why = known if known is not None else harness_plugin(harness).seat_auth(account)
+        account, (ok, why) = listed_login(cfg, model, providers)
+    else:
+        ok, why = harness_plugin(harness).seat_auth(account)
     if ok is False:
         return f"{model}: {why}", None
     return "", account
+
+
+def listed_login(cfg, model, providers):
+    """(account, (ok, why)): the first login `model`'s provider lists whose seat login passes
+    (`seat_auth`), in the seat's order (`account_order` of the readings `providers` holds), else
+    the first of them, with what its harness said of it; None, and what it says of its one login,
+    for a provider listing none."""
+    entry = config.model(cfg, model)
+    plugin = harness_plugin(entry["harness"])
+    accounts = config.accounts(cfg, entry["provider"])
+    order = account_order(cfg, model, providers.get(entry["provider"], {}).get("accounts")
+                          or {}) if accounts else []
+    first = None
+    for account in [*order, *(a for a in accounts if a not in order)]:
+        said = plugin.seat_auth(account)
+        if said[0] is True:
+            return account, said
+        first = first or (account, said)
+    return first or (None, plugin.seat_auth(None))
 
 
 def _one_line(exc):

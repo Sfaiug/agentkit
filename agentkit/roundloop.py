@@ -1557,7 +1557,7 @@ def landing_fixer(lp, text, name):
         output = Path(failure["log"]).read_text(errors="replace")
         text += (f"\n\n## The final check failed. Fix the root cause as well.\n```\n"
                  f"{prompts.failing_blocks(output, lp.run_dir)}\n```")
-    summary = execute(lp, "fixer", text, name)
+    summary = execute(lp, "fixer", text + prompts.excused(failure or {}), name)
     pin_checkout(lp)
     if failure:
         # Save the actual fixer with its summary before a check or review can stop.

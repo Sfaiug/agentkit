@@ -105,13 +105,15 @@ def git_push(lp, *args):
     return gitcall.git_out(lp.wt, "push", *args)
 
 
-def github_body(text, run_id):
-    """Keep publication within GitHub's limit; the run retains the complete records."""
+def github_body(text, run_id, tail=""):
+    """`text`, then `tail`, within GitHub's limit: `text` is what is cut, as the run retains the
+    complete records."""
+    room = GITHUB_BODY_CAP - len(tail.encode("utf-8"))
     data = text.encode("utf-8")
-    if len(data) <= GITHUB_BODY_CAP:
-        return text
+    if len(data) <= room:
+        return text + tail
     note = f"\n\n[body truncated; complete findings and summaries are in agentkit run {run_id}]\n"
-    return data[:GITHUB_BODY_CAP - len(note.encode("utf-8"))].decode("utf-8", "ignore") + note
+    return data[:room - len(note.encode("utf-8"))].decode("utf-8", "ignore") + note + tail
 
 
 def pr_body(state):
@@ -467,8 +469,9 @@ def add_suite_trailer(lp, message, trailer):
 def merge_body(lp, head, url=None):
     checked = lp.state.get("final_check") or {}
     suite = gitcall.declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
+    # A tree landed over the target's own red tests (`land.red_part`) passed no whole suite.
     if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
-            and checked.get("sha") == head and checked.get("tree_sha")
+            and not checked.get("over") and checked.get("sha") == head and checked.get("tree_sha")
             and checked.get("tested", checked["tree_sha"]) == checked["tree_sha"]
             and checked["tree_sha"] == gitcall.git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
         body = f"Suite-Passed-Tree: {checked['tree_sha']}"
@@ -509,13 +512,13 @@ def require_review_pass(lp):
                         "resume the run to obtain review")
 
 
-def gh_json(cwd, *args, timeout=None):
+def gh_json(cwd, *args, timeout=None, once=False):
     """The parsed JSON a gh command prints, or None with the reason why not.
 
     A stop is never an empty answer: a timeout, or a prompt it was refused, raises Stopped,
     so no caller can deliver on the strength of a gh that said nothing at all.
     """
-    rc, out = gitcall.gh(cwd, *args, timeout=timeout)
+    rc, out = gitcall.gh(cwd, *args, timeout=timeout, once=once)
     if gitcall.stopped(rc, out):
         raise gitcall.Stopped(out)
     if rc != 0:
@@ -563,6 +566,31 @@ def merged(lp, url, method):
     lp.write()
     lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
     return True
+
+
+def say_how_to_revert(lp, url, method):
+    """Append `## How to revert` to the description of the PR this run's own merge call just
+    merged: the command undoing the one commit that merge made on the target.  Only that call
+    knows how the PR landed, so a merge found done any other way gets none, nor does a rebase,
+    which lands a commit per commit.  Each call is tried `once`: a failure is logged, never
+    waited out or retried, as the merge stands whatever they answer."""
+    if method == "rebase":
+        return
+    try:
+        api, owner, repo, number = pr_parts(url)
+        current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}", once=True)
+        sha = isinstance(current, dict) and current.get("merged") and current.get("merge_commit_sha")
+        if not sha:
+            raise config.Error(why or "GitHub does not call it merged")
+        revert = f"git revert {'-m 1 ' if method == 'merge' else ''}{sha}"
+        body = github_body((current.get("body") or "").rstrip(), lp.run_dir.name,
+                           f"\n\n## How to revert\n\n```bash\n{revert}\n```\n")
+        rc, out = gitcall.gh(lp.run_dir, *api, "-X", "PATCH", f"repos/{owner}/{repo}/pulls/{number}",
+                             "-f", f"body={body}", once=True)
+        if rc != 0:
+            raise config.Error(out[-400:] or "gh timed out")
+    except config.Error as exc:     # a stopped gh too: the merge is done whatever it answers
+        lp.log(f"WARN could not add how to revert it to {url}: {exc}")
 
 
 def is_delivery(lp, current, upstream):
@@ -682,7 +710,9 @@ def do_merge(lp, url, upstream):
                 # uses the remaining retries to re-check before authorizing a merge.
                 ready = current.get("mergeable") is True
         if rc == 0:
-            return merged(lp, url, method)
+            merged(lp, url, method)
+            say_how_to_revert(lp, url, method)
+            return True
         if lost:
             # the last attempt's 5xx may have merged too, and no re-check followed it
             if merged_anyway(lp, url, upstream):
@@ -854,7 +884,8 @@ def land_from_line(lp, upstream, deliver):
                                            "tested": wait.get("tested") or (
                                                landing.passed(turn, wait["land"]) or {}).get(
                                                    "tested", identity["tree_sha"]),
-                                           "suite": gitcall.declared_suite(lp.wt, lp.target, ref=tip)}
+                                           "suite": gitcall.declared_suite(lp.wt, lp.target, ref=tip),
+                                           **({"over": wait["over"]} if "over" in wait else {})}
                 lp.write()
                 result = deliver()
                 if "fix" in lp.state.get("waiting_on", {}):
@@ -979,7 +1010,8 @@ def landing_weight(lp):
     """Deliver a green verdict at its check's CPU weight (`land.start_line`): it is the same
     landing, and at a run's weight beside a line's check each delivery crawled while every member
     behind it waited (one merge every 55 s in a line of 53 on 11 Nov 2026; 25 at the check's).
-    A delivery that ends unmerged goes back to what a run has for the wait or repair ahead."""
+    A delivery that ends unmerged goes back to what a run has for the wait or repair ahead.
+    A resume takes the weight at its first step (`run.drive`); `ak run merge` takes it here."""
     from . import host, run  # here, not at the top: run imports this module
     unit = run.own_unit(lp.state)
     if unit:
@@ -1190,7 +1222,8 @@ def fail_pr_landing(lp, failure, landing=True):
     review, in the line or under its delivery, or that closed (`landing` off) is reviewed as a
     round, as any new head is, while rounds are left.
     """
-    text = prompts.saved_findings(lp.run_dir, lp.state) + "\n\n## Landing failed\n" + Path(failure["log"]).read_text()
+    text = (prompts.saved_findings(lp.run_dir, lp.state) + "\n\n## Landing failed\n"
+            + Path(failure["log"]).read_text() + prompts.excused(failure))
     path = lp.run_dir / "landing-findings.md"
     path.write_text(text)
     lp.findings = text

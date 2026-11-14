@@ -172,6 +172,8 @@ class V5af(unittest.TestCase):
                 return 0, "[]"
             if "/check-runs?" in endpoint or "/statuses?" in endpoint:
                 return 0, "[]"
+        if args == ("api", "repos/fixture/repo/pulls/1"):    # the read for a revert line
+            return 1, "gh: Not Found (HTTP 404)"
         raise AssertionError(f"unexpected gh: {args}")
 
     def launch(self, *cmds, rounds=3, flags=()):

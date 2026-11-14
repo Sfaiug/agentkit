@@ -10,8 +10,8 @@ import (
 	"agentkit/internal/terminal"
 )
 
-// RoleHead is the same role name on the config matrix and the models screen.
-func RoleHead(role int) string { return heads[quality.Roles[role]] }
+// RoleHead is a role's name on the config matrix, by its place in quality.Roles.
+func RoleHead(role int) string { return [...]string{"orch", "builds", "reviews"}[role] }
 
 type ConfigOption struct{ Name, Value string }
 

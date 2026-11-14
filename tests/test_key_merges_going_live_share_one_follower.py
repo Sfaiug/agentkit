@@ -70,8 +70,9 @@ class FollowedMerges(unittest.TestCase):
         census.start()
         self.addCleanup(lambda: stop.set() or census.join())
 
-    def merge(self, project, name):
-        """A passed run of the seat's, its merge recorded by `ak run merge`, then read; its dir."""
+    def merge(self, project, name, **state):
+        """A passed run of the seat's, `state` added to its record, its merge recorded by
+        `ak run merge`, then read; its dir."""
         rig, branch, run_id = self.rigs[project], f"add-{name}", f"20261106-1200-{project}-{name}"
         sha = rig.branch(branch, {f"{name}.txt": f"{name}\n"})
         pr = self.github.open_pr(rig, branch, title=f"Add {name}")
@@ -90,7 +91,7 @@ class FollowedMerges(unittest.TestCase):
             "review": {"executor": "opus", "reviewer": "astra", "executor_provider": "anthropic",
                        "reviewer_provider": "openai", "verdict": "PASS", "returncode": 0,
                        "done_when": True, "head_sha": sha,
-                       "tree_sha": rig.git("rev-parse", f"{sha}^{{tree}}")}})
+                       "tree_sha": rig.git("rev-parse", f"{sha}^{{tree}}")}, **state})
         for command in (("merge", run_id), ("status", run_id)):
             # Its seat reads the merge's ending, so only the deployment is left to hear.
             done = self.home.ak("run", *command, env={"AGENTKIT_SESSION": "acme"}, timeout=300)

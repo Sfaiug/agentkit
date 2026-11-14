@@ -52,7 +52,7 @@ class MergeDelivery(unittest.TestCase):
         self.assertEqual((pr["url"], pr["baseRefName"], pr["head"], pr["title"]), (
             self.state["pr"], "main", f"{self.rig.slug}:ak/add-retry-file", "Add retry file"))
         body = (self.run_dir / "pr-body.md").read_text()
-        self.assertEqual(pr["body"], body)
+        self.assertTrue(pr["body"].startswith(body.rstrip()), pr["body"])
         for line in ("- verdict: PASS", "- rounds: 1 of 3", "- executor: opus, reviewer: astra",
                      f"- run: {self.run_dir.name}"):
             self.assertIn(line, body.splitlines())

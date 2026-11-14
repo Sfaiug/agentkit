@@ -3,8 +3,9 @@
 A model the config runs that its harness's catalog does not list had no row, so nothing on the
 screen took it out though the page promises `■` for each model the config runs.  It is a `■` row
 after the listed ones, named as every screen names it, and Space takes it out of config.toml and
-back in as it was; so is one taken in on the page that a login then leaves out of the listing,
-and one on a harness whose providers cannot be read, the reason on a line after it.
+back in as it was; so is one taken in on the page, or in and out again, that a login then
+leaves out of the listing, and one on a harness whose providers cannot be read, the reason
+on a line after it.
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its
 harnesses the fakes of tests/fixtures/fakeadapter.py, the fake OpenCode listing `acme/nova-7-1`
 only until its `login` runs, or its `providers` failing, judged by what the terminal shows and
@@ -77,7 +78,8 @@ class ModelsListsWhatTheConfigRuns(unittest.TestCase):
         term.wait(lambda screen: "›   ■ Nova 7.1" in lines(screen))
         self.assertEqual(akconfig.read(home)["models"], given["models"])
 
-    def test_a_model_taken_in_keeps_its_row_once_a_login_leaves_it_unlisted(self):
+    def opencode(self):
+        """`Models` on `c`, OpenCode's list open: its home, fake and terminal."""
         home = Home()
         self.addCleanup(home.close)
         fake = fakeadapter.install(home, opencode="pass")["opencode"]
@@ -97,6 +99,10 @@ class ModelsListsWhatTheConfigRuns(unittest.TestCase):
         term.keys("Enter")
         term.wait(lambda screen: ticks(screen) == ["■ One 1", "□ Nova 7.1"]
                   and "›   ■ One 1" in lines(screen))
+        return home, fake, term
+
+    def test_a_model_taken_in_keeps_its_row_once_a_login_leaves_it_unlisted(self):
+        home, fake, term = self.opencode()
         term.keys("j", "Space")
         term.wait(lambda screen: "›   ■ Nova 7.1" in lines(screen))
         term.keys("j")
@@ -141,6 +147,26 @@ class ModelsListsWhatTheConfigRuns(unittest.TestCase):
         saved = akconfig.read(home)
         self.assertEqual((saved["models"], saved["providers"]),
                          (given["models"], given["providers"]))
+
+    def test_a_model_taken_in_and_out_keeps_its_row_once_a_login_leaves_it_unlisted(self):
+        home, fake, term = self.opencode()
+        term.keys("j", "Space")
+        term.wait(lambda screen: "›   ■ Nova 7.1" in lines(screen))
+        given = akconfig.read(home)["models"]["nova"]
+        term.keys("Space")
+        term.wait(lambda screen: "›   □ Nova 7.1" in lines(screen))
+        self.assertNotIn("nova", akconfig.read(home)["models"])
+        term.keys("j")
+        term.wait(lambda screen: any(line.startswith("›   Bolt") for line in lines(screen)))
+        term.keys("Enter")
+        term.wait(lambda screen: ticks(screen) == ["■ One 1", "□ Nova 7.1"]
+                  and "log in" not in screen)
+        self.assertTrue(fake.calls("login"))
+        term.keys("Down")
+        term.wait(lambda screen: "›   □ Nova 7.1" in lines(screen))
+        term.keys("Space")
+        term.wait(lambda screen: "›   ■ Nova 7.1" in lines(screen))
+        self.assertEqual(akconfig.read(home)["models"]["nova"], given)
 
 
 if __name__ == "__main__":

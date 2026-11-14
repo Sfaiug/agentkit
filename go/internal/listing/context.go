@@ -33,9 +33,9 @@ func askContext(ctx context.Context, harness, provider, account string) [][]stri
 	if ctx.Err() != nil {
 		return nil
 	}
-	script, _ := config.Lister(harness)
+	asker, _ := Lister(harness)
 	logins, err := config.ListingLoginsAdding(harness, provider, account)
-	if err != nil || script == "" {
+	if err != nil || len(asker) == 0 {
 		return nil
 	}
 	env, err := config.ChildEnv()
@@ -48,7 +48,7 @@ func askContext(ctx context.Context, harness, provider, account string) [][]stri
 		asking.Add(1)
 		go func() {
 			defer asking.Done()
-			answers[i] = listed(ctx, script, slices.Concat(env, told))
+			answers[i] = listed(ctx, asker, slices.Concat(env, told))
 		}()
 	}
 	asking.Wait()
@@ -61,10 +61,10 @@ func askContext(ctx context.Context, harness, provider, account string) [][]stri
 
 // listed is one login's answer, as Python's config._listed reads it: nothing for a call that
 // fails or outlasts its cap, and an `id<TAB>label<TAB>efforts` line for each model.
-func listed(parent context.Context, script string, env []string) (rows [][]string) {
+func listed(parent context.Context, asker []string, env []string) (rows [][]string) {
 	ctx, cancel := context.WithTimeout(parent, listingCap)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, script, "models")
+	cmd := exec.CommandContext(ctx, asker[0], slices.Concat(asker[1:], []string{"models"})...)
 	cmd.Env = env
 	said, err := catalogOutput(ctx, cmd)
 	if err != nil {

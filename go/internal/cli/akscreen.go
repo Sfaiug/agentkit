@@ -111,8 +111,10 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			panic(broke)
 		}
 	}()
-	if left := crossed(menuFrame); left != nil { // the frame the program before this exec left up
-		keyboard.Take() // stays up however long a read takes
+	left := crossed(menuFrame) // the frame the program before this exec left up
+	if left != nil {
+		keyboard.Take()  // stays up however long a read takes
+		keyboard.Sense() // in the theme it was painted in, the hold it was given back under hiding the wait
 		painter.Restore(left, keyboard.Screen())
 	}
 	// a restart's first frame waits on no read, and none waits on writing every seat's word down,
@@ -127,7 +129,9 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "attach")
 	}
 	keyboard.Take()
-	keyboard.Sense()
+	if left == nil {
+		keyboard.Sense()
+	}
 	var latest atomic.Pointer[reading]
 	latest.Store(&first)
 	// a restart leaves its sweep to the tick; an act waiting for one answers a kill as a key's wait does

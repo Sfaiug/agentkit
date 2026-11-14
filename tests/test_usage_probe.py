@@ -312,7 +312,7 @@ class GentleProbe(unittest.TestCase):
                    "reset": {"code": "reset", "available": 1, "weekly_used": 5,
                              "resets_at": NOW + WEEK}}
         self.stack.enter_context(patch.object(usage, "_adapter_json",
-                                              side_effect=lambda h, verb, *_: answers[verb]))
+                                              side_effect=lambda h, verb, *_, **_kw: answers[verb]))
         self.refused()
         self.now[0] = NOW + usage.PROBE_EVERY + usage.PROBE_TRUSTED_FOR + 1
         self.assertIn("429", usage.collect(self.cfg)["alpha"]["budget_reason"])
@@ -370,7 +370,7 @@ class GentleProbe(unittest.TestCase):
         self.assertEqual(prov["meters"][0]["elapsed"], 50.0)
         with patch.object(terminal, "width", return_value=170):
             rendered = usage.render(self.cfg, usage.collect(self.cfg), ["two"])
-        self.assertRegex(rendered, rf"\nmeta\s+one\s+0%\s+-\s+-\s+{when}\s+50%.*exhausted")
+        self.assertRegex(rendered, rf"\nMuse\s+one\s+0%\s+-\s+-\s+{when}\s+50%.*exhausted")
         # The menu draws the snapshot its probe thread refreshed, and that holds the record too.
         usage.collect(self.cfg, refresh=True)
         self.assertEqual(self.row("Muse"), f"empty until {when}")

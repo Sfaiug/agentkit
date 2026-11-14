@@ -1014,7 +1014,7 @@ class QuotaDry(unittest.TestCase):
                     "harness": config.provider_harness(cfg, provider)[0],
                     "meters": [self.meter(used[0] if provider == "openai" else 10)]}
 
-        def adapter_json(harness, verb, timeout, account=None):
+        def adapter_json(harness, verb, timeout, account=None, **_kw):
             asked.append(verb)
             used[0], resets[0] = 0, 0.0
             return {"code": "reset", "available": 0, "weekly_used": 0}

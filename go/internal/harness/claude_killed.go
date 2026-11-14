@@ -12,14 +12,15 @@ import (
 // all its stream's lines and those its session's transcripts hold from its harness receipt to
 // its last event; false where it is missing either or none is found.  The stream counts a
 // message's input and cache but only its first chunk of output; the transcript keeps its final
-// counts.  Python also names the session where a transcript's line counted, which the session's
-// next turn's share needs; Go names none yet, so these count this turn alone.
-func claudeKilledCounts(out string, init *run.Object) (any, []Counts, bool) {
+// counts.  They name init's session only where a transcript's line counted: one killed on a rented
+// machine brings none home, and this host's conversation, which a later turn resumes, holds none
+// of its messages.
+func claudeKilledCounts(out string, init *run.Object) (any, bool, []Counts, bool) {
 	events := filepath.Join(out, "events.jsonl")
 	began, err := os.Stat(filepath.Join(out, "harness"))
 	ended, err2 := os.Stat(events)
 	if err != nil || err2 != nil {
-		return nil, nil, false
+		return nil, false, nil, false
 	}
 	// st_mtime as Python's stat reckons it: nanoseconds since 1970 overflow a float's precision,
 	// so dividing them misplaces a message stamped exactly on either end of the span
@@ -36,7 +37,7 @@ func claudeKilledCounts(out string, init *run.Object) (any, []Counts, bool) {
 		path string
 		n    int
 	}
-	messages, order := map[any]Spend{}, []any{}
+	messages, order, held := map[any]Spend{}, []any{}, false
 	for _, path := range append([]string{events}, claudeTokenSources(record)...) {
 		lines, _ := jsonLines(path, nil)
 		for n, value := range lines {
@@ -49,6 +50,7 @@ func claudeKilledCounts(out string, init *run.Object) (any, []Counts, bool) {
 			if !counts || path != events && (spend.At < from || spend.At > to) {
 				continue
 			}
+			held = held || path != events
 			var key any = spend.Event
 			if spend.Event == "" {
 				key = line{path, n}
@@ -74,5 +76,9 @@ func claudeKilledCounts(out string, init *run.Object) (any, []Counts, bool) {
 			totals[at[spend.Model]].Spent[kind] += int64(count)
 		}
 	}
-	return nil, totals, len(totals) > 0
+	var session any
+	if held {
+		session = init.Get("session_id")
+	}
+	return session, false, totals, len(totals) > 0
 }

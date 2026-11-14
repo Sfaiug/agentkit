@@ -230,11 +230,14 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
              "tick or fails, or one of those kept is a link or under one on either machine.",
              "ak move acme-mini"),
     "standby": ("usage: ak standby ALIAS",
-                "On a client of ALIAS, copy ak's folder from that home to the same path here, but its\n"
-                "runs and checkouts.  It sends what changed, compressed, and what the home deleted goes\n"
-                "here too.  This machine keeps its own record of its server, ak's tmp folder, ak's\n"
-                "repository and its versions.  Refused on any other machine, or if one of those left\n"
-                "out or kept is a link here, or under one in ak's folder.",
+                "On a client of ALIAS, copy from that home to the same paths here each harness's logins,\n"
+                "every account's, and the folders its conversations are in, then ak's folder but its runs\n"
+                "and checkouts.  It sends what changed, compressed, and what the home deleted in those\n"
+                "folders goes here too; a login or folder the home lacks stays here.  This machine keeps\n"
+                "the rest of each harness's folders, and its own record of its server, ak's tmp folder,\n"
+                "ak's repository and its versions.  Refused on any other machine, or if a link here is\n"
+                "at one of those kept or left out, at a folder between it and ak's folder, or at a\n"
+                "folder between HOME and a harness's login or conversations.",
                 "ak standby acme-mini"),
 }
 
@@ -263,7 +266,7 @@ PURPOSES = {
     "fetch": "copy requested Mac files to this host",
     "macbridge": "macOS only: forward requested files to the server over SSH",
     "move": "copy this home to the same path on another machine",
-    "standby": "copy ak's folder from the server to the same path here",
+    "standby": "copy the server's logins, conversations and ak's folder to the same paths here",
 }
 
 

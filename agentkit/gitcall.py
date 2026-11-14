@@ -177,12 +177,12 @@ def local_cap():
     return min(LOCAL_CEILING, round(TOOL_CAP * max(1, host.load_per_core())))
 
 
-def tool_run(cmd, cwd=None, timeout=None, env=None):
+def tool_run(cmd, cwd=None, timeout=None, env=None, once=False):
     """(exit code, stdout, stderr) for every git and gh call this module makes, in `tool_env`
     as `env` changes it (None drops a variable), with `merge_config` for a git that merges.
 
-    Git's fetch, push and ls-remote, and gh get one timeout retry. Other calls stop so their
-    callers can recover any unfinished checkout edits. The code is None on timeout;
+    Git's fetch, push and ls-remote, and gh get one timeout retry, unless `once`. Other calls
+    stop so their callers can recover any unfinished checkout edits. The code is None on timeout;
     a refused prompt gets credential advice, no retry. The run's outcome names the next command.
     """
     # Repeating checkout edits can turn a timeout into an "already in progress" failure.
@@ -190,9 +190,10 @@ def tool_run(cmd, cwd=None, timeout=None, env=None):
     while cmd[0] == "git" and start < len(cmd) and cmd[start].startswith("-"):
         start += 2 if cmd[start] in guard.GIT_VALUED else 1     # git's own options, `-C`, `-c`
     args = cmd[start:]
-    retry = cmd[0] == "gh" or (cmd[0] == "git" and args and args[0] in ("fetch", "push", "ls-remote"))
+    remote = cmd[0] == "gh" or (cmd[0] == "git" and args and args[0] in ("fetch", "push", "ls-remote"))
     if timeout is None:
-        timeout = TOOL_CAP if retry else local_cap()    # every other call asks no remote
+        timeout = TOOL_CAP if remote else local_cap()    # every other call asks no remote
+    retry = remote and not once
     merges = cmd[0] == "git" and args and args[0] in MERGES
     for attempt in range(2):
         try:
@@ -321,7 +322,7 @@ def in_progress(wt, *hows):
     return any((own / name).exists() for how in hows for name in STOPS[how])
 
 
-def gh(cwd, *args, timeout=None):
+def gh(cwd, *args, timeout=None, once=False):
     """(exit code, output); the code is None when the command ran out of time.
 
     The PR commands are handed the PR's own URL and run from the run directory rather than the
@@ -330,12 +331,13 @@ def gh(cwd, *args, timeout=None):
 
     A run's call that fails while GitHub's own count says its API allowance is spent waits
     for the reset and asks again, for as long as GitHub says spent, so a checks wait, merge,
-    PR read or review post finishes late instead of failing.  Said once per reset.
+    PR read or review post finishes late instead of failing.  Said once per reset.  `once` is
+    one attempt and nothing more, for a call whose failure only costs what it would have said.
     """
     said = None
     while True:
-        code, out, err = tool_run(["gh", *args], cwd=cwd, timeout=timeout)
-        reset = allowance_reset(cwd) if code else None
+        code, out, err = tool_run(["gh", *args], cwd=cwd, timeout=timeout, once=once)
+        reset = allowance_reset(cwd) if code and not once else None
         if reset is None:
             return code, (out + err).strip()
         from . import turns     # turns imports this module
