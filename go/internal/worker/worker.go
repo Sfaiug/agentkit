@@ -105,7 +105,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 		env[key] = value
 	}
 	maps.Copy(env, harness.TurnEnv(model.Harness))
-	if err := receipts(out, model.Harness, env); err != nil {
+	if err := receipts(out, model, env); err != nil {
 		return 0, "", err
 	}
 	// The adapter's own stderr, a line it prints before it hands the harness stderr.log, is kept
