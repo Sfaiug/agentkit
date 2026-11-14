@@ -2,15 +2,15 @@
 left, or one a turn was interrupted in, for its done check and cleanup.  Its launch reports
 session A, where the owner asks for a retry button and a receipt email; `/new` opens B, firing no
 hook, where they say only "thanks"; each turn's Stop names its session.  The plan holds the
-button alone, every line done.  The seat does not read done, `ak orch check` quotes the email
-from a workspace holding A and B once each, and a reopen resumes B.  A turn in A again leaves the
-check reading each once; an Esc's Interrupt in a third session, where the owner asked for more,
-puts that ask in the check too and moves the seat nowhere; a Stop naming another session from a
-process that is not the seat's Muse leaves the seat where it was; and `ak run gc` ends neither A
-nor B once nobody wrote to them for 40 days, though it ends a session no seat holds.  Black-box
-on `AK_BIN`, a fake model (fakeadapter.py), and a seat opened by `ak orch` from a person's
-terminal on a fake muse that fires each hook its line carries as Muse 1.4.12 does, its sessions
-logged in Muse's store under the Home (tests/fixtures/musetui.py).
+button alone, every line done.  Then an Esc's Interrupt names a third session C, where the
+owner asked for more, and moves the seat nowhere.  The seat does not read done, `ak orch check`
+quotes the email from a workspace holding A, B and C's ask once each, and a reopen resumes B, the
+last Stop's.  A turn in A again leaves the check reading each once; a Stop naming another session
+from a process that is not the seat's Muse leaves the seat where it was; and `ak run gc` ends
+none of A, B and C once nobody wrote to them for 40 days, though it ends a session no seat holds.
+Black-box on `AK_BIN`, a fake model (fakeadapter.py), and a seat opened by `ak orch` from a
+person's terminal on a fake muse that fires each hook its line carries as Muse 1.4.12 does, its
+sessions logged in Muse's store under the Home (tests/fixtures/musetui.py).
 """
 
 import contextlib
@@ -64,7 +64,9 @@ class MuseNewKeepsLeftSession(unittest.TestCase):
         self.turn(self.a, FIRST, SECOND)
         self.b = str(uuid.uuid4())      # `/new`, which fires no hook
         self.turn(self.b, "thanks")
-        self.assertEqual(self.record()["conversation"], self.b, "the seat stayed on A")
+        self.c = str(uuid.uuid4())
+        self.turn(self.c, MORE, ended="Interrupt")
+        self.assertEqual(self.record()["conversation"], self.b, "the seat is not on B")
 
     def open(self, *args):
         """`ak orch acme` from a person's terminal: what its Muse said it opened, once it has."""
@@ -110,21 +112,16 @@ class MuseNewKeepsLeftSession(unittest.TestCase):
         read = self.checked.read_text()
         self.assertEqual([read.count(ask) for ask in asks], [1] * len(asks), read)
 
-    def test_the_owner_s_words_in_the_session_left_owe_a_check_that_finds_the_gap(self):
-        self.check(SECOND, " thanks\n")
+    def test_the_owner_s_words_in_the_sessions_left_owe_a_check_that_finds_the_gap(self):
+        self.check(SECOND, " thanks\n", MORE)
 
-    def test_reopening_the_seat_resumes_the_session_it_went_to(self):
+    def test_reopening_the_seat_resumes_the_session_of_its_last_stop(self):
         self.assertEqual(self.reopened_on(), self.b)
 
     def test_a_turn_back_in_the_session_left_reads_each_once(self):
         self.turn(self.a, "Go on.")
         self.assertEqual(self.record()["conversation"], self.a)
-        self.check(SECOND, " thanks\n")
-
-    def test_an_interrupted_session_s_ask_is_checked_and_the_seat_reopens_on_its_last_stop_s(self):
-        self.turn(str(uuid.uuid4()), MORE, ended="Interrupt")
         self.check(SECOND, " thanks\n", MORE)
-        self.assertEqual(self.reopened_on(), self.b)
 
     def test_a_stop_from_a_process_not_the_seat_s_muse_leaves_the_seat_where_it_was(self):
         other = str(uuid.uuid4())
@@ -138,9 +135,9 @@ class MuseNewKeepsLeftSession(unittest.TestCase):
         self.assertEqual(self.record()["conversation"], self.b)
 
     @unittest.skipUnless(boxable(), "no bwrap able to box a collection here")
-    def test_gc_ends_neither_session_the_seat_ran_a_turn_in(self):
+    def test_gc_ends_no_session_the_seat_ran_a_turn_in(self):
         free = self.home.write(f"{STORE}/{uuid.uuid4()}/session.jsonl", "{}\n").parent
-        folders = [self.home.path / STORE / self.a, self.home.path / STORE / self.b, free]
+        folders = [*(self.home.path / STORE / held for held in (self.a, self.b, self.c)), free]
         index = self.home.path / ".local/share/muse/session-index.db"
         with contextlib.closing(sqlite3.connect(index)) as db, db:
             db.execute("CREATE TABLE sessions (session_id TEXT PRIMARY KEY, session_dir TEXT,"
@@ -153,8 +150,8 @@ class MuseNewKeepsLeftSession(unittest.TestCase):
         # boxed apart from every process: no file one holds open keeps a session, only the seat
         done = self.home.run(*self.home.box(BOX), AK, "run", "gc", env=ROOM)
         self.assertEqual((done.code, done.err), (0, ""))
-        self.assertEqual([folder.exists() for folder in folders], [True, True, False])
-        self.check(SECOND)
+        self.assertEqual([folder.exists() for folder in folders], [True, True, True, False])
+        self.check(SECOND, " thanks\n", MORE)
 
 
 if __name__ == "__main__":
