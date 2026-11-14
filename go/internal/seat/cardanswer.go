@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/harness"
 	"agentkit/internal/history"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
@@ -58,8 +57,10 @@ func AnswerCard(name string, at float64, replies [][]string) bool {
 // of the notice names too, which the notice's answer counts; then the notice's own are answered.
 // Whether that answered the notice whole.
 func answerCard(name string, at float64, replies [][]string) (bool, error) {
-	conversation, known := conversationOf(name)
-	if !known || !notify.CardAnswerable(name) {
+	// Python's too: a seat of a harness Go does not know, among them one of no record, which
+	// watch.hook_look does not find
+	conversation, known := notify.ConversationOf(name)
+	if !known || config.SeatHarness(name) == "" || !notify.CardAnswerable(name) {
 		return false, errPython
 	}
 	// a question the notice asks, kept back again under a newer card, is that card's now
@@ -182,20 +183,4 @@ func replied(reply []string, question string) bool {
 	}
 	asked := notify.QuestionKey(shownWords(question))
 	return slices.ContainsFunc(said, func(text string) bool { return notify.QuestionKey(shownWords(text)) == asked })
-}
-
-// conversationOf is notify.conversation_of as an owner row names it, `<harness>:<id>`, nil where
-// the seat's harness says it holds none; false where Go cannot say which it holds, among them a
-// seat of no record, which watch.hook_look does not find.
-func conversationOf(name string) (any, bool) {
-	current, record, err := config.ResolveSession(name)
-	if err != nil || record == nil {
-		return nil, false
-	}
-	own := config.SeatHarness(current)
-	conversation, known := harness.Owned(own, record)
-	if own == "" || !known || conversation == "" {
-		return nil, own != "" && known
-	}
-	return own + ":" + conversation, true
 }

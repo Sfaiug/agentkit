@@ -32,7 +32,7 @@ func questionHome(t *testing.T) (string, func(string, string)) {
 	}
 	write(filepath.Join(bin, "tmux"), "#!/bin/sh\nprintf '0\\t1\\n'\n")
 	write(filepath.Join(home, ".agentkit", "config.toml"), "[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
-	write(seatFile("session", "acme", "json"), `{"orchestrator":"opus","cwd":"/code/acme","conversation":"conv-acme"}`)
+	write(seatFile("session", "acme", "json"), `{"orchestrator":"opus","cwd":"/code/acme","conversation":"conv-acme","id_source":"launcher"}`)
 	return home, write
 }
 

@@ -13,6 +13,7 @@ import (
 // word and last input.  False where that card is Python's to evaluate, the question written then
 // only where `kept`: Go reads no word but the one published since, so a question it just put to
 // the seat is kept on record for the word to turn, and any other is Python's, nothing written.
+// So is a question of a seat whose conversation Go cannot name (owed), nothing written.
 func Needs(name, text, source string, kept bool, published func(string) (string, any), errOut io.Writer) (bool, error) {
 	return needs(name, text, source, kept, false, looked(published), errOut)
 }
@@ -23,43 +24,50 @@ func needs(name, text, source string, kept, failure bool, asked Asked, errOut io
 	if Suppressed(false, errOut) {
 		return true, nil
 	}
-	// asking is the notice once it asks this, nil where Go does not read the one it replaces
-	asking := func(current string) (previous, notice *run.Object) {
+	// asking is the notice once it asks this and the owner's time it starts, nil where Go does
+	// not read the one it replaces or cannot name the seat's conversation
+	asking := func(current string) (previous, notice *run.Object, rows func()) {
 		previous = open(current)
 		if previous != nil && previous.Str("source") == source {
-			return previous, previous
+			return previous, previous, nil
 		}
-		notice, read := said(current, []Kept{{Text: text}}, previous, false)
-		if !read {
-			return previous, nil
+		notice, fresh, read := said(current, []Kept{{Text: text}}, previous, false)
+		rows, named := owed(current, notice, fresh)
+		if !read || !named {
+			return previous, nil, nil
 		}
 		notice.Set("source", source)
-		return previous, notice
+		return previous, notice, rows
 	}
-	write := func(current string, previous, notice *run.Object) error {
+	write := func(current string, previous, notice *run.Object, rows func()) error {
 		if notice == previous {
 			return nil
 		}
-		return writeNotice(current, notice)
+		if err := writeNotice(current, notice); err != nil {
+			return err
+		}
+		rows()
+		return nil
 	}
 	if kept {
 		known := true
 		err := Held(context.Background(), name, func(current string) error {
-			previous, notice := asking(current)
+			previous, notice, rows := asking(current)
 			if notice == nil {
 				known = false
 				return nil
 			}
-			return write(current, previous, notice)
+			return write(current, previous, notice, rows)
 		})
 		if err != nil || !known {
 			return known, err
 		}
 	}
 	var previous, notice *run.Object
+	var rows func()
 	var question bool
 	said := func(current string) (string, any) {
-		if previous, notice = asking(current); notice == nil {
+		if previous, notice, rows = asking(current); notice == nil {
 			return "", nil
 		}
 		word, since, is := asked(current, notice, time.Now())
@@ -75,5 +83,5 @@ func needs(name, text, source string, kept, failure bool, asked Asked, errOut io
 			return nil
 		}
 		return notice
-	}, func(current string) error { return write(current, previous, notice) })
+	}, func(current string) error { return write(current, previous, notice, rows) })
 }
