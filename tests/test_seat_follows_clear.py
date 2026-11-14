@@ -140,7 +140,8 @@ class SeatFollowsClear(Sandbox):
         self.assertEqual(self.record(), {
             **before, "conversation": "after-clear", "id_source": claude.SOURCE,
             "left": [{"harness": "claude", "conversation": "before-clear", "account": "default",
-                      "cwd": str(self.root)}]})
+                      "cwd": str(self.root),
+                      "transcript": str(claude.transcript_path(before, "before-clear"))}]})
         self.assertTrue(orch.resumable(self.record()))
         self.assertEqual(orch.seat_conversation(orch.records()["lagoon"]), "after-clear")
         self.assert_resume("after-clear")
@@ -172,6 +173,7 @@ class SeatFollowsClear(Sandbox):
     def test_nested_claude_and_workers_cannot_move_the_seat(self):
         before = self.record()
         for words in (["claude"], ["claude", "-p"], ["claude", "--print"],
+                      ["claude", "--session-id", "before-clear"],     # the seat's own words
                       ["node", "/fake/node_modules/@anthropic-ai/claude-code/cli.js"]):
             with self.subTest(words=words):
                 self.table.update({104: (102, words), 105: (104, ["sh", "-c", "hook"])})
@@ -230,9 +232,10 @@ class SeatFollowsClear(Sandbox):
         self.title("next-clear", "quay")
         self.hook(conversation="next-clear")
         self.assertEqual(self.record()["conversation"], "next-clear")
-        self.assertEqual(self.record()["left"], [
-            {"harness": "claude", "conversation": left, "account": "second", "cwd": str(self.root)}
-            for left in ("before-clear", "after-clear")])
+        cleared = [{"harness": "claude", "conversation": left, "account": "second",
+                    "cwd": str(self.root)} for left in ("before-clear", "after-clear")]
+        cleared[1]["transcript"] = str(claude.transcript_path(self.record(), "after-clear"))
+        self.assertEqual(self.record()["left"], cleared)   # each with its file, where one was written
         self.assertEqual(self.record()["account"], "second")
         self.assertEqual(config.resolve_session("lagoon"), "quay")
         self.assertEqual(claude.session_title(self.record()), "quay")

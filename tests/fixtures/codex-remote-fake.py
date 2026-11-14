@@ -63,10 +63,12 @@ if os.environ.get('FAKE_UNSUPPORTED') and args != ['--help']:
     (home / 'last-command.json').write_text(json.dumps(args))
     sys.exit(0)
 if args[:1] == ['app-server'] and 'FAKE_NATIVE' not in os.environ:
-    # npm's entry point, its child the native app server: two `codex` above each hook (0.167).
-    # Like npm's, it hands on a signal that would stop it and ends with its child, so a server
-    # still stopping (FAKE_STOP_GATE) holds its launch's cleanup.
-    native = subprocess.Popen([sys.executable, *sys.argv],
+    # npm's entry point, a script, its child the native app server: two `codex` above each hook
+    # (0.167), the native one Python here under the name npm's package keeps it by.  Like npm's,
+    # it hands on a signal that would stop it and ends with its child, so a server still stopping
+    # (FAKE_STOP_GATE) holds its launch's cleanup.
+    native = subprocess.Popen([str(Path(sys.argv[0]).parent / 'vendor/codex'), *sys.argv],
+                              executable=sys.executable,
                               env={**os.environ, 'FAKE_NATIVE': str(os.getpid())})
     for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda signum, frame: native.send_signal(signum))

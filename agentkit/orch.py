@@ -2584,12 +2584,14 @@ def loaded():
 
 
 def records(cfg=None):
-    """Let each harness reconcile its own evidence before anything claims a seat is resumable."""
+    """Let each harness reconcile its own evidence before anything claims a seat is resumable:
+    of the record as it stands under its lock, where `harness.claim` moves a seat, so a read from
+    before a move never writes back the conversation the seat left."""
     kept = config.session_records()
     for name, record in kept.items():
-        fields = seat_plugin(record, cfg=cfg).reconcile(record)
-        if fields:
-            kept[name] = config.update_session(name, **fields) or record
+        reconcile = seat_plugin(record, cfg=cfg).reconcile
+        if any(record.get(key) != value for key, value in reconcile(record).items()):
+            kept[name] = config.update_session(name, reconcile) or record
     return kept
 
 
