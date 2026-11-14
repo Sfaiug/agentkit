@@ -21,8 +21,9 @@ import (
 
 var opencodeSession = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 
-// opencodeConversation is the session that seat's launch reported into its receipt (opencode.py
-// `conversation`), "" where it reported none yet: OpenCode's TUI is never told an id.
+// opencodeConversation is the session that seat's record followed to, else the one its launch
+// reported into its receipt (opencode.py `conversation`), "" where neither names one yet:
+// OpenCode's TUI is never told an id.
 func opencodeConversation(record map[string]any) string {
 	session, _ := opencodeFound(record)
 	return session
@@ -30,8 +31,11 @@ func opencodeConversation(record map[string]any) string {
 
 // opencodeFound is opencodeConversation, and the error of a receipt that is there and cannot be
 // read, or is not UTF-8, as Python's raises where it reads strictly (harness.unread): one that is
-// gone names none.
+// gone names none.  The record comes first, as a follow whose receipt write failed keeps it alone.
 func opencodeFound(record map[string]any) (string, error) {
+	if session, _ := record["conversation"].(string); opencodeSession.MatchString(session) {
+		return session, nil
+	}
 	token, _ := record["opencode_launch"].(string)
 	if !launchToken.MatchString(token) {
 		return "", nil

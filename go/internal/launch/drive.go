@@ -76,6 +76,7 @@ func prepare(dir string, meta map[string]string, at place, warning string, flags
 			project = at.project
 		}
 		record.Set("policy", run.Fields(at.numbers.Said()...)) // a scratch run's too, as Python's prepare
+		record.Set("judged_on", at.on)
 		if at.repo == "" {
 			run.SetAll(record, "repo", nil, "scratch", true, "no_merge", true, "project", project)
 			return

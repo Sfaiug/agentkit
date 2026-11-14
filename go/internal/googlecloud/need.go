@@ -1,7 +1,6 @@
 package googlecloud
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -70,18 +69,6 @@ func comingUp(ledger *run.Object, listed []Machine, held map[string]int, now flo
 		seconds, answered := held[one.ID]
 		return !(answered && seconds >= 0) && now-one.Created < ready
 	})
-}
-
-// unrented is why no machine is rented for wanted MiB a vCPU where the cap leaves nothing, as
-// Python's _rent says it, the last of the best offers it tried: each falls short of a machine's
-// time to come up.
-func unrented(wanted int, offered []Offer, cap, left float64) string {
-	best := Best(wanted, offered)
-	if len(best) == 0 {
-		return fmt.Sprintf("nothing offered with %d MiB a vCPU", wanted)
-	}
-	return fmt.Sprintf("rents nothing: €%.2f of €%.2f spent this month or held to the machines' ends "+
-		"leaves less than %d minutes of %s", cap-left, cap, ready/60, best[len(best)-1].Name)
 }
 
 func needPath() string { return filepath.Join(config.Home(), "state", "google-cloud-need") }

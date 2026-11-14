@@ -197,7 +197,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	}
 	fmt.Fprintf(out, "%d older run(s) hidden; ak run status --history [--json] shows full history\n", hidden)
 	if showHistory {
-		fmt.Fprintln(out, strings.Join(append(scoreboard(screen, db, uncounted, now), sizeLines(db)...), "\n"))
+		fmt.Fprintln(out, strings.Join(append(readScoreboard(db, uncounted, now).render(screen), sizeLines(db)...), "\n"))
 	}
 	return 0
 }

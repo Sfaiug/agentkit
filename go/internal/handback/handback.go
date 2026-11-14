@@ -142,8 +142,13 @@ func Give(dir string, census []*run.Object, say func(string)) bool {
 // merge typed into the seat that launched it do, with any more marks; false where the record moved
 // on.
 func Told(dir string, record *run.Object, more ...any) bool {
-	return mark(dir, record, append([]any{"handed_back", now(), "reported", true, "handback_pending", nil, "handback_typed", nil,
-		"handback_note", nil, "handback_wait_reason", nil, "notification_pending", nil}, more...)...)
+	return mark(dir, record, toldMarks(more)...)
+}
+
+// toldMarks is the marks of an ending told to its seat, with any more.
+func toldMarks(more []any) []any {
+	return append([]any{"handed_back", now(), "reported", true, "handback_pending", nil, "handback_typed", nil,
+		"handback_note", nil, "handback_wait_reason", nil, "notification_pending", nil}, more...)
 }
 
 // saidLive is the marks of a line that says its change went live too, none for one that does not.
@@ -185,7 +190,12 @@ func history(record *run.Object) bool {
 // mark writes delivery marks onto the record as it stands, nil removing one, only while it is
 // still the attempt `snapshot` is of, as Python's mark_delivery; the snapshot takes them too.
 func mark(dir string, snapshot *run.Object, pairs ...any) bool {
-	err := run.Deliver(dir, func(current *run.Object) error {
+	return markBy(run.Deliver, dir, snapshot, pairs...)
+}
+
+// markBy is mark written by deliver: run.Deliver, or run.DeliverNow for a caller that never waits.
+func markBy(deliver func(string, func(*run.Object) error) error, dir string, snapshot *run.Object, pairs ...any) bool {
+	err := deliver(dir, func(current *run.Object) error {
 		if !sameAttempt(snapshot, current) {
 			return errMoved
 		}

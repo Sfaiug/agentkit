@@ -110,6 +110,13 @@ class HandIn(unittest.TestCase):
         self.assertEqual(self.rows()[1]["kind"], "follow-up")
         self.assertIn("abc123", self.rows()[1]["before"])
 
+    def test_a_path_keeps_its_leading_spaces_in_its_text(self):
+        (self.workspace / " api.py").write_text("wrong answer\n")
+        texts = [hand_in.item_text(hand_in.checked(
+            ["finding", f"{path}:1", "what", "why", "--quote", "wrong answer"], self.workspace))
+            for path in ("api.py", " api.py")]
+        self.assertEqual(texts[1], " " + texts[0])
+
     def test_a_path_or_symlink_outside_the_checkout_is_refused(self):
         (self.root / "outside.py").write_text("outside\n")
         (self.workspace / "link.py").symlink_to(self.root / "outside.py")

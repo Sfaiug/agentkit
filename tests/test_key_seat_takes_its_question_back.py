@@ -131,7 +131,7 @@ class ItsTurn(unittest.TestCase):
     def test_a_question_taken_back_ends_no_turn_even_the_one_it_was_asked_in(self):
         for ending in ("wait", "plan"):
             for reminded in (True, False):
-                with self.subTest(ending=ending, reminded=reminded), Home(tmux_log=False) as home:
+                with self.subTest(ending=ending, reminded=reminded), Home() as home:
                     hooks = Hooks(home)
 
                     def fire(seat, event, **payload):
@@ -167,7 +167,7 @@ class ItsTurn(unittest.TestCase):
 
 class NothingToTakeBack(unittest.TestCase):
     def test_a_seat_asking_nothing_says_so_and_outside_a_seat_it_is_refused(self):
-        with Home(tmux_log=False) as home:
+        with Home() as home:
             done = settled(home, "acme")
             self.assertEqual((done.code, done.out), (0, "acme: asks no question\n"), done.err)
             for env in ({}, {"AGENTKIT_SESSION": ""}):

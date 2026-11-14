@@ -19,7 +19,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from agentkit import config, orch, statusbar, usage, watch  # noqa: E402
+from agentkit import config, orch, staffing, statusbar, usage, watch  # noqa: E402
 from fixtures import pane  # noqa: E402
 
 NAME = "fix-api"
@@ -81,11 +81,13 @@ class UsualAccountFirst(unittest.TestCase):
         transcript.write_text('{"message":"unfinished task"}\n')
         self.meters(40, 0)
 
-    def meters(self, first, second, third=None):
+    def meters(self, first, second, third=None, cap=None):
+        """Each login's week `used`%, beside Fable's own `weekly_scoped` at `cap`% where given."""
         def reading(used, reset):
-            return {"provider": "anthropic", "resets": 0, "meters": [usage._normalized({
-                "name": "weekly_all", "used": used, "resets_at": reset,
-                "window_secs": 604800}, self.now)]}
+            week = {"name": "weekly_all", "used": used, "resets_at": reset, "window_secs": 604800}
+            caps = [] if cap is None else [{**week, "name": "weekly_scoped", "used": cap}]
+            return {"provider": "anthropic", "resets": 0,
+                    "meters": [usage._normalized(m, self.now) for m in [week, *caps]]}
         first = reading(first, self.now + 86400)
         second = reading(second, self.now + 3600)
         anthropic = {**first, "accounts": {"default": first, "second": second,
@@ -203,6 +205,40 @@ class UsualAccountFirst(unittest.TestCase):
         self.tick()
         self.assertEqual(config.session_records()[NAME]["account"], "default")
         self.assertEqual(len(self.commands), 1)
+
+    def logins(self, *names):
+        """config.toml listing these logins, each read a moment ago, so no read asks again."""
+        path = config.HOME / "config.toml"
+        path.write_text(re.sub(r"(?m)^accounts = .*$", f"accounts = {json.dumps(names)}",
+                               path.read_text()))
+        for name in names:
+            usage._lock("anthropic", name).write_text(repr(self.now))
+
+    # Opus is spent on `default` and `second`; `third` has its week, Fable's cap aside.
+    def test_a_login_removed_since_a_snapshot_is_not_read(self):
+        self.logins("default", "second", "third")
+        self.meters(100, 100, 0, cap=100)
+        held, cfg = usage.collect(self.cfg), config.load()
+        self.logins("default", "second")
+        self.assertIn("third", held["anthropic"]["accounts"])
+        self.assertEqual(usage.pick_order(cfg, held, ["opus"], quiet=True), [])
+        self.assertEqual(usage.account(cfg, "anthropic", "opus"), ("default", False))
+
+    def test_a_login_added_since_a_config_copy_is_read(self):
+        self.logins("default", "second", "third")
+        self.meters(100, 100, 0, cap=100)
+        read = usage.collect(self.cfg)
+        self.assertNotIn("third", config.accounts(self.cfg, "anthropic"))
+        self.assertEqual(usage.pick_order(self.cfg, read, ["opus"], quiet=True), ["opus"])
+        self.assertEqual(usage.account(self.cfg, "anthropic", "opus"), ("third", True))
+
+    def test_the_raw_cache_reads_no_login_removed_since(self):
+        self.logins("default", "second")
+        self.meters(100, 100, 0)
+        raw = staffing._cached_providers()
+        self.assertIn("third", raw["anthropic"]["accounts"])
+        self.assertEqual(staffing.executable_models(self.cfg, raw, ["opus"], self.now), [])
+        self.assertEqual(usage.account(self.cfg, "anthropic", "opus"), ("default", False))
 
     def test_worker_turn_prefers_another_account_and_falls_back_to_the_usual(self):
         self.meters(40, 0)

@@ -28,7 +28,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handback"
@@ -326,12 +325,6 @@ func python(path string, values map[string]string, bound config.Binding) bool {
 		!readable(slices.Collect(maps.Values(values))...) || name != "" && !seat.Votes(name)
 }
 
-// elsewhere is whether this process's surroundings leave a launch, or the run id names going on,
-// to Python: a seat's, or surroundings that do.
-func elsewhere(id string) bool {
-	return surroundings(id) || seated()
-}
-
 // surroundings is whether this process's surroundings leave a launch, or the run id names going
 // on, to Python: one Python's gate decides, or surroundings that do whatever the gate decides.
 func surroundings(id string) bool {
@@ -379,10 +372,11 @@ func runDepth() (int, bool) {
 
 // A place is what preflight settled of where a run it passes works: the repository, "" for a
 // scratch task, its base, target, project (taskProject) and numbers, the checks a round runs, the
-// run under way it starts beside, told --anyway, and the slot its gate let it into (admit).
+// run under way it starts beside, told --anyway, the slot its gate let it into (admit), and the
+// version installed as preflight began, which a run it passes was judged on (judge).
 type place struct {
 	repo, base, target, alongside string
-	project                       string
+	project, on                   string
 	numbers                       config.Numbers
 	every, once                   []string
 	admitted                      *admission
@@ -453,7 +447,7 @@ func roundsFor(path string, meta map[string]string) (int, error) {
 // writes queued for its slot.  A run it passes is admitted before it finds its base, which may
 // write origin/HEAD.
 func (l launcher) preflight(meta map[string]string, cmds []string, path, copied, title string, values map[string]string, flags map[string]bool) (string, string, place, error) {
-	var at place
+	at := place{on: installed()} // the ak whose refusals these are, read before they are
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
 		if reason != "" && gated(l.depth()) {
 			err = ErrPython
@@ -507,37 +501,10 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 	if at.project, err = taskProject(worked, path); err != nil {
 		return refuse("", "", err)
 	}
-	landing := at.repo != "" && !flags["--no-merge"]
-	at.target = cmp.Or(meta["target"], meta["base"])
-	suite := ""
-	if landing {
-		spelled := at.target
-		if spelled == "" {
-			if head, _, ok, err := git(at.repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err != nil {
-				return refuse("", "", err)
-			} else if ok {
-				spelled = head
-			}
-		}
-		suite = run.DeclaredSuite(at.repo, spelled)
-	}
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
-	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))
-	later := task.ChecksRefusal(at.every)
-	switch from := meta["from"]; {
-	case later != "" || from == "":
-	case at.repo == "":
-		later = copied + ": from: needs a repository; a scratch run has no branch to start from"
-	case flags["--no-worktree"]:
-		later = copied + ": from: needs a worktree; drop --no-worktree so the run gets its own checkout"
-	default:
-		branch, _, _, err := git(at.repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+from)
-		if err != nil {
-			return refuse("", "", err)
-		}
-		if branch == "" {
-			later = fmt.Sprintf("%s: from: %s is not a local branch", copied, commandhelp.Quote(from))
-		}
+	var later string
+	if at.every, at.once, later, err = laterRefusal(at.repo, copied, meta, cmds, flags); err != nil {
+		return refuse("", "", err)
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written

@@ -20,9 +20,10 @@ const freshFor = 86400 // seconds offers are kept: a listing takes a minute
 // its end, with no price kept, past the cap, with no work marked still starting or idle at all, or
 // idle idleFor goes back, the first reason said; the routes are written anew, those that answered
 // set up serving. Then, while ak may rent with work marked, offers kept a day or without zones are
-// listed anew, and a need noted where the cap leaves nothing says why no machine is rented. A need
-// noted is taken. False, nothing written, leaves the pass to Python: marks Go cannot read, or a
-// need noted while ak may rent with work marked and the cap leaves money, which may rent.
+// listed anew, and a need noted, while no machine comes up, rents (rent). A need noted is taken.
+// False, nothing written, leaves the pass to Python: marks Go cannot read, or a need noted while ak
+// may rent with work marked and Google lists a quota limit in the regions offered, which Python's
+// rent counts machines against.
 func Watch(line string) (bool, error) {
 	active, cap := config.CloudBudget()
 	work, known := config.MachineWork("")
@@ -59,7 +60,21 @@ func Watch(line string) (bool, error) {
 		spent, _ = ledger.Num("spent")
 		money = left(cap, spent, ledger, at)
 	}
-	if _, err := os.Lstat(needPath()); renting && err == nil && money > 0 {
+	// Listed before anything is written, as a need's limits are read in the regions the rent takes.
+	// A listing that fails leaves the offers kept, and the calls after it their own, as Python's
+	// pass gives back before it lists.
+	stale := renting && (!possible(keptAt) || at-keptAt >= freshFor ||
+		slices.ContainsFunc(offered, func(o Offer) bool { return len(o.Zones) == 0 }))
+	var listing error
+	if stale {
+		was := unanswered
+		var fresh []Offer
+		if fresh, listing = Offers(); listing == nil {
+			offered = fresh
+		}
+		unanswered = was
+	}
+	if _, err := os.Lstat(needPath()); renting && err == nil && len(limits(offered)) > 0 {
 		return false, nil
 	}
 	wanted := noted(work)
@@ -103,19 +118,19 @@ func Watch(line string) (bool, error) {
 	if err != nil || !renting {
 		return true, err
 	}
-	if !possible(keptAt) || at-keptAt >= freshFor || slices.ContainsFunc(offered, func(o Offer) bool { return len(o.Zones) == 0 }) {
-		if offered, err = Offers(); err == nil {
+	if stale {
+		if err = listing; err == nil {
 			err = Keep(offered)
 		}
 	}
 	if err != nil || wanted == 0 || !read || comingUp(ledger, listed, held, at) {
 		return true, err
 	}
-	// as Python's rent reads the key a machine is made with before it asks Google anything more
-	if _, err := os.ReadFile(secret("google-cloud-ssh") + ".pub"); err != nil {
+	said, err := rent(ledger, wanted, cap, money, offered, listed)
+	if err != nil {
 		return true, err
 	}
-	return true, save(latePath(), run.Encode(append(late, unrented(wanted, offered, cap, money)))+"\n")
+	return true, save(latePath(), run.Encode(append(late, said))+"\n")
 }
 
 // save replaces a state file whole through its .tmp, as Python's config._write_json and _serve

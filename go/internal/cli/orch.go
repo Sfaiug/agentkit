@@ -31,7 +31,7 @@ func validateOrch(args []string) string {
 		case "ended", "front":
 			// tmux's hooks' hidden verbs, which read their own words (orchOpen)
 			return ""
-		case "why", "rules", "stop", "check", "look":
+		case "why", "rules", "stop", "check", "look", "pair":
 			if len(rest) != 1 {
 				if args[0] == "stop" {
 					return "usage: ak orch stop <name>"

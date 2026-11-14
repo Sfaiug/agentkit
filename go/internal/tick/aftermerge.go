@@ -156,14 +156,14 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 			return nil
 		}
 	}
-	keeps, err := keepsHistory(t.dry)
-	if err != nil {
-		return err
-	}
 	name, check, target := pending.Str("run"), pending.Get("check"), cmp.Or(pending.Str("target"), "main")
 	if t.dry {
 		t.log.line(fmt.Sprintf("would hand run %s back for %s on %s: %s", name, run.Text(check), target, pending.Str("line")))
 		return nil
+	}
+	keeps, err := keepsHistory()
+	if err != nil {
+		return err
 	}
 	told, err := t.tellBreak(name, pending.Str("session"), key, pending.Str("line"), pending.Dict("typed"), func(mark *run.Object) error {
 		pending.Set("typed", mark)

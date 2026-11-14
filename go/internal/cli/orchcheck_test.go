@@ -58,7 +58,6 @@ func TestOrchCheckReadsEveryRecordBeforeItWritesAnything(t *testing.T) {
 			write(t, filepath.Join(home, ".agentkit", "state", "pictures-acme.jsonl"), `{"at": 1793872800, "name": "shot-\udcff.png", "data": "aGVsbG8="}`+"\n")
 			return ""
 		}},
-		{"a reviewer on a provider's accounts", config("accounts = [\"backup\"]\n"), 3, "ak orch check: not implemented in Go yet\n", func(*testing.T, string) string { return "" }},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			home := sandbox(t)
