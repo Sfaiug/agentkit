@@ -1,8 +1,9 @@
 """tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of seven fake
 Gos, Python's ak with one thing more, is named by the kind of that one thing; the Home keeps
-every byte and modification time; a box's HOME starts as the home is; a stop while a box starts
-leaves nothing of it running; and where no box can be built, nothing runs."""
+every byte and modification time; a box's HOME starts as the home is; a stop while a box or a
+preview starts leaves nothing of it running; and where no box can be built, nothing runs."""
 
+import math
 import os
 from pathlib import Path
 import shlex
@@ -13,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REPO, Home, _strays, boxable
@@ -136,6 +138,47 @@ class Shadowed(Shadowing):
                 finally:
                     sys.settrace(None)
                 self.assertEqual(_strays(self.home.root, self.home.tmux_dir), [])
+
+    def test_a_stop_while_a_preview_starts_leaves_nothing_running(self):
+        program, held = self.fake("ak", "exec sleep infinity"), self.fakes / "held"
+        scratch = Path(tempfile.mkdtemp(dir=self.fakes))
+        found = [None] * len(shadow.PREVIEWS)
+
+        def previews():
+            shadow.previews(found, program, program, self.home.path, scratch, math.inf)
+
+        self.enterContext(mock.patch.dict(os.environ, PATH=f"{self.fakes}:{os.environ['PATH']}"))
+        # Each preview's box check tells the signals it holds off, and builds no box.
+        tell = ("import signal, sys; print(*map(int, signal.pthread_sigmask(signal.SIG_BLOCK, ())),"
+                " file=open(sys.argv[1], 'a')); sys.exit(1)")
+        self.fake("bwrap", "exec " + shlex.join((sys.executable, "-c", tell, str(held))))
+        previews()
+        self.assertEqual([set(map(int, line.split())) & set(shadow.STOPS)
+                          for line in shadow._lines(held)], [set()] * len(shadow.PREVIEWS))
+        # A box check that never ends: a preview left running stays so.
+        self.fake("bwrap", "exec sleep infinity")
+        started = []
+        self.addCleanup(lambda: [(each.terminate(), each.wait()) for each in started])
+        for stop in shadow.STOPS:
+            with self.subTest(stop.name):
+                self.addCleanup(signal.signal, stop,
+                                signal.signal(stop, signal.default_int_handler))
+
+                def trace(frame, event, _):     # the stop, the moment a preview's Popen returns
+                    if (frame.f_code is subprocess.Popen.__init__.__code__
+                            and frame.f_back.f_code is shadow.previews.__code__):
+                        if event == "return":
+                            started.append(frame.f_locals["self"])
+                            os.kill(os.getpid(), stop)
+                        return trace
+
+                sys.settrace(trace)
+                try:
+                    with self.assertRaises(KeyboardInterrupt):
+                        previews()
+                finally:
+                    sys.settrace(None)
+                self.assertEqual([each.args for each in started if each.poll() is None], [])
 
     def test_a_box_starts_its_home_as_the_home_is(self):
         def acl(*entries):  # each (tag, permissions, id), as Linux keeps a POSIX ACL
