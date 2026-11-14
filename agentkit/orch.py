@@ -4492,14 +4492,38 @@ def switch_lines(cfg, name, model, effort=None):
              "pane": pane} for key in keys]
 
 
-def effort_back(name, model, effort, was):
-    """`model`'s orchestrator effort in that seat's record back at `was`, a move at `effort`
-    having failed, where the record still holds `effort` there: a move made since keeps its own,
-    and every other key stays as it stands."""
+def take_efforts(cfg, name, model, effort):
+    """`model`'s efforts in that seat's record as a move onto it runs them, at `effort` where
+    given (config.orchestrating_at), its entry's where the record holds none (config.own_efforts):
+    written ahead of the move's fields, which then give it none, in one hold of the record's lock
+    so nothing saved meanwhile counts as the move's.  (before, after): its efforts as the record
+    held them, None for none, and as written, for effort_back."""
+    taken = []
+
+    def take(data):
+        moved = config.own_efforts(cfg["models"], name, {**data, "orchestrator": model})
+        efforts = (moved.get("efforts") if effort is None
+                   else config.orchestrating_at(cfg["models"], moved, model, effort))
+        taken[:] = [(data.get("efforts") or {}).get(model), (efforts or {}).get(model)]
+        return efforts
+    config.change_efforts(name, take)
+    return taken
+
+
+def effort_back(cfg, name, model, before, after):
+    """`model`'s efforts in that seat's record back at `before` from `after` (take_efforts), a
+    move having failed, so an entry it gave the model goes and its config's apply again.  Where a
+    step since changed them, it keeps its own and only the move's orchestrator effort goes back,
+    to the one it ran at before; every other model stays as it stands."""
     def back(data):
         efforts = dict(data.get("efforts") or {})
-        if (efforts.get(model) or {}).get("effort") == effort:
-            efforts[model] = {**efforts[model], "effort": was}
+        now = efforts.get(model)
+        if now == after and before is None:
+            efforts.pop(model, None)
+        elif now == after:
+            efforts[model] = before
+        elif now and now.get("effort") == (after or {}).get("effort"):
+            efforts[model] = {**now, "effort": (before or cfg["models"][model])["effort"]}
         return efforts
     config.change_efforts(name, back)
 
@@ -4529,16 +4553,14 @@ def switch_in_place(cfg, name, chosen, effort):
                 return None
             if (watch.seat_read(name).get("usage_wait") or {}).get("continue"):
                 lines.append({"line": watch.ACCOUNT_LINE})
+            taken = []
             try:
-                if effort is not None:
-                    config.change_efforts(name, lambda data: config.orchestrating_at(
-                        cfg["models"], data, model, effort))
+                taken = take_efforts(cfg, name, model, effort)
                 config.update_session(name, **chosen)
                 watch.owe_line(name, None, *lines)
             except (config.Error, OSError):
-                if effort is not None:
-                    effort_back(name, model, effort,
-                                config.at_efforts(cfg, record)["models"][model]["effort"])
+                if taken:
+                    effort_back(cfg, name, model, *taken)
                 config.update_session(name, **{key: record.get(key) for key in chosen})
                 raise
             watch.seat_write(name, usage_wait=None)
@@ -4581,20 +4603,13 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
     and gives it back where that launch fails, so it holds the effort the last launch ran at.
     """
     from . import watch   # here, not at the top: watch imports this module
-    taken = []    # `model`'s orchestrator effort as the record held it before `effort`
-
-    def at_effort(data, was=None):
-        """`data`'s efforts with `model`'s orchestrator effort at `effort`
-        (config.orchestrating_at), the one replaced put in `was`."""
-        if was is not None:
-            was[:] = [config.at_efforts(cfg, data)["models"][model]["effort"]]
-        return config.orchestrating_at(cfg["models"], data, model, effort)
+    taken = []    # `model`'s efforts as the hold's own write found and wrote them (take_efforts)
 
     def given_back():
-        """The effort `taken` back, the launch at `effort` having failed (effort_back)."""
-        if taken:     # set by the hold's own write, not the command's
+        """`model`'s efforts back as `taken` holds them, the launch having failed (effort_back)."""
+        if taken:
             try:
-                effort_back(name, model, effort, taken[0])
+                effort_back(cfg, name, model, *taken)
             except (config.Error, OSError):
                 pass    # the note returned already says the restart failed
 
@@ -4662,7 +4677,8 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
         cwd = ran_in if ran_in.is_dir() else seat_cwd()
         at = time.time()
         held = config.at_efforts(cfg, record if effort is None   # at the seat's own efforts
-                                 else {"efforts": at_effort(record)})
+                                 else {"efforts": config.orchestrating_at(cfg["models"], record,
+                                                                          model, effort)})
         if kept:
             (cmd, opens_on), conversation = resume_command(held, model, kept, ran_in, seat=name,
                                                            account=account, line=line), kept
@@ -4691,8 +4707,7 @@ def switch_orchestrator(cfg, name, model, providers=None, asked=None, effort=Non
         # look before it would follow the old model's last answer back (watch.follow_model).
         with watch.announcing(name):
             try:
-                if effort is not None:
-                    config.change_efforts(name, lambda data: at_effort(data, taken))
+                taken[:] = take_efforts(cfg, name, model, effort)
                 config.update_session(name, **chosen)
             except OSError as exc:
                 given_back()
