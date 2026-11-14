@@ -8,7 +8,6 @@ each turn in the worker's box; only their exit codes and the verdict lines they 
 import os
 import json
 from pathlib import Path
-import select
 import shlex
 import shutil
 import subprocess
@@ -158,29 +157,30 @@ esac
         # an echo whose every answer ends with what `command` prints
         fixture = (REPO / "tests/fixtures/adapters/echo.sh").read_text()
         self.adapter("echo", fixture.replace(
-            "    exit 0\n", f'    {command} >>"$out/final.md"\n    exit 0\n', 1))
+            "    exit 0\n", f'    {{ {command}; }} >>"$out/final.md"\n    exit 0\n', 1))
 
     def leaky(self, planted=".echo/AGENTS.md"):
         """An echo that says what stands at `planted`, a glob under its HOME, as its turn runs.
         The box hides that place from the turn, so this test carries it past: a thread answers
         each turn's read of a pipe in the adapters' folder, which the box shows, with what
         stands there then, the word too if the check planted one."""
-        pipe = Path(tempfile.mkdtemp(dir=self.adapters), "planted")
-        os.mkfifo(pipe)
+        pipes = Path(tempfile.mkdtemp(dir=self.adapters))
+        answer, done = pipes / "planted", pipes / "read"
+        for pipe in (answer, done):
+            os.mkfifo(pipe)
 
-        def answer():
+        def answering():
             while True:
-                with open(pipe, "wb", buffering=0) as turn:     # opened as a turn opens it
-                    turn.write(b"".join(p.read_bytes() for p in self.home.glob(planted)) + b"\0")
-                    # The turn reads up to the NUL and lets go: polled for nothing, the pipe
-                    # wakes this only then, so the next open is the next turn's.
-                    gone = select.poll()
-                    gone.register(turn, 0)
-                    gone.poll()
+                with open(answer, "wb") as turn:    # opened as a turn opens it
+                    turn.write(b"".join(p.read_bytes() for p in self.home.glob(planted)))
+                # The turn says on the other pipe that it read to the end, and cannot end before
+                # it is heard: the next open is the next turn's, however late this thread runs.
+                with open(done, "rb") as turn:
+                    turn.read()
 
         # a daemon: it waits for the next turn as long as this process runs
-        threading.Thread(target=answer, daemon=True).start()
-        self.says(f'IFS= read -r -d "" said <{shlex.quote(str(pipe))}; printf %s "$said"')
+        threading.Thread(target=answering, daemon=True).start()
+        self.says(f"cat -- {shlex.quote(str(answer))}; : >{shlex.quote(str(done))}")
 
     def test_a_word_planted_where_the_harness_reads_on_its_own_never_comes_back(self):
         # smoke.sh's HOME is a sandbox apart from the caller's: the planted file goes after
