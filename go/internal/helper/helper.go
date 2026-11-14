@@ -180,13 +180,17 @@ func (a *Away) Piece(ctx context.Context, shard string, out io.Writer) int {
 }
 
 // Named are the tests the ended piece of shard named there as failed (`AK_FAILED`), or with named
-// "flaky" as failed, then passed (`AK_FLAKY`), from the file piece.sh gives it, never from what it
-// printed; none where the machine does not answer.
+// "flaky" as failed, then passed (`AK_FLAKY`), "ran" as run (`AK_RAN`), or "not-there" as not
+// there (`AK_NOT_THERE`), from the file piece.sh gives it, never from what it printed; nil where
+// the machine does not answer, told apart from one that names none.
 func (a *Away) Named(shard, named string) []string {
 	code, said := ask(a.Alias, 30*time.Second, nil, "failed", a.key, a.vm(shard), named)
-	var tests []string
+	if code != 0 {
+		return nil
+	}
+	tests := []string{}
 	for _, test := range strings.Split(said, "\n") {
-		if test = strings.TrimSpace(test); code == 0 && test != "" && !slices.Contains(tests, test) {
+		if test = strings.TrimSpace(test); test != "" && !slices.Contains(tests, test) {
 			tests = append(tests, test)
 		}
 	}
