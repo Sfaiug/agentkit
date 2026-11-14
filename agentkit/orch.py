@@ -4510,15 +4510,18 @@ def take_efforts(cfg, name, model, effort):
     """`model`'s efforts in that seat's record as a move onto it runs them, at `effort` where
     given (config.orchestrating_at), its entry's where the record holds none (config.own_efforts):
     written ahead of the move's fields, which then give it none, in one hold of the record's lock
-    so nothing saved meanwhile counts as the move's.  (before, after): its efforts as the record
-    held them, None for none, and as written, for effort_back."""
+    so nothing saved meanwhile counts as the move's.  Each model the seat runs is held first at
+    the efforts it runs at, so a config saved while the move waits moves none, and one the move
+    gives back keeps them.  (before, after): its efforts as the seat ran them, None for one it ran
+    not, and as written, for effort_back."""
     taken = []
 
     def take(data):
-        moved = config.own_efforts(cfg["models"], name, {**data, "orchestrator": model})
+        held = config.own_efforts(cfg["models"], name, data)
+        moved = config.own_efforts(cfg["models"], name, {**held, "orchestrator": model})
         efforts = (moved.get("efforts") if effort is None
                    else config.orchestrating_at(cfg["models"], moved, model, effort))
-        taken[:] = [(data.get("efforts") or {}).get(model), (efforts or {}).get(model)]
+        taken[:] = [(held.get("efforts") or {}).get(model), (efforts or {}).get(model)]
         return efforts
     config.change_efforts(name, take)
     return taken
