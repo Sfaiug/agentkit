@@ -186,10 +186,11 @@ class Menu:
         return self.until(ready, f"a screen ending {keys!r}")
 
     def choices(self, after=0):
-        """(the row the selector drew its first answer on, its two lines as shown)."""
+        """(the row the selector drew its first answer on, its two lines as shown, the blanks
+        the highlighted one's band runs on to the layout's edge left off)."""
         def ready(text):
             rows = (draws(text, after) or [""])[0].split("\n")
-            rows = [terminal.ANSI.sub("", row).rstrip("\r") for row in rows]
+            rows = [terminal.ANSI.sub("", row).rstrip() for row in rows]
             top = next((row for row, line in enumerate(rows) if "✓ Keep" in line), None)
             return top is not None and (top + 1, rows[top:top + 2])
         return self.until(ready, "the stop question's answers")

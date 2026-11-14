@@ -108,8 +108,8 @@ class FadeIn(Sandbox):
                         self.clock.frame()
                         for cell, at in inside.items():
                             shown = self.clock.shown[cell]
-                            if elapsed >= took:
-                                self.assertEqual(shown, at(now.return_value))
+                            if elapsed >= took:     # as it breathes, on its row's band if lit
+                                self.assertEqual(painted(shown), painted(at(now.return_value)))
                                 self.assertIn(cell, self.clock.cells)
                                 continue
                             colours = [rgb for char, rgb in painted(shown) if char.strip()]

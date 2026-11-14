@@ -265,7 +265,9 @@ class Screens(Sandbox):
                          {label[1]: texts(first)[label[1] - 1][mark[0] - 1]})
         click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*label).encode()
         screens = self.matrix(move(*label), click + ESC)
-        self.assertEqual(texts(screens[-1]), texts(screens[1]))
+        # drawn again as it was: a redraw ends a row lower, so its blank rows off the end go
+        self.assertEqual("\n".join(texts(screens[-1])).rstrip(),
+                         "\n".join(texts(screens[1])).rstrip())
         self.assertEqual(at(screens[-1], names[-1]), label)
         self.assertEqual((highlighted(screens[-1]), marked(screens[-1], "lit")), ([], {}))
         # and a click on the header, off every row, leaves the keys' cell where it was, and
