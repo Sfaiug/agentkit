@@ -2432,9 +2432,9 @@ else
 fi
 
 # 8e: the same numbers in words -- one row per provider, what it has left in meters, and when
-# it runs dry at the rate the window has actually been spent. anthropic is 94% through the cap
-# that gates it with 13.7% of the week to go (0.06 meters left, real outlook hours); openai is 63%
-# through with 55% of the week to go (0.4 meters, about two days); meta says nothing at all.
+# it runs dry at the rate the window has actually been spent. Claude's row is its shared week,
+# 52% through with 13.7% of the week to go (0.5 meters left, on track), never Fable's own 94% cap;
+# ChatGPT is 63% through with 55% of the week to go (0.4 meters, about two days); Muse says nothing.
 fixture 52 -34.3  94 7.7  63 18.2
 UT="$WORK/usage-words.txt"
 # 140 columns so the full headings are what is checked; `holds` is what the week holds in
@@ -2445,7 +2445,7 @@ HOME="$PHOME" COLUMNS=140 ak usage >"$UT" 2>&1
 WHEN='(-|[A-Za-z]+ [0-9][0-9]:[0-9][0-9])'
 if grep -qi 'week elapsed' "$UT" && grep -q 'session  *resets held  *headroom  *budget  *outlook' "$UT" &&
    grep -q ' left  *holds  *a month  *resets  *week elapsed' "$UT" && ! grep -q 'this week' "$UT" &&
-   grep -qE "^Claude .*fable, opus +6% +- +- +$WHEN +86% +- +0 +0\.1 +[0-9]+\.[0-9] slack +runs out in ~1d$" "$UT" &&
+   grep -qE "^Claude .*fable, opus +48% +- +- +$WHEN +86% +- +0 +0\.5 +[0-9]+\.[0-9] slack +on track$" "$UT" &&
    grep -qE "^ChatGPT +astra +37% +- +- +$WHEN +45% +- +0 +0\.4 +[0-9]+\.[0-9] slack +runs out in ~2d$" "$UT" &&
    grep -qE '^Muse +spark +- +- +- +- +- +- +0 +- +unknown +unknown$' "$UT" &&
    grep -q '^pick order: opus, astra, spark, grok$' "$UT" && ! grep -qw sol "$UT"; then
