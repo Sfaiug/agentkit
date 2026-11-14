@@ -81,7 +81,7 @@ func Report(out, errOut io.Writer) (int, bool) {
 // askable is whether each harness has an adapter to ask for its models.
 func askable(harnesses []string) bool {
 	return !slices.ContainsFunc(harnesses, func(harness string) bool {
-		_, can := config.Lister(harness)
+		_, can := listing.Lister(harness)
 		return !can
 	})
 }
