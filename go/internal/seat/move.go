@@ -131,7 +131,8 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 		return plan, true
 	}
 	conversation, opened, known := keptConversation(was, entry, record)
-	if !known || conversation == "" && !harness.CanHandOver(was.Harness) || !harness.CanLaunch(entry.Harness) {
+	if !known || conversation == "" && !harness.CanHandOver(was.Harness) || !harness.CanLaunch(entry.Harness) ||
+		!moving.leaves(record, selected, conversation) {
 		return nil, false
 	}
 	plan.back.conversation, plan.back.opened = conversation, opened
