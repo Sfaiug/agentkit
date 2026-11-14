@@ -15,11 +15,11 @@ func waitLine(wait *run.Object) string {
 // tellLive is watch.wait_over's line to a seat still up whose wait on a job is over: typed through
 // the confirmed send only at its quiet prompt, the send's receipt kept on the wait, and the wait
 // told once the seat has it; a seat mid-turn is tried again next tick.  A wait on anything else, a
-// harness Go does not type into, a line too long to type whole and one ak's editor took in are
-// Python's.
+// harness Go does not type into, a line too long to type whole, one ak's editor took in and one
+// waiting on text that editor may type it past (seat.PastText) are Python's.
 func (t *ticking) tellLive(name string, wait *run.Object) error {
 	line, typed := waitLine(wait), wait.Dict("typed")
-	if wait.Str("kind") != "job" || !seat.Typable(name) || config.TooLong(line) || typed != nil && typed.Has("pane") {
+	if wait.Str("kind") != "job" || !seat.Typable(name) || config.TooLong(line) || typed != nil && typed.Has("pane") || seat.PastText(name, line) {
 		return errLeft
 	}
 	var kept error

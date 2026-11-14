@@ -40,6 +40,8 @@ func StopJob(id string, keep bool, out io.Writer) error {
 		if !stoppable(record) {
 			continue
 		}
+		// whether Go ends it was decided before the receipt was written: a handover past that
+		// would leave the stop half made
 		state, err := end(ran, keep, run.Why, func(current *run.Object) error {
 			if err := checkStopOwner(current); err != nil {
 				return err
@@ -49,8 +51,6 @@ func StopJob(id string, keep bool, out io.Writer) error {
 				return errStop
 			case !stoppable(current):
 				return errEnded
-			case !goEnds(ran, current):
-				return ErrPython // turned Python's since its check: Python's second stop of the job ends what is left
 			}
 			return nil
 		})
@@ -73,8 +73,9 @@ func StopJob(id string, keep bool, out io.Writer) error {
 // the receipt and starts any task still queued, then every unfinished task stopped and the job
 // finished.  The receipt as it then stands, and whether a stop had finished it already, which a
 // second stop leaves as it is to end what the first left going.  A task it cannot read, a unit
-// Python's stop_scope stops and a run of the job Go does not end are Python's (ErrPython), before
-// anything is written.
+// Python's stop_scope stops and a run of the job Go does not end, read once the launcher is gone,
+// are Python's (ErrPython), before anything is written; Python's stop then finds the launcher
+// gone, as its own would have left it.
 func stopLauncher(dir string) (*run.Object, bool, error) {
 	id := filepath.Base(dir)
 	receipt, err := job.Read(dir)
@@ -99,14 +100,17 @@ func stopLauncher(dir string) (*run.Object, bool, error) {
 	if stopped && !slices.ContainsFunc(tasks, func(task any) bool { return task.(*run.Object).Str("state") == "stopped" }) {
 		return nil, false, fmt.Errorf("%s is already finished; only unfinished work can be stopped", id)
 	}
-	if host.UserManager() || slices.ContainsFunc(runsOf(dir, receipt), func(ran string) bool {
-		record, err := run.Read(ran)
-		return errors.Is(err, run.ErrLoneSurrogate) || record != nil && stoppable(record) && !goEnds(ran, record)
-	}) {
+	if host.UserManager() {
 		return nil, false, ErrPython
 	}
 	if pid, _ := receipt.Int("pid"); run.ProcessActive(receipt) {
 		host.EndTree(pid)
+	}
+	if slices.ContainsFunc(runsOf(dir, receipt), func(ran string) bool {
+		record, err := run.Read(ran)
+		return errors.Is(err, run.ErrLoneSurrogate) || record != nil && stoppable(record) && !goEnds(ran, record)
+	}) {
+		return nil, false, ErrPython
 	}
 	if stopped {
 		return receipt, true, nil
