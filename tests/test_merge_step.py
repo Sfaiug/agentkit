@@ -770,7 +770,8 @@ class MergeStep(unittest.TestCase):
             self.assertTrue(landing(lp, deliver))
             self.assertTrue(place)
         self.assertTrue(lp.state["merged"])
-        self.assertEqual([name for name, _ in events], ["merge", "view", "checks", "merge"])
+        # the last read follows the merge that succeeded, for its revert line
+        self.assertEqual([name for name, _ in events], ["merge", "view", "checks", "merge", "view"])
 
     def test_a_merge_that_loses_the_base_race_retries_then_parks_waiting(self):
         # `gh pr merge` answering `Base branch was modified` is a race, not an ending:
@@ -816,7 +817,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(seen, ["pr", "api", "api", "pr"])
+        self.assertEqual(seen, ["pr", "api", "api", "pr", "api"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60, 300])
 
@@ -857,7 +858,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(seen, ["pr", "api", "pr"])
+        self.assertEqual(seen, ["pr", "api", "pr", "api"])
         self.assertTrue(record.read_state(run_dir)["merged"])
 
     def test_a_merge_github_is_still_making_is_tried_again_while_the_pr_is_open(self):
@@ -877,7 +878,7 @@ class MergeStep(unittest.TestCase):
 
         with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep") as slept:
             self.assertTrue(landing(lp, lambda: run.do_merge(lp, URL, "origin/main")))
-        self.assertEqual(seen, ["pr", "api", "pr"])
+        self.assertEqual(seen, ["pr", "api", "pr", "api"])
         self.assertTrue(record.read_state(run_dir)["merged"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60])
@@ -944,7 +945,7 @@ class MergeStep(unittest.TestCase):
                 with patch.object(gitcall, "gh", side_effect=fake_gh), patch.object(run.time, "sleep"):
                     self.assertEqual(bool(landing(lp, lambda: run.do_merge(lp, URL, "origin/main"))),
                                      merged)
-                self.assertEqual(seen, ["pr", "api", "pr"] if merged else ["pr", "api"])
+                self.assertEqual(seen, ["pr", "api", "pr", "api"] if merged else ["pr", "api"])
                 state = record.read_state(run_dir)
                 self.assertEqual(bool(state.get("merged")), merged)
                 if not merged:
