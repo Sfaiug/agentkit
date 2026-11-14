@@ -23,16 +23,17 @@ const jobTick = 2 * time.Second
 
 // Job launches the task files at the absolute paths as one job, Python's job_create and
 // run_job_loop: its receipt with every task queued, naming the seat it was launched from, whose
-// queue Fresh asked for every task, then each task an ordinary run of its own under that seat,
-// started up to --parallel, which a positive max_runs caps, its driver apart, and followed until it
-// ends; told --bg, all that after the launch in a launcher apart (detach).  A task settles where
-// Python's ladder takes its run no further, delivered or not (ladder), or at its start where its
-// file now refuses it, it cannot start or a stop ended it; once every task settled the job is done,
-// or ends needing you.  A step Python's ladder takes before such an ending it leaves as a launcher
-// that died leaves it, any run kept, for `ak run resume <job>`.  A job of a session Go knows no
-// seat by, one a gate decides and one with a task Go's own launch would hand over, whose preflight
-// refuses it or whose pick waits for budget, it leaves to Python whole (ErrPython), before anything
-// is written.  `ak run`'s exit status, and why the job is refused, "" for one that went on.
+// queue Fresh asked for every task, or one for a job --in-order, then each task an ordinary run of
+// its own under that seat, started up to --parallel, which a positive max_runs caps, or once the
+// one before it merged, its driver apart, and followed until it ends; told --bg, all that after the
+// launch in a launcher apart (detach).  A task settles where Python's ladder takes its run no
+// further, delivered or not (ladder), or at its start where its file now refuses it, it cannot
+// start or a stop ended it; once every task settled the job is done, or ends needing you.  A step
+// Python's ladder takes before such an ending it leaves as a launcher that died leaves it, any run
+// kept, for `ak run resume <job>`.  A job of a session Go knows no seat by, one a gate decides and
+// one with a task Go's own launch would hand over, whose preflight refuses it or whose pick waits
+// for budget, it leaves to Python whole (ErrPython), before anything is written.  `ak run`'s exit
+// status, and why the job is refused, "" for one that went on.
 func Job(paths []string, values map[string]string, flags map[string]bool, out io.Writer) (int, string, error) {
 	_, capped := config.MaxRuns()
 	depth, _ := runDepth()
@@ -117,9 +118,12 @@ var (
 func (j *jobRun) id() string { return filepath.Base(j.dir) }
 
 // task is the launch of the job's task file at path as preflight settles it, read as it reads now,
-// as judge says.
+// as judge says, an ordered job's started task on origin's tip fetched for what it read (tip).
 func (j *jobRun) task(path string) (*launching, int, string, error) {
 	l, text, err := typed(path)
+	if err == nil {
+		err = j.tip(path, text)
+	}
 	if err != nil {
 		return nil, 0, "", err
 	}
@@ -183,10 +187,11 @@ type ending struct {
 }
 
 // carry is the job's scheduler, Python's run_job_loop: queued tasks start up to its cap, the
-// receipt's --parallel within a positive max_runs, each run's ending settles its task, and the job
-// ends once every task settled; `ak run`'s exit status.  It touches the receipt on every pass, its
-// heartbeat, and its runs' drivers carry the job's directory, as a `--bg` job's launcher does, so
-// an ending a gone seat cannot take is left to the job's line (handback's muted).
+// receipt's --parallel within a positive max_runs, an ordered job's each once the one before it
+// merged (behind), each run's ending settles its task, and the job ends once every task settled;
+// `ak run`'s exit status.  It touches the receipt on every pass, its heartbeat, and its runs'
+// drivers carry the job's directory, as a `--bg` job's launcher does, so an ending a gone seat
+// cannot take is left to the job's line (handback's muted).
 func (j *jobRun) carry() (int, error) {
 	os.Setenv("AGENTKIT_JOB_DIR", j.dir)
 	parallel, _ := j.receipt.Int("parallel")
@@ -196,9 +201,15 @@ func (j *jobRun) carry() (int, error) {
 	ended := make(chan ending)
 	running := 0
 	for {
-		for _, each := range j.receipt.List("tasks") {
+		tasks := j.receipt.List("tasks")
+		for i, each := range tasks {
 			task := each.(*run.Object)
 			if task.Str("state") != "queued" {
+				continue
+			}
+			if waits, err := j.behind(tasks, i); err != nil {
+				return j.leave(), err
+			} else if waits {
 				continue
 			}
 			if parallel > 0 && running >= parallel {
@@ -231,18 +242,19 @@ func (j *jobRun) carry() (int, error) {
 }
 
 // begin starts the task as Python's job_start_task does, its file read again and judged as it
-// reads now, refusals and round budget too: a run of its own, its receipt naming the job, filed
-// on the job's before its driver starts apart, and followed until it ends.  False where it starts
-// no run: the task settled, blocked where its file now refuses it, stopped where a stop ended it
-// and failed where it cannot start for any other reason, or, saying why, left queued where Go does
-// not start it.  The job's own receipt that cannot be written ends this launcher.
+// reads now, refusals and round budget too, an ordered job's on origin's tip fetched first (tip):
+// a run of its own, its receipt naming the job, filed on the job's before its driver starts apart,
+// and followed until it ends.  False where it starts no run: the task settled, blocked where its
+// file now refuses it, stopped where a stop ended it and failed where it cannot start for any
+// other reason, a fetch that failed among them, or, saying why, left queued where Go does not
+// start it.  The job's own receipt that cannot be written ends this launcher.
 func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
 	name := task.Str("name")
 	l, _, why, err := j.task(task.Str("task_file"))
 	refused := ""
 	switch {
 	case l != nil:
-		refused, err = Refusal(l.path, l.meta, l.cmds)
+		refused, err = JobRefusal(l.path, l.meta, l.cmds, j.flags)
 	case why != "":
 		err = errors.New(why)
 	}
