@@ -1044,7 +1044,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     def next_account(until, message):
         """Park the account this turn ran on alone, and whether another of its provider has
         room: the turn goes there, on its own session, before any other model is asked."""
-        usage.mark_exhausted(cfg, entry["provider"], until, account)
+        usage.mark_exhausted(cfg, entry["provider"], until, account, model=name)
         spare, room = usage.account(cfg, entry["provider"], model=name)
         if room and spare != account:
             log(f"{role} {name} ran dry on account {account}: {message}; going on with account "
@@ -1130,7 +1130,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             if account is not None and next_account(try_again_at(said), message):
                 continue
             requested = try_again_at(said)
-            until = usage.mark_exhausted(cfg, entry["provider"], requested) or requested
+            until = usage.mark_exhausted(cfg, entry["provider"], requested, model=name) or requested
             parked = (f"; nothing is picked on {entry['provider']} until "
                       + time.strftime("%Y-%m-%d %H:%M", time.localtime(until)))
             log(f"WARN {role} {name} refused: {message}{parked}")
