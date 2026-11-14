@@ -8,9 +8,10 @@ seat follows it there (`follow`) -- its first, or another the owner opened in th
 (`/new`, or one from its list).  Every launch also gets a receipt, a directory named in its
 environment, and ak alone writes into it the id of the session that seat is in, as the launch
 resumes it and as the seat follows a prompt: the session hooks/opencode-seat puts ak's title
-on, and the one a seat whose record names none yet comes back to.  The receipt's token is kept
-in the seat's record, so it follows a rename, and no other seat -- not one in the same
-directory -- reads or writes it.  Nothing here asks which session of a directory is the latest.
+on, and the one a seat whose record names none yet comes back to while no other seat's record
+names it.  The receipt's token is kept in the seat's record, so it follows a rename, and no
+other seat -- not one in the same directory -- reads or writes it.  Nothing here asks which
+session of a directory is the latest.
 
 OpenCode ends no session, and keeps each as rows of its database: gc ends a top-level one
 nobody updated for 30 days with OpenCode's own delete, which takes its children along.
@@ -44,9 +45,11 @@ def path_for(record):
 
 
 def conversation(record, cwd=None):
-    """The session the seat followed to (`follow`), else the one its launch's receipt names, or
-    None where neither names one yet."""
-    from . import unread
+    """The session the seat followed to (`follow`), else the one its launch's receipt names
+    while no other seat's record names it, or None where neither names one yet.  A receipt the
+    seat plugin wrote before ak alone did may name a session `claim` refused, and no seat's
+    claim counts a receipt: the seat's own record is found by the receipt's token."""
+    from . import named_elsewhere, unread
     if isinstance(record.get("conversation"), str) and SESSION.fullmatch(record["conversation"]):
         return record["conversation"]
     path = path_for(record)
@@ -55,7 +58,11 @@ def conversation(record, cwd=None):
     except OSError as exc:
         unread(exc)
         return None
-    return sid if SESSION.fullmatch(sid) else None
+    if not SESSION.fullmatch(sid):
+        return None
+    records = config.session_records()
+    name = next((name for name, kept in records.items() if path_for(kept) == path), None)
+    return None if sid in named_elsewhere(records, name) else sid
 
 
 def resumable(record, cwd, conversation):
