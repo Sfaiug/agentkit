@@ -21,9 +21,9 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config
-from agentkit.harness.codex import (CAPTURE_ENV, SEAT_STATE, STOP_RULE, Client, conversation,
-                                    drop_closed_seat, first_prompt, in_flight, main, pairing_home,
-                                    remote_home, seat_conversations)
+from agentkit.harness.codex import (SEAT_STATE, STOP_RULE, Client, conversation, drop_closed_seat,
+                                    first_prompt, in_flight, main, pairing_home, remote_home,
+                                    seat_conversations)
 
 
 CONVERSATIONS = ("sessions", "archived_sessions")
@@ -211,29 +211,35 @@ def serve(cmd, receipt, parent):
 
 
 def settings_changed(path, stopped):
-    """Subscribe off the seat's path: a new thread may not have a rollout to resume yet."""
-    receipt = os.environ.get(CAPTURE_ENV)
-    if not receipt:
-        return
+    """Subscribe off the seat's path: a new thread may not have a rollout to resume yet.  The
+    thread is the seat's, as its record names it once `follow` has moved it on `/new` or
+    `/resume`, which the launch receipt never does: a quiet second looks again, and a move takes
+    the subscription along."""
+    name = os.environ.get(config.SESSION_ENV)
+
+    def followed():
+        return conversation(config.session_record(config.resolve_session(name)) or {})
     while not stopped.is_set():
         client = None
         try:
-            with Path(receipt).open() as fh:
-                fcntl.flock(fh, fcntl.LOCK_SH)
-                record = {"codex_launch": json.load(fh)["launch"]}
-            thread = conversation(record)
+            thread = followed()
             if thread:
                 client = Client(str(path))
                 client.call("thread/resume", {"threadId": thread, "excludeTurns": True})
                 from agentkit import watch
                 # Catch a change made before this client could subscribe, too.
-                watch.start_look(os.environ[config.SESSION_ENV])
-                client.socket.settimeout(None)
+                watch.start_look(name)
+                client.socket.settimeout(1)
                 while not stopped.is_set():
-                    event = client.receive()
+                    try:
+                        event = client.receive()
+                    except TimeoutError:
+                        if followed() != thread:
+                            break
+                        continue
                     if (event.get("method") == "thread/settings/updated"
                             and (event.get("params") or {}).get("threadId") == thread):
-                        watch.start_look(os.environ[config.SESSION_ENV])
+                        watch.start_look(name)
         except (OSError, ValueError, KeyError, TypeError, AttributeError, config.Error):
             pass
         finally:

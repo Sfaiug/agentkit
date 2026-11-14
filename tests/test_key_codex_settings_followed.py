@@ -1,4 +1,5 @@
-"""Settings changed inside Codex reach the seat's record, bar and open `c` without an answer.
+"""Settings changed inside Codex reach the seat's record, bar and open `c` without an answer,
+in the thread the seat moved to with /new as in its first.
 
 Black-box against AK_BIN: the fake server speaks Codex 0.166's settings notification and
 rollout event, refusing the subscription until its rollout is available.
@@ -50,7 +51,6 @@ class CodexSettingsFollowed(unittest.TestCase):
         until(lambda: list(home.path.rglob("fake-subscribed.json")), "subscribed after the refusal")
         subscribed, = home.path.rglob("fake-subscribed.json")
         self.assertEqual(json.loads(subscribed.read_text())["threadId"], THREAD)
-        rollout, = home.path.rglob(f"rollout-{THREAD}.jsonl")
         record = home.path / ".agentkit/state/session-acme.json"
         terminal.wait("idle")
         terminal.keys("C-b", "m")
@@ -58,17 +58,16 @@ class CodexSettingsFollowed(unittest.TestCase):
         terminal.keys("c")
         terminal.wait(lambda screen: "esc back" in screen and "6 Astra" in screen)
 
-        for model, label, effort in (("luna", "5.6 Luna", "low"),
-                                     ("luna", "5.6 Luna", "medium"),
-                                     ("astra", "6 Astra", "high")):
-            with self.subTest(model=model, effort=effort):
+        def follows(thread, model, label, effort):
+            with self.subTest(thread=thread, model=model, effort=effort):
+                rollout, = home.path.rglob(f"rollout-{thread}.jsonl")
                 model_id = akconfig.read(home)["models"][model]["model"]
                 with rollout.open("a") as fh:
                     fh.write(json.dumps({"timestamp": datetime.now(timezone.utc).isoformat(),
                         "type": "event_msg", "payload": {"type": "thread_settings_applied",
                         "thread_settings": {"model": model_id, "reasoning_effort": effort}}}) + "\n")
                 event = {"method": "thread/settings/updated", "params": {
-                    "threadId": THREAD, "threadSettings": {"model": model_id, "effort": effort}}}
+                    "threadId": thread, "threadSettings": {"model": model_id, "effort": effort}}}
                 home.write("notification.tmp", event).replace(subscribed.parent / "settings-notification.json")
 
                 def followed():
@@ -83,6 +82,17 @@ class CodexSettingsFollowed(unittest.TestCase):
                 until(bar_followed, f"put {label} at {effort} on the bar")
                 terminal.wait(lambda screen: any(label in line and "●" in line and effort in line
                                                  for line in screen.splitlines()))
+
+        for model, label, effort in (("luna", "5.6 Luna", "low"),
+                                     ("luna", "5.6 Luna", "medium"),
+                                     ("astra", "6 Astra", "high")):
+            follows(THREAD, model, label, effort)
+        # The seat moves to the thread /new opens at its first prompt, and its settings with it.
+        for keys in (("-l", "/new"), ("Enter",), ("-l", "Go on."), ("Enter",)):
+            self.assertEqual(home.tmux("send-keys", "-t", "=acme:", *keys).code, 0)
+        until(lambda: json.loads(subscribed.read_text())["threadId"] != THREAD,
+              "subscribed to the thread /new opened")
+        follows(json.loads(subscribed.read_text())["threadId"], "luna", "5.6 Luna", "low")
 
 
 if __name__ == "__main__":
