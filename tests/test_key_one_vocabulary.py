@@ -1,9 +1,9 @@
 """Every list marks what is on, highlights its row and names its keys the same way, the owner's
 ask of 10 Nov 2026 that ak feel like one app (docs/cli-design.md, Words and Keys): `recommended`
-draws the row the keys are on bold behind a `›` in the accent, all of it on the selection as
-`c` draws the keys' cell; on `c` a mark that is on is in
-the accent and one that is off dim; and the company list, where any model may be on, marks one
-`■` in the accent and one off `□` dim, Space marking it, its key line read as every list's.
+draws the row the keys are on bold behind a `›` in the accent, all of it on one band, the
+selection; on `c` a mark that is on is in the accent and one that is off dim; and the company
+list, where any model may be on, marks one `■` in the accent and one off `□` dim, Space marking
+it, its key line read as every list's.
 
 Black-box: the program `AK_BIN` names in a terminal of 24-bit colour (tests/fixtures/akterm.py),
 over the boards and harnesses of tests/test_key_models_company_list.py; each cell judged by how
@@ -26,17 +26,15 @@ COLOUR = {**{name: value for name, value in ENV.items() if name != "NO_COLOR"},
 
 class OneVocabulary(Opened):
     def walk(self, *steps, **settings):
-        """The menu in colour opened on `c`, the accent, the dim and the selection read off it
-        -- its highlight's `›` (terminal.highlight), its column heads and the keys' cell, its
-        first mark -- then each (text, key) of `steps` pressed once the text shows."""
+        """The menu in colour opened on `c`, the accent and the dim read off it -- its
+        highlight's `›` (terminal.highlight) and its column heads -- then each (text, key) of
+        `steps` pressed once the text shows."""
         term = self.menu(env=COLOUR, **settings)
         term.wait("esc leave")
         term.keys("c")
         shown = settled(term, "r recommended")
         self.accent, self.dim = look(shown, "›") - {"1"}, look(shown, "orch", on="builds")
-        self.selection = {part for part in look(shown, "●", on="›") if part.startswith("48")}
         self.assertTrue(self.accent and self.dim and self.accent != self.dim, shown)
-        self.assertTrue(self.selection, shown)
         for wait, key in steps:
             term.wait(wait)
             term.keys(key)
@@ -44,13 +42,15 @@ class OneVocabulary(Opened):
 
     def test_recommended_draws_its_row_bold_behind_a_chevron_in_the_accent(self):
         shown = settled(self.walk(("r recommended", "r")), "boards read")
-        self.assertEqual(look(shown, "›"), {"1", *self.accent, *self.selection})
-        self.assertEqual(look(shown, "orchestrator  Acme Mid 5 high", on="›"),
-                         {"1", *self.selection})
+        row = look(shown, "orchestrator  Acme Mid 5 high", on="›")
+        band = {part for part in row if part.startswith("48")}
+        self.assertEqual(len(band), 1, row)
+        self.assertEqual(row, {"1", *band})
+        self.assertEqual(look(shown, "›"), {"1", *self.accent, *band})
         self.assertEqual([line for line in map(plain, shown) if "▸" in line], [])
 
     def test_c_draws_a_mark_that_is_on_in_the_accent_and_one_that_is_off_dim(self):
-        # the highlight on Bolt 3, so no mark looked at is bold or the keys' lit one
+        # the highlight on Bolt 3, so no mark looked at is bold or the keys' reversed one
         shown = settled(self.walk(("r recommended", "Down")), "› Bolt 3")
         self.assertEqual(look(shown, "●", on="Acme Mid 5"), self.accent)       # it orchestrates
         self.assertEqual(look(shown, "■", on="Crux Flash 1"), self.accent)     # it builds

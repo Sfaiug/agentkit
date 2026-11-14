@@ -171,14 +171,15 @@ class Menu:
 
     def frame(self, where=None, keys=None, after=0):
         """The lines of the last whole screen written over in place whose key line says `keys`
-        (the menu's own by default), as the screen shows them; row 1 first."""
+        (the menu's own by default), as the screen shows them, the blanks the highlighted row's
+        band runs on in left off; row 1 first."""
         keys = keys or self.leave_key
 
         def ready(text):
             for part in draws(text, after):
                 if "\x1b[J" not in part:
                     continue                  # still being written
-                lines = [terminal.ANSI.sub("", line).rstrip("\r")
+                lines = [terminal.ANSI.sub("", line).rstrip()
                          for line in part.split("\x1b[J")[0].split("\n")[:-1]]
                 if any(keys in line for line in lines):
                     return lines if where is None or where(lines) else None

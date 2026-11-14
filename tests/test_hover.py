@@ -1,8 +1,7 @@
-"""Whatever a click there acts on lights up under the pointer, on every screen, as the keys light
-it: a row on the selection to the layout's last column, a key-line item or a cell on it over its
-width, and that goes when the pointer leaves; what no click acts on -- a model's name, the
-arrows' words -- is as blank space.  The keys and the pointer never show two highlights, nothing
-is acted on while the pointer has the highlight out, and a flood of moves is one draw.
+"""Whatever the pointer is over lights up, on every screen: the row under it takes the keys' own
+highlight, a key-line item or a cell a subtle background, and that goes when the pointer leaves;
+the keys and the pointer never show two highlights, nothing is acted on while the pointer has
+the highlight out, and a flood of moves is one draw.
 
 The screens under the menu run in this process on the real `terminal.read_key`, the keyboard
 taken, their keys on a pipe written whole before they read, the way one read finds a flood:
@@ -117,15 +116,6 @@ def highlighted(grid):
     return [line for line in texts(grid) if line.startswith("›")]
 
 
-def first_mark(grid, text):
-    """(column, row) of the first thing drawn after `text` on its row: a model's or a feature's
-    first mark."""
-    col, row = at(grid, text)
-    after = col - 1 + len(text)
-    line = texts(grid)[row - 1]
-    return after + next(n for n, char in enumerate(line[after:]) if not char.isspace()) + 1, row
-
-
 def on(menu, name):
     """Wait for `menu` to show `name`'s row highlighted."""
     menu.until(lambda text: any(name in line for line in highlighted(played(text))),
@@ -214,31 +204,31 @@ class Screens(Sandbox):
         screens = self.matrix(move(*beside), DOWN, ESC)
         self.assertEqual((highlighted(screens[1]), marked(screens[1], "lit")), ([], {}))
         self.assertOneHighlight(screens[2], "Opus 5.5")
-        # its label takes no click, so the pointer there is as on blank space
-        screens = self.matrix(move(*label), ESC)
-        self.assertEqual((highlighted(screens[1]), marked(screens[1], "lit")), ([], {}))
-        # on a mark the cell lights, in place of the keys' cell: one highlight, not two
+        # its label is a cell, a click's to put the highlight on its first mark
+        self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"),
+                         {label[1]: "6 Astra"})
+        # on a mark the cell lights, in place of the keys' reverse: one highlight, not two
         last = self.matrix(move(*mark) + ESC)[-1]
         self.assertOneHighlight(last, "6 Astra")
         self.assertEqual(marked(last, "lit"), {mark[1]: "○"})
         self.assertEqual(marked(last, "reverse"), {})
-        # a key takes it from there: the next cell is the keys', lit the same
+        # a key takes it from there: the next cell is the keys', and nothing is lit
         last = self.matrix(move(*mark) + RIGHT + ESC)[-1]
         self.assertOneHighlight(last, "6 Astra")
-        self.assertEqual(marked(last, "lit"), {mark[1]: "□"})
-        self.assertEqual(marked(last, "reverse"), {})
+        self.assertEqual(marked(last, "lit"), {})
+        self.assertEqual(marked(last, "reverse"), {mark[1]: "□"})
         # off every row the row and its cell lose it, a key-line item lighting alone and
         # nothing on no item at all, and an arrow moves it on from where it was
         keys = at(first, "esc back")
         screens = self.matrix(move(*mark), move(*keys), move(1, len(texts(first)) + 2), RIGHT,
                               ESC)
-        self.assertEqual(len(screens), 5, [texts(grid) for grid in screens])
+        self.assertEqual(len(screens), 5)
         self.assertEqual(marked(screens[2], "lit"), {keys[1]: "esc back"})
-        self.assertEqual(highlighted(screens[2]), [])
+        self.assertEqual((highlighted(screens[2]), marked(screens[2], "reverse")), ([], {}))
         self.assertEqual(marked(screens[3], "lit"), {})
-        self.assertEqual(highlighted(screens[3]), [])
+        self.assertEqual((highlighted(screens[3]), marked(screens[3], "reverse")), ([], {}))
         self.assertOneHighlight(screens[4], "6 Astra")
-        self.assertEqual(marked(screens[4], "lit"), {mark[1]: "□"})
+        self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "□"})
 
     def test_the_highlighted_model_opens_no_line_and_nothing_moves(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=40))  # one page
@@ -247,36 +237,28 @@ class Screens(Sandbox):
         names = [config.model_name(self.cfg, name) for name in menu.config_models(self.cfg)]
         rows = {text: at(first, text) for text in (*names, *menu.CONFIG_ROWS)}
         for name in names:
-            mark = first_mark(first, name)
-            for keys in (move(*mark) + ESC, move(*mark) + RIGHT + ESC):
+            for keys in (move(*rows[name]) + ESC, move(*rows[name]) + RIGHT + ESC):
                 last = self.matrix(keys)[-1]
                 self.assertOneHighlight(last, name)
                 self.assertFalse(any(" runs on " in text for text in texts(last)))
                 self.assertEqual({text: at(last, text) for text in rows}, rows)
-        # on a screen too short for them all, the pointer on the last model's first mark lights
-        # it, the page as it was; a click on its name acts on nothing and leaves it so
+        # on a screen too short for them all, a click where the pointer found the last model's
+        # label puts the highlight on its first mark, the page as it was
         self.stack.enter_context(patch.object(terminal, "height", return_value=28))
         first = self.matrix()[0]
-        label, mark = at(first, names[-1]), first_mark(first, names[-1])
-        screens = self.matrix(move(*mark), ESC)
-        self.assertEqual(at(screens[-1], names[-1]), label)
-        self.assertOneHighlight(screens[-1], names[-1])
-        self.assertEqual(marked(screens[-1], "lit"),
-                         {label[1]: texts(first)[label[1] - 1][mark[0] - 1]})
+        label = at(first, names[-1])
         click = "\x1b[<0;{0};{1}M\x1b[<0;{0};{1}m".format(*label).encode()
         screens = self.matrix(move(*label), click + ESC)
-        # drawn again as it was: a redraw ends a row lower, so its blank rows off the end go
-        self.assertEqual("\n".join(texts(screens[-1])).rstrip(),
-                         "\n".join(texts(screens[1])).rstrip())
         self.assertEqual(at(screens[-1], names[-1]), label)
-        self.assertEqual((highlighted(screens[-1]), marked(screens[-1], "lit")), ([], {}))
+        self.assertOneHighlight(screens[-1], names[-1])
+        self.assertEqual(marked(screens[-1], "reverse"), {label[1]: "○"})
         # and a click on the header, off every row, leaves the keys' cell where it was, and
         # out while the pointer is there
         header = b"\x1b[<0;1;1M\x1b[<0;1;1m"
         screens = self.matrix(RIGHT, header, ESC)
-        self.assertEqual(marked(screens[2], "lit"), marked(screens[1], "lit"))
+        self.assertEqual(marked(screens[2], "reverse"), marked(screens[1], "reverse"))
         screens = self.matrix(move(1, 1), header, ESC)
-        self.assertEqual((highlighted(screens[2]), marked(screens[2], "lit")), ([], {}))
+        self.assertEqual((highlighted(screens[2]), marked(screens[2], "reverse")), ([], {}))
 
     def test_on_a_short_screen_the_page_keeps_its_place_under_the_highlight(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))
@@ -318,7 +300,7 @@ class Screens(Sandbox):
         with patch.object(menu, "switches", return_value=FEATURES), \
                 patch.dict(menu._SWITCHES, {str(checkout): entry}), no_frame_passes():
             first = run(lambda: menu.show_features(checkout), ESC)[1][0]
-            dark, beta = first_mark(first, "Dark mode"), first_mark(first, "Beta search")
+            dark, beta = at(first, "Dark mode"), at(first, "Beta search")
             flood = b"".join(move(*(dark if n % 2 else beta)) for n in range(499))
             screens = run(lambda: menu.show_features(checkout), flood + move(*dark) + ESC)[1]
         self.assertEqual(len(screens), 2)               # the first draw, and one for them all
@@ -326,31 +308,17 @@ class Screens(Sandbox):
         self.assertIn("Dark mode", highlighted(screens[-1])[0])
 
     def test_an_effort_shimmering_under_the_pointer_keeps_its_light(self):
-        # the motion's clock stands still but where the test moves it (`AK_MOTION_CLOCK`), so
-        # the light is still at its first letter once the pointer is on the word
-        clock = self.root / "clock"
-
-        def moved(seconds):             # swapped whole, never read half written
-            clock.with_name("clock.new").write_text(repr(seconds))
-            clock.with_name("clock.new").replace(clock)
-        moved(1000.0)
-        screen = Screen(self, env={"AK_MOTION_CLOCK": str(clock)})
+        screen = Screen(self)
         lines = screen.frame()
         row = next(number for number, line in enumerate(lines, 1) if "Opus 5.5" in line)
         line = lines[row - 1]
         word = line.index("xhigh") + 1                  # the orchestrator's, beside its mark
         # a click on the word's last letter steps it up, to a word that ends before it
         screen.click(word + 4, row, lambda lines: lines[row - 1][word - 1:].startswith("max "))
-        before = len(screen.text())
+        mark = len(screen.text())
         screen.press(move(word, row))
-        # the frames from the row drawn again under the pointer on: the light then each letter
-        # on, and the word settled
-        mark = screen.until(lambda text: text.find(f"\x1b[{row};1H", before) + 1,
-                            "the row drawn under the pointer") - 1
-        for moment in (1000.25, 1000.45, 1000.7):
-            seen = len(screen.text())
-            moved(moment)
-            screen.until(lambda text: f"\x1b[{row};{word}H" in text[seen:], f"a frame at {moment}")
+        # Let every frame land without a key or pointer move redrawing over the last one.
+        time.sleep(1.0)
         text = screen.text()
         updates = list(re.finditer(r"\x1b\[(\d+);(\d+)H", text[mark:]))
         frames = 0
@@ -372,9 +340,9 @@ class Screens(Sandbox):
         first = self.matrix()[0]
         rows = len(texts(first))
         flood = b"".join(move(1 + n % 60, 1 + n % rows) for n in range(499))
-        mark = first_mark(first, "Grok 4.7")
+        label = at(first, "Grok 4.7")
         with no_frame_passes():
-            screens = self.matrix(flood + move(*mark) + ESC)
+            screens = self.matrix(flood + move(*label) + ESC)
         self.assertEqual(len(screens), 2)               # the first draw, and the one for them
         self.assertOneHighlight(screens[-1], "Grok 4.7")    # where the pointer ended
 
@@ -392,6 +360,16 @@ class Screens(Sandbox):
         self.assertOneHighlight(last, "Beta search")
         self.assertEqual(marked(last, "lit"), {row: "○"})
         self.assertEqual(marked(last, "reverse"), {})
+
+    def test_a_limits_step_arrow_lights_alone_on_a_row_with_no_band(self):
+        # a step's arrows are cells a click acts on, so the keys' row stands on no band
+        first = run(lambda: menu.config_limits(self.cfg), ESC)[1][0]
+        self.assertOneHighlight(first, "Review rounds")
+        self.assertEqual(marked(first, "lit"), {})
+        arrow = at(first, "◂")
+        last = run(lambda: menu.config_limits(self.cfg), move(*arrow), ESC)[1][-1]
+        self.assertOneHighlight(last, "Review rounds")
+        self.assertEqual(marked(last, "lit"), {arrow[1]: "◂"})
 
     def test_the_new_session_screen_lights_a_model_and_its_mark(self):
         def picking(keys):

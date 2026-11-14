@@ -14,7 +14,7 @@ Black-box: the program `AK_BIN` names, as the popup over a seat as ak leaves it
 (tests/fixtures/akseat.py) in a person's terminal (tests/fixtures/akterm.py), its harnesses the
 fakes of tests/fixtures/fakeadapter.py, judged by what the terminal shows, config.toml, the
 seat's record and its pane; this test fails against `/bin/false`.  The terminal has no colour
-(NO_COLOR), so the mark the keys are on is bracketed, `[○]`, where a colour terminal lights it.
+(NO_COLOR), so the mark the keys are on is bracketed, `[○]`, where a colour terminal reverses it.
 """
 
 import json

@@ -67,12 +67,10 @@ class ChooseClick(unittest.TestCase):
 
     def test_clicks_on_choices_and_esc_keep_their_actions(self):
         self.assertEqual(self.pick(lambda spots: click(5, 5)), "Demo")
-        # a choice is lit to the layout's last column, and all of it takes the click
-        self.assertEqual(self.pick(lambda spots: click(40, 3)), "Acme")
         self.assertIsNone(self.pick(lambda spots: click(*action(spots, "esc"))))
 
     def test_a_click_on_nothing_leaves_the_list_and_its_highlight(self):
-        for col, row in ((1, 2), (40, 6)):     # the rule, and the blank row under the list
+        for col, row in ((1, 2), (40, 3)):     # a blank row, and the empty rest of a choice's
             with self.subTest(col=col, row=row):
                 self.assertEqual(self.pick(lambda spots: click(col, row) + b"\x1b[B\r"),
                                  "Example")

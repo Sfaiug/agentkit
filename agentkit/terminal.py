@@ -359,8 +359,8 @@ def styled(text, kind):
     if not depth or not text:
         return text
     word = KINDS.get(kind, kind)
-    if kind == "bold":
-        code = "1"
+    if kind in ("bold", "reverse"):
+        code = "1" if kind == "bold" else "7"
     else:
         # `#RRGGBB` is a colour as it reads here -- a provider's (`on_background`), a fade's --
         # and takes the nearest the terminal has, as a state's colour does
@@ -508,8 +508,6 @@ def key_parts(text):
 # -- between rows, cells and pages; then without UTF-8.
 MOVE_KEYS = ("↑↓←→ move", "arrows move")
 ARROWS = (("↑↓", "←→"), ("up/down", "left/right"))   # ... where each pair moves its own thing
-# Their keys: words for what the arrows do, which no click presses (`key_spans`).
-MOVING = {*(text.split()[0] for text in MOVE_KEYS), *ARROWS[0], *ARROWS[1]}
 
 
 def keys(*rest, space=None, enter, move=True):
@@ -606,19 +604,18 @@ def effort_cells(count, filled):
     return [*cells, *(styled(cell, "dim") for cell in rest)]
 
 
-def toggle(mark, width, kind=None, lit=False):
+def toggle(mark, width, kind=None):
     """A mark -- `●` and its open `○` for one of several and for a switch that says its word,
     `■` and `□` where any may be on -- in its column `width` cells wide, the one way a screen
     draws one and its frames move it (motion.toggled): ` ■ ` from the column's middle in `kind`,
-    the accent where it is on and dim where it is off, its whole column `lit` (`selected`) where
-    the keys are, set or not, bracketed `[■]` where there is no colour to light it; a cell's
-    words, `■ Acme 5` on the company list, are drawn as one."""
+    the accent where it is on and dim where it is off, reversed where the keys are, bracketed
+    `[■]` where there is no colour to reverse; a cell's words, `■ Acme 5` on the company list,
+    are drawn as one."""
     size = cells(mark) + 2
     shown, lead = f" {mark} ", (width - size) // 2
-    if lit and not colour_depth():
+    if kind == "reverse" and not colour_depth():
         shown = f"[{mark}]"
-    drawn = " " * lead + (styled(shown, kind) if kind else shown) + " " * (width - lead - size)
-    return selected(drawn, 1, width) if lit else drawn
+    return " " * lead + (styled(shown, kind) if kind else shown) + " " * (width - lead - size)
 
 
 ESC = "\x1b"   # what Esc alone reads as: the single byte with nothing after it
@@ -1239,8 +1236,8 @@ def step(key):
 def highlight(line, mark=True, band=True):
     """The keys' row: `›` in the accent colour in its first column, its text bright, and with
     `band`, as a row Enter or a click acts on as a whole (a seat, a choice), on the theme's
-    selection from its first column to the layout's last (`selected`) where the terminal draws
-    256 colours or more.  The row of a lit cell -- a mark on `c` -- has no band of its own.
+    selection from its first column to the layout's last where the terminal draws 256 colours
+    or more.  The row of a lit cell -- a mark on `c` -- has no band.
 
     Every row a list draws starts with a space, so the mark takes it and no column moves; a
     row's second line, on a phone, is brightened and banded without one.
@@ -1248,7 +1245,9 @@ def highlight(line, mark=True, band=True):
     if mark:
         line = styled("›" if utf8() else ">", "accent") + line[1:]
     line = bright(line)
-    return selected(line, 1, layout_width()) if band and colour_depth() > 8 else line
+    if band and colour_depth() > 8:
+        return backed(line, colour("selection"), 1, layout_width())
+    return line
 
 
 def bright(text):
@@ -1259,22 +1258,11 @@ def bright(text):
     return "\033[1m" + text.replace("\033[0m", "\033[0;1m") + "\033[0m"
 
 
-def selected(line, first, last):
-    """`line` with its cells `first` to `last`, counted from 1, on the theme's selection: the one
-    highlight, what Enter or a click acts on, drawn alike by the keys and by the pointer (`lit`),
-    reversed at eight colours and as it is with none."""
-    return backed(line, colour("selection"), first, last) if colour_depth() else line
-
-
 def key_spans(line):
-    """(first column, last column, key) for each item of a drawn key line a click presses,
-    counted from 1: its text with one cell before and after, as it is lit (`lit`).  The words
-    for what the arrows do (MOVING) and the page's place between its arrows press nothing."""
+    """(first column, last column, key) for each item of a drawn key line, counted from 1."""
     text = ANSI.sub("", line)
-    return [(cells(text[:item.start()]), cells(text[:item.end()]) + 1, key)
-            for item in re.finditer(r"\S+(?: \S+)*", text)
-            for key in [key_parts(item.group())[0][0]]
-            if key not in MOVING and not key.isdigit()]
+    return [(cells(text[:item.start()]) + 1, cells(text[:item.end()]),
+             key_parts(item.group())[0][0]) for item in re.finditer(r"\S+(?: \S+)*", text)]
 
 
 def key_spots(lines, row):
@@ -1287,32 +1275,34 @@ def under(key, spots):
     """The `Spot` a click or the pointer at `key` is on, of a screen's `spots`: {screen row:
     (what, [(first, last, cell)])}, rows and columns counted from 1 as the terminal counts; a
     cell that is a row of its own, one of several on its line (a meter on `c`), is (first, last,
-    cell, its row).
+    cell, its row).  A row `lit` drew carries its line, (what, cells, line), so a key read
+    early is read against the screen it was read on; one not drawn yet, against the screen up.
 
     The one place a position is read back to what a screen drew there, for a click and for the
-    pointer alike, so what is lit is what a click there acts on, all of it and nothing else: a
-    cell over all its columns, and a row with no cell a click acts on -- a seat, a choice --
-    from its first column to the layout's last, as its band is drawn (`highlight`).  On a row
-    with such cells -- a model's marks on `c` -- the rest, its name too, is on nothing; a cell
-    of None is that row itself, all of its line its other cells leave.
+    pointer alike, so what lights under the pointer is what a click there acts on.  A thing is
+    there only from its first drawn column to its last: a cell within
+    its columns, the row within each stretch its cells leave.  Blank columns beside one -- a
+    cell's padding, the gap before a cell, the line's empty rest -- are on nothing.  A cell lit
+    is lit over all its columns, as the keys' reverse is drawn.
     """
-    what, places = spots.get(key.row, (None, ()))
-    for first, last, cell, *own in places:
-        if first <= key.col <= last:
-            return Spot(own[0] if own else what, cell, first, last)
-    whole = what is not None and all(isinstance(cell, tuple) for _, _, cell, *_ in places)
-    return Spot(what) if whole and key.col <= layout_width() else Spot()
-
-
-def inked(line, first, last):
-    """(first, last), the columns from 1 between `first` and `last` that `line` draws something
-    in, its blank padding off either end; None where it draws nothing there."""
-    ink, at = [], 1
+    what, places, *line = spots.get(key.row, (None, ()))
+    line = line[0] if line else _SHOWN[key.row - 1] if 0 < key.row <= len(_SHOWN) else ""
+    inked, end = set(), 1
     for char in ANSI.sub("", line):
         if not char.isspace():
-            ink += [column for column in range(at, at + _width(char)) if first <= column <= last]
-        at += _width(char)
-    return (ink[0], ink[-1]) if ink else None
+            inked.update(range(end, end + _width(char)))
+        end += _width(char)
+    for first, last, cell, *own in places:
+        drawn = sorted(inked.intersection(range(first, last + 1)))
+        if drawn and drawn[0] <= key.col <= drawn[-1]:
+            return Spot(own[0] if own else what, cell, first, last)
+    taken = {column for first, last, *_ in places for column in range(first, last + 1)}
+
+    def reaches(columns):      # the row drawn that way before a cell or the line's end
+        return next((column in inked for column in columns
+                     if column in inked or column in taken), False)
+    return (Spot(what) if reaches(range(key.col, 0, -1)) and reaches(range(key.col, end))
+            else Spot())
 
 
 def pointer():
@@ -1329,11 +1319,13 @@ def pointer_spot(spots):
 
 def lit(lines, spots):
     """`lines`, a screen from its first row, with the cell under the pointer -- a key-line item, a
-    cell of a row -- lit as the keys light one (`selected`), so the pointer and the keys never
-    show two.  `spots` are the screen's, kept as what the pointer is read against (`read_key`).
-    Rows are the screen's to light: the keys' highlight is moved onto the pointer's.  What only
-    explains -- a cell that is a tuple -- is never lit.  Nothing the pointer rests on says
-    anything more of itself: the screen is its own manual.
+    cell of a row -- on the theme's selection, in place of the reverse the keys give a
+    cell, so the pointer and the keys never show two; at eight colours it is reversed.  `spots`
+    are the screen's, kept as what the pointer is read against (`read_key`), each row given the
+    line it is drawn on (`under`).  Rows are the
+    screen's to light: the keys' highlight is moved onto the pointer's.  With no colour at all
+    nothing is lit, and what only explains -- a cell that is a tuple -- is never lit.  Nothing
+    the pointer rests on says anything more of itself: the screen is its own manual.
     A row drawn again on its line no longer reaching the still pointer -- a click shrank its
     cell -- is the pointer moved off it, held for `read_key` to answer, and `show` draws that;
     till then the pointer is on nothing drawn, so no move within one spot lets that one go.
@@ -1341,15 +1333,17 @@ def lit(lines, spots):
     global _SPOTS, _POINTED, _SHOWN, _PAINTED, _HELD, _POINTER
     on = pointer_spot(_SPOTS).what
     _SHOWN = _PAINTED = lines = list(lines)
+    spots.update({row: (what, places, lines[row - 1] if 0 < row <= len(lines) else "")
+                  for row, (what, places, *_) in spots.items()})
     _SPOTS, _POINTED = spots, pointer_spot(spots)
     if (_HELD is None and on is not None and _POINTED.what is None
             and spots.get(_POINTER.row, (None,))[0] == on):
         _HELD, _POINTER = (_POINTER._replace(name="point"), time.monotonic()), None
-    if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple)
+    if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple) or not colour_depth()
             or not 0 < _POINTER.row <= len(lines)):
         return lines
     _PAINTED = [*lines[:_POINTER.row - 1],
-                selected(lines[_POINTER.row - 1], _POINTED.first, _POINTED.last),
+                backed(lines[_POINTER.row - 1], colour("selection"), _POINTED.first, _POINTED.last),
                 *lines[_POINTER.row:]]
     return _PAINTED
 
@@ -1361,11 +1355,17 @@ def on_screen():
 
 def pointed(row, column, text):
     """`text`, written from `column` of `row` over the screen up, each of its cells on the
-    background the screen has there as last drawn (`lit`): what moves between draws
-    (`motion.Clock.frame`) keeps the highlight it moves in, the keys' and the pointer's alike."""
-    grounds = _grounds(_PAINTED[row - 1]) if 0 < row <= len(_PAINTED) else ()
+    background the screen has there as last drawn (`lit`) where it is not on that already:
+    what moves between draws (`motion.Clock.frame`) keeps the highlight it moves in, a row's
+    band and the pointer's light alike, never the keys' reverse inside it."""
+    screen = _grounds(_PAINTED[row - 1]) if 0 < row <= len(_PAINTED) else ()
+    grounds = [back if back != own else "" for back, own in zip(screen[column - 1:],
+                                                                _grounds(text))]
+    if any(grounds):
+        # A shake's reverse can start before the cell under the pointer.
+        text = text.replace("\033[7m", "")
     at = 1
-    for back, run in groupby(grounds[column - 1:column - 1 + cells(text)]):
+    for back, run in groupby(grounds):
         size = len(list(run))
         text = _on(text, back, at, at + size - 1) if back else text
         at += size
@@ -1441,8 +1441,8 @@ def _on(line, back, first, last):
         elif on and at >= last:
             out, on = out + f"\033[{off}m", False
         if on and token.startswith("\033") and token.endswith("m"):
-            # what styles the cell keeps, on the background
-            token = f"\033[{token[2:-1] or '0'};{back}m"
+            params = token[2:-1]        # what styles the cell keeps, on the background
+            token = f"\033[{'' if params == '7' else (params or '0') + ';'}{back}m"
         out += token
         at += 0 if token.startswith("\033") else cells(token)
     return out + (" " * (last - at) + f"\033[{off}m" if on else "")

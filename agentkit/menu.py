@@ -1925,7 +1925,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         at = 0
     # the subscription the pointer is on, of those on the grid; a question under a row has the
     # keys and the rows, and nothing is explained while it asks
-    usage_spots = meter_spots(layout, len(rows), grid, meters) if grid else {}
+    usage_spots = meter_spots(layout, len(rows), grid) if grid else {}
     spot = terminal.Spot() if asked else terminal.pointer_spot(usage_spots)
     pointed = spot.cell and spot.cell[1]
     seats = {info["name"]: info for info in infos}
@@ -2850,18 +2850,15 @@ def login_notes(rows, now=None):
     return notes
 
 
-def meter_spots(width, count, first, drawn, rows=False):
+def meter_spots(width, count, first, rows=False):
     """Where each of `count` subscriptions' meters sits on the grid `usage_lines` draws `width`
-    wide from line `first`, its lines `drawn`: {line: (None, [(first, last, ("usage",
-    number))])}, `number` from 1, the columns counted from 1 as the terminal counts, from a
-    meter's label to its last word, never its padding (terminal.inked); with `rows`, as on `c`,
-    each meter a row of its own (terminal.under), its cell after it again."""
+    wide from line `first`: {line: (None, [(first, last, ("usage", number))])}, `number` from
+    1, the columns counted from 1 as the terminal counts; with `rows`, as on `c`, each meter a
+    row of its own (terminal.under), its cell after it again."""
     columns = usage_columns(width)
-    return {first + line: (None, [(*ink, *(("usage", line * columns + n + 1),) * (1 + rows))
-                                  for n in range(min(columns, count - line * columns))
-                                  for ink in [terminal.inked(drawn[line], 3 + n * (COLUMN + 2),
-                                                             2 + n * (COLUMN + 2) + COLUMN)]
-                                  if ink])
+    return {first + line: (None, [(3 + n * (COLUMN + 2), 2 + n * (COLUMN + 2) + COLUMN,
+                                   *(("usage", line * columns + n + 1),) * (1 + rows))
+                                  for n in range(min(columns, count - line * columns))])
             for line in range(-(-count // columns))}
 
 
@@ -3630,8 +3627,8 @@ def companies_body(makers, yours, off, at=None, column=0):
     """The company list's lines and {line: (row, cells)}: each of `yours` with a listed model a
     line, its name, then each of those models (`makers`), `■` on in the accent, or `□` and dim
     where `off` holds it; where the width runs out they go on under the column where they
-    began.  The keys' cell, `column` of the row `at` (its name 0), is lit (terminal.toggle).
-    Last, `+ add a company`."""
+    began.  The keys' cell, `column` of the row `at` (its name 0), is reversed
+    (terminal.toggle).  Last, `+ add a company`."""
     room, (on, out) = terminal.layout_width(), "■□" if terminal.utf8() else "#-"
     shown = [maker for maker in yours if maker in makers]
     label = max((terminal.cells(maker) for maker in shown), default=0)
@@ -3648,7 +3645,8 @@ def companies_body(makers, yours, off, at=None, column=0):
             if number > 1 and first + width - 2 > room:      # its space after may go
                 parts.append([" " * (start - 1), []])
                 first = start
-            parts[-1][0] += terminal.toggle(text, width, kind, row == at and number == column)
+            parts[-1][0] += terminal.toggle(text, width, "reverse" if row == at
+                                            and number == column else kind)
             parts[-1][0] += " " * (0 if number else label - terminal.cells(text))
             parts[-1][1].append((first, first + width - 1, number))
         for number, (line, cells) in enumerate(parts):
@@ -3772,9 +3770,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     their values, unless `rows` is empty (a new session's screen).  A row is `("model", name)`
     or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
-    the cell on it the keys act on, lit (terminal.selected).  `cells` are a model row's (first,
-    last, column), for a click, counted from 1 as the terminal counts: its marks and efforts, and
-    not its label, which a click acts on nothing of. On a phone the cells give way,
+    the cell on it the keys act on.  `cells` are a model row's (first, last, column), -1 its
+    label, for a click, counted from 1 as the terminal counts. On a phone the cells give way,
     then the label, and where one cell of label still leaves the roles too little room each role
     folds onto a line of its own under the label, its head before it instead of over it.
     `scope`, whom the marks are for -- NEW_SEATS or a seat's name -- is the For line over the
@@ -3841,7 +3838,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                     [(3, shown, "dim" if note else None)], ink, at == ("model", name))))
             line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
                 label - terminal.cells(shown))
-            cells, first, parts = [], left + 1, []
+            cells, first, parts = [(3, 2 + terminal.cells(shown), -1)], left + 1, []
             for number in CONFIG_ORDER if selected else CONFIG_ORDER[1::2]:
                 gap = 0 if selected and number >= 3 else 2      # a role's effort beside its mark
                 if folded and gap:                              # a role starts its own line
@@ -3853,16 +3850,15 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                     line, first = line + " " * width[number], first + width[number]
                     continue
                 text = texts[number] if number < 3 else efforts[name, number]
-                keyed = at == ("model", name) and number == column
-                kind = ("dim" if note or text in (marks[1], marks[3]) or builds and number % 3 == 1
+                kind = ("reverse" if at == ("model", name) and number == column else
+                        "dim" if note or text in (marks[1], marks[3]) or builds and number % 3 == 1
                         else "accent" if number < 3 else None)
-                if number >= 3:   # an effort is its cells and then its word, lit whole
+                if number >= 3:   # the keys' effort is its word reversed, its cells before it
                     lead = leads[name, number]
                     lead = terminal.styled(terminal.plain(lead, True), kind) if (
                         kind == "dim" and lead) else lead
                     text = lead + (terminal.styled(text, kind) if kind else text)
-                    text = terminal.selected(text, 1, terminal.cells(text)) if keyed else text
-                line += (terminal.toggle(text, width[number], kind, keyed) if number < 3 else
+                line += (terminal.toggle(text, width[number], kind) if number < 3 else
                          text + " " * (width[number] - terminal.cells(text)))
                 if number < 3 and moves is not None:
                     moves.append((len(lines) + len(parts), ("mark", name, number), text,
@@ -4055,7 +4051,7 @@ def config_meters(cfg, at=None, rows=None, spans=None):
     if not meters:
         return [], {}
     detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
-    return [*meters, detail], meter_spots(width, len(rows), 0, meters, rows=True)
+    return [*meters, detail], meter_spots(width, len(rows), 0, rows=True)
 
 
 def meters_led(meters, body, places, under, keys, moves=()):
@@ -4212,7 +4208,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     first where that restarts it (seat_effort) -- and drawn at once, each cell it fills lighting and each it empties dimming in turn, and a step onto
     the model's highest sends a light through its word (config_body, on the clock); nothing
     replays after another screen.
-    A model's label takes no click: only its marks and efforts are lit.  `r`, or a click on
+    A click on a model's label puts the highlight on its first mark.  `r`, or a click on
     `r recommended`, opens the models screen (models_screen), what each role uses for whom the
     marks are, where ← and → take a role's next cheaper or better choice for them.  Enter or a
     click on `Models` opens its page (models_page), and on `Subscriptions` its page
@@ -4325,6 +4321,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 except config.Error as exc:
                     pause(f"config: {exc}")
                     return cfg
+        elif column < 0:          # a click on its label: the highlight on its first mark
+            column = config_columns(selected, here[1])[0]
         elif act in ("left", "right"):
             at = columns.index(column) + (1 if act == "right" else -1)
             column = columns[min(max(at, 0), len(columns) - 1)]
@@ -4335,8 +4333,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if note:
                 clock.touch(("mark", here[1], column))    # refused: the mark shakes
         elif act == "space" or isinstance(act, int):     # a role's effort
-            # a click on one of its cells takes that level, and one on its word, or the blank
-            # before it, steps it on as Space does; the row's other efforts stay as they are shown
+            # a click on one of its cells takes that level, and one on its word steps it on; the
+            # row's other efforts stay as they are shown
             role, key = list(config.ROLE_EFFORTS.items())[column - 3]
             entry = config.at_efforts(cfg, selected)["models"][here[1]]
             hold = [list(config.ROLE_EFFORTS.values())[number - 3] for number in
@@ -4346,7 +4344,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 entry.get(key, entry.get("effort", "?")))
             note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, hold=hold,
                                   around=around, providers=providers)
-                    if isinstance(act, int) and act < min(lead, len(effort_levels(entry, cfg)))
+                    if isinstance(act, int) and act < lead
                     else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=seat,
                                        hold=hold, around=around, providers=providers))
 
@@ -4944,8 +4942,7 @@ def config_subscriptions(cfg, keyboard):
                                                 not beside and held)))
                 for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
                                                 list(acts), on, width - 4):
-                    # its login's words are its row's, never blank under the pointer
-                    places[len(body)] = (("sub", number), [*cells, (1, width, None)])
+                    places[len(body)] = (("sub", number), cells)
                     moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
                     body.append(shown)
         # seen with no line too, so the pointer coming back onto a row is news
@@ -4988,13 +4985,12 @@ def config_subscriptions(cfg, keyboard):
 
 def opened_line(told, kind, texts, on, room):
     """The line a pointed row of `Subscriptions` opens: `told` in `kind`, then `texts` three
-    spaces apart, the one that is `on` lit with a cell before and after it (terminal.selected,
-    bracketed with no colour), wrapped in `room` cells, never cut; each line with its texts'
-    places, (first, last, index), from 1, as wide as one is lit."""
+    spaces apart, the one that is `on` reversed (bracketed with no colour), wrapped in `room`
+    cells, never cut; each line with its texts' places, (first, last, index), from 1."""
     pieces = [(terminal.styled(part, kind), None) for part in terminal.wrap(told, room) if part]
     for index, text in enumerate(texts):
-        pieces.append((f"[{text}]" if text == on and not terminal.colour_depth() else text,
-                       index))
+        pieces.append((text if text != on else terminal.styled(text, "reverse")
+                       if terminal.colour_depth() else f"[{text}]", index))
     lines, used = [("    ", [])], 0
     for shown, index in pieces:
         wide = terminal.cells(terminal.plain(shown))
@@ -5002,11 +4998,10 @@ def opened_line(told, kind, texts, on, room):
             lines, used = [*lines, ("    ", [])], 0
         gap = 3 if used else 0
         if index is not None:
-            lines[-1][1].append((4 + used + gap, 5 + used + gap + wide, index))
+            lines[-1][1].append((5 + used + gap, 4 + used + gap + wide, index))
         lines[-1] = (lines[-1][0] + " " * gap + shown, lines[-1][1])
         used += gap + wide
-    return [(next((terminal.selected(line, first, last) for first, last, index in cells
-                   if texts[index] == on), line), cells) for line, cells in lines]
+    return lines
 
 
 def page_body(rows, at=None, moves=None):
@@ -5018,8 +5013,8 @@ def page_body(rows, at=None, moves=None):
     cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
     indented as a choice, and so does one with a cell, kept whole, as `◂ 300 ▸` steps; `at` is
-    the row lit, and `moves` is handed each mark leading a value (`■`, `□`, `●`, `○`) as
-    config_body hands its own."""
+    the row lit, on the selection unless its cell is what is lit, and `moves` is handed each
+    mark leading a value (`■`, `□`, `●`, `○`) as config_body hands its own."""
     room = terminal.layout_width()
     wide = max((terminal.cells(label) for _, label, value in rows if label is not None and value),
                default=0)
@@ -5031,13 +5026,14 @@ def page_body(rows, at=None, moves=None):
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
         # what never parts across lines: each word, and a value with a cell whole, so an arrow
         # stays beside what it steps
-        whole = ([" ".join(text for text, *_ in parts)] if any(cell for _, _, *cell in parts)
+        celled = any(cell for _, _, *cell in parts)
+        whole = ([" ".join(text for text, *_ in parts)] if celled
                  else [word for text, *_ in parts for word in text.split()])
         if label is not None and any(terminal.cells(word) > left for word in whole):
             # too wide beside the label: the value folds under it, never cut in a word
             line = "  " + terminal.cut(label, room - 2)
             places[len(lines)] = (row, [])
-            lines.append(terminal.highlight(line) if row == at else line)
+            lines.append(terminal.highlight(line, band=not celled) if row == at else line)
             lead, left, folded = "    ", max(1, room - 4), True
         if moves is not None and not isinstance(value, str) and value[0][0] in motion.HALF:
             moves.append((len(lines), ("mark", row), value[0][0], motion.toggled(
@@ -5054,11 +5050,9 @@ def page_body(rows, at=None, moves=None):
         for number, parts in enumerate(wrapped):
             line = ((lead if number == 0 else " " * indent)
                     + " ".join(piece for piece, _ in parts)).rstrip()
-            # a row whose value holds a cell -- a step's arrows -- is still the row around it
-            cells = [spot for _, cells in parts for spot in cells]
-            places[len(lines)] = (row, [*cells, (1, room, None)] if cells else [])
-            lines.append(terminal.highlight(line, number == 0 and not folded) if row == at
-                         else line)
+            places[len(lines)] = (row, [spot for _, cells in parts for spot in cells])
+            lines.append(terminal.highlight(line, number == 0 and not folded, band=not celled)
+                         if row == at else line)
     return lines, places
 
 
@@ -5135,7 +5129,7 @@ def config_page(name, page, move=True):
         moves += [(line, ("opened",), opened[0], motion.fading(body[line], motion.OPEN))
                   for line, (row, _) in places.items() if len(row) == 3]
         # a click on what a mark's line draws acts as Space does (matrix_key's `marks`)
-        places = {line: (row, [(1, terminal.layout_width(), 0)] if does(row)[0] else cells)
+        places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else cells)
                   for line, (row, cells) in places.items()}
         # the pointed row's lines under the rows, its own: ↓ and ↑ turn their pages before they
         # leave it, as a tall row's (matrix_key), from the row each time the pointer comes to it
@@ -6131,8 +6125,9 @@ def features_body(rows, at=None, column=0, moves=None):
         line = "  " + shown + " " * (label - terminal.cells(shown))
         cells, first = [], 2 + label + 1
         for number, (text, width) in enumerate(zip(texts, widths)):
-            kind = "dim" if text in (off, fixed) else ("accent", "ok")[number]
-            line += "  " + terminal.toggle(text, width, kind, at == row["id"] and number == column)
+            kind = ("reverse" if at == row["id"] and number == column else
+                    "dim" if text in (off, fixed) else ("accent", "ok")[number])
+            line += "  " + terminal.toggle(text, width, kind)
             if moves is not None:
                 moves.append((len(lines), ("mark", row["id"], number), text, motion.toggled(
                     text, width, kind, at == row["id"], first + 2)))
@@ -6440,7 +6435,8 @@ def pressed(key, drawn, found):
             return opens(spot.what)
         item = spot.cell or ""
         if item not in ("⏎", "enter", "esc"):
-            return item if len(item) == 1 else ""
+            # the page's place between the arrows is no seat's number
+            return item if len(item) == 1 and not item.isdigit() else ""
         key = terminal.Key({"⏎": "enter"}.get(item, item))
     if key.name == "enter":
         return opens(drawn["cursor"])
