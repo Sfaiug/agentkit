@@ -17,14 +17,15 @@ func init() {
 	commands["run merge"] = runMerge
 }
 
-// runStop is `ak run stop <id> [--keep]`, its arguments checked already: a job's stop, and a run's
-// Go leaves, are Python's.
+// runStop is `ak run stop <id> [--keep]`, its arguments checked already: a job's stop or a run's
+// Go leaves is Python's.
 func runStop(args []string, out, errOut io.Writer) int {
 	id := without(args, "--keep")[0]
+	stop := loop.StopRun
 	if isFile(job.ReceiptPath(id)) {
-		return notImplemented(errOut, "run stop")
+		stop = loop.StopJob
 	}
-	switch err := loop.StopRun(id, contains(args, "--keep"), out); {
+	switch err := stop(id, contains(args, "--keep"), out); {
 	case errors.Is(err, loop.ErrPython):
 		return notImplemented(errOut, "run stop")
 	case err != nil:
