@@ -598,7 +598,7 @@ def cut_off(cfg, name, moved=None):
     answer differently (`holding`).
 
     Its last look, unless its hook has spoken since, which is then the newest word.  Asking
-    the owner, in a turn or not: its question on the screen, or its own unanswered `ak notify
+    the owner, in a turn or not: its question kept or on screen, or its own unanswered `ak notify
     needs`.  Else in the middle of a turn: the ladder's own test -- a hook's prompt with no
     `Stop` after it, or a screen positively `working`, as it is once a question the turn asked
     was answered.  A move to another account knows what it cut instead: `moved` says whether
@@ -622,17 +622,24 @@ def _cut_line(cfg, name):
     if not harness:
         return None
     looked = seat_read(name)
+    kept = looked.get("unasked")      # asked on its card, whatever a look found since
     try:
         hooked, event, _text, when = hook_state(harness, seat_fact(name, harness))
     except config.Error:
         return None
     if when is not None and when != looked.get("hooked_at"):
         looked = {"state": hooked, "hooked": hooked, "hooked_at": when, "hooked_event": event}
-    if looked.get("state") == "asking" or owner_question(notify.last(name)):
+    if looked.get("state") == "asking" or kept or owner_question(notify.last(name)):
         return ASKED_LINE
     if _turn_in_flight(harness, looked)[0]:
         return MIDTURN_LINE
     return None
+
+
+def asking_again(name, line):
+    """On its record, the moment that seat goes back told to ask again (`notify.again`)."""
+    if line and line.startswith(ASKED_LINE):
+        seat_write(name, asked_again=time.time())
 
 
 def resume_after_boot(cfg, dry_run=False, log=print):
@@ -685,6 +692,7 @@ def resume_after_boot(cfg, dry_run=False, log=print):
             _write_state(state)       # a failed or interrupted launch is never repeated this boot
             try:
                 at = time.time()
+                asking_again(name, line)
                 back = orch.resume(cfg, name, log=lambda _: None, detached=True,
                                    hand_over=False, line=line)
                 log(f"resumed {name} after reboot")
@@ -1383,9 +1391,14 @@ def pinned(session):
 
 def pane_text(session):
     """The whole pane: output above the tail must reset the quiet clock too."""
+    return pane_capture(session) or ""
+
+
+def pane_capture(session):
+    """The whole pane, "" where it shows nothing, or None where tmux gives no capture."""
     rc, out = orch.tmux_out("capture-pane", "-p", "-e", "-J", "-t", _pane(session),
                             socket=orch.seat_socket(session))
-    return out if rc == 0 else ""
+    return out if rc == 0 else None
 
 
 def strip_sgr(text):
@@ -1736,7 +1749,7 @@ def seat_fact(name, harness):
             else fact)
 
 
-def follow_model(cfg, name):
+def follow_model(cfg, name, asked=None):
     """Make the model that seat's harness last recorded its orchestrator:
     `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
     nothing restarted (the owner's word of 20 Oct 2026).  Only a record made since the harness
@@ -1747,10 +1760,11 @@ def follow_model(cfg, name):
     that harness, the seat's own first, at the effort recorded where one does, and
     `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
     builds and reviews where they stood.  A model no entry the config can run runs on that
-    harness is added to the config and becomes the seat's (_taken_in): "Add it to AK's
-    models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat on its harness's own
-    model, a record that cannot be read, or an effort it records none of or its model does not
-    take leaves the record as it is."""
+    harness is added to the config and becomes the seat's (_taken_in, asking its harness's
+    listing only for the watch's pass, whose listings `asked` holds: a look waits on none): "Add
+    it to AK's models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat
+    on its harness's own model, a record that cannot be read, or an effort it records none of or
+    its model does not take leaves the record as it is."""
     try:
         record = config.load_session(cfg, name, required=False)
         entry = record and config.model(cfg, record["orchestrator"])
@@ -1771,7 +1785,7 @@ def follow_model(cfg, name):
         return
     kept = record["orchestrator"]
     runs = (sorted(config.running(cfg, entry["harness"], ran[0]), key=lambda each: each != kept)
-            or _taken_in(cfg, entry, ran))
+            or _taken_in(cfg, entry, ran, asked))
     if not runs:
         return
     models = config.at_efforts(cfg, record)["models"]
@@ -1784,27 +1798,39 @@ def follow_model(cfg, name):
             cfg["models"], data, chosen, ran[1]))
 
 
-def _taken_in(cfg, left, ran):
+def _taken_in(cfg, left, ran, asked):
     """[name] of the entry made for the model a seat's harness recorded (`ran`, as follow_model
     reads it) where no entry of `cfg` runs it there, as `add a subscription` makes one: on the
     harness and provider of `left`, the entry the seat leaves, with its mode where it has one,
-    at the effort recorded where the model takes it, else the last it takes, and added to the
-    file and to `cfg` (config.add_model).  [] for a harness that runs any provider it logs in
-    to, since nothing read says which runs the model; a model its listing as held does not
-    name, as an id recorded for an error or a fallback; or an add that fails."""
+    at the effort recorded where the model takes it, else the last it takes, named from its
+    label, and added to the file and to `cfg` (config.add_model).  [] for a harness that runs
+    any provider it logs in to, since nothing read says which runs the model; a model neither
+    its listing as held nor its `[catalog]` table names, nor, for a pass, its listing as the
+    pass asked it (config.catalog), once at most into `asked` ({harness: listing}) however long
+    the pass runs, as an id recorded for an error or a fallback; or an add that fails."""
     harness = left["harness"]
     if harness in config.provider_hosts():
         return []
-    listing = config.catalog_held(harness, cfg)       # a look waits on no listing
-    listed = next((model for model in listing if model["id"] == ran[0]), None)
+
+    def named(models):
+        return next((model for model in models if model["id"] == ran[0]), None)
+    # the table too, which a held listing answers without: an id only it names (Muse's
+    # `-contributor` ones) is added however much is held, and asks nothing
+    models = config.catalog_held(harness, cfg) + config.catalog_table(harness)
+    if asked is not None and named(models) is None:
+        if harness not in asked:
+            asked[harness] = config.catalog(harness, cfg)
+        models = asked[harness]
+    listed = named(models)
     if listed is None:
         return []
-    levels = config.efforts(harness, ran[0], lambda _: listing)
+    levels = config.efforts(harness, ran[0], lambda _: models)
     entry = {"harness": harness, "model": ran[0], "provider": left["provider"],
              "effort": ran[1] if ran[1] in levels else levels[-1],
              **{key: left[key] for key in ("mode",) if key in left}}
     try:
-        return [config.add_model(cfg, entry, listed["label"])]
+        return [config.add_model(cfg, entry,     # a table row's label as every screen's
+                                 config.model_label(harness, ran[0], listed["label"]))]
     except (config.Error, OSError):
         return []
 
@@ -2437,14 +2463,15 @@ def keeps_back(name):
 def questions_kept(unasked):
     """The questions a seat's record keeps back for their turn's end, in the order kept, each
     with when the seat said it (`at`) and that end (`ended`) once each is on record.  One the
-    older install kept is one."""
+    older install kept is one.  One kept since it was reopened told to ask again says when."""
     if not isinstance(unasked, dict):
         return []
     listed = unasked.get("questions")
     if not isinstance(listed, list):
         listed = [unasked]
     return [{"text": q["text"], "id": q.get("id"),
-             **{key: q[key] for key in ("at", "ended") if _stamp(q.get(key)) is not None}}
+             **{key: q[key] for key in ("at", "ended", "asked_again")
+                if _stamp(q.get(key)) is not None}}
             for q in listed if isinstance(q, dict) and isinstance(q.get("text"), str)]
 
 
@@ -2461,7 +2488,8 @@ def keep(name, text, question_id=None):
         with seat_lock(name):
             data = seat_read(name)
             kept = [*questions_kept(data.get("unasked")),
-                    {"text": text, "at": time.time(), "id": question_id}]
+                    {"text": text, "at": time.time(), "id": question_id,
+                     "asked_again": data.get("asked_again")}]
             _seat_put(name, data, {"unasked": _kept(kept), "wait": None})
     except (OSError, config.Error) as exc:
         print(f"WARN could not record what {name} is doing: {exc}", file=sys.stderr)
@@ -2504,7 +2532,8 @@ def answered_kept(name, replies, at):
     card's copy, and every copy of a question whose latest card it is.  Each question it answers
     is the owner's time, asked when first kept and answered at `at`, unless the reply naming it
     also answers a question the seat's notice asks (`notify.card_answered`), whose answer
-    records it.  The caller holds the notice lock."""
+    records it.  Those one takes the place of go with it, in its wait (`notify.again`).  What it
+    answered; the caller holds the notice lock."""
     with seat_lock(name):
         data = seat_read(name)
         kept = questions_kept(data.get("unasked"))
@@ -2515,21 +2544,26 @@ def answered_kept(name, replies, at):
                 notify.replied([reply], q["text"], card)
                 for card in (q.get("id"), latest[notify.question_key(q["text"])]))
         answered = [q for q in kept if any(answers(reply, q) for reply in replies)]
+        before = notify.again(answered)
+        first = next((q for q in answered if q.get("asked_again") == before), None)
+        def lead(q):        # the question whose wait that one is: one kept before, the first's
+            return first if q.get("asked_again", -math.inf) < before else q
+        answered = [q for q in kept if q in answered or lead(q) is first]
         if not answered:
-            return False
+            return []
         _seat_put(name, data, {"unasked": _kept([q for q in kept if q not in answered])})
     notice = notify.last(name)
-    noticed = [reply for reply in replies
-               if notice and notify.card_answered(notice, [reply], at, latest)]
+    noticed = [reply for reply in replies if notice and notify.card_answered(
+        notice, [reply], at, latest, before if first and answers(reply, first) else -math.inf)]
     asked = {}
     for q in answered:
-        key = notify.question_key(q["text"])
-        if not any(answers(reply, q) for reply in noticed):
-            asked[key] = min(q["at"], asked.get(key, math.inf))
+        key = notify.question_key(lead(q)["text"])
+        if not any(answers(reply, lead(q)) for reply in noticed):
+            asked[key] = min(q.get("at", at), asked.get(key, math.inf))
     for moment in asked.values():
         history.owner_time("asked", moment, session=name)
     notify.waited(name, {"asked_at": asked}, at)
-    return True
+    return answered
 
 
 def ask_kept_back(name, harness, found, held=False):
@@ -3370,19 +3404,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if undecided:
             return {"word": "needs you", "since": found.get("began"), "reason":
                     f"run {undecided[0].name} parked: {handback.handback_reason(undecided[1])}"}
-        done = {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
-        # tmux remembers even visits between looks; only one since the work finished counts.
-        try:
-            done_at = max(_stamp(found.get("began")) or 0, plan_mod.path(name).stat().st_mtime)
-        except FileNotFoundError:   # a rename moved the plan; the next look resolves it anew
-            return done
-        rc, visit = orch.tmux_out("display-message", "-p", "-t", f"={name}:",
-                                  "#{session_attached}\t#{session_last_attached}",
-                                  socket=orch.seat_socket(session))
-        attached, _, last = visit.partition("\t")
-        if rc == 0 and attached == "0" and last.isdigit() and int(last) > done_at:
-            return {"word": "idle", "reason": "", "since": found.get("began")}
-        return done
+        # A visit ends nothing: only new work does.  Resting after a visit, the seat read `done`
+        # again whenever the owner was in it, two changes of word with nothing said (owner,
+        # 13 Nov 2026).
+        return {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
     return {"word": "idle", "reason": "", "since": found.get("began")}
 
 
@@ -5630,6 +5655,7 @@ def health(cfg, state, dry_run, log):
         else:
             forget(gone, resolve=False, acknowledge=False)
             sync_seen(state, load_state())
+    asked = {}      # each harness's listing, which this pass asks once at most (follow_model)
     for session in seats:
         name = session["name"]
         harness, provider = seat_model(cfg, name)
@@ -5669,7 +5695,7 @@ def health(cfg, state, dry_run, log):
                 live = ({} if blank or dry_run or session.get("exited")
                         else live_state(session, harness, pane=pane, cfg=cfg))
                 if live:
-                    follow_model(cfg, name)
+                    follow_model(cfg, name, asked)
                     harness, provider = seat_model(cfg, name)   # a harness can span providers
                 ask_kept_back(name, harness, live)
             at_prompt = (live or seat_read(name)).get("state") == "at_prompt"
@@ -7295,6 +7321,7 @@ def revive_seats(cfg, log):
         if len(deaths) == 2:
             why = "it died again both times it was reopened within the hour"
         elif line:
+            asking_again(name, line)
             why = revive(name, line, log, cfg, prepare=lambda line: line)
         else:
             why = revive(name, f"continue: your run {run_id} ({title}) is still going; "
@@ -8822,11 +8849,21 @@ def main(argv):
     # every line of a real tick, the overlap line included, bounds the log on its way out; a
     # dry run renames nothing at all, and the log it may be printing into is no exception
     log = print if dry_run else tick_log
+    if not dry_run:
+        stamp_log()
+    # A client's home may be a copy of its server's, at the same paths: a tick here would resume,
+    # land and tell all of it a second time, so it reads and writes nothing, not even the lock
+    # or the config's old names, which bin/ak renames for every other command.  Its line is
+    # printed, not `tick_log`'s: a roll of the log takes a lock in the state folder.
+    alias = config.server_alias()
+    if alias:
+        print(f"this machine is a client of {alias} and runs no tick")
+        return 0
+    config.migrate_policy()
     if dry_run:
         log(tick_health()[0])
         held = None
     else:
-        stamp_log()
         config.ensure_dirs()
         try:
             previous = tick_lock_path().stat().st_mtime   # before the lock stamps our start

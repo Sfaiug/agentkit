@@ -18,6 +18,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(REPO), str(REPO / "tests")]
 import every_file
 from agentkit import config, record, suite_times
+from test_go_keys import SWITCHED
 
 # Notes the claim it runs for and the program it judges, built in its piece's own tree.
 KEY = '''import os, sys, unittest
@@ -42,7 +43,10 @@ class GoKeysPieces(unittest.TestCase):
             prefix=".ak-test-go-keys-pieces-", dir=REPO)))
         self.root = self.sandbox / "acme"
         (self.root / "tests").mkdir(parents=True)
-        (self.root / "go").mkdir()
+        # what the copy switched as each claim's is takes from go/
+        for part in SWITCHED:
+            shutil.copytree(REPO / "go" / part, self.root / "go" / part, symlinks=True)
+        shutil.copy(REPO / "go/install.sh", self.root / "go")
         (self.root / "tests/smoke.sh").write_text("")
         (self.root / "tests/test_go.py").write_text(TEST_GO)
         for file in ("test_go_keys.py", "suite_shares.py"):

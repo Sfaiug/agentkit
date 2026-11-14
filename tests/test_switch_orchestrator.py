@@ -294,6 +294,17 @@ class Switch(Sandbox):
         self.assertEqual(config.load_session(self.cfg, "fix-api")["orchestrator"], "astra")
         self.assertEqual(len([args for args in self.calls if args[0] == "respawn-pane"]), 1)
 
+    def test_a_removed_login_is_never_asked_even_where_no_listed_one_passes(self):
+        self.cfg["providers"]["anthropic"]["accounts"] = ["second"]   # its usual login removed
+        asked = []
+
+        def auth(_harness, seat=False, account=None, **_kw):
+            asked.append(account)
+            return False, f"{account}: not logged in; run login"
+        with patch("agentkit.worker.auth_ok", side_effect=auth):
+            note = orch.switch_orchestrator(self.cfg, "fix-api", "fable", {})
+        self.assertEqual((note, asked), ("fable: second: not logged in; run login", ["second"]))
+
     def at_xhigh(self):
         """fix-api's record holding opus's orchestrator effort at xhigh: the record as it is."""
         config.change_efforts("fix-api", lambda data: {"opus": {"effort": "xhigh"}})

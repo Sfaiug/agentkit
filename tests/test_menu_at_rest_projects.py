@@ -161,12 +161,13 @@ class Projects(Sandbox):
                     rounds=2, round_summaries=[])
         screen = self.draw(100, 30)
         self.assertNotIn("↳", screen)
-        # A working seat without a plan or a job reads `no plan yet`, never `N running`; no run
-        # title ever is a row.
+        # A working seat without a plan or a job reads `no plan yet` and its tasks in flight,
+        # never `N running`; no run title ever is a row.
         for title in ("Failed work", "Parked work", "Going work"):
             self.assertNotIn(title, screen)
         row = next(line for line in screen.splitlines() if "atoll-fix" in line)
-        self.assertTrue(row.rstrip().endswith("─ no plan yet"))   # the parked one resumes itself
+        # the going one in flight; the parked one resumes itself
+        self.assertTrue(row.rstrip().endswith("─ no plan yet · 1 task"), row)
         self.assertEqual(self.headings(screen), ["atoll"])
         # Its own runs are still going, so the seat is working and needs nobody yet.
         self.assertNotIn("needs you", screen)

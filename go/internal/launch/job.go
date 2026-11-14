@@ -13,7 +13,6 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/job"
 	"agentkit/internal/loop"
-	"agentkit/internal/pick"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -92,7 +91,7 @@ func Job(paths []string, values map[string]string, flags map[string]bool, out io
 // parks is whether the launch's run would end at its pick before any turn, a wait for budget
 // Python's job sits out before it starts the task (run_job_loop).
 func parks(l *launching) bool {
-	rules, _ := pick.Within(names(l.bound.Workers), names(l.bound.Reviewers))
+	rules, _ := staffing(l.bound, l.place.numbers)
 	return loop.Parks(rules, l.values["--exec"])
 }
 

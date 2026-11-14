@@ -75,6 +75,11 @@ func isLink(path string) bool {
 // safe is no link on the way, and the path a folder or a file with one name, this user's
 // (retention.safe).
 func safe(path string) bool {
+	return safeNamed(path, 1)
+}
+
+// safeNamed is safe for a file that may have up to `names` names (retention.safe's `names`).
+func safeNamed(path string, names int) bool {
 	path = config.Pure(path)
 	if !strings.HasPrefix(path, "/") || climbs(path) {
 		return false
@@ -88,7 +93,7 @@ func safe(path string) bool {
 		}
 	}
 	info, st, ok := lstat(path)
-	return ok && st.uid == uint32(os.Getuid()) && (info.IsDir() || info.Mode().IsRegular() && st.nlink == 1)
+	return ok && st.uid == uint32(os.Getuid()) && (info.IsDir() || info.Mode().IsRegular() && st.nlink <= uint64(names))
 }
 
 // listdir is a folder's names in order, its access time left alone where it can be

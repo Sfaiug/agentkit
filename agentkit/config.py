@@ -2025,8 +2025,8 @@ def adapter(harness, code=None):
 
     It has three duties: hand the worker the prompt as written, let it close its turn with
     `ak hand-in done`, and return `final.md` and a `session_id` a second turn resumes; ak ends
-    whatever a turn leaves running.  `python3 tests/check_harness_contract.py [harness]` proves
-    them on each harness installed with a login, at the model and effort its `[check]` names.
+    whatever a turn leaves running.  `ak contract [harness]` proves them on each harness installed
+    with a login, at the model and effort its `[check]` names.
     The verbs:
 
     run <model> <effort> <workspace> <prompt> <out> [<session>]
@@ -2465,6 +2465,14 @@ def accounts(cfg, provider):
     entry = cfg["providers"].get(provider)
     listed = entry.get("accounts") if isinstance(entry, dict) else None
     return list(listed) if isinstance(listed, list) else []
+
+
+def lists(cfg, provider, account):
+    """Whether `provider` still lists `account`, a login a seat's record names (None its usual
+    one): a subscription removed is signed out (menu.config_remove_provider), so nothing is
+    asked of it.  A provider listing no `accounts` has its one login."""
+    listed = accounts(cfg, provider)
+    return not listed or (account or DEFAULT_ACCOUNT) in listed
 
 
 def account_label(cfg, provider, account, name):

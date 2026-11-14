@@ -89,6 +89,8 @@ type plugin struct {
 	// and loose where it reads a record naming them less strictly than Python's done check does.
 	answered func(record map[string]any) ([]Turn, []Card, error)
 	loose    bool
+	// replies is whether a message typed says the owner's answers on a card (Replies).
+	replies func(text string) bool
 	// anew is whether Go opens only new seats of this harness, leaving reopening them to Python.
 	anew bool
 	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title

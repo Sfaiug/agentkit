@@ -5021,7 +5021,8 @@ env -u TMUX TMUX_TMPDIR="$STALLT" tmux -L agentkit-test kill-server 2>/dev/null
 RUNSH="$WORK/home-runs"
 mkdir -p -- "$RUNSH/.agentkit/state"
 cp "$MHOME/.agentkit/state/usage.json" "$RUNSH/.agentkit/state/usage.json"
-HOME="$RUNSH" PYTHONPATH="$REPO" COLUMNS=100 python3 - "$$" >"$WORK/runs.log" 2>&1 <<'PY'
+# its row's glyphs are UTF-8's, whatever locale the caller uses
+HOME="$RUNSH" PYTHONPATH="$REPO" COLUMNS=100 LC_ALL=C.UTF-8 python3 - "$$" >"$WORK/runs.log" 2>&1 <<'PY'
 import io
 import sys
 import time
@@ -5084,7 +5085,7 @@ assert any(line == "atoll" for line in lines), lines
 assert not any("seats" in line for line in lines), lines
 assert any(line.strip().startswith("1  ") for line in lines), lines
 row = next(line for line in lines if "atoll-fix" in line)
-assert config.model_name(cfg, "fable") in row and "working" in row and row.endswith(" 2 of 5"), row   # the line's count
+assert config.model_name(cfg, "fable") in row and "working" in row and row.endswith(" 2 of 5 · 1 task"), row   # the line's count, its run going
 assert not any("Teach the menu" in line for line in lines), lines
 assert not any("Smoke" in line or SMOKE in line for line in lines), lines
 printed = io.StringIO()

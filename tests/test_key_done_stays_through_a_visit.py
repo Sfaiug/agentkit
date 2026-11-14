@@ -1,7 +1,6 @@
-"""A done seat rests after the owner visits and leaves, without needing a prompt.
+"""A done seat stays done through the owner's visits: only new work ends it.
 
 Black-box: AK_BIN reads a fake tmux's attachment fields and a plan in a temporary HOME.
-No tick has to see the visit: tmux's own timestamp is the evidence.
 """
 
 import json
@@ -42,9 +41,10 @@ elif args[0] == "show-options" and args[-1] == "@ak_harness_pane":
 """
 
 
-# `done`: its whole job is finished and live, "until the owner has been in the seat since".
-# [20 Oct 2026]
-class DoneEndsOnAVisit(unittest.TestCase):
+# `done`: its whole job is finished and live, until the owner gives it new work.  A seat that
+# rested after a visit read `done` again whenever the owner was in it: "It should have never
+# switched to idle, as it was done and there was no new conversation going on."  [13 Nov 2026]
+class DoneStaysThroughAVisit(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-done-visit-", dir=REPO)
         self.addCleanup(tmp.cleanup)
@@ -82,33 +82,13 @@ class DoneEndsOnAVisit(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout.splitlines()[0]
 
-    def test_a_visit_after_the_plan_finished_reads_idle_without_a_prompt(self):
-        self.assertEqual(self.word(FINISHED + 1), "acme  idle")
+    def test_a_visit_after_the_plan_finished_stays_done(self):
+        self.assertEqual(self.word(FINISHED + 1), "acme  done")
 
-    def test_a_visit_before_the_plan_finished_stays_done(self):
-        self.assertEqual(self.word(FINISHED - 1), "acme  done")
-
-    def test_a_client_still_attached_stays_done(self):
+    def test_a_client_attached_reads_the_same_word(self):
         self.assertEqual(self.word(FINISHED + 1, attached=1), "acme  done")
 
-    def test_no_attachment_timestamp_stays_done(self):
-        self.assertEqual(self.word(""), "acme  done")
-
-    def test_a_visit_at_the_completion_time_stays_done(self):
-        self.assertEqual(self.word(FINISHED), "acme  done")
-
-    def test_a_visit_before_the_screen_became_done_stays_done(self):
-        self.write(self.state / "seat-acme.json", {"state": "at_prompt", "began": FINISHED + 2})
-        self.assertEqual(self.word(FINISHED + 1), "acme  done")
-        self.assertEqual(self.word(FINISHED + 3), "acme  idle")
-
-    def test_a_later_plan_completion_needs_a_later_visit(self):
-        self.assertEqual(self.word(FINISHED + 1), "acme  idle")
-        self.plan.write_text("- [x] The API is live\n- [x] The docs are live\n")
-        os.utime(self.plan, (FINISHED + 2, FINISHED + 2))
-        self.assertEqual(self.word(FINISHED + 1), "acme  done")
-
-    def test_a_prompt_still_starts_work_without_a_visit(self):
+    def test_a_prompt_starts_work(self):
         self.assertEqual(self.word(""), "acme  done")
         self.write(self.state / "hook-acme.json", {
             "session": "acme", "event": "UserPromptSubmit", "at": FINISHED + 1})

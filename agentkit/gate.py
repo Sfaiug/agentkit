@@ -56,6 +56,16 @@ def slot_lock():
         yield
 
 
+@contextmanager
+def admission():
+    """`slot_lock` for a check (`claim_slot`), every run's record read first with the lock free,
+    so under it only those changed since are parsed again (`run_record.runs_now`): a host keeps
+    a run's folder 30 days, and parsing 6,373 records held the lock 4.75 s (13 Nov 2026)."""
+    run_record.runs_now()
+    with slot_lock():
+        yield
+
+
 def slot_order(state):
     # A green member only needs delivery before the target moves.
     # Finished work precedes fresh launches without joining the first element's gate bypass:
@@ -162,8 +172,7 @@ def slot_counts(state, *, remember=False):
     """Live slot owners, top-level receipts ahead of this one (including dead waiters), and
     the other waiters' run ids in queue order. Under slot_lock, `remember` saves the queue."""
     running, waiting = 0, [state]
-    for directory in run_record.run_dirs():
-        other = run_record.read_state(directory) or {}
+    for _, other in run_record.runs_now():
         if other.get("run_id") == state.get("run_id"):
             continue
         place = slot_place(other)
@@ -208,9 +217,7 @@ def seat_full(seat, launches):
     The reason names the run to `ak wait` for: the one that has held its slot longest, else the
     oldest waiting."""
     holding, waiting = [], []
-    records = ((directory, run_record.read_state(directory) or {})
-               for directory in run_record.run_dirs())
-    for directory, other in transitions.runs_by_seat(records).get(seat, []):
+    for directory, other in transitions.runs_by_seat(run_record.runs_now()).get(seat, []):
         place = slot_place(other)
         if place == "holding":
             holding.append((other.get("slot_started_at") or 0, directory.name))
@@ -292,8 +299,7 @@ def behind_first(run_id):
 
 def _holders(state):
     """The records of the other runs holding a slot (`slot_place`)."""
-    for directory in run_record.run_dirs():
-        other = run_record.read_state(directory) or {}
+    for _, other in run_record.runs_now():
         if other.get("run_id") != state.get("run_id") and slot_place(other) == "holding":
             yield other
 
@@ -582,7 +588,7 @@ def wait_for_slot(run_dir, between=None):
                 behind = True
                 continue
         limit = config.max_runs()
-        with slot_lock(), run_record.recovery_lock(run_dir):
+        with admission(), run_record.recovery_lock(run_dir):
             state = run_record.read_state(run_dir) or {}
             if state.get("state") == "running" and state.get("pid") == os.getpid():
                 return state
@@ -902,11 +908,8 @@ def _gate_waiter_before(repo, exclude, since, is_landing=False, line=False, hold
     filed = _landing_waiters()
     waits = [(False, *wait) for wait in filed if wait[3] != exclude]
     filed = {run_id for *_, run_id in filed}
-    for directory in run_record.run_dirs():
-        if directory.name == exclude:
-            continue
-        other = run_record.read_state(directory) or {}
-        if other.get("state") != "running":
+    for directory, other in run_record.runs_now():
+        if directory.name == exclude or other.get("state") != "running":
             continue
         turn = other.get("gate_turn")
         if not isinstance(turn, dict) or turn.get("pid") != other.get("pid"):
