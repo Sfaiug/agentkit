@@ -14,10 +14,13 @@ const agyCard = 132
 
 // antigravityRead reads the conversation the seat owns, or the one a record of a conversation the
 // seat left names (notify.Conversations), once for antigravity.py's `said` and `answers`.  It is
-// the done check's read: a store that is there and cannot be read is an error, never an owner who
-// said nothing.
+// the done check's read: a claim or store that is there and cannot be read is an error, never an
+// owner who said nothing.
 func antigravityRead(record map[string]any) ([]Turn, []Card, error) {
-	conversation := antigravityOwned(record)
+	conversation, err := antigravityFound(record)
+	if err != nil {
+		return nil, nil, err
+	}
 	if conversation == "" {
 		conversation, _ = record["conversation"].(string)
 	}

@@ -58,13 +58,19 @@ func TestAntigravityOwnerWordsAreReadStrictly(t *testing.T) {
 		{1_800_000_120.25, "Which font should it use?", "Sans, bold", nil},
 		{1_800_000_240, "Which border should it have?", "Thin", choices},
 		{1_800_000_300, "Which shadow should it cast?", "Red\nsoft", choices}}
-	// the launcher's conversation, or one the seat left
-	for _, record := range []map[string]any{{"conversation": "conv-acme", "id_source": "launcher"},
+	// the launcher's conversation, one its agy took a prompt in after /clear, beside what its launch
+	// learned before, or one the seat left
+	followed := map[string]any{"conversation": "conv-acme", "id_source": "antigravity-hook",
+		"antigravity_launch": "token", "antigravity_open": map[string]any{"launch": "token", "conversation": "conv-old"}}
+	for _, record := range []map[string]any{{"conversation": "conv-acme", "id_source": "launcher"}, followed,
 		{"harness": "antigravity", "conversation": "conv-acme"}} {
 		said, cards, err := Answered("antigravity", record)
 		if err != nil || !slices.Equal(said, []Turn{{"user", "Build the acme banner."}, {"model", "Which colour?"}}) || !reflect.DeepEqual(cards, want) {
 			t.Fatalf("read %v %#v %v", said, cards, err)
 		}
+	}
+	if conversation, typed, _, err := Typed("antigravity", followed, ""); conversation != "conv-acme" || len(typed) != 1 || err != nil {
+		t.Fatalf("typed %q %v %v", conversation, typed, err)
 	}
 	if !Reads("antigravity", true) {
 		t.Fatal("Go reads an Antigravity seat's owner words otherwise than Python's done check")
@@ -93,5 +99,19 @@ func TestAntigravityOwnerWordsAreReadStrictly(t *testing.T) {
 	}
 	if said, cards, err := Answered("antigravity", map[string]any{"conversation": "conv-acme", "id_source": "launcher"}); said != nil || cards != nil || err != nil {
 		t.Fatalf("read a store that is gone: %v %v %v", said, cards, err)
+	}
+	// a launch whose conversation is learned under a lock that cannot be taken
+	state := filepath.Join(home, ".agentkit", "state")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("antigravity-claim.lock", filepath.Join(state, "antigravity-claim.lock")); err != nil {
+		t.Skip(err)
+	}
+	if _, _, err := Answered("antigravity", map[string]any{"antigravity_launch": "token"}); err == nil {
+		t.Fatal("read a launch whose claim cannot be read")
+	}
+	if _, _, known, err := Typed("antigravity", map[string]any{"antigravity_launch": "token"}, ""); !known || err == nil {
+		t.Fatalf("typed a launch whose claim cannot be read: %v %v", known, err)
 	}
 }
