@@ -460,7 +460,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.proc.wait(15), 0)
 
     def test_a_click_on_a_folded_role_acts_on_that_role(self):
-        screen = Screen(self, rows=70, cols=32)
+        screen = Screen(self, rows=100, cols=32)      # every row, `Theme`'s folded marks too
         lines = screen.frame()
         self.assertTrue(all(terminal.cells(line) <= 32 for line in lines), lines)
         number, _ = row(lines, "opus")
@@ -472,6 +472,19 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.record()["efforts"]["opus"]["exec_effort"], "max")
         self.assertEqual((lines[number], lines[number + 2]), (orch, reviews))
         self.assertIn("Opus 5.5", highlighted(lines))
+
+    def test_a_click_on_theme_s_label_marks_the_theme_in_force_whichever_cell_was_keyed(self):
+        screen = Screen(self)
+        screen.frame()
+        screen.press(DOWN, lambda lines: lit(lines, "opus") == "●")
+        lines = screen.press(RIGHT, lambda lines: on_effort(lines, "opus"))   # a cell Theme lacks
+        number, line = next((number, line) for number, line in enumerate(lines, 1)
+                            if "Theme" in line)
+        lines = screen.click(line.index("Theme") + 1, number,
+                             lambda lines: highlighted(lines).startswith("› Theme"))
+        self.assertIn("● black   ○ white", highlighted(lines))
+        self.assertEqual(screen.saved()["theme"], "black")
+        screen.leave()
 
     def test_enter_on_discord_runs_its_step_and_version_is_no_stop(self):
         screen = Screen(self)

@@ -95,9 +95,11 @@ FLOATS = (3, 3)            # the tmux that borders a popup its way, titles it, h
 # picked in it opens in (`attach`).  Nothing outside it holds the name (`tmux_env`, `warm.serve`).
 CLIENT_ENV = "AGENTKIT_CLIENT"
 # What `Ctrl-b m` runs in the background for a popup that floats (`tmux_conf`), `p` the pane it
-# opens over: the first popup over it keeps each style the pane has of its own, if it has one
-# (`h`), every one counts itself in, the pane draws dim, the popup is held until it is down, and
-# the last one down puts back exactly what the pane had.  Both styles go dim, because tmux draws
+# opens over: `m`, the dim colour, is asked as the key is pressed (`dim`, themes.py run bare), so
+# the popup's border and the pane are in the theme config.toml names then; the first popup over
+# it keeps each style the pane has of its own, if it has one (`h`), every one counts itself in,
+# the pane draws in `m`, the popup is held until it is down, and the last one down puts back
+# exactly what the pane had.  Both styles go dim, because tmux draws
 # the active pane in `window-active-style`'s colour over `window-style`'s.  Each step holds the
 # pane's own tmux lock, so two popups over one pane never count, keep or put back over each
 # other, and every lock is let go by a command of its own, which a command failing before it
@@ -109,10 +111,10 @@ CLIENT_ENV = "AGENTKIT_CLIENT"
 FLOAT = ('tmux() { command %(tmux)s "$@"; }; '
          'o() { tmux show-options -pqv -t "$p" "$1"; }; '
          'h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; '
-         'l() { tmux wait-for "$1" "ak-float$p"; }; { l -L; n=$(o @ak_floats); '
+         'l() { tmux wait-for "$1" "ak-float$p"; }; m="fg=#$(%(dim)s)"; { l -L; n=$(o @ak_floats); '
          'for s in window-style window-active-style; do '
          'if [ -z "$n" ] && h $s; then tmux set-option -p -t "$p" @ak_was_$s "$(o $s)"; fi; '
-         'tmux set-option -p -t "$p" $s %(dim)s; done; '
+         'tmux set-option -p -t "$p" $s "$m"; done; '
          'tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; } & d=$!; '
          'tmux %(popup)s -c "$c" -t "$p" %(command)s; wait $d; l -L; n=$(o @ak_floats); '
          'if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); '
@@ -2126,14 +2128,16 @@ def server_conf():
     job then puts the pane's style back, when no other client's popup is still up over it.
     """
     small, large = f"display-popup -E {POPUP_FULL}", f"display-popup -E {POPUP_SIZE}"
-    dim = f"fg=#{terminal.colour('dim', tmux=True)}"   # its border, and the session behind it
     if tmux_version() >= FLOATS:
-        border = f"-b rounded -S {shlex.quote(dim)} -T {shlex.quote(POPUP_TITLE)}"
+        border = f'-b rounded -S "$m" -T {shlex.quote(POPUP_TITLE)}'    # FLOAT's dim
+        dim = shlex.join([sys.executable, "-S", "-I", str(versions.live() / "agentkit" /
+                                                          "themes.py"),
+                          str(config.HOME / config.CONFIG_NAME), "dim"])
         handed = f'-e "{terminal.FEATURES_ENV}=$f" -e "{CLIENT_ENV}=$c"'
         small, large = (
             "run-shell -b " + tmux_word("p='#{pane_id}' c='#{client_name}' "
                                         "f='#{client_termfeatures}'; " + tmux_text(
-                FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": shlex.quote(dim),
+                FLOAT % {"tmux": shlex.quote(guard.real("tmux")), "dim": dim,
                          "popup": popup, "command": shlex.quote(popup_command())}))
             for popup in (f"{small} {border} {handed}",
                           f"{large} {border} {handed} -e {terminal.PAD_ENV}={POPUP_PADDING}"))

@@ -42,7 +42,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, motion, orch, terminal
+from agentkit import config, motion, orch, terminal, themes
 
 DIM = f"fg=#{terminal.colour('dim', tmux=True)}"
 OWN = "fg=red,bg=blue,bold"         # a style a pane may have of its own
@@ -348,6 +348,15 @@ class TheBinding(unittest.TestCase):
         self.assertEqual(handed, [[*features],                # a phone spares no cell
                                   [*features, f"{terminal.PAD_ENV}=1"]])
         self.assertNotIn("set-hook", "\n".join(tmux.lines))   # no other session is touched
+
+    def test_its_dim_is_the_theme_s_config_toml_names_as_the_key_is_pressed(self):
+        tmux = FakeTmux(self)       # the binding as written before the theme was chosen on `c`
+        (tmux.root / ".agentkit" / "config.toml").write_text('theme = "white"\n')
+        tmux.env["STANDIN_DIM"] = white = f"fg=#{themes.ROLES['dim'][themes.WHITE]}"
+        seen = tmux.press()
+        self.assertNotEqual(white, DIM)
+        self.assertEqual(popup_flags(tmux.popups()[0])["-S"], white)
+        self.assertEqual(seen["styles"], dict.fromkeys(STYLES, white))
 
     def test_its_client_s_name_reaches_no_server_a_tmux_command_starts(self):
         with patch.dict(os.environ, {orch.CLIENT_ENV: CLIENT, "TMUX": "/tmp/acme,1,0"}):

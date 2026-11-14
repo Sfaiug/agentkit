@@ -1,10 +1,15 @@
 """The owner's two themes (12 Nov 2026), white and black: every colour ak draws is a role of one.
 
 A screen asks for a role, and the theme in force (`terminal.theme`) says its colour: the one
-config.toml names, `theme = "white"`, else the one the terminal's background fits.
+config.toml names (`named`), else the one the terminal's background fits.
 tests/test_boundaries.py counts an RGB written anywhere but here, so the next theme is a column
-of this table.
+of this table.  Run bare, `themes.py <config.toml> <role>`, it says the role's colour as tmux
+draws it (`terminal.colour`'s `tmux`): `Ctrl-b m`'s job asks it as the key is pressed
+(orch.FLOAT), and a start of Python that imports no more than this holds the popup up least.
 """
+
+import sys
+import tomllib
 
 WHITE, BLACK = 0, 1     # each theme's column
 NAMES = {"black": BLACK, "white": WHITE}    # ... by its name, as config.toml and `c` say it
@@ -24,3 +29,19 @@ ROLES = {
     "special": ("a23baa", "da7de0"),
     "on-accent": ("ffffff", "000000"),
 }
+
+
+def named(path):
+    """The theme config.toml at `path` names, `theme = "white"` or `"black"`, else None: another
+    word, or a file that is not there or does not read."""
+    try:
+        with open(path, "rb") as file:
+            word = tomllib.load(file).get("theme")
+    except (OSError, ValueError):     # a TOMLDecodeError and a UnicodeDecodeError are ValueErrors
+        return None
+    return NAMES.get(word) if isinstance(word, str) else None
+
+
+if __name__ == "__main__":
+    chosen = named(sys.argv[1])
+    print(ROLES[sys.argv[2]][BLACK if chosen is None else chosen])

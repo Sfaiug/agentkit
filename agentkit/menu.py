@@ -3978,19 +3978,24 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 "  " + terminal.cut(row, room - 2))
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
-    line, cells, first = f"  {terminal.pad(THEME[1], wide)} ", [], 4 + wide
+    parts, first = [[f"  {terminal.pad(THEME[1], wide)} ", []]], 4 + wide
     for number, (name, theme) in enumerate(themes.NAMES.items()):
+        if parts[-1][1] and first + 2 + terminal.cells(name) > room:    # on under the first
+            parts.append([" " * (3 + wide), []])
+            first = 4 + wide
         on = theme == terminal.theme()
         mark, kind = marks[0 if on else 1], ("reverse" if at == THEME and number == column
                                              else "accent" if on else "dim")
         if moves is not None:
-            moves.append((len(lines), ("theme", name), mark,
+            moves.append((len(lines) + len(parts) - 1, ("theme", name), mark,
                           motion.toggled(mark, 3, kind, at == THEME, first)))
-        line += terminal.toggle(mark, 3, kind) + name + "  "
-        cells.append((first, first + 2 + terminal.cells(name), number))
+        parts[-1][0] += terminal.toggle(mark, 3, kind) + name + "  "
+        parts[-1][1].append((first, first + 2 + terminal.cells(name), number))
         first += 5 + terminal.cells(name)
-    places[len(lines)] = (THEME, cells)
-    lines.append(terminal.highlight(line.rstrip()) if at == THEME else line.rstrip())
+    for number, (line, cells) in enumerate(parts):
+        places[len(lines)] = (THEME, cells)
+        lines.append(terminal.highlight(line.rstrip(), number == 0) if at == THEME
+                     else line.rstrip())
     return lines, places
 
 
@@ -4329,7 +4334,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         "config", session or NEW_SEATS, CONFIG_ROWS, bool(selected))
     seat = (session, selected) if session or born else None     # whose efforts a step changes
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
-    drawn = None      # the row the last draw highlighted
     refused = {}      # what the last `a` said (apply_defaults), fitted under the rows each draw
     while True:
         if not session and not born and selected is not None:   # a page that took a model out
@@ -4345,9 +4349,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         columns = config_columns(selected, here[1]) if here[0] == "model" else ()
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
             column = column - 3 if column - 3 in columns else columns[0]
-        if here == THEME != drawn:              # come to `Theme`: onto the theme in force
-            column = list(themes.NAMES.values()).index(terminal.theme())
-        drawn = here
         opens = here[0] in ("row", "usage") and here != THEME   # else changed in place
         # a meter that offers nothing opens no list (meter_acts)
         shut = here[0] == "usage" and not subscription_acts(cfg, keyboard, here[1])
@@ -4366,12 +4367,15 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                          refused, page_room((), keys, over) - len(body))
         over, meters, body, places, moves = meters_led((over, meters), body, places,
                                                        note_lines(told), keys, moves)
+        was = here
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             told, keys, marks=3,
                                             timeout=STIR if session else None,
                                             clock=clock, moves=moves,
                                             over=over, over_places=meters, keyed=column)
         column = column if clicked is None else clicked
+        if here == THEME != was and clicked is None:   # come to `Theme` by a key or its label:
+            column = list(themes.NAMES.values()).index(terminal.theme())    # on the one in force
         if act is None:
             if session and selected is not None:
                 seat_read(cfg, session, selected)
