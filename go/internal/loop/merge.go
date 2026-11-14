@@ -16,6 +16,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/livefollow"
 	"agentkit/internal/run"
 )
 
@@ -585,9 +586,12 @@ func (r *repoPlace) merged(l *loop, url, method string) error {
 }
 
 // mergedAt records the work merged at sha with the `health:` and `deployed:` that commit declares,
-// the one record the tick reads after a merge, Python's merge_record.
+// the one record the tick reads after a merge, Python's merge_record, and hands it to its
+// project's live follower (livefollow.Merged).
 func (r *repoPlace) mergedAt(l *loop, sha string) error {
-	return l.save(func(record *run.Object) {
+	var before, after *run.Object
+	err := l.save(func(record *run.Object) {
+		before, after = record.Copy(), record
 		record.Set("merged", true)
 		if sha == "" {
 			return
@@ -604,6 +608,10 @@ func (r *repoPlace) mergedAt(l *loop, sha string) error {
 			run.SetAll(record, "health", health, "deployed", deployed)
 		}
 	})
+	if err == nil {
+		livefollow.Merged(l.dir, before, after)
+	}
+	return err
 }
 
 // mergedAnyway is whether GitHub merged this delivery whatever `gh pr merge` answered, recorded
