@@ -93,7 +93,7 @@ def follow(launched, payload, pid):
     one, and only into the launch's own directory, which a seat stopped since has had removed.
     Only what `claim` left in the record goes there, never a session it refused, and again until
     the receipt names what the record does as it stands after the write: no lock waits on a
-    hook that stalls, and the last to write sees what any earlier one left."""
+    hook that stalls, and a hook whose write lands checks the receipt again."""
     from .. import orch
     from . import claim, rows
     session = payload.get("session_id") if isinstance(payload, dict) else None
@@ -109,7 +109,10 @@ def follow(launched, payload, pid):
                 pid = parent
         claim(launched, "opencode", session, str(database()),
               lambda record, session: database(), pid, opencode)
-        while True:     # a hook that paused before its rename may land an older prompt's session
+        # A hook stalled in its write lands an older prompt's session late: by its rename, or
+        # into the receipt itself, where another hook that opened the same `session.next` has
+        # renamed it already.  Either way the hook that wrote looks again.
+        while True:
             record = config.session_records().get(config.resolve_session(launched), {})
             path, current = path_for(record), record.get("conversation")
             if not (path and isinstance(current, str) and SESSION.fullmatch(current)):
@@ -119,9 +122,14 @@ def follow(launched, payload, pid):
                 if receipt.is_file() and receipt.read_text(encoding="utf-8") == current:
                     return
                 (path / "session.next").write_text(current, encoding="utf-8")
-                (path / "session.next").replace(receipt)
             except OSError:
                 return      # the receipt says what it said before
+            try:
+                (path / "session.next").replace(receipt)
+            except FileNotFoundError:
+                pass        # another hook renamed it, perhaps after this one's write landed
+            except OSError:
+                return
 
 
 def forget(record):

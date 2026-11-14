@@ -380,10 +380,18 @@ def ended(pid):
 @unittest.skipUnless(NODE and REAL_TMUX, "no node or no tmux installed")
 class OpencodeLateReceiptWrite(Rig, unittest.TestCase):
     """The receipt's `session.next` is a FIFO the test keeps full: the hook of the prompt into A
-    stalls writing it, the FIFO is set aside while the prompt into B is followed, and put back
-    and drained once that hook has ended, so A's write lands last."""
+    stalls writing it, the FIFO is set aside while the prompt into B is followed, and drained
+    once that hook has ended, so A's write lands last: back as `session.next`, which A's hook
+    then renames over the receipt, or as the receipt itself, as where both hooks opened the one
+    `session.next` and B's renamed it."""
 
-    def test_the_receipt_names_the_later_prompt_s_session(self):
+    def test_a_late_rename_leaves_the_later_prompt_s_session(self):
+        self.assert_late_write_landing_as("session.next")
+
+    def test_a_late_write_into_the_receipt_leaves_the_later_prompt_s_session(self):
+        self.assert_late_write_landing_as("session")
+
+    def assert_late_write_landing_as(self, name):
         fifo, aside = self.receipt / "session.next", self.home.root / "held"
         os.mkfifo(fifo)
         pipe = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
@@ -402,7 +410,7 @@ class OpencodeLateReceiptWrite(Rig, unittest.TestCase):
             time.sleep(0.05)
         os.rename(fifo, aside)
         self.prompt(B, "thanks", held={older})
-        os.rename(aside, fifo)
+        os.rename(aside, self.receipt / name)
         while full:
             full -= len(os.read(pipe, full))
         while not ended(older):
