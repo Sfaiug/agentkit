@@ -6,18 +6,16 @@ screen off its own rows: "weird output … Not user friendly."  Black-box: `AK_B
 terminal (tests/fixtures/akterm.py) over seats as ak leaves them (tests/fixtures/akseat.py), their
 harnesses fakes (tests/fixtures/fakeadapter.py): six seats on GPT-6-Astra gone from tmux, whose
 move to Fable 5.1 the fake Claude Code's `auth` refuses in the same words, and with them one on
-Opus 5.5 whose Claude Code would take Fable in place but for Fable's spent meter.  Fails against
-`/bin/false`, and against an ak that says the six's reason six times.
+Opus 5.5, gone too, whose own login `auth` refuses in other words.  Fails against `/bin/false`,
+and against an ak that says the six's reason six times.
 
 Each draw fits what was said to the terminal as it is: the names leading a reason to its width,
 and the reasons to the lines its rows leave, the last saying how many more there are, before
 which even ak's version gives way.
 """
 
-import json
 import sys
 from pathlib import Path
-import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -31,7 +29,9 @@ KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions
 NO_LOGIN = "token expired; run claude, type /login and sign in again to open a seat here"
 SIX = [f"acme-{number}" for number in range(1, 7)]
 SIX_LED = ", ".join(SIX)        # every name fits the line
-SPENT = "acme-0"        # listed first, so its reason is said first
+OTHER = "acme-0"        # listed first, so its reason is said first
+LOGIN = "acme-ii"       # its own login, which only it asks
+SIGNED_OUT = "this login was signed out on another machine"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 
@@ -108,33 +108,30 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
         wide = self.term.wait(lambda screen: key_line(screen) == KEYS and SIX_LED in screen)
         self.assertEqual(said(wide), said(after))
 
-    def spent(self):
-        """A seat on Opus 5.5, listed first, whose move in place Fable's spent meter refuses."""
-        now = time.time()
-        meters = {"meters": [{"name": "weekly_all", "used": 100, "window_secs": 604800,
-                              "resets_at": now + 86400}]}
-        self.fakes["claude"].answer("usage", json.dumps({**meters, "error": None}))
-        self.home.write(".agentkit/state/usage.json", {
-            "fetched_at": now, "providers": {"anthropic": {"provider": "anthropic", **meters}}})
-        Seat(self.home, SPENT, model="opus", record={"workers": ["opus"], "reviewers": ["opus"]})
+    def other(self):
+        """A seat on Opus 5.5, listed first and gone from tmux too, whose move keeps its own
+        login, which `auth` refuses in other words."""
+        self.fakes["claude"].answer("auth", SIGNED_OUT, 1, account=LOGIN)
+        Seat(self.home, OTHER, model="opus", alive=False,
+             record={"workers": ["opus"], "reviewers": ["opus"], "account": LOGIN})
 
     def test_a_seat_refused_in_other_words_is_told_on_a_line_of_its_own(self):
-        self.spent()
+        self.other()
         after, before = self.applied()
         version, other, *six = said(after)
         self.assertEqual(version, "  Version ?")
-        self.assertTrue(other.startswith(f"  {SPENT}: fable is spent · resets "), after)
+        self.assertEqual(other, f"  {OTHER}: fable: {SIGNED_OUT}", after)
         self.assertEqual((len(six), told(*six)), (2, f"{SIX_LED}: fable: {NO_LOGIN}"), after)
         self.assertEqual(matrix(after), matrix(before))
 
     def test_a_shorter_terminal_keeps_every_row_and_says_how_many_more(self):
-        self.spent()
+        self.other()
         after, before = self.applied()
         self.term.resize(100, 27)       # a line too short for both reasons under the rows
         shorter = self.term.wait(lambda screen: "  1 more reason" in lines(screen))
         version, other, more = said(shorter)
         self.assertEqual(version, "  Version ?")
-        self.assertTrue(other.startswith(f"  {SPENT}: fable is spent · resets "), shorter)
+        self.assertEqual(other, f"  {OTHER}: fable: {SIGNED_OUT}", shorter)
         self.assertEqual(matrix(shorter), matrix(before))
         self.assertEqual(key_line(shorter), KEYS)
         self.term.resize(100, 25)       # the rows leave one line: the count takes the version's
