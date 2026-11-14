@@ -836,14 +836,19 @@ def finish_own_lines(cfg, log):
         key = resume.get("key") if isinstance(resume, dict) else None
         mark = seat_read(name).get("midturn")
         marked = (mark.get("line") or MIDTURN_LINE) if isinstance(mark, dict) else None
-        for line in (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
-                     key, own_line(name, harness, session)):
+
+        def ours(held):
+            # read again under the send lock: the seat may have moved to another conversation
+            return (marked, ACCOUNT_LINE, MIDTURN_LINE, MOVED_LINE, ASKED_LINE, CONTINUE_LINE,
+                    key, own_line(held, harness, session))
+
+        for line in ours(name):
             if not line or composer_holds(name, session, line, cfg, exact=True) != "line":
                 continue
             if (type_checked(session, line, log, harness, pending=True,
                              guard=lambda: notify.session_lock(name),
                              veto=lambda held: line != marked
-                             and owner_question(notify.last(held)))
+                             and (owner_question(notify.last(held)) or line not in ours(held)))
                     and line == marked):
                 replace_midturn(name, mark)
             break
@@ -4254,9 +4259,10 @@ def _joined(name, held):
     composer text `held` is all of, whitespace aside, joined in order, else none: one of them,
     whichever, or several, as a harness that draws a line late joins it to the next one ak types
     there, and both are still ak's to send (22 Oct 2026).  One typed into a conversation the seat
-    has left is no longer the seat's to be sent."""
+    has left is no longer the seat's to be sent, and none is proven its own while its harness
+    names no conversation: receipts of two launches that named none look alike."""
     seat = notify.conversation_of(name)
-    if seat is None:
+    if seat is None or not seat[3]:
         return []
     plugin, conversation = seat[0], seat[3]
     typed = [str(sent.get("text")) for sent in entries(config.seat_file("input", name))
