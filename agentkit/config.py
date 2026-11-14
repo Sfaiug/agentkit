@@ -1341,8 +1341,8 @@ def model_label(harness, model, said=""):
 
 def release_label(name):
     """What every screen calls the release a board names `name`: said as a model's name is
-    (`spoken`), the family words every manifest's, so `Claude Fable 5.2` is `Fable 5.2` however
-    a seat runs it, and a release nobody runs is named too."""
+    (`spoken`), the family words every manifest's, so `Acme Nova 7.1` is `Nova 7.1` however a
+    seat runs it, and a release nobody runs is named too."""
     return spoken(name, [found.get("family") for _, found in manifests()])
 
 
