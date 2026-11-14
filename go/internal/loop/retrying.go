@@ -154,10 +154,9 @@ func (c *call) attempt(body, target string) (*try, error) {
 	}
 	t := &try{out: target, resumed: c.session, asked: c.calls == 0}
 	var places []string // a fix run's builder writes its regression test
-	if regression := filepath.Dir(run.Regression(l.dir)); c.role == "executor" || c.role == "fixer" {
-		if info, err := os.Stat(regression); err == nil && info.IsDir() {
-			places = []string{regression}
-		}
+	regression := filepath.Dir(run.Regression(l.dir))
+	if info, err := os.Stat(regression); err == nil && info.IsDir() && (c.role == "executor" || c.role == "fixer") {
+		places = []string{regression}
 	}
 	turn := func(cwd string) (failed error) {
 		told, at := body, l.workspace
