@@ -10,5 +10,5 @@ import (
 func Plans(logins []usage.Week, now, over float64) map[usage.Week]usage.Plan {
 	s := spending(boards.Cached())
 	defer s.db.Close()
-	return s.plans(logins, now, over)
+	return s.plans(logins, [2]float64{now - over, now})[0]
 }
