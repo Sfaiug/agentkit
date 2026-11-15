@@ -24,6 +24,7 @@ type Frame struct {
 	hidden              bool
 	page, width, height int
 	meters              []meterSpot
+	keys                []keySpot
 }
 
 // Move answers navigation against the frame the owner saw, without reading any record.

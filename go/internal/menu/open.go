@@ -1,6 +1,11 @@
 package menu
 
-import "agentkit/internal/terminal"
+import (
+	"strings"
+	"unicode/utf8"
+
+	"agentkit/internal/terminal"
+)
 
 // Open is the seat Enter or a released left button opens on the frame the owner saw; Enter opens
 // nothing where the highlight was hidden (Highlight.Move).
@@ -8,9 +13,44 @@ func (f Frame) Open(key terminal.Key) string {
 	if key.Name == "enter" && !f.hidden {
 		return f.cursor
 	}
-	m := key.Mouse
-	if key.Name == "pointer" && m.Released && m.Button&3 == 0 && m.Button&64 == 0 {
-		return f.seatAt(m)
+	if clicked(key) {
+		return f.seatAt(key.Mouse)
 	}
 	return ""
+}
+
+// Pressed is key, but for a click on an item of the key line that names a key: that key, as a click
+// does what the key would do.
+func (f Frame) Pressed(key terminal.Key) terminal.Key {
+	if at := f.keyAt(key.Mouse); at >= 0 && clicked(key) && f.keys[at].key.Name != "" {
+		return f.keys[at].key
+	}
+	return key
+}
+
+// pressing is the key a key-line item names (menu.pressed): `⏎ open` Enter, `esc leave` Esc, an
+// arrow in front of the keys its page turn, any other key of one character itself; the page's place
+// between the arrows, and `↑↓←→ move`, none.
+func pressing(item string) terminal.Key {
+	key, _, _ := strings.Cut(item, " ")
+	switch key {
+	case "⏎", "enter":
+		return terminal.Key{Name: "enter"}
+	case "esc":
+		return terminal.Key{Name: "esc"}
+	case "←", "<":
+		return terminal.Key{Name: "left"}
+	case "→", ">":
+		return terminal.Key{Name: "right"}
+	}
+	if utf8.RuneCountInString(key) == 1 && (key[0] < '0' || key[0] > '9') {
+		return terminal.Key{Name: "char", Char: key}
+	}
+	return terminal.Key{}
+}
+
+// clicked is whether key is the left button coming up, a click.
+func clicked(key terminal.Key) bool {
+	m := key.Mouse
+	return key.Name == "pointer" && m.Released && m.Button&3 == 0 && m.Button&64 == 0
 }

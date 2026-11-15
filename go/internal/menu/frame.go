@@ -272,14 +272,14 @@ func Draw(view View, width, height int) Frame {
 			line = "  " + line // flush left: its mark goes in front of it
 		}
 		if lit {
-			line = s.Highlight(line, each.seat != above)
+			line = s.Band(s.Highlight(line, each.seat != above), layout)
 		}
 		out = append(out, line)
 		frame.spots = append(frame.spots, each.seat)
 		if lit && !heading && view.Highlight.Open && (at+1 == len(body) || body[at+1].seat != each.seat) {
 			seat := view.Seats[slices.IndexFunc(view.Seats, func(seat Seat) bool { return seat.Name == each.seat })]
 			for _, line := range keepDetail(detail(s, seat, saidRoom, view.Motion), opens, saidRoom) {
-				out = append(out, strings.Repeat(" ", 2+sized.num+2)+line)
+				out = append(out, s.Band(s.Highlight(strings.Repeat(" ", 2+sized.num+2)+line, false), layout))
 				frame.spots = append(frame.spots, each.seat)
 			}
 		}
@@ -290,6 +290,17 @@ func Draw(view View, width, height int) Frame {
 	}
 	for bounded && len(out) < height-2-len(keys) {
 		out = append(out, "")
+	}
+	for at, line := range keys {
+		for _, item := range terminal.KeyItems(line) {
+			frame.keys = append(frame.keys, keySpot{len(out) + 1 + at, item.First, item.Last, pressing(item.Text)})
+		}
+	}
+	// the item the pointer is on, on the selection: the pointer lights what a click there acts on
+	if at := frame.keyAt(view.Highlight.Pointer); at >= 0 {
+		spot := frame.keys[at]
+		line := spot.row - len(out) - 1
+		keys[line] = s.Selected(keys[line], spot.first, spot.last)
 	}
 	frame.Lines = append(out, keys...)
 	return frame

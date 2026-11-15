@@ -2,9 +2,30 @@ package terminal
 
 import (
 	"cmp"
+	"regexp"
 
 	"agentkit/internal/config"
 )
+
+// keyItem is an item of a key line: words parted by one blank, as two or more part the items.
+var keyItem = regexp.MustCompile(`\S+(?: \S+)*`)
+
+// A KeyItem is an item of a drawn key line (terminal.key_spans): its text, and its first and last
+// column, from 1.
+type KeyItem struct {
+	Text        string
+	First, Last int
+}
+
+// KeyItems is each item of a drawn key line.
+func KeyItems(line string) []KeyItem {
+	text := ansi.ReplaceAllString(line, "")
+	var items []KeyItem
+	for _, at := range keyItem.FindAllStringIndex(text, -1) {
+		items = append(items, KeyItem{text[at[0]:at[1]], Cells(text[:at[0]]) + 1, Cells(text[:at[1]])})
+	}
+	return items
+}
 
 // Under is what a column, counted from 1 as the terminal counts, is on of line as drawn
 // (terminal.under), so what the pointer lights there is what a click there acts on: of cells, each
