@@ -118,17 +118,25 @@ func codexWho(auth *run.Object) string {
 	if tokens == nil {
 		return ""
 	}
-	parts := strings.Split(tokens.Str("id_token"), ".")
+	if email := codexClaims(tokens.Str("id_token")).Str("email"); email != "" {
+		return "; logged in as " + email
+	}
+	return ""
+}
+
+// codexClaims is what a token's payload claims, as jq's `split(".")[1] | gsub("-"; "+") |
+// gsub("_"; "/") | @base64d | fromjson` reads it: none where it reads no object.
+func codexClaims(token string) *run.Object {
+	parts := strings.Split(token, ".")
 	if len(parts) < 2 {
-		return ""
+		return run.NewObject()
 	}
 	data, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
 	value, _ := run.Decode(data)
-	claims, _ := value.(*run.Object)
-	if err != nil || claims == nil || claims.Str("email") == "" {
-		return ""
+	if claims, ok := value.(*run.Object); ok && err == nil {
+		return claims
 	}
-	return "; logged in as " + claims.Str("email")
+	return run.NewObject()
 }
 
 // codexAccountFlags are what a seat on an account adds to its Codex's line, as codex-seat.py
