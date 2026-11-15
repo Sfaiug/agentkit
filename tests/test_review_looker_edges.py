@@ -265,6 +265,30 @@ class LookerLifecycle(unittest.TestCase):
         self.assertEqual((config.STATE / self.name).stat().st_ino, current,
                          "the old looker unlinked the live looker's socket before noticing its parent left")
 
+    def test_start_look_waits_for_the_warm_look_in_a_session_of_its_own(self):
+        entered_r, entered_w = self.pipes()
+        release_r, release_w = self.pipes()
+        done = self.root / "warm-acme-api"
+
+        def warm_look(seat, *_args, **_kw):
+            os.write(entered_w, b"l")
+            os.read(release_r, 1)
+            done.write_text(seat)
+
+        with patch.object(self.looker, "look", side_effect=warm_look):
+            self.start(lambda **_kw: [])
+        self.connect().close()
+        with patch.dict(os.environ, {"TMUX": "/fake/acme,1,0", "TMUX_PANE": "%7"}):
+            proc = watch.start_look("acme-api")
+        self.assertIsNotNone(proc)
+        self.addCleanup(proc.wait)
+        self.assertEqual(os.read(entered_r, 1), b"l")
+        self.assertEqual(os.getsid(proc.pid), proc.pid)
+        self.assertIsNone(proc.poll(), "the caller's wait must hold until the warm look finishes")
+        os.write(release_w, b"g")
+        self.assertEqual(proc.wait(timeout=30), 0)
+        self.assertEqual(done.read_text(), "acme-api")
+
 
 if __name__ == "__main__":
     unittest.main()

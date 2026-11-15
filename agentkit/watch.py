@@ -2989,21 +2989,23 @@ def pane_left(pid):
 
 
 def start_look(launched, ending=False):
-    """`hook_look` for that seat in a process of its own session, as hooks/seat-state.sh starts
-    it: whoever starts it -- the stop hook, the seat's wrapper -- ends none of it by ending.  One
-    `ending`, the wrapper's as it ends, waits until the process its pane runs now has ended too
-    (`pane_left`): only then does tmux have the seat closed.  The process, or None outside a
-    tmux pane, which is where every seat's harness runs, or where none could start."""
+    """`hook_look` for that seat in a process of its own session, through `looker.py` as
+    hooks/seat-state.sh asks it: whoever starts it -- the stop hook, the seat's wrapper -- ends
+    none of it by ending, and may wait on it.  One `ending`, the wrapper's as it ends, waits
+    until the process its pane runs now has ended too (`pane_left`), then looks: only then does
+    tmux have the seat closed.  The process, or None outside a tmux pane, which is where every
+    seat's harness runs, or where none could start."""
     if not (os.environ.get("TMUX") and os.environ.get("TMUX_PANE")):
         return None
-    pid = pane_reads("#{pane_pid}") if ending else None
-    try:
-        return subprocess.Popen(
-            [sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
+    here = Path(__file__).resolve()
+    argv = ([sys.executable, "-c", "import sys; sys.path.insert(0, sys.argv[1]); "
              "from agentkit import watch; watch.pane_left(sys.argv[3]); "
              "watch.hook_look(sys.argv[2])",
-             str(Path(__file__).resolve().parents[1]), launched, pid or ""],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+             str(here.parents[1]), launched, pane_reads("#{pane_pid}") or ""]
+            if ending else ["python3", str(here.with_name("looker.py")), launched])
+    try:
+        return subprocess.Popen(
+            argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True, env=owner.unmarked())
     except OSError:
         return None
