@@ -169,12 +169,11 @@ WALK_EVERY = 60          # seconds one walk of a quiet run answers for: silence 
 _WALKED = {}             # a quiet run's directory: when it was walked, on time.monotonic, and what
                          # that found
 STIR = 1.0               # ... and the longest it goes between looks for a seat's word or the meters
-LOOKS = 1000             # ... the wait before a look, in what the last look cost its thread: a
-                         # quick host draws news as it is written, and looking spends a thousandth
-                         # of a thread whatever the host's speed or load.  That share does not
-                         # shrink on a quicker host as the screen's other work does: a hundredth,
-                         # some fifty ticks a minute, was up to a sixth of the minute a screen over
-                         # sixty gone seats may spend on a loaded host, and more on an idle one
+LOOK_EVERY = 0.25        # ... the wait between two looks after the first: a word a seat holds for
+                         # half a second is drawn, and looking costs four looks a second, less on a
+                         # quicker host as all the screen's work is.  A wait of a hundred times what
+                         # the last look cost spent a hundredth of a thread on any host, a third of
+                         # what a screen over sixty gone seats may spend on a quiet one
                          # (tests/test_key_gone_seats_cost_an_open_screen_little.py)
 # What the `—` says, from the error the last probe left; the first match wins.  No pattern here
 # guesses at a login: `token`, `401` and `login` turn up in lines a logged-in seat produces too,
@@ -502,18 +501,17 @@ class Live:
             self.ask()
 
     def _watch(self):
-        cost = STIR                  # the first look leaves the first frame the interpreter
+        wait = STIR                  # the first look leaves the first frame the interpreter
         while True:
-            self.asked.wait(min(STIR, LOOKS * cost))
+            self.asked.wait(wait)
+            wait = LOOK_EVERY
             self.watching.wait()
             if self.done.is_set():
                 return
             if not self.watching.is_set():
                 continue                 # away since the wait: what it would read, nobody draws
-            began = time.thread_time()   # its own CPU: waiting for the interpreter costs none
             now = self.recorded()
             self.configure()
-            cost = time.thread_time() - began
             if now == self.seen and not self.asked.is_set():
                 continue
             self.asked.clear()

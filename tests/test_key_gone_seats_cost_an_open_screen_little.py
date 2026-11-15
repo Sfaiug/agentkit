@@ -3,11 +3,9 @@
 A screen reads again whenever a seat's file changes, which some seat's does every few seconds, and
 each read decided every seat it lists again: on a host's screen over 68 seats, most of them gone,
 that was most of what its reads spent.  The cost is the screen's own CPU, user and system, without
-its children (its tmux calls), its draws, its looks every ten seconds and its looking for news
+its children (its tmux calls), its draws, its looks every ten seconds and its looks for news
 included; its yardstick is a plain look at every seat's files done in this test's process over the
-same minute, so a slow or loaded host raises both.  Looking for news spends a share of a thread
-whatever the host's speed (`menu.LOOKS`), which no plain look scales with: at a hundredth this
-minute passed LOOKS whenever the host was quiet.  The screen shows a page of rows, so drawing them
+same minute, so a slow or loaded host raises both.  The screen shows a page of rows, so drawing them
 does not drown the reads.
 Black-box, on tests/test_key_idle_screen_reads_only_what_changed.py's open screen.
 """
