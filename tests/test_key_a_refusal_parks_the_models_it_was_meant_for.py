@@ -3,7 +3,9 @@
 A reading is up to fifteen minutes old, so the turn crossing a cap is usually refused before
 any meter reads 100%.  A Fable turn refused so may have hit Fable's own cap, which does not gate
 Opus: Opus is left to its own meters, even where its own cap shares that cap's name.  An Opus
-turn's every gate is shared, so its refusal parks the whole login.
+turn's every gate is shared, so its refusal parks the whole login.  A refusal Fable's cap showed
+ends on that cap alone: a new window on Opus's cap of its name leaves Fable parked, and Fable's
+own fall, asked after the refusal, frees it beside Opus's lower cap.
 
 Black-box: the program `AK_BIN` names runs a task in a temporary HOME over one Claude login whose
 injected reading holds the shared week and a weekly cap scoped to Fable, two workers naming no
@@ -24,8 +26,9 @@ from fixtures.gitrig import Rig
 OPUS, FABLE = "claude-opus-5-5", "claude-fable-5-2"
 
 
-def refused(case, model, *meters):
-    """`ak usage --json` after a turn of `model` is refused for usage, beside `meters`."""
+def refused(case, model, *meters, fable=90, then=None):
+    """`ak usage --json` after a turn of `model` is refused for usage, beside `meters`, with
+    Fable's cap at `fable`%, once `then` has changed the reading the refusal left."""
     with Home() as home:
         rig = Rig(home)
         akconfig.write(home, {OPUS: "claude", FABLE: "claude"})
@@ -36,7 +39,7 @@ def refused(case, model, *meters):
         week = {"used": 60, "window_secs": 604800, "resets_at": now + 3 * 86400}
         reading = {"provider": "anthropic", "resets": 0, "meters": [
             {"name": "weekly_all", **week},
-            {"name": "weekly_scoped", **week, "used": 90, "scope": "Fable"},
+            {"name": "weekly_scoped", **week, "used": fable, "scope": "Fable"},
             *({"name": name, **week, "used": used, "scope": scope} for name, used, scope in meters)]}
         fake.answer("usage", json.dumps(reading))      # a probe reads the same
         home.write(".agentkit/state/usage.json", {
@@ -47,6 +50,12 @@ def refused(case, model, *meters):
         case.assertEqual([call["step"] for call in fake.runs()], ["dead"])
         state = json.loads((taskfile.only_run(home) / "run.json").read_text())
         case.assertEqual((state["state"], state["executor"]), ("exhausted", model))
+        if then:
+            blob = json.loads((home.path / ".agentkit/state/usage.json").read_text())
+            then(blob["providers"]["anthropic"], time.time())
+            fake.answer("usage", json.dumps({**reading,
+                                             "meters": blob["providers"]["anthropic"]["meters"]}))
+            home.write(".agentkit/state/usage.json", blob)
         read = home.ak("usage", "--json")
         case.assertEqual(read.code, 0, read.out + read.err)
         blob = json.loads(read.out)
@@ -62,6 +71,22 @@ class RefusalParksItsModels(unittest.TestCase):
 
     def test_a_refused_opus_turn_parks_the_whole_login(self):
         self.assertEqual(refused(self, OPUS), ([], True))
+
+    def test_a_new_window_on_opus_s_cap_of_fable_s_name_leaves_fable_parked(self):
+        def then(record, _now):
+            fable, opus = record["meters"][1:]
+            fable["used"], opus["resets_at"] = 99, opus["resets_at"] + 86400
+
+        self.assertEqual(refused(self, FABLE, ("weekly_scoped", 30, "Opus"), fable=100,
+                                 then=then), ([OPUS], False))
+
+    def test_fable_s_asked_fall_frees_it_beside_opus_s_lower_cap(self):
+        def then(record, now):
+            record["meters"][1]["used"] = 90
+            record["probed_meters"] = {"weekly_scoped": now}
+
+        self.assertEqual(sorted(refused(self, FABLE, ("weekly_scoped", 30, "Opus"), fable=100,
+                                        then=then)[0]), sorted([OPUS, FABLE]))
 
 
 if __name__ == "__main__":
