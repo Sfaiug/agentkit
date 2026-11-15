@@ -3986,13 +3986,13 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         if parts[-1][1] and first + 2 + terminal.cells(name) > room:    # on under the first
             parts.append([" " * (lead - 1), []])
             first = lead
-        on = theme == terminal.theme()
-        mark, kind = marks[0 if on else 1], ("reverse" if at == THEME and number == column
-                                             else "accent" if on else "dim")
+        on, keyed = theme == terminal.theme(), at == THEME and number == column
+        mark, kind = marks[0 if on else 1], "accent" if on else "dim"
         if moves is not None:
             moves.append((len(lines) + len(parts) - 1, ("theme", name), mark,
                           motion.toggled(mark, 3, kind, at == THEME, first)))
-        parts[-1][0] += terminal.toggle(mark, 3, kind) + name + "  "
+        cell = terminal.toggle(mark, 3, kind, keyed) + name     # the keys' lit whole, as an effort
+        parts[-1][0] += (terminal.selected(cell, 1, terminal.cells(cell)) if keyed else cell) + "  "
         parts[-1][1].append((first, first + 2 + terminal.cells(name), number))
         first += 5 + terminal.cells(name)
     for number, (line, cells) in enumerate(parts):
