@@ -124,7 +124,7 @@ def lines(name, model, word=None, last="", why=""):
     top, dim = f" {chip(word)}   " if word else " ", terminal.colour("dim", tmux=True)
     top += f"#[bold]{orch.tmux_text(name)}#[nobold]"
     if model:
-        top += f"   #[fg=#{dim}]{orch.tmux_text(model)}#[default]"
+        top += f"   #[fg=#{terminal.colour('muted', tmux=True)}]{orch.tmux_text(model)}#[default]"
     if last:
         top += f"   {last}"
     key, verb = HINT.split("  ", 1)

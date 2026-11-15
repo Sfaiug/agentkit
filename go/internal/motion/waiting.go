@@ -20,8 +20,8 @@ func (c *Clock) WaitingRule(s terminal.Screen, width int) string {
 		c.until(forever)
 		first = int(c.at/(2*Frame)) % max(1, width-span+1)
 	}
-	return s.Styled(strings.Repeat(base, first), "dim") + s.Styled(strings.Repeat(segment, span), "accent") +
-		s.Styled(strings.Repeat(base, max(0, width-first-span)), "dim")
+	return s.Styled(strings.Repeat(base, first), "border") + s.Styled(strings.Repeat(segment, span), "accent") +
+		s.Styled(strings.Repeat(base, max(0, width-first-span)), "border")
 }
 
 // Spinner is the glyph turning beside what a wait is for (motion.spinning), in the accent, one each

@@ -199,14 +199,18 @@ def fading(line, took):
 
 def titled(header, x):
     """A screen's header, `agentkit · <its name>` and the time, with that name written out to
-    `x` of it, 0 to 1, as its page opens: the cells after it blank.  One lit by the pointer, or
-    with no name, as drawn."""
-    named = "\033" not in header and re.fullmatch(r"(agentkit)( · .*?)( +\S+)", header)
+    `x` of it, 0 to 1, as its page opens: the cells after it blank, every style kept.  One with
+    no name as drawn."""
+    named = re.fullmatch(r"(agentkit)( · .*?)( +\S+)", terminal.ANSI.sub("", header))
     if not named:
         return header
-    name = named[2]
-    shown = name[:round(len(name) * max(0, min(1, x)))]
-    return named[1] + shown + " " * (terminal.cells(name) - terminal.cells(shown)) + named[3]
+    keep, end = named.start(2) + round(len(named[2]) * max(0, min(1, x))), named.end(2)
+    out, at = "", 0
+    for token in re.findall(f"{terminal.ANSI.pattern}|.", header, re.S):
+        if not token.startswith("\033"):
+            token, at = " " * terminal.cells(token) if keep <= at < end else token, at + 1
+        out += token
+    return out
 
 
 def growing(cells, began, took=GROW, start=0, light=None):
@@ -218,7 +222,7 @@ def growing(cells, began, took=GROW, start=0, light=None):
     still."""
     done = sum(1 for text in cells if terminal.plain(text) in ("━", "╸", "="))
     full, empty = "━─" if terminal.utf8() else "=-"
-    track = terminal.styled(empty, "dim")
+    track = terminal.styled(empty, "border")
 
     def cell(n, text):
         filled = terminal.plain(text) in ("━", "╸", "=")

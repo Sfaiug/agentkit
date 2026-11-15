@@ -49,6 +49,8 @@ func usageDetail(s terminal.Screen, cell Cell, width int) string {
 		switch {
 		case note == cell.Ends:
 			note = s.Styled(note, "amber")
+		case note == cell.Held:
+			note = s.Styled(note, "info")
 		case strings.HasPrefix(note, "?"):
 			note = s.Styled("?", "amber") + s.Styled(note[1:], "dim")
 		default:

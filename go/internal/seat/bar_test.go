@@ -23,23 +23,23 @@ func TestTheBarsFormatsAreStatusbarsOwn(t *testing.T) {
 func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
 	screen := terminal.For(nil)
-	needs := " #[fg=#000000,bg=#d79200,bold] ! needs you #[default]   #[bold]acme#[nobold]   #[fg=#868d97]Opus 5.5#[default]   "
-	done := " #[fg=#000000,bg=#33b65f] ✓ done #[default]   #[bold]acme#[nobold]   #[fg=#868d97]Opus 5.5#[default]   "
-	idle := " #[fg=#000000,bg=#868d97] ○ idle #[default]   #[bold]acme#[nobold]   #[fg=#868d97]Opus 5.5#[default]"
-	crew := "  #[fg=#868d97]Opus 5.5 orchestrates, builds, reviews   Astra builds   Spark reviews#[default]"
+	needs := " #[fg=#000000,bg=#d79200,bold] ! needs you #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]   "
+	done := " #[fg=#000000,bg=#33b65f] ✓ done #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]   "
+	idle := " #[fg=#000000,bg=#868d97] ○ idle #[default]   #[bold]acme#[nobold]   #[fg=#acb4bd]Opus 5.5#[default]"
+	crew := "  #[fg=#acb4bd]Opus 5.5 orchestrates, builds, reviews   Astra builds   Spark reviews#[default]"
 	for _, each := range []struct {
 		word, reason, why string
 		done, total       int
 		tops              [3]string
 	}{
 		{"needs you", "session #1 closed", "  session ##1 closed", 1, 3, [3]string{
-			needs + "#[fg=#d79200]━━━━━━━━━╸#[fg=#868d97]───────────────────#[default] 1 of 3",
-			needs + "#[fg=#d79200]━━━━━╸#[fg=#868d97]───────────#[default] 1 of 3",
-			needs + "#[fg=#d79200]━╸#[fg=#868d97]───#[default] 1 of 3"}},
+			needs + "#[fg=#d79200]━━━━━━━━━╸#[fg=#3a3f46]───────────────────#[default] #[fg=#acb4bd]1 of 3#[default]",
+			needs + "#[fg=#d79200]━━━━━╸#[fg=#3a3f46]───────────#[default] #[fg=#acb4bd]1 of 3#[default]",
+			needs + "#[fg=#d79200]━╸#[fg=#3a3f46]───#[default] #[fg=#acb4bd]1 of 3#[default]"}},
 		{"done", "it shipped", crew, 3, 3, [3]string{
-			done + "#[fg=#33b65f]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━#[default] 3 of 3",
-			done + "#[fg=#33b65f]━━━━━━━━━━━━━━━━━#[default] 3 of 3",
-			done + "#[fg=#33b65f]━━━━━#[default] 3 of 3"}},
+			done + "#[fg=#33b65f]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━#[default] #[fg=#acb4bd]3 of 3#[default]",
+			done + "#[fg=#33b65f]━━━━━━━━━━━━━━━━━#[default] #[fg=#acb4bd]3 of 3#[default]",
+			done + "#[fg=#33b65f]━━━━━#[default] #[fg=#acb4bd]3 of 3#[default]"}},
 		{"idle", "session closed: press 1 to reopen", crew, 1, 3, [3]string{idle, idle, idle}},
 	} {
 		seat := Seat{Name: "acme", Word: each.word, reason: each.reason}

@@ -66,7 +66,7 @@ func CompanyListFrame(s terminal.Screen, view CompanyListView) MatrixFrame {
 	said := []string{counted(len(view.On), "model", "models") + " on, from " + counted(giving, "company", "companies"),
 		counted(more, "more company has", "more companies have") + " benchmark scores"}
 	under := []string{""}
-	for _, part := range packed(said, room-2) {
+	for _, part := range packed(said, gap, room-2) {
 		under = append(under, "  "+s.Styled(part, "dim"))
 	}
 	if view.Note != "" {

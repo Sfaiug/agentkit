@@ -148,7 +148,7 @@ func (d *Draft) block(s terminal.Screen, seat Seat, w widths) []row {
 		typed = typed[max(0, len(typed)-max(0, w.name-1)):]
 	}
 	name := padded(s.Bold(typed)+s.Styled(caret, "accent")+s.Styled(hint, "dim"), w.name)
-	line := "  " + terminal.Pad(strconv.Itoa(seat.Number), w.num) + "  " + name + "  " + cell(s, seat.orchestrator(w.orch), w.orch, "dim")
+	line := "  " + terminal.Pad(strconv.Itoa(seat.Number), w.num) + "  " + name + "  " + cell(s, seat.orchestrator(w.orch), w.orch, "muted")
 	if w.count > 0 {
 		line += "  " + s.Styled("new", "dim")
 	}
@@ -165,7 +165,7 @@ func (d *Draft) block(s terminal.Screen, seat Seat, w widths) []row {
 		return shown
 	}
 	room := max(1, w.room-len(indent))
-	parts, tone := []string{terminal.CutSpaced(terminal.Crew(seat.Model, named(d.Workers, "exec_effort"), named(d.Reviewers, "review_effort")), room)}, "dim"
+	parts, tone := []string{terminal.CutSpaced(terminal.Crew(seat.Model, named(d.Workers, "exec_effort"), named(d.Reviewers, "review_effort")), room)}, "muted"
 	if why := d.Refusal(); why != "" {
 		parts, tone = terminal.Wrap(why, room), "amber"
 	}

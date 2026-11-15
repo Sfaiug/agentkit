@@ -21,8 +21,9 @@ from .themes import BLACK, ROLES, WHITE, named
 # glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
 # table, its colour the role's in the theme in force (`theme`).
-# The five words a session reads, and the two presentation-only kinds the screens ask for
-# by name: `dim` for a note beside a row, `FAIL` for a verdict, which is no session state.
+# The five words a session reads, and the presentation-only kinds the screens ask for by name:
+# `dim` for a note beside a row, `FAIL` for a verdict, which is no session state, and the
+# roles of text no state's colour is, `muted`, `border` and `info` (docs/cli-design.md, Colour).
 STATE_STYLES = {
     "needs you": ("!", "!", "warning", "33", "1"),
     "working": ("●", "*", "accent", "36", ""),
@@ -37,6 +38,10 @@ STATE_STYLES = {
     # No session word: a run parked on something that lifts by itself says what it waits for
     # instead of a word, and the open circle is what says nobody has to act on it.
     "waiting": ("○", "o", "dim", "37", "2"),
+    # at eight colours, plain; a line faint, as a note is; what ak says cyan
+    "muted": ("", "", "muted", "39", ""),
+    "border": ("", "", "border", "2", ""),
+    "info": ("", "", "info", "36", ""),
 }
 GREY = 0.15        # saturation under which a colour is a grey rather than a hue
 # The kinds a screen asks `styled` for by what they mean, and the word whose colour each is.
@@ -527,35 +532,37 @@ def content_width(term_width=None):
 
 
 def header_line(screen, clock, term_width=None):
-    """`agentkit` at the left, the screen name after it, the clock at the right.
+    """`agentkit` at the left, the screen name after it, the clock at the right, both muted.
 
     The title gives way, never the clock: a name too wide sheds its first parts, where you came
     from, then what is left is cut, to leave the clock and one space whole.
     """
     room = layout_width(term_width)
     if room <= cells(clock):
-        return cut(clock, room)
+        return styled(cut(clock, room), "muted")
     parts = ["agentkit", *(screen.split(" · ") if screen else [])]
     while len(parts) > 2 and cells(" · ".join(parts)) > room - cells(clock) - 1:
         del parts[1]
     title = cut(" · ".join(parts), room - cells(clock) - 1)
-    return title + " " * (room - cells(title) - cells(clock)) + clock
+    at = len(parts[0])
+    return (title[:at] + styled(title[at:], "muted") + " " * (room - cells(title) - cells(clock))
+            + styled(clock, "muted"))
 
 
 def rule_line(term_width=None, filled=0):
-    """One dim rule the width of the layout, the `filled` part of it (0 to 1) from the left in
+    """One rule in the border's colour the width of the layout, the `filled` part of it (0 to 1) from the left in
     the accent: how far `ak`'s own update has got.  That part is drawn heavy (`━`), so it reads
     where there is no colour to fill it with."""
     room = layout_width(term_width)
     done = round(room * max(0, min(1, filled)))
-    return styled("━" * done, "accent") + styled("─" * (room - done), "dim")
+    return styled("━" * done, "accent") + styled("─" * (room - done), "border")
 
 
 AFTER = ("→", ">")      # a key pointing right stands after its word, on the side it points to
 
 
 def key_parts(text):
-    """(key, word) pairs for the key line: each key dim, its word plain, a key of AFTER after
+    """(key, word) pairs for the key line: each key dim, its word muted, a key of AFTER after
     its word (`better →`) and any other before it."""
     parts = []
     for phrase in text.split("   "):
@@ -591,12 +598,12 @@ def keys(*rest, space=None, enter, move=True):
 
 
 def key_line(text, term_width=None, first=None):
-    """The key line: each key dim, its word plain, wrapped to the layout; `first`, drawn as it
+    """The key line: each key dim, its word muted, wrapped to the layout; `first`, drawn as it
     is, the item in front of them."""
     room = layout_width(term_width) - 2
     rendered = [first] if first else []
     for key, word in key_parts(text):
-        dim = styled(key, "dim")
+        dim, word = styled(key, "dim"), styled(word, "muted")
         rendered.append(dim if not word else f"{word} {dim}" if key in AFTER else f"{dim} {word}")
     lines, line = [], ""
     for piece in rendered:
@@ -621,17 +628,17 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False, tasks=0):
     for it then draws under itself.  The count stays the plan's, as a task mostly builds a plan line, and the tasks
     follow it (the owner's pick of 11 Nov 2026).  With no `least`, a room too small for a cell
     of line beside the count draws the count alone, and one too small for its tasks too the
-    plan's count alone.  With no plan (`total` 0) it is the same line with nothing done, `no
-    plan yet` in the count's place."""
+    plan's count alone.  The count is muted.  With no plan (`total` 0) it is the same line with
+    nothing done, `no plan yet` in the count's place."""
     total = max(0, int(total or 0))
     done = max(0, min(int(done or 0), total))
     count = f"{done} of {total}" if total else NO_PLAN
     joint = " · " if utf8() else ", "
     going = f"{count}{joint}{tasks} task{'s' * (tasks != 1)}" if tasks else count
     size = max(least, room - len(going) - 1)
-    if size < 1:
-        return going if len(going) <= room else count
-    return share_line(done / (total or 1), size, word, tmux) + f" {going}"
+    said = going if size >= 1 or len(going) <= room else count
+    said = f"#[fg=#{colour('muted', tmux)}]{said}#[default]" if tmux else styled(said, "muted")
+    return said if size < 1 else share_line(done / (total or 1), size, word, tmux) + f" {said}"
 
 
 def share_parts(share, size):
@@ -646,26 +653,27 @@ def share_parts(share, size):
 
 
 def share_line(share, size, word="working", tmux=False):
-    """The bar (`share_parts`) its full part in `word`'s colour, the rest dim.  `tmux` draws it
+    """The bar (`share_parts`) its full part in `word`'s colour, the rest in the border's.  `tmux` draws it
     as a tmux format, a seat's bar's (`colour`)."""
     cells, rest = share_parts(share, size)
     if tmux:
         return "".join(f"#[fg=#{colour(kind, tmux)}]{text}"
-                       for kind, text in ((word, cells), ("dim", rest)) if text) + "#[default]"
+                       for kind, text in ((word, cells), ("border", rest)) if text) + "#[default]"
     if colour_depth() <= 8:   # nothing breathes there
-        return styled(cells, word) + styled(rest, "dim")
+        return styled(cells, word) + styled(rest, "border")
     # a cell at a time, so the tip is found to breathe (`menu.tips`)
-    return "".join(styled(char, word) for char in cells) + styled(rest, "dim")
+    return "".join(styled(char, word) for char in cells) + styled(rest, "border")
 
 
 def effort_cells(count, filled):
     """An effort's level before its word: the bar (`share_parts`) a cell for each of the
-    `count` efforts its model offers, full up to its `filled`th and the rest dim, `━━━──` for
+    `count` efforts its model offers, full up to its `filled`th and the rest in the border's,
+    `━━━──` for
     high of five.  One effort is no level to show: no cell."""
     if count < 2:
         return []
     cells, rest = share_parts(filled / count, count)
-    return [*cells, *(styled(cell, "dim") for cell in rest)]
+    return [*cells, *(styled(cell, "border") for cell in rest)]
 
 
 def toggle(mark, width, kind=None, lit=False):

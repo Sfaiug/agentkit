@@ -2,7 +2,7 @@
 
 The owner's design (14 Oct 2026): pointing at a working seat opens one line under its row --
 `opus orchestrates   astra builds   fable reviews   ■□□  ■■□` -- the seat's orchestrator, then each
-model once, what it does after it in words (their pick of 10 Nov 2026), dim as the row's
+model once, what it does after it in words (their pick of 10 Nov 2026), muted as the row's
 orchestrator, with each task in flight as three squares
 (build, review, land), the stages it reached filled: in working's colour while a model or ak
 works on it, dim while it waits; a run that ended is gone from it, whatever it delivered (their
@@ -107,7 +107,7 @@ class CrewAndSquares(Sandbox):
         with patch.object(terminal, "colour_depth", return_value=24):
             self.assertEqual(menu.crew({"crew": ("opus", ["astra"], ["fable"])}),
                              terminal.styled("opus orchestrates   astra builds   fable reviews",
-                                             "dim"))
+                                             "muted"))
         # a narrow line cuts the crew, never the squares
         info["crew"] = ("opus", ["astra", "opus"], ["fable", "spark"])
         info["tasks"] = [(0, "moving")]

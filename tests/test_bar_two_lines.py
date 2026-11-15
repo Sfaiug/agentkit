@@ -23,7 +23,7 @@ from agentkit import record
 
 NOW = 1_800_000_000
 CREW = "Fable 5.1 xhigh orchestrates   6 Astra xhigh builds, reviews"   # line two
-DIM = terminal.colour("dim", tmux=True)
+MUTED = terminal.colour("muted", tmux=True)
 
 
 def drawn(value):
@@ -79,7 +79,7 @@ class TwoLines(Sandbox):
         top = self.options[statusbar.TOP]
         self.assertEqual(drawn(top), " fix-api   Fable 5.1 xhigh")
         self.assertIn("#[bold]fix-api#[nobold]", top)
-        self.assertIn(f"#[fg=#{DIM}]Fable 5.1 xhigh#[default]", top)  # model and effort dim
+        self.assertIn(f"#[fg=#{MUTED}]Fable 5.1 xhigh#[default]", top)  # model and effort muted
         self.assertEqual(drawn(self.options[statusbar.WHY]), "")
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api")

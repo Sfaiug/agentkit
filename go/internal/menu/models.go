@@ -27,10 +27,10 @@ func ModelsLines(s terminal.Screen, view ModelsView) []string {
 	return append(append(lines, ""), modelsRead(s, view.Compared, view.Total, view.Fetched)...)
 }
 
-// packed is parts on as few lines of room cells as hold them, separator between two on one line; a
-// part too long for a line of its own goes on at its words, never past room, where the terminal
-// would break it mid-word.
-func packed(parts []string, room int) []string {
+// packed is parts on as few lines of room cells as hold them, gap between two on one line; a part
+// too long for a line of its own goes on at its words, never past room, where the terminal would
+// break it mid-word.
+func packed(parts []string, gap string, room int) []string {
 	var lines []string
 	for _, part := range parts {
 		if len(lines) > 0 && terminal.Cells(lines[len(lines)-1]+gap+part) <= room {
@@ -61,7 +61,7 @@ func modelsRead(screen terminal.Screen, compared map[string]bool, total int, fet
 		parts = append(parts, "boards read "+read.Format(layout))
 	}
 	var lines []string
-	for _, part := range packed(parts, screen.LayoutWidth()-2) {
+	for _, part := range packed(parts, gap, screen.LayoutWidth()-2) {
 		lines = append(lines, "  "+screen.Styled(part, "dim"))
 	}
 	return lines

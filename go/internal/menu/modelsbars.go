@@ -85,7 +85,7 @@ func modelsBars(s terminal.Screen, found *quality.Said, role string, used *quali
 		heading = append(heading, counts[len(shaded)]+" more shaded")
 	}
 	lines := []string{""}
-	for _, line := range packed(heading, width-2) {
+	for _, line := range packed(heading, " · ", width-2) {
 		lines = append(lines, "  "+line)
 	}
 	dearest := 0.0
