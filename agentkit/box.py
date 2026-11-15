@@ -110,8 +110,8 @@ def _go_cache(env):
 
 def _warm(cache, scratch, hidden):
     """bwrap's words showing a turn the account's Go build cache at /var/tmp/go-build, what the
-    turn writes there kept in scratch, or none where the cache is missing or hidden or the kernel
-    refuses the overlay, leaving the turn an empty cache of its own there.
+    turn writes there kept in scratch; none where the cache is missing, holds or lies in a hidden
+    place, or the kernel refuses the overlay, leaving the turn an empty cache of its own there.
 
     Turns compiling the standard library and every package from nothing asked for more CPU than
     the host had (15 Nov 2026). Scratch is on disk: a turn rewriting many packages writes
@@ -124,15 +124,12 @@ def _warm(cache, scratch, hidden):
     upper.mkdir()
     work.mkdir()
     layers = ["--overlay-src", str(cache), "--overlay", str(upper), str(work)]
-    try:
-        # The kernel keeps an overlay's writes on few filesystems, not on NFS or another overlay,
-        # and a box it refused would not start.
-        refused = subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/", *layers,
-                                  str(cache), "--", "true"], capture_output=True,
-                                 timeout=10).returncode
-    except (OSError, subprocess.SubprocessError):
-        refused = True
-    return [] if refused else [*layers, "/var/tmp/go-build"]
+    # The kernel keeps no overlay's writes on NFS or another overlay, and a box whose overlay it
+    # refused would not start. Unbounded: one it mounts syncs scratch's filesystem as it goes,
+    # seconds on a busy host, and a refusal is at once.
+    probe = subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/", *layers, str(cache),
+                            "--", "true"], stderr=subprocess.DEVNULL)
+    return [*layers, "/var/tmp/go-build"] if probe.returncode == 0 else []
 
 
 def _homes(env, cwd):
