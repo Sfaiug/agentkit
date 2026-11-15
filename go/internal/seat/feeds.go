@@ -1,7 +1,6 @@
 package seat
 
 import (
-	"errors"
 	"io/fs"
 	"path/filepath"
 	"slices"
@@ -13,17 +12,15 @@ import (
 
 // feeds is whether a state/ entry feeds a seat's word, row or card where Go does not carry it,
 // which hands the whole home to Python.  A listing reads tmux and the records, a seat's word its
-// own files and watch.json, and its login card login-refusals.json (orch.listing,
-// watch.session_state, login_refusals.owed); everything else passes over, whatever its name or
-// type.  So these feed one: a listed seat's own file of a kind or shape Go does not read, but those
-// its done checks keep, which no word reads; watch.json where quiet refuses it; login-refusals.json
-// where it may owe a run a login; and `server`, which makes this ak the server's client.
+// own files and watch.json (orch.listing, watch.session_state); login-refusals.json its rung 1a
+// reads itself (runOnALogin), and everything else passes over, whatever its name or type.  So these
+// feed one: a listed seat's own file of a kind or shape Go does not read, but those its done checks
+// keep, which no word reads; watch.json where quiet refuses it; and `server`, which makes this ak
+// the server's client.
 func feeds(state string, entry fs.DirEntry, names, live []string) bool {
 	switch entry.Name() {
 	case "watch.json":
 		return !quiet(filepath.Join(state, entry.Name()))
-	case "login-refusals.json":
-		return owesLogin(filepath.Join(state, entry.Name()))
 	case "server":
 		return true
 	}
@@ -63,18 +60,4 @@ func quiet(path string) bool {
 	}
 	stalls := data.Dict("stalls")
 	return !data.Has("stalls") || stalls != nil && wordStalls(stalls)
-}
-
-// owesLogin is whether login-refusals.json may owe a run a login, as the login card reads it
-// (login_refusals.owed), which milestone 197d carries: a login refusing two runs or more, or whose
-// refusals are no list.  One unreadable or no object keeps nothing (login_refusals._kept).
-func owesLogin(path string) bool {
-	kept, err := run.ReadJSON(path)
-	if err != nil {
-		return errors.Is(err, run.ErrLoneSurrogate) // Python reads what Go cannot hold
-	}
-	return kept != nil && slices.ContainsFunc(kept.Keys(), func(login string) bool {
-		refusals, listed := kept.Get(login).([]any)
-		return !listed || len(refusals) >= 2
-	})
 }
