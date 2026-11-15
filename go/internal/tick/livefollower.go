@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,6 +16,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/handback"
 	"agentkit/internal/handover"
+	"agentkit/internal/livefollow"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -50,19 +49,19 @@ func FollowLive(name string, out, errOut io.Writer) (left string, failed bool) {
 		return handover.Here(0), false
 	}
 	repo, say, shared := record.Str("repo"), func(line string) { fmt.Fprintln(out, line) }, &census{}
-	follower, runs, following := heldOnStdin(livePath(repo, "follower")), []string{name}, atomic.Int64{}
+	follower, runs, following := heldOnStdin(livefollow.Path(repo, "follower")), []string{name}, atomic.Int64{}
 	fail := func(err error) (string, bool) {
 		fmt.Fprintf(errOut, "ak watch: %s\n", config.PyError(err))
 		return "", true
 	}
 	for {
-		live, err := lock.Wait(context.Background(), livePath(repo, "lock"))
+		live, err := lock.Wait(context.Background(), livefollow.Path(repo, "lock"))
 		if err != nil {
 			return fail(err)
 		}
 		if follower == nil {
-			if follower, err = lock.Try(livePath(repo, "follower")); errors.Is(err, lock.ErrHeld) {
-				_, err = liveRuns(repo, name) // an older run process started this one for its merge
+			if follower, err = lock.Try(livefollow.Path(repo, "follower")); errors.Is(err, lock.ErrHeld) {
+				_, err = livefollow.Runs(repo, name) // an older run process started this one for its merge
 				live.Close()
 				if err != nil {
 					return fail(err)
@@ -72,7 +71,7 @@ func FollowLive(name string, out, errOut io.Writer) (left string, failed bool) {
 				return fail(err)
 			}
 		}
-		taken, err := liveRuns(repo, "")
+		taken, err := livefollow.Runs(repo, "")
 		if err != nil {
 			return fail(err)
 		}
@@ -247,34 +246,8 @@ func (c *census) read() ([]*run.Object, error) {
 	return slices.DeleteFunc(records, func(record *run.Object) bool { return record == nil }), nil
 }
 
-// livePath is the "lock" a run of repo's project is handed over and its live follower ends under,
-// the "follower" lock it holds for life, and the "runs" handed to it (watch.live_path): one
-// follower a project, as each has its merges' settings, which no other's may have.
-func livePath(repo, kind string) string {
-	return filepath.Join(run.Runs(), ".live-"+filepath.Base(repo)+"."+kind)
-}
-
-// liveRuns is, under the live lock, the runs handed to the follower that it has yet to take, handed
-// added, else all taken (watch.live_runs); written whole, so a writer stopped anywhere leaves the
-// list it found.
-func liveRuns(repo, handed string) ([]string, error) {
-	path := livePath(repo, "runs")
-	data, err := os.ReadFile(path)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	runs := config.SplitLines(string(data))
-	if handed != "" {
-		return runs, replaceFile(path, strings.Join(append(runs, handed), "\n"))
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
-	}
-	return runs, nil
-}
-
 // heldOnStdin is the follower lock at path on stdin, from the merge that started this process and
-// held since its fork (start_live_probe), else nil.  Stdin then reads /dev/null: Go hands a child
+// held since its fork (livefollow.Merged), else nil.  Stdin then reads /dev/null: Go hands a child
 // what os.Stdin names, never its own descriptor 0, so nothing it runs keeps the lock.
 func heldOnStdin(path string) *os.File {
 	in, err := os.Stdin.Stat()

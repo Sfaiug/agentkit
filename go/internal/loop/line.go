@@ -259,17 +259,7 @@ func startLine(turn string, said io.Writer) {
 	if !ready {
 		return // the joining attempt finishes its cleanup before a wake
 	}
-	env, err := config.ChildEnv()
-	if err == nil {
-		// this work outlives its caller and must not belong to the caller's stop sweep
-		env = slices.DeleteFunc(env, func(pair string) bool {
-			key, _, _ := strings.Cut(pair, "=")
-			return slices.Contains([]string{host.Marker, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE", "AK_RUN_DEPTH",
-				"AGENTKIT_JOB_DIR", "AGENTKIT_SESSION", "AGENTKIT_UNATTENDED"}, key)
-		})
-		err = land(turn, members, append(env, "AK_RUN_DEPTH=0"))
-	}
-	if err != nil {
+	if err := land(turn, members); err != nil {
 		fmt.Fprintf(said, "WARN could not start lander for %s: %v\n", filepath.Base(turn), err)
 	}
 }

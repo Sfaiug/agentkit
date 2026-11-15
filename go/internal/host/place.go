@@ -157,8 +157,9 @@ func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) 
 // detached, in unit, a unit of slice under the user manager with those `systemd-run -p`
 // properties: a scope where this process is in the manager's own subtree, since the kernel lets an
 // unprivileged manager move only what it was delegated, else a service the manager starts there
-// itself.  A foreground cmd goes only into a scope, which keeps its terminal: a service is the
-// manager's.  pid is the work's; scope is its unit, or "none" and reason why.
+// itself.  A foreground cmd, and one given a stdin, goes only into a scope, which keeps its
+// terminal and inherits its stdin: a service is the manager's.  pid is the work's; scope is its
+// unit, or "none" and reason why.
 //
 // Each start is decided in Python's order (_start_in_slice).  The work says for itself whether it
 // started (Placed): its mark means it ran, however briefly.  A scope's client gone without one,
@@ -200,6 +201,8 @@ func PlaceIn(slice string, cmd *exec.Cmd, log, unit string, properties []string,
 		return plain(cmd, "no user systemd manager")
 	case !scoped && !detached:
 		return plain(cmd, "started outside the user manager, which cannot move it")
+	case !scoped && cmd.Stdin != nil:
+		return plain(cmd, "a service would not inherit its stdin")
 	}
 	if err := os.MkdirAll(tmp, 0o700); err != nil {
 		return 0, "", "", err
@@ -227,7 +230,7 @@ func PlaceIn(slice string, cmd *exec.Cmd, log, unit string, properties []string,
 	}
 	client := exec.CommandContext(context.Background(), "systemd-run", words...) // Group's stop is its Cancel
 	client.Env = append(busEnv(env), placedEnv+"="+marker)                       // a scope's client becomes its work
-	client.Stdout, client.Stderr, client.SysProcAttr = out, out, cmd.SysProcAttr
+	client.Stdin, client.Stdout, client.Stderr, client.SysProcAttr = cmd.Stdin, out, out, cmd.SysProcAttr
 	// what a stop ends: a detached client's session, with whatever it forked, as a foreground one
 	// shares its caller's and is the work alone
 	end := func() { client.Process.Kill() }
