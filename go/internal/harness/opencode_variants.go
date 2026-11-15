@@ -15,8 +15,7 @@ func init() {
 // writes, for a move to a variant it defines to restart.  A named account is refused first, as that
 // script refuses one for every verb.
 func opencodeVariantsVerb(args []string, out, errOut io.Writer) int {
-	if account := os.Getenv("AGENTKIT_ACCOUNT"); account != "" {
-		fmt.Fprintf(errOut, "opencode: account %s refused; OpenCode keeps logins and sessions in one opencode.db, so a login of its own cannot resume a conversation\n", account)
+	if opencodeRefused(errOut) {
 		return 1
 	}
 	if len(args) < 1 {
@@ -25,6 +24,16 @@ func opencodeVariantsVerb(args []string, out, errOut io.Writer) int {
 	}
 	fmt.Fprintln(out, opencodeVariants(args[0]))
 	return 0
+}
+
+// opencodeRefused is whether the call names an account, which opencode.sh refuses for every verb,
+// saying so: OpenCode keeps its logins in the database its sessions live in.
+func opencodeRefused(errOut io.Writer) bool {
+	account := os.Getenv("AGENTKIT_ACCOUNT")
+	if account != "" {
+		fmt.Fprintf(errOut, "opencode: account %s refused; OpenCode keeps logins and sessions in one opencode.db, so a login of its own cannot resume a conversation\n", account)
+	}
+	return account != ""
 }
 
 // opencodeVariants is adapters/opencode.sh's turn_variants: the layered config document defining
