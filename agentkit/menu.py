@@ -5108,20 +5108,22 @@ def opened_line(told, kind, texts, on, room):
     spaces apart, the one that is `on` lit with a cell before and after it (terminal.selected,
     bracketed with no colour), wrapped in `room` cells, never cut; each line with its texts'
     places, (first, last, index), from 1."""
+    room = max(1, room)
     pieces = [(terminal.styled(part, kind), None) for part in terminal.wrap(told, room) if part]
     for index, text in enumerate(texts):
         pieces.append((f"[{text}]" if text == on and not terminal.colour_depth() else text,
                        index))
     lines, used = [("    ", [])], 0
     for shown, index in pieces:
-        wide = terminal.cells(terminal.plain(shown))
-        if used and used + 3 + wide + (index is not None) > room:   # an act's cell after it
-            lines, used = [*lines, ("    ", [])], 0
-        gap = 3 if used else 0
-        if index is not None:
-            lines[-1][1].append((5 + used + gap, 4 + used + gap + wide, index))
-        lines[-1] = (lines[-1][0] + " " * gap + shown, lines[-1][1])
-        used += gap + wide
+        whole = terminal.cells(terminal.plain(shown))
+        for part in (terminal.wrap(shown, room) if whole > room else [shown]):
+            if used and used + 3 + whole + (index is not None) > room:  # an act's cell after it
+                lines, used = [*lines, ("    ", [])], 0
+            gap, wide = 3 if used else 0, terminal.cells(terminal.plain(part))
+            if index is not None:
+                lines[-1][1].append((5 + used + gap, 4 + used + gap + wide, index))
+            lines[-1] = (lines[-1][0] + " " * gap + part, lines[-1][1])
+            used += gap + wide
     # an act alone filling its line has no cell after it: lit past the line's end, it would
     # wrap and push every row under it off the place recorded for it
     return [(next((terminal.selected(line, first - 1, min(last + 1, 4 + room))

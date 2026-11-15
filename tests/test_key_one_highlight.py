@@ -5,8 +5,9 @@ has a colour for what is lit, `selection`.  A seat's row, the keys' or the point
 from its `›` to the layout's last column, bold behind the `›` as before, and no other row is;
 where the terminal draws fewer than 256 colours the row has its `›` alone.  A cell -- a mark on
 `c` as wide as its column, set or not, an act on a subscription's line with a cell before and
-after it -- is on it over its whole width, the same from the keys and the pointer, and its row
-has no band of its own; nothing on `c` or Subscriptions is reversed.  Black-box: the
+after it, bracketed with no colour -- is on it over its whole width, the same from the keys and
+the pointer, and its row has no band of its own; nothing on `c` or Subscriptions is reversed.
+Black-box: the
 program `AK_BIN` names runs in a person's terminal that sets no background
 (tests/fixtures/akterm.py), over seats (tests/fixtures/akseat.py) and faked harnesses
 (tests/fixtures/fakeadapter.py), each cell judged by how it looks once the screen rests
@@ -195,6 +196,30 @@ class OneHighlight(unittest.TestCase):
         self.assertEqual(lit_rows(shown), {row + 1: list(range(col - 1, col + len(REMOVE) + 1))})
         self.assertEqual((self.row(shown, ACT), self.row(shown, REMOVE)),
                          ((col, row), (col, row + 1)))
+
+    def test_a_bracketed_act_wraps_within_a_narrow_line_with_no_colour(self):
+        term = Terminal(self.home, size=(WIDTH, 40), env={"NO_COLOR": "1"})
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane,
+                        "sleep 86400", server=SERVER)
+        term.wait("esc leave")
+        term.keys("c")
+        term.wait("› Fable 5.1")
+        term.keys("Down", "Down", "Down")
+        term.wait("› Subscriptions")
+        term.keys("Enter")
+        term.wait("› Claude")
+        term.keys("Down", "Right")
+        term.wait(f"[{ACT}]")
+        term.resize(len(ACT) + 4, 40)
+        shown = term.wait(lambda screen: "    1 reset in hand" in screen
+                          and "\n  esc back" in screen)
+        # `[→ spend a reset]` is two cells wider than the line: wrapped at words, not by the
+        # terminal, so `− remove` sits on the row recorded for it
+        lines = [line.rstrip() for line in shown.splitlines()]
+        row = next(number for number, line in enumerate(lines, 1) if line.startswith("    ["))
+        self.assertEqual(lines[row - 1:row + 2], ["    [→ spend a", "    reset]", f"    {REMOVE}"])
+        term.type(point(8, row + 2))
+        term.wait(f"    [{REMOVE}]")
 
     def test_in_sixteen_colours_a_seat_has_its_mark_alone(self):
         self.assertEqual(grounds(self.main(TERM="xterm-16color")), {None})
