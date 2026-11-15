@@ -1,8 +1,8 @@
 """An open menu looks for news as often as a look is cheap, and never less often than `STIR`.
 
 The watcher waited a second between looks, so a seat's new word was drawn up to a second after
-its record said it.  `Live._watch` runs here on a fake clock: each look takes what the test
-says, and the wait before the next is that many `LOOKS` of it, `STIR` at most.
+its record said it.  `Live._watch` runs here on a fake clock: each look costs its thread what the
+test says, and the wait before the next is that many `LOOKS` of it, `STIR` at most.
 """
 
 import unittest
@@ -17,7 +17,7 @@ class LooksAsOftenAsALookIsCheap(Sandbox):
     def test_the_wait_follows_what_the_last_look_cost(self):
         live = menu.Live(config.load())
         self.addCleanup(live.close)
-        now, waits, costs = [0.0], [], [0.002, 0.5, 0.01]
+        now, waits, costs = [0.0], [], [0.002, 0.5, 0.005]
 
         def wait(timeout):
             waits.append(timeout)
@@ -29,12 +29,12 @@ class LooksAsOftenAsALookIsCheap(Sandbox):
             return live.seen
 
         clock = Clock(None)
-        clock.monotonic = lambda: now[0]
+        clock.thread_time = lambda: now[0]
         with patch.object(menu, "time", clock), patch.object(live.asked, "wait", wait), \
                 patch.object(live, "recorded", recorded):
             live._watch()
         self.assertEqual(waits[0], menu.STIR)
-        for waited, want in zip(waits[1:], (menu.LOOKS * 0.002, menu.STIR, menu.LOOKS * 0.01)):
+        for waited, want in zip(waits[1:], (menu.LOOKS * 0.002, menu.STIR, menu.LOOKS * 0.005)):
             self.assertAlmostEqual(waited, want)
 
 
