@@ -3708,8 +3708,8 @@ def companies_body(makers, yours, off, at=None, column=0):
     """The company list's lines and {line: (row, cells)}: each of `yours` with a listed model a
     line, its name, then each of those models (`makers`), `■` on in the accent, or `□` and dim
     where `off` holds it; where the width runs out they go on under the column where they
-    began.  The keys' cell, `column` of the row `at` (its name 0), is reversed
-    (terminal.toggle).  Last, `+ add a company`."""
+    began.  The keys' cell, `column` of the row `at` (its name 0), is lit (terminal.toggle).
+    Last, `+ add a company`."""
     room, (on, out) = terminal.layout_width(), "■□" if terminal.utf8() else "#-"
     shown = [maker for maker in yours if maker in makers]
     label = max((terminal.cells(maker) for maker in shown), default=0)
@@ -3726,8 +3726,7 @@ def companies_body(makers, yours, off, at=None, column=0):
             if number > 1 and first + width - 2 > room:      # its space after may go
                 parts.append([" " * (start - 1), []])
                 first = start
-            parts[-1][0] += terminal.toggle(text, width, "reverse" if row == at
-                                            and number == column else kind)
+            parts[-1][0] += terminal.toggle(text, width, kind, row == at and number == column)
             parts[-1][0] += " " * (0 if number else label - terminal.cells(text))
             parts[-1][1].append((first, first + width - 1, number))
         for number, (line, cells) in enumerate(parts):
@@ -3931,15 +3930,16 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                     line, first = line + " " * width[number], first + width[number]
                     continue
                 text = texts[number] if number < 3 else efforts[name, number]
-                kind = ("reverse" if at == ("model", name) and number == column else
-                        "dim" if note or text in (marks[1], marks[3])
+                keyed = at == ("model", name) and number == column
+                kind = ("dim" if note or text in (marks[1], marks[3])
                         else "accent" if number < 3 else None)
-                if number >= 3:   # the keys' effort is its word reversed, its cells before it
+                if number >= 3:   # an effort is its cells and then its word, the keys' lit whole
                     lead = leads[name, number]
                     lead = terminal.styled(terminal.plain(lead, True), kind) if (
                         kind == "dim" and lead) else lead
                     text = lead + (terminal.styled(text, kind) if kind else text)
-                line += (terminal.toggle(text, width[number], kind) if number < 3 else
+                    text = terminal.selected(text, 1, terminal.cells(text)) if keyed else text
+                line += (terminal.toggle(text, width[number], kind, keyed) if number < 3 else
                          text + " " * (width[number] - terminal.cells(text)))
                 if number < 3 and moves is not None:
                     moves.append((len(lines) + len(parts), ("mark", name, number), text,
@@ -5073,23 +5073,28 @@ def config_subscriptions(cfg, keyboard):
 
 def opened_line(told, kind, texts, on, room):
     """The line a pointed row of `Subscriptions` opens: `told` in `kind`, then `texts` three
-    spaces apart, the one that is `on` reversed (bracketed with no colour), wrapped in `room`
-    cells, never cut; each line with its texts' places, (first, last, index), from 1."""
+    spaces apart, the one that is `on` lit with a cell before and after it (terminal.selected,
+    bracketed with no colour), wrapped in `room` cells, never cut; each line with its texts'
+    places, (first, last, index), from 1."""
     pieces = [(terminal.styled(part, kind), None) for part in terminal.wrap(told, room) if part]
     for index, text in enumerate(texts):
-        pieces.append((text if text != on else terminal.styled(text, "reverse")
-                       if terminal.colour_depth() else f"[{text}]", index))
+        pieces.append((f"[{text}]" if text == on and not terminal.colour_depth() else text,
+                       index))
     lines, used = [("    ", [])], 0
     for shown, index in pieces:
         wide = terminal.cells(terminal.plain(shown))
-        if used and used + 3 + wide > room:
+        if used and used + 3 + wide + (index is not None) > room:   # an act's cell after it
             lines, used = [*lines, ("    ", [])], 0
         gap = 3 if used else 0
         if index is not None:
             lines[-1][1].append((5 + used + gap, 4 + used + gap + wide, index))
         lines[-1] = (lines[-1][0] + " " * gap + shown, lines[-1][1])
         used += gap + wide
-    return lines
+    # an act alone filling its line has no cell after it: lit past the line's end, it would
+    # wrap and push every row under it off the place recorded for it
+    return [(next((terminal.selected(line, first - 1, min(last + 1, 4 + room))
+                   for first, last, index in cells if texts[index] == on), line), cells)
+            for line, cells in lines]
 
 
 def page_body(rows, at=None, moves=None):
@@ -6220,9 +6225,8 @@ def features_body(rows, at=None, column=0, moves=None):
         line = "  " + shown + " " * (label - terminal.cells(shown))
         cells, first = [], 2 + label + 1
         for number, (text, width) in enumerate(zip(texts, widths)):
-            kind = ("reverse" if at == row["id"] and number == column else
-                    "dim" if text in (off, fixed) else ("accent", "ok")[number])
-            line += "  " + terminal.toggle(text, width, kind)
+            kind = "dim" if text in (off, fixed) else ("accent", "ok")[number]
+            line += "  " + terminal.toggle(text, width, kind, at == row["id"] and number == column)
             if moves is not None:
                 moves.append((len(lines), ("mark", row["id"], number), text, motion.toggled(
                     text, width, kind, at == row["id"], first + 2)))

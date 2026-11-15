@@ -1,8 +1,8 @@
 """Every mark in ak fills when set and empties when cleared, and a refused one shakes.
 
 On the `c` screen, the `n` screen and a project's feature switches a mark goes `□`, its full
-shape in the colour its open one has, `■` -- under the keys, reversed as it is -- over two
-frames, 80 ms, and back the same way, saved at the key; one ak refuses nudges
+shape in the colour its open one has, `■` -- under the keys, on the selection as it is -- over
+two frames, 80 ms, and back the same way, saved at the key; one ak refuses nudges
 a cell left, right, left and back over 240 ms, the reason under the rows and nothing saved.
 All of it is on the menu's one clock, beside the rule gliding while a project's
 switches are asked, and the cell a click lit stays lit through it; a key during it ends it on
@@ -120,8 +120,8 @@ def click(column, number):
 
 
 def lit_through(case, cells, number):
-    """Every frame on screen row `number` shows the clicked cell as the draw did: in the
-    pointer's light, the keys' reverse given way to it."""
+    """Every frame on screen row `number` shows the clicked cell as the draw did: on the
+    selection, the one light the keys and the pointer share, never reversed."""
     frames = [written for at, _, _, written in cells if at == number]
     for frame, written in enumerate(frames):
         with case.subTest(frame=frame):
@@ -158,8 +158,7 @@ class Frames(unittest.TestCase):
                 ("□", "■", "accent", terminal.toggle("■", 4, "dim")),
                 ("■", "□", "dim", terminal.toggle("■", 4, "dim")),
                 ("○", "●", None, terminal.toggle("●", 4, "dim")),
-                ("●", "○", "dim", terminal.toggle("●", 4, "dim")),
-                ("□", "■", "reverse", terminal.toggle("■", 4, "reverse"))):     # the keys' cell
+                ("●", "○", "dim", terminal.toggle("●", 4, "dim"))):
             with self.subTest(before=before, after=after, kind=kind):
                 at, lasts, since = self.animation(motion.toggled(after, 4, kind, False, 10),
                                                   before, (5, 10))
