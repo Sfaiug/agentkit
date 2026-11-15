@@ -261,13 +261,16 @@ func alert(facts climbing) (*answer, error) {
 	return &answer{word: "needs you", reason: config.Fold(facts.notice.Str("text")), since: facts.notice.Get("time")}, nil
 }
 
-// telling: ak still has news to type into it at its quiet prompt, which a look read.  A line a
-// revive owes it stops its reading (`stopped`) before this is reached.
+// telling: ak still has news to type into it at its quiet prompt: a line it owes, else news a look
+// read.
 func telling(facts climbing) (*answer, error) {
-	if facts.found.authority == "" || facts.found.state != "at_prompt" && facts.found.state != "draft" {
+	if facts.found.state != "at_prompt" && facts.found.state != "draft" {
 		return nil, nil
 	}
-	news := facts.news()
+	news := facts.missed()
+	if news == "" && facts.found.authority != "" {
+		news = facts.news()
+	}
 	if news == "" {
 		return nil, nil
 	}

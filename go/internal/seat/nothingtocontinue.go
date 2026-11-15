@@ -41,11 +41,7 @@ func mayRestDone(name string) bool {
 // standing is Python's, as nothing yet says whether it stands.
 func keepsOwnWord(facts climbing, wait *run.Object) (bool, error) {
 	finished, err := facts.plans.Finished(facts.name)
-	if !wait.Truthy("until") || wait.Truthy("continue") || err != nil || !finished ||
-		slices.ContainsFunc(facts.file.List("owed_lines"), func(line any) bool {
-			owed, ok := line.(*run.Object)
-			return !ok || !owed.Truthy("switch")
-		}) {
+	if !wait.Truthy("until") || wait.Truthy("continue") || err != nil || !finished || facts.missed() != "" {
 		return false, nil
 	}
 	owes, err := facts.runsOwe()
