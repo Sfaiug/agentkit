@@ -43,7 +43,7 @@ func Main(args []string, out, errOut io.Writer) int {
 			names = append(names, strings.TrimSuffix(filepath.Base(path), ".toml"))
 		}
 	}
-	targets, carried := plan(names)
+	targets, carried := plan(names, snapshot)
 	if !carried {
 		return handOver(errOut)
 	}

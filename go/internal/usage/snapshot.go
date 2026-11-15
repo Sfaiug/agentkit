@@ -36,10 +36,21 @@ func WithoutPast(prov *run.Object, name string) *run.Object {
 	return withoutPast(prov, clock(), name)
 }
 
+// unread is the rest of Python's usage.MARK, which its refusals write and Go's readings do not
+// read yet: the levels the meters stood at, the meters a refusal can have come from, by which it
+// parks only the models they gate, and the refusals in force beside the newest.
+var unread = []string{"exhausted_used", "exhausted_meters", "exhausted_earlier"}
+
+// Unread is whether that reading holds a refusal as Python keeps one, which Go's would judge
+// otherwise.
+func Unread(prov *run.Object) bool {
+	return prov != nil && slices.ContainsFunc(unread, prov.Has)
+}
+
 // Parked is a provider's reading with the refusal that said `said` kept, as Python's
-// contract.refused keeps one in a check's own snapshot, and until when: each mark dropped, the
-// meter levels Python's marks hold too, and parked until the moment the refusal named, else the
-// soonest of its windows still to roll over, else dryFor from now.
+// contract.refused keeps one in a check's own snapshot, and until when: every mark of Python's
+// dropped, and parked until the moment the refusal named, else the soonest of its windows still
+// to roll over, else dryFor from now.
 func Parked(prov *run.Object, said string) (*run.Object, float64) {
 	now := clock()
 	until := TryAgainAt(said)
@@ -48,7 +59,7 @@ func Parked(prov *run.Object, said string) (*run.Object, float64) {
 	}
 	parked := run.NewObject()
 	for _, key := range prov.Keys() {
-		if !slices.Contains(mark, key) && key != "exhausted_used" {
+		if !slices.Contains(mark, key) && !slices.Contains(unread, key) {
 			parked.Set(key, prov.Get(key))
 		}
 	}

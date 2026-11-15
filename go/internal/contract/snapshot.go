@@ -75,8 +75,7 @@ func spentUntil(model config.Model, name, snapshot string) (string, bool) {
 		if record, _ := read.Get(model.Provider).(*run.Object); record != nil && record.Truthy("meters") {
 			return "", false
 		}
-		caller := cmp.Or(os.Getenv("SMOKE_CALLER_HOME"), config.UserHome())
-		read = providers(filepath.Join(caller, ".agentkit", "state", "usage.json"))
+		read = providers(cache())
 		record, _ := read.Get(model.Provider).(*run.Object)
 		read.Set(model.Provider, usage.WithoutPast(cmp.Or(record, run.NewObject()), "the host cache"))
 		if until, spent = usage.Snapshot(read, models).SpentUntil(name); !spent {
@@ -87,6 +86,16 @@ func spentUntil(model config.Model, name, snapshot string) (string, bool) {
 		return when(at), true
 	}
 	return "unknown", true
+}
+
+// caller is the home of whoever runs the check: smoke.sh's sandbox names its caller's.
+func caller() string {
+	return cmp.Or(os.Getenv("SMOKE_CALLER_HOME"), config.UserHome())
+}
+
+// cache is the usage snapshot of the caller's own ak.
+func cache() string {
+	return filepath.Join(caller(), ".agentkit", "state", "usage.json")
 }
 
 // refusal is why the turn of model in out, which exited code, proves nothing, "" where it may:

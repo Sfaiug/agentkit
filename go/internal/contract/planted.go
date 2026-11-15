@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"cmp"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,8 +17,7 @@ import (
 // planted, and what takes the planted files away.
 func plant(name string, env map[string]string) (string, func(), error) {
 	var mine []string
-	caller := cmp.Or(os.Getenv("SMOKE_CALLER_HOME"), config.UserHome())
-	if config.Resolve(caller) != config.Resolve(config.UserHome()) {
+	if config.Resolve(caller()) != config.Resolve(config.UserHome()) {
 		for _, path := range unswitched(name, env) {
 			if !exists(path) {
 				mine = append(mine, path)

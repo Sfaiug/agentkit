@@ -14,6 +14,8 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/handin"
+	"agentkit/internal/run"
+	"agentkit/internal/usage"
 	"agentkit/internal/worker"
 )
 
@@ -27,10 +29,11 @@ type target struct {
 	account string
 }
 
-// plan is each harness of names as the check proves it, and false where any is a case Python's:
-// one running several providers' models, whose model is the config's choice of them
-// (contract.selected_model), or one whose turn Go does not run (worker.Adapter).
-func plan(names []string) ([]target, bool) {
+// plan is each harness of names as the check proves it, its windows judged on snapshot, and false
+// where any is a case Python's: one running several providers' models, whose model is the config's
+// choice of them (contract.selected_model), one whose turn Go does not run (worker.Adapter), or
+// one whose provider a reading the check judges holds refused as Python keeps it (usage.Unread).
+func plan(names []string, snapshot string) ([]target, bool) {
 	entries, _ := config.Entries()
 	order, _ := config.EntryNames()
 	var planned []target
@@ -54,6 +57,11 @@ func plan(names []string) ([]target, bool) {
 		account := login(model.Provider)
 		if _, err := worker.Adapter(model, account); errors.Is(err, worker.ErrPython) {
 			return nil, false
+		}
+		for _, path := range []string{snapshot, cache()} {
+			if record, _ := providers(path).Get(model.Provider).(*run.Object); usage.Unread(record) {
+				return nil, false
+			}
 		}
 		planned = append(planned, target{name, block, model, account})
 	}
