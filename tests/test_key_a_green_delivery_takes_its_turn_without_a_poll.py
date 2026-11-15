@@ -3,14 +3,16 @@ later.
 
 Two runs on one project pass review and land one after the other.  A run asks GitHub `repo
 view` as it joins the line and again right before its delivery asks for the delivery lock; the
-GitHub here holds the second's first until the first has joined, so the line's order is theirs,
-and the first's second until the test lets it go.  The second, stacked on the first and green,
-has its verdict meanwhile and stays parked: only the line's head is woken, so it starts no
-process to wait for its place.  Let go, the first merges, and its end wakes the second, which
-follows at once: the slot poll (AK_SLOT_POLL) is set far past how long the test waits, so a
-second that slept one out never ends here.  Black-box: the program `AK_BIN` names
-runs from outside through tests/fixtures/akbin.py, against the bare origin of gitrig.py and the
-GitHub of fakegh.py, with scripted harnesses from fakeadapter.py.
+GitHub here holds the first's second until the test lets it go, and the second's first until the
+first's second has come, so the line's order is theirs and the second joins after the lander's
+pass that woke the first: a start that finds a pass under way waits for a follower's next, a
+minute on.  The second, stacked on the first and green, has its verdict meanwhile and stays
+parked: only the line's head is woken, so it starts no process to wait for its place.  Let go,
+the first merges, and its end wakes the second, which follows at once: the slot poll
+(AK_SLOT_POLL) is set far past how long the test waits, so a second that slept one out never
+ends here.  Black-box: the program `AK_BIN` names runs from outside through
+tests/fixtures/akbin.py, against the bare origin of gitrig.py and the GitHub of fakegh.py, with
+scripted harnesses from fakeadapter.py.
 """
 
 import json
@@ -32,14 +34,14 @@ POLL = 3600
 WORK = {"sh": 'f=$(git branch --show-current | tr / -).txt; echo work >"$f"; git add -A; '
               'git commit -qm "add $f"',
         "final": "## Summary\nadded a file", "hand_in": [["done"]]}
-# The second run's first `repo view` and the first run's later ones wait for the test's word,
-# short of ak's own limit on a gh call; a run's worktree is named for its title.
+# The first run's later `repo view`s wait for the test's word, and the second run's first for the
+# first's second, short of ak's own limit on a gh call; a run's worktree is named for its title.
 HOLD = """#!/bin/sh
 hold() {{ end=$(($(date +%s) + 110)); while [ ! -e "$1" ] && [ "$(date +%s)" -lt "$end" ]; do
   sleep 0.05; done; }}
 if [ "$1 $2" = "repo view" ]; then case $PWD in
   *fix-api*) if [ -e {seen} ]; then : >{held}; hold {go}; else : >{seen}; fi;;
-  *fix-ui*) [ -e {asked} ] || {{ : >{asked}; hold {joined}; }};;
+  *fix-ui*) [ -e {asked} ] || {{ : >{asked}; hold {held}; }};;
 esac; fi
 exec {gh} "$@"
 """
@@ -59,14 +61,13 @@ class AGreenDeliveryTakesItsTurnWithoutAPoll(unittest.TestCase):
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude=WORK, codex="pass")
         github = (home.bin / "gh").rename(home.root / "github.sh")
-        marks = {name: home.root / name for name in ("seen", "held", "go", "asked", "joined")}
+        marks = {name: home.root / name for name in ("seen", "held", "go", "asked")}
         home.fake("gh", HOLD.format(gh=quote(str(github)),
                                     **{name: quote(str(path)) for name, path in marks.items()}))
         cls.runs = [home.spawn("run", str(taskfile.write(home, cls.rig.path, title,
                                                          done_when=("ls *.txt",))))
                     for title in ("Fix api", "Fix ui")]
         cls.joined = cls.until(lambda: (cls.record("fix-api").get("waiting_on") or {}).get("line"))
-        marks["joined"].write_text("")
         cls.held = cls.until(marks["held"].exists)
         cls.landed = cls.held and cls.until(
             lambda: "land" in (cls.record("fix-ui").get("waiting_on") or {}))
