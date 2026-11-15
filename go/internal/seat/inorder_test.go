@@ -11,7 +11,7 @@ import (
 
 // An ordered job's one line says the endings of its tasks up to its own; a task resumed after it
 // ended says its own, as Python's job.in_order.
-func TestInOrderEndsAtTheJobsEnding(t *testing.T) {
+func TestATaskResumedAfterItsOrderedJobEndedSaysItsOwnEnding(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)

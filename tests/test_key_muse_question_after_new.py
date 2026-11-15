@@ -10,7 +10,7 @@ turn the owner interrupted is kept once as one the seat left, for its done check
 still reopens on its last Stop's.  A line ak typed before the launch named its session went into
 the session that launch reported, so once the seat has reopened the owner's same words in the new
 session are the owner's, and answer a question asked there.  Black-box: seats opened by `ak orch`
-from a person's terminal on a fake muse that fires each hook its line carries as Muse 1.4.12
+from a person's terminal on a fake muse that fires each of its hooks as Muse 1.4.20
 does -- its own child, `sh -c`, the event's JSON on stdin, none of the seat's environment -- and
 writes its session as Muse does, under the Home (tests/fixtures/musetui.py); this test fails
 against `/bin/false`.

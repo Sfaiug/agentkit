@@ -195,8 +195,8 @@ class MuseProbe(unittest.TestCase):
         for directory in ("agentkit", "agentkit/harness", "adapters"):
             (self.fixture_repo / directory).mkdir(parents=True)
         # the probe and the harness plugin that says the policy is Muse's, and nothing else
-        for name in ("__init__.py", "config.py", "host.py", "look.py", "parsed.py",
-                     "usage_probe.py", "harness/__init__.py", "harness/muse.py",
+        for name in ("__init__.py", "config.py", "host.py", "look.py", "pair_clock.py",
+                     "parsed.py", "usage_probe.py", "harness/__init__.py", "harness/muse.py",
                      "harness/muse_usage.py"):
             shutil.copy2(REPO / "agentkit" / name, self.fixture_repo / "agentkit" / name)
         for name in ("muse.sh", "muse-usage.sh", "muse.toml"):

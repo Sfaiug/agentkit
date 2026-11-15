@@ -28,7 +28,8 @@ import (
 // picks. Its rulebook precedes the adapter's command, and its record uses Python's locks and
 // format. Models are the seat's at the efforts it runs them, which its record holds and its
 // orchestrator launches at. False, before anything is read, leaves a seat Go does not carry to
-// Python (Carried).
+// Python (Carried); a model off in the model list is refused before anything is written
+// (adapters.Refused).
 func Open(name, orchestrator string, models map[string]config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
 	repo := Project(cwd)
 	if repo != "" {
@@ -41,6 +42,9 @@ func open(name, orchestrator string, models map[string]config.Model, workers []s
 	model := models[orchestrator]
 	if !Carried(name, model, false) {
 		return false, nil
+	}
+	if err := adapters.Refused(orchestrator); err != nil {
+		return true, err
 	}
 	// the folders it writes in, made only now: a seat left to Python leaves the home as it was
 	if err := config.EnsureDirs(); err != nil {

@@ -330,6 +330,16 @@ func forget(state, name string, log func(string)) error {
 // stop leaves unsaid where Python's cmd_stop prints it to stderr.
 func quietly(string) {}
 
+// Stopped is whether the owner stopped that seat (watch.seat_stopped_at), its mark read as Read
+// reads one, whatever a seat nobody stopped waits on; false where Go does not read its seat file.
+func Stopped(name string) (closed, known bool) {
+	file, err := run.Shared(seatFile(name))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false, false
+	}
+	return liveStopped(file)
+}
+
 // stopped is whether a seat file holds the owner's stop mark, as Read knows one: none, or the
 // mark whole, nothing it clears left; false where it holds anything else.
 func stopped(seat *run.Object) (bool, bool) {

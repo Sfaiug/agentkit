@@ -164,5 +164,11 @@ func Answer(rows []quality.Row, compared map[string]bool, shares *run.Object) (m
 		}
 		return "share"
 	}
-	return quality.Answer(rows, compared, price), nil
+	runs := map[[2]string]bool{} // what a configured model runs: its harness and model
+	for _, name := range names {
+		if model, ok := models[name]; ok {
+			runs[[2]string{model.Harness, model.ID}] = true
+		}
+	}
+	return quality.Answer(rows, compared, price, runs), nil
 }

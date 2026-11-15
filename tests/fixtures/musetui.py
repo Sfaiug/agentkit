@@ -1,14 +1,16 @@
 """The seat's Muse a fake `muse` on a Home's PATH starts, for a seat `ak orch` opens on it.
 
-    python3 ROOT/muse-bin-1.4.12 ROOT SCREEN MUSE-ARGS...
+    python3 ROOT/muse-bin-1.4.20 ROOT SCREEN MUSE-ARGS...
 
-It opens the session `resume` names, or a new one, fires each SessionStart hook its line carries
-as Muse 1.4.12 does -- its own child, `sh -c`, the event's JSON on stdin, none of the seat's
-environment but the Home's tmux server -- says which in ROOT/<seat>.json, and shows SCREEN,
-keeping what is typed into ROOT/<seat>.typed (akpane.py).  `fire` has it fire one more event
-that way, through the hooks its line carries for that event, and `stop` a turn's end in a
-session, as Muse 1.4.12 handed it (muse-hook-payloads.jsonl).  `install` names it as Muse's
-launcher execs its build, `muse-bin-<build>`, which ak tells the seat's Muse by.
+It opens the session `resume` names, or a new one, and fires its hooks as Muse 1.4.20 does: its
+own child, `sh -c`, the event's JSON on stdin, none of the seat's environment but the Home's tmux
+server; in its launch's session the hooks its line carries for an event, else the settings
+file's, and in a session `/new` opens the file's alone, as that session's first event found them,
+a SessionStart before it.  It says which in ROOT/<seat>.json (`muse` where no seat is named) and
+shows SCREEN, keeping what is typed into ROOT/<seat>.typed (akpane.py).  `fire` has it fire one
+more event, `stop` a turn's end in a session, as Muse 1.4.12 handed it (muse-hook-payloads.jsonl).
+`install` names it as Muse's launcher execs its build, `muse-bin-<build>`, which ak tells the
+seat's Muse by, and wires the Home's settings file as install.sh does.
 
     from fixtures import musetui
     musetui.install(home)                          # with `screen`, the pane it shows
@@ -28,7 +30,7 @@ import time
 import uuid
 
 HERE = Path(__file__).resolve().parent      # past the build's name, which links here
-BUILD = "muse-bin-1.4.12"
+BUILD = "muse-bin-1.4.20"
 ENDED = {event["hook_event_name"]: {key: value for key, value in event.items() if key != "cwd"}
          for event in map(json.loads, (HERE / "muse-hook-payloads.jsonl").read_text().splitlines())
          if event["hook_event_name"] in ("Stop", "Interrupt")}    # a turn's end, as 1.4.12 named it
@@ -52,6 +54,9 @@ def install(home, screen=HERE / "muse-prompt-pane.txt"):
     home.fake("muse", MUSE.format(python=shlex.quote(sys.executable),
                                   tui=shlex.quote(str(tui)), root=shlex.quote(str(home.root)),
                                   screen=shlex.quote(str(screen))))
+    from .hookdrive import ROOT     # here: run as Muse's build, this file is in no package
+    done = home.run("bash", str(ROOT / "adapters/muse.sh"), "hooks")
+    assert done.code == 0, done.out + done.err
 
 
 def started(home, seat, bound=60):
@@ -68,7 +73,7 @@ def started(home, seat, bound=60):
 
 
 def fire(home, seat, payload, bound=60):
-    """The seat's Muse fires that event through the hooks its line carries for it, and returns
+    """The seat's Muse fires that event through its hooks for the session it names, and returns
     once they have run."""
     asked, fired = home.root / f"{seat}.fire", home.root / f"{seat}.fired"
     before = _count(fired)
@@ -91,20 +96,33 @@ def _count(path):
 
 def main(root, screen, *argv):
     root, home = Path(root), Path(os.environ["HOME"])
-    seat = os.environ["AGENTKIT_SESSION"]
+    seat = os.environ.get("AGENTKIT_SESSION", "muse")
     asked, fired = root / f"{seat}.fire", root / f"{seat}.fired"
     # what Muse hands a hook, and the Home's tmux server, which a real HOME names alone
     # (agentkit/orch.py `home_socket`)
-    env = {"HOME": str(home), "PATH": os.environ["PATH"],
-           "AGENTKIT_TMUX_SOCKET": os.environ["AGENTKIT_TMUX_SOCKET"]}
+    env = {"HOME": str(home), "PWD": os.getcwd(), **{
+        name: os.environ[name] for name in ("LANG", "PATH", "SHELL", "TERM", "USER",
+                                            "AGENTKIT_TMUX_SOCKET") if name in os.environ}}
+    carried = {event: json.loads(groups) for flag, value in zip(argv, argv[1:])
+               if flag == "-c" and value.startswith("hooks.")
+               for event, _, groups in [value.removeprefix("hooks.").partition("=")]}
+    opened = {}     # each session's hooks, by event, as it opened
+
+    def settings():
+        path = Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "muse/settings.json"
+        told = json.loads(path.read_text()) if path.exists() else {}
+        return told.get("hooks", {}) if told.get("schema_version") == 1 else {}
 
     def hooks(payload):
-        for flag, value in zip(argv, argv[1:]):
-            if flag == "-c" and value.startswith(f"hooks.{payload['hook_event_name']}="):
-                for group in json.loads(value.partition("=")[2]):
-                    for hook in group["hooks"]:
-                        subprocess.run(["sh", "-c", hook["command"]], input=json.dumps(payload),
-                                       text=True, env=env)
+        session = payload["session_id"]
+        if session not in opened:       # `/new`'s: its first prompt opens it
+            opened[session] = settings()
+            hooks({"hook_event_name": "SessionStart", "session_id": session, "cwd": os.getcwd(),
+                   "source": "startup", "transcript_path": None, "model": "unknown"})
+        for group in opened[session].get(payload["hook_event_name"], []):
+            for hook in group["hooks"]:
+                subprocess.run(["sh", "-c", hook["command"]], input=json.dumps(payload), text=True,
+                               env={**env, "MUSE_SESSION_ID": session})
 
     def listen(seen):
         while True:
@@ -116,6 +134,7 @@ def main(root, screen, *argv):
             time.sleep(0.05)
 
     session = argv[argv.index("resume") + 1] if "resume" in argv else str(uuid.uuid4())
+    opened[session] = {**settings(), **carried}     # the line's replace the file's, event by event
     hooks({"hook_event_name": "SessionStart", "session_id": session, "cwd": os.getcwd(),
            "source": "resume" if "resume" in argv else "startup", "transcript_path": None,
            "model": "unknown"})

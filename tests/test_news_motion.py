@@ -200,11 +200,12 @@ class NewsMotion(Sandbox):
         self.assertGreater(waits[-1][0], motion.FRAME)
 
     def test_a_seat_turning_needs_you_pulses_twice_then_is_still(self):
-        self.words = {"fix-api": "working", "web-portal": "done"}
+        # on web-portal: the keys' row, fix-api's, stands on the selection whatever lands on it
+        self.words = {"fix-api": "done", "web-portal": "working"}
         waits, at = self.run_menu([None] * 3 + [self.news(
-            lambda: self.words.update({"fix-api": "needs you"}))])
+            lambda: self.words.update({"web-portal": "needs you"}))])
         screen, cells = self.written(waits, at)
-        mark = self.cell(screen, "fix-api", "! needs you")
+        mark = self.cell(screen, "web-portal", "! needs you")
         # the `!` and its row's glow, and nothing else
         self.assertEqual({cell for _, cell, _ in cells}, {mark, (mark[0], 1)})
         self.assert_glows(cells, mark[0], NEEDS)
@@ -226,12 +227,12 @@ class NewsMotion(Sandbox):
         self.assert_still(waits)
 
     def test_a_seat_turning_done_settles_from_bright(self):
-        self.words = {"fix-api": "working", "web-portal": "needs you"}
+        self.words = {"fix-api": "needs you", "web-portal": "working"}     # off the keys' row
         waits, at = self.run_menu([None] * 3 + [self.news(
-            lambda: self.words.update({"fix-api": "done"}))])
+            lambda: self.words.update({"web-portal": "done"}))])
         screen, cells = self.written(waits, at)
-        tick = self.cell(screen, "fix-api", "✓ done")
-        # the `✓` and its row's glow; web-portal's `!` is old news
+        tick = self.cell(screen, "web-portal", "✓ done")
+        # the `✓` and its row's glow; fix-api's `!` is old news
         self.assertEqual({cell for _, cell, _ in cells}, {tick, (tick[0], 1)})
         self.assert_glows(cells, tick[0], DONE)
         cells = [one for one in cells if one[1] == tick]

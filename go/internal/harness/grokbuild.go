@@ -14,7 +14,7 @@ import (
 
 func init() {
 	plugins["grokbuild"] = plugin{auth: grokAuth, lend: grokLend, opens: true, titled: true, owns: grokOwns, follows: grokFollows,
-		seats: true, looks: true, record: grokRecord, answer: grokAnswer, typed: grokTyped, answered: grokAnswered}
+		seats: true, looks: true, record: grokRecord, answer: grokAnswer, typed: grokTyped, answered: grokAnswered, opened: grokOpened}
 }
 
 // grokAuth reads Grok Build's one login as grokbuild.sh's `auth` does, the seat's as a turn's:

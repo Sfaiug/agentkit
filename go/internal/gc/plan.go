@@ -63,6 +63,7 @@ var families = []func(*reads) []Item{
 	(*reads).ephemeral,
 	(*reads).staleWorktrees,
 	(*reads).seatFiles,
+	(*reads).modelReports,
 	(*reads).harnessEntries,
 	(*reads).tmpEntries,
 	(*reads).repoTmpEntries,
@@ -117,6 +118,7 @@ type reads struct {
 	heldRead bool
 	names    *seat.Names
 	holds    func(harness, conversation string) bool // what the seats hold, once asked
+	recorded map[string]bool                         // what the seats' records prove, once asked
 }
 
 func (r *reads) leftovers() map[string]bool {
@@ -201,11 +203,11 @@ func diskPressure() bool {
 	if _, err := os.Stat(where); err != nil {
 		where = config.UserHome()
 	}
-	used, total, ok := diskUse(where)
-	if !ok || total == 0 {
+	used, size, ok := host.DiskUse(where)
+	if !ok || size == 0 {
 		return false
 	}
-	return 100*float64(used)/float64(total) > limit
+	return 100*used/size > limit
 }
 
 // ak's own folders.

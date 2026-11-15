@@ -182,13 +182,11 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"state/session-acme.json":          "{}",
 		"state/notification-outbox/a.json": "{}",
 		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "resets_at": 2}}}`,
-		"runs/fix-api/run.json#deployment": fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {}, "deployed": "true"}`,
-			time.Now().Unix()),
-		"state/watch.json#auth":      `{"auth_out": ["claude"]}`,
-		"state/watch.json#run login": `{"stalls": {"acme": {"kind": "auth", "harness": "claude", "evidence": "run", "notice": "", "told": 1}}}`,
-		"state/watch.json#surrogate": `{"mine": "\ud800"}`,
-		"config.toml":                "[audit]\non = true\n",
-		"config.toml#absent":         "",
+		"state/watch.json#auth":            `{"auth_out": ["claude"]}`,
+		"state/watch.json#run login":       `{"stalls": {"acme": {"kind": "auth", "harness": "claude", "evidence": "run", "notice": "", "told": 1}}}`,
+		"state/watch.json#surrogate":       `{"mine": "\ud800"}`,
+		"config.toml":                      "[audit]\non = true\n",
+		"config.toml#absent":               "",
 	} {
 		t.Run(path, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)

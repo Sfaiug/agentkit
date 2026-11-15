@@ -156,7 +156,7 @@ func spoken(name, id string) bool {
 		if seat, _ := sessionFile(filepath.Base(path)); seat == name || other == nil || other.Has(config.Renamed) {
 			continue
 		}
-		if other.Get("conversation") == id || slices.Contains(harness.Recorded(other), id) {
+		if slices.Contains(harness.Recorded(other), id) {
 			return true
 		}
 		was, listed := other.Get("left").([]any)

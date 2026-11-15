@@ -5,6 +5,7 @@ from functools import partial
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import unittest
 from unittest.mock import patch
@@ -136,16 +137,32 @@ class ClaudeStatusLine(Sandbox):
                           for meter in usage._cached_provider("anthropic")["meters"]},
                          {"session": 30, "weekly_all": 50})
 
-    def test_a_bash_without_a_clock_hands_in_no_limits(self):
+    def test_a_bash_without_a_clock_hands_in_no_limits_where_perl_gives_no_moment(self):
         config.save_session(self.cfg, "acme", "opus", ["opus"], {"conversation": "conv-acme"})
         watch.hook_meters("acme", "conv-acme", "", "1000", "seven_day 20 900000")
         watch.hook_meters("acme", "conv-acme", "", "2000", "seven_day 30 900000")
         note = config.STATE / "limits-conv-acme.json"
         held = note.read_text(), usage._cached_provider("anthropic")
-        self.render({"seven_day": {"used_percentage": 40, "resets_at": 900000}},
-                    'unset EPOCHREALTIME; . "$0" rate_limits')
-        self.assertEqual((note.read_text(), usage._cached_provider("anthropic")), held)
+        # a PATH of every tool the hook runs but perl, and then of a perl answering each way
+        tools = self.root / "tools"
+        tools.mkdir()
+        for tool in ("bash", "cat", "jq", "python3", "mkdir", "mktemp", "mv", "rm"):
+            (tools / tool).symlink_to(shutil.which(tool))
+        render = partial(self.render, {"seven_day": {"used_percentage": 40, "resets_at": 900000}},
+                         'unset EPOCHREALTIME; . "$0" rate_limits', PATH=str(tools))
+        for answer in (None, "printf 3000.5; exit 1", "printf 3000", "printf 3000,5",
+                       "printf ' 3000.5'", "printf 3000.5.5"):
+            with self.subTest(answer):
+                if answer:
+                    (tools / "perl").write_text(f"#!/bin/sh\n{answer}\n")
+                    (tools / "perl").chmod(0o755)
+                render()
+                self.assertEqual((note.read_text(), usage._cached_provider("anthropic")), held)
         self.assertEqual([meter["used"] for meter in held[1]["meters"]], [30])
+        (tools / "perl").write_text("#!/bin/sh\nprintf 3000.5\n")
+        render()
+        self.assertEqual([meter["used"] for meter in usage._cached_provider("anthropic")["meters"]],
+                         [40])
 
 
 if __name__ == "__main__":

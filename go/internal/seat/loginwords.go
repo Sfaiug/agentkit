@@ -29,13 +29,19 @@ func loginOut(facts climbing) (*answer, error) {
 	if found == nil || found.Get("ok") != false {
 		return nil, nil
 	}
-	auth, err := config.Section(facts.own, "auth")
+	return loginExpired(facts.own, found.Get("at"))
+}
+
+// loginExpired is the word of a seat waiting on the owner to fix that login, in the one sentence
+// every screen says it in (watch.login_reason): the remedy is the harness's own, from its manifest,
+// else to log in again.
+func loginExpired(login string, since any) (*answer, error) {
+	auth, err := config.Section(login, "auth")
 	if err != nil {
 		return nil, ErrUnread
 	}
-	remedy, _ := auth["remedy"].(string) // the harness's own, from its manifest (watch.login_reason)
-	return &answer{word: "needs you", reason: facts.own + " login expired: open it and " + cmp.Or(remedy, "log in again"),
-		since: found.Get("at"), login: true}, nil
+	remedy, _ := auth["remedy"].(string)
+	return &answer{word: "needs you", reason: login + " login expired: open it and " + cmp.Or(remedy, "log in again"), since: since, login: true}, nil
 }
 
 // everySeatsNews: [1b] gh logged out, the one login no harness owns, and [1c] a dead worker token,

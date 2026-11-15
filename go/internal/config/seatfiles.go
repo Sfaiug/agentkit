@@ -40,11 +40,22 @@ func SeatFileOwner(file string) (string, bool) {
 func SeatRecords(kind string) []string {
 	state := filepath.Join(Home(), "state")
 	names, _ := stateNames.Read(state)
-	var paths []string
-	for _, name := range names {
-		if matched, _ := filepath.Match(kind+"-*.json", name); matched {
-			paths = append(paths, filepath.Join(state, name))
+	paths := make([]string, len(names)) // the listing is every reader's, so only read
+	for at, name := range names {
+		paths[at] = filepath.Join(state, name)
+	}
+	return SeatRecordsAmong(kind, paths)
+}
+
+// SeatRecordsAmong is those of the state folder's paths that are one kind's records, for a reader
+// that lists the folder its own way, as gc does without moving its access time (config.seat_files'
+// `paths`).
+func SeatRecordsAmong(kind string, paths []string) []string {
+	var found []string
+	for _, path := range paths {
+		if matched, _ := filepath.Match(kind+"-*.json", filepath.Base(path)); matched {
+			found = append(found, path)
 		}
 	}
-	return paths
+	return found
 }

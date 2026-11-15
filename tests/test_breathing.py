@@ -29,8 +29,10 @@ from agentkit import config, menu, motion, orch, terminal
 Key = terminal.Key
 TERMINAL = terminal.Keyboard       # the real one, for a stdin that is a pipe
 WORKING = (0x4d, 0xa3, 0xff)       # `working` in the black theme
-# one dot rewritten: its cell, its colour, and on the highlighted row the row's brightness too
-DOT = re.compile(r"\x1b\[(\d+);(\d+)H(?:\x1b\[1m)?\x1b\[38;2;(\d+);(\d+);(\d+)m●"
+# one dot rewritten: its cell, its colour, and on the highlighted row the row's brightness and
+# its band, the black theme's selection, too
+DOT = re.compile(r"\x1b\[(\d+);(\d+)H(?:\x1b\[48;2;8;48;93m\x1b\[1;48;2;8;48;93m|\x1b\[1m)?"
+                 r"\x1b\[38;2;(\d+);(\d+);(\d+)(?:;48;2;8;48;93)?m●(?:\x1b\[49m)?"
                  r"\x1b\[0(?:;1m\x1b\[0)?m")
 # one cell of a line with no plan yet rewritten, as its light goes round it: set aside here
 LIGHT = re.compile(r"\x1b\[\d+;\d+H(?:\x1b\[[\d;]*m)*[━─](?:\x1b\[[\d;]*m)*")

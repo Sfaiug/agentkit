@@ -63,15 +63,15 @@ itself (`tests/test_boundaries.py`).
 
 Five words are the whole vocabulary for a seat (`terminal.STATES`): `● working`,
 `! needs you`, `✓ done`, `○ idle` and `○ out of usage`. `watch.session_state` decides which a seat is, and
-every screen reads that, its own bar included. A whole row is never coloured: the word
+every screen reads that, its own bar included. A state never colours its row: the word
 carries the colour (`terminal.state_text`, `terminal.state_colour`).
 
 ## Keys
 
 Every screen reads the same keys, one key at a time, with no Enter.
 
-- **Arrows, Space and Enter:** the arrows move the highlight, a bold row behind an accent `›`
-  (`terminal.highlight`), Space marks what it is on, and Enter goes forward (`terminal.keys`).
+- **Arrows, Space and Enter:** the arrows move the highlight (`terminal.highlight`), Space marks
+  what it is on, and Enter goes forward (`terminal.keys`).
 - **Esc:** Esc goes back, and on the main screen it leaves.
 - **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
 - **Digits:** a digit opens that seat.
@@ -89,8 +89,8 @@ Example: `↑↓←→ move   ␣ mark   a add a company   esc back`.
 
 Colour says where a thing stands. Screens ask for roles, never RGB: `working` is accent,
 `needs you` warning, `done` success, `FAIL` and `out of usage` error, `dim`, `idle` and `waiting`
-dim; the pointer lights on selection; a bar's chip is on-accent on its state's. A fade nears the
-background; lit, the text.
+dim; the pointer and a row acted on whole light on selection; a bar's chip is on-accent on its
+state's. A fade nears the background; lit, the text.
 
 `themes.ROLES` (Go: `terminal/themes.go`) holds both themes; `terminal.sense` picks white on a
 light background, else black, and the colour depth, once per start. Under `NO_COLOR` nothing is

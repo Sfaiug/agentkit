@@ -1,5 +1,6 @@
 """A screen is painted in its theme: every cell of it, text or blank, on the theme's background,
-text of no colour in the theme's text, and the terminal its own again once ak leaves.
+or a row the highlight is on whole on its selection (tests/test_key_one_highlight.py), text of
+no colour in the theme's text, and the terminal its own again once ak leaves.
 
 The owner (12 Nov 2026): two themes, white and black, seen through everywhere ak is visual.
 Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour
@@ -24,7 +25,8 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 DARK, LIGHT = "#203040", "#e8e4d8"     # terminals' own backgrounds, neither theme's
-BLACK, WHITE = ("000000", "e2e8ef"), ("ffffff", "181c22")     # a theme's background and text
+# a theme's background, text and selection
+BLACK, WHITE = ("000000", "e2e8ef", "08305d"), ("ffffff", "181c22", "dcecff")
 SIZE = (100, 30)
 OPENED = 1000.0     # the moment ak's motion stands at as a screen opens
 # a breath, which takes two seconds, in quarters, long after the screen opened: each a frame
@@ -72,13 +74,14 @@ class AScreenIsPainted(unittest.TestCase):
         return settled(term, shown, bound=60)
 
     def assert_painted(self, term, theme, rows=None):
-        """Every cell of the terminal, to its last column and row, on the theme's background:
-        `rows`, a capture's looks, else the terminal's now."""
+        """Every cell of the terminal, to its last column and row, on the theme's background or
+        its selection: `rows`, a capture's looks, else the terminal's now."""
         rows = rows or looks(term.screen(colours=True, blank=True))
+        grounds = {sgr(theme[0], "48"), sgr(theme[2], "48")}
         self.assertGreaterEqual(len(rows), SIZE[1])
         for number, line in enumerate(rows[:SIZE[1]], 1):
             wide = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char, _ in line)
-            off = {char for char, shown in line if sgr(theme[0], "48") not in shown}
+            off = {char for char, shown in line if not grounds & set(shown)}
             self.assertEqual((wide, off), (SIZE[0], set()), f"row {number}: {plain(line)!r}")
 
     def assert_named(self, rows, theme):

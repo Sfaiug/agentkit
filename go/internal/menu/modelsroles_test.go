@@ -24,7 +24,7 @@ func TestEachRoleSaysTheRowItUses(t *testing.T) {
 		row.Runners = [][2]string{{"h", one.release}}
 		rows = append(rows, row)
 	}
-	answer := quality.Answer(rows, nil, nil)
+	answer := quality.Answer(rows, nil, nil, nil)
 	models := map[string]config.Model{
 		"acme": {Harness: "h", ID: "acme", Efforts: map[string]string{"effort": "low", "exec_effort": "high"}},
 		"bolt": {Harness: "h", ID: "bolt", Efforts: map[string]string{"effort": "high"}},

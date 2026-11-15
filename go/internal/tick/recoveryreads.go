@@ -5,13 +5,18 @@ import (
 	"time"
 
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
-// Seat health reads parked logins and recovery alongside the seat's own evidence.
+// Seat health reads parked logins and recovery alongside the seat's own evidence, and stalls the
+// seat whose going run a login keeps refusing (watch.health).
 func noRunHealthWork() bool {
-	return run.Every(func(_ string, record *run.Object) bool {
-		_, sweep := run.Reap(record)
-		return record.Str("state") != "waiting_login" && !sweep
+	return run.Every(func(dir string, record *run.Object) bool {
+		if _, sweep := run.Reap(record); sweep || record.Str("state") == "waiting_login" {
+			return false
+		}
+		login, known := seat.Refusing(dir, record)
+		return known && login == ""
 	})
 }
 

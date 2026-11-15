@@ -108,6 +108,9 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	if !known {
 		return false, nil
 	}
+	if err := adapters.Refused(seat.orchestrator); err != nil {
+		return true, Refusal(err.Error())
+	}
 	line, known := seat.goesOn(how)
 	if !known {
 		return false, nil
