@@ -54,7 +54,7 @@ class OneVocabulary(Opened):
         self.assertEqual([line for line in map(plain, shown) if "▸" in line], [])
 
     def test_c_draws_a_mark_that_is_on_in_the_accent_and_one_that_is_off_dim(self):
-        # the highlight on Bolt 3, so no mark looked at is bold or the keys' reversed one
+        # the highlight on Bolt 3, so no mark looked at is bold or the keys' lit one
         shown = settled(self.walk(("r recommended", "Down")), "› Bolt 3")
         self.assertEqual(look(shown, "●", on="Acme Mid 5"), self.accent)       # it orchestrates
         self.assertEqual(look(shown, "■", on="Crux Flash 1"), self.accent)     # it builds

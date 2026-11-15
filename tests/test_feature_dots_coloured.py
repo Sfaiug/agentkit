@@ -1,8 +1,8 @@
 """A feature's dot is blue under `you` and green under `everyone`, where it is on.
 
 The owner's pick of 18 Oct 2026 for the features screen: two columns of dots, `you` in working's
-blue and `everyone` in done's green, an off dot dim and the keys' cell reversed, so which
-audience a feature is on for reads at a glance.  Offline: `menu.features_body` alone.
+blue and `everyone` in done's green, an off dot dim and the keys' cell on the selection, so
+which audience a feature is on for reads at a glance.  Offline: `menu.features_body` alone.
 """
 
 from pathlib import Path
@@ -25,6 +25,7 @@ def marks(line):
 
 
 BLUE, GREEN = "38;2;77;163;255", "38;2;51;182;95"     # the black theme's accent and success
+SELECTION = "48;2;8;48;93"                              # and its selection, behind
 
 
 # The features screen has only `you` and `everyone`; grants for specific users live on the
@@ -45,9 +46,9 @@ class FeatureDots(unittest.TestCase):
         self.assertNotIn(BLUE, str(dark[1:] + plans))
         self.assertNotIn(GREEN, str(dark[1:] + plans))
 
-    def test_the_keys_cell_is_reversed_whatever_its_colour(self):
+    def test_the_keys_cell_is_on_the_selection_in_its_colour(self):
         _, beta, _ = self.draw(at="beta", column=1)
-        self.assertEqual(beta, [(BLUE, "●"), ("7", "●")])
+        self.assertEqual(beta, [(BLUE, "●"), (f"{GREEN};{SELECTION}", "●")])
 
 
 if __name__ == "__main__":

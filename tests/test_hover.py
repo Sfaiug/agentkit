@@ -204,19 +204,20 @@ class Screens(Sandbox):
         screens = self.matrix(move(*beside), DOWN, ESC)
         self.assertEqual((highlighted(screens[1]), marked(screens[1], "lit")), ([], {}))
         self.assertOneHighlight(screens[2], "Opus 5.5")
-        # its label is a cell, a click's to put the highlight on its first mark
+        # its label is a cell, a click's to put the highlight on its first mark, which the keys
+        # light there already
         self.assertEqual(marked(self.matrix(move(*label) + ESC)[-1], "lit"),
-                         {label[1]: "6 Astra"})
-        # on a mark the cell lights, in place of the keys' reverse: one highlight, not two
+                         {label[1]: "6 Astra ○"})
+        # on a mark the cell lights, as the keys light it: one highlight, not two
         last = self.matrix(move(*mark) + ESC)[-1]
         self.assertOneHighlight(last, "6 Astra")
         self.assertEqual(marked(last, "lit"), {mark[1]: "○"})
         self.assertEqual(marked(last, "reverse"), {})
-        # a key takes it from there: the next cell is the keys', and nothing is lit
+        # a key takes it from there: the next cell is the keys', lit the same
         last = self.matrix(move(*mark) + RIGHT + ESC)[-1]
         self.assertOneHighlight(last, "6 Astra")
-        self.assertEqual(marked(last, "lit"), {})
-        self.assertEqual(marked(last, "reverse"), {mark[1]: "□"})
+        self.assertEqual(marked(last, "lit"), {mark[1]: "□"})
+        self.assertEqual(marked(last, "reverse"), {})
         # off every row the row and its cell lose it, a key-line item lighting alone and
         # nothing on no item at all, and an arrow moves it on from where it was
         keys = at(first, "esc back")
@@ -224,11 +225,11 @@ class Screens(Sandbox):
                               ESC)
         self.assertEqual(len(screens), 5)
         self.assertEqual(marked(screens[2], "lit"), {keys[1]: "esc back"})
-        self.assertEqual((highlighted(screens[2]), marked(screens[2], "reverse")), ([], {}))
+        self.assertEqual(highlighted(screens[2]), [])
         self.assertEqual(marked(screens[3], "lit"), {})
-        self.assertEqual((highlighted(screens[3]), marked(screens[3], "reverse")), ([], {}))
+        self.assertEqual(highlighted(screens[3]), [])
         self.assertOneHighlight(screens[4], "6 Astra")
-        self.assertEqual(marked(screens[4], "reverse"), {mark[1]: "□"})
+        self.assertEqual(marked(screens[4], "lit"), {mark[1]: "□"})
 
     def test_the_highlighted_model_opens_no_line_and_nothing_moves(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=40))  # one page
@@ -243,7 +244,7 @@ class Screens(Sandbox):
                 self.assertFalse(any(" runs on " in text for text in texts(last)))
                 self.assertEqual({text: at(last, text) for text in rows}, rows)
         # on a screen too short for them all, a click where the pointer found the last model's
-        # label puts the highlight on its first mark, the page as it was
+        # label puts the highlight on its first mark, the page as it was, the label lit beside
         self.stack.enter_context(patch.object(terminal, "height", return_value=28))
         first = self.matrix()[0]
         label = at(first, names[-1])
@@ -251,14 +252,14 @@ class Screens(Sandbox):
         screens = self.matrix(move(*label), click + ESC)
         self.assertEqual(at(screens[-1], names[-1]), label)
         self.assertOneHighlight(screens[-1], names[-1])
-        self.assertEqual(marked(screens[-1], "reverse"), {label[1]: "○"})
+        self.assertEqual(marked(screens[-1], "lit"), {label[1]: f"{names[-1]} ○"})
         # and a click on the header, off every row, leaves the keys' cell where it was, and
         # out while the pointer is there
         header = b"\x1b[<0;1;1M\x1b[<0;1;1m"
         screens = self.matrix(RIGHT, header, ESC)
-        self.assertEqual(marked(screens[2], "reverse"), marked(screens[1], "reverse"))
+        self.assertEqual(marked(screens[2], "lit"), marked(screens[1], "lit"))
         screens = self.matrix(move(1, 1), header, ESC)
-        self.assertEqual((highlighted(screens[2]), marked(screens[2], "reverse")), ([], {}))
+        self.assertEqual((highlighted(screens[2]), marked(screens[2], "lit")), ([], {}))
 
     def test_on_a_short_screen_the_page_keeps_its_place_under_the_highlight(self):
         self.stack.enter_context(patch.object(terminal, "height", return_value=19))
