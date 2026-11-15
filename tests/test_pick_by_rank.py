@@ -147,8 +147,8 @@ class RankByTheAnswer(Sandbox):
         old = [{**{key: value for key, value in row.items() if key != "board_name"},
                 "release": row["release"] + "-20261101", "name": row["board_name"]}
                for row in self.lineup]
-        found = matrix.answer(old, cfg=self.cfg,
-                              task_usage={"opus": {"high": {"executor": (.01, 1)}}})["execute"]
+        measured = ({}, {"opus": {"high": {"executor": (.01, 1, .01)}}})
+        found = matrix.answer(old, cfg=self.cfg, task_usage=measured)["execute"]
         self.assertEqual([row["cost_rule"] for row in found["rated"] if row["release"] ==
                           "claude-opus-5-5-20261101" and row["effort"] == "high"], ["measured"])
 
