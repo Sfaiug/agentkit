@@ -73,10 +73,25 @@ func Read() Readings {
 		ok = true
 	}
 	readings.set("slice_cpu_quota", cores, ok)
-	// One sample window for all three, so a burst between readings cannot count a
-	// sibling as work outside the slice.
+	// One sample window for them all, so a burst between readings cannot count a
+	// sibling as work outside the slice, nor one scope's waiting against another's running.
 	whole := cgroupPath("")
-	rates := cpuRates(runs, slice, whole)
+	scopes := building(runs)
+	stalls := make([]string, len(scopes))
+	for i, scope := range scopes {
+		stalls[i] = filepath.Join(scope, "cpu.pressure")
+	}
+	rates := cpuRates(append([]string{runs, slice, whole}, append(scopes, stalls...)...)...)
+	// What the runs building ran on a CPU, and stood still waiting for one, in cores: a sum
+	// missing a scope it holds is no sum, as the one left out may be the one waiting.
+	ran, waited, summed := 0.0, 0.0, len(scopes) > 0
+	for i, scope := range scopes {
+		on, read := rates[scope]
+		off, stalled := rates[stalls[i]]
+		ran, waited, summed = ran+on, waited+off, summed && read && stalled
+	}
+	readings.set("building_cpu_used", ran, summed)
+	readings.set("building_cpu_waited", waited, summed)
 	used, ok := rates[runs]
 	if _, err := os.Stat(runs); err != nil && isDir(slice) {
 		used, ok = 0, true // before its first launch the runs slice has no cgroup and holds no CPU
@@ -493,29 +508,56 @@ func cpuQuota(cgroup string) (float64, bool) {
 	return float64(allowed) / float64(period), true
 }
 
-func usage(cgroup string) (float64, bool) {
-	data, err := os.ReadFile(filepath.Join(cgroup, "cpu.stat"))
-	if err != nil {
-		return 0, false
+// usec is cumulative microseconds, false where unread, Python's host._cpu_usec: a cgroup's on a
+// CPU (`cpu.stat` `usage_usec`), or, for a cgroup's `cpu.pressure`, those it stood still for want
+// of one (`full` `total`: none of its threads ran).
+func usec(path string) (float64, bool) {
+	file, name, sep := filepath.Join(path, "cpu.stat"), "usage_usec", " "
+	if filepath.Base(path) == "cpu.pressure" {
+		file, name, sep = path, "full ", "total="
 	}
+	data, _ := os.ReadFile(file)
 	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "usage_usec") {
-			if fields := strings.Fields(line); len(fields) > 1 {
-				value, err := strconv.ParseFloat(fields[1], 64)
-				return value, err == nil
-			}
-			return 0, false
+		if at := strings.LastIndex(line, sep); strings.HasPrefix(line, name) {
+			value, err := strconv.ParseFloat(strings.TrimSpace(line[at+len(sep):]), 64)
+			return value, err == nil && at >= 0
 		}
 	}
 	return 0, false
 }
 
-// cpuRates is each readable cgroup's live CPU use in cores over one tenth-of-a-second
-// window: a single sample is cumulative since the cgroup was made, which says nothing live.
+// building is the runs slice's scopes but a line's check, Python's host._building: that outweighs
+// every run for the CPU (LanderWeight), so it never stands waiting behind them.  None where the
+// slice or a scope's weight cannot be read, as that scope may be the check.
+func building(runs string) []string {
+	entries, err := os.ReadDir(runs)
+	if err != nil {
+		return nil
+	}
+	var scopes []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		scope := filepath.Join(runs, entry.Name())
+		weight, ok := number(filepath.Join(scope, "cpu.weight"))
+		if !ok {
+			return nil
+		}
+		if weight != cpuWeightMax {
+			scopes = append(scopes, scope)
+		}
+	}
+	return scopes
+}
+
+// cpuRates is each readable cgroup's live CPU use in cores, and each named `cpu.pressure`'s
+// cores' worth of standing still for want of one (usec), over one tenth-of-a-second window: a
+// single sample is cumulative since the cgroup was made, which says nothing live.
 func cpuRates(cgroups ...string) map[string]float64 {
 	first := map[string]float64{}
 	for _, cgroup := range cgroups {
-		if value, ok := usage(cgroup); ok {
+		if value, ok := usec(cgroup); ok {
 			first[cgroup] = value
 		}
 	}
@@ -527,7 +569,7 @@ func cpuRates(cgroups ...string) map[string]float64 {
 	time.Sleep(100 * time.Millisecond)
 	elapsed := time.Since(start).Seconds()
 	for cgroup, value := range first {
-		if second, ok := usage(cgroup); ok {
+		if second, ok := usec(cgroup); ok {
 			rates[cgroup] = math.Max(0, (second-value)/(elapsed*1e6))
 		}
 	}

@@ -9,7 +9,8 @@ import (
 )
 
 // SlotGates is the gate each reason a run waits for a slot names, Python's history.SLOT_GATES.
-var SlotGates = map[string]string{"count": "admission", "load": "admission", "memory": "memory", "unit memory": "memory"}
+var SlotGates = map[string]string{"count": "admission", "load": "admission", "cpu": "admission", "memory": "memory",
+	"unit memory": "memory"}
 
 // GateHolds is Python's history.gate_holds: when each gate last held a run, the end of the last
 // wait counted for it, kept after the run's record is collected; none where no history.db stands.

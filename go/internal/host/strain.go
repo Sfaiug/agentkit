@@ -1,6 +1,9 @@
 package host
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // Strain is why these readings hold even a run stalled first in line, and the gate's kind, ""
 // while the host is calm, Python's gate._strain: the free memory a run needs (minimum), or ak's
@@ -29,4 +32,24 @@ func (r Readings) pressed() (string, string) {
 		return fmt.Sprintf("waiting for ak's memory · pressure %s%%, limit %d%%%s", Short(pressure), memoryPressureLimit, ours.inSwap()), "unit memory"
 	}
 	return "", ""
+}
+
+// Starved is the wait while the runs building stand still for want of a CPU longer than they run
+// on one, and the gate's kind, "" while they do not, Python's gate._starved_reason: a run let in
+// then adds only waiting (12 Nov 2026: 54 building waited 16 to 28 cores' worth for the 5 to 7
+// they ran on, and a line's check crawled beside them).  Unread, or with nothing building, it
+// holds nothing.
+func (r Readings) Starved() (string, string) {
+	used, ran := r.Number("building_cpu_used")
+	waited, stood := r.Number("building_cpu_waited")
+	if ran && stood && waited > used {
+		return fmt.Sprintf("waiting for the runs' CPU · %s cores waiting, %s running", tenths(waited), tenths(used)), "cpu"
+	}
+	return "", ""
+}
+
+// tenths is Python's f"{round(value, 1):g}".
+func tenths(value float64) string {
+	rounded, _ := strconv.ParseFloat(strconv.FormatFloat(value, 'f', 1, 64), 64)
+	return Short(rounded)
 }

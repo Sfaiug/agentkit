@@ -149,8 +149,8 @@ func (a *admission) ask() {
 
 // gates decides the run first in line by the host's room, as Python's gate._gates_admit: a recent
 // run's peak against memory, less what the runs let in that show nothing yet may still take, the
-// load where pinned, and, with no peak measured, a poll since the last run let in, for steady
-// readings.
+// load where pinned, the runs' CPU but for a run going first, and, with no peak measured, a poll
+// since the last run let in, for steady readings.
 func (a *admission) gates(r *room) {
 	at := now()
 	db := history.Look()
@@ -166,6 +166,9 @@ func (a *admission) gates(r *room) {
 			return !host.Frozen(pid)
 		}))
 	})
+	if reason == "" && !r.first {
+		reason, kind = r.readings.Starved()
+	}
 	switch since := at - r.saved.lastIn; {
 	case reason != "":
 		a.reason, a.kind = reason, kind
