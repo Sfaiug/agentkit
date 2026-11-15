@@ -843,6 +843,8 @@ class MergeStep(unittest.TestCase):
         self.assertTrue(record.read_state(run_dir)["merged"])
         self.assertEqual([call.args[0] for call in slept.call_args_list if call.args[0] >= 60],
                          [60])
+        self.assertIn(f"WARN gh pr merge exited 1, yet GitHub merged the PR: {GITHUB_504[-400:]}",
+                      self.log_text(run_dir))
 
     def test_a_github_5xx_on_the_merge_is_tried_again(self):
         _, _, wt = make_repos(self.root)

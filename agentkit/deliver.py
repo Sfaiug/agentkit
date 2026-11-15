@@ -610,7 +610,7 @@ def is_delivery(lp, current, upstream):
             and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
 
 
-def merged_anyway(lp, url, upstream, rc, out):
+def merged_anyway(lp, url, upstream, rc, out, current=None):
     """Did GitHub merge this delivery whatever `gh pr merge` answered (`rc`, `out`)?  Records it
     when it did, logging that answer, so whether GitHub, gh or ak failed the call shows.
 
@@ -620,12 +620,13 @@ def merged_anyway(lp, url, upstream, rc, out):
     a merge of the delivery into its target is this run's work: a head another writer
     replaced, or a PR retargeted and merged elsewhere, is not.
     """
-    try:
-        current = pr_head(lp.run_dir, url)
-    except gitcall.Stopped:
-        raise
-    except config.Error:
-        return False
+    if current is None:
+        try:
+            current = pr_head(lp.run_dir, url)
+        except gitcall.Stopped:
+            raise
+        except config.Error:
+            return False
     if not (current.get("merged") and is_delivery(lp, current, upstream)):
         return False
     answered = "stopped" if rc is None else f"exited {rc}"     # a stop's words are its output
@@ -702,8 +703,8 @@ def do_merge(lp, url, upstream):
             if not is_delivery(lp, current, upstream):
                 return roundloop.note(lp, "PR head or target changed since PASS; a new run is required",
                             failed=True)
-            if current.get("merged"):
-                return merged(lp, url, method)
+            if merged_anyway(lp, url, upstream, rc, out, current):
+                return True
             if current.get("state") != "open":
                 return roundloop.note(lp, "PR is closed without a merge", failed=True)
             # A moving target can change both the patch and its checks. Reuse the same
