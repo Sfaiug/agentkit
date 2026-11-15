@@ -1,4 +1,5 @@
-"""Read-only host and cgroup counters, with no agentkit imports or policy."""
+"""Read-only host and cgroup counters, with no policy and no agentkit import but `pair_clock`,
+which loads none either."""
 
 import json
 import os
@@ -8,6 +9,8 @@ import subprocess
 import time
 from pathlib import Path
 from typing import NamedTuple
+
+from .pair_clock import boot as boot_id     # `host.boot_id`: the boot the whole of ak sees
 
 PROC = Path("/proc")
 OWN_CGROUP = PROC / "self/cgroup"
@@ -91,14 +94,6 @@ def parents():
     return {int(words[0]): int(words[1]) for words in map(str.split, rows.splitlines())
             if len(words) == 3 and words[0].isdigit() and words[1].isdigit()
             and words[2][0] not in "ZX"}
-
-
-def boot_id():
-    """The host's boot now, which every restart of it changes; None where Linux cannot say."""
-    try:
-        return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
-    except OSError:
-        return None
 
 
 def process_identity(pid):
