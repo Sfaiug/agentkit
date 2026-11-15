@@ -18,7 +18,7 @@ import (
 )
 
 // Report says all of it and is the exit: 2 for a config Python's config.load refuses, after what
-// it reads without one, 1 where the tick reads as hung or a dead run has outlasted two ticks.
+// it reads without one, 1 where the tick reads as hung or a run started in the last day is lost.
 // False, with nothing said, where a read is one Go cannot make. The first lines come out before
 // the efforts, which ask each harness, and the best machine to rent, which may ask Google.
 func Report(out, errOut io.Writer) (int, bool) {
@@ -30,7 +30,7 @@ func Report(out, errOut io.Writer) (int, bool) {
 	if refused == nil && !askable(harnesses) {
 		return 0, false
 	}
-	runs, dead, read := census(tick.Grace())
+	runs, lost, read := census(tick.Grace())
 	if !read {
 		return 0, false
 	}
@@ -72,7 +72,7 @@ func Report(out, errOut io.Writer) (int, bool) {
 	for _, line := range bill {
 		fmt.Fprintln(out, "rented machines: "+line)
 	}
-	if stuck || dead {
+	if stuck || lost {
 		return 1, true
 	}
 	return 0, true

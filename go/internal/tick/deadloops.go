@@ -7,10 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
@@ -40,7 +42,7 @@ func (t *ticking) deadLoops() error {
 			return failed == nil
 		}
 		switch {
-		case !deadLoop(record, now):
+		case !DeadLoop(dir, record, now):
 			return true
 		case scoped(record):
 			return false // Python asks the unit whether its memory cap ended the loop, and stops it
@@ -61,8 +63,6 @@ func (t *ticking) deadLoops() error {
 		var edit func(*run.Object)
 		var line string
 		switch action {
-		case "skip":
-			return true
 		case "wait":
 			// reap reads `resume_after` and leaves the dead pid alone until it passes
 			edit = func(current *run.Object) { holdLive(current, deaths).Set("resume_after", backoffUntil(deaths)) }
@@ -122,19 +122,91 @@ func (t *ticking) deadLoops() error {
 	return nil
 }
 
-// deadLoop is whether the pass looks at that record: a live one, or one a reap found dead first,
-// that nobody stopped, its last death not parked, past its launch's grace and its process gone.
-func deadLoop(record *run.Object, now float64) bool {
-	deaths := record.List("deaths")
-	if !run.Active(record) && !(record.Str("state") == "interrupted" && len(deaths) > 0) {
+// DeadLoop is watch.dead_loop, the one reading of whether a run's loop is lost, the pass's and
+// doctor's: a live record, or one a reap found this loop dead first, that nobody stopped, this
+// loop not parked, past its launch's grace, its process gone and no other of the run's at work, and
+// a plan the pass acts on now, not a resume already ordered nor a backoff being waited out.
+func DeadLoop(dir string, record *run.Object, now float64) bool {
+	ending := loopDeath(record)
+	if !run.Active(record) && !(record.Str("state") == "interrupted" && ending != nil) {
 		return false
 	}
-	if len(deaths) > 0 {
-		if last, ok := deaths[len(deaths)-1].(*run.Object); ok && last.Truthy("parked") {
-			return false
+	// a death waiting out its backoff holds the record, as reap reads it
+	if until, holding := record.Num("resume_after"); holding && now < until {
+		return false
+	}
+	if ending != nil && ending.Truthy("parked") || run.LaunchGrace(record, now) || run.ProcessActive(record) {
+		return false
+	}
+	action, _, _ := deadPlan(record, now)
+	return action != "skip" && !working(dir)
+}
+
+// loopDeath is transitions.loop_death: the last death where it ended the loop the record names now,
+// else nil.  A resume starts a new loop and leaves the deaths as they were, so one of another pid,
+// or noted before this loop started (a pid comes round again), is an earlier loop's.
+func loopDeath(record *run.Object) *run.Object {
+	deaths := record.List("deaths")
+	if len(deaths) == 0 {
+		return nil
+	}
+	death, ok := deaths[len(deaths)-1].(*run.Object)
+	if !ok || !run.Equal(death.Get("pid"), record.Get("pid")) {
+		return nil
+	}
+	at, dated := death.Num("at")
+	if identity := record.Dict("process_identity"); identity != nil && dated {
+		if start, ok := identity.Num("started_at"); ok && at < start {
+			return nil
 		}
 	}
-	return !run.LaunchGrace(record, now) && !run.ProcessActive(record)
+	return death
+}
+
+// working is whether a process of the run outlives its recorded loop, Python's _run_working: one
+// carrying its marker, this process or an ancestor too, as when a worker calls `ak doctor`, or an
+// `ak run resume` of it that has not recorded its pid yet, which a second resume would race.
+func working(dir string) bool {
+	return slices.ContainsFunc(host.Carrying(dir), live) || resuming(dir)
+}
+
+// resuming is whether a live `ak run resume` of the run is at work, as Python's watch.resumes
+// reads one under any ak's bin/, a Python interpreter running it naming it next: one writing the
+// run's log, or this checkout's, its bin/ak or this program.  Another's that does not only follows
+// the run from a terminal, and counted, it would keep the tick from resuming the loop it waits on.
+func resuming(dir string) bool {
+	log, _ := os.Stat(filepath.Join(dir, "log.txt"))
+	entries, _ := os.ReadDir("/proc")
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || !live(pid) {
+			continue
+		}
+		said, _ := os.ReadFile("/proc/" + entry.Name() + "/cmdline")
+		args := strings.Split(strings.TrimSuffix(string(said), "\x00"), "\x00")
+		if len(args) > 1 && strings.HasPrefix(filepath.Base(args[0]), "python") {
+			args = args[1:]
+		}
+		if len(args) < 3 || args[1] != "run" || args[2] != "resume" || filepath.Base(args[0]) != "ak" || filepath.Base(filepath.Dir(args[0])) != "bin" {
+			continue
+		}
+		if id, _, ok := launch.ResumeArgs(args[3:]); !ok || id != filepath.Base(dir) {
+			continue
+		}
+		if out, err := os.Stat("/proc/" + entry.Name() + "/fd/1"); err == nil && log != nil && os.SameFile(out, log) {
+			return true
+		}
+		if self, _, _ := config.Running(); args[0] == self || args[0] == filepath.Join(config.Repo(), "bin", "ak") {
+			return true
+		}
+	}
+	return false
+}
+
+// live is whether the process runs, not one that has exited and not yet been reaped.
+func live(pid int) bool {
+	stat, ok := host.ReadStat(pid)
+	return ok && !stat.Exited()
 }
 
 // scoped is whether a unit the manager holds ran that loop (turns.scope_is_real).
@@ -163,11 +235,14 @@ func deadPlan(record *run.Object, now float64) (string, []any, string) {
 	if len(deaths) > 0 {
 		last = deaths[len(deaths)-1].(*run.Object)
 	}
-	reaped := len(deaths) > 0 && run.Equal(last.Get("pid"), record.Get("pid")) && !last.Truthy("parked") && !last.Truthy("resumed_at")
+	ending := loopDeath(record)
+	reaped := ending != nil && !ending.Truthy("parked") && !ending.Truthy("resumed_at")
 	// the hour runs to the death being judged, not to the tick judging it
 	upto := now
-	if at, ok := dated(last, "at"); reaped && ok {
-		upto = at
+	if reaped {
+		if at, ok := dated(ending, "at"); ok {
+			upto = at
+		}
 	}
 	recent := 0
 	for _, death := range deaths {
@@ -179,13 +254,13 @@ func deadPlan(record *run.Object, now float64) (string, []any, string) {
 		// a reap noticed this death first and recorded it, so it is among the recent already
 		switch {
 		case recent >= 3:
-			parked := last.Copy()
+			parked := ending.Copy()
 			parked.Set("parked", true)
-			return "park", append(deaths[:len(deaths)-1], parked), last.Str("reason")
+			return "park", append(deaths[:len(deaths)-1], parked), ending.Str("reason")
 		case now < backoffUntil(deaths):
 			return "skip", nil, ""
 		}
-		return "resume", deaths, last.Str("reason")
+		return "resume", deaths, ending.Str("reason")
 	}
 	noticed := time.Unix(0, int64(now*1e9)).Format("2006-01-02 15:04:05")
 	reason := fmt.Sprintf("loop process %s gone, noticed %s", run.Field(record, "pid", "None"), noticed)

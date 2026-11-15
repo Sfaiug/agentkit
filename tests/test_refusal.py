@@ -45,7 +45,7 @@ class RefusalTests(unittest.TestCase):
             or (False, 0.0)))
         self.stack.enter_context(patch.object(
             usage, "mark_exhausted",
-            side_effect=lambda cfg, provider, until=None: self.marked.append(
+            side_effect=lambda cfg, provider, until=None, **_kw: self.marked.append(
                 (provider, until)) or until))
 
     def worker(self, *, calls=None, code=1, text="", session="s1", events="", stderr="",

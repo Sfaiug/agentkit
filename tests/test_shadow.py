@@ -1,8 +1,10 @@
 """tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of seven fake
-Gos, Python's ak with one thing more, is named by the kind of that one thing; the Home keeps
-every byte and modification time; a box's HOME starts as the home is; a stop while a box or a
-preview starts leaves nothing of it running; and where no box can be built, nothing runs."""
+Gos, Python's ak with one thing more, is named by the kind of that one thing, and each site a Go
+hands over at by Go's own words, alike in its output and its record; the Home keeps every byte
+and modification time; a box's HOME starts as the home is; a stop while a box or a preview starts
+leaves nothing of it running; and where no box can be built, nothing runs."""
 
+import json
 import math
 import os
 from pathlib import Path
@@ -29,7 +31,7 @@ OUTER = ("bwrap", "--dev-bind", "/", "/", "--tmpfs", "/var/tmp")
 GO = shlex.quote(str(REPO / "bin" / "ak")) + ' "$@"\ncode=$?\n{}\nexit $code'
 MORE = (
     ("line", 'echo "a line only go prints"'),
-    ("hand-over", 'echo "seat revival" >"$AK_HANDOVER"'),
+    ("hand-over", ': >"$AK_HANDOVER"'),   # a record with no site in it
     ("home", 'echo "{}" >"$HOME/.agentkit/state/go-only.json"'),
     # an extended attribute alone, of a file Python leaves be: its mode, time and bytes stay
     ("home", shlex.quote(sys.executable) + " -c 'import os, sys; os.setxattr(sys.argv[1], "
@@ -64,10 +66,19 @@ class Shadowing(unittest.TestCase):
         return str(path)
 
     def shadow(self, *args, box=OUTER, env=None):
+        """The shadow's exit, each difference it confirmed as (kind, what), printed and recorded
+        alike, and all it said."""
+        record = self.fakes / "record.json"
         done = self.home.run(*(self.home.box(box) if box else ()), sys.executable, SHADOW, *args,
-                             "--home", str(self.home.path), "--", *COMMAND, env=env, timeout=900)
-        return done.code, {kind for kind in (*dict(MORE), "exit") for line in done.out.splitlines()
-                           if line.startswith(f"{kind}: ")}, done.out + done.err
+                             "--home", str(self.home.path), "--record", str(record), "--",
+                             *COMMAND, env=env, timeout=900)
+        said = done.out + done.err
+        named = {(kind, what) for kind, _, what in (line.partition(": ")
+                                                     for line in done.out.splitlines())
+                 if kind in (*dict(MORE), "exit")}
+        recorded = json.loads(record.read_text())["previews"][0]["differences"]
+        self.assertEqual({tuple(each) for each in recorded}, named, said)
+        return done.code, named, said
 
 
 class Shadowed(Shadowing):
@@ -79,8 +90,15 @@ class Shadowed(Shadowing):
         for number, (kind, more) in enumerate(MORE):
             with self.subTest(kind, number=number):
                 code, named, said = self.shadow("--go", self.fake(str(number), GO.format(more)))
-                self.assertEqual((code, named), (1, {kind}), said)
+                self.assertEqual((code, {each for each, _ in named}), (1, {kind}), said)
         self.assertEqual(every_byte_and_time(self.home.path), before)
+
+    @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
+    def test_each_site_go_hands_over_at_is_named_as_go_wrote_it(self):
+        sites = ("usage: internal/cli/usage.go:40", "usage: internal/usage/read.go:52")
+        more = f'printf "%s\\n" {shlex.join(sites)} >>"$AK_HANDOVER"'
+        code, named, said = self.shadow("--go", self.fake("ak", GO.format(more)))
+        self.assertEqual((code, named), (1, {("hand-over", site) for site in sites}), said)
 
     @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
     def test_every_run_reads_one_moment_of_the_host(self):
@@ -109,7 +127,7 @@ class Shadowed(Shadowing):
             with self.subTest(name):
                 more = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
                 code, found, said = self.shadow("--go", self.fake(name, GO.format(more)), env=env)
-                self.assertEqual((code, found), outcome, said)
+                self.assertEqual((code, {kind for kind, _ in found}), outcome, said)
 
     @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
     def test_a_stop_while_a_box_starts_leaves_nothing_running(self):

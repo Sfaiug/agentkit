@@ -25,9 +25,7 @@ func dated(record *run.Object, key string) (float64, bool) {
 // A dry tick reads whether the dead-loop pass would say anything, which Python's says.
 func noDeadLoops() bool {
 	now := epoch(time.Now())
-	return run.Every(func(_ string, record *run.Object) bool {
-		return !deadLoop(record, now) || run.ResumeOrdered(record, now)
-	})
+	return run.Every(func(dir string, record *run.Object) bool { return !DeadLoop(dir, record, now) })
 }
 
 // The tick's resume of an exhausted run picks within a seat's own selection where the tick runs

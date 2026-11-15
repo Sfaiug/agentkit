@@ -31,7 +31,7 @@ class KeepsGoCacheOut(Shadowing):
                 more = (f'mkdir -p "$HOME/.cache/agentkit/{folder}" && '
                         f'echo compiled >"$HOME/.cache/agentkit/{folder}/sqlite3.wasm"')
                 code, named, said = self.shadow("--go", self.fake(folder, GO.format(more)))
-                self.assertEqual((code, named), outcome, said)
+                self.assertEqual((code, {kind for kind, _ in named}), outcome, said)
         self.assertEqual(every_byte_and_time(self.home.path), before)
 
     @unittest.skipUnless(boxable(), "no bwrap able to build a box here")

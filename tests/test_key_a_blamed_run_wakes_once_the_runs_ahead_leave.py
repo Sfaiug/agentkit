@@ -3,9 +3,9 @@ line, within the same pass: the line as it stands decides, not the line the pass
 
 Black-box: the program `AK_BIN` names checks a landing line from outside through
 tests/fixtures/akline.py.  Of three members, their stacks checked side by side, the second turns
-the suite red on top of the first, which lands, and is blamed; the check of the stack rebuilt
-without it holds until the test lets it go.  Meanwhile the first merges, and the second's resume
-is started, opening its `log.txt`.
+the suite red only on top of the first, which lands, and is blamed; the check of the stack
+rebuilt without it holds until the test lets it go.  Meanwhile the first merges, and the second's
+resume is started, opening its `log.txt`.
 """
 
 import json
@@ -17,7 +17,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akline import READINGS, Line, rules
 
-TESTS = {"t/bad.sh": 'test ! -f bad.txt\n',
+TESTS = {"t/bad.sh": 'test ! -f member-1.txt || test ! -f bad.txt\n',
          "t/hold.sh": """storage=$(git rev-parse --git-common-dir)
 [ -f member-3.txt ] && [ ! -f bad.txt ] || exit 0
 touch "$storage/reached"

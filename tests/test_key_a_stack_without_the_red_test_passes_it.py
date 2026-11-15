@@ -61,11 +61,12 @@ class AStackWithoutTheRedTestPassesIt(unittest.TestCase):
         between = rows[first + 1:rebuilt]
         self.assertEqual({command for _, _, command, _ in between}, {SUITE}, rows)
         self.assertTrue(any(place == "acme-linux" for *_, place in between), rows)
-        # Here: the step blaming the sixth, then the red test alone on the top rebuilt without it.
+        # Here: the step blaming the sixth, the red test on the target's tip with the sixth alone,
+        # then the red test alone on the top rebuilt without it.
         here = [stack for stack, _ in groupby(
             (run_id, tree) for run_id, tree, _, place in between if place != "acme-linux")]
-        self.assertEqual([run_id for run_id, _ in here], ["fix-6", "fix-8"], rows)
-        self.assertEqual(here[1], whole[1], rows)
+        self.assertEqual([run_id for run_id, _ in here], ["fix-6", "fix-6", "fix-8"], rows)
+        self.assertEqual(here[2], whole[1], rows)
 
 
 if __name__ == "__main__":

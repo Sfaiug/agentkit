@@ -1,16 +1,12 @@
 package harness
 
 import (
-	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"agentkit/internal/commandhelp"
 )
@@ -58,27 +54,17 @@ func museSeatWords(words, env []string) []string {
 	if values["AGENTKIT_SESSION"] == "" {
 		return words
 	}
-	schema, err := os.MkdirTemp("", "ak-muse-schema-")
-	if err != nil {
+	events := museEvents(words[0], env)
+	if events == nil {
 		return words
 	}
-	defer os.RemoveAll(schema)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	probe := exec.CommandContext(ctx, Binary(words[0]), "schema", "generate-json-schema", "--out", schema)
-	probe.Env = env
-	if probe.Run() != nil {
-		return words
+	// the sessions `/new` opens read the settings file's, which each launch makes sure of in the
+	// config home this Muse reads; one it cannot write leaves the launch as it was
+	home := values["XDG_CONFIG_HOME"]
+	if home == "" {
+		home = museConfig("")
 	}
-	files, _ := filepath.Glob(filepath.Join(schema, "*.json"))
-	notifies := false
-	for _, file := range files {
-		data, _ := os.ReadFile(file)
-		notifies = notifies || bytes.Contains(data, []byte(`"notification"`))
-	}
-	if !notifies {
-		return words
-	}
+	museWire(home, events)
 	self, err := os.Executable()
 	if err != nil {
 		return words
@@ -89,9 +75,9 @@ func museSeatWords(words, env []string) []string {
 		hook = append(hook, key+"="+values[key])
 	}
 	hook = append(hook, self, "adapter", filepath.Dir(filepath.Dir(self)), "muse", "hook")
-	for _, event := range []string{"SessionStart", "Stop", "Notification", "PostToolBatch", "Interrupt"} {
+	for _, event := range events {
 		entry := map[string]any{"type": "command", "command": commandhelp.ShellJoin(hook)}
-		if event == "PostToolBatch" || event == "Interrupt" {
+		if museAsync(event) {
 			entry["async"] = true
 		}
 		data, _ := json.Marshal([]any{map[string]any{"hooks": []any{entry}}})

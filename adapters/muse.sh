@@ -20,14 +20,15 @@
 #                                  account reads it
 #                     auth [seat]  -> 0 when a turn can authenticate, 1 and one line why;
 #                                  `seat` is the same login here, and is accepted and ignored
-#                     hooks        -> a no-op: a seat's launch carries its hooks (`interactive`)
+#                     hooks        -> the events a seat's launch hooks (`interactive`) merged into
+#                                  Muse's settings file, for the sessions `/new` opens
 #                     hook         -> one hook event of a seat's muse, on stdin: its SessionStart
 #                                  written into that launch's receipt, any other handed on to
 #                                  hooks/seat-state.sh, a Stop with the background work its
 #                                  session's log has running, a turn's end with the seat
-#                                  following it: what that launch's hooks run
+#                                  following it: what a seat's hooks run
 #                     call         -> one model call of a seat's muse, on stdin: its model and
-#                                  effort kept as its session's report: what that launch's
+#                                  effort kept as its session's report: what a seat's
 #                                  PreLLMCall hook runs
 #                     models       -> one `id<TAB>label<TAB>efforts` line per model it runs:
 #                                  `model/list` over `muse serve`; 1 where that fails
@@ -98,6 +99,103 @@ home() {
   done
   return 0
 }
+REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# The events a seat's muse hooks, as its own schema names them: none where it names no
+# notification event, as an older one refuses settings it does not know and its seat is read
+# off the screen alone, PreLLMCall only where it names that one.
+events() {
+  local schema rc=1
+  schema=$(mktemp -d) || return 1
+  if muse schema generate-json-schema --out "$schema" >/dev/null 2>&1 &&
+      grep -q '"notification"' "$schema"/*.json 2>/dev/null; then
+    printf 'SessionStart Stop Notification PostToolBatch Interrupt'
+    grep -q '"preLLMCall"' "$schema"/*.json && printf ' PreLLMCall'
+    rc=0
+  fi
+  rm -rf -- "$schema"
+  return $rc
+}
+# Those events' hooks, by event, each running `$1` with `hook`, or `call` on a model call.  Muse
+# runs an Interrupt hook only alongside the turn, and a PostToolBatch one, run on every tool
+# batch, need not hold it up, nor a PreLLMCall one, run as each model call starts.
+groups() {
+  jq -cn --arg run "$1" --arg events "$2" '$events | split(" ") | map({key: ., value: [{hooks: [
+      {type: "command", command: ($run + if . == "PreLLMCall" then " call" else " hook" end)}
+      + if IN("Interrupt", "PostToolBatch", "PreLLMCall") then {async: true} else {} end]}]})
+    | from_entries'
+}
+# Muse 1.4.20 runs a launch line's hooks in its own session alone, each event's in place of the
+# settings file's, and a session `/new` opens runs the file's, read as it opens.  So the file
+# carries the same events beside whatever it holds, an adapters/muse.sh's own hooks of any
+# checkout giving way to this one's.  `exec`, so the hook's parent is that Muse; quoted for any
+# sh, which Muse runs it with, where bash's %q may write $'...'.  Written whole under Muse's own
+# lock (`home`), where a link leads, though its file is not there yet: a session opening meanwhile
+# reads one file or the other.  A file not of Muse's shape is left as it is.
+wire() {
+  local dir="${XDG_CONFIG_HOME:-$HOME/.config}/muse" ours adapter
+  adapter=$(python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' \
+      "$REPO/adapters/muse.sh") && ours=$(groups "exec bash $adapter" "$1") && mkdir -p -- "$dir" &&
+    python3 - "$dir/settings.json" "$ours" <<'PY'
+import contextlib, fcntl, json, os, shlex, shutil, signal, sys, tempfile
+
+path, ours = sys.argv[1], json.loads(sys.argv[2])
+
+def ak(hook):
+    """An adapters/muse.sh's own, of any checkout: `exec bash <it> hook`, or `call`."""
+    with contextlib.suppress(AttributeError, ValueError):   # no object, or not those four words
+        run, bash, it, verb = shlex.split(str(hook.get("command", "")))
+        return ((run, bash) == ("exec", "bash") and verb in ("hook", "call")
+                and it.endswith("/adapters/muse.sh"))
+    return False
+
+def shaped(hooks):
+    """Whether hooks read as Muse's, `null` as none: by event, a list of groups, each an object
+    holding a list."""
+    return hooks is None or isinstance(hooks, dict) and all(
+        isinstance(groups, list) and all(isinstance(group, dict) and
+                                         isinstance(group.get("hooks"), list) for group in groups)
+        for groups in hooks.values())
+
+def theirs(groups):
+    """That event's groups without an adapters/muse.sh's own hooks, a group left with none gone."""
+    groups = [{**group, "hooks": [hook for hook in group["hooks"] if not ak(hook)]}
+              for group in groups]
+    return [group for group in groups if group["hooks"]]
+
+signal.alarm(30)
+locked = os.path.join(os.path.dirname(path), ".settings.json.lock")
+try:
+    # a login's links lead into the owner's folder, which may not be there yet
+    for each in (locked, path):
+        os.makedirs(os.path.dirname(os.path.realpath(each)), exist_ok=True)
+    with open(locked, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        real = os.path.realpath(path)
+        had, existed = {}, os.path.exists(real)
+        if existed:
+            try:
+                with open(real, encoding="utf-8") as fh:
+                    had = json.load(fh)
+            except ValueError as exc:
+                sys.exit(f"muse: {path} is not JSON ({exc}); left as it is")
+        if not isinstance(had, dict) or not shaped(had.get("hooks")):
+            sys.exit(f"muse: {path} is not settings of Muse's shape; left as it is")
+        hooks = {event: kept for event, groups in (had.get("hooks") or {}).items()
+                 if (kept := theirs(groups))}
+        for event, groups in ours.items():
+            hooks[event] = hooks.get(event, []) + groups
+        data = {"schema_version": 1, **had, "hooks": hooks}     # Muse refuses a file without one
+        if data != had:
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(real), prefix=".settings.json.")
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(json.dumps(data, indent=2) + "\n")
+            if existed:
+                shutil.copymode(real, tmp)
+            os.replace(tmp, real)
+except OSError as exc:
+    sys.exit(f"muse: {path}: {exc}")
+PY
+}
 cmd=${1:-}; shift 2>/dev/null || true
 
 case "$cmd" in
@@ -165,7 +263,6 @@ interactive)
   # idle-compact.py wraps the TUI, as every seat's, so the seat is looked at again when its
   # screen comes to rest, starts moving or muse exits.  Headless `ak worker` runs are not
   # wrapped: they are not seats.
-  REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   # The orchestrator rulebook this launch is handed.  `muse --help` (1.3.0) lists no instructions
   # or system-prompt option, so the rules would have had to be typed in as the TUI's opening
   # prompt -- but Muse does read an instructions file, from the environment:
@@ -197,33 +294,21 @@ interactive)
   # its command, and so do the pane and tmux server its look needs, this launch's receipt and
   # the data home its sessions are logged under (1.4.15 hands a hook no XDG_DATA_HOME), which
   # only the pane's environment knows: `bash -c` writes them in where `@PANE@` stands as the
-  # pane starts.  Muse runs an Interrupt hook only
-  # alongside the turn, and a PostToolBatch one, run on every tool batch, need not hold it up,
-  # nor a PreLLMCall one, run as each model call starts: the `call` verb below keeps its model
-  # and effort, the one place Muse names an effort `/effort` set.
-  # Only where this muse's own schema names hook events, PreLLMCall where it names that one: an
-  # older one refuses a launch carrying settings it does not know, and its seat stays read off
-  # the screen alone, as does a launch for no seat.
+  # pane starts.  The `call` verb below keeps a model call's model and effort, the one place Muse
+  # names an effort `/effort` set.  Only for a seat, and where this muse's own schema names hook
+  # events (`events`); Muse's settings file is made sure of them too, for the sessions `/new`
+  # opens (`wire`), and a file it cannot write leaves a seat's launch as it was.
   hooks="" pane=""
-  [ -n "${AGENTKIT_SESSION:-}" ] && schema=$(mktemp -d) && {
-    if muse schema generate-json-schema --out "$schema" >/dev/null 2>&1 &&
-        grep -q '"notification"' "$schema"/*.json 2>/dev/null; then
-      seat=$(printf 'env @PANE@ AGENTKIT_SESSION=%q bash %q' "$AGENTKIT_SESSION" \
-        "$REPO/adapters/muse.sh")
-      events="SessionStart Stop Notification PostToolBatch Interrupt"
-      grep -q '"preLLMCall"' "$schema"/*.json && events+=" PreLLMCall"
-      for event in $events; do
-        run=$(jq -cn --arg seat "$seat" --arg event "$event" '[{hooks: [{type: "command",
-            command: ($seat + if $event == "PreLLMCall" then " call" else " hook" end)}
-          + if $event | IN("Interrupt", "PostToolBatch", "PreLLMCall") then {async: true}
-            else {} end]}]')
-        hooks+=$(printf -- '-c %q ' "hooks.$event=$run")
-      done
-      # shell-quoted for the hook's shell, then escaped for the JSON string that command is in
-      pane=$(printf 'bash -c %q ' 'p=$(printf "TMUX=%q TMUX_PANE=%q AGENTKIT_MUSE_RECEIPT=%q XDG_DATA_HOME=%q" "${TMUX-}" "${TMUX_PANE-}" "${AGENTKIT_MUSE_RECEIPT-}" "${XDG_DATA_HOME-}" | jq -Rr "tojson[1:-1]"); for a; do case $a in *@PANE@*) a=${a%%@PANE@*}$p${a#*@PANE@} ;; esac; set -- "$@" "$a"; shift; done; exec "$0" "$@"')
-    fi
-    rm -rf -- "$schema"
-  }
+  if [ -n "${AGENTKIT_SESSION:-}" ] && events=$(events); then
+    wire "$events" 2>/dev/null
+    seat=$(printf 'env @PANE@ AGENTKIT_SESSION=%q bash %q' "$AGENTKIT_SESSION" \
+      "$REPO/adapters/muse.sh")
+    while IFS= read -r set; do
+      hooks+=$(printf -- '-c %q ' "$set")
+    done < <(groups "$seat" "$events" | jq -r 'to_entries[] | "hooks.\(.key)=\(.value | tojson)"')
+    # shell-quoted for the hook's shell, then escaped for the JSON string that command is in
+    pane=$(printf 'bash -c %q ' 'p=$(printf "TMUX=%q TMUX_PANE=%q AGENTKIT_MUSE_RECEIPT=%q XDG_DATA_HOME=%q" "${TMUX-}" "${TMUX_PANE-}" "${AGENTKIT_MUSE_RECEIPT-}" "${XDG_DATA_HOME-}" | jq -Rr "tojson[1:-1]"); for a; do case $a in *@PANE@*) a=${a%%@PANE@*}$p${a#*@PANE@} ;; esac; set -- "$@" "$a"; shift; done; exec "$0" "$@"')
+  fi
   # --model/--reasoning-effort are only legal with --provider meta, so it is named here too;
   # the pane's own step goes first, so the program the line ends on is still muse itself
   # Muse 1.4.11's --yolo also removes its question tool. Keep the same workspace access
@@ -307,17 +392,19 @@ auth)
     echo "muse: no $AUTH; run \`$LOGIN\`" >&2; exit 1; }
   echo "muse: the login in $AUTH is saved" ;;
 hooks)
-  # Muse takes its hooks on the command line, and `interactive` builds that line where its
-  # muse runs them (1.4.7): nothing persistent to write here.
-  echo "muse: hooks are given per launch by \`adapters/muse.sh interactive\` (SessionStart, Stop," \
-       "Notification, PostToolBatch, Interrupt, PreLLMCall); nothing to write here" ;;
+  # A launch's own session runs its line's hooks; the file serves the sessions `/new` opens
+  # (`wire`), and each seat launch makes sure of it again.
+  events=$(events) || {
+    echo "muse: no muse here runs hooks; its seats are read off the screen"; exit 0; }
+  wire "$events" || exit 1
+  echo "muse: hooks.${events// //} -> $REPO/adapters/muse.sh in" \
+       "${XDG_CONFIG_HOME:-$HOME/.config}/muse/settings.json" ;;
 hook)
   # One event of a seat's muse, handed to hooks/seat-state.sh in the shape it reads.  A tool
   # batch names its tools inside it, so it goes on named for its first, as a tool's own hook
   # is.  A question's notice names only the folder, so it goes on saying the question: the
   # first row under the dialog's running `Request user input` line on the seat's own pane,
   # where its launch named the pane; python3, which every host has, bounds the read.
-  REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   payload=$(cat)
   # The session this launch opened goes into its receipt (agentkit/harness/muse.py `started`).
   # It is no state of the seat's.
@@ -386,7 +473,6 @@ call)
   printf '%s\n' "$report" >"$tmp" && mv -f -- "$tmp" "$mine" || { rm -f -- "$tmp"; exit 0; }
   rm -f -- "${kept[@]}"
   [ "$was" != "$report" ] && [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || exit 0
-  REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
   ( python3 -c 'import contextlib, os, sys
 sys.path.insert(0, sys.argv[1])
 from agentkit import watch
