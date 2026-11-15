@@ -24,8 +24,8 @@ func (f Frame) meterAt(mouse terminal.Mouse) int {
 
 // Meter is the cell a click on its meter opens, its place in the cells; -1 for any other key.
 func (f Frame) Meter(key terminal.Key) int {
-	if mouse := key.Mouse; key.Name == "pointer" && mouse.Released && mouse.Button&3 == 0 && mouse.Button&64 == 0 {
-		return f.meterAt(mouse)
+	if clicked(key) {
+		return f.meterAt(key.Mouse)
 	}
 	return -1
 }

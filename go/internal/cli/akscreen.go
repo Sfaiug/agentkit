@@ -237,6 +237,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			}
 			continue
 		}
+		key = drawn.Pressed(key)
 		choice, meter := menuChoice(key, drawn, shown.seats, keyboard), drawn.Meter(key)
 		_, heading := shown.switches[choice]
 		switch {
