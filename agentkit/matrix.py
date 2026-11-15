@@ -149,21 +149,24 @@ def _pricing(cfg):
                           for name, entry in cfg["providers"].items()}}
 
 
-def _costs(rated, lineup, cfg, shares):
+def _costs(rated, lineup, cfg, logins, shares):
     """Prices the rows of each role of `rated` ({role: `quality.rated`'s rows}) and returns the
     one unit every role is in: `board_dollars`, the boards' price of their own task, before any
     run of yours measured a row of `lineup`; else `money`, dollars a task, where a provider your
-    runs measured has a price a month (`usage.price`); else `share`, points of a week.  Each
-    offered model `found` as one release alone measures its rows at the points of a week its
-    runs took (`shares`), at its provider's dollars a point: a hundredth of 12/52 of its price,
-    or of the mean price of the measured providers with one.  A measured row costs what the
-    first such model measured; any other, its board price times the cost per board dollar of
-    every measurement of its role, rated or not, on its provider where one is, else over all of
-    them; a role with none, as no run measures an orchestrator, takes every role's.  Each row
-    keeps its `board_cost`, the `runs` its measured cost is the mean of (0 for none), `cost_rule`
-    says which rule priced it, and `points` the points of a week it takes: of the provider whose
-    runs measured it, else of its own (its first offered model's, else its maker's) where runs
-    of yours measured that one, else None."""
+    runs measured has a price a month (`usage.price`); else `share`, points of a week.  A week
+    of a plan is 100 points, or 12/52 of its price, else of the mean price of the measured
+    providers with one.  Each offered model `found` as one release alone measures its rows at
+    the points of its provider's week and the listed dollars its runs took (`shares`), a point
+    a hundredth of that week.  A measured row costs what the first such model measured; any
+    other, its board price times what a board dollar of every measurement of its role, rated or
+    not, on its provider costs where one is, else times their listed dollars a board dollar at
+    its provider's rate; a role with none, as no run measures an orchestrator, takes every
+    role's.  A provider's rate, what a listed dollar takes of its plans, is the mean of its
+    `logins`' weeks over what each holds ({provider: [(price, listed dollars)]}), as any of them
+    may pay for the next task; one with none takes the mean of the others'.  Each row keeps its
+    `board_cost`, the `runs` its measured cost is the mean of (0 for none), `cost_rule` says
+    which rule priced it, and `points` the points of a week it takes: of the provider whose runs
+    measured it, else of its own where one of its logins' weeks holds some, else None."""
     # ak's own runs price a role and never rate it: asked on 5 Nov 2026 what their runs should
     # decide, the owner answered "Costs only", as quality comes from the boards.
     from . import usage
@@ -171,7 +174,7 @@ def _costs(rated, lineup, cfg, shares):
     index = _release_index({row["release"]: {"slug": row["release"], "name": row.get("name")}
                             for row in lineup}.values())
     providers = {}  # each release's provider: its first offered model's
-    measured = {}   # (role, release, effort): [(provider, points, runs)], a model's each, in order
+    measured = {}   # (role, release, effort): [(provider, points, runs, listed)], a model's each
     for name in config.offered(cfg):
         entry = cfg["models"][name]
         hits = {hit["release"]["slug"] for hit in found(index, entry["model"])}
@@ -195,36 +198,48 @@ def _costs(rated, lineup, cfg, shares):
     known = [price for price in prices.values() if price is not None]
     mean = sum(known) / len(known) if known else None
 
-    def cost(provider, points):
-        price = mean if prices[provider] is None else prices[provider]
-        # a point is a hundredth of a week, and a week 12/52 of the month a price pays for
-        return points if price is None else points / 100 * price * 12 / 52
-    samples = [(role, provider, cost(provider, points), board, points)
-               for (role, release, effort), each in measured.items() for provider, points, _ in each
-               for board in [rows[release, effort]["values"].get(quality.COSTS[role])]
-               if board is not None and board > 0]     # (role, provider, cost, board $, points)
+    def week(price):    # a plan's week in the unit, 12/52 of the month a price pays for
+        return 100 if mean is None else (mean if price is None else price) * 12 / 52
 
-    def per_board_dollar(some, what=2):     # the cost, or with `what` 4 the points, of one
-        return sum(one[what] for one in some) / sum(one[3] for one in some) if some else None
+    def cost(provider, points):
+        return week(prices[provider]) / 100 * points
+
+    def rate(provider, week):   # what a listed dollar takes of its logins' plans, in `week`'s unit
+        each = [week(price) / listed for price, listed in logins[provider]]
+        return sum(each) / len(each)
+    rates = {provider: (rate(provider, week), rate(provider, lambda _: 100))
+             for provider in logins if logins[provider]}    # {provider: (in the unit, in points)}
+    either = sum(one for one, _ in rates.values()) / len(rates) if rates else None
+    # (role, provider, cost, board dollars, points, listed dollars)
+    samples = [(role, provider, cost(provider, points), board, points, listed)
+               for (role, release, effort), each in measured.items()
+               for provider, points, _, listed in each
+               for board in [rows[release, effort]["values"].get(quality.COSTS[role])]
+               if board is not None and board > 0]
+
+    def per_board_dollar(some, what):   # the cost, with `what` 4 the points, 5 the listed dollars
+        return sum(one[what] for one in some) / sum(one[3] for one in some)
     for role, each in rated.items():
         pool = [one for one in samples if one[0] == role] or samples
         for row in each:
             mine = measured.get((role, row["release"], row["effort"]))
             if mine:
-                provider, points, runs = mine[0]
+                provider, points, runs, _ = mine[0]
                 row.update(cost=cost(provider, points), cost_rule="measured", runs=runs,
                            points=points)
                 continue
             provider = providers.get(row["release"]) or config.company(cfg, row.get("maker"))
             own = [one for one in pool if one[1] == provider]
-            factor, board = per_board_dollar(own or pool), row["board_cost"]
-            point = provider in prices and cost(provider, 1)    # what a point of its week costs
+            if own:     # its provider's runs paid a board dollar at what its own plans take
+                factors = per_board_dollar(own, 2), per_board_dollar(own, 4)
+            elif pool:  # any other provider's listed dollars take what they take of its plans
+                factors = [None if one is None else per_board_dollar(pool, 5) * one
+                           for one in rates.get(provider, (either, None))]
+            else:
+                factors = None, None
             # Without board dollars or a measured conversion, no same-unit estimate exists.
-            priced = None if factor is None or board is None else board * factor
-            # its provider's own runs count its points as they count its cost, whatever its plan
-            # costs; others' cost a board dollar counts them only at what a point of it costs
-            points = (None if priced is None else board * per_board_dollar(own, 4) if own
-                      else priced / point if point else None)
+            priced, points = (None if one is None or row["board_cost"] is None
+                              else row["board_cost"] * one for one in factors)
             row.update(cost_rule="provider" if own else "global", cost=priced, points=points)
     return "share" if mean is None else "money"
 
@@ -237,11 +252,12 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     no harness of yours runs is no reason to leave it out; `take`: the same rule over yours;
     and `choices`, `others` and `whys` over those with a cost (`_choices`), the choices being
     rows a model of `cfg` runs (`runner`).  Keep the pick and take visible even if rows outside
-    their eligible pool beat them.  Every role's costs are in one unit (`_costs`)."""
-    shares = task_usage if task_usage is not None else _task_usage(cfg) if cfg else {}
+    their eligible pool beat them.  Every role's costs are in one unit (`_costs`), off
+    `task_usage`, (logins, shares) as `spend.roles` measures them."""
+    measures = task_usage if task_usage is not None else _task_usage(cfg) if cfg else ({}, {})
     cfg = cfg or {"models": {}, "providers": {}}
     every = {role: quality.rated(lineup, role) for role in quality.ROLES}
-    unit = _costs(every, lineup, cfg, shares)
+    unit = _costs(every, lineup, cfg, *measures)
     out = {}
     for role, rated in every.items():
         them = [row for row in rated if compared is None or row["release"] in compared]
@@ -528,11 +544,11 @@ def refresh(cfg, *, refresh=False, now=None):
 
 
 @functools.lru_cache(maxsize=1)
-def _answered(text, cfg, shares):
+def _answered(text, cfg, measures):
     """`answer` over the lineup `text`, `state/matrix.json` as read, holds: rated once per
     stored lineup and pricing measurements, however often a run picks."""
     return answer((json.loads(text).get("matrix") or {}).get("lineup") or [],
-                  cfg=json.loads(cfg), task_usage=json.loads(shares))
+                  cfg=json.loads(cfg), task_usage=json.loads(measures))
 
 
 def row_of(rows, entry, effort):
@@ -601,8 +617,8 @@ def main(argv):
     cfg = config.load()
     _, rows = refresh(cfg, refresh="--refresh" in flags)
     marked = compared(cfg)
-    shares = _task_usage(cfg)
-    found, own = answer(rows, marked, cfg=cfg, task_usage=shares), live(cfg)
+    logins, shares = _task_usage(cfg)
+    found, own = answer(rows, marked, cfg=cfg, task_usage=(logins, shares)), live(cfg)
     if "--json" in flags:
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
@@ -615,7 +631,7 @@ def main(argv):
                 key: by[key] for key in ("name", "effort")}}
                 for row in said["others"] for why, by in [said["whys"][id(row)]]]}
             for role, said in found.items()}, "live": own,
-            "task_usage": {name: {effort: {role: share for role, (share, _) in did.items()}
+            "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()}},
             sys.stdout, indent=2)

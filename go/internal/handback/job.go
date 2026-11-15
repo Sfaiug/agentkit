@@ -6,11 +6,13 @@ import (
 )
 
 // TellJob is a finished job's line handed to the seat that launched it (job.job_hand_back), as its
-// launcher ends it and the tick types one left pending: through Tell, its composer mark kept on the
-// receipt, and the receipt marked handed back once the line is in.  Its caller holds the job's
-// delivery lock, so whoever takes the line second finds nothing left to say.
+// launcher ends it and the tick types one left pending: through Tell, fitted to the seat (JobLine)
+// once it is there to take it, its composer mark kept on the receipt, and the receipt marked handed
+// back once the line is in.  Its caller holds the job's delivery lock, so whoever takes the line
+// second finds nothing left to say.
 func TellJob(dir string, receipt *run.Object, line string, say func(string)) string {
-	told := Tell(receipt.Str("seat"), line, receipt.Dict("handback_typed"), func(typed *run.Object) error {
+	fit := func() (string, error) { return JobLine(dir, line) }
+	told := tell(receipt.Str("seat"), fit, receipt.Dict("handback_typed"), func(typed *run.Object) error {
 		MarkJob(dir, receipt, "handback_typed", typed)
 		return nil
 	}, say)

@@ -126,7 +126,7 @@ class ResetByHand(unittest.TestCase):
         self.assertEqual(self.offered(1, "→ spend a Fable reset"),
                          [([AGAIN, "→ spend a weekly reset", "→ spend a Fable reset"], AGAIN)])
         self.assertEqual(self.named, [["Fable"]])
-        self.assertEqual(self.note, "ChatGPT I · 100% left")
+        self.assertEqual(self.note, "ChatGPT I · 100% left · 1 weekly reset in hand")
         self.assertRegex(self.rows()[0], r" · 1 weekly reset in hand$")
 
     def test_a_meter_reads_its_week_back_by_its_name_as_written(self):

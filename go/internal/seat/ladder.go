@@ -145,9 +145,8 @@ func aRunOfItsOwn(facts climbing) (*answer, error) {
 	return nil, nil
 }
 
-func runOnALogin(facts climbing) (*answer, error) { return aRunOfItsOwn(facts) }
-func runsGoing(facts climbing) (*answer, error)   { return facts.besideUsage(goneRuns(facts)) }
-func liveCheck(facts climbing) (*answer, error)   { return runsAwaitingLive(facts) }
+func runsGoing(facts climbing) (*answer, error) { return facts.besideUsage(goneRuns(facts)) }
+func liveCheck(facts climbing) (*answer, error) { return runsAwaitingLive(facts) }
 
 // onItsScreen: a question on its screen is the owner's even during a turn.
 func onItsScreen(facts climbing) (*answer, error) {

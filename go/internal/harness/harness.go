@@ -42,6 +42,9 @@ type plugin struct {
 	// and readBy ReadBy's where ak gives that file a name of its own beside.
 	conversation func(record map[string]any) string
 	readBy       func(record map[string]any) []string
+	// opened is Opened's where its harness says itself whether it has written that conversation
+	// down, not by the file `conversation` names (Python's plugin `opened`).
+	opened func(record map[string]any) bool
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns), and
 	// resumable whether the seat owns one it may resume, where its own evidence says so, not its
 	// record (orch.resumable).

@@ -33,7 +33,7 @@ func modelRow(release, effort string, yours bool, value float64) quality.Row {
 func TestEveryWidthSaysHowManyModelsAreCompared(t *testing.T) {
 	rows := []quality.Row{modelRow("acme", "max", false, 0.9), modelRow("acme", "high", true, 0.8), modelRow("bolt", "", true, 0.7)}
 	for _, columns := range []string{"1", "2", "13", "24", "30", "40", "60", "100", "200"} {
-		view := ModelsView{Answer: quality.Answer(rows, nil, nil), Compared: map[string]bool{"acme": true, "bolt": true}, Total: 2}
+		view := ModelsView{Answer: quality.Answer(rows, nil, nil, nil), Compared: map[string]bool{"acme": true, "bolt": true}, Total: 2}
 		joined := strings.Join(ModelsLines(screenAt(t, columns), view), "\n")
 		// said at every width, going on at its words where its line is too narrow
 		if !strings.Contains(strings.Join(strings.Fields(joined), ""), "comparingall2models") {
