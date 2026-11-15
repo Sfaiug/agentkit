@@ -66,9 +66,15 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 	say := jobLogger(dir, out)
 	tasks := receipt.List("tasks")
 	for _, each := range tasks {
-		// a task running keeps its run, which the scheduler takes up
-		if task := each.(*run.Object); !slices.Contains(job.Terminal, task.Str("state")) && task.Str("state") != "running" {
+		// a task running keeps its run, which the scheduler takes up; one whose launcher died
+		// before it filed a run holds none, so it is queued with no run, as one whose run's record
+		// is gone is, and waits for room like any queued task (run_job_loop)
+		switch task := each.(*run.Object); {
+		case slices.Contains(job.Terminal, task.Str("state")):
+		case task.Str("state") != "running":
 			task.Set("state", "queued")
+		case !task.Truthy("run_id"):
+			run.SetAll(task, "state", "queued", "run_id", nil)
 		}
 	}
 	// this process owns the receipt from here on, so a kill reads as unfinished, not running
