@@ -125,25 +125,33 @@ func (t *ticking) loggedIn(harness string) bool {
 // loginHeld is the health row's reading of a seat holding a stall kept of a login out
 // (watch.health), its own login asked once this pass, and again where its screen shows its
 // harness's logout words (recordAuth), whatever the record held of it: the stall stands while that
-// login is out on record, while a run of its own waits on the one it was kept for (Live.Owed), or,
-// kept of a verb's no, while that login has not passed again, a non-answer being no yes; it is back
-// once none of these holds, where the row clears it (clearLogin) and looks again, as it would at a
-// seat on its own word.  Changed is whether the answer kept of the seat's own login changed, which
-// its word reads.  Neither where Python's tick does more: begins another login's stall, types past
-// logout words, clears or waits on a refusal its file keeps, or answers its notice by its output.
+// login is out on record, or while a run of its own waits on the one it was kept for (Live.Owed),
+// either taking this pass's evidence (evidenced); kept of a verb's no, while that login has not
+// passed again, a non-answer being no yes.  It is back once none of these holds, where the row
+// clears it (clearLogin) and looks again, as it would at a seat on its own word.  Changed is
+// whether the answer kept of the seat's own login, or the stall, changed, which its word reads.
+// Neither where Python's tick does more: begins another login's stall, types past logout words,
+// clears or waits on a refusal its file keeps, or answers its notice by its output.
 func (t *ticking) loginHeld(live seat.Live, held *run.Object) (stands, back, changed bool) {
 	changed = t.recordAuth(live.Own, live.Login != nil)
-	switch {
-	case t.loggedOut(live.Own) != nil:
-		return held.Str("harness") == live.Own, false, changed
+	var blocked seat.Owed
+	evidence := "verb"
+	switch out := t.loggedOut(live.Own); {
+	case out != nil:
+		blocked = seat.Owed{Login: live.Own, Why: out.Get("why")}
 	case live.Login != nil:
 		return false, false, changed
 	case live.Owed != nil:
-		return held.Str("harness") == live.Owed.Login, false, changed
+		blocked, evidence = *live.Owed, "run"
 	case held.Get("evidence") != "run" && !t.loggedIn(held.Str("harness")):
 		return true, false, changed
+	default:
+		return false, !live.File.Truthy("usage_refusal") && quietLogin(live) && ownerWaits(live), changed
 	}
-	return false, !live.File.Truthy("usage_refusal") && quietLogin(live) && ownerWaits(live), changed
+	if held.Str("harness") != blocked.Login {
+		return false, false, changed
+	}
+	return true, false, evidenced(held, live, blocked, evidence) || changed
 }
 
 // clearLogin is watch.forget(acknowledge=False, notice=...) of a seat whose login is back: under

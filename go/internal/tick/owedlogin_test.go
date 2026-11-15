@@ -3,6 +3,7 @@
 package tick
 
 import (
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -50,37 +51,54 @@ func TestARunWaitingOnALoginKeepsItsSeatsStallAndPagesOnce(t *testing.T) {
 	}
 }
 
-// The stall a run of the seat's own raised stands while one of its runs waits on that login, and
-// once none does it is over, whatever that login's verb says: its stall goes and its notice is
-// seen.  A run waiting on another login is Python's to begin a stall of (watch.health, forget).
-func TestARunsLoginStallStandsWhileARunWaitsOnIt(t *testing.T) {
-	ak, _ := idleHome(t, answers)
-	put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='xhigh'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
-	loginAsks(t)
-	const text = "acme (Claude) needs login: open the host, press this session's number, and log in again."
-	notice := filepath.Join(ak, "state", "notify-acme.json")
-	put(t, filepath.Join(ak, "state", "watch.json"), `{"stalls": {"acme": {"kind": "auth", "harness": "claude", "since": 20, "evidence": "run", "signature": "claude login expired", `+
-		`"pane": "❯", "notice": "`+text+`", "told": 21}}}`)
-	put(t, notice, `{"session": "acme", "kind": "needs", "text": "`+text+`", "source": "auth:acme:claude:20", "watcher": true, "time": 21}`)
-	live := seat.Live{Name: "acme", Own: "claude", Pane: "❯", Bound: true, File: run.NewObject(), Record: run.Fields("orchestrator", "opus", "session_title", "acme")}
-	tick := checking(t, io.Discard)
-	held := tick.state.Dict("stalls").Dict("acme")
-	for login, stands := range map[string]bool{"claude": true, "shop": false} {
-		owing := live
-		owing.Owed = &seat.Owed{Login: login, Since: run.Number("20")}
-		if standing, back, _ := tick.loginHeld(owing, held); standing != stands || back {
-			t.Errorf("a run waiting on %s: the stall stands %v, its login back %v", login, standing, back)
-		}
-	}
-	if stands, back, _ := tick.loginHeld(live, held); stands || !back {
-		t.Fatalf("no run waiting: the stall stands %v, its login back %v", stands, back)
-	}
-	if carried, err := tick.clearLogin(live, held); !carried || err != nil {
-		t.Fatalf("cleared %v, %v", carried, err)
-	}
-	said, _ := run.ReadJSON(notice)
-	if checking(t, io.Discard).state.Dict("stalls").Has("acme") || said.Get("seen") != true {
-		t.Errorf("watch.json holds %s, the notice %s", read(t, filepath.Join(ak, "state", "watch.json")), run.Line(said))
+// A login stall that stands because a run of the seat's own waits on its login takes that run as
+// its evidence, and its error as its signature, written before the seat's word reads it; once no
+// run owes the login, whatever that login's verb says, its stall goes and its notice is seen.  A run
+// waiting on another login than the stall's is Python's, to begin that login's stall (watch.health,
+// forget).
+func TestALoginStallARunWaitsOnFollowsTheRunAndClearsWhenItEnds(t *testing.T) {
+	for _, each := range []struct{ stall, owed string }{{"claude", "claude"}, {"codex", "codex"}, {"claude", "codex"}} {
+		t.Run(each.stall+" stall, "+each.owed+" owed", func(t *testing.T) {
+			ak, _ := idleHome(t, answers)
+			home := filepath.Dir(ak)
+			put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='xhigh'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
+			put(t, filepath.Join(ak, "state", "session-acme.json"), run.Line(run.Fields("orchestrator", "opus", "workers", []any{"opus"},
+				"cwd", filepath.Join(home, "work", "acme"), "created", 1799000000, "conversation", "conv-acme", "id_source", "launcher",
+				"resumable", true, "session_title", "acme")))
+			drawn(t, home, "The patch is ready.\n────────\n❯\n────────\n")
+			loginAsks(t)
+			codex := filepath.Join(os.Getenv("AGENTKIT_ADAPTER_DIR"), "codex.sh")
+			put(t, codex, "#!/bin/sh\necho 'token expired'; exit 1\n")
+			if err := os.Chmod(codex, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path, notice, watch := filepath.Join(ak, "runs", "fix-api", "run.json"), filepath.Join(ak, "state", "notify-acme.json"), filepath.Join(ak, "state", "watch.json")
+			put(t, path, `{"state":"waiting_login","waiting_for":"`+each.owed+`","launched_session":"acme","finished_at":20,"error":"the run's error"}`)
+			put(t, watch, `{"auth_out":{"codex":{"ok":false,"why":"token expired","at":10}},"stalls":{"acme":{"kind":"auth","harness":"`+each.stall+`","since":10,`+
+				`"evidence":"verb","signature":"token expired","notice":"needs login","told":11}}}`)
+			put(t, notice, `{"session":"acme","kind":"needs","text":"needs login","source":"auth:acme:`+each.stall+`:10","watcher":true,"time":11}`)
+			before := read(t, watch)
+			err := checking(t, io.Discard).health()
+			if each.stall != each.owed {
+				if !errors.Is(err, errLeft) || read(t, watch) != before {
+					t.Fatalf("carried %v, watch.json %s", err, read(t, watch))
+				}
+				return
+			}
+			stall := checking(t, io.Discard).state.Dict("stalls").Dict("acme")
+			if err != nil || stall.Get("evidence") != "run" || stall.Get("signature") != "the run's error" || stall.Get("since") != run.Number("10") || !stall.Truthy("told") {
+				t.Fatalf("%v, the stall %s", err, run.Line(stall))
+			}
+			put(t, path, `{"state":"pass","launched_session":"acme","finished_at":30,"handed_back":true}`)
+			said, _ := run.ReadJSON(notice)
+			if err := checking(t, io.Discard).health(); err != nil || said.Truthy("seen") {
+				t.Fatalf("%v, seen before %s", err, run.Line(said))
+			}
+			said, _ = run.ReadJSON(notice)
+			if checking(t, io.Discard).state.Dict("stalls").Has("acme") || said.Get("seen") != true {
+				t.Errorf("no run owes %s, but watch.json holds %s, the notice %s", each.owed, read(t, watch), run.Line(said))
+			}
+		})
 	}
 }
 

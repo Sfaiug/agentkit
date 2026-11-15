@@ -108,7 +108,7 @@ func (t *ticking) health() error {
 				switch {
 				case passed:
 					out, back = &live, held
-				case stands && changed && ownerWaits(live): // its word reads that answer
+				case stands && changed && ownerWaits(live): // its word reads that answer and stall
 					out = &live
 				default:
 					return stands && ownerWaits(live)
@@ -139,8 +139,8 @@ func (t *ticking) health() error {
 			return keeps
 		}
 		carried, err := seat.Health(name, look, t.log.line, t.dry)
-		// a login out is kept, one back cleared, and the answer a stall stands on, before the seat's
-		// word reads it, which a look again publishes
+		// a login out is kept, one back cleared, and a stall that stands as this pass read it, before
+		// the seat's word reads it, which a look again publishes
 		if out != nil && err == nil {
 			switch {
 			case back != nil:
@@ -148,7 +148,7 @@ func (t *ticking) health() error {
 			case answer != nil || parked:
 				carried, err = t.keepLogin(*out, answer)
 			default:
-				carried, err = t.keepAnswers([]string{out.Own})
+				carried, err = t.keepStanding(*out)
 			}
 			if carried && err == nil {
 				carried, err = t.lookAgain(name, look, back)

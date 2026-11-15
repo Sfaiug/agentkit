@@ -66,11 +66,9 @@ func (t *ticking) keepLogin(live seat.Live, answer *run.Object) (bool, error) {
 	if since == nil { // a run a login refuses while it goes has not ended
 		since = run.Float(epoch(time.Now()))
 	}
-	signature := live.Login
-	if signature == nil { // its screen says no logout words: what the verb or the run said is the evidence
-		signature = blocked.Why
-	}
-	entry := run.Fields("kind", "auth", "harness", blocked.Login, "since", since, "evidence", evidence, "signature", signature, "pane", live.Pane, "notice", text)
+	entry := run.Fields("kind", "auth", "harness", blocked.Login, "since", since)
+	evidenced(entry, live, blocked, evidence)
+	entry.Set("notice", text)
 	line, carried := live.Name+": "+title+" needs login; asked the user", false
 	err = locked(func() error {
 		current, ok := loadState()
