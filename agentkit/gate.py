@@ -1056,11 +1056,19 @@ class _GateHold:
                 if stopped():
                     return None
             try:
+                fits = None    # the last look's answer, read once: whether the host has room
                 while not stopped():
                     with self.lock:
-                        cost, idle = self.cost, bool(self.idle)
-                        if idle and (not cost or len(self.idle) == len(self.slots)):
+                        # the last running sibling may have ended during the look
+                        cost, idle, looked, fits = self.cost, bool(self.idle), fits, None
+                        if idle and (looked or not cost or len(self.idle) == len(self.slots)):
                             return self.idle.pop()
+                        if looked is False:
+                            self.waited = True
+                            self.queue.close()
+                            self.shown = False
+                            self.lock.wait(GATE_POLL)
+                            continue
                         if not idle:
                             self.waited = True
                             if self.queued and not self.shown:
@@ -1068,13 +1076,7 @@ class _GateHold:
                                 self.shown = True
                     if idle:
                         room = host.cpu_room()
-                        with self.lock:
-                            if self.idle and (room is None or room >= cost[0]):
-                                return self.idle.pop()
-                            self.waited = True
-                            self.queue.close()
-                            self.shown = False
-                            self.lock.wait(GATE_POLL)
+                        fits = room is None or _fits(room, cost[0]) > 0
                         continue
                     if cost:
                         freed = self.more(self.slots, len(self.idle), cost)[0]
