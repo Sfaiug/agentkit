@@ -2,9 +2,9 @@
 Gos, Python's ak with one thing more, is named by the kind of that one thing, and each site a Go
 hands over at by Go's own words, alike in its output and its record; the Home keeps every byte
 and modification time; one difference two shadows confirm, but for a number, is one case, kept
-with the last one's runs, and a flake is none; a box's HOME starts as the home is; a stop while a
-box or a preview starts leaves nothing of it running; and where no box can be built, nothing
-runs."""
+with the last one's runs, and a flake is none; shadows keeping one case at once each count; a
+box's HOME starts as the home is; a stop while a box or a preview starts leaves nothing of it
+running; and where no box can be built, nothing runs."""
 
 import json
 import math
@@ -117,6 +117,33 @@ class Shadowed(Shadowing):
                          (list(COMMAND), "line", f"only go: stdout: {line}", 2))
         go = json.loads((case / "runs.json").read_text())["go"]
         self.assertIn(line, go["stdout"].splitlines())
+
+    def test_shadows_keeping_one_case_at_once_each_count(self):
+        cases = self.fakes / "cases"
+        runs = [dict(label=label, code=0, stdout="", stderr="", home=set(), page=set(),
+                     call=set(), handover=None) for label in ("python", "go", "python again")]
+        gate, opens = os.pipe()     # the keepers start together, as overlapping shadows do
+        keepers = []
+        for _ in range(4):
+            pid = os.fork()
+            if not pid:
+                code = 1
+                try:
+                    os.close(opens)
+                    os.read(gate, 1)
+                    for _ in range(8):
+                        shadow.keep(cases, ["doctor"], {("line", "only go: acme")}, runs)
+                    code = 0
+                finally:
+                    os._exit(code)
+            keepers.append(pid)
+        os.close(gate)
+        os.write(opens, b"go" * 2)
+        os.close(opens)
+        self.assertEqual([os.waitpid(pid, 0)[1] for pid in keepers], [0] * 4)
+        [case] = cases.iterdir()
+        self.assertEqual(json.loads((case / "case.json").read_text())["confirmed"], 32)
+        self.assertIn("go", json.loads((case / "runs.json").read_text()))
 
     @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
     def test_every_run_reads_one_moment_of_the_host(self):

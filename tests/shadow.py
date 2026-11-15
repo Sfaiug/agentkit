@@ -28,6 +28,7 @@ outside its scratch folder.
 
 import argparse
 import errno
+import fcntl
 import hashlib
 import json
 import math
@@ -461,11 +462,19 @@ def keep(cases, argv, confirmed, runs):
     for signature, (kind, what) in signed.items():
         folder = cases / signature
         folder.mkdir(parents=True, exist_ok=True)
-        _write(folder / "runs.json", evidence)
-        case = folder / "case.json"
-        seen = json.loads(case.read_text()) if case.exists() else dict(first_seen=now, confirmed=0)
-        _write(case, dict(ak=argv, kind=kind, what=what, first_seen=seen["first_seen"],
-                          last_seen=now, confirmed=seen["confirmed"] + 1))
+        # Shadows sharing `cases` may confirm one case at once: each holds its folder while it
+        # reads, counts and writes, or a count is lost and two writers share a .tmp.
+        held = os.open(folder, os.O_RDONLY)
+        try:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            _write(folder / "runs.json", evidence)
+            case = folder / "case.json"
+            seen = (json.loads(case.read_text()) if case.exists()
+                    else dict(first_seen=now, confirmed=0))
+            _write(case, dict(ak=argv, kind=kind, what=what, first_seen=seen["first_seen"],
+                              last_seen=now, confirmed=seen["confirmed"] + 1))
+        finally:
+            os.close(held)
 
 
 def _write(path, value):
