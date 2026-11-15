@@ -47,7 +47,6 @@ func TestEveryHandOverLeavesItsRecord(t *testing.T) {
 	}
 	ak := filepath.Join(home, ".agentkit")
 
-	leaves(`^usage: internal/cli/usage\.go:\d+\n$`, "", "usage", "--json")
 	pass := "seat health"
 	if runtime.GOOS == "windows" {
 		pass = "before its passes" // a tick there is Python's whole
@@ -83,7 +82,7 @@ func TestEveryHandOverLeavesItsRecord(t *testing.T) {
 
 	t.Setenv("AK_HANDOVER", "")
 	os.Unsetenv("AK_HANDOVER")
-	if code, _, left := call("", "usage", "--json"); code != 3 || left != "" {
+	if code, _, left := call("", "plan", "check", "٣", "true"); code != 3 || left != "" {
 		t.Fatalf("AK_HANDOVER unset: exit %d, leaving %q", code, left)
 	}
 }

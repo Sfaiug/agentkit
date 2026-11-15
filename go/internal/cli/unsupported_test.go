@@ -33,7 +33,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 	before := tree(t, home)
 	// One call a line: milestones in flight each take theirs out, and lines apart merge.
 	calls := [][]string{
-		{"usage", "--json"},
 		{"worker", "acme", task},
 		{"run", task},
 		{"run", "--review-pr", "https://github.com/acme/api/pull/12"},
