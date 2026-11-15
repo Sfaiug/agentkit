@@ -29,7 +29,7 @@ func CompanyAddFrame(s terminal.Screen, title string, others []matrix.Company, a
 	for row := top; row < min(top+page, len(others)); row++ {
 		line := "  " + s.TableRow([]string{others[row].Maker, counts[row], others[row].Models[0][1]}, widths, nil)
 		if row == at && !away {
-			line = s.Highlight(line, true)
+			line = s.Band(s.Highlight(line, true), s.LayoutWidth())
 		}
 		lines, spots = append(lines, line), append(spots, matrixRow{line: line, row: row})
 	}

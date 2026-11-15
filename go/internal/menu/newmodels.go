@@ -61,23 +61,7 @@ func (d *Draft) PickerLines(s terminal.Screen, clock string) []string {
 		line := "  " + terminal.Pad(config.ModelName(name, d.Models), label)
 		var own []string
 		for column, marked := range marks {
-			glyph := "□"
-			if column == 0 {
-				glyph = "○"
-			}
-			if marked {
-				glyph = "■"
-				if column == 0 {
-					glyph = "●"
-				}
-			}
-			if s.ASCII() {
-				glyph = map[string]string{"□": ".", "○": ".", "■": "x", "●": "*"}[glyph]
-			}
-			mark := " " + glyph + " "
-			if at == d.At && column == d.Column {
-				mark = "[" + glyph + "]"
-			}
+			mark := roleMark(s, column, marked, 4, at == d.At && column == d.Column)
 			text := ""
 			if marked {
 				effort := d.effort(name, config.RoleEfforts[column])
@@ -91,7 +75,7 @@ func (d *Draft) PickerLines(s terminal.Screen, clock string) []string {
 				}
 				text += effort
 			}
-			part := padded(mark, 4) + padded(text, effortWidth)
+			part := mark + padded(text, effortWidth)
 			if folded {
 				own = append(own, "    "+terminal.Pad(heads[column], 7)+part)
 			} else {

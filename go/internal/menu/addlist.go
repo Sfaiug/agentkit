@@ -94,7 +94,7 @@ func AddPage(s terminal.Screen, view AddList) AddFrame {
 		}
 		line := strings.TrimRight("    "+strings.Join(parts, "  "), " ")
 		if at == view.At && !view.Away {
-			line = s.Highlight(line, true)
+			line = s.Band(s.Highlight(line, true), s.LayoutWidth())
 		}
 		body = append(body, line)
 	}

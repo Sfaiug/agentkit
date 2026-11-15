@@ -13,6 +13,25 @@ import (
 // RoleHead is a role's name on the config matrix, by its place in quality.Roles.
 func RoleHead(role int) string { return [...]string{"orch", "builds", "reviews"}[role] }
 
+// roleMark is a model's mark under a role, by its place in quality.Roles, in a column width cells
+// wide: `●` and `○` for the one orchestrator, `■` and `□` where any may build or review, in the
+// accent where it is on and dim where it is off, as every list marks what is on (Toggle).
+func roleMark(s terminal.Screen, role int, on bool, width int, focused bool) string {
+	glyphs := []string{"●", "○"}
+	switch {
+	case role > 0 && s.ASCII():
+		glyphs = []string{"x", "."}
+	case role > 0:
+		glyphs = []string{"■", "□"}
+	case s.ASCII():
+		glyphs = []string{"*", "."}
+	}
+	if on {
+		return s.Toggle(glyphs[0], width, focused, "accent")
+	}
+	return s.Toggle(glyphs[1], width, focused, "dim")
+}
+
 // A ConfigOption is a row under the models: its name, then its value, or one of its Marks marked,
 // each a cell after its mark (`Theme`).
 type ConfigOption struct {
@@ -237,24 +256,7 @@ func configBody(s terminal.Screen, view ConfigView) []matrixRow {
 			}
 			line += "  "
 			first := terminal.Cells(line) + 1
-			glyph := "□"
-			if marks[role] {
-				glyph = "■"
-			}
-			if role == 0 {
-				glyph = "○"
-				if marks[role] {
-					glyph = "●"
-				}
-			}
-			if s.ASCII() {
-				glyph = strings.NewReplacer("●", "*", "○", ".", "■", "x", "□", ".").Replace(glyph)
-			}
-			kind := ""
-			if !marks[role] || role == 1 && len(c.Selected.List("workers")) == 0 {
-				kind = "dim"
-			}
-			line += s.Toggle(glyph, width[role], i == view.Row && role == view.Column, kind)
+			line += roleMark(s, role, marks[role], width[role], i == view.Row && role == view.Column)
 			cells = append(cells, matrixCell{first, first + width[role] - 1, role})
 			first += width[role]
 			effort := ""
@@ -339,7 +341,7 @@ func configBody(s terminal.Screen, view ConfigView) []matrixRow {
 				line = "  " + terminal.Cut(name, room-2)
 			}
 			if view.Row == len(c.Names)+i {
-				line = s.Highlight(line, number == 0)
+				line = s.Band(s.Highlight(line, number == 0), room)
 			}
 			put(line, len(c.Names)+i, nil)
 		}
