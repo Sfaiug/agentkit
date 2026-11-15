@@ -1,13 +1,14 @@
 package loop
 
 // A red target holds its line, Python's land._probe_tip, paused and _repair: nothing lands on a
-// target that fails its own suite.  The first stack's red suite piece runs again on the target's tip
-// alone before anyone is blamed.  Red there, the line's `.green` keeps it under the target's tree,
-// its probes counted, and the line waits on the retry ladder, the piece probed again at each step.
+// target that fails its own suite.  The first stack's red suite piece, the suite whole where its red
+// named no test (narrow.go), runs again on the target's tip alone before anyone is blamed.  Red
+// there, the line's `.green` keeps it under the target's tree, its probes counted, and the line
+// waits on the retry ladder, the piece probed again at each step.
 // Red through the whole ladder, or the stack's tests failing again there alone, it is the target's
 // own and gets one repair run, owned by the member probed, a PR's own seat being its fixer instead,
-// and the commit that turned it red is blamed (blame.go); while it stays red, that repair alone is
-// checked, on it.
+// and, where tests failed again by name, the commit that turned it red is blamed (blame.go); while
+// it stays red, that repair alone is checked, on it.
 
 import (
 	"cmp"
@@ -176,6 +177,9 @@ func (s *narrowingStack) probeTip(turn, code string, target *lineTarget, suite, 
 	}
 	s.l.say(fmt.Sprintf("%s at %s fails %s: the target's own red, repaired", target.upstream, tip, how))
 	s.l.repairTarget(turn, target.tree, s.record, entry)
+	if len(again) == 0 {
+		return false, nil // a red that named no test blames nobody (blame.go)
+	}
 	return false, s.blameTip(target.tip, suite, piece, again)
 }
 
