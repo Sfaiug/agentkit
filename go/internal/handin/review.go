@@ -147,19 +147,6 @@ func (r *Review) Notes() []any {
 	return notes
 }
 
-// Followups is each follow-up's text, each once.
-func (r *Review) Followups() []any {
-	items := []any{}
-	seen := map[string]bool{}
-	for _, row := range r.Of("follow-up") {
-		if defect := defectOf(row); !seen[defect] {
-			seen[defect] = true
-			items = append(items, itemText(row))
-		}
-	}
-	return items
-}
-
 // FollowupRecords is, by each follow-up's text, the command that can check its plan line, the
 // commit it was proven to fail on, and the defect it names whichever head proved it, Python's
 // Review.followup_checks, followup_commits and followup_defects.

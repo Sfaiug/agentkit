@@ -71,7 +71,7 @@ func TestAFollowUpsCheckRunsWithoutItsReviewersBound(t *testing.T) {
 		}
 		review, _ := Read(path)
 		checks, _, _ := review.FollowupRecords()
-		if got := checks.Str(review.Followups()[0].(string)); got != each.want {
+		if got := checks.Str(itemText(review.Of("follow-up")[0])); got != each.want {
 			t.Errorf("%s ending in %s: check %q, want %q", proof, each.code, got, each.want)
 		}
 	}
