@@ -547,7 +547,7 @@ sys.exit(item.get("rc", 0))
         view = self.stack.enter_context(patch.object(run, "pr_view", return_value={
             "headRefOid": SHA, "baseRefName": "release/v4", "state": "OPEN"}))
         self.rules([])
-        key = f"pr merge {URL} --squash --delete-branch --match-head-commit {SHA}"
+        key = f"pr merge {URL} --squash --match-head-commit {SHA}"
         self.reply(key, rc=1, text="approvals missing")
         self.reply(f"pr view {URL} --json mergeStateStatus -q .mergeStateStatus", text="BLOCKED")
         with patch.object(run.worker, "call", side_effect=AssertionError("worker")), patch.object(

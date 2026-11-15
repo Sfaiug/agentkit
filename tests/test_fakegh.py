@@ -101,8 +101,7 @@ class PullRequests(unittest.TestCase):
         self.call("pr", "merge", url, "--squash", "--delete-branch", "--match-head-commit",
                   self.sha)
         merge = self.gh.pr(1)["merge"]
-        self.assertEqual((merge["method"], merge["head"], merge["deleted"]),
-                         ("squash", self.sha, True))
+        self.assertEqual((merge["method"], merge["head"]), ("squash", self.sha))
         self.assertEqual(self.rig.branches(), ["main"])
         self.assertEqual(self.rig.origin("log", "-1", "--format=%s|%an|%P", "main"),
                          f"Fix api (#1)|beta|{self.rig.head('main^')}")
@@ -182,8 +181,8 @@ class PassingRun(unittest.TestCase):
         self.assertEqual((pr["state"], pr["baseRefName"], pr["headRefName"]),
                          ("MERGED", "main", run["branch"]))
         merge = pr["merge"]
-        self.assertEqual((merge["method"], merge["match"], merge["head"], merge["deleted"]),
-                         ("squash", run["review"]["head_sha"], merge["match"], True))
+        self.assertEqual((merge["method"], merge["match"], merge["head"]),
+                         ("squash", run["review"]["head_sha"], merge["match"]))
         self.assertEqual(rig.origin("rev-parse", f"{merge['head']}^{{tree}}"),
                          rig.origin("rev-parse", "main^{tree}"))
         self.assertEqual((rig.head(), rig.origin("show", "main:retry.txt")),

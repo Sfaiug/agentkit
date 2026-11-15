@@ -61,9 +61,8 @@ class MergeDelivery(unittest.TestCase):
         reviewed = self.state["review"]["head_sha"]
         self.assertEqual(self.state["delivery_sha"], reviewed)
         merge = self.gh.pr(1)["merge"]
-        self.assertEqual({key: merge[key] for key in ("method", "head", "match", "deleted")},
-                         {"method": "squash", "head": reviewed, "match": reviewed,
-                          "deleted": True})
+        self.assertEqual({key: merge[key] for key in ("method", "head", "match")},
+                         {"method": "squash", "head": reviewed, "match": reviewed})
         self.assertEqual(self.rig.branches(), ["main"])
         self.assertEqual(self.rig.head(), merge["commit"])
         self.assertEqual(self.rig.origin("rev-parse", "main^"), self.base)

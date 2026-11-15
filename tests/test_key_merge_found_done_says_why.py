@@ -3,8 +3,9 @@ answered: its exit code and the last of its output, so whether GitHub, gh or ak 
 
 Black-box: the program `AK_BIN` names runs a task to its merge through tests/fixtures/akbin.py,
 against the bare origin of gitrig.py and the GitHub of fakegh.py, whose `gh pr merge` merges and
-then either fails deleting the branch, checked straight after the call, or answers 504 Gateway
-Timeout, checked after ak's retry wait (a minute, so this file takes a little over a minute).
+then either loses its connection before GitHub's answer, checked straight after the call, or
+answers 504 Gateway Timeout, checked after ak's retry wait (a minute, so this file takes a little
+over a minute).
 """
 
 import json
@@ -19,9 +20,8 @@ from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
 ANSWERS = {
-    "deleted": ("failed to delete remote branch ak/add-retry-file: HTTP 404: Reference does not "
-                "exist (https://api.github.com/repos/acme/widgets/git/refs/heads/"
-                "ak/add-retry-file)\n"),
+    "reset": ('Post "https://api.github.com/graphql": read tcp 192.0.2.7:50412->'
+              "140.82.121.6:443: read: connection reset by peer\n"),
     "504": ('non-200 OK status code: 504 Gateway Timeout body: "{\\"message\\": \\"We '
             "couldn't respond to your request in time. Sorry about that. Please try "
             'resubmitting your request and contact us if the problem persists.\\"}"\n'),
