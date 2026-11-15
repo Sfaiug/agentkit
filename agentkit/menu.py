@@ -5001,16 +5001,17 @@ def meter_acts(cfg, keyboard, number, screen):
 @terminal.clicks_its_own
 def config_subscriptions(cfg, keyboard):
     """`Subscriptions` on `c`: each subscription under its company (COMPANIES), named in its colour
-    as `c` names a harness, as the main screen draws it (usage_lines) with its resets in hand,
-    then `+ add a subscription` (config_add_provider).  The row the keys or the pointer are on
-    opens a line: whose login it is and its plan (logins.whose; one ending as login_notes says
-    it, amber), resets with no room beside its meter, then its acts (subscription_acts), ←/→ or
-    the pointer moving, Enter or a click running one, the key line naming it.  One an act adds is
-    asked whose it is (logins.renewed), then pointed at.  It comes up as `c` does as it opens,
-    the pointed row's label and meter wash into its company's colour and drain as `c`'s meters
-    do (motion.washing), and its line comes up under it as the line under the menu's highlighted
-    row does; back from what an act or an add drew, it is drawn as it is.  The act lit (`on`) is
-    kept by what it is, so one going from under it lights nothing in its place."""
+    as `c` names a harness, as the main screen draws it (usage_lines), then `+ add a subscription`
+    (config_add_provider).  The row the keys or the pointer are on says its resets in hand beside
+    its meter where there is room, and opens a line: whose login it is and its plan (logins.whose;
+    one ending as login_notes says it, amber), resets with no room beside its meter, then its acts
+    (subscription_acts), ←/→ or the pointer moving, Enter or a click running one, the key line
+    naming it.  One an act adds is asked whose it is (logins.renewed), then pointed at.  It comes
+    up as `c` does as it opens, the pointed row's label and meter wash into its company's colour
+    and drain as `c`'s meters do (motion.washing), and its line comes up under it as the line under
+    the menu's highlighted row does; back from what an act or an add drew, it is drawn as it is.
+    The act lit (`on`) is kept by what it is, so one going from under it lights nothing in its
+    place."""
     here, opened, on, top, said = ("sub", 1), None, None, 0, ""
     clock = motion.Clock(page=True)
     while True:
@@ -5032,27 +5033,29 @@ def config_subscriptions(cfg, keyboard):
                 company = (COMPANIES[name].split(" / ")[0] if name in COMPANIES
                            else config.provider_name(cfg, name))
                 body.append(terminal.styled(company, colour(cfg, name)))
-            held = in_hand(prov)
-            beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
-            line += terminal.styled(f" · {held}", "dim") if beside else ""
             places[len(body)] = (("sub", number), [])
             # its label and meter's cells washing in and out as `c`'s do, on the page's clock
             moves.append((len(body), ("sub", number), number == lit, motion.washing(
                 [cell[1:] for cell in spans.get(number, [])], colour(cfg, name), number == lit)))
+            if number != lit:
+                body.append(line)
+                continue
+            held = in_hand(prov)
+            beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
+            line += terminal.styled(f" · {held}", "dim") if beside else ""
             # what Enter acts on is its act, lit on its line, never the row
-            body.append(terminal.highlight(line, band=False) if number == lit else line)
-            if number == lit:
-                acts = dict(subscription_acts(cfg, keyboard, number, remove=True))
-                on = on if on in acts else None
-                email, plan = logins.whose(name, account)
-                plan = harness_plugin(logins.harness(cfg, name)).plan_name(plan)
-                told = " · ".join(filter(None, (ending[number - 1] or email, plan,
-                                                not beside and held)))
-                for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
-                                                list(acts), on, width - 4):
-                    places[len(body)] = (("sub", number), cells)
-                    moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
-                    body.append(shown)
+            body.append(terminal.highlight(line, band=False))
+            acts = dict(subscription_acts(cfg, keyboard, number, remove=True))
+            on = on if on in acts else None
+            email, plan = logins.whose(name, account)
+            plan = harness_plugin(logins.harness(cfg, name)).plan_name(plan)
+            told = " · ".join(filter(None, (ending[number - 1] or email, plan,
+                                            not beside and held)))
+            for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
+                                            list(acts), on, width - 4):
+                places[len(body)] = (("sub", number), cells)
+                moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
+                body.append(shown)
         # seen with no line too, so the pointer coming back onto a row is news
         moves.append((0, ("opened",), lit, lambda *_: None))
         body.append("")

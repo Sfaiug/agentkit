@@ -80,10 +80,11 @@ func (f SubscriptionsFrame) Hit(mouse terminal.Mouse) (row, act int, ok bool) {
 }
 
 // SubscriptionsPage is `config · subscriptions` (menu.config_subscriptions): each subscription under
-// its company, named in its colour, with the main screen's meter and the resets it holds beside it,
-// then `+ add a subscription`, bright only while highlighted.  The pointed row opens a line under it:
-// whose login it is and its plan, or when it ends while that is soon, in amber, the resets where none
-// fit beside the meter, then its acts, the one On lit and named on the key line.  On the clock the page
+// its company, named in its colour, with the main screen's meter, then `+ add a subscription`, bright
+// only while highlighted.  The pointed row says the resets it holds beside its meter where there is
+// room, and opens a line under it: whose login it is and its plan, or when it ends while that is soon,
+// in amber, the resets where none fit beside the meter, then its acts, the one On lit and named on the
+// key line.  On the clock the page
 // comes up out of the background as it opens, its name writing itself out in its header; the pointed
 // row's label and filled meter wash into its company's colour and drain as it leaves, written at their
 // cells alone; and the line it opens comes up under it.
@@ -137,22 +138,19 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 		if len(meters) > 0 {
 			line = meters[i]
 		}
-		beside := each.Held != "" && terminal.Cells(terminal.Plain(line)+" · "+each.Held) <= width
-		if beside {
-			line += s.Styled(" · "+each.Held, "dim")
-		}
 		at[i] = len(body)
 		if i != lit {
 			put(line, pageSpot{row: i})
 			continue
 		}
+		held := each.Held
+		if held != "" && terminal.Cells(terminal.Plain(line)+" · "+held) <= width {
+			line += s.Styled(" · "+held, "dim")
+			held = ""
+		}
 		put(s.Highlight(line, true), pageSpot{row: i})
 		if acts = each.Acts(true); !slices.Contains(acts, on) {
 			on = ""
-		}
-		held := each.Held
-		if beside {
-			held = ""
 		}
 		var told []string
 		for _, part := range []string{cmp.Or(each.Ends, each.Email), each.Plan, held} {

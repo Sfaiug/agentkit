@@ -90,7 +90,7 @@ class SubscriptionsPage(unittest.TestCase):
             "    owner@acme.test · ULTRA   − remove",
             "  Claude II  ━━━───────  29% left",
             "OpenAI",
-            "  ChatGPT    ━━━━━━━━━━  100% left · 1 reset in hand",
+            "  ChatGPT    ━━━━━━━━━━  100% left",
             "",
             "  + add a subscription"])
         self.assertEqual(meters(self.page), meters(self.main))
@@ -104,8 +104,10 @@ class SubscriptionsPage(unittest.TestCase):
             self.two + "   [→ log in again]   − remove",
             "OpenAI"])
         self.term.keys("Down")
-        self.assertIn("    owner@acme.test · plus   → spend a reset   − remove",
-                      body(self.term.wait("› ChatGPT")))
+        chatgpt = body(self.term.wait(lambda shown: "› ChatGPT" in shown and " · plus " in shown
+                                      and UNLIT in lines(shown)))
+        self.assertIn("› ChatGPT    ━━━━━━━━━━  100% left · 1 reset in hand", chatgpt)
+        self.assertIn("    owner@acme.test · plus   → spend a reset   − remove", chatgpt)
         self.term.keys("Right")
         self.term.wait(lambda screen: "[→ spend a reset]" in screen
                        and PAGE_KEYS.format("spend a reset") in lines(screen))
@@ -131,7 +133,7 @@ class SubscriptionsPage(unittest.TestCase):
         self.assertEqual(body(added)[3:], [
             "› Claude III  — no reading yet",
             "    new@acme.test   − remove",
-            "OpenAI", "  ChatGPT     ━━━━━━━━━━  100% left · 1 reset in hand", "",
+            "OpenAI", "  ChatGPT     ━━━━━━━━━━  100% left", "",
             "  + add a subscription"])
 
     def test_the_row_a_removal_lights_opens_lit_as_any_row_opens(self):
