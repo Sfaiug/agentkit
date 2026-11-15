@@ -203,11 +203,11 @@ func diskPressure() bool {
 	if _, err := os.Stat(where); err != nil {
 		where = config.UserHome()
 	}
-	used, total, ok := diskUse(where)
-	if !ok || total == 0 {
+	used, size, ok := host.DiskUse(where)
+	if !ok || size == 0 {
 		return false
 	}
-	return 100*float64(used)/float64(total) > limit
+	return 100*used/size > limit
 }
 
 // ak's own folders.

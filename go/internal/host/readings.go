@@ -38,11 +38,19 @@ func (r Readings) set(name string, value float64, ok bool) {
 	}
 }
 
-// Read is AK_HOST_READINGS where it holds a JSON object, standing in for /proc and the
-// cgroups, else the live host.
+// injected is AK_HOST_READINGS where it holds a JSON object, standing in for every reading of
+// the host; nil where it holds none.
+func injected() Readings {
+	var readings Readings
+	if json.Unmarshal([]byte(os.Getenv("AK_HOST_READINGS")), &readings) != nil {
+		return nil
+	}
+	return readings
+}
+
+// Read is the injected readings, standing in for /proc and the cgroups, else the live host.
 func Read() Readings {
-	var injected Readings
-	if text := os.Getenv("AK_HOST_READINGS"); text != "" && json.Unmarshal([]byte(text), &injected) == nil && injected != nil {
+	if injected := injected(); injected != nil {
 		return injected
 	}
 	readings := Readings{"cpus": float64(cpuCount())}
@@ -91,6 +99,36 @@ func Read() Readings {
 	readings.set("slice_memory_pressure", share, ok)
 	readings["runs_memory_swap_mb"] = swapMB(runs)
 	return readings
+}
+
+// DiskUse is (used, size) in MiB of the disk holding path, the injected disk_* and
+// virtiofs_free_mb readings standing in for it (host.disk_use).  A guest's disk, such as a Mac's
+// Linux machine's image growing on the Mac's own disk, grows only while its host has room: it has
+// as much left as the least of its own free space and that of each folder the host shares through
+// virtiofs.  Where the host has less, the disk is as large as what it holds and that room, its
+// blocks reserved for root no room it can use, so a fill reads as on a disk of that size.
+func DiskUse(path string) (used, size float64, ok bool) {
+	readings := injected()
+	if readings == nil {
+		readings = diskReadings(path)
+	}
+	total, haveTotal := readings.Number("disk_total_mb")
+	used, haveUsed := readings.Number("disk_used_mb")
+	free, haveFree := readings.Number("disk_free_mb")
+	if !haveTotal || !haveUsed || !haveFree {
+		return 0, 0, false
+	}
+	room := free
+	shares, _ := readings["virtiofs_free_mb"].([]any)
+	for _, share := range shares {
+		if left, ok := share.(float64); ok {
+			room = math.Min(room, left)
+		}
+	}
+	if room < free {
+		return used, used + room, true
+	}
+	return used, total, true
 }
 
 // procLoad is the one-minute load in /proc/loadavg, where Linux keeps it.

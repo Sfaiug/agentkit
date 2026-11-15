@@ -12,7 +12,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -68,7 +67,7 @@ func overlays(homes []string, own map[string]string, writable []string) []string
 	var mounts []string
 	for _, line := range config.SplitLines(string(data)) {
 		if fields := strings.Fields(line); len(fields) > 4 {
-			mounts = append(mounts, octal(fields[4]))
+			mounts = append(mounts, host.MountPath(fields[4]))
 		}
 	}
 	var found []string
@@ -80,22 +79,6 @@ func overlays(homes []string, own map[string]string, writable []string) []string
 		}
 	}
 	return found
-}
-
-// octal is a mountinfo path with its `\NNN` escapes read back.
-func octal(path string) string {
-	var out strings.Builder
-	for i := 0; i < len(path); i++ {
-		if path[i] == '\\' && i+3 < len(path) {
-			if value, err := strconv.ParseUint(path[i+1:i+4], 8, 8); err == nil {
-				out.WriteByte(byte(value))
-				i += 3
-				continue
-			}
-		}
-		out.WriteByte(path[i])
-	}
-	return out.String()
 }
 
 // drain is run for a check: its output comes through this process, which stays until that
