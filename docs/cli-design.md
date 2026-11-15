@@ -72,6 +72,9 @@ Every screen reads the same keys, one key at a time, with no Enter.
 
 - **Arrows, Space and Enter:** the arrows move the highlight (`terminal.highlight`), Space marks
   what it is on, and Enter goes forward (`terminal.keys`).
+- **Highlight:** a row acted on whole is lit to the layout's last column; a cell over its whole
+  width, a mark as wide as its column and an act with a cell either side, its row bold behind
+  `›` (`terminal.selected`); with no colour a mark is bracketed.
 - **Esc:** Esc goes back, and on the main screen it leaves.
 - **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
 - **Digits:** a digit opens that seat.
@@ -89,7 +92,7 @@ Example: `↑↓←→ move   ␣ mark   a add a company   esc back`.
 
 Colour says where a thing stands. Screens ask for roles, never RGB: `working` is accent,
 `needs you` warning, `done` success, `FAIL` and `out of usage` error, `dim`, `idle` and `waiting`
-dim; the pointer and a row acted on whole light on selection; a bar's chip is on-accent on its
+dim; what is lit, by the keys or the pointer, is on selection; a bar's chip is on-accent on its
 state's. A fade nears the background; lit, the text.
 
 `themes.ROLES` (Go: `terminal/themes.go`) holds both themes; `terminal.sense` picks white on a
