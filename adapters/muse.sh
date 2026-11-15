@@ -466,6 +466,10 @@ call)
       | select(.model | strings | length > 0)
       | .session_id, ({model, effort: .options["meta.reasoning.effort"]} | tojson)' 2>/dev/null) ||
     exit 0
+  # Muse's settings file (`wire`) runs it in every session, a seat's or not, and only a seat's
+  # launch line names the seat: a call that names none keeps nothing, as hooks/seat-state.sh
+  # writes nothing -- once the call is read, so Muse hands it over to a hook still listening.
+  [ -n "${AGENTKIT_SESSION:-}" ] || exit 0
   sid=${report%%$'\n'*} report=${report#*$'\n'}
   logs=("${XDG_DATA_HOME:-$HOME/.local/share}"/muse/sessions/*/*/*/"$sid"/session.jsonl)
   [ -e "${logs[0]}" ] || exit 0

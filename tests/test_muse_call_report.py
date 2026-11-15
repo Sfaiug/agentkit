@@ -1,5 +1,5 @@
 """The report a Muse model call's hook keeps stands until later news, and while a seat names its
-conversation.
+conversation; a call in a session no seat's launch names keeps none.
 
 Muse runs the PreLLMCall hook beside the call (`adapters/muse.sh call`), so a hook held up after
 it read its call can finish after the next call's hook, or after a `/model` change: each report
@@ -42,12 +42,13 @@ class CallOrder(unittest.TestCase):
         self.wrapper.chmod(0o755)
         os.mkfifo(f"{self.wrapper}.go")
 
-    def call(self, effort, held=False):
+    def call(self, effort, held=False, seat="acme"):
         """That call's hook, run as Muse runs it; held, once it waits at its `mv`."""
         path = f"{self.wrapper.parent}:{os.environ['PATH']}" if held else os.environ["PATH"]
         hook = subprocess.Popen(["bash", str(REPO / "adapters/muse.sh"), "call"],
                                 stdin=subprocess.PIPE, text=True,
-                                env={"HOME": str(self.home), "PATH": path, "AGENTKIT_SESSION": "acme"})
+                                env={"HOME": str(self.home), "PATH": path,
+                                     **({"AGENTKIT_SESSION": seat} if seat else {})})
         hook.stdin.write(json.dumps({"session_id": SESSION, "model": SPARK, "messages": [],
                                      "options": {"meta.reasoning.effort": effort}}))
         hook.stdin.close()
@@ -87,6 +88,11 @@ class CallOrder(unittest.TestCase):
             "payload": {"record": {"effective": {"model_id": WONDER}}}}) + "\n")
         self.release(earlier)
         self.assertEqual(self.running()[:2], (WONDER, "max"))
+
+    def test_a_call_no_seat_names_keeps_nothing(self):
+        # Muse's settings file runs this hook in every session, a seat's or not
+        self.call("high", seat=None)
+        self.assertEqual(list(self.state.iterdir()), [])
 
     def test_collection_leaves_it_while_a_seat_names_its_conversation(self):
         self.call("low")
