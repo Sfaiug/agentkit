@@ -215,6 +215,9 @@ func (at seatAt) finishTyped(line string, stale func(string) bool, answered func
 	delivered := false
 	notify.Held(context.Background(), at.name, func(current string) error {
 		at.name = current
+		// another pass's Enter, sent outside this lock, can be drawn late: as typeAtPane's own
+		// retry, one more goes only to a line still there sentWait on
+		poll(func() bool { return at.holds(line) != "line" })
 		if stale(current) || answered != nil && at.asks(line, answered, log) {
 			return nil
 		}
