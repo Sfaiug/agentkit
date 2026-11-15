@@ -71,7 +71,7 @@ func changeOwed(name string, change func([]any) []any) error {
 }
 
 // owedReadable leaves editor receipts, and any key it does not know, to Python; a move's line
-// (`switch`) names the pane it goes to.
+// (`switch`) names the pane it goes to, and the mark whose card its harness was answered on.
 func owedReadable(file *run.Object) bool {
 	if file == nil || !file.Truthy("owed_lines") {
 		return true
@@ -82,11 +82,13 @@ func owedReadable(file *run.Object) bool {
 	}
 	for _, value := range lines {
 		line, ok := value.(*run.Object)
-		if !ok || line.Str("line") == "" || !only(line, []string{"id", "line", "typed", "switch", "pane"}) {
+		if !ok || line.Str("line") == "" || !only(line, []string{"id", "line", "typed", "answered", "switch", "pane"}) {
 			return false
 		}
-		if line.Truthy("typed") && (line.Dict("typed") == nil || !only(line.Dict("typed"), []string{"line", "seat", "pid"})) {
-			return false
+		for _, mark := range []string{"typed", "answered"} {
+			if line.Truthy(mark) && (line.Dict(mark) == nil || !only(line.Dict(mark), []string{"line", "seat", "pid"})) {
+				return false
+			}
 		}
 	}
 	return true
@@ -101,10 +103,50 @@ func continuationQueued(file *run.Object) bool {
 	})
 }
 
+// moveStands is how long a move's lines stand unchanged before they are the next tick's: a harness
+// slower than that, or busy in a turn that takes no move (watch.MOVE_STANDS).
+const moveStands = 3 * sentWait
+
+// TellMoves is TellOwed's passes for that seat, sentPoll apart, while it is owed a move's line
+// (`switch`): one types the line, the next answers what its harness asks in its composer's place,
+// the next reads that composer back and types the next line (watch.tell_moves).  Over once its
+// lines stand as they were for moveStands; one pass where none is owed.
+func TellMoves(name string, log func(string)) (bool, error) {
+	var last []any
+	var stood time.Time
+	for {
+		if carried, err := TellOwed(name, log); err != nil || !carried {
+			return carried, err
+		}
+		var lines []any
+		err := notify.Held(context.Background(), name, func(current string) error {
+			name = current // a rename takes its lines along
+			if file, _ := run.ReadJSON(seatFile(current)); file != nil {
+				lines = file.List("owed_lines")
+			}
+			return nil
+		})
+		if err != nil {
+			return true, err
+		}
+		if stood.IsZero() || !run.Equal(lines, last) {
+			last, stood = lines, time.Now()
+		}
+		if !slices.ContainsFunc(lines, func(line any) bool {
+			owed, _ := line.(*run.Object)
+			return owed != nil && owed.Truthy("switch")
+		}) || time.Since(stood) >= moveStands {
+			return true, nil
+		}
+		time.Sleep(sentPoll)
+	}
+}
+
 // TellOwed keeps the first line until its confirmed send, however late the prompt shows.
 // Both the receipt and each key are conditional on that same line still heading the queue.  A
 // line goes to the pane it names, and a move's begins no turn: the next goes in at the same
-// prompt, its harness's answers counted from the moment it went in (`switched`).
+// prompt, its harness's answers counted from the moment it went in (`switched`); what its harness
+// asks before it takes it is answered once for each mark (`answered`).
 func TellOwed(name string, log func(string)) (bool, error) {
 	file, _ := run.ReadJSON(seatFile(name))
 	if !owedReadable(file) || movesUntyped(name, file) {
@@ -128,13 +170,20 @@ func TellOwed(name string, log func(string)) (bool, error) {
 		return file == nil || len(file.List("owed_lines")) == 0 || !run.Equal(file.List("owed_lines")[0], read)
 	}
 	var receiptErr error
-	sent := typeAtPane(name, read.Str("pane"), read.Str("line"), read.Dict("typed"), func(mark *run.Object) error {
+	keep := func(key string, mark any) error {
 		next := read.Copy()
-		next.Set("typed", mark)
+		next.Set(key, mark)
 		receiptErr = replace(name, next)
 		read = next
 		return receiptErr
-	}, log, stale, true)
+	}
+	var answered func()
+	if read.Truthy("switch") && !run.Equal(read.Get("answered"), read.Get("typed")) {
+		answered = func() { keep("answered", read.Get("typed")) }
+	}
+	sent := typeAtPane(name, read.Str("pane"), read.Str("line"), read.Dict("typed"), func(mark *run.Object) error {
+		return keep("typed", mark)
+	}, answered, log, stale, true)
 	if !sent {
 		return true, receiptErr
 	}
@@ -160,12 +209,16 @@ func TypeAtPrompt(name, line string, typed *run.Object, receipt func(*run.Object
 	return typeAtPrompt(name, line, typed, receipt, log, func(string) bool { return false })
 }
 
-// A receipt gets only its Enter, or confirmation of an empty composer, on later ticks.
-func (at seatAt) finishTyped(line string, stale func(string) bool, log func(string)) bool {
+// A receipt gets only its Enter, or confirmation of an empty composer, on later ticks; given
+// answered, what its harness asks about it is answered first, and the composer is the next pass's.
+func (at seatAt) finishTyped(line string, stale func(string) bool, answered func(), log func(string)) bool {
 	delivered := false
 	notify.Held(context.Background(), at.name, func(current string) error {
 		at.name = current
-		if stale(current) {
+		// another pass's Enter, sent outside this lock, can be drawn late: as typeAtPane's own
+		// retry, one more goes only to a line still there sentWait on
+		poll(func() bool { return at.holds(line) != "line" })
+		if stale(current) || answered != nil && at.asks(line, answered, log) {
 			return nil
 		}
 		switch at.holds(line) {

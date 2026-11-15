@@ -7,5 +7,5 @@ import "agentkit/internal/run"
 // not leave, whatever the composer and stale say by then, as an Enter withheld leaves a draft
 // nobody can take back.  True once the line left the composer.
 func typeInto(name, line string, log func(string), stale func(string) bool) bool {
-	return typeAtPane(name, "", line, nil, func(*run.Object) error { return nil }, log, stale, false)
+	return typeAtPane(name, "", line, nil, func(*run.Object) error { return nil }, nil, log, stale, false)
 }
