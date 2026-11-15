@@ -71,6 +71,13 @@ class AStampsLine(unittest.TestCase):
                      "1789000000.0 3600.0 acme boot"):
             self.assertIsNone(pair_clock.read(line), line)
 
+    def test_a_clock_that_is_no_time_is_no_stamp(self):
+        for clock in ("nan", "inf", "-inf", "1e1000"):
+            for line in (f"{clock} 3600.0 acme-boot-1", f"1789000000.0 {clock} acme-boot-1"):
+                self.assertIsNone(pair_clock.read(line), line)
+                with at(*line.split()), self.assertRaises(ValueError):
+                    pair_clock.now()
+
 
 class TheClockAKeySets(unittest.TestCase):
     def test_the_variable_gives_both_clocks_and_the_boot(self):

@@ -67,7 +67,11 @@ def read(line):
 
 def _stamp(line):
     wall, since, boot = line.split()
-    return Stamp(float(wall), float(since), boot)
+    clocks = float(wall), float(since)
+    # A nan or infinite clock makes every age nan or infinite, which no limit can be measured by.
+    if not all(map(math.isfinite, clocks)):
+        raise ValueError(f"a clock is no time: {line}")
+    return Stamp(*clocks, boot)
 
 
 def now():
