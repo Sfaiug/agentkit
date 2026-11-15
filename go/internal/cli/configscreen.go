@@ -121,7 +121,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 				view.Away = true
 			}
 		case key.Name == "char" && key.Char == "r":
-			if !menuModels("config · recommended · "+view.Scope, c, keyboard, painter) {
+			if !menuModels(session, c, keyboard, painter) {
 				return false
 			}
 		case key.Name == "char" && key.Char == "a" && view.Fresh:

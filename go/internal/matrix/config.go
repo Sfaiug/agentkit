@@ -105,10 +105,7 @@ func (c *Configuration) Mark(name string, role int) func(*run.Object) (*run.Obje
 	}
 	marked := !slices.Contains(group, any(name))
 	return func(current *run.Object) (*run.Object, string) {
-		changed := current.Copy()
-		if !changed.Has("reviewers") {
-			changed.Set("reviewers", slices.Clone(changed.List("workers")))
-		}
+		changed := apart(current)
 		if role == 0 {
 			changed.Set("orchestrator", name)
 			return changed, ""
@@ -126,4 +123,24 @@ func (c *Configuration) Mark(name string, role int) func(*run.Object) (*run.Obje
 		changed.Set(key, group)
 		return changed, ""
 	}
+}
+
+// Take is a take's change to a current selection: role's group, executors (1) or reviewers (2),
+// becomes name alone (Python's orch.role_groups).
+func Take(role int, name string) func(*run.Object) (*run.Object, string) {
+	return func(current *run.Object) (*run.Object, string) {
+		changed := apart(current)
+		changed.Set([]string{1: "workers", 2: "reviewers"}[role], []any{name})
+		return changed, ""
+	}
+}
+
+// apart is a copy of selected, its legacy reviewers, the executors, copied first, so the two
+// groups part from the first change to either.
+func apart(selected *run.Object) *run.Object {
+	changed := selected.Copy()
+	if !changed.Has("reviewers") {
+		changed.Set("reviewers", slices.Clone(changed.List("workers")))
+	}
+	return changed
 }

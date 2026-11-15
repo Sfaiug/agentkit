@@ -1,20 +1,26 @@
 package cli
 
 import (
+	"cmp"
 	"strings"
 	"sync"
 
+	"agentkit/internal/config"
 	"agentkit/internal/matrix"
 	"agentkit/internal/menu"
 	"agentkit/internal/quality"
+	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 )
 
 var readingModels sync.Mutex // closing and reopening the page shares the boards' reader
 
-// title is the name `c` gives this page; a row's why, which it opens, carries it too.  False
-// where Python ak takes the page over, having written nothing.
-func menuModels(title string, c *matrix.Configuration, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+// session is the seat `c` is open over, "" for new seats, whose name titles the page and a row's
+// why, which it opens.  ← and → take the next cheaper or better choice for a seat's executor or
+// reviewer at once, saved to its record as it stands (seat.SaveMarks).  False where Python ak takes
+// the page over, having written nothing.
+func menuModels(session string, c *matrix.Configuration, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+	title := "config · recommended · " + cmp.Or(session, "new seats")
 	type reading struct {
 		found *matrix.Matrix
 		err   error
@@ -82,7 +88,22 @@ func menuModels(title string, c *matrix.Configuration, keyboard *terminal.Keyboa
 		case key.Name == "esc" || key.Name == "eof":
 			return true
 		case key.Name == "left" || key.Name == "right":
-			return false // a role's next cheaper or better choice: Python's take (menu.take_choice)
+			if session == "" || view.At == 0 {
+				return false // new seats' take, or the orchestrator's, which moves the seat: Python's (menu.take_choice)
+			}
+			step := -1
+			if key.Name == "right" {
+				step = 1
+			}
+			role := quality.Roles[view.At]
+			if name, effort, found := c.NextChoice(answer[role], used[role].Row, step); found {
+				saved, err := seat.SaveMarks(session, matrix.Take(view.At, name), seat.Step{Model: name, Key: config.RoleEfforts[view.At], Effort: effort})
+				if err != nil {
+					view.Note = err.Error()
+				} else {
+					c.Selected = saved
+				}
+			}
 		case key.Name == "again":
 			painter.Forget()
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
