@@ -1760,7 +1760,7 @@ def follow_model(cfg, name, asked=None):
     `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
     builds and reviews where they stood.  A model no entry the config can run runs on that
     harness is added to the config and becomes the seat's (_taken_in, asking its harness's
-    listing only for the watch's pass, whose listings `asked` holds: a look waits on none): "Add
+    listings only for the watch's pass, which `asked` holds: a look waits on none): "Add
     it to AK's models", the owner's word of 12 Nov 2026.  A model neither run nor added, a seat
     on its harness's own model, a record that cannot be read, or an effort it records none of or
     its model does not take leaves the record as it is."""
@@ -1800,20 +1800,30 @@ def follow_model(cfg, name, asked=None):
 def _taken_in(cfg, left, ran, asked):
     """[name] of the entry made for the model a seat's harness recorded (`ran`, as follow_model
     reads it) where no entry of `cfg` runs it there, as `add a subscription` makes one: on the
-    harness of `left`, the entry the seat leaves, and its provider -- for a harness that runs
-    any provider it logs in to, the one the id names, `<provider>/<model>` as such a harness
-    records it -- with the mode of `left` where it has one on that provider, at the effort
-    recorded where the model takes it, else the last it takes, named from its label, and added
-    to the file and to `cfg` (config.add_model).  [] for an id that names no provider `cfg` has
-    a table for, on such a harness; a model neither its listing as held nor its `[catalog]`
-    table names, nor, for a pass, its listing as the pass asked it (config.catalog), once at
-    most into `asked` ({harness: listing}) however long the pass runs, as an id recorded for
-    an error or a fallback; or an add that fails."""
-    harness, provider = left["harness"], left["provider"]
+    harness of `left`, the entry the seat leaves, at the effort recorded where the model takes
+    it, else the last it takes, named from its label, and added to the file and to `cfg`
+    (config.add_model).  Its provider is that of `left`, with the mode of `left` where it has
+    one; for a harness that runs any provider it logs in to, the one the id names,
+    `<provider>/<model>` as such a harness records it.  Another provider than that of `left`
+    only a pass adds, where the harness lists it with a mode (config.listed_providers, once at
+    most into `asked` however long the pass runs), taken in as `add` takes it (config.take_in):
+    a login's mode is what its harness says, never what a table that came with another
+    harness's login says.  [] for an id that names no provider, or another a look meets or its
+    harness lists with no mode or not at all; a model neither its listing as held nor its
+    `[catalog]` table names, nor, for a pass, its listing as the pass asked it (config.catalog),
+    once at most into `asked`, as an id recorded for an error or a fallback; or an add that
+    fails."""
+    harness, provider, row = left["harness"], left["provider"], None
     if harness in config.provider_hosts():
         provider, named_one, _ = ran[0].partition("/")
-        if not named_one or provider not in cfg["providers"]:
+        if not named_one:
             return []
+        if provider != left["provider"]:
+            rows = [] if asked is None else _asked(     # a look waits on no listing
+                asked, (harness, "providers"), lambda: config.listed_providers(harness))
+            row = next((row for row in rows if row[0] == provider and row[2]), None)
+            if row is None:
+                return []
 
     def named(models):
         return next((model for model in models if model["id"] == ran[0]), None)
@@ -1821,9 +1831,7 @@ def _taken_in(cfg, left, ran, asked):
     # `-contributor` ones) is added however much is held, and asks nothing
     models = config.catalog_held(harness, cfg) + config.catalog_table(harness)
     if asked is not None and named(models) is None:
-        if harness not in asked:
-            asked[harness] = config.catalog(harness, cfg)
-        models = asked[harness]
+        models = _asked(asked, (harness, "models"), lambda: config.catalog(harness, cfg))
     listed = named(models)
     if listed is None:
         return []
@@ -1831,12 +1839,21 @@ def _taken_in(cfg, left, ran, asked):
     label = config.model_label(harness, ran[0], listed["label"])   # a table row's as any screen's
     entry = config.model_entry(harness, ran[0], label, provider=provider,
                                effort=ran[1] if ran[1] in levels else levels[-1],
-                               **{key: left[key] for key in ("mode",) if key in left
-                                  and left["provider"] == provider})
+                               **{key: left[key] for key in ("mode",) if key in left and not row})
     try:
-        return [config.add_model(cfg, entry, label)]
+        return [config.add_model(cfg, entry, label, row)]
     except (config.Error, OSError):
         return []
+
+
+def _asked(asked, key, ask):
+    """What `ask()` answers, asked once at most into `asked` ({key: answer}); [] for an Error."""
+    if key not in asked:
+        try:
+            asked[key] = ask()
+        except config.Error:
+            asked[key] = []
+    return asked[key]
 
 
 def cancelled(harness, name, pane):
@@ -5757,7 +5774,7 @@ def health(cfg, state, dry_run, log):
         else:
             forget(gone, resolve=False, acknowledge=False)
             sync_seen(state, load_state())
-    asked = {}      # each harness's listing, which this pass asks once at most (follow_model)
+    asked = {}      # each harness's listings, which this pass asks once at most (follow_model)
     for session in seats:
         name = session["name"]
         harness, provider = seat_model(cfg, name)

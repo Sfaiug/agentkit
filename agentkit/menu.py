@@ -4628,28 +4628,12 @@ def config_add(cfg, keyboard, through):
                 note = f"{', '.join(taken)} runs {model['id']} at {effort} already"
                 continue
             name, before = config.short_name(cfg, model["label"]), copy.deepcopy(cfg)
-            _take_in(cfg, name, config.model_entry(harness, model["id"], model["label"],
-                                                   effort=effort, provider=provider),
-                     next(row for row in listed if row[0] == provider))
+            cfg["models"][name] = entry = config.model_entry(
+                harness, model["id"], model["label"], effort=effort, provider=provider)
+            config.take_in(cfg, entry, next(row for row in listed if row[0] == provider))
             note = _saved(cfg, cfg, before)
             if not note:
                 return name
-
-
-def _take_in(cfg, name, entry, row):
-    """`entry` in `cfg` as `name`, its provider the one a harness lists as `row` (id, name,
-    mode), with that provider's table where the config has none: the shipped one where the
-    shipped default has it, else that mode under that name.  The model takes that mode as its
-    own where its provider's table says another."""
-    cfg["models"][name] = entry
-    if row[0] not in cfg["providers"]:
-        tables = config.shipped().get("providers") or {}
-        cfg["providers"][row[0]] = (copy.deepcopy(tables[row[0]]) if row[0] in tables
-                                    else {"mode": row[2], "name": row[1]})
-    # a table that came with another harness's login: Codex's plan pays for no
-    # call OpenCode makes on an OpenAI key
-    if row[2] != cfg["providers"][row[0]].get("mode", "subscription"):
-        entry["mode"] = row[2]
 
 
 def _by_label(names, label):
@@ -5308,7 +5292,7 @@ def models_page(cfg, keyboard):
     provider's table as the page opened; any other named from its label (config.short_name), at
     its harness's first model's effort, else `high`, as near as it goes (_nearest), under that
     model's provider, else one shipped to run there, or the one it is listed under, taken in
-    as `add a subscription` takes it (_take_in).  Enter on a provider logs in to it on
+    as `add a subscription` takes it (config.take_in).  Enter on a provider logs in to it on
     `keyboard`'s terminal, and its models are listed.  Saved at once."""
     full, empty = ("■", "□") if terminal.utf8() else ("#", "-")
     tables = copy.deepcopy(cfg["providers"])
@@ -5346,7 +5330,7 @@ def models_page(cfg, keyboard):
             effort=_nearest(first.get("effort", "high"), model["efforts"]),
             provider=row[0] if row else first.get("provider", runs[harness])))]
         if row and key not in gone:
-            _take_in(cfg, *entries[0], row)
+            config.take_in(cfg, entries[0][1], row)
             tables.setdefault(row[0], copy.deepcopy(cfg["providers"][row[0]]))
         for name, entry in entries:
             cfg["models"][name] = entry
