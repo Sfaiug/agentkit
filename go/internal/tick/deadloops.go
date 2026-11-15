@@ -44,7 +44,7 @@ func (t *ticking) deadLoops() error {
 		switch {
 		case !DeadLoop(dir, record, now):
 			return true
-		case scoped(record):
+		case run.Scoped(record):
 			return false // Python asks the unit whether its memory cap ended the loop, and stops it
 		case wt == "" && !(record.Str("state") == "queued" && record.Truthy("slot_waiting")):
 			return true // nothing to continue into: reap's to hand back
@@ -127,7 +127,7 @@ func (t *ticking) deadLoops() error {
 // loop not parked, past its launch's grace, its process gone and no other of the run's at work, and
 // a plan the pass acts on now, not a resume already ordered nor a backoff being waited out.
 func DeadLoop(dir string, record *run.Object, now float64) bool {
-	ending := loopDeath(record)
+	ending := run.LoopDeath(record)
 	if !run.Active(record) && !(record.Str("state") == "interrupted" && ending != nil) {
 		return false
 	}
@@ -140,27 +140,6 @@ func DeadLoop(dir string, record *run.Object, now float64) bool {
 	}
 	action, _, _ := deadPlan(record, now)
 	return action != "skip" && !working(dir)
-}
-
-// loopDeath is transitions.loop_death: the last death where it ended the loop the record names now,
-// else nil.  A resume starts a new loop and leaves the deaths as they were, so one of another pid,
-// or noted before this loop started (a pid comes round again), is an earlier loop's.
-func loopDeath(record *run.Object) *run.Object {
-	deaths := record.List("deaths")
-	if len(deaths) == 0 {
-		return nil
-	}
-	death, ok := deaths[len(deaths)-1].(*run.Object)
-	if !ok || !run.Equal(death.Get("pid"), record.Get("pid")) {
-		return nil
-	}
-	at, dated := death.Num("at")
-	if identity := record.Dict("process_identity"); identity != nil && dated {
-		if start, ok := identity.Num("started_at"); ok && at < start {
-			return nil
-		}
-	}
-	return death
 }
 
 // working is whether a process of the run outlives its recorded loop, Python's _run_working: one
@@ -209,12 +188,6 @@ func live(pid int) bool {
 	return ok && !stat.Exited()
 }
 
-// scoped is whether a unit the manager holds ran that loop (turns.scope_is_real).
-func scoped(record *run.Object) bool {
-	scope := record.Str("scope")
-	return scope != "" && !strings.HasPrefix(scope, "none")
-}
-
 // deadPlan is _dead_plan: what the tick does with a loop whose process is gone, the deaths it
 // leaves on the record and why.  `skip` is a resume already ordered or a backoff a reap's death
 // is still in, `wait` records a death and holds for the backoff, `park` is the third death
@@ -235,7 +208,7 @@ func deadPlan(record *run.Object, now float64) (string, []any, string) {
 	if len(deaths) > 0 {
 		last = deaths[len(deaths)-1].(*run.Object)
 	}
-	ending := loopDeath(record)
+	ending := run.LoopDeath(record)
 	reaped := ending != nil && !ending.Truthy("parked") && !ending.Truthy("resumed_at")
 	// the hour runs to the death being judged, not to the tick judging it
 	upto := now

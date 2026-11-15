@@ -13,7 +13,7 @@ import (
 func (t *ticking) endingsIdle() bool { return true } // this real row reads at its step
 
 // endings is offer_endings: decisions first, through the run's own hand-back, then each merge
-// question the inbox still owes. A dead running loop's reap and an interrupted one's sweep are
+// question the inbox still owes. A dead going loop's reap and an interrupted one's sweep are
 // written once every offer is known to be Go's, before any is made. Other cleanup and orphan
 // recovery remain Python's, but for the card of a seat nothing is left of (handback.Orphaned); a
 // busy seat leaves its mark pending.
@@ -29,10 +29,10 @@ func (t *ticking) endings() error {
 	var sweeps []string
 	now := epoch(t.clock())
 	carried := run.Every(func(dir string, record *run.Object) bool {
-		reaped := reapable(record, now)
+		reaped := handback.Interruptible(record, now)
 		if reaped {
 			reaps = append(reaps, ending{dir, record})
-			record = interrupted(record.Copy(), now)
+			record = handback.Interrupted(record.Copy(), now)
 		}
 		census = append(census, record)
 		if run.Active(record) {
@@ -74,8 +74,8 @@ func (t *ticking) endings() error {
 		return errLeft
 	}
 	for _, each := range reaps {
-		if err := reap(each.dir, each.record, now); err != nil {
-			return err
+		if reaped, err := handback.Interrupt(each.dir, each.record, now); err != nil || !reaped {
+			return cmp.Or(err, errLeft)
 		}
 	}
 	for _, dir := range sweeps {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -11,6 +12,64 @@ import (
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
+
+// Interruptible is whether Python's reap interrupts that record and Go carries it: a going run
+// whose loop is gone past all reap waits for (run.GoesOn), and that left nothing Go cannot stop or
+// read: no unit to ask whether its memory cap ended the loop, or to stop; no worktree for the dead
+// loops row to continue into, whose death reap records rather than tells; and no wait, whose
+// landing line Python's save of the interruption times into history.db and wakes.
+func Interruptible(record *run.Object, now float64) bool {
+	info, err := os.Stat(record.Str("worktree"))
+	return run.Active(record) && !run.GoesOn(record, now) && !run.Scoped(record) && !(err == nil && info.IsDir()) &&
+		record.Get("waiting_on") == nil && !run.Lined(record)
+}
+
+// Interrupted is the Interruptible record as that reap leaves it (transitions.interrupt), which
+// says why its loop ended: a restart of the host, a launcher that never started, or a death.
+func Interrupted(record *run.Object, now float64) *run.Object {
+	reason := "Run process exited or its identity changed."
+	if restartEnded(record) {
+		reason = "A restart of the host ended the run's loop."
+	} else if record.Str("state") == "queued" {
+		reason = "Queued launcher exited before starting work."
+	}
+	return run.SetAll(record, "state", "interrupted", "interrupted_at", now,
+		"interruption_reason", reason, "recovery_pending", true)
+}
+
+// Interrupt writes that reap of the run at dir under its recovery lock, read again: what a running
+// loop left running ended first (turns.stop_run_tree), then the record Interrupted.  False, with
+// nothing written, where the run is no longer the Interruptible record read.
+func Interrupt(dir string, read *run.Object, now float64) (bool, error) {
+	err := run.Change(dir, func(current *run.Object) error {
+		if !run.Equal(current, read) || !Interruptible(current, now) {
+			return errMoved
+		}
+		if current.Str("state") == "running" {
+			stopTree(current)
+		}
+		Interrupted(current, now)
+		return nil
+	})
+	if errors.Is(err, errMoved) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// restartEnded is transitions.restart_ended: whether a restart of the host, not a death of its own,
+// ended the loop the record names: its death says so and was not resumed, or with none noted, the
+// loop started under another boot than this one.
+func restartEnded(record *run.Object) bool {
+	if ending := run.LoopDeath(record); ending != nil {
+		return ending.Truthy("restart") && !ending.Truthy("resumed_at")
+	}
+	boot := ""
+	if identity := record.Dict("process_identity"); identity != nil {
+		boot = identity.Str("boot")
+	}
+	return boot != "" && host.BootID() != "" && boot != host.BootID()
+}
 
 // Reapable is whether Python's reap of the record is a sweep Go carries out and nothing more: one
 // Sweepable whose recovery was told, so notify_recovery says nothing.
@@ -63,9 +122,7 @@ func sweep(dir string, record *run.Object) error {
 	if swept(record) {
 		return nil
 	}
-	if id := record.Str("run_id"); id != "" {
-		host.EndMarked(filepath.Join(run.Runs(), id), io.Discard)
-	}
+	stopTree(record)
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
 		return err
@@ -75,6 +132,14 @@ func sweep(dir string, record *run.Object) error {
 		return errUnstamped
 	}
 	return nil
+}
+
+// stopTree ends the processes the run's loop left behind, which carry its marker
+// (turns.stop_run_tree); a unit it ran in is Python's to stop.
+func stopTree(record *run.Object) {
+	if id := record.Str("run_id"); id != "" {
+		host.EndMarked(filepath.Join(run.Runs(), id), io.Discard)
+	}
 }
 
 // loop is what tells one activation of a run from the next, which a sweep is stamped with.
