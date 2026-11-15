@@ -39,7 +39,7 @@ func MenuRead(now time.Time) (Home, bool) {
 	kept, plans := judging(held), plan.OneLook()
 	read := func() (Home, bool) { return reading(now, true, func([]string) judges { return kept }, nil, plans) }
 	home, known := read()
-	if !known || home.outOfUsage(runs, now) {
+	if !known || spentRuns(runs) {
 		return Home{}, false
 	}
 	wrote, known := menuProjects(runs, projects)
@@ -49,7 +49,6 @@ func MenuRead(now time.Time) (Home, bool) {
 	if !known {
 		return Home{}, false
 	}
-	home.drawn = true
 	return home, true
 }
 

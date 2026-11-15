@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
@@ -27,6 +28,9 @@ func (seat Seat) Checkout() string {
 
 // Unsent is what nobody sent, left in its composer.
 func (seat Seat) Unsent() string { return seat.unsent }
+
+// Back is when one out of usage comes back, as its row and bar say it (backAt).
+func (seat Seat) Back(now time.Time) string { return backAt(seat.back, now) }
 
 // ModelName is the model it runs at the effort it orchestrates at (config.ModelAt), and alone; `-`
 // where no record names one (menu.row).

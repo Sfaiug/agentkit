@@ -53,10 +53,7 @@ func (l List) Frame(s terminal.Screen, h Highlight) Frame {
 // answer means dim, then `✓ Keep`, which the highlight starts on, and `× <answer>` in the warn
 // colour, Enter named for the one lit.
 func Confirm(s terminal.Screen, title, clock, question, meaning, answer string) List {
-	keep, end := "✓ Keep", "× "+answer
-	if s.ASCII() {
-		keep, end = "v Keep", "x "+answer
-	}
+	keep, end := choices(s, answer)
 	card := []string{""}
 	for i, text := range []string{question, meaning} {
 		for _, line := range terminal.Wrap(text, s.LayoutWidth()-2) {
@@ -69,4 +66,9 @@ func Confirm(s terminal.Screen, title, clock, question, meaning, answer string) 
 	return List{Title: title, Clock: clock, Over: card, Under: []string{""}, Choices: []string{"Keep", answer}, Warn: answer,
 		Text:  func(choice string) string { return map[string]string{"Keep": keep, answer: end}[choice] },
 		Enter: strings.ToLower}
+}
+
+// choices are that card's two, each marked as a state is: `✓ Keep` done's and `× <answer>` FAIL's.
+func choices(s terminal.Screen, answer string) (keep, end string) {
+	return s.Glyph("done") + " Keep", s.Glyph("FAIL") + " " + answer
 }

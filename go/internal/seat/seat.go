@@ -74,7 +74,6 @@ type Home struct {
 	readers recordReaders
 	runs    readsRuns // what it read its seats' runs by, which a look at one of them reads them by again
 	found   judges    // the runs it found, which a dead-pane seat's announce judges again by its lock's clock
-	drawn   bool      // the ak screen draws it (MenuRead), where a seat out of usage is Python's to draw
 }
 
 type recordReaders map[string]harness.Reader

@@ -262,12 +262,8 @@ func throughChoices(s terminal.Screen, host string, listed []modelListing.Provid
 
 // marked is the names a model or effort runs under already, after a tick (menu._marked).
 func marked(s terminal.Screen, names []string) string {
-	tick := "✓"
-	if s.ASCII() {
-		tick = "v"
-	}
 	if len(names) == 0 {
 		return ""
 	}
-	return tick + " " + strings.Join(names, ", ")
+	return s.Glyph("done") + " " + strings.Join(names, ", ")
 }
