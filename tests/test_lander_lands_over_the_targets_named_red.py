@@ -42,8 +42,9 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
     wait = fixture.Lander.wait
 
     def line(self, **broken):
-        """Three members, the third failing test_acme.py, then the target `broken`: test_widget.py
-        fails where broken.txt or worse.txt is, test_acme.py where acme.txt is."""
+        """Three members, the third failing test_acme.py on top of the second, then the target
+        `broken`: test_widget.py fails where broken.txt or worse.txt is, test_acme.py where
+        acme.txt is."""
         (self.repo / "tests").mkdir()
         for test, marks in ((WIDGET, ("broken.txt", "worse.txt")), (ACME, ("acme.txt",))):
             (self.repo / test).write_text(
@@ -54,7 +55,8 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
         self.base = run.git(self.repo, "rev-parse", "HEAD")
         members = (self.member("first", 1, **{"first.txt": "first\n"}),
                    self.member("second", 2, **{"second.txt": "second\n"}),
-                   self.member("third", 3, **{ACME: "raise SystemExit(1)\n"}))
+                   self.member("third", 3, **{
+                       ACME: "import os\nraise SystemExit(os.path.exists('second.txt'))\n"}))
         self.advance(**broken)
         self.stack.enter_context(patch.object(gate, "derived_heavy_limit", return_value=2))
         return members
@@ -101,7 +103,8 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
     def test_a_fix_given_before_the_red_was_found_is_told_of_it(self):
         first, second, third = self.line()
         land.check_line(self.turn)      # the target green: the third's own red, behind the two
-        self.assertEqual(self.wait(third)["fix"]["tests"], [ACME])
+        wait = self.wait(third)
+        self.assertEqual((wait["fix"]["tests"], list(wait["after"])), ([ACME], ["first", "second"]))
         self.advance(**{"broken.txt": "target breakage\n"})
         self.rejoin(first, second)
         land.check_line(self.turn)
