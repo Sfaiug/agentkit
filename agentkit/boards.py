@@ -1,17 +1,18 @@
 """The public boards ak rates models on (`quality`), each asked at most once a day and kept in
 `state/boards.json`.
 
-Artificial Analysis, a page of its site (`AA_PAGE`), no key: per model and effort, every
-benchmark's score, index, price and cost the page hands its scripts, which its free endpoint
-leaves out, and the record's identity (`IDENTITY`) for `catalog`.  Arena, its leaderboard's
-Hugging Face dataset, no key: each board `quality` rates on at its category (`arena_boards`),
-with its 95% interval as `<column>.lower95ci` and `<column>.upper95ci`, no row of a model run
-inside another harness.  `ak models --refresh` asks again before the day is up; a board
-that cannot answer keeps what it last said, its error beside it, and waits for the day like one
-that answered.  A board another build of ak read is asked again, once, by a build reading a
-column its rows carry none of, or rows lacking the identity this build's reader gives them: its
-reader changed, and a day of nothing is stale state; so is a board held from a build before its
-reader gave `ADDED`.  A board ak no longer reads leaves the cache at its next write.
+Artificial Analysis, its models list and each listed release's own page, no key: per model
+and effort, every benchmark's score, index, price and cost those pages hand their scripts,
+which its free endpoint leaves out, and the record's identity (`IDENTITY`) for `catalog`.
+Arena, its leaderboard's Hugging Face dataset, no key: each board `quality` rates on at its
+category (`arena_boards`), with its 95% interval as `<column>.lower95ci` and
+`<column>.upper95ci`, no row of a model run inside another harness.  `ak models --refresh` asks
+again before the day is up; a board that cannot answer keeps what it last said, its error
+beside it, and waits for the day like one that answered.  A board another build of ak read is
+asked again, once, by a build reading a column its rows carry none of, or rows lacking the
+identity this build's reader gives them: its reader changed, and a day of nothing is stale
+state; so is a board held from a build before its reader gave `ADDED`.  A board ak no longer
+reads leaves the cache at its next write.
 Callers at once share one collection: each writer of `state/boards.json` holds
 `boards.lock` from reading it to replacing it.  A board's row is one model at one effort (`Acme
 5 (max)` is Acme 5 at max, `Acme 5 (Max, Default Fallback)` is Acme 5 (Default Fallback) at
@@ -26,6 +27,7 @@ leaderboard-dataset, CC-BY-4.0.
 import contextlib
 import fcntl
 import json
+import os
 import re
 import time
 import urllib.error
@@ -39,8 +41,7 @@ TIMEOUT = 30             # seconds one request may take
 PACE = 1                 # seconds between two asks of one host: a day's asks are a few dozen
 RETRIES = (2, 4)         # seconds before asking again after a server error, each in turn
 _ASKED = {}              # host -> when it was last asked, on the monotonic clock
-# a retired model's page carries every model's record whole
-AA_PAGE = "https://artificialanalysis.ai/models/gpt-35-turbo"
+AA_SITE = "https://artificialanalysis.ai"      # `AK_AA_URL` stands in for it
 # where a page's script data holds a model's record, and the strings that data comes in
 AA_RECORD = re.compile(r'\{"id":"[0-9a-f-]{36}","slug":"[^"]+","name":"')
 AA_CHUNK = re.compile(r'self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)')
@@ -127,24 +128,38 @@ def _numbers(entry, prefix, into):
                     _numbers(table, f"{prefix}.{field}.{table['slug']}", into)
 
 
-def artificial_analysis():
-    """Artificial Analysis's rows, one per model and effort, every number its page gives as
-    `aa.*` beside the record's `IDENTITY`: each model's record in the data `AA_PAGE` hands its
-    scripts, one per slug.  A page with no model's record is a ValueError: the site changed,
-    and the board keeps what it last said."""
-    page = fetch_bytes(AA_PAGE).decode("utf-8", "replace")
+def _records(url, into):
+    """Each model's record in the data the page at `url` hands its scripts into `into`, by slug,
+    every field it gives a value over what another page gave; their releases' slugs, in order."""
+    page = fetch_bytes(url).decode("utf-8", "replace")
     data = "".join(json.loads(chunk) for chunk in AA_CHUNK.findall(page))
-    records = {}
+    releases = {}
     for match in AA_RECORD.finditer(data):
         try:
             record = json.JSONDecoder().raw_decode(data, match.start())[0]
         except ValueError:
             continue
         if "release" in record:           # a model's, not its maker's
-            records.setdefault(record["slug"], {}).update(
+            into.setdefault(record["slug"], {}).update(
                 {field: value for field, value in record.items() if value is not None})
-    if not records:
-        raise ValueError(f"no model's record on {AA_PAGE}")
+            releases[record["release"]["slug"]] = None
+    return list(releases)
+
+
+def artificial_analysis():
+    """Artificial Analysis's rows, one per model and effort, every number its pages give as
+    `aa.*` beside the record's `IDENTITY`: one per slug of the records `/models` hands its
+    scripts, a release each at its top effort, and those each of their releases' own page hands,
+    that release at every effort and others.  A page that will not load, `/models` with no
+    model's record or a release's page with none of that release fails the whole read: the
+    board keeps what it last said, since one missing some models would look whole."""
+    site, records = os.environ.get("AK_AA_URL", AA_SITE), {}
+    listed = _records(f"{site}/models", records)
+    if not listed:
+        raise ValueError(f"no model's record on {site}/models")
+    for release in listed:
+        if release not in _records(f"{site}/models/{release}", records):
+            raise ValueError(f"no record of {release} on {site}/models/{release}")
     rows = []
     for record in records.values():
         name, effort = split_effort(str(record["name"]))
