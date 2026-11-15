@@ -53,9 +53,10 @@ func recordCrew(record *run.Object, models map[string]config.Model) (string, str
 	return crew(record.Get("workers"), models)
 }
 
-// SaveMarks applies a mark to the current selection under Python's record lock, so another
-// menu's changes survive it. A model the seat takes on gets its entry's efforts once.
-func SaveMarks(name string, mark func(*run.Object) (*run.Object, string)) (*run.Object, error) {
+// SaveMarks applies a mark, a flip's or a take's, to the current selection under Python's record
+// lock, and each of steps, a take's effort, in the same write, so another menu's changes survive
+// it. A model the seat takes on gets its entry's efforts once.
+func SaveMarks(name string, mark func(*run.Object) (*run.Object, string), steps ...Step) (*run.Object, error) {
 	current, _, err := config.ResolveSession(name)
 	if err != nil {
 		return nil, err
@@ -80,6 +81,9 @@ func SaveMarks(name string, mark func(*run.Object) (*run.Object, string)) (*run.
 		changed := set([]field{{"workers", selected.Get("workers")}, {"reviewers", selected.Get("reviewers")}})(data)
 		if changed {
 			ownEfforts(data, current, models)
+		}
+		for _, step := range steps {
+			changed = step.on(data, models[step.Model]) || changed
 		}
 		saved = data.Copy()
 		return changed

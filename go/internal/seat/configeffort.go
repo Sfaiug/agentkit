@@ -21,21 +21,7 @@ func SaveEffort(name, model, key, word string) (*run.Object, error) {
 	}
 	var saved *run.Object
 	err = update(filepath.Join(config.Home(), "state"), current, func(data *run.Object) bool {
-		efforts := run.NewObject()
-		if held := data.Dict("efforts"); held != nil {
-			efforts = held.Copy()
-		}
-		own := entryEfforts(entry)
-		if held := efforts.Dict(model); held != nil {
-			own = held.Copy()
-		}
-		own.Set(key, word)
-		if word == own.Str("effort") {
-			own.Delete(key)
-		}
-		efforts.Set(model, own)
-		changed := !run.Equal(efforts, data.Get("efforts"))
-		data.Set("efforts", efforts)
+		changed := Step{model, key, word}.on(data, entry)
 		saved = data.Copy()
 		return changed
 	})
@@ -43,6 +29,31 @@ func SaveEffort(name, model, key, word string) (*run.Object, error) {
 		err = fmt.Errorf("%s has no saved models", name)
 	}
 	return saved, err
+}
+
+// A Step is Model's own Key, `exec_effort` or `review_effort`, at Effort; "", or its effort,
+// following its effort (Python's menu._set_effort).
+type Step struct{ Model, Key, Effort string }
+
+// on sets step on data's efforts, the model's own where it holds them, else entry's: whether that
+// changed them.
+func (step Step) on(data *run.Object, entry config.Model) bool {
+	efforts := run.NewObject()
+	if held := data.Dict("efforts"); held != nil {
+		efforts = held.Copy()
+	}
+	own := entryEfforts(entry)
+	if held := efforts.Dict(step.Model); held != nil {
+		own = held.Copy()
+	}
+	own.Set(step.Key, step.Effort)
+	if step.Effort == "" || step.Effort == own.Str("effort") {
+		own.Delete(step.Key)
+	}
+	efforts.Set(step.Model, own)
+	changed := !run.Equal(efforts, data.Get("efforts"))
+	data.Set("efforts", efforts)
+	return changed
 }
 
 // KeepConfigEfforts is Python's save's record preparation, before config.toml is replaced.
