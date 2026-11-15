@@ -241,8 +241,8 @@ var entries = map[string]entry{
 		"ak move acme-mini",
 	},
 	"standby": {
-		"usage: ak standby ALIAS",
-		"On a client of ALIAS, copy from that home to the same paths here each harness's logins,\nevery account's, and the folders its conversations are in, then ak's folder but its runs\nand checkouts.  It sends what changed, compressed, and what the home deleted in those\nfolders goes here too; a login or folder the home lacks stays here.  This machine keeps\nthe rest of each harness's folders, and its own record of its server, ak's tmp folder,\nak's repository and its versions.  Refused on any other machine, or if a link here is\nat one of those kept or left out, at a folder between it and ak's folder, or at a\nfolder between HOME and a harness's login or conversations.",
+		"usage: ak standby [ALIAS]",
+		"On a client of ALIAS, keep this machine's crontab job that does this every three minutes,\nthen copy from that home to the same paths here each harness's logins, every account's,\nand the folders its conversations are in, then ak's folder but its runs and checkouts.\nIt sends what changed, compressed, and what the home deleted in those folders goes here\ntoo; a login or folder the home lacks stays here.  This machine keeps the rest of each\nharness's folders, and its own record of its server, ak's tmp folder, ak's repository and\nits versions.  Refused on any other machine, or if a link here is at one of those kept or\nleft out, at a folder between it and ak's folder, or at a folder between HOME and a\nharness's login or conversations; one while a pass is under way copies nothing.  Without\nALIAS, show the home this machine copies and the copy's age, from when the last pass that\nended well began: exit 1 if none from that home has.",
 		"ak standby acme-mini",
 	},
 }

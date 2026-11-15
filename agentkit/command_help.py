@@ -229,15 +229,18 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
              "Refused if ALIAS is this machine, its home has another path, its crontab holds ak's\n"
              "tick or fails, or one of those kept is a link or under one on either machine.",
              "ak move acme-mini"),
-    "standby": ("usage: ak standby ALIAS",
-                "On a client of ALIAS, copy from that home to the same paths here each harness's logins,\n"
-                "every account's, and the folders its conversations are in, then ak's folder but its runs\n"
-                "and checkouts.  It sends what changed, compressed, and what the home deleted in those\n"
-                "folders goes here too; a login or folder the home lacks stays here.  This machine keeps\n"
-                "the rest of each harness's folders, and its own record of its server, ak's tmp folder,\n"
-                "ak's repository and its versions.  Refused on any other machine, or if a link here is\n"
-                "at one of those kept or left out, at a folder between it and ak's folder, or at a\n"
-                "folder between HOME and a harness's login or conversations.",
+    "standby": ("usage: ak standby [ALIAS]",
+                "On a client of ALIAS, keep this machine's crontab job that does this every three minutes,\n"
+                "then copy from that home to the same paths here each harness's logins, every account's,\n"
+                "and the folders its conversations are in, then ak's folder but its runs and checkouts.\n"
+                "It sends what changed, compressed, and what the home deleted in those folders goes here\n"
+                "too; a login or folder the home lacks stays here.  This machine keeps the rest of each\n"
+                "harness's folders, and its own record of its server, ak's tmp folder, ak's repository and\n"
+                "its versions.  Refused on any other machine, or if a link here is at one of those kept or\n"
+                "left out, at a folder between it and ak's folder, or at a folder between HOME and a\n"
+                "harness's login or conversations; one while a pass is under way copies nothing.  Without\n"
+                "ALIAS, show the home this machine copies and the copy's age, from when the last pass that\n"
+                "ended well began: exit 1 if none from that home has.",
                 "ak standby acme-mini"),
 }
 
