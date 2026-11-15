@@ -4,6 +4,11 @@ Black-box: the program `AK_BIN` names runs a task to its merge through tests/fix
 against the bare origin of gitrig.py and the GitHub of fakegh.py.  The executor's summary is
 longer than a PR description may be, so the description ak opened is already cut, and the
 section added after the merge must cut it again rather than be cut itself.
+
+Owner, 15 Nov 2026: only a squash or merge commit ak's own call made gets the line.  A rebase
+merge, a PR its maintainer merges and one found merged after ak's call failed get none: there
+ak cannot be sure one command undoes the whole PR.  Of November's 2,128 merges all were squashes
+by ak's own call, none a rebase or a maintainer's.
 """
 
 import json

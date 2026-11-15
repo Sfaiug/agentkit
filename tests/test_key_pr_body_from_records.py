@@ -1,4 +1,9 @@
-"""A PR ak opens starts with the task and recorded checks; the executor's words come last."""
+"""A PR ak opens starts with the task and recorded checks; the executor's words come last.
+
+Owner, 15 Nov 2026: the checks are listed once, as having passed together.  A line per check
+with its own exit is not built: a change merges only when every check passed, so each would
+read `exit 0`.
+"""
 
 import json
 import sys
