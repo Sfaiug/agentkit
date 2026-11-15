@@ -29,7 +29,7 @@ func (t *ticking) endings() error {
 	var sweeps []string
 	now := epoch(t.clock())
 	carried := run.Every(func(dir string, record *run.Object) bool {
-		reaped := handback.Interruptible(record, now)
+		reaped := handback.Interruptible(dir, record, now)
 		if reaped {
 			reaps = append(reaps, ending{dir, record})
 			record = handback.Interrupted(record.Copy(), now)

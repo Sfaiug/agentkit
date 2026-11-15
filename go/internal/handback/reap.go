@@ -13,15 +13,16 @@ import (
 	"agentkit/internal/run"
 )
 
-// Interruptible is whether Python's reap interrupts that record and Go carries it: a going run
-// whose loop is gone past all reap waits for (run.GoesOn), and that left nothing Go cannot stop or
-// read: no unit to ask whether its memory cap ended the loop, or to stop; no worktree for the dead
+// Interruptible is whether Python's reap interrupts the record of the run at dir and Go carries it:
+// a going run whose loop is gone past all reap waits for (run.GoesOn), and that left nothing to stop
+// or that Go cannot read: no process of the run still running, which reap would stop or leave at
+// work; no unit to ask whether its memory cap ended the loop, or to stop; no worktree for the dead
 // loops row to continue into, whose death reap records rather than tells; and no wait, whose
 // landing line Python's save of the interruption times into history.db and wakes.
-func Interruptible(record *run.Object, now float64) bool {
+func Interruptible(dir string, record *run.Object, now float64) bool {
 	info, err := os.Stat(record.Str("worktree"))
-	return run.Active(record) && !run.GoesOn(record, now) && !run.Scoped(record) && !(err == nil && info.IsDir()) &&
-		record.Get("waiting_on") == nil && !run.Lined(record)
+	return run.Active(record) && !run.GoesOn(record, now) && len(host.Marked(dir)) == 0 && !run.Scoped(record) &&
+		!(err == nil && info.IsDir()) && record.Get("waiting_on") == nil && !run.Lined(record)
 }
 
 // Interrupted is the Interruptible record as that reap leaves it (transitions.interrupt), which
@@ -37,16 +38,12 @@ func Interrupted(record *run.Object, now float64) *run.Object {
 		"interruption_reason", reason, "recovery_pending", true)
 }
 
-// Interrupt writes that reap of the run at dir under its recovery lock, read again: what a running
-// loop left running ended first (turns.stop_run_tree), then the record Interrupted.  False, with
-// nothing written, where the run is no longer the Interruptible record read.
+// Interrupt writes that reap of the run at dir under its recovery lock, read again: the record
+// Interrupted.  False, with nothing written, where the run is no longer the Interruptible record read.
 func Interrupt(dir string, read *run.Object, now float64) (bool, error) {
 	err := run.Change(dir, func(current *run.Object) error {
-		if !run.Equal(current, read) || !Interruptible(current, now) {
+		if !run.Equal(current, read) || !Interruptible(dir, current, now) {
 			return errMoved
-		}
-		if current.Str("state") == "running" {
-			stopTree(current)
 		}
 		Interrupted(current, now)
 		return nil
@@ -122,7 +119,9 @@ func sweep(dir string, record *run.Object) error {
 	if swept(record) {
 		return nil
 	}
-	stopTree(record)
+	if id := record.Str("run_id"); id != "" {
+		host.EndMarked(filepath.Join(run.Runs(), id), io.Discard)
+	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
 		return err
@@ -132,14 +131,6 @@ func sweep(dir string, record *run.Object) error {
 		return errUnstamped
 	}
 	return nil
-}
-
-// stopTree ends the processes the run's loop left behind, which carry its marker
-// (turns.stop_run_tree); a unit it ran in is Python's to stop.
-func stopTree(record *run.Object) {
-	if id := record.Str("run_id"); id != "" {
-		host.EndMarked(filepath.Join(run.Runs(), id), io.Discard)
-	}
 }
 
 // loop is what tells one activation of a run from the next, which a sweep is stamped with.

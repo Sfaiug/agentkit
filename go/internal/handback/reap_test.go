@@ -37,7 +37,7 @@ func TestAGoingRunWithNoProcessIsInterrupted(t *testing.T) {
 			t.Fatal("cannot plant ", dir)
 		}
 		read, _ := run.Read(dir)
-		if reaped, err := Interrupt(dir, read, now); !Interruptible(read, now) || !reaped || err != nil {
+		if reaped, err := Interrupt(dir, read, now); !Interruptible(dir, read, now) || !reaped || err != nil {
 			t.Fatalf("%s was not reaped: %v", dir, err)
 		}
 		after, _ := run.Read(dir)
