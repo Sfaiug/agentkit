@@ -1188,11 +1188,11 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
             if meter in gating and (used or 0) >= 100 and not (
                     _number(meter.get("window_secs")) in (SESSION_SECS, None)
                     and until - now > SESSION_SECS):
-                shown.append((end, meter["name"]))
+                shown.append((end, meter["name"], _identity(meter)))
     if not said and not shown:
         until = min(until, now + DRY_FOR)
-    by = max(shown, default=(0, None))[1]
-    named = [by] if by else [meter["name"] for meter in gating]
+    _, by, showed = max(shown, key=lambda each: each[:2], default=(0, None, None))
+    named = [showed] if by else [_identity(meter) for meter in gating]
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
                                           "exhausted_used": levels, "exhausted_by": by,
@@ -1459,21 +1459,28 @@ def _gating_meters(cfg, name, providers):
     return [m for m in meters if m.get("scope") or m["name"] not in claimed], PROVIDER_METERS
 
 
+def _identity(meter):
+    """Which cap a meter is: its name and whose it is, for two caps of different scopes may
+    share a name."""
+    return [meter.get("name"), meter.get("scope")]
+
+
 def _parks(cfg, name, prov, mark):
     """Whether the refusal `mark` on `prov`, a reading of this model's provider, can have been
     meant for this model: each meter it can have come from (`mark_exhausted`) gates it too.
 
-    The mark names meters, not the model refused, so it reads whatever config.toml says whose
-    each meter is by now.  One naming none -- made without a model, or before marks named
-    any -- or a meter this reading no longer holds parks every model: whose it was, nobody knows.
+    The mark names meters (`_identity`), not the model refused, so it reads whatever config.toml
+    says whose each meter is by now.  One naming none -- made without a model, or before marks
+    named them so -- or a meter this reading no longer holds parks every model: whose it was,
+    nobody knows.
     """
     recorded = mark.get("exhausted_meters")
     meters = [m for m in prov.get("meters") or [] if isinstance(m, dict)]
-    if not isinstance(recorded, list) or not set(recorded) <= {m.get("name") for m in meters}:
+    if not isinstance(recorded, list) or any(r not in map(_identity, meters) for r in recorded):
         return True
     provider = config.model(cfg, name)["provider"]
-    return set(recorded) <= {m["name"] for m in
-                             _gating_meters(cfg, name, {provider: {"meters": meters}})[0]}
+    gating = _gating_meters(cfg, name, {provider: {"meters": meters}})[0]
+    return all(r in map(_identity, gating) for r in recorded)
 
 
 def model_pace(cfg, name, providers):
