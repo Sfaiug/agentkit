@@ -65,10 +65,14 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	// its row, out of the slots lock, as Python's capture_launch writes it
 	history.Start(record, nil)
 	return func() error {
-		// General host admission is still Python's. Keep its queued receipt, not an
-		// error ending, if the gates changed since this run's own launch.
+		// General host admission is still Python's, and so is a run Go's driver would end in
+		// error before its first turn. Keep its queued receipt, not an error ending, for
+		// Python's tick.
 		if os.Getenv("AK_MAX_RUNS") != "0" {
 			return fmt.Errorf("queued for Python's host admission")
+		}
+		if err := Drivable(bound, policy); err != nil {
+			return fmt.Errorf("queued for Python's tick: %w", err)
 		}
 		held, err := HoldSlots(context.Background())
 		if err != nil {
