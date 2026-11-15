@@ -19,13 +19,19 @@ import (
 // gives it is recorded; else the line naming it goes in at its quiet prompt, its try recorded the
 // moment its text is in, and the title is the seat's once that line left the composer and the
 // conversation names it, or names nothing where the harness says an unread title confirms it.
-// False, nothing written, where its record holds a send already, to retry or retire: the look
-// takes a send on the record for this pass's own.  Any other seat's title is left as it is, which
-// its look leaves to Python.
+// False, nothing written, where the record of a seat up holds a send already, of any harness, to
+// retry or retire: the look takes a send on the record for this pass's own.  Any other seat's
+// title is left as it is, which its look leaves to Python.
 func SyncTitle(name string, log func(string)) (bool, error) {
+	if !Watching(name) {
+		return true, nil
+	}
+	if record := sessionRecord(name); record != nil && record.Get("title_sync") != nil {
+		return false, nil
+	}
 	own, _ := seatHarness(name)
 	line, unreadable := harness.TitleLine(own, name)
-	if line == "" || !Watching(name) {
+	if line == "" {
 		return true, nil
 	}
 	pane, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{"+tmux.HarnessPane+"}")
@@ -34,20 +40,18 @@ func SyncTitle(name string, log func(string)) (bool, error) {
 	}
 	// sync_title types at the session's selected pane: Go types only where that is the harness's
 	// own, and into that pane alone, so a pane the owner selects meanwhile is never renamed
-	selected, _, _, found := linePane(name, "")
-	ours := found && selected == pane
+	if selected, _, _, found := linePane(name, ""); !found || selected != pane {
+		return true, nil
+	}
 	named := []field{{"session_title", name}, {"title_sync", nil}}
 	var conversation any
-	carried, send := true, false
+	send := false
 	err = titleHeld(name, own, func(record *run.Object, title any) []field {
 		conversation = record.Get("conversation")
 		switch {
-		case record.Get("title_sync") != nil:
-			carried = false
-			return nil
-		case !ours, record.Has("title_conversation") && !run.Equal(record.Get("title_conversation"), conversation),
+		case record.Has("title_conversation") && !run.Equal(record.Get("title_conversation"), conversation), record.Get("title_sync") != nil,
 			title != nil && (slices.Contains(record.List("title_superseded"), title) || title != "" && title != name && title != record.Get("session_title")):
-			return nil // a send to retire, a title to replace or one to follow is Python's
+			return nil // a send to retire or retry, a title to replace or one to follow is Python's
 		case record.Get("session_title") == name:
 			return nil
 		case title == name:
@@ -57,7 +61,7 @@ func SyncTitle(name string, log func(string)) (bool, error) {
 		return nil
 	})
 	if err != nil || !send {
-		return carried, err
+		return true, err
 	}
 	var attempt any // the try, once its text is in
 	stale := func(current string) bool {
