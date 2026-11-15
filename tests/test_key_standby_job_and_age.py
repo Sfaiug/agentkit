@@ -23,7 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import boxable
 from fixtures.twohomes import Machines
 
-TABLE = b"# the owner's\n\n0 4 * * * /usr/bin/true # caf\xe9\n"     # every byte of it kept
+# every byte of it kept, the line that names the job's mark too
+TABLE = (b"# the owner's\n\n0 4 * * * /usr/bin/true # caf\xe9\n"
+         b"0 5 * * * echo '# agentkit standby' is watched >/dev/null\n")
 STATE = ".agentkit/state/watch.json"     # the home's, which a pass copies
 PASSED = "1789000000 10000 acme-boot-1"      # this machine's clocks at its pass
 SET_BACK = "1788996400 10600 acme-boot-1"    # ten minutes on since boot, the wall an hour back

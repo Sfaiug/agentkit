@@ -38,7 +38,7 @@ GOES = 3        # a go during which files vanished on the home leaves their old 
 # a pass holds, which the kernel lets go of when the pass ends, however it ends.
 FOLDER = config.TMP / "standby"
 COPIED, LOCK = FOLDER / "copied", FOLDER / "lock"
-TAG = b"# agentkit standby"     # ends the job's line in the crontab
+TAG = b"# agentkit standby"     # what the job's line in the crontab ends in
 
 
 def _harnesses():
@@ -60,7 +60,7 @@ def _cron_word(word):
 
 
 def _keep_job(alias):
-    """Keep the crontab's one line carrying TAG: the pass from `alias` every three minutes, on
+    """Keep the crontab's one line ending in TAG: the pass from `alias` every three minutes, on
     the PATH this one runs on, its output kept nowhere.  The other lines stay byte for byte.
     Whether it is kept."""
     path, ak, alias = map(_cron_word, (os.pathsep.join(os.get_exec_path()),
@@ -68,14 +68,15 @@ def _keep_job(alias):
     job = f"*/3 * * * * export PATH={path}; {ak} standby {alias} >/dev/null 2>&1 ".encode()
     table = subprocess.run(["crontab", "-l"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                            stderr=subprocess.DEVNULL)
-    # every crontab exits 1 for an account with no table yet; any other failure is a table
-    # writing would replace
+    # every crontab exits 1 for an account with no table yet, and only its words, which ak never
+    # reads, tell a read that failed from that; any other failure is a table writing would replace
     if table.returncode not in (0, 1):
         print("ak standby: the crontab could not be read, so no pass is made; `crontab -l` says "
               "why", file=sys.stderr)
         return False
     rows = table.stdout.removesuffix(b"\n").split(b"\n") if table.stdout else []
-    wanted = b"".join(row + b"\n" for row in rows if TAG not in row) + job + TAG + b"\n"
+    wanted = b"".join(row + b"\n" for row in rows
+                      if not row.rstrip().endswith(TAG)) + job + TAG + b"\n"
     if wanted != table.stdout and subprocess.run(["crontab", "-"], input=wanted).returncode:
         print("ak standby: the crontab refused this machine's job, so no pass is made",
               file=sys.stderr)
@@ -166,5 +167,8 @@ def main(argv):
         began = pair_clock.now()
         if _copy(alias, home, copied):
             return 1
-        COPIED.write_text(f"{began.line()}\n{alias}\n")
+        # whole or not at all: a write cut short leaves the last stamp
+        new = COPIED.with_name("copied.new")
+        new.write_text(f"{began.line()}\n{alias}\n")
+        new.replace(COPIED)
     return 0
