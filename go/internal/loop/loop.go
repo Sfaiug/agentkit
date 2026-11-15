@@ -281,6 +281,7 @@ func Drive(dir string) int {
 
 // drive is the run at dir driven by this process, job its work once the run is adopted.
 func drive(dir string, job func(*loop) error) (code int) {
+	defer wakesUnderWay.Wait() // last: the next delivery's wake hands its run on (landFromLine)
 	defer func() {
 		if failure := recover(); failure != nil {
 			code = End(dir, fmt.Sprintf("the driver failed: %v", failure))

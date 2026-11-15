@@ -100,3 +100,48 @@ func TestALanderOutlivesTheWakesItStarts(t *testing.T) {
 		t.Error("the lander ended before its wake did")
 	}
 }
+
+// A green line wakes only its head, its first green delivery, and that only while it waits with no
+// process of its own: the delivery under way keeps the turn, and its end passes it to the next.
+func TestOnlyTheLinesHeadIsWokenToDeliver(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	line := ".merge-acme.lock"
+	for joined, name := range []string{"fix-1", "fix-2"} {
+		dir := filepath.Join(run.Runs(), name)
+		// A directory at its log refuses the wake before it can spawn this test binary.
+		if err := os.MkdirAll(filepath.Join(dir, "log.txt"), 0o777); err != nil {
+			t.Fatal(err)
+		}
+		wait := run.Fields("line", line, "joined", joined, "land", "tree-"+name)
+		if err := run.Create(dir, run.Fields("state", "waiting", "waiting_on", wait)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := filepath.Join(run.Runs(), "fix-1")
+	woken := func(but string) []string {
+		var said bytes.Buffer
+		deliverNext(line, but, &said)
+		var names []string
+		for _, found := range regexp.MustCompile(`could not resume (\S+):`).FindAllStringSubmatch(said.String(), -1) {
+			names = append(names, found[1])
+		}
+		return names
+	}
+	if got := woken(""); !slices.Equal(got, []string{"fix-1"}) {
+		t.Fatalf("woke %v, want the head alone", got)
+	}
+	if err := run.Change(first, func(record *run.Object) error {
+		run.SetAll(record, "state", "running", "pid", os.Getpid(), "process_identity", Identity(os.Getpid()))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := woken(""); len(got) != 0 {
+		t.Fatalf("woke %v while the head delivers, want none", got)
+	}
+	if got := woken(first); !slices.Equal(got, []string{"fix-2"}) {
+		t.Fatalf("woke %v as the head's delivery ended, want the one behind it", got)
+	}
+}
