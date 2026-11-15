@@ -74,15 +74,14 @@ func deployment(passed bool) string {
 	return "the live product does not run this merge yet"
 }
 
-// reverting is after_merge_revert up to where a revert starts: only the newest merge whose
-// deployment passes now, probed once a round, may undo a broken live release, once its health has
-// failed revertFailures times in a row and revertGrace has passed since its deployment.  That
-// revert, or the schema change named instead, is the next milestones': errLeft there, its
-// deployment written first, as Python's is.  A project's own rollback leaves none deployed, and a
-// dry tick reverts nothing.
-func reverting(key string, merges []*merge, probes map[[3]string]probe, dry bool) error {
+// reverting is after_merge_revert: only the newest merge whose deployment passes now, probed once
+// a round, may undo a broken live release, once its health has failed revertFailures times in a
+// row and revertGrace has passed since its deployment; that release, its deployment written first,
+// and the line its seat is told instead of a break (revertLine).  None where a project's own
+// rollback leaves none deployed, nor in a dry tick, which reverts nothing.
+func reverting(key string, merges []*merge, probes map[[3]string]probe, say func(string), dry bool) (*merge, string, error) {
 	if dry {
-		return nil
+		return nil, "", nil
 	}
 	for _, each := range slices.Backward(merges) {
 		command := each.record.Str("deployed")
@@ -91,7 +90,7 @@ func reverting(key string, merges []*merge, probes map[[3]string]probe, dry bool
 		}
 		rows, err := mergeRows(each, false)
 		if err != nil {
-			return err
+			return nil, "", err
 		}
 		said, row := probeOnce(probes, key, "deployed", each, command, rows)
 		row()
@@ -101,17 +100,21 @@ func reverting(key string, merges []*merge, probes map[[3]string]probe, dry bool
 			return nil
 		})
 		if err != nil {
-			return err
+			return nil, "", err
 		}
 		if !said.passed {
 			continue // not served: an older release may be the one live
 		}
 		failures, _ := each.record.Num("health_failures")
 		deployed, _ := dated(each.record, "deployed_at")
-		if failures >= revertFailures && epoch(time.Now())-deployed >= revertGrace {
-			return errLeft
+		if failures < revertFailures || epoch(time.Now())-deployed < revertGrace {
+			return nil, "", nil
 		}
-		return nil
+		line, err := revertLine(each, say)
+		if line == "" {
+			return nil, "", err
+		}
+		return each, line, nil
 	}
-	return nil
+	return nil, "", nil
 }

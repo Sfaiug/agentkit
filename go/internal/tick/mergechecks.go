@@ -127,12 +127,13 @@ func (t *ticking) mergeChecks() error {
 				t.log.line(fmt.Sprintf("WARN run %s's health could not be followed: %s", each.name, config.PyError(err)))
 			}
 		}
-		if err := reverting(key, found, probes, t.dry); errors.Is(err, errLeft) {
+		release, line, err := reverting(key, found, probes, t.log.line, t.dry)
+		if errors.Is(err, errLeft) {
 			return err
 		} else if err != nil {
 			t.log.line(fmt.Sprintf("WARN %s's release could not be reverted: %s", key, config.PyError(err)))
 		}
-		if err := t.breaks(key, found, now); err != nil {
+		if err := t.breaks(key, found, now, release, line); err != nil {
 			return err
 		}
 	}
