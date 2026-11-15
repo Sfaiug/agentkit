@@ -1,7 +1,7 @@
 """A move on `c` within the seat's provider that its harness takes in place (orch.switch_lines)
 types its lines into the running harness without running that adapter's `auth`, even where `auth`
 would answer no; a move that restarts the seat or moves to another provider's model asks `auth`
-first, and refuses with its answer, leaving the seat as it was.
+first, and refuses on its no, leaving the seat as it was.
 
 Black-box: `AK_BIN`, as the popup over a seat whose pane keeps each line typed into it, its
 harnesses fakes; fails against `/bin/false`."""
@@ -94,10 +94,12 @@ class AMoveInPlaceAsksNoLogin(unittest.TestCase):
         self.home.tmux("kill-pane", "-t", self.seat.pane)
         before = self.path.read_bytes()
         self.term.keys("Down", "Space")     # Fable 5.1's orchestrator mark
-        screen = self.term.wait(lambda screen: f"  fable: {NO_LOGIN}" in rows(screen))
+        screen = self.term.wait(lambda screen: "  Fable 5.1: Claude is signed out"
+                                in rows(screen))
         self.assertNotIn(f"  Restart {SEAT} on Fable 5.1?", rows(screen))
         self.term.keys("Up", "Right", "Space")   # Opus 5.5's orchestrator effort
-        screen = self.term.wait(lambda screen: f"  opus: {NO_LOGIN}" in rows(screen))
+        screen = self.term.wait(lambda screen: "  Opus 5.5: Claude is signed out"
+                                in rows(screen))
         self.assertNotIn(f"  Restart {SEAT} on Opus 5.5 at max?", rows(screen))
         self.assertEqual([call["argv"] for call in self.fakes["claude"].calls("auth")],
                          [["seat"], ["seat"]])
@@ -126,7 +128,7 @@ class AMoveInPlaceAsksNoLogin(unittest.TestCase):
         term = self.open_c("› DeepSeek V4.1 Flash Free")
         pid, before = self.pid(seat), self.path.read_bytes()
         term.keys("Down", "Space")          # Acme GLM's orchestrator mark, on provider `acme`
-        term.wait(lambda screen: f"  glm: opencode: {NO_LOGIN}" in rows(screen))
+        term.wait(lambda screen: "  Glm 5.3 Flash: Acme is signed out" in rows(screen))
         self.assertEqual([call["argv"] for call in fake.calls("auth")], [["seat"]])
         self.assertEqual(seat.lines(), [])
         self.assertEqual(self.pid(seat), pid)
