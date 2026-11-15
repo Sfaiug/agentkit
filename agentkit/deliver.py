@@ -579,8 +579,10 @@ def say_how_to_revert(lp, url, method):
     """Append `## How to revert` to the description of the PR this run's own merge call just
     merged: the command undoing the one commit that merge made on the target.  Only that call
     knows how the PR landed, so a merge found done any other way gets none, nor does a rebase,
-    which lands a commit per commit.  Each call is tried `once`: a failure is logged, never
-    waited out or retried, as the merge stands whatever they answer."""
+    which lands a commit per commit.  A reviewed PR keeps its author's description, never the
+    one `pr_body` writes, so `## Final check` goes ahead of it there.  Each call is tried
+    `once`: a failure is logged, never waited out or retried, as the merge stands whatever
+    they answer."""
     if method == "rebase":
         return
     try:
@@ -590,8 +592,10 @@ def say_how_to_revert(lp, url, method):
         if not sha:
             raise config.Error(why or "GitHub does not call it merged")
         revert = f"git revert {'-m 1 ' if method == 'merge' else ''}{sha}"
+        checked = (f"\n\n## Final check\n\n{handback.final_check_line(lp.state, lp.cmds)}"
+                   if lp.state.get("review_pr") else "")
         body = github_body((current.get("body") or "").rstrip(), lp.run_dir.name,
-                           f"\n\n## How to revert\n\n```bash\n{revert}\n```\n")
+                           f"{checked}\n\n## How to revert\n\n```bash\n{revert}\n```\n")
         rc, out = gitcall.gh(lp.run_dir, *api, "-X", "PATCH", f"repos/{owner}/{repo}/pulls/{number}",
                              "-f", f"body={body}", once=True)
         if rc != 0:
