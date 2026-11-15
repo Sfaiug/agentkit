@@ -33,10 +33,10 @@ func (seat Seat) Unsent() string { return seat.unsent }
 func (seat Seat) Back(now time.Time) string { return backAt(seat.back, now) }
 
 // ModelName is the model it runs at the effort it orchestrates at (config.ModelAt), and alone; `-`
-// where no record names one (menu.row).
+// where no record names one, or its record does not read as a seat's (menu.selection_of).
 func (home Home) ModelName(seat Seat) (at, alone string) {
 	models, name := home.models, "-"
-	if record, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "session-"+seat.Name+".json")); record != nil {
+	if record, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "session-"+seat.Name+".json")); record != nil && seat.Warning == "" {
 		models, name = atEfforts(models, record), seat.Orchestrator
 	}
 	return config.ModelAt(name, "effort", models), config.ModelName(name, models)
@@ -55,11 +55,6 @@ func (home Home) Settled() bool {
 	state := filepath.Join(config.Home(), "state")
 	if watch, _ := run.ReadJSON(filepath.Join(state, "watch.json")); watch != nil {
 		if said := watch.Str("boot_id"); said != "" && host.BootID() != "" && said != host.BootID() {
-			return false
-		}
-	}
-	for _, seat := range home.Seats {
-		if seat.Warning != "" {
 			return false
 		}
 	}
