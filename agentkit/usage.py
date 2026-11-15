@@ -826,40 +826,56 @@ def _fresh_window(prov, mark, now):
     """Whether the meter that showed the refusal `mark` records now has room again: a later
     reset, or a lower reading asked after the refusal.
 
-    That meter is the one `mark_exhausted` named (`exhausted_by`, as `_names` reads it).  Another
-    meter's new window says nothing of the refusal: the 5-hour session rolling over under a weekly
-    refusal leaves that week as spent as it was, and neither does Opus's cap of Fable's name.
-    A mark that names none ends at its deadline alone.
+    That meter is the one `mark_exhausted` named (`exhausted_by`, narrowed by `exhausted_meters`
+    where an older mark recorded the cap's scope only there).  Another meter's new window says
+    nothing of the refusal: the 5-hour session rolling over under a weekly refusal leaves that
+    week as spent as it was, and neither does Opus's cap of Fable's name.  A mark that names none
+    ends at its deadline alone.
     Only reported reset times identify a replacement, and inside the same window only a reading
     asked after the refusal that fell by more than a point of jitter counts: a meter below 100
     that never fell is not permission to be refused again.
     """
     by = mark.get("exhausted_by") if isinstance(mark, dict) else None
-    name = by[0] if isinstance(by, list) and by else by
+    name = by[0] if isinstance(by, list) and len(by) == 2 else by
     if not isinstance(prov, dict) or not isinstance(name, str) or not name:
         return False
+    recorded = mark.get("exhausted_meters")
+    scoped = ([r for r in recorded if isinstance(r, list) and len(r) == 2 and r[0] == name]
+              if isinstance(by, str) and isinstance(recorded, list) else [])
+    caps = scoped or [by]
+    meters = [m for m in prov.get("meters") or [] if isinstance(m, dict)]
+    matched = [m for m in meters if any(_names(cap, m) for cap in caps)]
+    if not matched:
+        return False
     ends = mark.get("exhausted_ends")
+    old = _number(ends.get(name)) if isinstance(ends, dict) else None
     levels = mark.get("exhausted_used")
     at = _number(mark.get("exhausted_at"))
     probed = _meter_asked(prov).get(name)
-    # Marks written before `exhausted_used` existed named a meter only at 100%+.
+    # Marks written before `exhausted_used` existed, or before a scoped cap's level stopped being
+    # overwritten by another scope of its name, named a meter only at 100%+.
+    shared = any(m.get("scope") != matched[0].get("scope")
+                 for m in meters if m.get("name") == name)
+    lost = isinstance(by, str) and (shared or any(r[1] for r in scoped)
+                                    or bool(matched[0].get("scope")))
     stood = (_number(levels.get(name)) if isinstance(levels, dict)
              else 100.0 if "exhausted_used" not in mark else None)
-    for meter in prov.get("meters") or []:
-        if not isinstance(meter, dict) or not _names(by, meter):
-            continue
-        asked = _number(meter.get("asked_at", probed))
-        used = _number(meter.get("used"))
-        if used is None or used >= 100 or _past(meter, now):
-            continue
-        if (at is not None and asked is not None and asked > at
-                and stood is not None and round(stood - used, 6) > 1):
+    if stood is not None and lost:
+        stood = 100.0
+
+    def cleared(m):
+        used = _number(m.get("used"))
+        if used is None or used >= 100 or _past(m, now):
+            return False
+        end = _number(m.get("resets_at"))
+        if old is not None and end is not None and end > old:
             return True
-        resets_at = _number(meter.get("resets_at"))
-        old = _number(ends.get(name)) if isinstance(ends, dict) else None
-        if resets_at is not None and old is not None and resets_at > old:
-            return True
-    return False
+        asked = _number(m.get("asked_at", probed))
+        return (at is not None and asked is not None and asked > at
+                and stood is not None and round(stood - used, 6) > 1)
+
+    return all(any(cleared(other) for other in matched if _identity(other) == _identity(m))
+               for m in matched)
 
 
 def _marks(record):

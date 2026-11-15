@@ -4,8 +4,9 @@ A reading is up to fifteen minutes old, so the turn crossing a cap is usually re
 any meter reads 100%.  A Fable turn refused so may have hit Fable's own cap, which does not gate
 Opus: Opus is left to its own meters, even where its own cap shares that cap's name.  An Opus
 turn's every gate is shared, so its refusal parks the whole login.  A refusal Fable's cap showed
-ends on that cap alone: a new window on Opus's cap of its name leaves Fable parked, and Fable's
-own fall, asked after the refusal, frees it beside Opus's lower cap.
+ends on that cap alone, including one inherited from before `exhausted_by` named a scope: a new
+window on Opus's cap of its name leaves Fable parked, and Fable's own fall, asked after the
+refusal, frees it beside Opus's lower cap.
 
 Black-box: the program `AK_BIN` names runs a task in a temporary HOME over one Claude login whose
 injected reading holds the shared week and a weekly cap scoped to Fable, two workers naming no
@@ -84,6 +85,28 @@ class RefusalParksItsModels(unittest.TestCase):
         def then(record, now):
             record["meters"][1]["used"] = 90
             record["probed_meters"] = {"weekly_scoped": now}
+
+        self.assertEqual(sorted(refused(self, FABLE, ("weekly_scoped", 30, "Opus"), fable=100,
+                                        then=then)[0]), sorted([OPUS, FABLE]))
+
+    def test_an_inherited_fable_mark_ignores_opus_s_new_window(self):
+        def then(record, _now):
+            record["exhausted_by"] = "weekly_scoped"
+            record["exhausted_meters"] = [["weekly_scoped", "Fable"]]
+            record["exhausted_used"] = {"weekly_all": 60, "weekly_scoped": 30}
+            fable, opus = record["meters"][1:]
+            fable["used"], opus["resets_at"] = 99, opus["resets_at"] + 86400
+
+        self.assertEqual(refused(self, FABLE, ("weekly_scoped", 30, "Opus"), fable=100,
+                                 then=then), ([OPUS], False))
+
+    def test_an_inherited_fable_mark_ends_on_fable_s_asked_fall(self):
+        def then(record, _now):
+            record["exhausted_by"] = "weekly_scoped"
+            record["exhausted_meters"] = [["weekly_scoped", "Fable"]]
+            record["exhausted_used"] = {"weekly_all": 60, "weekly_scoped": 30}
+            record["meters"][1]["used"] = 90
+            record["probed_meters"] = {"weekly_scoped": record["exhausted_at"] + 1}
 
         self.assertEqual(sorted(refused(self, FABLE, ("weekly_scoped", 30, "Opus"), fable=100,
                                         then=then)[0]), sorted([OPUS, FABLE]))
