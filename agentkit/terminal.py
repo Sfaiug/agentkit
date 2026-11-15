@@ -16,7 +16,7 @@ from functools import lru_cache, wraps
 from itertools import groupby
 
 from . import config, guard, motion, warm
-from .themes import BLACK, ROLES, WHITE
+from .themes import BLACK, ROLES, WHITE, named
 
 # glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
@@ -74,11 +74,29 @@ def style_of(word):
     return STATE_STYLES.get(word) or STATE_STYLES.get(str(word).split(" ")[0])
 
 
+_CHOSEN = [None, None]   # config.toml's stat as `chosen` last read it, and the theme it named
+
+
+def chosen():
+    """The theme config.toml names (themes.named) as the file is now: every draw asks, so nothing
+    that draws for hours, a seat's bar or the warm popup server, keeps one chosen before.  Read
+    again only once the file moved."""
+    path = os.path.join(config.HOME, config.CONFIG_NAME)    # asked for every colour: no Path made
+    try:
+        seen = os.stat(path)
+    except OSError:
+        return None
+    stamp = (path, seen.st_ino, seen.st_mtime_ns, seen.st_size)
+    if _CHOSEN[0] != stamp:
+        _CHOSEN[:] = stamp, named(path)
+    return _CHOSEN[1]
+
+
 def theme():
-    """The theme in force as a screen draws: the one config.toml names (`config.theme`), else the
-    one the terminal's background fits (`THEME`)."""
-    chosen = config.theme()
-    return THEME if chosen is None else chosen
+    """The theme in force as a screen draws: the one config.toml names (`chosen`), else the one
+    the terminal's background fits (`THEME`)."""
+    picked = chosen()
+    return THEME if picked is None else picked
 
 
 def colour(word, tmux=False):
@@ -86,9 +104,8 @@ def colour(word, tmux=False):
     force; with `tmux`, in a tmux format (a seat's bar, a popup's border), where config.toml names
     none black's whichever process writes it: tmux shows it on a terminal ak never asks, and the
     menu's writes and the tick's never disagree."""
-    role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
-    chosen = config.theme()
-    return ROLES[role][chosen if chosen is not None else BLACK if tmux else THEME]
+    role, picked = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2], chosen()
+    return ROLES[role][picked if picked is not None else BLACK if tmux else THEME]
 
 
 def glyph(word):

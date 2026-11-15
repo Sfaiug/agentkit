@@ -17,7 +17,7 @@ var themeRead struct {
 }
 
 // Theme is the word config.toml's `theme` names, `white` or `black` where the owner chose one on
-// `c`, as the file is now, else "" (Python's config.theme): every draw asks, so nothing that draws
+// `c`, as the file is now, else "" (Python's terminal.chosen): every draw asks, so nothing that draws
 // for hours, a seat's bar among them, keeps one chosen before.  Read again only once the file moved.
 func Theme() string {
 	path := filepath.Join(Home(), "config.toml")

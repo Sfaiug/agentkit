@@ -3997,8 +3997,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         first += 5 + terminal.cells(name)
     for number, (line, cells) in enumerate(parts):
         places[len(lines)] = (THEME, cells)
-        lines.append(terminal.highlight(line.rstrip(), number == 0) if at == THEME
-                     else line.rstrip())
+        lines.append(terminal.highlight(line.rstrip(), number == 0, band=False) if at == THEME
+                     else line.rstrip())      # a mark is lit, as on a model's row
     return lines, places
 
 

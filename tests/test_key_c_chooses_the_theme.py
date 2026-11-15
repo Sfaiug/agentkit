@@ -7,7 +7,8 @@ A config.toml that names no theme, or another word, is in the one that fits the 
 here, a terminal that sets no background.  Black-box: the program AK_BIN names runs in a person's
 terminal of 24-bit colour (tests/fixtures/akterm.py) over one working seat
 (tests/fixtures/akseat.py), each cell judged by how it looks (tests/fixtures/aklooks.py), every
-cell of a screen on the theme's background as tests/test_key_a_screen_is_painted.py judges it.
+cell of a screen on the theme's background, or a row the highlight is on whole on its selection,
+as tests/test_key_a_screen_is_painted.py judges it.
 """
 
 import sys
@@ -25,6 +26,7 @@ from fixtures.akterm import SERVER, Terminal
 
 SIZE = (100, 40)     # tall enough for every row of `c`
 BLACK, WHITE, ACCENT = "000000", "ffffff", "0067c6"     # backgrounds, and white's accent
+SELECTION = {BLACK: "08305d", WHITE: "dcecff"}          # ... and each one's selection
 CONFIG = ".agentkit/config.toml"
 
 
@@ -33,13 +35,14 @@ def sgr(rgb, ground="38"):
 
 
 def off(rows, rgb):
-    """The first row of the screen that is not every cell on `rgb`, its number and text, else
-    None."""
+    """The first row of the screen that is not every cell on `rgb` or its selection, its number
+    and text, else None."""
     if len(rows) < SIZE[1]:
         return len(rows) + 1, "(missing)"
+    grounds = {sgr(rgb, "48"), sgr(SELECTION[rgb], "48")}
     for number, line in enumerate(rows[:SIZE[1]], 1):
         wide = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char, _ in line)
-        if wide != SIZE[0] or any(sgr(rgb, "48") not in shown for _, shown in line):
+        if wide != SIZE[0] or any(not grounds & set(shown) for _, shown in line):
             return number, plain(line)
     return None
 

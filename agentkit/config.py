@@ -18,7 +18,7 @@ import tomllib
 from pathlib import Path
 from string import Template
 
-from . import host, look, parsed, themes
+from . import host, look, parsed
 
 REPO = Path(__file__).resolve().parent.parent
 STARTED = time.time()   # when this process read its code: every entry imports this module first
@@ -410,24 +410,6 @@ def host_policy(table=None):
     be saved, else ak's defaults."""
     path = HOME / CONFIG_NAME
     return _policy_in(path, (_read_toml(path) or {}) if table is None else table)
-
-
-_THEME = [None, None]   # config.toml's stat as `theme` last read it, and the theme it named
-
-
-def theme():
-    """The theme config.toml names (themes.named) as the file is now: every draw asks, so nothing
-    that draws for hours, a seat's bar or the warm popup server, keeps one chosen before.  Read
-    again only once the file moved."""
-    path = os.path.join(HOME, CONFIG_NAME)     # a draw asks for every colour: no Path made
-    try:
-        seen = os.stat(path)
-    except OSError:
-        return None
-    stamp = (path, seen.st_ino, seen.st_mtime_ns, seen.st_size)
-    if _THEME[0] != stamp:
-        _THEME[:] = stamp, themes.named(path)
-    return _THEME[1]
 
 
 def rename_policy(data):
