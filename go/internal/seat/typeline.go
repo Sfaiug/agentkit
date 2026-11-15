@@ -48,13 +48,15 @@ var (
 // composer holding text among them, which Python's own editor types past, it puts nothing in and
 // the line is the tick's.  No key goes in while the cursor is off its composer (offComposer).
 func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
-	return typeAtPane(name, "", line, typed, receipt, log, stale, true)
+	return typeAtPane(name, "", line, typed, receipt, nil, log, stale, true)
 }
 
 // typeAtPane is typeAtPrompt into that pane, "" for the seat's window's own.  alone is typeAtPrompt's
 // gate on each Enter, the pass not stale and the composer holding the line alone, and its proof,
-// the composer read empty after; typeInto's Enters go ungated, its line sent once it left.
-func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool, alone bool) bool {
+// the composer read empty after; typeInto's Enters go ungated, its line sent once it left.  Given
+// answered, a line typed already whose harness asks about it in its composer's place is answered
+// yes first, and answered told (asks): the next pass reads the composer back.
+func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *run.Object) error, answered func(), log func(string), stale func(string) bool, alone bool) bool {
 	own, record := seatHarness(name)
 	if !typable(own) {
 		return false
@@ -80,7 +82,7 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	}
 	at := seatAt{name, own, pane}
 	if typed != nil && run.Equal(typed, mark) {
-		return at.finishTyped(text, stale, log)
+		return at.finishTyped(text, stale, answered, log)
 	}
 	if !at.open() {
 		return false
