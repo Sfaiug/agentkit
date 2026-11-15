@@ -208,6 +208,7 @@ func First() (int, bool) {
 	}
 	syscall.CloseOnExec(exeFD)
 	syscall.CloseOnExec(stopFD)
+	ignoreSyncs()
 	os.WriteFile(os.Args[1], nil, 0o666) // the box is up: its command's silence counts from here (look.up)
 	var code int
 	var left map[int]string
