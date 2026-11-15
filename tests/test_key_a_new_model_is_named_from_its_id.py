@@ -4,8 +4,9 @@ its harness calls it; a label the table gives wins.
 The owner (10 Nov 2026), where a seat's row read `claude-fable-5-2 max`: "I always want it just to
 be the model name, number and effort. [...] Just like Opus 5.5 xhigh", and "Every single time we
 add a new model, it should be added and named correctly."  A provider's prefix, a trailing date
-and the maker's family word its manifest names are no part of the name, unless only numbers
-follow that word; a hyphen is a space, between two numbers a point (config.model_label).
+and a maker's family word, any manifest's (Antigravity runs `claude-opus-5-5` as `Opus 5.5`
+too), are no part of the name, unless only numbers follow that word; a hyphen is a space,
+between two numbers a point (config.model_label).
 
 Black-box: the program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), over
 the shipped manifests, its harnesses the fakes of tests/fixtures/fakeadapter.py beside seats of
@@ -31,7 +32,7 @@ NAMED = {"Claude Code": [("nova", "claude-nova-7-1", "Nova 7.1"), ("opus", None,
                          ("dated", "claude-opus-4-5-20251101", "Opus 4.5")],
          "Codex": [("vega", "gpt-7.2-vega", "7.2 Vega"), ("seven", "gpt-7", "GPT 7")],
          "Antigravity": [("neon", "gemini-5-neon", "5 Neon"),
-                         ("agy-opus", "claude-opus-5-5", "Claude Opus 5.5")],
+                         ("agy-opus", "claude-opus-5-5", "Opus 5.5")],
          "Muse Code": [("wonder", "muse-wonder-full-1.0", "Wonder Full 1.0")],
          "Grok Build": [("grok", "grok-4.7", "Grok 4.7")],
          "OpenCode": [("flash", "acme/acme-flash-free", "Acme Flash Free")]}

@@ -508,11 +508,16 @@ def live_cell(found):
     return "-" if found is None else f"{found['round_1']}% of {found['runs']}"
 
 
-def live_lines(own):
-    """The second table: each configured model's own numbers per role, `55% of 320`."""
+def live_lines(own, cfg):
+    """The second table: each configured model's own numbers per role, `55% of 320`, its row
+    named as every screen names a model and its effort (`config.model_name`): `Nova 7.1 max`
+    for `live`'s `nova @ max`."""
+    def said(label):
+        name, _, effort = label.partition(" @ ")
+        return " ".join(filter(None, (config.model_name(cfg, name), effort)))
     lines_of = [LIVE_HEADERS] + [
-        (name, *(live_cell(found[role]) for role in quality.ROLES))
-        for name, found in own.items()]
+        (said(label), *(live_cell(found[role]) for role in quality.ROLES))
+        for label, found in own.items()]
     widths = [max(terminal.cells(line[i]) for line in lines_of) for i in range(len(LIVE_HEADERS))]
     head, *lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
                     for line in lines_of]
@@ -675,5 +680,5 @@ def main(argv):
             for line in menu.models_bars(found[role], role, used[role][2], used[role][2], unit)]
     print("\n".join([*body, *bars, "", *menu.models_read(marked, len(ours(cfg)),
                                                    stored().get("fetched_at")),
-                      *(["", *live_lines(own)] if own else [])]))
+                      *(["", *live_lines(own, cfg)] if own else [])]))
     return 0
