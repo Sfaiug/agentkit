@@ -15,11 +15,16 @@ import (
 func Checks(logins []usage.Week, now float64) map[usage.Week][]any {
 	s := spending(boards.Cached())
 	defer s.db.Close()
-	checks := map[usage.Week][]any{}
+	var windows [][2]float64 // each day's week before it, then the day
 	for days := 6; days >= 0; days-- {
 		until := now - float64(days)*86400
-		before := s.plans(logins, until-86400, SpentOver)
-		for login, day := range s.plans(logins, until, 86400) {
+		windows = append(windows, [2]float64{until - 86400 - SpentOver, until - 86400}, [2]float64{until - 86400, until})
+	}
+	plans := s.plans(logins, windows...)
+	checks := map[usage.Week][]any{}
+	for at := 0; at < len(plans); at += 2 {
+		before, until := plans[at], windows[at+1][1]
+		for login, day := range plans[at+1] {
 			if week, held := before[login].Week(); held && day.Points != 0 {
 				check := run.NewObject()
 				check.Set("until", until)
