@@ -405,12 +405,19 @@ func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks
 			}
 			if low+1 == index {
 				// The tip answers for a red suite before anyone is blamed, as the host may have
-				// failed it; a repair lands on the red target, which is never probed for it.
-				if index == 0 && len(prefix) == 0 && command == suite && !stacks[index].record.Truthy("repair") && !target.green[fix.Str("piece")] {
+				// failed it; a repair lands on the red target, which is never probed for it.  A red
+				// that named no test asks the suite whole there: the suite deals each tree's test
+				// files into its pieces, so on the tip that piece's number holds other tests.  What
+				// the tip passed on this pass, that piece or the suite whole, answers again.
+				piece := ""
+				if len(tests) > 0 {
+					piece = fix.Str("piece")
+				}
+				if index == 0 && len(prefix) == 0 && command == suite && !stacks[index].record.Truthy("repair") && !target.green[piece] && !target.green[""] {
 					if !valid(func() bool { return true }) {
 						return -1, accepted, nil
 					}
-					ok, err := stacks[index].probeTip(turn, code, target, suite, fix.Str("piece"), tests)
+					ok, err := stacks[index].probeTip(turn, code, target, suite, piece, tests)
 					if err != nil || !ok {
 						return -1, accepted, err
 					}

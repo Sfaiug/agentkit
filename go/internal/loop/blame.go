@@ -1,15 +1,15 @@
 package loop
 
-// The blame walk, Python's land._blame_tip: once the target's own red has its repair, which waits on
-// no blame, as no blame waits on the repair's outcome, the first red commit of the target's
-// first-parent line is found by halving, and the run that merged it is blamed after its merge, once
-// (history.BlameMerge).  It reaches back blameReach commits at most, six steps, none older than
-// keepEvidence, the tip last, red twice already.  Each step checks its commit as the probe checked
-// the tip: the tests that failed there again alone first, where those were its red, then the piece
-// where they name no red.  Exits decide, never names: a step whose piece failed each of two goes or
-// more is red, one that passes is green, and a go that failed beside one that passed is a flake,
-// which ends the walk without blame, as does a step that proves nothing.  Red at the oldest commit
-// blames nobody.
+// The blame walk, Python's land._blame_tip: once the target's own red, tests failing again alone
+// by name, has its repair, which waits on no blame, as no blame waits on the repair's outcome, the
+// first red commit of the target's first-parent line is found by halving, and the run that merged it
+// is blamed after its merge, once (history.BlameMerge).  A red that named no test blames nobody: on
+// an earlier commit a piece's number holds other tests.  It reaches back blameReach commits at most,
+// six steps, none older than keepEvidence, the tip last, red twice already.  Each step checks its
+// commit as the probe checked the tip: those tests alone first, then the piece where they name no
+// red.  Exits decide, never names: a step whose piece failed each of two goes or more is red, one
+// that passes is green, and a go that failed beside one that passed is a flake, which ends the walk
+// without blame, as does a step that proves nothing.  Red at the oldest commit blames nobody.
 
 import (
 	"cmp"
@@ -26,9 +26,9 @@ import (
 
 const blameReach = 64
 
-// blameTip is that walk from the target's tip, of the red piece of suite ("" for the suite whole)
-// and the tests that failed again alone there, if any, the stack's checkout put back on the tip
-// however it ends.  What fails it but a stop ends it without blame, said.
+// blameTip is that walk from the target's tip, of the red piece of suite and the tests that failed
+// again alone there, the stack's checkout put back on the tip however it ends.  What fails it but a
+// stop ends it without blame, said.
 func (s *narrowingStack) blameTip(tip, suite, piece string, tests []string) (err error) {
 	defer func() {
 		if err != nil && !errors.Is(err, errStop) {
@@ -75,17 +75,13 @@ func (s *narrowingStack) blameTip(tip, suite, piece string, tests []string) (err
 // then decides.  A check handed on proves nothing of the commit, as Python's on a moved checkout.
 func (s *narrowingStack) blameStep(sha, suite, piece string, tests []string) (*bool, error) {
 	name := "tip-" + sha + ".log"
-	tries := [][]string{nil}
-	if len(tests) > 0 {
-		tries = [][]string{tests, nil}
-	}
 	passed := func(exit *int) bool { return exit != nil && *exit == 0 }
 	flaky := func(goes []*int) bool {
 		return slices.ContainsFunc(goes, passed) && slices.ContainsFunc(goes, func(exit *int) bool { return !passed(exit) })
 	}
 	var selection *checkSelection
 	ok := false
-	for _, only := range tries {
+	for _, only := range [][]string{tests, nil} {
 		if err := s.putBack(sha); err != nil {
 			return nil, err
 		}
