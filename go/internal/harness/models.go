@@ -2,9 +2,12 @@ package harness
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -38,6 +41,35 @@ func texts(values []any) ([]string, bool) {
 		said[i] = text
 	}
 	return said, true
+}
+
+// scriptCommand is name run as an adapter script runs it on env, its header having said `command -v
+// <program> >/dev/null || PATH="<folder>${PATH:+:$PATH}"`: where PATH finds no program, the folder
+// its installer puts it in goes ahead of PATH, both to find name and in name's own environment,
+// so a launcher there finds the programs beside it.  As bash, it runs one PATH finds in the
+// current directory as any other, under the name it is called by.
+func scriptCommand(program, folder string, env []string, name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	if _, err := exec.LookPath(program); err != nil && !errors.Is(err, exec.ErrDot) {
+		if found, err := exec.LookPath(filepath.Join(folder, name)); err == nil {
+			cmd = exec.Command(found, args...)
+		}
+		path := folder
+		if os.Getenv("PATH") != "" {
+			path += string(os.PathListSeparator) + os.Getenv("PATH")
+		}
+		env = append(env, "PATH="+path) // exec keeps the last of a doubled variable
+	}
+	if errors.Is(cmd.Err, exec.ErrDot) {
+		cmd.Err = nil
+	}
+	cmd.Env, cmd.Args[0] = env, name
+	return cmd
+}
+
+// localBin is the folder most harnesses' installers put their program in.
+func localBin() string {
+	return filepath.Join(config.UserHome(), ".local", "bin")
 }
 
 // unsetting is this process's environment as a script's `unset` of those names and `export` of

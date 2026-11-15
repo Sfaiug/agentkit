@@ -3,7 +3,6 @@ package harness
 import (
 	"io"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -38,8 +37,8 @@ func museModels(_ []string, out, _ io.Writer) int {
 	} else if strings.HasPrefix(os.Getenv("XDG_CONFIG_HOME"), config.UserHome()+"/.muse-") {
 		unset = append(unset, "XDG_CONFIG_HOME")
 	}
-	serve := exec.Command(Binary("muse"), "serve", "--no-session-log")
-	serve.Env, serve.Stdin = unsetting(unset, set...), strings.NewReader(museModelList)
+	serve := scriptCommand("muse", localBin(), unsetting(unset, set...), "muse", "serve", "--no-session-log")
+	serve.Stdin = strings.NewReader(museModelList)
 	said, err := serve.Output()
 	if err != nil {
 		return 1

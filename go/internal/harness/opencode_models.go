@@ -2,9 +2,10 @@ package harness
 
 import (
 	"io"
-	"os/exec"
+	"path/filepath"
 	"strings"
 
+	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -23,11 +24,11 @@ func opencodeModels(_ []string, out, errOut io.Writer) int {
 	if opencodeRefused(errOut) {
 		return 1
 	}
-	listing := exec.Command(Binary("opencode"), "api", "model.list")
 	// as the script's header leaves it: no update mid-run, no project's config and no seat's
-	listing.Env = unsetting([]string{"OPENCODE_CONFIG_CONTENT"}, "OPENCODE_DISABLE_AUTOUPDATE=1",
+	env := unsetting([]string{"OPENCODE_CONFIG_CONTENT"}, "OPENCODE_DISABLE_AUTOUPDATE=1",
 		"OPENCODE_DISABLE_PROJECT_CONFIG=1", "OPENCODE_CONFIG_PROJECT_DISABLE=1")
-	said, err := listing.Output()
+	folder := filepath.Join(config.UserHome(), ".opencode", "bin")
+	said, err := scriptCommand("opencode", folder, env, "opencode", "api", "model.list").Output()
 	value, unread := run.Decode(said)
 	data, read := index(value, "data")
 	if err != nil || unread != nil || !read {

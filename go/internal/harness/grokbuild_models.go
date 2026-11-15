@@ -1,10 +1,11 @@
 package harness
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -28,9 +29,8 @@ func grokbuildModels(_ []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "ak adapter: %s\n", err)
 		return 1
 	}
-	listing := exec.Command(Binary("grok"), "models")
-	listing.Env = login.Environ(os.Environ())
-	said, err := listing.Output()
+	folder := cmp.Or(os.Getenv("GROK_BIN_DIR"), filepath.Join(config.UserHome(), ".grok", "bin"))
+	said, err := scriptCommand("grok", folder, login.Environ(os.Environ()), "grok", "models").Output()
 	var rows [][]string
 	for _, line := range strings.Split(string(said), "\n") {
 		// as awk splits a line: at runs of blanks, none leading

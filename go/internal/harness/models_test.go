@@ -3,6 +3,7 @@ package harness
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -182,4 +183,37 @@ func TestOpenCodeModelsListsThroughItsTable(t *testing.T) {
 	t.Setenv("AGENTKIT_ACCOUNT", "")
 	failsAsItsScript(t, write, ask, "opencode", `{"data": [{"providerID": "opencode", "id": "m"}]}`,
 		`{"data": []}`, `{"data": [{"providerID": "opencode", "id": "off", "enabled": false}]}`, "[]", `{"data": [7]}`)
+}
+
+// Where PATH finds no harness, each runs the one its installer put in its folder, as its script's
+// header does, that folder ahead of PATH for what it runs in turn: a launcher finds what is beside it.
+func TestModelsRunTheHarnessItsInstallerPut(t *testing.T) {
+	for harness, each := range map[string]struct{ program, folder, listed, want string }{
+		"antigravity": {"agy", ".local/bin", "acme-1-high\tAcme 1 (High)\n", "acme-1\tAcme 1\thigh\n"},
+		"grokbuild":   {"grok", ".grok/bin", "  * acme-1\n", "acme-1\tacme-1\t\n"},
+		"muse": {"muse", ".local/bin", `{"id": 2, "result": {"models": [{"modelId": "acme-1", "displayLabel": "Acme 1"}]}}`,
+			"acme-1\tAcme 1\t\n"},
+		"opencode": {"opencode", ".opencode/bin", `{"data": [{"providerID": "acme", "id": "acme-1", "name": "Acme 1"}]}`,
+			"acme/acme-1\tAcme 1\tnone\n"},
+	} {
+		t.Run(harness, func(t *testing.T) {
+			home, write, ask := listing(t, each.program)
+			write("listing", each.listed)
+			os.MkdirAll(filepath.Join(home, each.folder), 0o700)
+			os.Rename(filepath.Join(home, "bin", each.program), filepath.Join(home, each.folder, "acme-lister"))
+			write(filepath.Join(each.folder, each.program), "#!/bin/sh\nexec acme-lister \"$@\"\n")
+			// a PATH holding only what the fake runs, so no harness installed here answers
+			for _, tool := range []string{"cat", "env"} {
+				found, _ := exec.LookPath(tool)
+				os.Symlink(found, filepath.Join(home, "bin", tool))
+			}
+			t.Setenv("PATH", filepath.Join(home, "bin"))
+			if said, code := ask(harness); code != 0 || said != each.want {
+				t.Errorf("exit %d: %q", code, said)
+			}
+			if path := ran(t, home)["PATH"]; path != filepath.Join(home, each.folder)+string(os.PathListSeparator)+filepath.Join(home, "bin") {
+				t.Errorf("ran on PATH %q", path)
+			}
+		})
+	}
 }

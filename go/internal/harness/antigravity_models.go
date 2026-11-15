@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -30,9 +29,7 @@ var (
 // effort, `none`.  1 where the listing fails or says nothing: config.catalog decides what stands in.
 func antigravityModels(_ []string, out, _ io.Writer) int {
 	flags, env := antigravityLogin()
-	listing := exec.Command(Binary("agy"), append(flags, "models")...)
-	listing.Env = env
-	said, err := listing.Output()
+	said, err := scriptCommand("agy", localBin(), env, "agy", append(flags, "models")...).Output()
 	if err != nil {
 		return 1
 	}
