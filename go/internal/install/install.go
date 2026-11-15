@@ -29,7 +29,7 @@ const serverName = "agentkit"
 // Main is install.sh run with args: what it says, and its exit code.
 func Main(args []string, out, errOut io.Writer) int {
 	// go/install.sh's own, after the rest: exit 0 where HOME is a sandbox, whose install leaves
-	// the host as it is, and each step that changes the host, alone
+	// the host as it is, and 1 where it is not; and each step that changes the host, alone
 	if len(args) == 1 {
 		switch args[0] {
 		case "--sandboxed":

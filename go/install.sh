@@ -4,8 +4,9 @@
 # changing the host has a section here too, headed as install.sh's, that its answer keys run
 # alone with SANDBOX set, so each finds the program itself.
 "$(dirname -- "$0")/bin/ak" install "$@" || exit
-SANDBOX=0
-if "$(dirname -- "$0")/bin/ak" install --sandboxed; then SANDBOX=1; fi
+"$(dirname -- "$0")/bin/ak" install --sandboxed
+# only a plain no lets a step change the host: a probe that failed says nothing of HOME
+case $? in 0) SANDBOX=1 ;; 1) SANDBOX=0 ;; *) exit ;; esac
 
 # --- a crashed program leaves no core dump file -------------------------------
 [ "$SANDBOX" = 1 ] || "$(dirname -- "$0")/bin/ak" install --core-dumps
