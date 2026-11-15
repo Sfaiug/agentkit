@@ -13,6 +13,8 @@ a cap whose name is Fable's name and scope.  A refusal recorded before `exhauste
 scope resolves its cap from `exhausted_meters` where that carries one, and recovers from `100%`
 where another scope overwrote its starting level; one naming no scope anywhere ends on its name's
 fresh window.
+A reset the owner spends lifts a refusal made before it, however late that is written, a probe's
+reading written in between included; one made after the reset stays.
 
 Fake meters in a temporary HOME: nothing here reaches a real usage endpoint or a real
 credential.
@@ -62,6 +64,10 @@ def week(name, used, **keys):
     return {"name": name, "used": used, "window_secs": WEEK, "resets_at": NOW + 3 * 86400, **keys}
 
 
+BACK = [week("weekly_all", 5), week("weekly_scoped", 5, scope="Fable"),
+        week("weekly_nova", 5, scope="Nova")]     # the week a reset hands back
+
+
 class RefusalsJoin(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-refusals-join-", dir=REPO)
@@ -96,6 +102,39 @@ class RefusalsJoin(unittest.TestCase):
     def refused(self, *models, until=NOW + 7200):
         for model in models:
             usage.mark_exhausted(self.cfg, "acme", until, model=model)
+
+    def refused_while(self, model, *meanwhile):
+        """`model` refused a second on, its refusal written once each of `meanwhile` has run."""
+        real = usage._patch
+
+        def stalled(provider, prov, account=None, **kw):
+            if kw.get("mark"):
+                for step in meanwhile:
+                    step()
+            return real(provider, prov, account, **kw)
+
+        self.now += 1
+        with patch.object(usage, "_patch", side_effect=stalled):
+            usage.mark_exhausted(self.cfg, "acme", NOW + 7200, model=model)
+
+    def spends_a_reset(self):
+        """The owner spends the login's one reset a second on, and it reads its week back."""
+        self.now += 1
+        adapters = config.HOME / "adapters"
+        adapters.mkdir(exist_ok=True)
+        (adapters / "fake.toml").write_text("[usage]\nreset = true\n")
+        reading = json.loads((config.STATE / "usage.json").read_text())["providers"]["acme"]
+        with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}), \
+                patch.object(usage, "_probe_gently", return_value={
+                    **reading, "harness": "fake", "resets": 1}), \
+                patch.object(usage, "_adapter_json", return_value={
+                    "code": "reset", "available": 0, "meters": BACK}):
+            self.assertEqual(usage.replenish(self.cfg, "acme"), (True, 0.0))
+
+    def probed(self):
+        """A probe's reading of the week the reset handed back, written a second on."""
+        self.now += 1
+        usage._patch("acme", {"resets": 0, "meters": BACK})
 
     def parked(self):
         """(the models parked, whether the login reads exhausted)."""
@@ -300,6 +339,15 @@ class RefusalsJoin(unittest.TestCase):
         self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [mark])
         prov["meters"][1]["used"] = 90
         self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [])
+
+    def test_a_reset_lifts_a_refusal_made_before_it_written_after_a_probe(self):
+        self.refused_while("fable", self.spends_a_reset, self.probed)
+        self.assertEqual(self.parked(), ([], False))
+
+    def test_a_refusal_made_after_a_reset_stays(self):
+        self.spends_a_reset()
+        self.refused_while("fable", self.probed)
+        self.assertEqual(self.parked(), (["fable"], False))
 
 
 if __name__ == "__main__":
