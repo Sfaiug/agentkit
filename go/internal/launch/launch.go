@@ -577,6 +577,15 @@ func holdAdmission(ctx context.Context) (*os.File, error) {
 	return lock.Wait(ctx, filepath.Join(run.Runs(), ".slots.lock"))
 }
 
+// holdCheck waits for that lock for a check (decide), as Python's gate.admission: every run's
+// record read first with the lock free, so under it only those changed since are parsed again
+// (places).  A host keeps a run's folder 30 days, and one check parsing each of thousands of
+// records held the lock 21 s, three more waiting behind it (13 Nov 2026).
+func holdCheck(ctx context.Context) (*os.File, error) {
+	run.EveryShared(func(string, *run.Object) bool { return true })
+	return holdAdmission(ctx)
+}
+
 // plainDecimal is a poll both Python's float() and Go read alike.
 var plainDecimal = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
 

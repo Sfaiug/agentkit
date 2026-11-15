@@ -53,7 +53,7 @@ func waitSlot(ctx context.Context, dir string) error {
 			}
 			pickUp(dir, record, on)
 		}
-		slots, err := holdAdmission(ctx)
+		slots, err := holdCheck(ctx)
 		if err != nil {
 			return err
 		}

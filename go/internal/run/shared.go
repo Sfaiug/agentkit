@@ -7,6 +7,6 @@ import "agentkit/internal/parsed"
 var shared = parsed.Of(ReadJSON)
 
 // Shared is ReadJSON as it read that file while its stat is unchanged, every reader's, so only
-// read it: a writer reads what it changes with ReadJSON, into an object of its own.  Never a run's
-// record, which a Reader holds once.
+// read it: a writer reads what it changes with ReadJSON, into an object of its own.  A screen reads
+// the runs through its Reader, which holds each record once.
 func Shared(path string) (*Object, error) { return shared.Read(path) }
