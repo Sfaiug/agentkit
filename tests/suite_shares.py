@@ -1,10 +1,13 @@
-"""Choose the declared suite's checks for its mode and divide them, and name those that failed,
-without changing a check or keeping shared timing state."""
+"""Choose the declared suite's checks for its mode and the change and divide them, and name those
+that failed, without changing a check or keeping shared timing state."""
 
+import ast
+import functools
 import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 
@@ -62,6 +65,94 @@ def parts_of(root, name):
     """The parts the test file `name` is cut into: the Go keys check's claims, any other none."""
     return ([claim[0] for claim in claims(root)]
             if name == "tests/test_go_keys.py" else [])
+
+
+GO = ("tests/test_go.py", "tests/test_go_builds.py", "tests/test_go_keys.py")
+
+
+def left_main(root):
+    """The commit where the change `root` checks out left its default branch, origin/HEAD, as ak
+    names it (gitcall.default_base): None where that cannot be read, as a stand-in folder inside a
+    checkout is no checkout, and git would answer for that one."""
+    if not Path(root, ".git").exists():
+        return None
+    return subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/HEAD"],
+                          capture_output=True, text=True).stdout.strip() or None
+
+
+def statements(nodes):
+    """Each statement of `nodes` and of the blocks they hold: an import is one, and walking every
+    expression too costs several times as long."""
+    for node in nodes:
+        yield node
+        for block in ("body", "orelse", "finalbody", "handlers", "cases"):
+            yield from statements(getattr(node, block, None) or ())
+
+
+def imports(root, path):
+    """The files, as paths from `root`, an import in its Python file `path` could load from
+    tests/, there or not: none where `path` is not there or not Python."""
+    try:
+        tree = ast.parse(Path(root, path).read_bytes())
+    except (OSError, SyntaxError, ValueError):
+        return []
+    found = []
+    for node in statements(tree.body):
+        if isinstance(node, ast.Import):
+            base, names = "tests", [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            # a relative import starts in its file's package, one up for each further dot; what it
+            # imports from a module may be a module of its own
+            base = os.path.normpath(os.path.join(path, *[os.pardir] * node.level)) \
+                if node.level else "tests"
+            names = [".".join(filter(None, [node.module, name]))
+                     for name in [None, *(alias.name for alias in node.names)]]
+        else:
+            continue
+        for parts in (name.split(".") for name in names if name):
+            found += [os.path.join(base, *parts[:end], "__init__.py")
+                      for end in range(1, len(parts) + 1)]
+            found.append(os.path.join(base, *parts[:-1], f"{parts[-1]}.py"))
+    return found
+
+
+def go_left_out(root):
+    """The IDs of Go's tests (GO, a claim's `tests/test_go_keys.py::<key>`) a run of every test
+    leaves out, as the change `root` checks out cannot alter their verdict: the change is every
+    path differing between where it left its default branch and HEAD, a rename both.  The owner,
+    15 Nov 2026: "tests of code that is not shipped run only for changes that touch that code",
+    and "its suite runs every test file" (5 Oct) is retracted.  A claim runs in a copy without
+    agentkit/ (test_go_keys.LEFT_OUT), so none reads it; a test file but GO, only a claim whose
+    key file is or imports it, directly or through other files of tests/.  Any other path, or a
+    change the suite cannot name, leaves none out, as on main, where every test still runs."""
+    base = left_main(root)
+    # -z ends each path with a NUL; a diff that failed names none
+    changed = base and subprocess.run(["git", "-C", str(root), "diff", "--name-only", "-z",
+                                       "--no-renames", base, "HEAD"],
+                                      capture_output=True, text=True).stdout.split("\0")[:-1]
+    if not changed:
+        return set()
+    touched = set()
+    for path in changed:
+        if re.fullmatch(r"tests/test_[^/]*\.py", path) and path not in GO:
+            touched.add(path)
+        elif not path.startswith("agentkit/"):
+            return set()
+    keys = [key for key, *_ in claims(root)]
+    # Each file is parsed once, and none for a change to agentkit/ alone: every key file and the
+    # fixtures most import cost seconds.
+    edges = functools.cache(lambda path: imports(root, path))
+
+    def read(key):
+        seen, todo = set(), [f"tests/{key}.py"]
+        while todo:
+            if (path := todo.pop()) not in seen:
+                seen.add(path)
+                todo += edges(path)
+        return seen
+    run = {key for key in keys if touched & read(key)} if touched else set()
+    return ({f"tests/test_go_keys.py::{key}" for key in keys if key not in run}
+            | {"tests/test_go.py"} | (set() if run else {"tests/test_go_builds.py"}))
 
 
 def shares(costs, total):

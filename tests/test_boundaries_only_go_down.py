@@ -66,7 +66,7 @@ class Maxima(unittest.TestCase):
                 result, _, git = self.check(BASE, base=base)
                 self.assertTrue(result.wasSuccessful(), result.errors + result.failures)
                 self.assertEqual([call.args[0] for call in git.call_args_list], [
-                    ["git", "-C", repo, "merge-base", "HEAD", "origin/main"],
+                    ["git", "-C", repo, "merge-base", "HEAD", "origin/HEAD"],
                     ["git", "-C", repo, "show", f"{shown}:tests/test_boundaries.py"]])
 
     def test_unreadable_origin_main_prints_and_skips(self):

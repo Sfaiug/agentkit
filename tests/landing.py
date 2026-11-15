@@ -11,7 +11,7 @@ import sys
 import tempfile
 import time
 
-from suite_shares import SMOKE, STATIC_CHECKS, listed, name_failed, smoke_share
+from suite_shares import SMOKE, STATIC_CHECKS, go_left_out, listed, name_failed, smoke_share
 
 only = listed()
 if only is not None:
@@ -43,9 +43,11 @@ def status(code):
 
 
 # A red static check ends the share in seconds, not after its whole run and the re-run alone.
-# All of them run, so one landing names every one that fails.
+# All of them run, so one landing names every one that fails, but Go's build where the change
+# can alter no claim of Go's (go_left_out).
+left = go_left_out(".") if only is None else set()
 codes = {check: subprocess.call(part(sys.executable, check), stderr=subprocess.STDOUT)
-         for check in (f"tests/{name}.py" for name in STATIC_CHECKS)}
+         for check in (f"tests/{name}.py" for name in STATIC_CHECKS) if check not in left}
 if failed := [check for check, code in codes.items() if code]:
     name_failed(failed)
     sys.exit(status(codes[failed[0]]))
