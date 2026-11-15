@@ -30,13 +30,12 @@ type target struct {
 }
 
 // plan is each harness of names as the check proves it, its windows judged on snapshot, and false
-// where the home or any is a case Python's: `models_off` naming a model, as a turn judges the
-// config's model of the harness's name off (worker.Refused) where Python judges the `[check]`
-// model itself; a harness running several providers' models, whose model is the config's choice
-// of them (contract.selected_model); one whose turn Go does not run (worker.Adapter); or one whose
+// where the home or any is a case Python's: a model list switching a release off (switchedOff); a
+// harness running several providers' models, whose model is the config's choice of them
+// (contract.selected_model); one whose turn Go does not run (worker.Adapter); or one whose
 // provider a reading the check judges holds refused as Python keeps it (usage.Unread).
 func plan(names []string, snapshot string) ([]target, bool) {
-	if _, off, _ := config.ModelList(); len(off) > 0 {
+	if switchedOff() {
 		return nil, false
 	}
 	entries, _ := config.Entries()
