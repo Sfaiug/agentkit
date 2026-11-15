@@ -127,7 +127,7 @@ func (r *Rules) ruledComposer(rows []string) (int, int) {
 		return strings.TrimRightFunc(cell, config.Space)
 	})
 	for at := len(cells) - 1; at >= 0; at-- {
-		if first, _ := utf8.DecodeRuneInString(cells[at]); !strings.ContainsRune("❯›⟩", first) {
+		if first, _ := utf8.DecodeRuneInString(cells[at]); !strings.ContainsRune(Marks, first) {
 			continue
 		}
 		end := len(cells)

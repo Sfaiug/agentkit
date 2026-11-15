@@ -48,13 +48,18 @@ const tailRows = 15
 // ruleRow is a row of box-drawing, as every harness draws one (watch.RULE).
 const ruleRow = `[─━═\-╭╮╰╯┌┐└┘]+`
 
+// Marks are the marks a composer's prompt row opens on, in any harness, for every reader: one a
+// reader misses hides the composer, and a harness may draw another for one effort of a model (`»`)
+// (watch.PROMPT).
+const Marks = "❯›⟩»"
+
 var (
 	bareRule   = regexp.MustCompile(`^` + ruleRow + `$`)
-	bareFooter = regexp.MustCompile(`(?i)^(?:` + ruleRow + `|[>›❯])$`)
-	// the marks a prompt row opens on, and one read at its start after a box's edge
-	promptRow = regexp.MustCompile(`^(?:│` + config.SpaceClass + `*)?[❯›⟩]`)
-	markAt    = regexp.MustCompile(`^` + config.SpaceClass + `*(?:│` + config.SpaceClass + `*)?([❯›⟩])`)
-	typed     = regexp.MustCompile(`^(?:│` + config.SpaceClass + `*)?[❯›⟩]` + config.SpaceClass + `*(.*)$`)
+	bareFooter = regexp.MustCompile(`(?i)^(?:` + ruleRow + `|[>` + Marks + `])$`)
+	// a prompt row's mark, and one read at its start after a box's edge
+	promptRow = regexp.MustCompile(`^(?:│` + config.SpaceClass + `*)?[` + Marks + `]`)
+	markAt    = regexp.MustCompile(`^` + config.SpaceClass + `*(?:│` + config.SpaceClass + `*)?([` + Marks + `])`)
+	typed     = regexp.MustCompile(`^(?:│` + config.SpaceClass + `*)?[` + Marks + `]` + config.SpaceClass + `*(.*)$`)
 )
 
 // Compile reads a harness's `[screen]` table and `[[rule]]` list.  An error is a rule Python's
@@ -269,7 +274,7 @@ func (r *Rules) newestRow(raws, lines []string) string {
 	}
 	above := strings.TrimRightFunc(strip(raws[len(raws)-2]), config.Space)
 	first, _ := utf8.DecodeRuneInString(above)
-	if above != "" && !config.Space(first) && !strings.ContainsRune("│┃║❯›⟩>", first) &&
+	if above != "" && !config.Space(first) && !strings.ContainsRune("│┃║>"+Marks, first) &&
 		!r.drawnRule(strings.TrimFunc(above, config.Space)) {
 		return lines[len(lines)-2]
 	}

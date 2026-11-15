@@ -187,7 +187,7 @@ func orNone(text string) any {
 }
 
 // promptOpened is a row opening on a prompt mark, which is input and no output.
-var promptOpened = regexp.MustCompile(`^(?:│` + config.SpaceClass + `*)?[>›❯⟩]`)
+var promptOpened = regexp.MustCompile(`^(?:│` + config.SpaceClass + `*)?[>` + screen.Marks + `]`)
 
 // turnMarks is what this look adds to the marks the end-of-turn rule reads (watch.stop_marks):
 // when the turn behind the screen began, as near as a look can say, and the words a seat at its
