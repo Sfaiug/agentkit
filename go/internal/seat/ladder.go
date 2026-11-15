@@ -173,13 +173,13 @@ func ownQuestion(facts climbing) (*answer, error) {
 
 // usage is the seat's wait on its subscription, which its seat file keeps: none for a seat nobody is
 // in or the owner closed, or one the wait leaves its own word (keepsOwnWord).  ErrUnread where its
-// word hangs on what Go does not read: a wait with no reason or start, or a refusal kept with no wait.
+// word hangs on what Go does not read: a wait with no reason or start.
 func usage(facts climbing) (*run.Object, error) {
 	if facts.gone != nil || facts.file.Truthy("closed_by_owner") {
 		return nil, nil
 	}
 	wait := facts.file.Dict("usage_wait")
-	if wait == nil && facts.file.Get("usage_wait") == nil && facts.file.Get("usage_refusal") == nil {
+	if wait == nil && facts.file.Get("usage_wait") == nil {
 		return nil, nil
 	}
 	if wait == nil {
@@ -243,9 +243,11 @@ func turnRunning(facts climbing) (*answer, error) {
 	return &answer{word: "working", reason: reason, since: began}, nil
 }
 
-// retrying: its turn stopped on an error the tick types it back past, until it asks the owner.
+// retrying: its turn stopped on an error the tick types it back past, until the tick gives up and
+// tells the owner: of the stall it keeps, or of the bare 429 the seat file keeps.
 func retrying(facts climbing) (*answer, error) {
-	if facts.found.stall == nil || stallTold(facts.state, facts.name) {
+	refusal := facts.file.Dict("usage_refusal")
+	if facts.found.stall == nil || stallTold(facts.state, facts.name) || refusal != nil && refusal.Truthy("told") {
 		return nil, nil
 	}
 	return &answer{word: "working", reason: fmt.Sprintf("retrying: %v", facts.found.stall), since: facts.found.began}, nil

@@ -19,19 +19,16 @@ func spentAlone(name string, model config.Model) bool {
 }
 
 // mayRestDone is whether watch.done_unprompted may hold of the seat, which Go leaves to Python:
-// its plan is finished, or unread, and nothing has prompted it since its last write.  The stop
-// file's `turn` stamps each prompt, the line's or the owner's (watch.prompted_since), and one
-// since says it does not hold, whatever else done_unprompted reads.
+// its plan is finished, or unread, and nothing has prompted it since its last write.  A prompt
+// since (plan.Prompted, watch.prompted_since) says it does not hold, whatever else
+// done_unprompted reads.
 func mayRestDone(name string) bool {
 	finished, err := plan.Finished(name)
 	if err != nil || !finished {
 		return err != nil
 	}
 	done, _ := plan.DoneAt(name)
-	turn := 0.0
-	if stop, _ := run.ReadJSON(ownFile("stop", name)); stop != nil {
-		turn, _ = stop.Num("turn")
-	}
+	turn, _ := plan.Prompted(name)
 	return done.IsZero() || turn <= seconds(done)
 }
 

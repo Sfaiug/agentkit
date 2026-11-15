@@ -160,12 +160,12 @@ func (look Look) path(current string) (string, error) {
 // Names are the names a seat goes by, every rename pointer followed on disk (Look).
 func Names(current string) []string { return Look{}.Names(current) }
 
-// ReachedLive is whether the seat's own ssh reached the live host this turn: since the turn's
-// start hooks/seat-state.sh writes in its stop file.  Both are under the name its harness was
-// launched with, which a rename leaves behind: of every name the seat had, the one holding the
-// newest turn is its running launch's, so an earlier launch's reach never counts.
-func ReachedLive(current string) bool {
-	launched, turn := "", 0.0
+// Prompted is when the last prompt went into the seat -- the line, or the owner's -- and the name
+// it is stamped under, or 0 and "" with none.  hooks/seat-state.sh stamps each prompt's moment in
+// the stop file of the name its harness was launched with, which a rename leaves behind, and a
+// turn that has since finished keeps it: of every name the seat had, the newest stamp is its
+// running launch's.
+func Prompted(current string) (turn float64, launched string) {
 	for _, each := range Names(current) {
 		var stop map[string]any
 		data, err := os.ReadFile(seatFile("stop", each, "json"))
@@ -176,6 +176,14 @@ func ReachedLive(current string) bool {
 			launched, turn = each, at
 		}
 	}
+	return turn, launched
+}
+
+// ReachedLive is whether the seat's own ssh reached the live host this turn: since the turn's
+// start hooks/seat-state.sh writes in its stop file.  Both are under the name its running launch
+// stamps (Prompted), so an earlier launch's reach never counts.
+func ReachedLive(current string) bool {
+	turn, launched := Prompted(current)
 	if launched == "" {
 		return false
 	}
