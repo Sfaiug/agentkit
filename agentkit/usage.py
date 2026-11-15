@@ -1469,18 +1469,21 @@ def _parks(cfg, name, prov, mark):
     """Whether the refusal `mark` on `prov`, a reading of this model's provider, can have been
     meant for this model: each meter it can have come from (`mark_exhausted`) gates it too.
 
-    The mark names meters (`_identity`), not the model refused, so it reads whatever config.toml
-    says whose each meter is by now.  One naming none -- made without a model, or before marks
-    named them so -- or a meter this reading no longer holds parks every model: whose it was,
-    nobody knows.
+    The mark names meters (`_identity`, or by name alone where made before marks named scopes),
+    not the model refused, so it reads whatever config.toml says whose each meter is by now.
+    One naming none -- made without a model, or before marks named any -- or a meter this
+    reading holds not exactly once parks every model: whose it was, nobody knows.
     """
     recorded = mark.get("exhausted_meters")
     meters = [m for m in prov.get("meters") or [] if isinstance(m, dict)]
-    if not isinstance(recorded, list) or any(r not in map(_identity, meters) for r in recorded):
+    if not isinstance(recorded, list):
+        return True
+    named = [[m for m in meters if r in (m.get("name"), _identity(m))] for r in recorded]
+    if any(len(each) != 1 for each in named):
         return True
     provider = config.model(cfg, name)["provider"]
     gating = _gating_meters(cfg, name, {provider: {"meters": meters}})[0]
-    return all(r in map(_identity, gating) for r in recorded)
+    return all(meter in gating for [meter] in named)
 
 
 def model_pace(cfg, name, providers):
