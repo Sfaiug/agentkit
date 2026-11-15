@@ -8,7 +8,7 @@ older card's does not, nor a request in another session or quoted in a message. 
 the seat, its plan unfinished, until its next prompt.  A settled card stays closed, its seat
 neither reopened to ask it again after its process dies nor shown it once reopened on that
 session.  Black-box: a seat opened by `ak orch` from a person's terminal on a fake muse that
-fires its line's hooks as Muse 1.4.12 does (tests/fixtures/musetui.py), its log in Muse's store,
+fires its hooks as Muse 1.4.20 does (tests/fixtures/musetui.py), its log in Muse's store,
 under the Home; this test fails against `/bin/false`.
 """
 
