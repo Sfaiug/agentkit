@@ -15,9 +15,10 @@ func TestOnlyAStashThatMayWriteAsksTheRealGit(t *testing.T) {
 		t.Skip("the real git here is a shell script")
 	}
 	seated(t, "acme")
-	asked := filepath.Join(t.TempDir(), "asked")
 	real := filepath.Join(t.TempDir(), "git")
-	put(t, real, "#!/bin/sh\necho \"$*\" >> '"+asked+"'\nprintf 'worktree /a\\nHEAD x\\n\\nworktree /b\\n'\n")
+	// the fake logs beside itself through "$0", so no path, whatever it holds, is shell source
+	asked := real + ".asked"
+	put(t, real, "#!/bin/sh\necho \"$*\" >> \"$0.asked\"\nprintf 'worktree /a\\nHEAD x\\n\\nworktree /b\\n'\n")
 	if err := os.Chmod(real, 0o777); err != nil {
 		t.Fatal(err)
 	}
