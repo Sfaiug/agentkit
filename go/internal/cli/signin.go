@@ -47,13 +47,33 @@ func adapterVerbs(keyboard *terminal.Keyboard, painter *terminal.Painter, harnes
 			if fresh {
 				forget(harness, account)
 			}
-			showMenuNotices(nil, keyboard, painter) // a keyboard gone there reads eof on the page too
+			escBack(keyboard, painter)
 			return verb
 		}
 	}
 	keyboard.Take()
 	painter.Forget()
 	return ""
+}
+
+// escBack waits on the terminal given back until what was said there has been read (Python's pause):
+// only the keys taken, so Esc goes back at once, then the terminal taken again unless the keyboard
+// is gone.
+func escBack(keyboard *terminal.Keyboard, painter *terminal.Painter) {
+	keyboard.TakeKeys()
+	fmt.Print("esc back ")
+	for {
+		switch keyboard.ReadKey().Name {
+		case "enter", "esc":
+			keyboard.Give()
+			keyboard.Take()
+			painter.Forget()
+			return
+		case "eof":
+			keyboard.Give()
+			return
+		}
+	}
 }
 
 // ranVerb is whether that verb of the harness's adapter finished on the terminal: it exited 0 and, for

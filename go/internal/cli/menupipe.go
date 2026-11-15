@@ -22,7 +22,7 @@ func pipeMenu(dry, overlay bool, out, errOut io.Writer) int {
 	out = screen.Painted(out)
 	for {
 		fmt.Fprint(out, screen.Clears())
-		for _, line := range noticeLines(append(said, menuNotices()...), screen.LayoutWidth()) {
+		for _, line := range noticeLines(append(said, menuNotices()...), screen.LayoutWidth(), " ") {
 			fmt.Fprintln(out, line)
 		}
 		said = nil
