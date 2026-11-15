@@ -10,7 +10,9 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
+	"unicode"
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
@@ -162,10 +164,10 @@ func (r *Readings) Budget(name string) (float64, string) {
 	return providerBudget(gated, r.now)
 }
 
-// OnCredits is whether that model runs on its provider's credits, a meter it watches spent,
+// OnCredits is whether that model runs on its provider's credits, a meter gating it spent,
 // Python's usage.on_credits.
 func (r *Readings) OnCredits(name string) bool {
-	meters, prov := r.watched(name)
+	meters, prov := r.gating(name)
 	if creditsLeft(prov) == 0 {
 		return false
 	}
@@ -196,8 +198,11 @@ func (r *Readings) Shown(listed func(provider, account string) any, plans map[We
 }
 
 // gating is the meters that gate that model and its provider's reading, Python's
-// usage._gating_meters: the model's own `meter`, the shared week and the session where it names
-// one, else every meter no other model of its provider claims.
+// usage._gating_meters, which every reader of a model's meters asks: never a cap that is another
+// model's.  A cap is the model's its provider names in its `scope`, each word of which is a word of
+// the model's id or of the name every screen shows it by (`Fable` names `acme-fable-5-2`);
+// without one, the model's whose `meter` claims it.  Of the rest, a model naming a `meter` is
+// gated by that one, the shared week and the session; any other by all of them.
 func (r *Readings) gating(name string) ([]*run.Object, *run.Object) {
 	model := r.models[name]
 	prov := object(r.providers.Get(model.Provider))
@@ -207,14 +212,24 @@ func (r *Readings) gating(name string) ([]*run.Object, *run.Object) {
 			claimed[entry.Meter] = true
 		}
 	}
+	own := words(model.ID + " " + config.ModelName(name, r.models))
 	var meters []*run.Object
 	for _, meter := range objects(prov.Get("meters")) {
+		scoped := meter.Truthy("scope")
+		if scoped && slices.ContainsFunc(words(text(meter.Get("scope"))), func(word string) bool { return !slices.Contains(own, word) }) {
+			continue
+		}
 		if model.Meter != "" && (meter.Str("name") == model.Meter || meter.Str("name") == "weekly_all" || session(meter)) ||
-			model.Meter == "" && !claimed[meter.Str("name")] {
+			model.Meter == "" && (scoped || !claimed[meter.Str("name")]) {
 			meters = append(meters, meter)
 		}
 	}
 	return meters, prov
+}
+
+// words is a text's words as a scope is matched by them, in small letters.
+func words(text string) []string {
+	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
 }
 
 func state() string {

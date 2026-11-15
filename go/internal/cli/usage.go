@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -17,17 +16,15 @@ func init() { commands["usage"] = usageAnswer }
 
 // usageAnswer answers `ak usage` as Python's usage.main does: every provider's reading, each login
 // with its plan (matrix.Plans), the pick order and the review pair, as JSON with --json, each login
-// with its plan_checks (matrix.Checks) too, else drawn (usageText).  A home whose read or pick is
-// Python's is left to Python before anything is locked or asked.
+// with its plan_checks (matrix.Checks) too, else drawn (usageText), each login asked through the
+// checkout's own adapters where no $AGENTKIT_ADAPTER_DIR is named, as the ak screen asks them.  A
+// home whose pick is Python's is left to Python before anything is locked or asked.
 func usageAnswer(args []string, out, errOut io.Writer) int {
 	rules, ok := pick.Load()
 	if !ok {
 		return notImplemented(errOut, "usage")
 	}
-	readings, err := usage.Read()
-	if errors.Is(err, usage.ErrPython) {
-		return notImplemented(errOut, "usage")
-	}
+	readings, err := usage.Collected()
 	if err != nil {
 		fmt.Fprintf(errOut, "ak usage: %s\n", err)
 		return 1

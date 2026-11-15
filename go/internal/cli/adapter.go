@@ -35,6 +35,8 @@ func adapter(args []string, out, errOut io.Writer) int {
 		return adapters.Turn(harness, rest, errOut)
 	case "auth":
 		return adapters.Auth(harness, rest, out, errOut)
+	case "usage":
+		return adapters.Usage(harness, out, errOut)
 	case "lend":
 		return adapters.Lend(harness, rest, out, errOut)
 	case "login":
