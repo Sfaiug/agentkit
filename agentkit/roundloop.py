@@ -1129,7 +1129,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
     action = (lambda: fails_on_base(lp)) if ok and needs_base_proof(lp) else None
     # settled each time a round would go to review, from every file the change touches then: a
     # task's change touching only paths its target marks checks-only lands once its checks pass
-    if ok and not (lp.scratch or lp.state.get("review_pr")) and transitions.checks_only(lp.wt, lp.base_sha):
+    if ok and not (lp.scratch or lp.state.get("review_pr")) and transitions.checks_only(
+            lp.wt, lp.state.get("target_sha") or lp.upstream):
         lp.state["checks_only"] = True
     else:
         lp.state.pop("checks_only", None)

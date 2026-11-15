@@ -219,14 +219,17 @@ def size_base(state):
     return state.get("target_sha") or state.get("base_sha")
 
 
-def checks_only(repo, base, head="HEAD"):
-    """Whether every path the change from `base` to `head` touches, a renamed file under both its
-    names, is marked `ak-checks-only` at `base`, as `diff_lines` reads linguist-generated, so a
-    change cannot mark its own paths: such a change lands on its checks with no review
+def checks_only(repo, target, head="HEAD"):
+    """Whether every path the change from `target`, the commit it lands on, to `head` touches, a
+    renamed file under both its names, is marked `ak-checks-only` at `target`, as `diff_lines`
+    reads linguist-generated, so a change cannot mark its own paths, nor a branch it starts
+    from mark them for the target: such a change lands on its checks with no review
     (`roundloop.review`).  One whose diff git cannot read is reviewed."""
-    names = [name for name in gitcall.git(repo, "diff", "--name-only", "-z", "--no-renames",
-                                          f"{base}...{head}", check=False).split("\0") if name]
-    return bool(names) and _marked(repo, base, names, "ak-checks-only") == set(names)
+    # `gitcall.git()` strips whitespace, and with it the space a first name can start with
+    code, out, _ = gitcall.tool_run(["git", "-C", str(repo), "diff", "--name-only", "-z",
+                                     "--no-renames", f"{target}...{head}"])
+    names = set(out.split("\0")) - {""} if code == 0 else set()
+    return bool(names) and _marked(repo, target, sorted(names), "ak-checks-only") == names
 
 
 def _marked(repo, source, names, attribute):
