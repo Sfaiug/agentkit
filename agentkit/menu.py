@@ -3108,7 +3108,7 @@ def take_choice(cfg, name, selected, providers, role, model, effort, around):
     that restarts it (seat_effort).  With no `name`, `selected` being [defaults], the role is
     taken there, the orchestrator at `effort` as the entry's `effort`, and the entry and
     [defaults] are saved in one write (defaults_saved), no open seat changing.  What to say
-    under the rows, or ""."""
+    under the rows, "" once taken; None where the restart was not picked."""
     if name is not None and role == "orchestrate":
         return seat_effort(cfg, name, selected, model, effort, around, providers=providers)
     key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
@@ -3236,16 +3236,57 @@ def models_unit():
 
 
 def next_unit(unit):
-    """The unit `u` turns to after `unit`, kept for the screen to open in (models_unit): moved in
-    whole from a file of its own, so screens turning it at once each leave a unit."""
+    """The unit `u` turns to after `unit`, kept for the screen to open in (models_unit)."""
     units = list(UNITS)
     unit = units[(units.index(unit) + 1) % len(units)]
-    config.ensure_dirs()
-    with tempfile.NamedTemporaryFile("w", dir=config.STATE, prefix=".models-unit-",
-                                     delete=False) as part:
-        part.write(unit)
-    os.replace(part.name, unit_path())
+    _moved_in(unit_path(), unit)
     return unit
+
+
+def _moved_in(path, text):
+    """`text` as `path`, a file of the models screen's in ak's state: moved in whole from a file
+    of its own, so screens writing it at once each leave a whole one."""
+    config.ensure_dirs()
+    with tempfile.NamedTemporaryFile("w", dir=config.STATE, prefix=f".{path.name}-",
+                                     delete=False) as part:
+        part.write(text)
+    os.replace(part.name, path)
+
+
+# the field of a seat's record each role's kept price is (keep_price)
+PRICE_FIELDS = {role: f"{word}_price" for role, word in matrix.CONFIG_ROLES.items()}
+
+
+def price_path(role):
+    """Where new seats' kept price for `role` is (keep_price): in ak's state beside the unit's
+    (unit_path), never the config, so no writer of [defaults] need know of it."""
+    return config.STATE / f"models-{matrix.CONFIG_ROLES[role]}-price"
+
+
+def keep_price(cfg, session, selected, answer, role, before):
+    """Once a take (take_choice) has moved `role` of seat `session`, else of new seats, off the
+    row `before` as `selected` now reads (matrix.uses), the price it stopped at, the owner's
+    design of 5 Nov 2026: the choice's `limit` (matrix.answer's `limits`), the `cost_unit` and
+    the `model` and `effort` the role then uses, so a better model that gets that cheap later
+    can take over; a row no choice removes it.  Written after the take, off the reading it is
+    judged by, so no other write need know of it: in the seat's record as it stands, under its
+    lock, else in price_path.  What to say under the rows, or ""."""
+    model, effort, row = matrix.uses(cfg, selected, answer)[role]
+    if row is before:
+        return ""               # a take onto the model and effort it ran: no row changed
+    found = answer[role]
+    entry = {"limit": found["limits"][id(row)], "cost_unit": found["cost_unit"], "model": model,
+             "effort": effort} if id(row) in found["limits"] else None
+    try:
+        if session is not None:
+            config.update_session(config.resolve_session(session), **{PRICE_FIELDS[role]: entry})
+        elif entry is None:
+            price_path(role).unlink(missing_ok=True)
+        else:
+            _moved_in(price_path(role), json.dumps(entry))
+    except (config.Error, OSError) as exc:
+        return f"{'session' if session else 'state'}: {exc}"
+    return ""
 
 
 def figures(value):
@@ -3546,11 +3587,12 @@ def models_screen(cfg, session, selected, providers):
     the page leaves room for, over models_read until Esc, the boards read as it opens
     (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
     bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or better
-    choice for its role at once (next_choice, take_choice), the owner's design of 5 Nov 2026, the
-    last row a role was shown using that is no choice staying one of its bars and steps; ⏎ or a
-    click opens the why (models_why) of the row the role uses, else of its first choice.  `p`
-    lists companies (company_list), and `u` counts every cost in the next unit (next_unit), the
-    screen opening in the last one (models_unit)."""
+    choice for its role at once (next_choice, take_choice), keeping the price it stopped at
+    (keep_price), the owner's design of 5 Nov 2026, the last row a role was shown using that is
+    no choice staying one of its bars and steps; ⏎ or a click opens the why (models_why) of the
+    row the role uses, else of its first choice.  `p` lists companies (company_list), and `u`
+    counts every cost in the next unit (next_unit), the screen opening in the last one
+    (models_unit)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -3612,6 +3654,8 @@ def models_screen(cfg, session, selected, providers):
                                 own[here[1]])
             if found:
                 note = take_choice(cfg, session, selected, providers, here[1], *found, around)
+                if note == "":    # taken: `selected` may also hold another window's write since
+                    note = keep_price(cfg, session, selected, answer, here[1], used[here[1]][2])
         elif act == "p":
             note, answer = company_list(cfg, title), None
         elif act == "u":
@@ -3984,7 +4028,8 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     instead, asking first where that restarts it (seat_effort).  A seat not made yet, named
     None, holds its efforts in its record alone (the born row's, born_models).
     The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
-    never stands between the key and its frame.  What to say under the matrix, or ""."""
+    never stands between the key and its frame.  What to say under the matrix, or "", or None
+    for a restart not picked (seat_effort)."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
         levels = config.efforts(entry.get("harness"), entry.get("model"),
@@ -4015,7 +4060,7 @@ def seat_effort(cfg, name, selected, model, effort, around, providers=None):
     (terminal.confirm), the owner's 24 Oct words about the orchestrator: "it should ask me to
     confirm. As this restarts the session."  The move alone writes the record
     (orch.switch_orchestrator), and `selected` then holds it as it is.  What to say under the
-    rows, or ""."""
+    rows, or ""; None where Restart was not picked."""
     note = orch.switch_orchestrator(cfg, name, model, providers=providers, effort=effort,
                                     asked=lambda kept: (
         terminal.confirm((RESTART_ASK if effort else MOVE_ASK).format(
@@ -4024,7 +4069,7 @@ def seat_effort(cfg, name, selected, model, effort, around, providers=None):
         selected.update(config.load_session(cfg, name, required=False) or {})
     except (config.Error, OSError) as exc:
         return note or f"session: {exc}"
-    return note or ""
+    return note
 
 
 def _set_effort(entry, key, effort, hold=()):
