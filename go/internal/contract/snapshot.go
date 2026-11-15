@@ -106,10 +106,10 @@ func refusal(model config.Model, code int, out, snapshot string) (string, error)
 		return "", nil
 	}
 	answer, said := loop.Refusal(out, model.Harness)
-	word := harness.Heard(model.Harness, "quotas", said)
+	word := harness.Heard(model.Harness, harness.Spent, said)
 	if word == "" {
 		// A provider's 500s for six minutes held the install on 5 Nov 2026.
-		if down := harness.Heard(model.Harness, "outages", said); down != "" {
+		if down := harness.Heard(model.Harness, harness.Outage, said); down != "" {
 			return "the provider was down (" + down + ")", nil
 		}
 		return "", nil
