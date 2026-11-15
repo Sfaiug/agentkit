@@ -145,7 +145,7 @@ class OneHighlight(unittest.TestCase):
         self.assertEqual(list(keyed), [fable])
         self.assertIn(orch, keyed[fable])
         self.assertEqual(keyed[fable], list(range(keyed[fable][0], keyed[fable][-1] + 1)))
-        self.assertGreater(len(keyed[fable]), 3)
+        self.assertGreater(len(keyed[fable]), len(" ● "))      # its column, not the mark
         # one not set in its column is lit over as many cells
         self.term.keys("Down")
         shown = self.calm(lambda shown: starts(shown, "› 6 Astra", astra))

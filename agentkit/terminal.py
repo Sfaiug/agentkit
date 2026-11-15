@@ -1298,7 +1298,8 @@ def bright(text):
     every reset turns the brightness back on, a lit cell's (`selected`) too."""
     if not colour_depth():
         return text
-    return "\033[1m" + re.sub(r"\033\[0?(?=[;m])", "\033[0;1", text) + "\033[0m"
+    # an SGR that resets, alone or before a lit cell's background, then bold again
+    return "\033[1m" + re.sub(r"\033\[0?(?=[;m])(?=[0-9;]*m)", "\033[0;1", text) + "\033[0m"
 
 
 def selected(line, first, last):
