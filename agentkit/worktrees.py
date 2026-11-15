@@ -74,8 +74,7 @@ def disposable_workspace(directory, state):
 def drop_local_branch(repo, branch, log):
     """Delete the run's local `ak/` branch once nothing has it checked out.
 
-    The remote branch is the PR's, when there is one, and is not this machine's
-    to remove. A branch that is already gone is the outcome the caller wanted.
+    A branch that is already gone is the outcome the caller wanted.
     The `ak/` prefix is the guard: the repo it lives in is the owner's checkout
     under ~/code, and the branch is the only thing that goes. False, with its WARN,
     when git kept the branch: a ref lock, a checkout elsewhere that holds it, or a

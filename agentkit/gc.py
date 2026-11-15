@@ -17,9 +17,9 @@ import subprocess
 import sys
 import time
 
-from . import (config, gitcall, handback, host, job as jobs, land, look, macbridge, notify,
-               orch, owner, proc_snapshot, record, retention, run, stop, transitions, turns,
-               watch, worktrees)
+from . import (config, deliver, gitcall, handback, host, job as jobs, land, look, macbridge,
+               notify, orch, owner, proc_snapshot, record, retention, run, stop, transitions,
+               turns, watch, worktrees)
 from .harness import (conversation_stores, end_conversation, idle_conversations,
                       load as harness_plugin, recorded_conversations)
 
@@ -517,6 +517,60 @@ def leftovers():
     return retention.read_json(config.STATE / "gc-leftovers.json") or {}
 
 
+REMOTE_BRANCH_IF = "if its pull request is closed unmerged and origin still holds it as pushed"
+
+
+def pushed_branch(state):
+    """(repo, branch, delivery_sha, pr_url) for a run's own unmerged PR branch pushed to origin,
+    or None."""
+    if (not isinstance(state, dict) or state.get("merged") or state.get("review_pr")
+            or state.get("foreign")):
+        return None
+    repo, branch = state.get("repo"), state.get("branch")
+    sha, url = state.get("delivery_sha"), state.get("pr")
+    if (not isinstance(repo, str) or not repo
+            or not isinstance(branch, str) or not branch
+            or branch.startswith(("-", "refs/")) or ":" in branch
+            or not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha)
+            or not isinstance(url, str) or deliver.pr_parts(url) is None):
+        return None
+    return repo, branch, sha, url
+
+
+def drop_remote_branch(state, report):
+    """Remove `state`'s pushed branch from `origin` when its own PR is closed unmerged and the
+    lease on `delivery_sha` still holds; report when GitHub does not answer or the push fails."""
+    pushed = pushed_branch(state)
+    if pushed is None:
+        return
+    repo, branch, sha, url = pushed
+
+    def keep(why):
+        report(f"gc: kept remote-branch {branch}: {' '.join(str(why).split())}")
+
+    try:
+        data, why = deliver.gh_json(config.RUNS if config.RUNS.is_dir() else None,
+                                    "pr", "view", url, "--json", "state", once=True)
+    except (gitcall.Stopped, config.Error, OSError, subprocess.SubprocessError) as exc:
+        data, why = None, exc
+    pr_state = data.get("state") if isinstance(data, dict) else None
+    if pr_state not in ("OPEN", "MERGED", "CLOSED"):
+        return keep(why or f"{url} did not answer")
+    if pr_state != "CLOSED":
+        return
+    if not retention.safe(Path(repo)) or orch.git_dirs(Path(repo)) is None:
+        return keep(f"{repo} is not a safe git repository")
+    ref = f"refs/heads/{branch}"
+    try:
+        code, out = gitcall.git_out(repo, "push", f"--force-with-lease={ref}:{sha}",
+                                    "origin", "--delete", ref)
+    except (gitcall.Stopped, config.Error, OSError, subprocess.SubprocessError) as exc:
+        code, out = 1, exc
+    if code != 0:
+        return keep(out or "git push refused")
+    report(f"gc: remove remote-branch {branch}")
+
+
 def stale_worktree(wt, now, paths, left):
     """The collector's item for a checkout under ~/.agentkit/wt nothing comes back for, or None.
 
@@ -551,8 +605,10 @@ def stale_worktree(wt, now, paths, left):
             and not state.get("scratch") and worktrees.provably_final(state)
             and retention.expired(finished, now, GC_AGE)
             and not record.writing(directory)):
+        pushed = pushed_branch(state)
         return {"action": "remove", "kind": "unmerged-worktree", "path": str(wt),
-                "why": f"passed, never merged, ended {int((now - finished) // 86400)} days ago"}
+                "why": f"passed, never merged, ended {int((now - finished) // 86400)} days ago",
+                **({"remote_branch": pushed[1]} if pushed else {})}
     return None
 
 
@@ -791,6 +847,16 @@ def own_tree(state):
     return tree if tree in (config.WT / run_id, config.WORK / run_id) else None
 
 
+def old_run_tree(state, left):
+    """The checkout under ~/.agentkit/wt an old-run removal takes with its record, or None."""
+    tree = own_tree(state)
+    if (tree is not None and tree.parent == config.WT and not state.get("scratch")
+            and str(tree) not in left and clearable(tree)
+            and worktrees.checkout_removable(state)):
+        return tree
+    return None
+
+
 def drop_tree(state, tree, report, keep_branch=None, with_run=False):
     """`drop_checkout` for gc: True when the tree is gone.
 
@@ -862,16 +928,20 @@ def gc_candidates(now=None):
             else:
                 keep_for_seat = session_lives(owner)
             if not keep_for_seat:
+                tree = old_run_tree(state, left)
+                pushed = pushed_branch(state) if tree is not None else None
                 yield {"action": "remove", "kind": "old-run", "path": str(directory),
                        "run": str(directory), "whole": True, "final": not interrupted,
                        "interrupted_at": interrupted,
-                       "state_identity": retention.fingerprint(directory / "run.json")}
+                       "state_identity": retention.fingerprint(directory / "run.json"),
+                       **({"remote_branch": pushed[1],
+                           "remote_tree": str(tree)} if pushed else {})}
                 continue
         # A failed, blocked, stopped or error checkout goes when the seat has been
         # told, or a week later, whichever is first -- unless a resume can still
         # take the run or its work could not reach its branch, which holds the checkout
         # until the week is out. The seat
-        # reads result.md. The branch stays: a run that never pushed holds its
+        # reads result.md. The local branch stays: a run that never pushed holds its
         # only copy there.
         if (state and state.get("run_id") == directory.name
                 and state.get("state") in (*record.FAILED, "stopped")
@@ -884,9 +954,11 @@ def gc_candidates(now=None):
                          and not worktrees.resume_holds_tree(state, directory)))
                 and worktrees.disposable_workspace(directory, state) and state["worktree"] not in left
                 and not retention.busy(Path(state["worktree"]), paths)):
+            pushed = pushed_branch(state)
             yield {"action": "remove", "kind": "ended-worktree", "path": str(state["worktree"]),
                    "run": str(directory), "loose": True, "final": True,
-                   "state_identity": retention.fingerprint(directory / "run.json")}
+                   "state_identity": retention.fingerprint(directory / "run.json"),
+                   **({"remote_branch": pushed[1]} if pushed else {})}
         if (not state or state.get("run_id") != directory.name or state.get("scratch")
                 or state.get("state") != "pass" or not state.get("merged")
                 or not worktrees.provably_final(state)
@@ -1257,6 +1329,7 @@ def gc(report, automatic=False):
             tmp_inventory = None
             for item in gc_candidates():
                 path = Path(item["path"])
+                remote_branch_state = None
                 try:
                     # the planner's own proof once more, now: a seat launched under the name,
                     # a wrapper or a run back in the checkout since, and it all stays
@@ -1301,8 +1374,10 @@ def gc(report, automatic=False):
                             if not stale_worktree(path, time.time(), paths, leftovers()):
                                 continue
                             if item["kind"] == "unmerged-worktree":
-                                done = drop_tree(retention.read_json(directory / "run.json") or {},
-                                                 path, report)
+                                state = retention.read_json(directory / "run.json") or {}
+                                done = drop_tree(state, path, report)
+                                if done and not retention.present(path):
+                                    remote_branch_state = state
                             else:
                                 clear_tree(path, report)
                                 done = not left_behind(path, report)
@@ -1373,12 +1448,15 @@ def gc(report, automatic=False):
                                 # clutters the next run's name check. A tree already
                                 # reported as left behind is not tried again.
                                 tree = own_tree(state)
+                                remote_tree = old_run_tree(state, leftovers())
                                 if tree is not None and str(tree) in leftovers():
                                     worktrees.drop_local_branch(state.get("repo"), state.get("branch"),
                                                       report)
                                 else:
                                     drop_tree(state, tree, report, keep_branch=False,
                                               with_run=True)
+                                if remote_tree is not None and not retention.present(remote_tree):
+                                    remote_branch_state = state
                             retention.remove(directory, directory=True)
                             done = not directory.exists()
                     elif "run" not in item and "job" not in item:
@@ -1437,10 +1515,15 @@ def gc(report, automatic=False):
                                         and not worktrees.resume_holds_tree(state, directory))):
                                 continue
                             else:
+                                had_tree = retention.present(path)
                                 done = drop_tree(state, path, report)
+                                if done and had_tree and not retention.present(path):
+                                    remote_branch_state = state
                     if done:
                         removed.append(item["path"])
                         report(f"gc: {item['action']} {item['kind']} {path}{gc_why(item)}")
+                        if remote_branch_state is not None:
+                            drop_remote_branch(remote_branch_state, report)
                 except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError,
                         subprocess.SubprocessError) as exc:
                     report(f"gc: kept {path}: {exc}")
@@ -1555,8 +1638,12 @@ def cmd_gc(argv):
         plan = sweep_plan()
         listed = {item["path"] for item in plan}
         plan += [item for item in gc_plan() if item["path"] not in listed]
+        trees = {item["path"] for item in plan if item["kind"].endswith("-worktree")}
         for item in plan:
             print(f"gc: would {item['action']} {item['kind']} {item['path']}{gc_why(item)}")
+            if item.get("remote_branch") and item.get("remote_tree") not in trees:
+                print(f"gc: would remove remote-branch {item['remote_branch']}: "
+                      f"{REMOTE_BRANCH_IF}")
         if not plan:
             print("gc: no eligible artifacts")
         return 0
