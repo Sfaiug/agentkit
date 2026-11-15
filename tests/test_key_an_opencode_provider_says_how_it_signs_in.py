@@ -11,6 +11,10 @@ adapter over the Home's fake `opencode`, which lists Acme Cloud, taking a key, a
 sign-in or another tool's, and Zeta Cloud, taking a key or one in its environment, with no
 login to either, and logs each call.  Judged by what the terminal shows under `+ add a
 subscription` and the fake's calls; this test fails against `/bin/false`.
+
+OpenCode itself gives Google no account's sign-in, only a key.  The owner, 15 Nov 2026, left it
+there: ak installs no plugin from outside OpenCode to add one, and that subscription runs
+under Antigravity.
 """
 
 import json
