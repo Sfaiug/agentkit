@@ -15,11 +15,12 @@ import (
 // StartRepair starts the repair run of the target that the member state is in dir owns, Python's
 // start_followups with a `repair`: one for the target failing a `command` of its own on its tip, or,
 // `flaky` naming when the landing line first saw it, a test file the line saw tests of fail, then
-// pass, on two trees.  repair holds that command or file, keying the repair with the target and
-// `flaky`, the done-when `check`, the target's tip (`sha`) and `text`, naming the tip and what failed
-// there.  It is launched ahead of the queue under the lock that closes seats, as prepare readies a
-// seat's follow-up.  Its answer is the repair: started, already open for that key at that tip, or
-// left queued by a start that failed; "" where none is.
+// pass, on two trees, or, `revert` naming a broken live release, that release's revert `command`.
+// repair holds that command or file, keying the repair with the target, `flaky` and `revert`, the
+// done-when `check`, the target's tip (`sha`) and `text`, naming the tip and what failed there.  It
+// is launched ahead of the queue under the lock that closes seats, as prepare readies a seat's
+// follow-up.  Its answer is the repair: started, already open for that key at that tip, a revert's
+// whatever became of it, or left queued by a start that failed; "" where none is.
 func StartRepair(state *run.Object, dir string, repair *run.Object, prepare func(string, *run.Object, *run.Object) (func() error, error), say func(string)) (string, error) {
 	if run.Seat(state) == "" || !state.Truthy("repo") || state.Truthy("scratch") || state.Truthy("review_pr") && !state.Truthy("own_pr") {
 		return "", nil
@@ -43,10 +44,14 @@ func StartRepair(state *run.Object, dir string, repair *run.Object, prepare func
 		key.Set("flaky", repair.Get("flaky"))
 		title, body = "Make "+command+" deterministic", repair.Str("text")
 	}
+	if repair.Has("revert") {
+		key.Set("revert", repair.Get("revert"))
+		title, body = "Revert broken release "+tip[:min(7, len(tip))], repair.Str("text")
+	}
 	for _, other := range run.Dirs() {
 		record, _ := run.Read(other)
 		if record != nil && record.Str("run_id") != state.Str("run_id") && record.Truthy("followup") &&
-			record.Str("repo") == state.Str("repo") && run.Equal(record.Get("repair"), key) && RepairOpen(record, tip) {
+			record.Str("repo") == state.Str("repo") && run.Equal(record.Get("repair"), key) && (key.Truthy("revert") || RepairOpen(record, tip)) {
 			return filepath.Base(other), nil
 		}
 	}
