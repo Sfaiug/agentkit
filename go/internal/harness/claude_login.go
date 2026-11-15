@@ -18,7 +18,9 @@ import (
 // claudeAuth reads Claude Code's logins as claude.sh's `auth` does.  For a turn the worker token
 // answers first, from the environment or its file; otherwise, and alone for `seat`, the seat's
 // own login answers: the two expire apart, and a good worker token would hide a seat's lapsed
-// login.  A lapsed login holding a refresh token renews only in a turn of Claude Code.
+// login.  A lapsed login holding a refresh token renews only in a turn of Claude Code, and its last
+// claudeNear counts as lapsed: Claude Code renews only near a login's end (4.5 minutes left did,
+// 5.5 did not, 2.1.316, 2 Nov 2026), and before the end a machine's copy can still be replaced.
 func claudeAuth(login config.Login, seat bool) Answer {
 	token, variable := config.WorkerToken("claude", login)
 	if !seat && getenv(login, variable) != "" {
@@ -45,7 +47,7 @@ func claudeAuth(login config.Login, seat bool) Answer {
 	file, blob, oauth := claudeLogin(login)
 	ends, dated := claudeEnds(oauth)
 	expired := ends <= time.Now().UnixMilli()
-	lapsed := given(oauth.Get("refreshToken")) && dated && expired
+	lapsed := given(oauth.Get("refreshToken")) && dated && ends <= time.Now().Add(claudeNear).UnixMilli()
 	auth, _ := config.Section("claude", "auth")
 	remedy, _ := auth["remedy"].(string)
 	no := func(line string) Answer { return Answer{Line: "claude: " + line + "; " + remedy, Lapsed: lapsed} }
@@ -59,7 +61,7 @@ func claudeAuth(login config.Login, seat bool) Answer {
 	case expired:
 		return no("the OAuth token in " + file + " expired")
 	}
-	return Answer{Yes: true, Line: "claude: the OAuth token in " + file + " is still valid" + claudeWho(login)}
+	return Answer{Yes: true, Line: "claude: the OAuth token in " + file + " is still valid" + claudeWho(login), Lapsed: lapsed}
 }
 
 // claudeLogin is the seat's own login: the file it is kept in, the text read, on a Mac the usual
@@ -94,6 +96,8 @@ func claudeKeychain(login config.Login) string {
 	}
 	return keychain
 }
+
+const claudeNear = 270 * time.Second // the end of a login a turn renews, as claude.sh's lapsed() reads it
 
 // digits is what claude.sh takes for an epoch: nothing but decimal digits.
 var digits = regexp.MustCompile(`^[0-9]+$`)

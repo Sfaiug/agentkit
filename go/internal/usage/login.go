@@ -10,9 +10,10 @@ import (
 
 const lowFloor = 5.0 // points of room under which a meter runs low whatever its drain, Python's LOW_FLOOR
 
-// auth is what the adapter's `auth` verb says of that login of the provider, "" for its one, as
-// Python's worker.auth_ok asks it outside a run: unmarked, as a probe is nobody's to sweep.
-func auth(adapter, provider, account string) (answered, yes bool) {
+// auth is what the `auth` verb of the adapter the words ask says of that login of the provider,
+// "" for its one, as Python's worker.auth_ok asks it outside a run: unmarked, as a probe is
+// nobody's to sweep.
+func auth(adapter []string, provider, account string) (answered, yes bool) {
 	env, _ := config.ChildEnv()
 	var told []string
 	for _, pair := range env {
@@ -20,7 +21,7 @@ func auth(adapter, provider, account string) (answered, yes bool) {
 			told = append(told, pair)
 		}
 	}
-	answered, yes, _ = logins.Auth(adapter, append(told, config.AccountEnv(account), "AGENTKIT_PROVIDER="+provider))
+	answered, yes, _ = logins.AuthOf(adapter, append(told, config.AccountEnv(account), "AGENTKIT_PROVIDER="+provider))
 	return answered, yes
 }
 

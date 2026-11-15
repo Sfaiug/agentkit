@@ -26,9 +26,10 @@ var retryAfter = regexp.MustCompile(`(?im)^retry-after:[ \t]*(.*)$`)
 
 // claudeUsage is claude.sh's `usage` for the login, its renewal aside: its subscription's meters as
 // the usage endpoint answers them, each limit one model's or one surface's own cap naming it in
-// `scope`, and the credits extra usage has left.  Asked as Claude Code asks it, through curl with
-// the headers on its stdin, in no argument list and no file, on the seat's own login while it
-// has not ended, else the worker token, never both: a second ask kept both inside one 429.
+// `scope`, the resets it holds by kind (claudeResets), and the credits extra usage has left.
+// Asked as Claude Code asks it, through curl with the headers on its stdin, in no argument list
+// and no file, on the seat's own login while it has not ended, else the worker token, never both:
+// a second ask kept both inside one 429.
 func claudeUsage(login config.Login) *run.Object {
 	file, _ := config.WorkerToken("claude", login)
 	creds, _, oauth := claudeLogin(login)
@@ -84,6 +85,9 @@ func claudeUsage(login config.Login) *run.Object {
 	answer.Set("provider", "anthropic")
 	answer.Set("error", nil)
 	answer.Set("meters", meters)
+	resets, kinds := claudeResets(reading)
+	answer.Set("resets", resets)
+	answer.Set("reset_kinds", kinds)
 	if extra, _ := at(reading, "extra_usage").(*run.Object); extra != nil && extra.Get("is_enabled") == true {
 		claudeCredits(answer, extra, claudePrepaid(login, headers))
 	}
@@ -172,11 +176,8 @@ func claudeMeters(reading any) ([]any, bool) {
 		meter.Set("used", limit.Get("percent"))
 		meter.Set("resets_at", int(resets.Unix()))
 		meter.Set("window_secs", window)
-		for _, whose := range []string{"model", "surface"} {
-			if name, _ := at(limit, "scope", whose, "display_name").(string); name != "" {
-				meter.Set("scope", name)
-				break
-			}
+		if scope := claudeScope(limit); scope != "" {
+			meter.Set("scope", scope)
 		}
 		meters = append(meters, meter)
 	}
@@ -252,7 +253,7 @@ func claudeCredits(answer, extra, prepaid *run.Object) {
 	}
 	var credits any = "unlimited"
 	if left := min(limit, balance); !math.IsInf(left, 1) {
-		credits = run.Float(max(left, 0) / math.Pow(10, places))
+		credits = jqNumber(max(left, 0) / math.Pow(10, places))
 	}
 	currency := "USD"
 	for _, named := range []any{extra.Get("currency"), prepaid.Get("currency")} {

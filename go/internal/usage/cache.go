@@ -44,7 +44,7 @@ func collect(sources []source, models map[string]config.Model, refresh bool) (*r
 				stored = true
 				at := slices.IndexFunc(sources, func(src source) bool { return src.Name == name && src.account == prov.Str("account") })
 				if at >= 0 && sources[at].Via != "" { // a reading from before its harness counted any
-					counted[name] = sources[at].resets()
+					counted[name] = sources[at].resets(nil)
 					prov.Set("resets", counted[name])
 				}
 			}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,10 +19,15 @@ const authCap = 20 * time.Second // the `auth` verb reads a file; one still sile
 // worker.auth_ok reads it: answered where it said one line exiting 0 or 1, yes for 0, and that
 // line. The seat's probe adds "seat" to ask about its interactive login.
 func Auth(adapter string, env []string, args ...string) (answered, yes bool, line string) {
+	return AuthOf([]string{adapter}, env, args...)
+}
+
+// AuthOf is Auth of the adapter the words ask a verb, this program's `ak adapter` among them.
+func AuthOf(adapter []string, env []string, args ...string) (answered, yes bool, line string) {
 	ctx, cancel := context.WithTimeout(context.Background(), authCap)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, adapter, append([]string{"auth"}, args...)...)
+	cmd := exec.CommandContext(ctx, adapter[0], slices.Concat(adapter[1:], []string{"auth"}, args)...)
 	// A stdin closed at once: asking opens no file of its own on a machine watching for that.
 	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.WaitDelay = env, strings.NewReader(""), &stdout, &stderr, time.Second
 	host.AdapterCall(cmd)
