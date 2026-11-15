@@ -1,6 +1,7 @@
 package tick
 
 import (
+	"errors"
 	"io"
 	"os"
 	"regexp"
@@ -53,4 +54,15 @@ func (s *stamping) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+// Note writes one line into the tick's log from outside a tick, dated as the tick's own are
+// (watch.note): what ak does by itself behind its screen goes where the tick's same sweep writes it.
+func Note(line string) error {
+	file, err := os.OpenFile(logPath(), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	if err != nil {
+		return err
+	}
+	_, err = (&stamping{stream: file, last: "\n"}).Write([]byte(line + "\n"))
+	return errors.Join(err, file.Close())
 }

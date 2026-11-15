@@ -44,7 +44,7 @@ func carriedOn(dir string, record *run.Object) bool {
 // a run with review off holds no reviewer.
 func cutOff(dir string, record *run.Object) bool {
 	for _, key := range pythonRoads {
-		if record.Truthy(key) {
+		if onRoad(record, key) {
 			return false
 		}
 	}

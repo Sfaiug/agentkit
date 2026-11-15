@@ -300,6 +300,11 @@ func drive(dir string, job func(*loop) error) (code int) {
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
 	defer gh.Serve(l.say, l.wait)()
 	l.takeResume()
+	// a delivery from its first step: idle, one took 128 s from its wake to its merge beside a
+	// line's check, 38 s beside none (14 Nov 2026)
+	if record, _ := run.Read(dir); record != nil {
+		host.Weigh(record.Str("scope"), green(record.Dict("waiting_on")), l.say)
+	}
 	err := WaitSlot(ctx, dir)
 	if err == nil {
 		err = l.adopt()

@@ -19,21 +19,29 @@ import (
 // gives it is recorded; else the line naming it goes in at its quiet prompt, its try recorded the
 // moment its text is in, and the title is the seat's once that line left the composer and the
 // conversation names it, or names nothing where the harness says an unread title confirms it.
-// Any other seat's title is left as it is, which its look leaves to Python.
-func SyncTitle(name string, log func(string)) error {
+// False, nothing written, where the record of a seat up holds a send already, of any harness, to
+// retry or retire: the look takes a send on the record for this pass's own.  Any other seat's
+// title is left as it is, which its look leaves to Python.
+func SyncTitle(name string, log func(string)) (bool, error) {
+	if !Watching(name) {
+		return true, nil
+	}
+	if record := sessionRecord(name); record != nil && record.Get("title_sync") != nil {
+		return false, nil
+	}
 	own, _ := seatHarness(name)
 	line, unreadable := harness.TitleLine(own, name)
-	if line == "" || !Watching(name) {
-		return nil
+	if line == "" {
+		return true, nil
 	}
 	pane, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{"+tmux.HarnessPane+"}")
 	if err != nil || pane == "" {
-		return nil // watch.bind_pane's first
+		return true, nil // watch.bind_pane's first
 	}
 	// sync_title types at the session's selected pane: Go types only where that is the harness's
 	// own, and into that pane alone, so a pane the owner selects meanwhile is never renamed
 	if selected, _, _, found := linePane(name, ""); !found || selected != pane {
-		return nil
+		return true, nil
 	}
 	named := []field{{"session_title", name}, {"title_sync", nil}}
 	var conversation any
@@ -53,7 +61,7 @@ func SyncTitle(name string, log func(string)) error {
 		return nil
 	})
 	if err != nil || !send {
-		return err
+		return true, err
 	}
 	var attempt any // the try, once its text is in
 	stale := func(current string) bool {
@@ -75,9 +83,9 @@ func SyncTitle(name string, log func(string)) error {
 	// each Enter only while this try is still the seat's and its line alone is in the composer,
 	// as sync_title's veto holds back its retry
 	if !typeAtPane(name, pane, line, nil, typed, log, stale, true) {
-		return nil
+		return true, nil
 	}
-	return titleHeld(name, own, func(record *run.Object, title any) []field {
+	return true, titleHeld(name, own, func(record *run.Object, title any) []field {
 		try, _ := attempt.(*run.Object)
 		switch {
 		case try == nil || !run.Equal(record.Get("title_sync"), try) || !run.Equal(record.Get("conversation"), conversation):
