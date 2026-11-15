@@ -1,5 +1,6 @@
 """The boot a key sets in AK_NOW is the boot the whole of ak sees: a tick on another boot than the
 tick before reopens a seat owing work, as after a reboot, and one on the same boot reopens none.
+A key whose clock is no time (nan, infinite) sets no boot, so its tick reopens none either.
 
 AK_NOW, a stamp's line (`wall seconds-since-boot boot`), sets both of a pair's clocks and the
 boot for the one ak it is set for, so a standby's keys can step a clock or reboot one machine of
@@ -22,9 +23,10 @@ from fixtures.akseat import Seat
 OWN = "notes"   # the owner's own session on ak's tmux server, no seat
 
 # Each tick's clocks and boot: the first only records its boot, as an install's first does; the
-# second is ten minutes on, on that boot; the third on the boot after, a minute into it.
+# second is ten minutes on, on that boot; the third and fourth name the boot after on a wall clock,
+# then a clock since boot, that is no time; the last is on the boot after, a minute into it.
 NOWS = ("1789000000 10000 acme-boot-1", "1789000600 10600 acme-boot-1",
-        "1789001200 60 acme-boot-2")
+        "nan 60 acme-boot-2", "1789001200 inf acme-boot-2", "1789001200 60 acme-boot-2")
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "needs tmux and bwrap")
@@ -58,8 +60,11 @@ class ABootAKeySets(unittest.TestCase):
     def test_a_tick_on_the_boot_of_the_tick_before_reopens_nothing(self):
         self.assertEqual(self.sessions[1], [])
 
+    def test_a_tick_on_a_clock_that_is_no_time_reopens_nothing(self):
+        self.assertEqual(self.sessions[2:4], [[], []])
+
     def test_a_tick_on_another_boot_reopens_the_seat_owing_work(self):
-        self.assertEqual(self.sessions[2], ["acme"])
+        self.assertEqual(self.sessions[4], ["acme"])
 
 
 if __name__ == "__main__":
