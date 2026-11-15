@@ -25,11 +25,12 @@ var (
 )
 
 // A record's kind fields, the output of the work it quotes, and the files in a turn's directory
-// that are no harness talking: what it was told, the bookkeeping, the records and the answer.
+// that are no harness talking: what it was told, the bookkeeping, among it the receipts of its
+// harness, login and model, the records and the answer.
 var (
 	eventKinds  = []string{"type", "subtype", "kind", "status", "state", "level"}
 	eventOutput = []string{"aggregated_output", "output", "stdout", "stderr", "command", "content", "arguments", "tool_result", "input"}
-	notHarness  = []string{"prompt.md", "session_id", handin.File, "review.md", "findings.json", "final.md"}
+	notHarness  = []string{"prompt.md", "session_id", "harness", "account", "model", handin.File, "review.md", "findings.json", "final.md"}
 )
 
 // fileTail is the last of a file, as text: an event log can be far too big to read whole.

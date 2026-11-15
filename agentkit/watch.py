@@ -4805,9 +4805,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     A line goes into a composer once: a second copy is read twice, whether the first was taken
     or still waits for its Enter.  `receipt` is handed a mark the moment the text is in, for the
     ending's own record to keep until its delivery is recorded; given that mark back as `typed`,
-    this only presses Enter, and only while the composer still holds the line alone -- read under
-    the send lock, past any dialog -- and once that composer, read whole, is empty and the
-    terminal reports no unread input, the seat has it.  A composer holding anything else, or
+    this only presses Enter, and only while the composer still holds the line alone, as it has
+    for SENT_WAIT -- read under the send lock, past any dialog -- and once that composer, read
+    whole, is empty and the terminal reports no unread input, the seat has it.  A composer holding anything else, or
     one that cannot be read, says nothing yet: a line wrapped past the bottom rows still sits
     there.  Given `answered`, a `switch` line (`orch.switch_lines`) its harness asks about in
     the composer's place, however it went in, is first answered yes off that capture (`_asks`),
@@ -4850,6 +4850,9 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     stale = _respawned(session, stale)
     if typed == mark:
         with notify.session_lock(session["name"]) as held:
+            # another pass's Enter, sent outside this lock, can be drawn late: as that pass's own
+            # retry (`type_checked`), one more goes only to a line still there SENT_WAIT on
+            _wait_ready(lambda name: composer_holds(name, session, text, cfg) != "line", held)
             if stale(held) or answered and _asks(session, held, text, log, cfg, answered):
                 return False    # the screen is somebody else's, or asks first: next pass
             holds = composer_holds(held, session, text, cfg)

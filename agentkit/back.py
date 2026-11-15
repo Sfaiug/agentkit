@@ -7,8 +7,9 @@ passed from the link's time: the move gives it, and the tick that made the move 
 own end.  `ak back` puts it back at once, and so does the move itself where the version it put
 live reads the home as broken and the one it replaced does not (`update.update_agentkit`).  The
 commit put back first gets a ref under `update.FAILED`, so no move goes to it again; once it is
-back the owner is paged, and a seat is handed it to fix (`update.put_back_hand_back`).  Every
-later step reads and runs from the version put back at ~/agentkit.
+back the owner is paged, and a seat is handed it to fix (`update.put_back_hand_back`), whose
+merge every move then waits for.  Every later step reads and runs from the version put back at
+~/agentkit.
 """
 
 import fcntl

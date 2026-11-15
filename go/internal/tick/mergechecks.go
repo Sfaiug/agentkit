@@ -16,8 +16,7 @@ import (
 )
 
 // A merge's live product is followed for three hours (watch.AFTER_MERGE_WINDOW), and one break
-// per repository is handed back to fix, as Python's after_merge_checks does. A deployment to probe
-// or revert is Python's.
+// per repository is handed back to fix, as Python's after_merge_checks does. A revert is Python's.
 const mergeWindow = 3 * 3600
 
 // A merge is one followed run as the merge checks read it, with its verdict: passed, failed,
@@ -83,14 +82,14 @@ func passedBefore(record *run.Object, now float64) bool {
 	return !inWindow(record, now) && record.Truthy("live_at") && record.Truthy("live_notified") && !healthOf(record).Has("output")
 }
 
-// pythons is whether a followed merge needs what Go does not do before its health is read: a
-// deployment, which after_merge_revert probes even past its window, or health that is no object.
+// pythons is whether a followed merge needs what Go does not do before its health is read: health
+// that is no object.
 func pythons(record *run.Object, now float64) bool {
-	return !passedBefore(record, now) && (record.Truthy("deployed") || record.Truthy("health") && record.Dict("health") == nil)
+	return !passedBefore(record, now) && record.Truthy("health") && record.Dict("health") == nil
 }
 
 // mergeChecks reads each followed merge's verdict off its run, keeping its commit there once,
-// under the run's lock, and then each repository's break (breaks). Every run is read once, and
+// under the run's lock, and then each repository's revert (reverting) and break (breaks). Every run is read once, and
 // that census answers what each merge asks of its seat's other runs: one read each was 5167 files
 // read 200 times a tick (30 Oct 2026). A dry tick decides the same, and says what it would probe,
 // record and hand back.
@@ -109,7 +108,7 @@ func (t *ticking) mergeChecks() error {
 	if !carried {
 		return errLeft
 	}
-	probes := map[[2]string]probe{}
+	probes := map[[3]string]probe{}
 	keys := t.state.Dict("after_merge").Keys()
 	for key := range grouped {
 		keys = append(keys, key)
@@ -128,6 +127,11 @@ func (t *ticking) mergeChecks() error {
 				t.log.line(fmt.Sprintf("WARN run %s's health could not be followed: %s", each.name, config.PyError(err)))
 			}
 		}
+		if err := reverting(key, found, probes, t.dry); errors.Is(err, errLeft) {
+			return err
+		} else if err != nil {
+			t.log.line(fmt.Sprintf("WARN %s's release could not be reverted: %s", key, config.PyError(err)))
+		}
 		if err := t.breaks(key, found, now); err != nil {
 			return err
 		}
@@ -138,7 +142,7 @@ func (t *ticking) mergeChecks() error {
 // verdict is after_merge_checks's reading of one merge, and a live follower's: a pass told before
 // is one still, and any other is followed at its merge commit, the run's own, else the one GitHub
 // names.
-func verdict(each *merge, key string, now float64, probes map[[2]string]probe, census []*run.Object, say func(string), dry bool) error {
+func verdict(each *merge, key string, now float64, probes map[[3]string]probe, census []*run.Object, say func(string), dry bool) error {
 	record := each.record
 	if passedBefore(record, now) {
 		each.sha, each.verdict = record.Str("merge_sha"), "passed"

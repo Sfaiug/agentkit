@@ -119,19 +119,23 @@ def weeks(cfg, meters, windows):
 
 
 def roles(cfg):
-    """{model: {effort: {role: (share, runs)}}} for `matrix._costs`: of each configured model at
-    each effort it did a worker role at, the mean over the `runs` task runs that ended where it
-    did of the points of a week the role's `turn_usage` rows took, at listed prices times 100
-    over the week of each row's login under the model's provider (`usage.plan_weeks`).  A run's
-    reviewer is at the one effort its reviews name; a run counts for nothing in a role a counted
-    turn of which kept no row, a row of which has no listed price or a login of which has no
-    week."""
+    """(logins, shares) for `matrix._costs`.  `logins`: {provider: [(price, week)] of each login
+    it still lists (`config.lists`) whose week holds some listed dollars, named or usual: what
+    it costs a month (`usage.price`) and what its week holds (`usage.plan_weeks`)}, as a login
+    removed is signed out, though the usage cache keeps it until it next refreshes and its week
+    still prices the runs it did.  `shares`: {model: {effort: {role: (share, runs, listed)}}},
+    of each configured model at each effort it did a worker role at, the means over the `runs`
+    task runs that ended where it did of the dollars at listed prices the role's `turn_usage`
+    rows took, `listed`, and of the points of a week that is, `share`: each row's dollars times
+    100 over the week of its login under the model's provider.  A run's reviewer is at the one
+    effort its reviews name; a run counts for nothing in a role a counted turn of which kept no
+    row, a row of which has no listed price or a login of which has no week."""
     from . import staffing, usage   # here, not at the top: usage reads this module as it loads
     held = {name: prov for name, prov in staffing._cached_providers().items()
             if name in cfg["providers"]}
+    plans = usage.plan_weeks(cfg, held, time.time())
     weeks = {(provider, account or config.DEFAULT_ACCOUNT): fit[1]
-             for provider, logins in usage.plan_weeks(cfg, held, time.time()).items()
-             for account, fit in logins.items()}
+             for provider, logins in plans.items() for account, fit in logins.items()}
     index = matrix._release_index(catalog.current(boards.cached()))
     prices = functools.cache(lambda model: _prices(index, model))
     providers = {name: cfg["models"][name]["provider"] for name in config.offered(cfg)}
@@ -154,16 +158,19 @@ def roles(cfg):
         rows = kept.get((run, role), [])
         if name not in providers or effort is None or turns - {turn for turn, *_ in rows}:
             continue
-        points = [100 * spent / week for _, account, model, counts in rows
-                  if (spent := _dollars(prices(model), counts)) is not None
-                  and (week := weeks.get((providers[name], account))) is not None]
-        if len(points) == len(rows):
-            samples.setdefault((name, effort, role), []).append(sum(points))
+        spent = [(100 * dollars / week, dollars) for _, account, model, counts in rows
+                 if (dollars := _dollars(prices(model), counts)) is not None
+                 and (week := weeks.get((providers[name], account))) is not None]
+        if len(spent) == len(rows):
+            samples.setdefault((name, effort, role), []).append([sum(one) for one in zip(*spent)])
     found = {}
-    for (name, effort, role), points in samples.items():
-        found.setdefault(name, {}).setdefault(effort, {})[role] = (sum(points) / len(points),
-                                                                   len(points))
-    return found
+    for (name, effort, role), runs in samples.items():
+        points, listed = (sum(one) / len(runs) for one in zip(*runs))
+        found.setdefault(name, {}).setdefault(effort, {})[role] = points, len(runs), listed
+    return {provider: [(usage.price(cfg, provider, account), fit[1])
+                       for account, fit in logins.items()
+                       if fit[1] and config.lists(cfg, provider, account)]
+            for provider, logins in plans.items()}, found
 
 
 def _rows(account, since, until):

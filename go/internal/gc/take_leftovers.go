@@ -57,6 +57,17 @@ func takeSeatFile(path string) func(*collection) (bool, error) {
 	}
 }
 
+// takeModelReport takes a report while no seat's record names its conversation, the seats read
+// again now: one launched on it since keeps it.
+func takeModelReport(path string) func(*collection) (bool, error) {
+	return func(*collection) (bool, error) {
+		if !(&reads{}).reportStale(path) {
+			return false, nil
+		}
+		return true, os.Remove(path)
+	}
+}
+
 // takeTmp takes a top-level temporary entry while still untouched and held by nobody, by one
 // reading of what every process holds for the pass.
 func takeTmp(path string) func(*collection) (bool, error) {

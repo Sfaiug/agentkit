@@ -1,6 +1,8 @@
 """AK_BIN prices every role's picks in one unit off measured subscription usage: dollars a task
 where a provider the runs measured has a price, else points of a week; every unmeasured row,
-and every row of a role no run measured, scaled off the runs' cost per board dollar.
+and every row of a role no run measured, scaled off its provider's runs' cost per board dollar,
+else every provider's runs' listed dollars per board dollar at its own provider's rate: the
+mean over its logins of what a listed dollar takes of each one's plan.
 
 Invented boards, logins' weeks and finished runs in a temporary HOME; models and usage output
 is observed.
@@ -31,6 +33,12 @@ PRICES = {"acme": 200, "bolt": 100, "crux": 30}     # each plan's price a month
 def dollars(points, price):
     """What `points` of a week of a plan of `price` a month cost: a week is 12/52 of a month."""
     return points / 100 * price * 12 / 52
+
+
+def rate(price, week):
+    """What a listed dollar takes of a plan of `price` a month whose week holds `week` of them:
+    in points where `price` is None."""
+    return (100 if price is None else price * 12 / 52) / week
 
 
 class PicksPricedInUsage(unittest.TestCase):
@@ -65,9 +73,7 @@ class PicksPricedInUsage(unittest.TestCase):
             held["arena.ai"]["rows"].append({"model": name.title(), "effort": effort,
                                             "values": {"arena.agent": share}})
         home.write(".agentkit/state/boards.json", held)
-        home.write(".agentkit/state/usage.json", {"providers": {provider: {"meters": [
-            {"name": "weekly", "used": 40, "window_secs": 604800, "resets_at": NOW + 86400}]}
-            for provider in ("acme", "bolt")}})
+        self.cache()
         history = History(home)
         # each week $100 at a dollar a million tokens, so a run's points are its dollars
         for provider, model in (("acme", "anvil-1"), ("bolt", "dune-1")):
@@ -77,6 +83,28 @@ class PicksPricedInUsage(unittest.TestCase):
             history.run((model, "high"), built=spent(model, points))
         for model, points in (("anvil", 4), ("bloom", 6)):
             history.run(None, model, ["high"], reviewed=spent(model, points))
+        history.save()
+
+    def cache(self, **accounts):
+        """The usage cache: acme's and bolt's shared week 40% in, under each of the `accounts`
+        of a provider named there."""
+        week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800,
+                            "resets_at": NOW + 86400}]}
+        self.home.write(".agentkit/state/usage.json", {"providers": {
+            provider: {"accounts": dict.fromkeys(accounts[provider], week)}
+            if provider in accounts else week for provider in ("acme", "bolt")}})
+
+    def reviewed(self, *weeks):
+        """Acme's runs alone reviewed, $10 over 52 board dollars, on acme's week holding $100;
+        and `weeks`, (provider, login, tokens), each a week of 50 points those tokens bought,
+        of dune's at a dollar a million."""
+        history = History(self.home)
+        history.week("acme", "default", "claude", "anvil-1", 50e6, 50)
+        for provider, account, tokens in weeks:
+            history.week(provider, account, HARNESSES[provider], "dune-1", tokens, 50)
+        for model, points in (("anvil", 4), ("bloom", 6)):
+            history.run(None, model, ["high"],
+                        reviewed=[[("default", f"{model}-1", (points * 1e6, 0, 0, 0))]])
         history.save()
 
     def command(self, compare=None, prices=None, *args, **marks):
@@ -170,29 +198,70 @@ class PicksPricedInUsage(unittest.TestCase):
         self.assertAlmostEqual(self.row("bloom", "review", prices=PRICES)["cost"], dollars(6, 200))
 
     def test_an_unmeasured_row_costs_its_board_price_at_its_runs_dollars_per_board_dollar(self):
-        # on its provider's measured rows of its role, else on all of them, its own price unused
+        # on its provider's measured rows of its role, else on all of them at its own plan's
+        # rate: every week holds $100, and crux's none, so crux takes acme's and bolt's mean
         crown = self.row("crown", prices=PRICES)
         self.assertAlmostEqual(crown["cost"], 100 * dollars(.5, 200) / 52)
         self.assertEqual(crown["cost_rule"], "provider")
         echo = self.row("echo", prices=PRICES)
-        self.assertAlmostEqual(echo["cost"], 20 * (dollars(.5, 200) + dollars(2, 100)) / 62)
+        self.assertAlmostEqual(echo["cost"], 20 * dollars(2.5, 150) / 62)
         self.assertEqual(echo["cost_rule"], "global")
         self.assertAlmostEqual(self.row("dune", "review", prices=PRICES)["cost"],
-                               10 * dollars(10, 200) / 52)
+                               10 * dollars(10, 100) / 52)
 
     def test_a_role_no_run_measured_is_priced_off_the_other_roles_runs(self):
         answer = self.answer(prices=PRICES)
         self.assertEqual({answer[role]["cost_unit"] for role in ("orchestrate", "execute",
                                                                  "review")}, {"money"})
-        # builds and reviews alike: half a point and ten of $200's week over $52 each
+        # builds and reviews alike: half a point and ten of $200's week over $52 each; Echo,
+        # every one's $12.50 over 114 board dollars at acme's and bolt's mean rate, as $150's
         acme = dollars(10.5, 200) / 104
         for model, cost, rule in (("crown", 100 * acme, "provider"),
                                   ("dune", 10 * dollars(2, 100) / 10, "provider"),
-                                  ("echo", 20 * (104 * acme + dollars(2, 100)) / 114, "global")):
+                                  ("echo", 20 * dollars(12.5, 150) / 114, "global")):
             row = self.row(model, "orchestrate", prices=PRICES)
             self.assertAlmostEqual(row["cost"], cost)
             self.assertEqual(row["cost_rule"], rule)
         self.assertAlmostEqual(self.row("crown", "orchestrate")["cost"], 100 * 10.5 / 104)
+
+    def test_a_row_priced_off_another_providers_runs_takes_its_own_plans_rate(self):
+        # the week of bolt's one login, `work`, holds $40, and crux has none
+        self.providers["bolt"]["accounts"] = ["work"]
+        self.cache(bolt=["work"])
+        self.reviewed(("bolt", "work", 20e6))
+        for prices in (None, PRICES, {**PRICES, "bolt": 0}):
+            price = (prices or {}).get
+            dune = self.row("dune", "review", prices=prices)
+            self.assertAlmostEqual(dune["cost"], 10 * 10 / 52 * rate(price("bolt"), 40))
+            self.assertEqual(dune["cost_rule"], "global")
+            mean = (rate(price("acme"), 100) + rate(price("bolt"), 40)) / 2
+            self.assertAlmostEqual(self.row("echo", "review", prices=prices)["cost"],
+                                   20 * 10 / 52 * mean)
+
+    def test_a_providers_rate_is_the_mean_of_its_logins_rates(self):
+        # bolt's usual login is on Pro at $200 a month, its second on Plus at $20
+        self.home.write(".agentkit/state/logins.json", {"bolt": {
+            account: {"email": f"{account}@bolt.test", "plan": plan, "checked_at": NOW}
+            for account, plan in (("default", "pro"), ("second", "plus"))}})
+        costs = lambda: [self.row(model, "review", prices={"acme": 200})["cost"]
+                         for model in ("dune", "echo")]
+        self.reviewed(("bolt", "default", 50e6))
+        before = costs()
+        self.assertAlmostEqual(before[0], 10 * 10 / 52 * rate(200, 100))
+        self.providers["bolt"]["accounts"] = ["default", "second"]
+        self.cache(bolt=["default", "second"])
+        # Plus's week holding $10, a listed dollar takes what it takes of Pro: no row moves
+        self.reviewed(("bolt", "default", 50e6), ("bolt", "second", 5e6))
+        for after, cost in zip(costs(), before):
+            self.assertAlmostEqual(after, cost)
+        # holding $40, a quarter of that, and Dune's review is at the mean of the two
+        self.reviewed(("bolt", "default", 50e6), ("bolt", "second", 20e6))
+        self.assertAlmostEqual(self.row("dune", "review", prices={"acme": 200})["cost"],
+                               10 * 10 / 52 * (rate(200, 100) + rate(20, 40)) / 2)
+        # removed, Plus is signed out and leaves the mean, though the usage cache keeps it
+        self.providers["bolt"]["accounts"] = ["default"]
+        self.assertAlmostEqual(self.row("dune", "review", prices={"acme": 200})["cost"],
+                               before[0])
 
     def test_money_once_one_measured_provider_has_a_price(self):
         self.assertEqual(self.answer(prices={"crux": 30})["execute"]["cost_unit"], "share")

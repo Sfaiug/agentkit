@@ -3211,7 +3211,7 @@ SOURCES = {"measured": "from {runs} of your {run}s",
            "provider": "estimated: its board price, times what your runs on its provider cost "
                        "a board dollar",
            "global": "estimated: its board price, times what your runs on every provider cost "
-                     "a board dollar",
+                     "a board dollar at list prices, at its own plan's rate",
            "board": "its board price alone: no {run} of yours priced a model"}
 # why each of a role's `others` is no choice, by its `why` (matrix._why)
 WHYS = {"beaten": "beaten by {by}", "close": "within {apart} of {by}",
@@ -3262,7 +3262,7 @@ def cost_said(found, row, unit):
     side fit 40 cells (models_bars), or `50` a week; `≈` before one no runs measured -- the
     owner, 3 Nov 2026: a cost on screen must never look more certain than it is.  `-` where it
     has none in `unit`: dollars, where no run's provider has a price (matrix._costs's `share`),
-    and a week, where no run measured its provider's (its `points`)."""
+    and a week, where it has no `points` of one (matrix._costs)."""
     points = row["points"]
     value = {"$ a task": None if found["cost_unit"] == "share" else row["cost"],
              "% of a week": points, "a week": 100 / points if points else None}[unit]
@@ -4863,8 +4863,10 @@ def config_spend_reset(cfg, picked, kind=None):
     by hand, on `picked`, its subscription as (provider, account, label), of `kind` where its
     reading names kinds.  usage.replenish spends it where it still holds one and reads the
     meters back into the cache, so its meter shows the week that came back; Esc while it is
-    spent lets it finish.  What to say under the matrix: its name and what its cell on the `ak`
-    screen says now (`usage_cells`), `ChatGPT II · 100% left`."""
+    spent lets it finish.  What to say under the matrix: its name, what its cell on the `ak`
+    screen says now (`usage_cells`), what each cap its provider names has left (`scoped_notes`:
+    a Fable reset leaves the week's cell as it was) and the resets still in hand (`in_hand`),
+    `Acme · 60% left · Fable 100% left · 1 weekly, 2 Fable resets in hand`."""
     title = f"config · {picked[2]}"
     name, account, label = picked
     try:
@@ -4874,9 +4876,12 @@ def config_spend_reset(cfg, picked, kind=None):
         return ""
     if not spent:
         return f"{label}: no reset was spent"
-    said = next(said for provider, shown, _, said in usage_cells(cfg)
-                if (provider, shown) == (name, label))
-    return f"{label} · {said}"
+    rows = usage_rows(cfg)
+    prov, said = next((row[2], cell[3]) for row, cell in zip(rows, usage_cells(cfg, rows=rows))
+                      if cell[:2] == (name, label))
+    week, _, readable = reading(cfg, name, prov, time.time())
+    return " · ".join(filter(None, (label, said, *scoped_notes(cfg, name, readable, week)[0],
+                                    in_hand(prov))))
 
 
 def subscription_acts(cfg, keyboard, number, remove=False):
