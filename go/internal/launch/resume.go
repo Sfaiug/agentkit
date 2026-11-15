@@ -32,6 +32,11 @@ type taken struct {
 	read, record *run.Object
 }
 
+// ErrUnrecorded is a resume Python's refuses as one with nothing to resume, the refusal its
+// reason: Python's to a caller that does not say it into the run's log as Python's tick does, its
+// resume refusing in the background.
+var ErrUnrecorded = fmt.Errorf("%w: nothing to resume", ErrPython)
+
 // take is whether Go's resume takes the run up, decided before anything is written: nil with its
 // refusal, or ErrPython where the resume is Python's.  live is a loop the caller ends once it is
 // taken, which refuses nothing.
@@ -59,7 +64,7 @@ func take(id string, expected *run.Object, order func(*run.Object), live bool) (
 		return nil, 2, "stopped runs are not resumed; start a new task from its branch", nil
 	}
 	if missing := unrecorded(record); missing != "" {
-		return nil, 2, fmt.Sprintf("%s: run.json records no %s; there is nothing to resume", id, missing), nil
+		return nil, 2, fmt.Sprintf("%s: run.json records no %s; there is nothing to resume", id, missing), ErrUnrecorded
 	}
 	if !goesOn(dir, read, record) {
 		return nil, 0, "", ErrPython
@@ -125,7 +130,7 @@ func unrecorded(record *run.Object) string {
 	state := record.Str("state")
 	resumes := slices.Contains([]string{"interrupted", "exhausted", "stalled", "waiting_login", "error", "waiting"}, state) ||
 		state == "running" && run.ResumeOrdered(record, now())
-	if !resumes || !record.Truthy("worktree") || box.Check() != nil || config.Check() != nil {
+	if !resumes || !record.Truthy("worktree") {
 		return ""
 	}
 	needed := []string{"repo", "worktree", "branch", "base", "base_sha", "rounds"}
@@ -134,6 +139,9 @@ func unrecorded(record *run.Object) string {
 	}
 	for _, key := range needed {
 		if rounds, _ := record.Int(key); !record.Truthy(key) && !(key == "rounds" && record.Has(key) && rounds == 0 && run.ReviewOff(record)) {
+			if box.Check() != nil || config.Check() != nil {
+				return ""
+			}
 			return key
 		}
 	}

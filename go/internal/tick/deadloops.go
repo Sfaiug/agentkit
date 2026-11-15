@@ -93,12 +93,7 @@ func (t *ticking) deadLoops() error {
 			// and its note before the driver starts, so the driver's own lines follow it
 			code, why, err := launch.ResumeExpected(id, record, edit, note)
 			switch {
-			case errors.Is(err, launch.ErrPython):
-				return false
-			case err != nil:
-				t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, err))
-				return true
-			case code != 0:
+			case errors.Is(err, launch.ErrUnrecorded):
 				// refused before it wrote: Python's tick writes its order and notes it first, and its
 				// resume in the background says its refusal into the run's log
 				if !change(edit) {
@@ -109,6 +104,11 @@ func (t *ticking) deadLoops() error {
 					fmt.Fprintf(file, "ak run: %s\n", why)
 					file.Close()
 				}
+			case errors.Is(err, launch.ErrPython):
+				return false
+			case err != nil || code != 0:
+				t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, cmp.Or(why, fmt.Sprint(err))))
+				return true
 			}
 		} else if !change(edit) {
 			return false

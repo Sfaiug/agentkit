@@ -71,7 +71,7 @@ func TestDeadLoopsLeaveToPythonUnwrittenWhatGoDoesNotCarry(t *testing.T) {
 	for name, pairs := range map[string][]any{
 		"a unit's loop": {"scope", "agentkit-run-fix-api.scope", "memory_cap_mb", 1024},
 		// no task and no pair to go on with: Python's resume, its order unwritten
-		"a resume Go does not carry": {},
+		"a resume Go does not carry": {"scratch", true, "rounds", 3},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)
@@ -82,6 +82,35 @@ func TestDeadLoopsLeaveToPythonUnwrittenWhatGoDoesNotCarry(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+// A resume that refuses a record with nothing to resume leaves the dead loop the row's still: its
+// order written and noted, and the refusal said into the run's log, as Python's tick and its resume
+// in the background leave them.
+func TestDeadLoopsWriteTheOrderOfAResumeThatRefuses(t *testing.T) {
+	ak, _ := idleHome(t, answers)
+	for key, value := range map[string]string{"AGENTKIT_RUN_DIR": "", "AGENTKIT_RUN": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"} {
+		t.Setenv(key, value)
+	}
+	bwrap := filepath.Join(filepath.SplitList(os.Getenv("PATH"))[0], "bwrap")
+	put(t, bwrap, "#!/bin/sh\nexit 0\n")
+	if err := os.Chmod(bwrap, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	deadRun(t, ak, "fix-api", "rounds", 3)
+	var said bytes.Buffer
+	tick := &ticking{log: newLog(&said, io.Discard), clock: time.Now}
+	if err := tick.deadLoops(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(ak, "runs", "fix-api")
+	record, _ := run.Read(dir)
+	deaths, logged := record.List("deaths"), read(t, filepath.Join(dir, "log.txt"))
+	if record.Str("state") != "running" || len(deaths) != 1 || !deaths[0].(*run.Object).Truthy("resumed_at") || !record.Truthy("stall_resume_at") ||
+		!strings.HasPrefix(said.String(), "resumed fix-api: loop died (") || !strings.Contains(logged, "] resumed fix-api: loop died (") ||
+		!strings.HasSuffix(logged, "\nak run: fix-api: run.json records no repo; there is nothing to resume\n") {
+		t.Fatalf("%s\n%s\n%s", &said, run.Line(record), logged)
 	}
 }
 
