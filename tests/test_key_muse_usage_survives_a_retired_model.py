@@ -1,11 +1,13 @@
 """Muse's usage outlives the model it is asked with: answered `model_not_found`, the probe asks
 once more with its harness's `[check]` model and effort, and only then."""
 
+import http.server
 import json
 import os
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import time
 import tomllib
 import unittest
@@ -14,32 +16,25 @@ REPO = Path(__file__).resolve().parents[1]
 CHECK = tomllib.loads((REPO / "adapters" / "muse.toml").read_text())["check"]
 RETIRED = "muse-wonder-full-1.0"
 
-# Loaded by every Python the adapter starts: Meta's endpoint is a fake that logs each request
-# and answers by the model asked, and no socket leaves the box.
-NETWORK = r'''
-import http.client, io, json, os, socket
-def offline(sock, address):
-    raise AssertionError("external network forbidden")
-socket.socket.connect = offline
-class Connection:
-    def __init__(self, host, port, timeout):
-        self.host = host
-    def request(self, method, path, body, headers):
-        self.asked = json.loads(body)
-        with open(os.environ["MUSE_REQUESTS"], "a") as fh:
-            fh.write(json.dumps({"host": self.host, "path": path, **self.asked}) + "\n")
-    def getresponse(self):
-        status = json.loads(os.environ["MUSE_ANSWERS"]).get(self.asked["model"], 404)
-        body = {200: os.environ["MUSE_FRAME"],
+
+class Meta(http.server.BaseHTTPRequestHandler):
+    """Meta's endpoint on the loopback (`AK_MUSE_URL`): logs each request and answers by the
+    model asked, `answers` {model: status}, 404 for any other."""
+
+    def do_POST(self):
+        asked = json.loads(self.rfile.read(int(self.headers["content-length"])))
+        self.server.requests.append({"path": self.path, **asked})
+        status = self.server.answers.get(asked["model"], 404)
+        body = {200: "data: " + json.dumps(self.server.frame) + "\n",
                 404: '{"error":{"code":"model_not_found","message":"no such model"}}',
-                500: '{"error":{"code":"server_error"}}'}[status]
-        response = io.BytesIO(body.encode())
-        response.status = status
-        return response
-    def close(self):
+                500: '{"error":{"code":"server_error"}}'}[status].encode()
+        self.send_response(status)
+        self.send_header("content-length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
         pass
-http.client.HTTPSConnection = Connection
-'''
 
 
 class RetiredModel(unittest.TestCase):
@@ -47,8 +42,6 @@ class RetiredModel(unittest.TestCase):
         """`adapters/muse.sh usage` in a throwaway home: its JSON and the requests Meta saw."""
         with tempfile.TemporaryDirectory(prefix="ak-test-muse-retired-") as tmp:
             root = Path(tmp)
-            (root / "site").mkdir()
-            (root / "site" / "sitecustomize.py").write_text(NETWORK)
             (root / "home" / ".agentkit").mkdir(parents=True)
             (root / "home" / ".agentkit" / "config.toml").write_text(f'''
 [models.wonder]
@@ -66,16 +59,20 @@ usage_effort = "low"
             self.frame = {"type": "response.subscription_usage", "subscription": {
                 "window": {"used_percent": 7, "resets_at": stamp, "window_duration_mins": 300},
                 "weekly": {"used_percent": 41, "resets_at": stamp + 100}}}
+            meta = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Meta)
+            meta.answers, meta.frame, meta.requests = answers, self.frame, []
+            threading.Thread(target=meta.serve_forever, daemon=True).start()
             env = {"HOME": str(root / "home"), "PATH": os.environ["PATH"],
-                   "PYTHONPATH": str(root / "site"), "PYTHONDONTWRITEBYTECODE": "1",
-                   "META_API_KEY": "fixture-key", "MUSE_REQUESTS": str(root / "requests"),
-                   "MUSE_ANSWERS": json.dumps(answers),
-                   "MUSE_FRAME": "data: " + json.dumps(self.frame) + "\n"}
-            proc = subprocess.run([str(REPO / "adapters" / "muse.sh"), "usage"], env=env,
-                                  capture_output=True, text=True, timeout=60)
+                   "PYTHONDONTWRITEBYTECODE": "1", "META_API_KEY": "fixture-key",
+                   "AK_MUSE_URL": f"http://127.0.0.1:{meta.server_address[1]}"}
+            try:
+                proc = subprocess.run([str(REPO / "adapters" / "muse.sh"), "usage"], env=env,
+                                      capture_output=True, text=True, timeout=60)
+            finally:
+                meta.shutdown()
+                meta.server_close()
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            requests = (root / "requests").read_text().splitlines()
-            return json.loads(proc.stdout), [json.loads(line) for line in requests]
+            return json.loads(proc.stdout), meta.requests
 
     def asked(self, requests):
         return [(r["model"], r["reasoning"]["effort"]) for r in requests]
@@ -89,7 +86,7 @@ usage_effort = "low"
             {"name": "weekly", "used": 41, "resets_at": self.frame["subscription"]["weekly"]["resets_at"],
              "window_secs": 604800}])
         self.assertEqual(self.asked(requests), [(RETIRED, "low"), (CHECK["model"], CHECK["effort"])])
-        self.assertEqual({(r["host"], r["path"]) for r in requests}, {("api.meta.ai", "/v1/responses")})
+        self.assertEqual({r["path"] for r in requests}, {"/v1/responses"})
 
     def test_a_served_model_is_asked_once(self):
         data, requests = self.usage({RETIRED: 200})
