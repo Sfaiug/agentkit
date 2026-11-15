@@ -12,14 +12,17 @@ import (
 	"testing"
 	"time"
 
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
 // TestMain answers this test program started as `ak run`, as the tick starts its own program for
 // a review: each start's words kept in $HOME/launches, and run `review` printed as `--bg` prints it.
 // Started as a merge's live follower (livefollow.Merged), it ends at once: no test here follows a
-// merge to live, and the package run again would start more.  It holds the step timer's clock
-// still, so a step the host's load slows prints nothing a test reads.
+// merge to live, and the package run again would start more.  Started as `ak adapter`, as the tick
+// asks a login's end of its own program (logins.Ask), it runs that harness's own verb, never this
+// suite again.  It holds the step timer's clock still, so a step the host's load slows prints
+// nothing a test reads.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 2 && os.Args[1] == "watch" && os.Args[2] == "--live" {
 		os.Exit(0)
@@ -32,6 +35,12 @@ func TestMain(m *testing.M) {
 		}
 		fmt.Printf("review\n%s\n", filepath.Join(os.Getenv("HOME"), ".agentkit", "runs", "review", "result.md"))
 		os.Exit(0)
+	}
+	if len(os.Args) > 4 && os.Args[1] == "adapter" {
+		if own := harness.Verb(os.Args[3], os.Args[4]); own != nil {
+			os.Exit(own(os.Args[5:], os.Stdout, os.Stderr))
+		}
+		os.Exit(2)
 	}
 	stepClock = func() time.Time { return time.Time{} }
 	os.Exit(m.Run())
