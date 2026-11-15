@@ -105,7 +105,7 @@ class ALandingRestartsAMenuOnce(unittest.TestCase):
             after()
         with patch.object(versions, "exchange", exchange), \
                 patch.object(gc, "tmp_processes", lambda: (set(), {})):
-            self.assertEqual(versions.switch(self.clone, commit), "")
+            self.assertEqual(versions.switch(self.clone, commit)[0], "")
 
     def updated(self, name):
         """`name` changed, and `startup()`'s `moved` as the menu's update reports it, live by it."""

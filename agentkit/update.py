@@ -639,7 +639,9 @@ def update_agentkit(progress=None, pull=True):
     Once install.sh passed, a move not final yet is put back (`back.put_back`) where the new
     version's `ak doctor` fails and the kept one's passes on this home: it is the new program
     that reads the home wrongly, and its next tick would act on that reading.  A fault both
-    show is the home's.
+    show is the home's.  A client keeps nothing and runs no tick, so its move is put back where
+    the program it put live does not start, up to the ssh it would run: the next `ak` typed
+    there is that program.
     """
     from . import back   # here, before the move: after it, ~/agentkit holds the new version's code
     config.ensure_dirs()
@@ -666,6 +668,7 @@ def update_agentkit(progress=None, pull=True):
             pull = False
         install = [str(directory / "install.sh")]
         swap = ["swap"]     # to a commit known later, by `versions.switch`: no command of its own
+        replaced = None     # where the version a move here replaced is left
         steps = ([["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"], swap]
                  if pull is True else [swap] if pull else []) + [install]
         for done, cmd in enumerate(steps):
@@ -685,7 +688,7 @@ def update_agentkit(progress=None, pull=True):
                 say(f"update: {directory} goes to {target[:12]}")
                 owed = pending.exists()
                 pending.touch()     # a tick cut off once it is swapped in still owes the install
-                why = versions.switch(directory, target)
+                why, replaced = versions.switch(directory, target)
                 if why:
                     if not owed:    # nothing was swapped in, so the version live owes nothing new
                         pending.unlink(missing_ok=True)
@@ -710,9 +713,15 @@ def update_agentkit(progress=None, pull=True):
             if proc.returncode != 0:
                 say(f"update: {shlex.join(cmd)} exited {proc.returncode}")
                 return proc.returncode
+        ak = str(directory / "bin" / "ak")
+        if replaced and config.server_alias():
+            for argv in ([ak, "--help"], [ak, "--dry-run"]):
+                code = versions.run(argv, **PINS)[0]
+                if code:
+                    back.put_back(f": its {shlex.join(argv)} exited {code}", replaced=replaced)
+                    return 1
         # while the install is still owed, so no tick ending meanwhile makes the move final
-        doctor = versions.kept() and versions.run([str(directory / "bin" / "ak"), "doctor"],
-                                                  **PINS)[0]
+        doctor = versions.kept() and versions.run([ak, "doctor"], **PINS)[0]
         if doctor and not versions.run([str(versions.keep_link()), "doctor"], **PINS)[0]:
             back.put_back(f": its ak doctor exited {doctor} where the kept version's exited 0")
             return 1

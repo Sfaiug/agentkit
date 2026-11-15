@@ -202,6 +202,10 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.go_live(final=False)
         (config.STATE / "server").write_text("acme\n")
         left = os.readlink(config.TMP / versions.KEEP)
+        ak = self.root / "seed" / "bin" / "ak"     # one that starts: a client's move tries it
+        ak.parent.mkdir()
+        ak.write_text("#!/bin/sh\n")
+        ak.chmod(0o755)
         third = self.push("third")
         self.go_live(final=False)
         self.live(third)
