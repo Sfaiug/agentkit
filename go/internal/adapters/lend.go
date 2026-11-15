@@ -14,17 +14,17 @@ import (
 
 // Lend answers `lend <home> [own]` as the Python adapters do: the login a turn on a rented
 // machine runs on, copied to where a turn run with HOME=home reads it, and on stdout the epoch
-// second it lapses.  With own and an account named, that is where a turn naming the account
-// reads it; else where one naming none does, as a machine's turn runs.  It answers 1, with a
-// line on stderr, where there is no login to lend, and 2 where home is this HOME, whose own
-// login the copy would stand in for, or something is there already; either way it writes
+// second it lapses, where it does.  With own and an account named, that is where a turn naming
+// the account reads it; else where one naming none does, as a machine's turn runs.  It answers
+// 1, with a line on stderr, where there is no login to lend, and 2 where home is this HOME, whose
+// own login the copy would stand in for, or something is there already; either way it writes
 // nothing.
 func Lend(name string, args []string, out, errOut io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintf(errOut, "%s lend needs <home>\n", name)
+		fmt.Fprintf(errOut, "%s.sh lend needs <home>\n", name)
 		return 2
 	}
-	login, _, err := config.Account(name)
+	login, err := account(name)
 	loan, ok := harness.Lend(name, login)
 	if err != nil || !ok {
 		return refused(name, "lend", err, errOut)
@@ -39,13 +39,14 @@ func Lend(name string, args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "lend: %s is this HOME; lend into another\n", args[0])
 		return 2
 	}
-	file := config.LoginPath(name, "credentials", login)
+	file := loan.File
 	if len(args) < 2 || args[1] != "own" || login.Account == "" {
-		// a turn naming no account reads the usual login, whatever this call's environment names
-		paths, _ := config.Words(name, "login", "credentials")
+		// a turn naming no account reads the usual login, whatever this call's environment names:
+		// the first of the logins a turn carries that a bare HOME names
+		logins, _ := config.Words(name, "worker", "logins")
 		file = ""
-		for _, each := range config.ManifestPaths(paths, map[string]string{"HOME": usual}, "") {
-			file = each
+		if paths := config.ManifestPaths(logins, map[string]string{"HOME": usual}, ""); len(paths) > 0 {
+			file = paths[0]
 		}
 	}
 	at, err := filepath.Rel(usual, file)
@@ -61,7 +62,9 @@ func Lend(name string, args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "lend: %s\n", err)
 		return 2
 	}
-	fmt.Fprintln(out, loan.Ends)
+	if loan.Ends != 0 {
+		fmt.Fprintln(out, loan.Ends)
+	}
 	return 0
 }
 
