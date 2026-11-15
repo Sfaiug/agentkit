@@ -84,16 +84,17 @@ func RoleStep(at, by int) int {
 
 // A roleSaid is one role's line as Python's models_said has it: the name and effort of the row it
 // uses, then that row's quality and cost (numbered); else its model's, at the effort it runs it at,
-// and after them `not on the boards`; else `none`.  Unit is its cost's.
+// and after them `not on the boards`; else `none`.
 type roleSaid struct {
-	name, effort, quality, cost, after, unit string
-	numbered                                 bool
+	name, effort, quality, cost, after string
+	numbered                           bool
 }
 
-// costSaid is Python's menu.cost_said: row's cost in its role's answer found, `≈` against one no
-// run measured -- the owner, 3 Nov 2026: a cost on screen must never look more certain than it is.
+// costSaid is Python's menu.cost_said: row's cost in its role's answer found, `-` where it has
+// none in dollars, as where no run's provider has a price (a share), `≈` against one no run
+// measured -- the owner, 3 Nov 2026: a cost on screen must never look more certain than it is.
 func costSaid(s terminal.Screen, found *quality.Said, row *quality.Rating) string {
-	if row.Cost == nil {
+	if row.Cost == nil || found.CostUnit == "share" {
 		return "-"
 	}
 	about := ""
@@ -110,7 +111,7 @@ func rolesSaid(s terminal.Screen, view ModelsView) []roleSaid {
 	var said []roleSaid
 	for _, role := range quality.Roles {
 		found, use := view.Answer[role], view.Uses[role]
-		one := roleSaid{name: unmarked, unit: units[found.CostUnit]}
+		one := roleSaid{name: unmarked}
 		switch row := use.Row; {
 		case row != nil:
 			one.name, one.effort, one.numbered = row.Name, row.Effort, true
@@ -127,18 +128,17 @@ func rolesSaid(s terminal.Screen, view ModelsView) []roleSaid {
 }
 
 // roleLines is Python's models_body: per role its word, the row it uses and what follows, under
-// `quality` and its unit wherever the unit changes, the role at highlighted (-1 for none).  A row too wide
-// beside the words goes on the lines under its word (columned), what follows it staying on the
-// word's line, else on a line of its own under the row: a model is named in full and its numbers
-// shown whole (docs/cli-design.md).  Each line's row is its role's place in quality.Roles, -1 on a
-// heading.
+// `quality` and costHead over the first with numbers, the role at highlighted (-1 for none).  A
+// row too wide beside the words goes on the lines under its word (columned), what follows it
+// staying on the word's line, else on a line of its own under the row: a model is named in full
+// and its numbers shown whole (docs/cli-design.md).  Each line's row is its role's place in
+// quality.Roles, -1 on a heading.
 func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 	said := rolesSaid(s, view)
 	room := s.LayoutWidth()
-	word, qualityWide, costWide := 0, terminal.Cells("quality"), 0
+	word, qualityWide, costWide := 0, terminal.Cells("quality"), terminal.Cells(costHead)
 	for i, one := range said {
 		word = max(word, terminal.Cells(matrix.ConfigRoles[quality.Roles[i]]))
-		costWide = max(costWide, terminal.Cells(one.unit))
 		if one.numbered {
 			qualityWide, costWide = max(qualityWide, terminal.Cells(one.quality)), max(costWide, terminal.Cells(one.cost))
 		}
@@ -171,12 +171,12 @@ func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 		column = 2 // under the row, at its indent
 	}
 	var lines []matrixRow
-	unit := ""
+	headed := false
 	for i, one := range said {
-		if one.numbered && one.unit != unit { // a role with no numbers heads nothing
-			unit = one.unit
+		if one.numbered && !headed { // a role with no numbers heads nothing
+			headed = true
 			lines = append(lines, matrixRow{line: strings.Repeat(" ", column+2) +
-				s.Styled(right("quality", qualityWide)+"  "+right(unit, costWide), "dim"), row: -1})
+				s.Styled(right("quality", qualityWide)+"  "+right(costHead, costWide), "dim"), row: -1})
 		}
 		lead := "  " + terminal.Pad(matrix.ConfigRoles[quality.Roles[i]], word)
 		own := []string{lead + "  " + models[i]}

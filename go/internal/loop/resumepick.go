@@ -17,11 +17,10 @@ func asIs(dir string, record *run.Object, rules *pick.Rules, room ready) bool {
 }
 
 // picking is what a resume's pick reads of a run: the lists it was launched with, and the meters
-// and harnesses as they stand.  A resume launches the run anew, so its loop has no id, its run's
-// own history row counting (pick.Launched), and whether Go ranks it is decided before the meters
-// are read.  A dry tick's pick probes nothing, as Python's (watch.local_passes): it reads the usage
-// snapshot as it stands, where a read of it is Go's, and asks no harness, though the model list
-// still turns a model off (turnedOff).
+// and harnesses as they stand, as a resume launches the run anew.  A dry tick's pick probes
+// nothing, as Python's (watch.local_passes): it reads the usage snapshot as it stands, where a
+// read of it is Go's, and asks no harness, though the model list still turns a model off
+// (turnedOff).
 func picking(record *run.Object, dry bool) (*pick.Rules, ready, bool) {
 	l := &loop{workers: names(record.List("workers")), reviewers: names(record.List("reviewers")), alone: run.ReviewOff(record)}
 	rules, ok := l.rules()

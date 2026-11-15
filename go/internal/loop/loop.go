@@ -573,14 +573,13 @@ func names(list []any) (found []string) {
 }
 
 // rules is what every pick of this run reads: the lists it was launched with, Python's run_workers
-// and run_reviewers, as the config can change while it lives, its own history row aside
-// (pick.Launched); the home's where none was bound (pick.Load), a seat's own inside one.  With
-// review off its executor is picked alone.
+// and run_reviewers, as the config can change while it lives; the home's where none was bound
+// (pick.Load), a seat's own inside one.  With review off its executor is picked alone.
 func (l *loop) rules() (rules *pick.Rules, ok bool) {
 	if l.workers == nil {
 		rules, ok = pick.Load()
 	} else {
-		rules, ok = pick.Launched(l.id, l.workers, l.reviewers)
+		rules, ok = pick.Within(l.workers, l.reviewers)
 	}
 	if ok && l.alone {
 		rules = rules.Alone()

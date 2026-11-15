@@ -59,7 +59,7 @@ func TestEachRoleSaysTheRowItUses(t *testing.T) {
 	// New seats: Crux orchestrates, Bolt, the pick of the two, builds before Acme at high, and Acme
 	// reviews at its effort, low.  Costs are the boards', measured by no run.
 	newSeats := record("crux", []any{"acme", "bolt"}, []any{"acme"}, nil)
-	want := []string{"› orchestrator Crux 9 high not on the boards", "quality a task",
+	want := []string{"› orchestrator Crux 9 high not on the boards", "quality $ a task",
 		"executor bolt 90.0 ≈$80.00", "reviewer acme low 76.0 ≈$60.00"}
 	if got := said("100", newSeats, 0); !reflect.DeepEqual(got, want) {
 		t.Errorf("new seats:\n%q\nwant\n%q", got, want)
@@ -68,7 +68,7 @@ func TestEachRoleSaysTheRowItUses(t *testing.T) {
 	// reviews before Bolt, no match for it there.
 	seat := record("dull", []any{"acme"}, []any{"bolt", "acme"},
 		map[string]map[string]string{"acme": {"effort": "high", "exec_effort": "low"}})
-	want = []string{"quality a task", "› orchestrator dull medium 92.9 ≈$70.00",
+	want = []string{"quality $ a task", "› orchestrator dull medium 92.9 ≈$70.00",
 		"executor acme low 70.0 ≈$60.00", "reviewer acme high 100.0 ≈$90.00"}
 	if got := said("100", seat, 0); !reflect.DeepEqual(got, want) {
 		t.Errorf("a seat:\n%q\nwant\n%q", got, want)
@@ -86,11 +86,11 @@ func TestEachRoleSaysTheRowItUses(t *testing.T) {
 	// its words where it is wider still, what follows it on the word's line where it fits there
 	// (40 cells), else on a line of its own under the row (24), each number whole
 	for columns, want := range map[string][]string{
-		"40": {"› orchestrator not on the boards", "Crux 9 high", "quality a task",
+		"40": {"› orchestrator not on the boards", "Crux 9 high", "quality $ a task",
 			"executor 90.0 ≈$80.00", "bolt", "reviewer 76.0 ≈$60.00", "acme low"},
-		"24": {"› orchestrator", "Crux 9 high", "not on the boards", "quality a task",
+		"24": {"› orchestrator", "Crux 9 high", "not on the boards", "quality $ a task",
 			"executor", "bolt", "90.0 ≈$80.00", "reviewer", "acme low", "76.0 ≈$60.00"},
-		"14": {"› orchestrator", "Crux 9", "high", "not on the boards", "quality a task",
+		"14": {"› orchestrator", "Crux 9", "high", "not on the boards", "quality $ a task",
 			"executor", "bolt", "90.0 ≈$80.00", "reviewer", "acme low", "76.0 ≈$60.00"},
 	} {
 		if got := said(columns, newSeats, 0); !reflect.DeepEqual(got, want) {
