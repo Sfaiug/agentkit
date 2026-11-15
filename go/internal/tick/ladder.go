@@ -115,7 +115,7 @@ func (t *ticking) climbUnder(dir string, r *rung, now float64) (*run.Object, err
 		stalls := slices.Clone(r.stalls)
 		if decided == "park" {
 			name := run.Seat(current)
-			if r.alive && scoped(current) || !typable(name, parkedLine(id, r.step)) || !seat.TakesLine(name) {
+			if r.alive && run.Scoped(current) || !typable(name, parkedLine(id, r.step)) || !seat.TakesLine(name) {
 				return errLeft // Python stops a unit by its name, and cards or pages a seat it cannot type into now
 			}
 			r.endLoop(current)

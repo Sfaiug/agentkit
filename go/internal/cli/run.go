@@ -248,7 +248,7 @@ func validateRunSubcommand(verb string, args []string) string {
 		args = without(args, "--keep")
 	case "resume":
 		usage += " [--rounds N] [--bg]"
-		id, rounds, ok := launch.ResumeArgs(args)
+		id, rounds, ok := run.ResumeArgs(args)
 		if !ok {
 			return usage
 		}
