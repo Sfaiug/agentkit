@@ -155,9 +155,9 @@ def main(argv):
         print(f"ak standby: refused: {reason}", file=sys.stderr)
     if refused:
         return 1
-    folder = config.TMP / FOLDER
-    folder.mkdir(parents=True, exist_ok=True)
-    with (folder / LOCK).open("a") as lock:
+    own = config.TMP / FOLDER
+    own.mkdir(parents=True, exist_ok=True)
+    with (own / LOCK).open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -170,7 +170,7 @@ def main(argv):
         if _copy(alias, home, copied):
             return 1
         # whole or not at all: a write cut short leaves the last stamp
-        new = folder / f"{COPIED}.new"
+        new = own / f"{COPIED}.new"
         new.write_text(f"{began.line()}\n{alias}\n")
-        new.replace(folder / COPIED)
+        new.replace(own / COPIED)
     return 0
