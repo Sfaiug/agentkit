@@ -1019,8 +1019,8 @@ class _GateHold:
         self.files, self.slots, self.context = files, slots, context
         self.pieces, self.more, self.queued, self.cost = pieces or len(slots), more, queued, cost
         self.idle, self.waiting, self.waited, self.shown = list(slots), 0, False, False
-        # A turn a piece gives back wakes a waiting sibling at once, not at the next poll.
-        self.lock, self.growing, self.queue = threading.Condition(), threading.Lock(), ExitStack()
+        # A turn a piece gives back wakes the piece taking at once, not at the next poll.
+        self.lock, self.taking, self.queue = threading.Condition(), threading.Lock(), ExitStack()
 
     def suite(self, cost):
         """A suite's pieces start here, and its red ones going again whole.  One the hold was not
@@ -1040,45 +1040,61 @@ class _GateHold:
     def take(self, stopped):
         """A held turn no other piece runs on, or None once `stopped()`; `give` it back.
 
-        While any piece waits, the suite is one waiter holding turns, at the place it was
-        admitted at (`queued`), and one piece at a time asks the host for the turns freed
-        since (`more`).
+        One piece takes at a time.  While any piece waits, the suite is one waiter holding
+        turns, at the place it was admitted at (`queued`), and the piece taking asks the host
+        for the turns freed since (`more`).  Beside a piece of its own it takes an idle turn
+        only while the host's cores, less the threads that want one now, fit one more piece
+        (`host.cpu_room`): CPU used never passes the cores, however many threads wait for one.
+        Room it waits for as for a turn, but as no waiter in the host's line: it holds one.
+        The next piece looks once this one has its turn, as a piece shows its threads only
+        in a later look.
         """
-        slot = None
         with self.lock:
             self.waiting += 1
         try:
-            while not stopped():
-                with self.lock:
-                    if self.idle:
-                        slot = self.idle.pop()
-                        break
-                    self.waited = True
-                    if self.queued and not self.shown:
-                        self.queue.enter_context(self.queued())
-                        self.shown = True
-                if self.cost and self.growing.acquire(blocking=False):
-                    try:
-                        freed = self.more(self.slots, len(self.idle), self.cost)[0]
-                        # Joined before the next grower asks: its `more` must count them as its own.
+            while not self.taking.acquire(timeout=GATE_POLL):
+                if stopped():
+                    return None
+            try:
+                while not stopped():
+                    with self.lock:
+                        cost, idle = self.cost, bool(self.idle)
+                        if idle and (not cost or len(self.idle) == len(self.slots)):
+                            return self.idle.pop()
+                        if not idle:
+                            self.waited = True
+                            if self.queued and not self.shown:
+                                self.queue.enter_context(self.queued())
+                                self.shown = True
+                    if idle:
+                        room = host.cpu_room()
+                        with self.lock:
+                            if self.idle and (room is None or room >= cost[0]):
+                                return self.idle.pop()
+                            self.waited = True
+                            self.queue.close()
+                            self.shown = False
+                            self.lock.wait(GATE_POLL)
+                        continue
+                    if cost:
+                        freed = self.more(self.slots, len(self.idle), cost)[0]
                         with self.lock:
                             self.slots += freed
                             self.idle += freed
-                            self.lock.notify_all()    # a sibling waiting meanwhile takes one
-                    finally:
-                        self.growing.release()
-                    if freed:
-                        continue
-                with self.lock:
-                    if not self.idle:
-                        self.lock.wait(GATE_POLL)
+                        if freed:
+                            continue
+                    with self.lock:
+                        if not self.idle:
+                            self.lock.wait(GATE_POLL)
+                return None
+            finally:
+                self.taking.release()
         finally:
             with self.lock:
                 self.waiting -= 1
                 if not self.waiting:
                     self.queue.close()
                     self.shown = False
-        return slot
 
     def give(self, slot):
         if slot is not None:
