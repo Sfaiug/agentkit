@@ -460,7 +460,10 @@ call)
   # have been moved on `c` and back inside Muse since, and only what is newer than its last move
   # counts (watch.follow_model).  Only a changed one starts the seat's look, as a Claude seat's
   # status render does (hooks/claude-status.sh): it runs on every call, so one that changes
-  # nothing runs no Python.  It prints nothing, as Muse was checked running it.
+  # nothing runs no Python.  It prints nothing, as Muse was checked running it.  Muse's settings
+  # file (`wire`) runs it in every session, a seat's or not, and only a seat's launch line names
+  # the seat: a call that names none keeps nothing, as hooks/seat-state.sh writes nothing.
+  [ -n "${AGENTKIT_SESSION:-}" ] || exit 0
   at=$(jq -nr 'now * 1e6 | floor') || exit 0     # before the call is read, however long that takes
   report=$(jq -er 'select(.session_id | strings | test("^[A-Za-z0-9_-]+$"))
       | select(.model | strings | length > 0)
