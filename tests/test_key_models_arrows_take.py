@@ -136,6 +136,9 @@ class ArrowsTake(unittest.TestCase):
                 self.until(lambda: self.record(SEAT)["workers"] == ["base"], "← took nothing")
                 # at its entry's effort, the executor follows it again
                 self.assertEqual(self.record(SEAT)["efforts"]["base"], {"effort": "high"})
+                # the price it stopped at, written after it (tests/test_key_models_kept_price.py)
+                self.until(lambda: self.record(SEAT).get("executor_price", {}).get("model")
+                           == "base", "← kept no price")
                 taken = self.path(SEAT).read_bytes()
                 term.keys("Left", "Enter")      # the cheapest: nothing further, then its why
                 term.wait("why Acme Base 1 high builds")

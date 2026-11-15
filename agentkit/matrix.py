@@ -11,6 +11,7 @@ import contextlib
 import fcntl
 import functools
 import json
+import math
 import re
 import sys
 import time
@@ -259,7 +260,8 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     and `choices`, `others` and `whys` over those with a cost (`_choices`), the choices being
     rows a model of `cfg` runs (`runner`).  Keep the pick and take visible even if rows outside
     their eligible pool beat them.  Every role's costs are in one unit (`_costs`), off
-    `task_usage`, (logins, shares) as `spend.roles` measures them."""
+    `task_usage`, (logins, shares) as `spend.roles` measures them.  `limits`: each choice's
+    price (`_limits`)."""
     measures = task_usage if task_usage is not None else _task_usage(cfg) if cfg else ({}, {})
     cfg = cfg or {"models": {}, "providers": {}}
     every = {role: quality.rated(lineup, role) for role in quality.ROLES}
@@ -278,8 +280,26 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
         choices, others, whys = _choices(priced, {id(row) for row in priced if runner(cfg, row)})
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
                      "front": front, "take": take, "choices": choices, "others": others,
-                     "whys": whys}
+                     "whys": whys, "limits": _limits(choices, priced)}
     return out
+
+
+def _limits(choices, priced):
+    """{id: limit} of `choices`, the price a take of each stops at (menu.keep_price), the
+    owner's design of 5 Nov 2026: round_price up to the cheapest of `priced` both dearer and
+    better, which the next choice is; None on the best, which stays the best whatever it costs."""
+    return {id(row): None if row is choices[-1] else round_price(row["cost"], min(
+        one["cost"] for one in priced if one["cost"] > row["cost"]
+        and one["quality"] > row["quality"])) for row in choices}
+
+
+def round_price(cost, dearer):
+    """The geometric middle of `cost` and `dearer`, at the fewest significant figures that land
+    from `cost` up to, not including, `dearer`: 0.12 and 0.80 keep 0.3, 1 and 3 keep 2, 4.2 and
+    5 keep 4.6."""
+    middle = math.sqrt(cost * dearer)
+    return next((one for figures in range(1, 18)
+                 if cost <= (one := float(f"{middle:.{figures}g}")) < dearer), cost)
 
 
 def runner(cfg, row):
