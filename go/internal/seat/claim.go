@@ -81,6 +81,25 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 		!record.Truthy("cwd") || record.Get("conversation") == id {
 		return true
 	}
+	// the file its harness names and the seat's session, read first: Go hands over where it
+	// cannot read either, before the record learns anything
+	filed := ""
+	if to.Filed != nil {
+		filed = to.Filed(fields, id)
+	} else {
+		there := map[string]any{}
+		maps.Copy(there, fields)
+		there["conversation"] = id
+		named, known := harness.Conversation(to.Harness, there)
+		if !known {
+			return false
+		}
+		filed = named
+	}
+	held, exited, known := find(name, fields)
+	if !known {
+		return false
+	}
 	current := record.Str("conversation") // the one the seat leaves, "" for none
 	if harness.Learns(to.Harness) {
 		// the one its harness's evidence says the seat is in, which that evidence may not have
@@ -100,25 +119,8 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 	} else if owned, known := harness.Owns(to.Harness, record, current); !owned {
 		return known
 	}
-	filed := ""
-	if to.Filed != nil {
-		filed = to.Filed(fields, id)
-	} else {
-		there := map[string]any{}
-		maps.Copy(there, fields)
-		there["conversation"] = id
-		named, known := harness.Conversation(to.Harness, there)
-		if !known {
-			return false
-		}
-		filed = named
-	}
 	if config.Resolve(transcript) != config.Resolve(filed) || spoken(name, id) {
 		return true
-	}
-	held, exited, known := find(name, fields)
-	if !known {
-		return false
 	}
 	if to.From != nil {
 		pid = to.From(pid)
