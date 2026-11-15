@@ -2436,7 +2436,7 @@ def runs_moved_path():
 
 
 def stop_path(name):
-    """Where hooks/seat-state.sh leaves this turn's start for the stop hook's rule."""
+    """Where a prompt leaves this turn's start (`looker.prompted`) for the stop hook's rule."""
     return seat_file("stop", name)
 
 

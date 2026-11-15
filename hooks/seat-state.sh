@@ -77,7 +77,7 @@ seat_state() {
     return 0
   elif [[ $event != Stop ]]; then
     printf '%s\0%s' "$said" "$text" | /usr/bin/env python3 \
-      "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" "$seat" "$owner" "$event" "$kind" >/dev/null
+      "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" "$seat" "$owner" "$event" "$kind"
     return 0
   fi
   ts=$(heard "$seat")
