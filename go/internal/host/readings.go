@@ -328,13 +328,14 @@ func RunsTasks() (dropIn, held int, holds bool) {
 	return dropIn, held, holds
 }
 
-// OthersTasksPeak is the most tasks each child of ak's slice but the runs has held, added up: a
-// child's peak counts what is under it. A pids.peak unread counts 0, as on a kernel without one.
-func OthersTasksPeak() int {
+// OthersTasks is the tasks each child of ak's slice but the runs holds now, added up: a child's
+// count counts what is under it. A pids.current unread counts 0, as in a cgroup without the pids
+// controller.
+func OthersTasks() int {
 	slice, runs, sum := sliceCgroup(), RunsCgroup(), 0
 	for _, child := range config.Glob(slice, "*") {
-		if peak, ok := number(filepath.Join(child, "pids.peak")); ok && child != runs {
-			sum += int(peak)
+		if tasks, ok := number(filepath.Join(child, "pids.current")); ok && child != runs {
+			sum += int(tasks)
 		}
 	}
 	return sum

@@ -41,18 +41,20 @@ func (t *ticking) giveWayMemory() error {
 	return t.setOnRuns("MemoryHigh", fmt.Sprintf("%dM", max(runCap, ceiling-seats-max(ceiling/20, grown))))
 }
 
-// giveWayTasks holds the runs' task cap so the other children of the slice keep half again the
-// most they have used, never under a third of the ceiling: cgroups have ceilings and no
-// reservations, and four harnesses died mid-turn when a seat was refused a fork (30 Oct 2026). The
-// kernel's peak only rises, so the cap needs no state of ours; an owner's lower number in the
-// drop-in stands, and a daemon-reload that puts the drop-in's back is set again next tick.
+// giveWayTasks holds the runs' task cap so the other children of the slice keep half again what
+// they hold now, never under a third of the ceiling: cgroups have ceilings and no reservations,
+// and four harnesses died mid-turn when a seat was refused a fork (30 Oct 2026). Now, not the
+// kernel's peak: a peak only rises, and one burst held the runs at the floor for a boot while
+// seats held little (10 Nov 2026). The drop-in's number is the room for a burst between two ticks;
+// an owner's lower number there stands, and a daemon-reload that puts it back is set again next
+// tick.
 func (t *ticking) giveWayTasks() error {
 	ceiling, ok := host.SliceTasks()
 	if !ok {
 		return nil
 	}
 	dropIn, held, holds := host.RunsTasks()
-	cap := min(cmp.Or(dropIn, ceiling), max(ceiling/3, ceiling-host.OthersTasksPeak()*3/2))
+	cap := min(cmp.Or(dropIn, ceiling), max(ceiling/3, ceiling-host.OthersTasks()*3/2))
 	if holds && cap == held {
 		return nil
 	}

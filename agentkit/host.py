@@ -192,14 +192,14 @@ def cgroup_tasks(cgroup):
     return tuple(numbers)
 
 
-def children_tasks_peak(cgroup, leaving_out):
-    """The most tasks each directory under a cgroup but one has held, added up.
+def children_tasks(cgroup, leaving_out):
+    """The tasks each directory under a cgroup but one holds now, added up.
 
-    Its first level alone: a cgroup's peak already counts what is under it.  A `pids.peak` missing
-    or unreadable counts as 0, as on a kernel without it.
+    Its first level alone: a cgroup's count already counts what is under it.  A `pids.current`
+    missing or unreadable counts as 0, as in a cgroup without the pids controller.
     """
-    return sum(int(_read_number(peak) or 0) for peak in Path(cgroup).glob("*/pids.peak")
-               if peak.parent != leaving_out)
+    return sum(int(_read_number(tasks) or 0) for tasks in Path(cgroup).glob("*/pids.current")
+               if tasks.parent != leaving_out)
 
 
 def _number(value):

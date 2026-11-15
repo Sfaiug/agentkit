@@ -1097,7 +1097,7 @@ EOF
   # refused a fork is retried, a seat's turn is not).  TasksMax=N% is a share of the whole
   # system, not of the slice, so the runs' cap is a number taken from the ceiling systemd now
   # holds for the slice, whoever set it; a slice with none gives runs none; each tick lowers it
-  # further by what seats have used (`run.give_way`).  Our own file is rewritten when it differs;
+  # further while seats hold more (`run.give_way`).  Our own file is rewritten when it differs;
   # one whose first line is not ours is left alone.
   seats_share=30
   slice_ceiling=$(systemctl --user show agentkit.slice -p TasksMax --value 2>/dev/null || true)
