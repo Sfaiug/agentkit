@@ -4862,8 +4862,10 @@ def config_spend_reset(cfg, picked, kind=None):
     by hand, on `picked`, its subscription as (provider, account, label), of `kind` where its
     reading names kinds.  usage.replenish spends it where it still holds one and reads the
     meters back into the cache, so its meter shows the week that came back; Esc while it is
-    spent lets it finish.  What to say under the matrix: its name and what its cell on the `ak`
-    screen says now (`usage_cells`), `ChatGPT II · 100% left`."""
+    spent lets it finish.  What to say under the matrix: its name, what its cell on the `ak`
+    screen says now (`usage_cells`), what each cap its provider names has left (`scoped_notes`:
+    a Fable reset leaves the week's cell as it was) and the resets still in hand (`in_hand`),
+    `Acme · 60% left · Fable 100% left · 1 weekly, 2 Fable resets in hand`."""
     title = f"config · {picked[2]}"
     name, account, label = picked
     try:
@@ -4873,9 +4875,12 @@ def config_spend_reset(cfg, picked, kind=None):
         return ""
     if not spent:
         return f"{label}: no reset was spent"
-    said = next(said for provider, shown, _, said in usage_cells(cfg)
-                if (provider, shown) == (name, label))
-    return f"{label} · {said}"
+    rows = usage_rows(cfg)
+    prov, said = next((row[2], cell[3]) for row, cell in zip(rows, usage_cells(cfg, rows=rows))
+                      if cell[:2] == (name, label))
+    week, _, readable = reading(cfg, name, prov, time.time())
+    return " · ".join(filter(None, (label, said, *scoped_notes(cfg, name, readable, week)[0],
+                                    in_hand(prov))))
 
 
 def subscription_acts(cfg, keyboard, number, remove=False):
