@@ -108,6 +108,39 @@ def _go_cache(env):
         return None
 
 
+def _warm(cache, scratch, hidden):
+    """bwrap's words showing a turn the account's Go build cache at /var/tmp/go-build, what the
+    turn writes there kept in scratch; none where the cache is missing, holds or lies in a hidden
+    place, a hidden file has a second name, or the kernel refuses the overlay, leaving the turn an
+    empty cache of its own there.
+
+    Turns compiling the standard library and every package from nothing asked for more CPU than
+    the host had (15 Nov 2026). Scratch is on disk: a turn rewriting many packages writes
+    hundreds of MB."""
+    # The overlay shows the cache as the host holds it, past the box's masks.
+    if cache is None or any(cache.is_relative_to(path) or path.is_relative_to(cache)
+                            for path in hidden):
+        return []
+    try:
+        # A mask covers one name of a file; a hard link in the cache is another.
+        if any(not stat.S_ISDIR(info.st_mode) and info.st_nlink > 1 for info in (
+                path.lstat() for place in hidden for path in (place, *_contents(place)))):
+            return []
+    except OSError:
+        # A closed or vanishing place may hold one.
+        return []
+    upper, work = scratch / "go-build", scratch / "go-build-work"
+    upper.mkdir()
+    work.mkdir()
+    layers = ["--overlay-src", str(cache), "--overlay", str(upper), str(work)]
+    # The kernel keeps no overlay's writes on NFS or another overlay, and a box whose overlay it
+    # refused would not start. Unbounded: one it mounts syncs scratch's filesystem as it goes,
+    # seconds on a busy host, and a refusal is at once.
+    probe = subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/", *layers, str(cache),
+                            "--", "true"], stderr=subprocess.DEVNULL)
+    return [*layers, "/var/tmp/go-build"] if probe.returncode == 0 else []
+
+
 def _homes(env, cwd):
     base = Path(cwd or os.getcwd())
     return {base / (env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
@@ -486,10 +519,10 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
             mounts, overlaid = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
-            cmd[at:at] = mounts
             clean["TMPDIR"] = "/var/tmp"
             if not home_overlay:
                 # Go caches builds under HOME, read-only here: a turn's build failed (5 Nov 2026).
+                mounts += _warm(_go_cache(clean), Path(scratch), targets)
                 clean["GOCACHE"] = "/var/tmp/go-build"
             elif "GOCACHE" not in clean:
                 # A check's throwaway HOME shows the account's warm cache, but a command moving
@@ -499,6 +532,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 cache = _go_cache(clean)
                 if cache and overlaid(cache) and folders.isdisjoint((cache, *cache.parents)):
                     clean["GOCACHE"] = str(cache)
+            cmd[at:at] = mounts
             yield [*cmd, *filtered, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write, *fds), "stop": stop, "began": report.exists,
                 "declared": declared}
