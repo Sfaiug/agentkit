@@ -2,8 +2,8 @@
 // runs it as `ak install`, unlisted, so each step has one home here, the same on every system.
 // So far it holds install.sh's options, its step (1), a Mac's Linux machine, the seat guards,
 // the old rulebook links undone, the yolo defaults, the role's record, the tick's crontab line,
-// the install stamp, the phone's key and no core dumps; what else writes outside the home
-// (packages, harnesses) is still to come.
+// the install stamp, the phone's key, no core dumps and room for inotify instances; what else
+// writes outside the home (packages, harnesses) is still to come.
 package install
 
 import (
@@ -39,6 +39,9 @@ func Main(args []string, out, errOut io.Writer) int {
 			return 1
 		case "--core-dumps":
 			coreDumps(out, errOut)
+			return 0
+		case "--inotify":
+			inotify(out, errOut)
 			return 0
 		}
 	}

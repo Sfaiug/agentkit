@@ -12,3 +12,8 @@ case $? in 0) SANDBOX=1 ;; 1) SANDBOX=0 ;; *) exit ;; esac
 [ "$SANDBOX" = 1 ] || "$(dirname -- "$0")/bin/ak" install --core-dumps
 
 # --- (g2a) swapped memory stays compressed in RAM: not Go's yet ---------------
+
+# --- every session has room for its inotify instances ------------------------
+[ "$SANDBOX" = 1 ] || "$(dirname -- "$0")/bin/ak" install --inotify
+
+# --- (i) what this run could not do, in one place at the end: not Go's yet ----
