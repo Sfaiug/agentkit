@@ -29,7 +29,7 @@ func statusLine(name, root string, login config.Login, call map[string][]string)
 	if err != nil || settings == nil {
 		return cmp.Or(err, fmt.Errorf("adapter manifest %s.toml: [launch] pins is no JSON object", name))
 	}
-	ak := harness.StatusCommand(root)
+	ak := harness.StatusCommand(root, name)
 	line := record.Fields("type", "command", "command", ak+" >/dev/null")
 	env := map[string]string{}
 	for _, pair := range login.Environ(os.Environ()) {

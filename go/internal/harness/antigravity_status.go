@@ -39,9 +39,9 @@ func antigravityInteractive(root string, args []string, out, errOut io.Writer) i
 		fmt.Fprintln(errOut, "ak adapter: antigravity interactive printed no status line Go reads")
 		return 2
 	}
-	command := StatusCommand(root) + " >/dev/null"
+	command := StatusCommand(root, "antigravity") + " >/dev/null"
 	if _, owner, piped := strings.Cut(status.Str("command"), " | { "); piped {
-		command = StatusCommand(root) + " | { " + owner
+		command = StatusCommand(root, "antigravity") + " | { " + owner
 	}
 	status.Set("command", command)
 	line[at] = run.Line(settings)

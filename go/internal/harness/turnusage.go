@@ -290,32 +290,10 @@ func claudeTurnMeters(out string) []any {
 	var found []any
 	for _, line := range events {
 		event, ok := line.(*run.Object)
-		if !ok || event.Get("type") != limits.Event {
+		if !ok || event.Get("type") != limits.Event || event.Dict(limits.Info) == nil {
 			continue
 		}
-		info := event.Dict(limits.Info)
-		if info == nil || info.Dict("unifiedWindows") == nil {
-			continue
-		}
-		windows := info.Dict("unifiedWindows")
-		var meters []any
-		// the session window is usage's sessionSecs, the week seven days, as adapters/claude.sh names them
-		for _, window := range []struct {
-			key, name string
-			secs      int
-		}{{"five_hour", "session", 18000}, {"seven_day", "weekly_all", 604800}} {
-			reading := windows.Dict(window.key)
-			if reading == nil {
-				continue
-			}
-			share, measured := run.Num(reading.Get("utilization"))
-			resets, dated := run.Num(reading.Get("resetsAt"))
-			if !measured || math.IsNaN(share) || share < 0 || share > 1 || !dated || math.IsInf(resets, 0) || math.IsNaN(resets) || resets <= 0 {
-				continue
-			}
-			meters = append(meters, run.Fields("name", window.name, "used", share*100, "resets_at", reading.Get("resetsAt"), "window_secs", window.secs))
-		}
-		if len(meters) > 0 {
+		if meters := claudeWindowMeters(event.Dict(limits.Info).Dict("unifiedWindows"), "utilization", "resetsAt", 1); len(meters) > 0 {
 			found = meters
 		}
 	}

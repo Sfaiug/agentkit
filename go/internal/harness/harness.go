@@ -38,6 +38,11 @@ type plugin struct {
 	// it reads the owner's own status command from where Go prints the line (StatusFiles).
 	report func(model string) (string, error)
 	status []string
+	// limits is each window of its login's limits a status render of its seats carries, as
+	// `<window> <words>` (Limits), and statusMeters those windows as endpoint meters
+	// (StatusMeters): nil where its renders carry none.
+	limits       func(render *run.Object) []string
+	statusMeters func(windows []string) []any
 	// conversation is the file a seat's record says its conversation is kept in, "" for none,
 	// and readBy ReadBy's where ak gives that file a name of its own beside.
 	conversation func(record map[string]any) string
