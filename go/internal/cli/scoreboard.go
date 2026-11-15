@@ -778,7 +778,8 @@ func (b *board) rewritten(end float64) string {
 	for _, done := range lines {
 		rewritten += count(done)
 	}
-	return fmt.Sprintf("%d of %d live plan lines rewritten within 14 days", rewritten, len(lines))
+	return fmt.Sprintf("%d of %d live plan lines rewritten within %d days", rewritten, len(lines),
+		history.RewriteWindow/86400)
 }
 
 // pairs is the week's merged changes, each by its last run, by their recorded review pair;
