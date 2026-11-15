@@ -126,6 +126,7 @@ test_key_claude_one_settings
 test_key_claude_resume_followed
 test_key_claude_seat_prep
 test_key_claude_words
+test_key_client_runs_no_tick
 test_key_config_count_settings
 test_key_codex_ended_work_is_not_held
 test_key_codex_interrupt_fact
