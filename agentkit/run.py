@@ -784,29 +784,31 @@ def _give_way_memory(state, log):
 
 
 def _give_way_tasks(log):
-    """Hold the runs' task cap so the seats keep half again the most they have used.
+    """Hold the runs' task cap so the seats keep half again what they hold now.
 
     cgroups have ceilings and no reservations, so all seats ever keep is what the runs' cap
     leaves: with runs at 70% of the slice and seats near their peak, a seat was refused a fork
     and four harnesses died mid-turn (30 Oct 2026).
 
-    The peak rather than current use: a burst forks within seconds, and ticks are minutes apart.
-    The kernel's peak only rises until the slice is made anew, so the cap needs no state of ours.
-    Half again: the seats' margin past their most so far.  Past it, a seat can be refused only
-    while runs are at their cap, and the next tick lowers the cap.  A third: admitted runs can
-    still finish.  Past that, seats can be refused again.  A tick rather than install.sh: install
-    runs only on an update, and the peak moves at any time.  Comparing with the cap the kernel
-    holds each tick: a daemon-reload puts `weights.conf` back over the runtime value
-    (`50-TasksMax.conf` sorts first), and the next tick restores it.  An owner's lower number in
-    the drop-in stands.
+    What they hold now, not the kernel's peak: a peak only rises until the slice is made anew,
+    so one burst held the runs at a third of the ceiling while seats held under 2,000 tasks, and
+    the runs were refused a fork 118 times (10 Nov 2026).  The drop-in's number is the room for a
+    burst between two ticks; the tick only widens it while seats hold more, and puts it back the
+    tick after they let go.  Half again: the seats' margin past what they hold.  Past it, a seat
+    can be refused only while runs are at their cap, and the next tick lowers the cap.  A third:
+    admitted runs can still finish.  Past that, seats can be refused again.  A tick rather than
+    install.sh: install runs only on an update, and the seats' count moves at any time.
+    Comparing with the cap the kernel holds each tick: a daemon-reload puts `weights.conf` back
+    over the runtime value (`50-TasksMax.conf` sorts first), and the next tick restores it.  An
+    owner's lower number in the drop-in stands.
     """
     ceiling = orch.slice_tasks()[1]
     if ceiling is None:
         return
     runs = orch.run_slice_cgroup()
-    peak = host.children_tasks_peak(orch.slice_cgroup(), leaving_out=runs)
+    seats = host.children_tasks(orch.slice_cgroup(), leaving_out=runs)
     cap = min(orch.slice_ceiling(orch.run_slice_name()) or ceiling,
-              max(ceiling // 3, ceiling - peak * 3 // 2))
+              max(ceiling // 3, ceiling - seats * 3 // 2))
     if cap != host.cgroup_tasks(runs)[1]:
         set_property(orch.run_slice_name(), "TasksMax", cap, log)
 
