@@ -397,7 +397,7 @@ func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Ob
 // finalCheck runs the round's checks and those deferred to landing on the commit about to be
 // delivered, Python's final_check: the task's and the target's declarations at the tip it was
 // taken in on, and a `tests:` line the change rewrites, pinned to that commit, refusing a test file
-// the change adds slower than its suite's piece target as the lander does.  A red is a final
+// the change adds or slows over its suite's piece target as the lander does.  A red is a final
 // check's fixer's, which is Python's.
 func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 	_, cmds, err := task.Read(filepath.Join(l.dir, "task.md"))
