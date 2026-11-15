@@ -45,7 +45,8 @@ func (t *ticking) endings() error {
 		if record.Str("state") == "stalled" {
 			return true // parked by the tick: handback.reap leaves it be, and only a resume moves it
 		}
-		if !run.Ended(record) && run.NeedsRecovery(record) && !handback.Untold(record) && (record.Str("state") != "interrupted" || run.ProcessActive(record)) {
+		if !run.Ended(record) && run.NeedsRecovery(record) && !handback.Untold(record) && !handback.LoginParked(record) &&
+			(record.Str("state") != "interrupted" || run.ProcessActive(record)) {
 			return false
 		}
 		// the loop a reap found dead is swept at the next one, as Python's reap sweeps only what it

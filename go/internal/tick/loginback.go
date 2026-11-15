@@ -10,8 +10,8 @@ import (
 )
 
 // keptStalls is whether each of watch.json's stalls is one the health row carries: a plain one
-// (seat.PlainStalls), or one it keeps of a login its harness's verb refused, whose owner was told
-// (keepLogin).  One a parked run raised, or untold, is Python's to retract or tell again.
+// (seat.PlainStalls), or one it keeps of a login its harness's verb refused or a run of the seat's
+// own waits on, whose owner was told (keepLogin).  One untold is Python's to tell again.
 func keptStalls(stalls *run.Object) bool {
 	return !slices.ContainsFunc(stalls.Keys(), func(name string) bool {
 		entry, _ := stalls.Get(name).(*run.Object)
@@ -25,7 +25,7 @@ func loginTold(entry *run.Object) bool {
 		return false
 	}
 	_, said := entry.Get("notice").(string)
-	return entry.Get("kind") == "auth" && entry.Get("evidence") == "verb" && entry.Str("harness") != "" && said && entry.Truthy("told")
+	return entry.Get("kind") == "auth" && slices.Contains([]any{"verb", "run"}, entry.Get("evidence")) && entry.Str("harness") != "" && said && entry.Truthy("told")
 }
 
 // askLogins is the health row's first ask (watch.health): every harness an earlier pass recorded a
@@ -122,34 +122,44 @@ func (t *ticking) loggedIn(harness string) bool {
 	return held != nil && held.Dict(harness) != nil && held.Dict(harness).Get("ok") == true
 }
 
-// loginHeld is the health row's reading of a seat holding a stall kept of a refused login
+// loginHeld is the health row's reading of a seat holding a stall kept of a login out
 // (watch.health), its own login asked once this pass, and again where its screen shows its
 // harness's logout words (recordAuth), whatever the record held of it: the stall stands while that
-// login is out on record, or while the one it was kept for has not passed again, a non-answer being
-// no yes; it is back once that passes, the seat's own not out, where the row clears it (clearLogin)
-// and looks again, as it would at a seat on its own word.  Changed is whether the answer kept of the
-// seat's own login changed, which its word reads.  Neither where Python's tick does more: begins
-// another harness's stall, types past logout words, clears or waits on a refusal its file keeps, or
-// answers its notice by its output.
+// login is out on record, or while a run of its own waits on the one it was kept for (Live.Owed),
+// either taking this pass's evidence (evidenced); kept of a verb's no, while that login has not
+// passed again, a non-answer being no yes.  It is back once none of these holds, where the row
+// clears it (clearLogin) and looks again, as it would at a seat on its own word.  Changed is
+// whether the answer kept of the seat's own login, or the stall, changed, which its word reads.
+// Neither where Python's tick does more: begins another login's stall, types past logout words,
+// clears or waits on a refusal its file keeps, or answers its notice by its output.
 func (t *ticking) loginHeld(live seat.Live, held *run.Object) (stands, back, changed bool) {
 	changed = t.recordAuth(live.Own, live.Login != nil)
-	switch {
-	case t.loggedOut(live.Own) != nil:
-		return held.Str("harness") == live.Own, false, changed
+	var blocked seat.Owed
+	evidence := "verb"
+	switch out := t.loggedOut(live.Own); {
+	case out != nil:
+		blocked = seat.Owed{Login: live.Own, Why: out.Get("why")}
 	case live.Login != nil:
 		return false, false, changed
-	case !t.loggedIn(held.Str("harness")):
+	case live.Owed != nil:
+		blocked, evidence = *live.Owed, "run"
+	case held.Get("evidence") != "run" && !t.loggedIn(held.Str("harness")):
 		return true, false, changed
+	default:
+		return false, !live.File.Truthy("usage_refusal") && quietLogin(live) && ownerWaits(live), changed
 	}
-	return false, !live.File.Truthy("usage_refusal") && quietLogin(live) && ownerWaits(live), changed
+	if held.Str("harness") != blocked.Login {
+		return false, false, changed
+	}
+	return true, false, evidenced(held, live, blocked, evidence) || changed
 }
 
-// clearLogin is watch.forget(acknowledge=False, notice=...) of a seat whose refused login passes
-// again: under watch.json's lock its alert generation moved on and its stall gone, and its notice
-// seen where it is still that login's (notify.Retract), the tick's own state then synced with
-// what was written, as watch.health does before it says so.  A dry tick only drops the stall from
-// what it reads.  False, nothing written, where watch.json holds a newer generation of the seat,
-// or what Go cannot write back.
+// clearLogin is watch.forget(acknowledge=False, notice=...) of a seat whose login is back: under
+// watch.json's lock its alert generation moved on and its stall gone, and its notice seen where it
+// is still that login's (notify.Retract), the tick's own state then synced with what was written,
+// as watch.health does before it says so.  A dry tick only drops the stall from what it reads.
+// False, nothing written, where watch.json holds a newer generation of the seat, or what Go cannot
+// write back.
 func (t *ticking) clearLogin(live seat.Live, held *run.Object) (bool, error) {
 	line := live.Name + ": " + held.Str("harness") + " can authenticate again; cleared needs login"
 	if t.dry {

@@ -51,7 +51,7 @@ func TestEveryHandOverLeavesItsRecord(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		pass = "before its passes" // a tick there is Python's whole
 	}
-	write(t, filepath.Join(ak, "runs", "fix-api", "run.json"), `{"state": "waiting_login"}`)
+	write(t, filepath.Join(ak, "runs", "fix-api", "run.json"), `{"state": "fail", "scope": "acme.scope"}`)
 	leaves("^watch: "+pass+"\n$", "", "watch", "--dry-run")
 	// a subcommand main dispatches, and one its command reads, each by its own words
 	write(t, filepath.Join(ak, "state", "gc-leftovers.json"), `{"x": "\ud800"}`)

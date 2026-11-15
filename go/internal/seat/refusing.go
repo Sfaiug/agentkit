@@ -9,29 +9,19 @@ import (
 	"agentkit/internal/run"
 )
 
-// runOnALogin: [1a] a run of its own that a login keeps refusing is news of a login the owner has
-// to go and fix, on a seat nobody is in too.  The oldest such run by its ending names the login and
-// dates the word, the first of its runs winning a tie (min).  A run parked on a login, the rung's
-// other half, has no view yet, which hands the home over (viewRun).
+// runOnALogin: [1a] a run of its own parked on a login, or one a login keeps refusing, is news of a
+// login the owner has to go and fix, on a seat nobody is in too: the oldest such run names the
+// login and dates the word (owedOf).  The run is the whole of the evidence: nothing here asks its
+// login's verb, which the tick's login resume does.
 func runOnALogin(facts climbing) (*answer, error) {
 	if _, err := aRunOfItsOwn(facts); err != nil {
 		return nil, err
 	}
-	var oldest *ran
-	login := ""
-	for i, each := range facts.mine {
-		owed, known := Refusing(each.name, each.record)
-		if !known {
-			return nil, ErrUnread
-		}
-		if owed != "" && (oldest == nil || run.FirstNumber(each.record, "finished_at") < run.FirstNumber(oldest.record, "finished_at")) {
-			oldest, login = &facts.mine[i], owed
-		}
+	login, err := owedOf(facts.mine)
+	if login == nil {
+		return nil, err
 	}
-	if oldest == nil {
-		return nil, nil
-	}
-	return loginExpired(login, oldest.record.Get("finished_at"))
+	return loginExpired(login.Login, login.Since)
 }
 
 // Refusing is the login that keeps refusing the run in that directory while it has not ended

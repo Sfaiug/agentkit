@@ -75,7 +75,7 @@ func menuRuns(held []run.Held, now time.Time) (map[string][]ran, map[string][]ra
 
 func viewRun(record *run.Object, now time.Time) (runView, bool) {
 	state := record.Str("state")
-	if !run.Active(record) && !run.Ended(record) && state != "waiting" && state != "interrupted" && state != "stalled" && state != "exhausted" {
+	if !run.Active(record) && !run.Ended(record) && state != "waiting" && state != "interrupted" && state != "stalled" && state != "exhausted" && state != "waiting_login" {
 		return runView{}, false
 	}
 	for _, field := range []string{"waiting_on", "gate_turn", "transient_wait", "process_identity", "lease_wait", "health"} {
