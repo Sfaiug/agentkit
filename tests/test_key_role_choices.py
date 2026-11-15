@@ -53,8 +53,7 @@ OTHERS = [("Acme Edge 1", "high", "close", {"name": "Acme Best 1", "effort": "hi
 # Shares whose qualities lie exactly 10, 1 and 1 apart, which a rating's floats put a hair
 # across: the lower row 10.00000000000001 under the best, 0.99999999999999 under the next
 EXACT = ((.57, .67), (.804, .814, .90), (.56, .57))
-# Rows a few millionths of a point apart in quality, cheapest first, and the others they leave,
-# each by the name ak says of a release the boards name by its slug (config.release_label)
+# Rows a few millionths of a point apart in quality, cheapest first, and the others they leave
 HAIR = (([("acme-cheap-1", "high", .899999998), ("acme-best-1", "high", .90)],
          [("acme-cheap-1", "high", "close", "Acme Best 1")]),
         ([("acme-best-1", "high", .90), ("acme-other-1", "high", .85),
@@ -122,7 +121,8 @@ class RoleChoices(unittest.TestCase):
 
     def test_a_millionth_better_still_ranks_above(self):
         for rows, others in HAIR:
-            found = answer([(release, release, effort, share, n + 1)
+            # each named as ak says it (config.release_label), `Acme Best 1`
+            found = answer([(release, release.replace("-", " ").title(), effort, share, n + 1)
                             for n, (release, effort, share) in enumerate(rows)])
             for role in ROLES:
                 with self.subTest(rows=rows, role=role):
