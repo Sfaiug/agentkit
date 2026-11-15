@@ -422,8 +422,8 @@ def _ask_probe(cfg, provider, now, account=None):
 
 
 def _meter_asked(prov):
-    """{meter_name: when every cap of that name was last asked and measured}, for `prov`'s
-    probed meters."""
+    """{meter_name: when a probe last asked and measured every cap of that name}, for `prov`'s
+    probed meters; a turn's ask is its meters' own (`asked_at`)."""
     if not isinstance(prov, dict) or not isinstance(prov.get("probed_meters"), dict):
         return {}
     return {name: at for name, value in prov["probed_meters"].items()
@@ -841,13 +841,14 @@ def _fresh_window(prov, mark, now):
     ends = mark.get("exhausted_ends")
     levels = mark.get("exhausted_used")
     at = _number(mark.get("exhausted_at"))
-    asked = _meter_asked(prov).get(name)
+    probed = _meter_asked(prov).get(name)
     # Marks written before `exhausted_used` existed named a meter only at 100%+.
     stood = (_number(levels.get(name)) if isinstance(levels, dict)
              else 100.0 if "exhausted_used" not in mark else None)
     for meter in prov.get("meters") or []:
         if not isinstance(meter, dict) or not _names(by, meter):
             continue
+        asked = _number(meter.get("asked_at", probed))
         used = _number(meter.get("used"))
         if used is None or used >= 100 or _past(meter, now):
             continue
@@ -1275,15 +1276,17 @@ def _record_turn_meters(cfg, provider, fresh, account, measured, asked):
     if not fresh:
         return False
     _keep(provider, account, fresh, measured, "turn")
-    # Normalized as a probed meter is, because every reader of the snapshot reads one.
-    new = {_key(m): {**_normalized(m, measured), "measured_at": measured} for m in fresh}
+    # Normalized as a probed meter is, because every reader of the snapshot reads one.  A turn
+    # asks of each cap it reads, not of every cap of its name as a probe does (`_meter_asked`),
+    # so its ask is that meter's own, and a cap of that name it did not read keeps the probe's.
+    new = {_key(m): {**_normalized(m, measured), "measured_at": measured,
+                     **({"asked_at": measured} if asked else {})} for m in fresh}
     names = {m["name"] for m in fresh}
-    probed = {name: at for name, at in _meter_asked(cached).items() if name not in names}
-    if asked:
-        # a name is asked where every cap of it was (`_meter_asked`): Opus's read asks no Fable's
-        probed.update(dict.fromkeys(names - {m["name"] for m in old if _key(m) not in new},
-                                    measured))
-    merged = [new.get(_key(m), m) for m in old]
+    stamps = _meter_asked(cached)
+    probed = {name: at for name, at in stamps.items() if name not in names}
+    merged = [new.get(_key(m)) or ({"asked_at": stamps[m["name"]], **m}
+                                   if m["name"] in names and m["name"] in stamps else m)
+              for m in old]
     merged += [meter for key, meter in new.items() if key not in held]
     prov = dict(cached)
     prov.setdefault("provider", provider)
