@@ -29,7 +29,7 @@ RUNS = (".agentkit/runs/r-fix-api/run.json", ".agentkit/wt/r-fix-api/main.py",
 SERVER = ".agentkit/state/server"     # this machine's, which the home has none of
 # this machine's own, which the home holds its own of: ak's tmp folder, its ak install, ak's
 # repository and a version of ak
-OWN = (".agentkit/tmp/watch.log", "agentkit/bin/ak", ".agentkit/agentkit.git/HEAD",
+OWN = (".agentkit/tmp/watch.log", "agentkit/notes", ".agentkit/agentkit.git/HEAD",
        ".agentkit/versions/1e05b19/bin/ak")
 
 

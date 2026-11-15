@@ -164,7 +164,9 @@ class Home:
     about a hundred, which a loaded host takes past `tick`'s bound.  `at` is where its commands
     find its root, if not where it is: on a machine of tests/fixtures/twohomes.py, at the path
     every machine's is at.  Its root is made in `at`, so that a machine's commands, finding theirs
-    there, find no other, and `at` empties, and goes, with the last of them."""
+    there, find no other, and `at` goes, with what else it holds, with the last of them."""
+
+    program = AK    # what `ak`, `tick` and `spawn` run: a machine's is its install's
 
     def __init__(self, tmux_log=False, at=None):
         self.root = Path(tempfile.mkdtemp(prefix="akbin-", dir=at)).resolve()
@@ -284,7 +286,7 @@ class Home:
 
     def ak(self, *args, boxed=False, **kwargs):
         """Run the program once; see `run`.  `boxed` gives it the /tmp of `box`."""
-        return self.run(*(self.box() if boxed else ()), AK, *args, **kwargs)
+        return self.run(*(self.box() if boxed else ()), self.program, *args, **kwargs)
 
     def run(self, *argv, input=None, tty=False, env=None, cwd=None, timeout=120, keep=()):
         """Run a command in this Home and wait for it.  `tty` puts a terminal on its stdin with
@@ -328,8 +330,8 @@ class Home:
             # a run the tick resumes goes on in the box to its end: as long as an `ak run`
             return self.run(*self.box((*_BOX, *box)), sys.executable, "-I",
                             Path(__file__).resolve(), "tick", str(port or ""), str(way),
-                            *(("sh", "-c", CRON, AK) if cron else (AK, "watch")), env=env,
-                            timeout=300)
+                            *(("sh", "-c", CRON, self.program) if cron else
+                              (self.program, "watch")), env=env, timeout=300)
         finally:
             listener.shutdown(socket.SHUT_RDWR)     # wakes its `accept`, as `close` would not
             listener.close()
@@ -347,7 +349,7 @@ class Home:
         it.  `boxed` gives it the /tmp of `box`."""
         name = f"spawn-{len(self._spawned) + 1}"
         with self.log(f"{name}.out").open("w") as out, self.log(f"{name}.err").open("w") as err:
-            proc = self._popen([*(self.box() if boxed else ()), AK, *args], env, cwd,
+            proc = self._popen([*(self.box() if boxed else ()), self.program, *args], env, cwd,
                                stdin=subprocess.DEVNULL, stdout=out, stderr=err)
         self._spawned.append(proc)
         return proc
@@ -403,7 +405,7 @@ STUCK = 30
 
 def _clear(root, tmux_dir, at):
     """End the tmux servers the Home at `root` started, and its strays, and remove it, and `at`,
-    the folder its commands found it at, once that is empty."""
+    the folder its commands found it at, once that holds no other Home's root."""
     servers = Path(tmux_dir, f"tmux-{os.getuid()}")
     for socket in servers.iterdir() if servers.is_dir() else ():
         ask = [REAL_TMUX, "-S", str(socket)]
@@ -424,10 +426,8 @@ def _clear(root, tmux_dir, at):
         _wait_gone(pid)
     shutil.rmtree(root, ignore_errors=True)
     shutil.rmtree(tmux_dir, ignore_errors=True)
-    try:
-        Path(at).rmdir()
-    except OSError:     # its root, gone already, or holding another machine's
-        pass
+    if not any(Path(at).glob("akbin-*")):     # the machines' origin with the last of them
+        shutil.rmtree(at, ignore_errors=True)
 
 
 def _strays(root, tmux_dir, at=None):
