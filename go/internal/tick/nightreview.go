@@ -77,7 +77,7 @@ type review struct {
 
 // reviews are the day's projects (night_review.targets), each with the seat of its last merge, by
 // that seat's name now, else the newest seat filed under its checkout, never a stopped one; false
-// where Go does not read the seats or checkouts as Python does.
+// where Go does not read the seats, their stop marks or the checkouts as Python does.
 func (read nightReading) reviews() ([]review, bool) {
 	checkouts, seen := seat.Checkouts()
 	if !seen {
@@ -87,11 +87,17 @@ func (read nightReading) reviews() ([]review, bool) {
 	for _, path := range config.SeatFiles() {
 		name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "session-"), ".json")
 		record, err := run.Shared(path)
-		mark, marked := run.Shared(filepath.Join(config.Home(), "state", "seat-"+name+".json"))
-		if errors.Is(err, run.ErrLoneSurrogate) || errors.Is(marked, run.ErrLoneSurrogate) {
+		if errors.Is(err, run.ErrLoneSurrogate) {
 			return nil, false
 		}
-		if record != nil && !record.Has(config.Renamed) && (mark == nil || !mark.Truthy("stopped_at")) {
+		if record == nil || record.Has(config.Renamed) {
+			continue
+		}
+		stopped, known := seat.Stopped(name)
+		if !known {
+			return nil, false
+		}
+		if !stopped {
 			seats[name], projects[name] = record, seat.CheckoutOf(record.Str("repo"))
 		}
 	}
