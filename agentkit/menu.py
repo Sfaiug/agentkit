@@ -1952,7 +1952,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 said = _orchestrator(seat, widths["orch"])
                 models.append((len(out) + 1, terminal.cut(said, widths["orch"]), lit, on))
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
-                                      mark=name != above and not at) if lit else line)
+                                      mark=name != above and not at, band=not at)
+                   if lit else line)
         above = name
         info = seats.get(name)
         if info and name not in bars and (span := line_at(line)):
@@ -2579,9 +2580,7 @@ def session_window(prov, now):
     The furthest along of its session meters with a numeric used% in a window that has not
     rolled over; the week aside, this is what stops a turn first.
     """
-    meters = [m for m in prov.get("meters") or []
-              if m.get("window_secs") == usage.SESSION_SECS
-              and usage._number(m.get("used")) is not None and not usage._past(m, now)]
+    meters = [m for m in usage.legible(prov, now) if m.get("window_secs") == usage.SESSION_SECS]
     return max(meters, key=lambda m: m["used"]) if meters else None
 
 
@@ -3682,7 +3681,7 @@ def companies_body(makers, yours, off, at=None, column=0):
             parts[-1][1].append((first, first + width - 1, number))
         for number, (line, cells) in enumerate(parts):
             places[len(lines)] = (row, cells)
-            lines.append(terminal.highlight(line.rstrip(), not number) if row == at
+            lines.append(terminal.highlight(line.rstrip(), not number, band=False) if row == at
                          else line.rstrip())
     places[len(lines)] = (ADD_COMPANY, [])
     lines.append(terminal.highlight("  + add a company") if at == ADD_COMPANY
@@ -3909,7 +3908,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 first += width[number]
             for number, (part, cells) in enumerate([*parts, (line, cells)]):
                 places[len(lines)] = (("model", name), cells)
-                lines.append(terminal.highlight(part.rstrip(), number == 0)
+                lines.append(terminal.highlight(part.rstrip(), number == 0, band=False)
                              if at == ("model", name) else part.rstrip())
     if not rows:
         return lines, places
@@ -4969,7 +4968,8 @@ def config_subscriptions(cfg, keyboard):
             # its label and meter's cells washing in and out as `c`'s do, on the page's clock
             moves.append((len(body), ("sub", number), number == lit, motion.washing(
                 [cell[1:] for cell in spans.get(number, [])], colour(cfg, name), number == lit)))
-            body.append(terminal.highlight(line) if number == lit else line)
+            # what Enter acts on is its act, lit on its line, never the row
+            body.append(terminal.highlight(line, band=False) if number == lit else line)
             if number == lit:
                 acts = dict(subscription_acts(cfg, keyboard, number, remove=True))
                 on = on if on in acts else None
@@ -5050,8 +5050,8 @@ def page_body(rows, at=None, moves=None):
     cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
     indented as a choice, and so does one with a cell, kept whole, as `◂ 300 ▸` steps; `at` is
-    the row lit, and `moves` is handed each mark leading a value (`■`, `□`, `●`, `○`) as
-    config_body hands its own."""
+    the row lit, on the selection unless its cell is what is lit, and `moves` is handed each
+    mark leading a value (`■`, `□`, `●`, `○`) as config_body hands its own."""
     room = terminal.layout_width()
     wide = max((terminal.cells(label) for _, label, value in rows if label is not None and value),
                default=0)
@@ -5063,13 +5063,14 @@ def page_body(rows, at=None, moves=None):
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
         # what never parts across lines: each word, and a value with a cell whole, so an arrow
         # stays beside what it steps
-        whole = ([" ".join(text for text, *_ in parts)] if any(cell for _, _, *cell in parts)
+        celled = any(cell for _, _, *cell in parts)
+        whole = ([" ".join(text for text, *_ in parts)] if celled
                  else [word for text, *_ in parts for word in text.split()])
         if label is not None and any(terminal.cells(word) > left for word in whole):
             # too wide beside the label: the value folds under it, never cut in a word
             line = "  " + terminal.cut(label, room - 2)
             places[len(lines)] = (row, [])
-            lines.append(terminal.highlight(line) if row == at else line)
+            lines.append(terminal.highlight(line, band=not celled) if row == at else line)
             lead, left, folded = "    ", max(1, room - 4), True
         if moves is not None and not isinstance(value, str) and value[0][0] in motion.HALF:
             moves.append((len(lines), ("mark", row), value[0][0], motion.toggled(
@@ -5087,8 +5088,8 @@ def page_body(rows, at=None, moves=None):
             line = ((lead if number == 0 else " " * indent)
                     + " ".join(piece for piece, _ in parts)).rstrip()
             places[len(lines)] = (row, [spot for _, cells in parts for spot in cells])
-            lines.append(terminal.highlight(line, number == 0 and not folded) if row == at
-                         else line)
+            lines.append(terminal.highlight(line, number == 0 and not folded, band=not celled)
+                         if row == at else line)
     return lines, places
 
 
@@ -6178,7 +6179,7 @@ def features_body(rows, at=None, column=0, moves=None):
             first += 2 + width
         places[len(lines)] = (("feature", row["id"]), cells)
         line = line.rstrip()
-        lines.append(terminal.highlight(line) if at == row["id"] else line)
+        lines.append(terminal.highlight(line, band=False) if at == row["id"] else line)
     return lines, places
 
 

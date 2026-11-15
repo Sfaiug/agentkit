@@ -33,12 +33,3 @@ func statOf(info fs.FileInfo) (stat, bool) {
 func unlocked(file *os.File) bool {
 	return syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil
 }
-
-func diskUse(path string) (used, total uint64, ok bool) {
-	var fs syscall.Statfs_t
-	if syscall.Statfs(path, &fs) != nil {
-		return 0, 0, false
-	}
-	size := uint64(fs.Frsize)
-	return (fs.Blocks - fs.Bfree) * size, fs.Blocks * size, true
-}

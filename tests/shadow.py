@@ -1,7 +1,7 @@
 """Run one ak command as Python, then Go, then Python again, each sealed over a home it cannot
 write, and name every way Go differs.
 
-    python3 tests/shadow.py [--python BIN] [--go BIN|python] [--home DIR] -- <ak argv>
+    python3 tests/shadow.py [--python BIN] [--go BIN|python] [--home DIR] [--cases DIR] -- <ak argv>
     python3 tests/shadow.py [those options] --record FILE [-- <ak argv>]
 
 `--python` is this checkout's bin/ak unless named, `--home` is $HOME, and `--go` is AK_BIN, a
@@ -17,10 +17,13 @@ if nothing did.  Without an ak argv it shadows each of `PREVIEWS`, side by side,
 at most, its box's probe and Go's build included, and prints a line for each in their order:
 tests/live.sh has it do so on each live check of a commit.
 
+`--cases` keeps each confirmed difference, with what its runs did, in a folder of DIR's that the
+same difference seen again on a later shadow lands in too (`keep`).
+
 Exit 1 if any is confirmed, 2 if no box or no Go can be built (then nothing runs) or a file a
 run touched cannot be read, 130 if stopped, else 0.
-Besides FILE, go/bin/ak and Go's own cache, when it builds Go, it writes nothing outside its
-scratch folder.
+Besides FILE, DIR's cases, go/bin/ak and Go's own cache, when it builds Go, it writes nothing
+outside its scratch folder.
 """
 
 import argparse
@@ -30,6 +33,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shlex
 import shutil
 import signal
@@ -289,10 +293,13 @@ def run(label, program, argv, home, scratch):
     seconds, peak = time.monotonic() - began, _lines(inside / "peak")
     peak = f"{int(peak[0]) / 1024:.0f} MB at its peak" if peak else "its peak unread"
     record = inside / "handover"
+    said = {stream: (folder / stream).read_text(errors="replace")
+            for stream in ("stdout", "stderr")}
     print(f"{label}: exit {code}, {seconds:.1f} s, {peak}", flush=True)
-    return dict(code=code, cut=cut, handover=_lines(record) if record.exists() else None,
-                line={f"{stream}: {text}" for stream in ("stdout", "stderr")
-                      for text in _lines(folder / stream)},
+    return dict(label=label, code=code, cut=cut,
+                handover=_lines(record) if record.exists() else None, **said,
+                line={f"{stream}: {text}" for stream, words in said.items()
+                      for text in words.splitlines()},
                 home=touched(folder / "upper", home), page=set(_lines(inside / "pages")),
                 call={f"{name} {shlex.join(json.loads(text))}" for name in FAKES
                       for text in _lines(inside / "logs" / f"{name}.log")})
@@ -416,7 +423,7 @@ def differences(first, go, again):
 
 def shadow(argv, python, go, home, scratch):
     """Shadow one ak command, telling how each run went as it ends: what it confirmed and what
-    flaked, each as (kind, what), and whether a cap cut off any of its runs."""
+    flaked, each as (kind, what), and what each of its runs did, in their order."""
     runs = []
 
     def three():
@@ -432,7 +439,40 @@ def shadow(argv, python, go, home, scratch):
         print(f"flake {kind}: {what}")
     for kind, what in sorted(first & again):
         print(f"{kind}: {what}")
-    return first & again, first ^ again, any(done["cut"] for done in runs)
+    return first & again, first ^ again, runs
+
+
+def keep(cases, argv, confirmed, runs):
+    """Keep each difference of `confirmed` in its own folder in `cases`, named by its signature:
+    when it was first and last seen, how many shadows confirmed it, its words as last seen, and
+    what each of `runs`, the three that first showed it, did.  The signature masks what changes
+    from one check to the next while the difference stays, a commit, then a time, pid or count:
+    each run of seven or more hex digits, then of digits.  Nothing of Go's build is in it, so a
+    case outlives Go's merges."""
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    evidence = {done["label"]: dict(exit=done["code"], stdout=done["stdout"],
+                                    stderr=done["stderr"], home=sorted(done["home"]),
+                                    pages=sorted(done["page"]), calls=sorted(done["call"]),
+                                    handover=done["handover"]) for done in runs}
+    signed = {}     # a shadow confirms a case once, however many differences share its signature
+    for kind, what in sorted(confirmed):
+        masked = re.sub("[0-9]+", "#", re.sub("[0-9a-fA-F]{7,}", "#", what))
+        signed[hashlib.sha256(json.dumps([argv, kind, masked]).encode()).hexdigest()] = kind, what
+    for signature, (kind, what) in signed.items():
+        folder = cases / signature
+        folder.mkdir(parents=True, exist_ok=True)
+        _write(folder / "runs.json", evidence)
+        case = folder / "case.json"
+        seen = json.loads(case.read_text()) if case.exists() else dict(first_seen=now, confirmed=0)
+        _write(case, dict(ak=argv, kind=kind, what=what, first_seen=seen["first_seen"],
+                          last_seen=now, confirmed=seen["confirmed"] + 1))
+
+
+def _write(path, value):
+    """Write `value` to `path` as JSON: a reader finds all of it or none."""
+    written = Path(f"{path}.tmp")
+    written.write_text(json.dumps(value, indent=1))
+    written.replace(path)
 
 
 def ready(go, python, home, scratch, until):
@@ -458,7 +498,7 @@ def ready(go, python, home, scratch, until):
     return go, None
 
 
-def previews(found, python, go, home, scratch, until):
+def previews(found, python, go, home, cases, scratch, until):
     """Put in `found` what each of PREVIEWS found by `until`, or by a stop: each is shadowed by a
     run of this script of its own, side by side, which ends through its own `finally`."""
     shadows = []
@@ -471,7 +511,7 @@ def previews(found, python, go, home, scratch, until):
                 signal.pthread_sigmask(signal.SIG_BLOCK, STOPS)
                 shadows.append((written, subprocess.Popen(
                     [sys.executable, __file__, "--python", python, "--go", go, "--home", home,
-                     "--record", written, "--", *argv],
+                     *(("--cases", cases) if cases else ()), "--record", written, "--", *argv],
                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)))
             finally:
                 signal.pthread_sigmask(signal.SIG_UNBLOCK, STOPS)
@@ -510,6 +550,7 @@ def main():
     parser.add_argument("--go", default=os.environ.get("AK_BIN") and akbin.AK)
     parser.add_argument("--home", default=os.environ.get("HOME"))
     parser.add_argument("--record", metavar="FILE")
+    parser.add_argument("--cases", metavar="DIR")
     parser.add_argument("argv", nargs="*", metavar="-- <ak argv>")
     args = parser.parse_args()
     python, home = os.path.abspath(args.python), Path(args.home).resolve()
@@ -533,12 +574,14 @@ def main():
         if why:
             print(f"shadow: {why}, so nothing ran", file=sys.stderr)
         elif every:
-            previews(found, python, go, home, scratch, until)
+            previews(found, python, go, home, args.cases, scratch, until)
             confirmed = any(each["differences"] for each in found)
         else:
-            confirmed, flakes, cut = shadow(args.argv, python, go, home, scratch)
-            if not cut:
+            confirmed, flakes, runs = shadow(args.argv, python, go, home, scratch)
+            if not any(done["cut"] for done in runs):
                 found[0].update(ran=True, differences=sorted(confirmed), flakes=sorted(flakes))
+                if args.cases:
+                    keep(Path(args.cases), args.argv, confirmed, runs[:3])
         for each in found if every else ():
             print(f"shadow: ak {shlex.join(each['ak'])}: " + (
                 f"ran, differences: {len(each['differences'])}, flakes: {len(each['flakes'])}"
@@ -555,9 +598,7 @@ def main():
         # On every way out, a stop's too: what ended, and the rest not run.  Last, so a write
         # that fails leaves no scratch behind.
         if args.record:
-            written = Path(f"{args.record}.tmp")    # a reader finds all of it or none
-            written.write_text(json.dumps({"nothing_ran": why, "previews": found}, indent=1))
-            written.replace(args.record)
+            _write(args.record, {"nothing_ran": why, "previews": found})
 
 
 if __name__ == "__main__":

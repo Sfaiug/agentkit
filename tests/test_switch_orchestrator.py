@@ -6,7 +6,7 @@ directory, and the runs, plan file and record stay, with the new orchestrator in
 record. The new seat's rulebook ends on `ak plan`, `ak run status` and the file the old
 conversation is handed on in, and nothing is typed for it; a turn it was in is typed on by
 the tick where its harness takes no first prompt. A model whose harness is not installed or
-not logged in is refused in one line with the seat as it was, as is a restart that fails; one
+signed out is refused in one line with the seat as it was, as is a restart that fails; one
 whose meter is spent is not.
 
 Offline: a temporary HOME, fake harness adapters and binaries, a fake tmux, and no real
@@ -276,7 +276,7 @@ class Switch(Sandbox):
         self.assertIn("not installed", refused[0])
         (self.fixture / "logged-out-codex").write_text("yes\n")
         refused.append(menu.session_mark(self.cfg, "fix-api", selected, "astra", 0, {}))
-        self.assertIn("not logged in", refused[1])
+        self.assertEqual(refused[1], "6 Astra: ChatGPT is signed out")
         for note in refused:
             self.assertTrue(note)
             self.assertNotIn("\n", note)
@@ -307,7 +307,7 @@ class Switch(Sandbox):
             return False, f"{account}: not logged in; run login"
         with patch("agentkit.worker.auth_ok", side_effect=auth):
             note = orch.switch_orchestrator(self.cfg, "fix-api", "fable", {})
-        self.assertEqual((note, asked), ("fable: second: not logged in; run login", ["second"]))
+        self.assertEqual((note, asked), ("Fable 5.1: Claude is signed out", ["second"]))
 
     def at_xhigh(self):
         """fix-api's record holding opus's orchestrator effort at xhigh: the record as it is."""
@@ -338,7 +338,7 @@ class Switch(Sandbox):
         before = self.at_xhigh()
         (self.fixture / "logged-out-claude").write_text("yes\n")
         note = orch.switch_orchestrator(self.cfg, "fix-api", "opus", {}, effort="max")
-        self.assertIn("not logged in", note)
+        self.assertEqual(note, "Opus 5.5: Claude is signed out")
         self.assertEqual([args for args in self.calls
                           if args[0] in ("respawn-pane", "new-session")], [])
         self.assertEqual(config.load_session(self.cfg, "fix-api"), before)
@@ -366,8 +366,8 @@ class Switch(Sandbox):
             self.assertEqual([owed["line"] for owed in watch.seat_read("fix-api")["owed_lines"]],
                              ["/effort max", "/model claude-fable-5-1", "/effort xhigh"])
             dead = "1"      # pane dead: restarts, so auth runs first
-            self.assertIn("not logged in",
-                          orch.switch_orchestrator(self.cfg, "fix-api", "opus", spent))
+            self.assertEqual(orch.switch_orchestrator(self.cfg, "fix-api", "opus", spent),
+                             "Opus 5.5: Claude is signed out")
 
     def test_a_restart_at_an_effort_that_fails_gives_the_effort_back(self):
         self.at_xhigh()

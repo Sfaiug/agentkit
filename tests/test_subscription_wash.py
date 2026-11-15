@@ -22,6 +22,7 @@ from fixtures.sandbox import Sandbox  # noqa: E402
 from agentkit import config, menu, motion, terminal, watch  # noqa: E402
 
 CLAUDE = menu.COLOURS["anthropic"]
+SELECTION = "48;2;8;48;93"      # the black theme's: the keys' row, acme-plan's, stands on it
 
 
 class Wash(Sandbox):
@@ -51,7 +52,8 @@ class Wash(Sandbox):
         return out.getvalue().split("\033[J")[0].split("\n")
 
     def row(self, lines, name):
-        return next(line for line in lines if f" {name} " in line)
+        """`name`'s row as drawn, each style in it read past the keys' band."""
+        return next(line for line in lines if f" {name} " in line).replace(f";{SELECTION}", "")
 
     def full(self, name):
         """The name `c` shows the model by (config.model_name)."""

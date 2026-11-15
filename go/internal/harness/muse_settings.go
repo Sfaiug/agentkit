@@ -105,7 +105,7 @@ func museWire(home string, events []string) (string, error) {
 	real := config.Resolve(path)
 	had := run.NewObject()
 	if data, err := os.ReadFile(real); err == nil {
-		read, err := run.Decode(data)
+		read, err := run.DecodeJSON(data)
 		if had, _ = read.(*run.Object); err != nil || had == nil {
 			return "", errors.New(path + " is not a JSON object; left as it is")
 		}

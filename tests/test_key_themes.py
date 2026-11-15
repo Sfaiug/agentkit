@@ -3,15 +3,15 @@
 The owner (12 Nov 2026): white where the terminal's background is light, black everywhere else,
 a seat's bar among them.  `working` and the highlight's `›` are the accent, `needs you` a
 warning, `done` a success, `out of usage` an error, `idle` and the key line's keys dim; the
-pointer lights a key on the selection, and a seat's bar opens with its state as a chip,
-on-accent on the state's role.  The terminal here is tmux, which answers OSC 11 only once a
-background is set for its panes (`window-style`), so it stands for both a terminal that never
-answers and one that answers.  Black-box: the program AK_BIN names runs in a person's terminal
-of 24-bit colour (tests/fixtures/akterm.py) over tests/fixtures/akseat.py's seats, each cell
-judged by how it looks (tests/fixtures/aklooks.py), never by the bytes that drew it.  Its
-clock injected: `AK_MOTION_CLOCK` names a file of seconds that stands still until the test moves
-it, so what moves is told from what rests at the moments the test sets, however late a busy host
-draws or captures a frame.
+highlighted row and a key under the pointer are on the selection, and a seat's bar opens with
+its state as a chip, on-accent on the state's role.  The terminal here is tmux, which answers
+OSC 11 only once a background is set for its panes (`window-style`), so it stands for both a
+terminal that never answers and one that answers.  Black-box: the program AK_BIN names runs in
+a person's terminal of 24-bit colour (tests/fixtures/akterm.py) over tests/fixtures/akseat.py's
+seats, each cell judged by how it looks (tests/fixtures/aklooks.py), never by the bytes that drew
+it.  Its clock injected: `AK_MOTION_CLOCK` names a file of seconds that stands still until the
+test moves it, so what moves is told from what rests at the moments the test sets, however late
+a busy host draws or captures a frame.
 """
 
 import sys
@@ -122,13 +122,16 @@ class Themes(unittest.TestCase):
         return captures[-1], rest
 
     def assert_states(self, screen, theme):
+        # acme's row, the first, is the highlight's: on the selection, its `›` in the accent
+        lit = role("selection", theme, bg)
+        self.assertEqual(colours(look(screen, "›")), {role("accent", theme), lit})
         # `●` breathes, so `working` is the word alone
-        self.assertEqual(colour(look(screen, "›"), theme), role("accent", theme))
         for word, name, seat in (("working", "accent", "acme"), ("! needs you", "warning", "beta"),
                                  ("✓ done", "success", "gamma"), ("○ idle", "dim", "delta"),
                                  ("○ out of usage", "error", "omega")):
             with self.subTest(word):
-                self.assertEqual(colour(look(screen, word, on=seat), theme), role(name, theme))
+                ground = lit if seat == "acme" else role("background", theme, bg)
+                self.assertEqual(colours(look(screen, word, on=seat)), {role(name, theme), ground})
         for key in ("↑↓←→", "esc"):
             self.assertEqual(colour(look(screen, key, on="esc leave"), theme),
                              role("dim", theme))

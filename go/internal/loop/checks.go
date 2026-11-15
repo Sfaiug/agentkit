@@ -232,7 +232,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 	}
 	text := strings.Join(chunks, "\n\n")
 	if ok && len(passes) > 0 {
-		refused, failure, err := suitetimes.Refusal(cwd, selection.base, passes)
+		refused, failure, err := suitetimes.Refusal(cwd, selection.base, passes, l.timed(cwd))
 		if err != nil {
 			return false, "", nil, err
 		}

@@ -21,5 +21,5 @@ func claudeLend(login config.Login) Loan {
 	oauth.Delete("refreshToken")
 	lent := run.NewObject()
 	lent.Set("claudeAiOauth", oauth)
-	return Loan{Copy: run.Line(lent), Ends: ends / 1000}
+	return Loan{Copy: run.Line(lent), Ends: ends / 1000, File: file}
 }

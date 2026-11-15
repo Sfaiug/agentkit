@@ -86,8 +86,9 @@ func asked(ctx context.Context, server string, args ...string) ([]byte, error) {
 }
 
 // command is one call to a server. $TMUX goes: inside somebody's tmux, a call to the default
-// server would follow it to theirs. So does the mark of the ak that started this one (Python's
-// owner.MARK): a server keeps its starting client's environment for good.
+// server would follow it to theirs. So do the mark of the ak that started this one (Python's
+// owner.MARK) and the popup's client (Client): a server keeps its starting client's environment
+// for good.
 func command(ctx context.Context, server string, args ...string) *exec.Cmd {
 	if server != Default {
 		args = append([]string{"-L", server}, args...)
@@ -95,7 +96,7 @@ func command(ctx context.Context, server string, args ...string) *exec.Cmd {
 	command := exec.CommandContext(ctx, "tmux", args...)
 	command.Env = []string{}
 	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "TMUX=") && !strings.HasPrefix(entry, "AK_OWNER=") {
+		if !strings.HasPrefix(entry, "TMUX=") && !strings.HasPrefix(entry, "AK_OWNER=") && !strings.HasPrefix(entry, Client+"=") {
 			command.Env = append(command.Env, entry)
 		}
 	}

@@ -2,6 +2,7 @@ package launch
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"math"
 	"os"
@@ -62,7 +63,7 @@ func admit(id string, first bool, seat string, depth int, followed bool) (*admis
 	if err := os.MkdirAll(run.Runs(), 0o777); err != nil {
 		return nil, err
 	}
-	slots, err := holdSlots()
+	slots, err := holdCheck(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +211,7 @@ func showsNothingYet(holder *run.Object, poll, at float64) bool {
 // places is the other top-level runs holding a slot and those waiting for one, a dead waiter
 // among them, as Python's gate.slot_place reads them; false where the runs cannot be read.
 func places(record *run.Object) (holders, waiting []*run.Object, read bool) {
-	read = run.Every(func(_ string, other *run.Object) bool {
+	read = run.EveryShared(func(_ string, other *run.Object) bool {
 		switch {
 		case run.Equal(other.Get("run_id"), record.Get("run_id")) || other.Truthy("run_depth"):
 		case other.Str("state") == "running" && run.ProcessActive(other):

@@ -9,12 +9,15 @@
 # AGENTKIT_ACCEPTANCE_REQUIRED=1, so a skipped check fails it too.
 # A live check of a commit (LIVE_RUN in agentkit/update.py: this checkout is the `tree` beside
 # its `failed`) runs with this home's real records, so first it shadows Go on them and keeps what
-# Go did differently in that folder's shadow.json.  Whatever the shadow finds, or however it
-# ends, the check exits as its suite does, an inherited errexit or not: Go is not yet what goes
-# live.
+# Go did differently in that folder's shadow.json.  The tick removes that folder once the install
+# moves past the commit, so each difference confirmed keeps its runs' evidence in a case under
+# ~/.agentkit/tmp/shadow/cases too, where later checks seeing it again count it.  Whatever the
+# shadow finds, or however it ends, the check exits as its suite does, an inherited errexit or
+# not: Go is not yet what goes live.
 here=$(dirname -- "${BASH_SOURCE[0]}")
 if [[ ${AK_LIVE_FAILED:-} == */failed ]] && [ "${AK_LIVE_FAILED%/failed}/tree" -ef "$here/.." ]; then
-  python3 "$here/shadow.py" --record "${AK_LIVE_FAILED%/failed}/shadow.json" || true
+  python3 "$here/shadow.py" --record "${AK_LIVE_FAILED%/failed}/shadow.json" \
+    --cases "$HOME/.agentkit/tmp/shadow/cases" || true
 fi
 export AGENTKIT_SMOKE_LIVE=1
 if [ -n "${AK_LIVE_FAILED:-}" ]; then

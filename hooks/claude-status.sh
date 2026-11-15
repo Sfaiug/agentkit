@@ -2,11 +2,18 @@
 # The report belongs to the status render's conversation,
 # never its launch name; a detached look reads whatever report stands when it gets there.
 set -u
-# The moment this render began, by which its limits are judged: bash 5's clock, taken before
-# anything the hook reads.  An older bash (macOS's 3.2) has none, and any other clock is either
-# later than the render's start or a process on every render: no moment, no hand-in, so its
-# seats' usage comes from the endpoint.
+# The moment this render began, by which its limits are judged, taken before anything the hook
+# reads: bash 5's clock.  An older bash (macOS's 3.2) has none, and no moment would leave a Mac's
+# seats never reporting their login's usage, so there it is perl's Time::HiRes, which macOS
+# ships, to the microsecond: one more process a render, only there, beside the cat and jq every
+# render runs.  `date`'s whole second would let an older render pass as newer, and jq's `now`
+# comes after the payload is read.  A perl that gives no such number leaves no moment, and no
+# moment hands in no limits.
 rendered=${EPOCHREALTIME:-}
+if [[ -z $rendered ]]; then
+  rendered=$(perl -MTime::HiRes=gettimeofday -e 'printf "%d.%06d", gettimeofday' 2>/dev/null) &&
+    [[ $rendered =~ ^[0-9]+[.][0-9]+$ ]] || rendered=
+fi
 payload=$(cat; printf .)
 payload=${payload%.}
 # A status command that ignores stdin must not end reporting by closing its pipe.

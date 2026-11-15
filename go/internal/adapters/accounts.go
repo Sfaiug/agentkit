@@ -7,7 +7,19 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"agentkit/internal/config"
 )
+
+// account is the login a call to that harness is on, as config.Account has it: one keeping no
+// [account] table is still on the login the call names.
+func account(name string) (config.Login, error) {
+	login, kept, err := config.Account(name)
+	if !kept {
+		login.Account = os.Getenv("AGENTKIT_ACCOUNT")
+	}
+	return login, err
+}
 
 func commandAccount(env []string) string {
 	account := ""

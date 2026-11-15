@@ -9,7 +9,7 @@ last Stop's.  A turn in A again leaves the check reading each once; a Stop namin
 from a process that is not the seat's Muse leaves the seat where it was; and `ak run gc` ends
 none of A, B and C once nobody wrote to them for 40 days, though it ends a session no seat holds.
 Black-box on `AK_BIN`, a fake model (fakeadapter.py), and a seat opened by `ak orch` from a
-person's terminal on a fake muse that fires each hook its line carries as Muse 1.4.12 does, its
+person's terminal on a fake muse that fires each of its hooks as Muse 1.4.20 does, its
 sessions logged in Muse's store under the Home (tests/fixtures/musetui.py).
 """
 

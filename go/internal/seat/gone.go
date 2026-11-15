@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"agentkit/internal/agent"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/hookfact"
@@ -204,7 +203,7 @@ func places(state string, models map[string]config.Model, now time.Time) ([]Seat
 			strangers = append(strangers, session.Name)
 		}
 	}
-	if !agent.Agentless(tmux.Own(), strangers) {
+	if !noSeat(strangers...) {
 		return nil, false
 	}
 	order(rows)
