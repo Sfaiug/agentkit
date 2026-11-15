@@ -36,51 +36,48 @@ func claudeLogout(_ []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "claude logout: %s: %s\n", token, err)
 		return 1
 	}
-	// the login's home as the script names it, literally: config.LoginPath would read a `$` in a
-	// home's name as a variable, and find no login where one is
-	if _, err := os.Stat(login.Home + "/.credentials.json"); err != nil {
+	if _, err := os.Stat(claudeCredentials(login)); err != nil {
 		keychain := claudeKeychain(login)
 		if keychain == "" || exec.Command("security", "find-generic-password", "-s", keychain).Run() != nil {
 			return 0
 		}
 	}
-	program := Binary("claude")
-	if program == "" {
+	cmd := claudeCommand("claude", "auth", "logout")
+	if cmd.Err != nil {
 		// bash, finding no claude on $PATH it may run, starts the first there all the same
 		for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
 			if info, err := os.Stat(filepath.Join(dir, "claude")); err == nil && !info.IsDir() {
-				program = filepath.Join(dir, "claude")
+				cmd.Path, cmd.Err = filepath.Join(dir, "claude"), nil
 				break
 			}
 		}
 	}
-	if program == "" {
+	if cmd.Err != nil {
 		fmt.Fprintln(errOut, "claude.sh logout: claude is not installed")
 		return 127
 	}
-	return claudeAuthRun("logout", program, slices.DeleteFunc(login.Environ(os.Environ()), func(pair string) bool {
+	cmd.Env = slices.DeleteFunc(login.Environ(cmd.Env), func(pair string) bool {
 		return strings.HasPrefix(pair, variable+"=")
-	}), out, errOut)
+	})
+	return claudeAuthRun(cmd, out, errOut)
 }
 
-// claudeAuthRun is `claude auth <verb>`, Claude Code at program run in env as the script's bash runs
-// it, and the status bash gives it.
-func claudeAuthRun(verb, program string, env []string, out, errOut io.Writer) int {
-	cmd := exec.Command(program, "auth", verb)
-	cmd.Args[0], cmd.Env = "claude", env
+// claudeAuthRun runs cmd, Claude Code's `claude auth <verb>` (claudeCommand), as the script's bash
+// runs it, and gives the status bash gives it.
+func claudeAuthRun(cmd *exec.Cmd, out, errOut io.Writer) int {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, out, errOut
 	err := cmd.Run()
 	if errors.Is(err, syscall.ENOEXEC) {
 		// a file the system starts no program from, bash reads as its own script, as it reads one
 		// named to it, and refuses with 126 where it cannot read it or finds it binary
-		script := exec.Command("/bin/bash", program, "auth", verb)
+		script := exec.Command("/bin/bash", append([]string{cmd.Path}, cmd.Args[1:]...)...)
 		script.Env, script.Stdin, script.Stdout, script.Stderr = cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr
 		cmd, err = script, script.Run()
 	}
 	// the status bash gives it: 127 for a file it names that is not there, its interpreter, 126
 	// for any other that does not start, 128 and the signal's number for one a signal ends
 	if cmd.ProcessState == nil {
-		fmt.Fprintf(errOut, "claude %s: %s\n", verb, err)
+		fmt.Fprintf(errOut, "claude %s: %s\n", cmd.Args[len(cmd.Args)-1], err)
 		if errors.Is(err, syscall.ENOENT) {
 			return 127
 		}
@@ -90,4 +87,10 @@ func claudeAuthRun(verb, program string, env []string, out, errOut io.Writer) in
 		return 128 + int(status.Signal())
 	}
 	return cmd.ProcessState.ExitCode()
+}
+
+// claudeCredentials is the login's credentials file as the script names it, its home's name taken
+// literally: config.LoginPath would read a `$` in it as a variable, and find no login where one is.
+func claudeCredentials(login config.Login) string {
+	return login.Home + "/.credentials.json"
 }

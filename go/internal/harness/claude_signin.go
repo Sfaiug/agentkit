@@ -1,12 +1,14 @@
 package harness
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
-	"strings"
+	"syscall"
 
 	"agentkit/internal/config"
 	"agentkit/internal/terminal"
@@ -26,13 +28,15 @@ func claudeSignIn(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "ak adapter: %s\n", err)
 		return 2
 	}
-	program := Binary("claude")
-	if program == "" {
+	cmd := claudeCommand("claude", "auth", "login")
+	if cmd.Err != nil {
 		fmt.Fprintln(errOut, "claude.sh login: claude is not installed")
 		return 2
 	}
-	if _, blob, _ := claudeLogin(login); (len(args) == 0 || args[0] != "again") &&
-		strings.Contains(string(blob), `"accessToken"`) {
+	saved, _ := os.ReadFile(claudeCredentials(login))
+	keychain := claudeKeychain(login)
+	if (len(args) == 0 || args[0] != "again") && (bytes.Contains(saved, []byte(`"accessToken"`)) ||
+		keychain != "" && exec.Command("security", "find-generic-password", "-s", keychain, "-w").Run() == nil) {
 		fmt.Fprintln(out, "claude: already logged in")
 		return 0
 	}
@@ -45,7 +49,8 @@ func claudeSignIn(args []string, out, errOut io.Writer) int {
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
 	defer signal.Stop(interrupts)
-	return claudeAuthRun("login", program, login.Environ(os.Environ()), out, errOut)
+	cmd.Env = login.Environ(cmd.Env)
+	return claudeAuthRun(cmd, out, errOut)
 }
 
 // claudeForget is adapters/claude.sh's `forget`: the named login $AGENTKIT_ACCOUNT names taken away,
@@ -62,7 +67,14 @@ func claudeForget(_ []string, _, errOut io.Writer) int {
 		return 2
 	}
 	token, _ := config.WorkerToken("claude", login)
-	if err := errors.Join(os.RemoveAll(login.Home), os.RemoveAll(token)); err != nil {
+	remove := func(path string) error {
+		// the script's `rm -rf`: a path under a folder that is no folder is as absent as one not there
+		if err := os.RemoveAll(path); !errors.Is(err, syscall.ENOTDIR) {
+			return err
+		}
+		return nil
+	}
+	if err := errors.Join(remove(login.Home), remove(token)); err != nil {
 		fmt.Fprintf(errOut, "claude forget: %s\n", err)
 		return 1
 	}

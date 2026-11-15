@@ -96,22 +96,26 @@ func claudeModels(_ []string, out, errOut io.Writer) int {
 
 // claudeCommand is that program run as claude.sh runs it: where PATH finds no claude, the script's
 // preamble puts claude's installer's folder ahead of PATH, both to find each program it runs and
-// in that program's own environment.
+// in that program's own environment.  As bash, it runs one PATH finds in the current directory as
+// any other, under the name it is called by.  Its Env is set, for a caller to add to.
 func claudeCommand(name string, args ...string) *exec.Cmd {
-	if _, err := exec.LookPath("claude"); err == nil || errors.Is(err, exec.ErrDot) {
-		return exec.Command(name, args...)
+	cmd := exec.Command(name, args...)
+	cmd.Env = os.Environ()
+	if _, err := exec.LookPath("claude"); err != nil && !errors.Is(err, exec.ErrDot) {
+		local := os.Getenv("HOME") + "/.local/bin"
+		if found, err := exec.LookPath(filepath.Join(local, name)); err == nil {
+			cmd = exec.Command(found, args...)
+		}
+		path := local
+		if os.Getenv("PATH") != "" {
+			path += ":" + os.Getenv("PATH")
+		}
+		cmd.Env = append(os.Environ(), "PATH="+path) // exec keeps the last of a doubled variable
 	}
-	local := os.Getenv("HOME") + "/.local/bin"
-	program := name
-	if found, err := exec.LookPath(filepath.Join(local, name)); err == nil {
-		program = found
+	if errors.Is(cmd.Err, exec.ErrDot) {
+		cmd.Err = nil
 	}
-	cmd := exec.Command(program, args...)
-	path := local
-	if os.Getenv("PATH") != "" {
-		path += ":" + os.Getenv("PATH")
-	}
-	cmd.Env = append(os.Environ(), "PATH="+path) // exec keeps the last of a doubled variable
+	cmd.Args[0] = name
 	return cmd
 }
 
