@@ -17,26 +17,36 @@ import (
 // a going run whose loop is gone past all reap waits for (run.GoesOn), and that left nothing to stop
 // or that Go cannot read: no process of the run still at work (run.Working, as the dead loops row
 // reads it), which reap would stop or race; no unit to ask whether its memory cap ended the loop,
-// or to stop; no worktree for the dead loops row to continue into, whose death reap records rather
-// than tells; and no wait, whose landing line Python's save of the interruption times into
-// history.db and wakes.
+// or to stop; a worktree for the dead loops row to continue into only where reap records the death
+// of its own loop there for the tick to carry on, not a restart's; and no wait, whose landing line
+// Python's save of the interruption times into history.db and wakes.
 func Interruptible(dir string, record *run.Object, now float64) bool {
 	info, err := os.Stat(record.Str("worktree"))
 	return run.Active(record) && !run.GoesOn(record, now) && !run.Working(dir) && !run.Scoped(record) &&
-		!(err == nil && info.IsDir()) && record.Get("waiting_on") == nil && !run.Lined(record)
+		(!(err == nil && info.IsDir()) || run.TickResumes(record) && !restartEnded(record)) &&
+		record.Get("waiting_on") == nil && !run.Lined(record)
+}
+
+// Unannounced is whether that reap tells nobody of the interruption: an Interruptible run whose
+// death the tick carries on (notify_recovery), which a look at the run carries as the tick does.
+func Unannounced(dir string, record *run.Object, now float64) bool {
+	return Interruptible(dir, record, now) && run.TickResumes(record)
 }
 
 // Interrupted is the Interruptible record as that reap leaves it (transitions.interrupt), which
-// says why its loop ended: a restart of the host, a launcher that never started, or a death.
+// says why its loop ended: a restart of the host, a launcher that never started, or a death, the
+// death noted where the tick carries it on.
 func Interrupted(record *run.Object, now float64) *run.Object {
-	reason := "Run process exited or its identity changed."
+	reason := run.LoopGone
 	if restartEnded(record) {
 		reason = "A restart of the host ended the run's loop."
 	} else if record.Str("state") == "queued" {
 		reason = "Queued launcher exited before starting work."
 	}
-	return run.SetAll(record, "state", "interrupted", "interrupted_at", now,
+	run.SetAll(record, "state", "interrupted", "interrupted_at", now,
 		"interruption_reason", reason, "recovery_pending", true)
+	run.NoteDeath(record, now, reason)
+	return record
 }
 
 // Interrupt writes that reap of the run at dir under its recovery lock, read again: the record
@@ -70,9 +80,10 @@ func restartEnded(record *run.Object) bool {
 }
 
 // Reapable is whether Python's reap of the record is a sweep Go carries out and nothing more: one
-// Sweepable whose recovery was told, so notify_recovery says nothing.
+// Sweepable whose recovery nobody is to be told, as notify_recovery tells nobody of one told
+// already or launched from no seat, nor reap of a death the tick carries on.
 func Reapable(record *run.Object) bool {
-	return record.Truthy("recovery_notified") && Sweepable(record)
+	return (record.Truthy("recovery_notified") || run.Launched(record) == "" || run.Carried(record)) && Sweepable(record)
 }
 
 // Sweepable is whether Go carries the sweep Python's reap makes of the record: an interrupted run,

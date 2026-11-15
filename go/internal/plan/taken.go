@@ -74,7 +74,7 @@ func followupOpen(other *run.Object, now time.Time) (bool, error) {
 	case "waiting", "waiting_login", "exhausted", "error", "stopped":
 		return run.Going(other, now), nil
 	case "interrupted":
-		return other.Truthy("deaths") && run.TickResumes(other), nil
+		return run.Carried(other), nil
 	case "fail":
 		if other.Truthy("merge_note") && !other.Truthy("job_id") {
 			return false, ErrUnread // a conflict the tick parks is transitions.parkable_conflict's

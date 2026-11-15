@@ -86,8 +86,9 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 		// a mark that cannot be written is let go, as Python lets it go: what is shown
 		// never depends on it
-		err := run.Change(filepath.Join(run.Runs(), wanted), func(record *run.Object) (err error) {
-			looked, err = look(record)
+		dir := filepath.Join(run.Runs(), wanted)
+		err := run.Change(dir, func(record *run.Object) (err error) {
+			looked, err = look(dir, record)
 			return err
 		})
 		if errors.Is(err, errLeft) || errors.Is(err, run.ErrLoneSurrogate) {
@@ -229,21 +230,36 @@ func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*
 }
 
 // reaped is whether each run listed is now as Python's reap leaves it: an ended one as run.Reap
-// leaves it, the ones handback reaps reaped together, decide made before they are swept.  False
-// where one moved on to a reap Go leaves to Python, decide refused, or a stamp went unwritten.
+// leaves it, the ones handback reaps reaped together, decide made before they are swept or a dead
+// loop the tick carries on is reaped.  False where one moved on to a reap Go leaves to Python,
+// decide refused, or a stamp went unwritten.
 func reaped(entries []listed, decide func() error) bool {
-	var swept []*listed
+	var swept, dead []*listed
 	var dirs []string
+	now := seconds(time.Now())
 	for i := range entries {
 		switch entry := &entries[i]; {
 		case entry.unreadable:
 		case handback.Reapable(entry.record):
 			swept, dirs = append(swept, entry), append(dirs, entry.dir)
+		case handback.Unannounced(entry.dir, entry.record, now):
+			dead = append(dead, entry)
 		default:
 			entry.record, _ = run.Reap(entry.record)
 		}
 	}
-	records, err := handback.Reap(dirs, decide)
+	records, err := handback.Reap(dirs, func() error {
+		if err := decide(); err != nil {
+			return err
+		}
+		for _, entry := range dead {
+			if interrupted, err := handback.Interrupt(entry.dir, entry.record, now); !interrupted {
+				return cmp.Or(err, errLeft)
+			}
+			entry.record = handback.Interrupted(entry.record.Copy(), now)
+		}
+		return nil
+	})
 	for i, record := range records {
 		swept[i].record = record
 	}
@@ -288,8 +304,8 @@ var errLeft = errors.New("left to Python ak")
 // look marks the run's ending looked at, and is whether it marked, or errLeft where Python ak
 // would do more for the look than Go does: act on the run as its reap does, or count a place
 // in a landing line as its write does.
-func look(record *run.Object) (bool, error) {
-	if actedOn(record) {
+func look(dir string, record *run.Object) (bool, error) {
+	if actedOn(dir, record) {
 		return false, errLeft
 	}
 	marked := run.LookedAt(record, time.Now())
@@ -300,15 +316,17 @@ func look(record *run.Object) (bool, error) {
 }
 
 // actedOn is whether Python's reap would act on the run as Go does not: end processes it left
-// behind, reap an active run whose loop is gone, offer a wait's recovery, or reap one neither
-// active, waiting, stalled, ended nor untold, past what handback.Reap does.
-func actedOn(record *run.Object) bool {
+// behind, reap an active run whose loop is gone but for a death the tick carries on, offer a
+// wait's recovery, or reap one neither active, waiting, stalled, ended nor untold, past what
+// handback.Reap does.
+func actedOn(dir string, record *run.Object) bool {
 	_, owed := run.Reap(record)
 	switch state := record.Str("state"); {
 	case owed:
 		return true
 	case run.Active(record):
-		return !run.GoesOn(record, seconds(time.Now()))
+		now := seconds(time.Now())
+		return !run.GoesOn(record, now) && !handback.Unannounced(dir, record, now)
 	case state == "waiting":
 		return run.NeedsRecovery(record)
 	default:
@@ -324,7 +342,7 @@ func refused(entries []listed, wanted string) bool {
 		if entry.unreadable {
 			continue
 		}
-		if _, err := look(entry.record.Copy()); actedOn(entry.record) || wanted != "" && err != nil {
+		if _, err := look(entry.dir, entry.record.Copy()); actedOn(entry.dir, entry.record) || wanted != "" && err != nil {
 			return true
 		}
 		// numbers Go cannot read are Python's to say, its status too
