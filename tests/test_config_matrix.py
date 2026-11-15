@@ -169,7 +169,8 @@ class Screen:
                 if "\x1b[J" not in part:
                     continue                  # still being written
                 raw = part.split("\x1b[J")[0].split("\n")[:-1]
-                lines = Lines(terminal.ANSI.sub("", line).rstrip("\r") for line in raw)
+                # a row's band ends in blanks, which show as none
+                lines = Lines(terminal.ANSI.sub("", line).rstrip() for line in raw)
                 lines.lit = next(((number, line.split("\x1b[7m")[1].split("\x1b[")[0].strip())
                                   for number, line in enumerate(raw) if "\x1b[7m" in line), None)
                 if lines and lines[0].startswith("agentkit · "):   # a narrow one sheds `config`

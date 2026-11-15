@@ -361,6 +361,16 @@ class Screens(Sandbox):
         self.assertEqual(marked(last, "lit"), {row: "○"})
         self.assertEqual(marked(last, "reverse"), {})
 
+    def test_a_limits_step_arrow_lights_alone_on_a_row_with_no_band(self):
+        # a step's arrows are cells a click acts on, so the keys' row stands on no band
+        first = run(lambda: menu.config_limits(self.cfg), ESC)[1][0]
+        self.assertOneHighlight(first, "Review rounds")
+        self.assertEqual(marked(first, "lit"), {})
+        arrow = at(first, "◂")
+        last = run(lambda: menu.config_limits(self.cfg), move(*arrow), ESC)[1][-1]
+        self.assertOneHighlight(last, "Review rounds")
+        self.assertEqual(marked(last, "lit"), {arrow[1]: "◂"})
+
     def test_the_new_session_screen_lights_a_model_and_its_mark(self):
         def picking(keys):
             return run(lambda: menu.config_matrix(self.cfg, None, "abc1234",
@@ -397,8 +407,8 @@ class Screens(Sandbox):
         screens = run(lambda: terminal.choose(choices, around=around), move(5, 5), move(*keys),
                       b"k", move(1, 2), ESC)[1]
         self.assertEqual([(marked(grid, "lit"), highlighted(grid)) for grid in screens[1:]],
-                         [({}, ["› Grok"]), ({keys[1]: "esc back"}, []),
-                          ({}, ["› ChatGPT"]), ({}, [])])
+                         [({5: "› Grok"}, ["› Grok"]), ({keys[1]: "esc back"}, []),
+                          ({4: "› ChatGPT"}, ["› ChatGPT"]), ({}, [])])
         # on nothing the highlight is out, Enter only brings it back, and the next one picks
         answer, screens = run(lambda: terminal.choose(choices, around=around), move(5, 5),
                               move(1, 2), b"\r", ESC)
@@ -595,7 +605,12 @@ class MainMenu(unittest.TestCase):
         # a key moves the one highlight on from the pointer's, and the key line's light goes
         menu.send(b"k")
         menu.frame(lambda lines: any(line.startswith("› 2  seat-b") for line in lines))
-        menu.until(lambda text: marked(played(text), "lit") == {}, "nothing lit")
+
+        def seat_b_alone(text):         # its row lit to its end, and nothing else
+            grid = played(text)
+            rows = highlighted(grid)
+            return list(marked(grid, "lit").values()) == rows and "seat-b" in "".join(rows)
+        menu.until(seat_b_alone, "seat-b alone lit")
         top = next(number for number, line in enumerate(lines, 1) if "seat-a" in line)
         menu.send(move(20, top))
         on(menu, "seat-a")

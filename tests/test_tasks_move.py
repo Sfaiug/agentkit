@@ -88,7 +88,7 @@ class TasksMove(Sandbox):
         # g1's second square fills: half first, then as drawn, breathing on as it moves
         animation, _ = new[row, first + 1]
         self.assertEqual(animation(now),      # its full shape, dim as its empty one, on a lit row
-                         terminal.highlight(terminal.styled("■", "dim"), mark=False))
+                         terminal.bright(terminal.styled("■", "dim")))
         self.assertEqual(terminal.plain(animation(now + 60)), "■")
 
     def test_a_task_first_seen_or_unchanged_stands_still(self):
