@@ -140,6 +140,27 @@ func scratchAt(repo, commit string) (*landingCheckout, string, error) {
 	return checkout, fmt.Sprintf("[exit %d]\nERROR: checkout of %s failed\n%s", added, commit, out), nil
 }
 
+// clearLeft removes each scratch checkout, of any line, whose checker is gone, Python's
+// _clear_left: a killed one removes none of its own.  One whose mark names no maker yet is gc's.
+func clearLeft() {
+	wt := filepath.Join(config.Home(), "wt")
+	entries, _ := os.ReadDir(wt)
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "land-") {
+			continue
+		}
+		in := gitcall.Git{Repo: filepath.Join(wt, entry.Name())}
+		private, err := in.Must("rev-parse", "--absolute-git-dir")
+		if err != nil {
+			continue
+		}
+		if maker, _ := run.ReadJSON(filepath.Join(private, gitcall.ScratchMark)); maker != nil && !run.ProcessActive(maker) {
+			// twice: one killed before addScratch unlocked it is still locked as its own
+			in.Out("worktree", "remove", "--force", "--force", in.Repo)
+		}
+	}
+}
+
 func (c *landingCheckout) close() {
 	gitcall.Git{Repo: c.repo}.Out("worktree", "remove", "--force", c.path)
 	os.RemoveAll(c.path)
