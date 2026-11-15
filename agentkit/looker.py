@@ -37,10 +37,11 @@ def ask(repo, seat, owner="", event="", *kind):
         conn = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
         conn.settimeout(WAIT)
         conn.connect(name + ".look")   # beside the server's socket, lock and log
-        # with the pane it is heard in and the adapters that say what it means (`_take`)
-        data = b"\0".join(map(os.fsencode, (seat, owner, event, said, *(
-            os.environ.get(var, "") for var in ("TMUX", "TMUX_PANE", "AGENTKIT_ADAPTER_DIR")),
-            *fact)))
+        # in the environment it is heard in, as a cold hearing is: its pane, the adapters that
+        # say what it means, where its harness keeps its conversations (`_take`)
+        data = b"\0".join([*map(os.fsencode, (seat, owner, event, said)), b"%d" % len(fact),
+                           *map(os.fsencode, fact),
+                           *(key + b"=" + value for key, value in os.environb.items())])
         conn.sendall(len(data).to_bytes(4, "big") + data)     # NUL is in none of them
         if conn.recv(1) == b"R":
             conn.sendall(b"G")     # the look is the child's from here: nothing goes cold after
@@ -78,27 +79,26 @@ def take(seat, owner, event, said, fact, say, go, records=None):
     answered = ""
     if fact:
         mine = owner == "true"
-        at = (prompted(seat, said if mine else None, *fact, say) if event == "UserPromptSubmit"
-              else record(seat, event, *fact))
+        at = (prompted(seat, said if mine else None, *fact, say, records)
+              if event == "UserPromptSubmit" else record(seat, event, *fact))
         answered = at if mine else ""
         go()
     look(seat, answered, event, said, records)
 
 
-def prompted(seat, said, kind, pid, text, payload, say):
+def prompted(seat, said, kind, pid, text, payload, say, records=None):
     """A prompt as hooks/seat-state.sh hears it, `said` the owner's words or None: its moment
     (`config.heard_at`) starts the turn hooks/orchestrator-stop.sh judges its end against, before
     anything may fail or run late; the seat goes on in the conversation its hook's caller `pid`
-    went to (`Harness.follow`), and the prompt's news is `say`d (`orch.prompt_news`); only then
-    does its fact take the place of the question that news read.  A failure following or reading
-    the news says nothing and stops neither."""
+    went to (`Harness.follow`), and the prompt's news, read on `records`, is `say`d
+    (`orch.prompt_news`); only then does its fact take the place of the question that news read.
+    A failure following or reading the news says nothing and stops neither."""
     import contextlib
     import json
     from . import config
     at = config.heard_at(seat)
     # under the name its harness was launched with, which the stop hook reads it by
-    config._write_json(config.stop_path(seat), {"session": seat, "turn": at, "blocks": 0},
-                       prepare=False)
+    config.write_latch(config.stop_path(seat), {"session": seat, "turn": at, "blocks": 0})
     with contextlib.suppress(Exception):
         from . import orch
         payload = json.loads(payload)
@@ -106,7 +106,7 @@ def prompted(seat, said, kind, pid, text, payload, say):
             with contextlib.suppress(Exception):    # the seat stays put, and its news still goes
                 orch.seat_plugin(config.session_records().get(config.resolve_session(seat), {})
                                  ).follow(seat, payload, int(pid))
-        news = orch.prompt_news(seat, payload.get("session_id"), said)
+        news = orch.prompt_news(seat, payload.get("session_id"), said, records)
         if news:
             say(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                                    "additionalContext": news}}).encode() + b"\n")
@@ -215,19 +215,25 @@ def _take(conn, records):
     try:
         conn.settimeout(warm.WAIT)
         asked = conn.makefile("rb")
-        seat, owner, event, said, tmux, pane, adapters, *fact = map(
-            os.fsdecode, asked.read(int.from_bytes(asked.read(4), "big")).split(b"\0"))
+        fields = asked.read(int.from_bytes(asked.read(4), "big")).split(b"\0")
+        seat, owner, event, said = map(os.fsdecode, fields[:4])
+        count = int(fields[4])
+        fact = [*map(os.fsdecode, fields[5:5 + count])]
+        environ = {key: value for key, _, value in
+                   (item.partition(b"=") for item in fields[5 + count:]) if key}
         if update.outdated():
             raise OSError("outdated")       # installed over while the looker read: not its look
-        if adapters != os.environ.get(config.ADAPTER_DIR_ENV, ""):
+        adapters = os.fsencode(config.ADAPTER_DIR_ENV)
+        if environ.get(adapters, b"") != os.environb.get(adapters, b""):
             raise OSError("other adapters")     # what an event means is the hook's adapters' to say
         conn.sendall(b"R")
         conn.settimeout(None)   # its go or its end: one given up on as it said go would be lost
         if asked.read(1) != b"G":
             raise OSError("not taken")
-    except (OSError, ValueError):
+    except (OSError, ValueError, IndexError):
         os._exit(1)            # the client goes cold
-    os.environ.update(TMUX=tmux, TMUX_PANE=pane)
+    os.environb.clear()
+    os.environb.update(environ)
 
     def go():               # the client goes on
         asked.close()

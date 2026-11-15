@@ -3085,18 +3085,18 @@ def rulebook_pointer(name, told, conversation, sha, news, fits):
     return pointer
 
 
-def prompt_news(session, conversation, said=None):
+def prompt_news(session, conversation, said=None, records=None):
     """Rulebook news, run endings, open questions and files the owner pasted.
 
     `said` is None for harness bookkeeping; the hook extracts the owner's words once for
     both this foreground context and its background answer.  Endings ride only on words
-    (`handback.riding`): one that rode is told for good, and a slash command may start no
-    turn to read it in.
+    (`handback.riding`), found in `records` where the caller has read the runs: one that rode
+    is told for good, and a slash command may start no turn to read it in.
     """
     from . import handback, macbridge, notify
     name = config.resolve_session(session)
     record = config.session_records().get(name)
-    besides = ((handback.riding(name), notify.answer_context(name, said),
+    besides = ((handback.riding(name, records), notify.answer_context(name, said),
                 macbridge.pasted_context(said))
                if said is not None and takes_prompt_context(record, conversation) else ())
 

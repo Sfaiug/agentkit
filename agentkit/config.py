@@ -2440,6 +2440,14 @@ def stop_path(name):
     return seat_file("stop", name)
 
 
+def write_latch(latch, record):
+    """The turn's latch rewritten whole in one replace, so a reader never sees half of it,
+    through a file of this process's own, so two writers never take each other's."""
+    tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(record) + "\n")
+    tmp.replace(latch)
+
+
 def title_path(name):
     """Where the seat's conversation title and how far it was read are kept between ticks."""
     return seat_file("title", name)
