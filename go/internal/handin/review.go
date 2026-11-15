@@ -194,14 +194,10 @@ func unbounded(evidence *run.Object) string {
 	return command[len(bound):]
 }
 
-// defectOf is what a follow-up names, without the proof's commit, exit status and output.
+// defectOf is what a follow-up names: its file and what is wrong there, whatever line, why or
+// proof a later round's head gives it.
 func defectOf(row *run.Object) string {
-	evidence := row.Dict("evidence")
-	proof := evidence.Get("run")
-	if !evidence.Has("run") {
-		proof = evidence.Get("quote")
-	}
-	return run.Line([]any{row.Get("path"), row.Get("line"), row.Get("what"), row.Get("why"), proof})
+	return run.Line([]any{row.Get("path"), row.Get("what")})
 }
 
 // Text is the review as review.md keeps it, Python's Review.text.
