@@ -37,17 +37,23 @@ func refused(live seat.Live) bool { return live.Refused != "" && looked(live) }
 
 // titleKept is whether the seat's title is the name it has, which the owner has not retitled
 // (watch.follow_title) and sync_title has nothing to send for: a title it superseded is one it
-// names the seat again.  A harness that takes no title, reading none, has none to follow or send,
-// where title_record retires no title sends of an earlier conversation.
+// names the seat again.  A send of its name on its record is sync_title's last word this pass:
+// SyncTitle leaves an earlier one to Python, and a dry tick syncs no title.  A harness that takes
+// no title, reading none, has none to follow or send, where title_record retires no title sends
+// of an earlier conversation.
 func titleKept(live seat.Live) bool {
 	if harness.Untitled(live.Own) && live.Title == nil {
 		return !live.Record.Has("title_conversation") || run.Equal(live.Record.Get("title_conversation"), live.Record.Get("conversation"))
 	}
-	if live.Record.Str("session_title") != live.Name || live.Record.Has("title_sync") {
+	if sent := live.Record.Dict("title_sync"); sent != nil {
+		if sent.Get("name") != live.Name {
+			return false
+		}
+	} else if live.Record.Has("title_sync") || live.Record.Str("session_title") != live.Name {
 		return false
 	}
 	title, _ := live.Title.(string)
-	return (title == "" || title == live.Name) && !slices.Contains(live.Record.List("title_superseded"), any(title))
+	return (title == "" || title == live.Name || title == live.Record.Get("session_title")) && !slices.Contains(live.Record.List("title_superseded"), any(title))
 }
 
 // stays is whether watch.seat_account leaves the seat on its account: its provider lists one
@@ -80,8 +86,10 @@ func (t *ticking) health() error {
 	}
 	for _, name := range names {
 		if !t.dry {
-			if err := seat.SyncTitle(name, t.log.line); err != nil {
+			if titled, err := seat.SyncTitle(name, t.log.line); err != nil {
 				t.log.line("WARN " + name + ": title update did not finish: " + err.Error())
+			} else if !titled {
+				return errLeft
 			}
 		}
 		var kept, answer, back *run.Object

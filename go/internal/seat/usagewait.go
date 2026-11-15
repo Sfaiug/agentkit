@@ -6,6 +6,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	usages "agentkit/internal/usage"
 )
@@ -49,7 +50,9 @@ func usageAhead(state, name string, models map[string]config.Model) (*usages.Rea
 // out until that time where the account had room, keeps the refusal as handled, and puts the seat
 // out of usage until its windows come back, to continue there what a limit cut off -- the refused
 // turn, or one in flight that is not the owner's own since the wait began.  A wait on an account
-// with room that nothing refused, the owner's own turn ends (waitEnds).  The caller holds the
+// with room that nothing refused, the owner's own turn ends (waitEnds).  A refusal on an account
+// with room, in the words of the one ak last acted on, which no prompt's turn has outlived since
+// (outlived), is that one: the write is nothing, and nothing else is done.  The caller holds the
 // locks the look (found) and the write take, so nothing moves the seat between them.  False, read
 // with nothing written, leaves it to Python, as does a wait that would give the seat a word its
 // ladder does not read.
@@ -72,13 +75,17 @@ func (seat Seat) waitOnUsage(state string, live Live, model string, found sight,
 	provider := entry.Provider
 	at, line := seconds(now), live.Refused
 	until, spent := usages.TryAgainAt(line), readings.Spent(model) != ""
-	handled := observed != nil && observed.Get("line") == line && observed.Truthy("handled")
+	handled := observed != nil && observed.Get("line") == line && observed.Truthy("handled") && !found.outlived(seat.own, seat.Name, observed)
 	room := waiting == nil && !spent
 	if waiting != nil && !refused && !spent {
 		return seat.waitEnds(state, live, found, now)
 	}
-	if (waiting != nil || !refused) && !spent || room && (handled || until != 0 && until <= at) {
+	if (waiting != nil || !refused) && !spent || room && !handled && until != 0 && until <= at {
 		return nil, false
+	}
+	if room && handled {
+		// a consumed refusal is still history when its transcript is redrawn: nothing to write
+		return func() error { return nil }, true
 	}
 	var otherwise, since any = nil, run.Float(at)
 	if waiting != nil {
@@ -119,6 +126,19 @@ func (seat Seat) waitOnUsage(state string, live Live, model string, found sight,
 		}
 		return writeSeat(state, seat.Name, []field{{"usage_wait", waited}})
 	}, true
+}
+
+// outlived is whether a prompt went into the seat after ak acted on the refusal it keeps
+// (observed), and the turn that prompt began is over: heard from since, and none in flight.  A
+// provider refuses every turn of a spent model in the same words, so the words do not make a
+// refusal the one acted on; until that turn is over, the conversation still ends on the old one,
+// whatever was heard mid-turn.
+func (found sight) outlived(own, name string, observed *run.Object) bool {
+	acted, _ := observed.Num("at")
+	prompted, _ := plan.Prompted(name)
+	heard, _ := run.Num(found.hookedAt)
+	flight, _ := found.turnInFlight(own)
+	return acted < prompted && prompted < heard && !flight
 }
 
 // waitingStopped is revivalStopped for a seat whose panes run: a wait on its usage is its

@@ -8,7 +8,7 @@ import (
 )
 
 // A title is kept only where neither follow_title nor sync_title has anything to do: sync_title
-// names the seat again over a title it superseded.
+// names the seat again over a title it superseded, and its send of the name is its last word.
 func TestATitleIsKeptOnlyWhereNothingRenamesTheSeat(t *testing.T) {
 	record := func(fields string) *run.Object {
 		value, err := run.DecodeLimited([]byte(fields))
@@ -27,7 +27,10 @@ func TestATitleIsKeptOnlyWhereNothingRenamesTheSeat(t *testing.T) {
 		{`{"session_title": "acme"}`, "acme", true},
 		{`{"session_title": "acme"}`, "billing", false},
 		{`{"session_title": "acme", "title_superseded": ["acme-old"]}`, "acme-old", false},
-		{`{"session_title": "acme", "title_sync": {"name": "acme", "tries": 1}}`, "acme", false},
+		{`{"session_title": "old", "title_sync": {"name": "acme", "tries": 1, "pending": false}}`, "", true},
+		{`{"session_title": "old", "title_sync": {"name": "acme", "tries": 1, "pending": false}}`, "old", true},
+		{`{"session_title": "old", "title_sync": {"name": "old", "tries": 1}}`, "", false},
+		{`{"session_title": "old", "title_sync": {"name": "acme", "tries": 1}}`, "billing", false},
 		{`{"session_title": "old"}`, "acme", false},
 	} {
 		if got := titleKept(seat.Live{Name: "acme", Title: each.title, Record: record(each.record)}); got != each.kept {
