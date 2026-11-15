@@ -250,7 +250,7 @@ func StatusLines() (string, error) {
 	if minimum != 0 {
 		gates = append(gates, "≥ "+G(minimum, true)+" G free")
 	}
-	// Only a pinned load gates CPU, so only it shows the load.
+	// Only a pinned load reads the load, so only it shows it.
 	signal := ""
 	if config.MaxLoadSet() {
 		if maximum != 0 {
