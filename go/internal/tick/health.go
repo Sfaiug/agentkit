@@ -11,9 +11,10 @@ import (
 )
 
 // Health is the line `ak doctor` and a dry tick print, as Python's tick_health: whether a tick
-// holds the lock, its pid and for how long, when the last tick ended, and how near the log is to
-// the size it is rolled at. Stuck is whether the tick reads as hung: nothing has ended within 30
-// minutes, or a holder has held the lock that long. False where watch.json is what Go cannot read.
+// holds the lock, its pid and for how long, when the last tick ended, how near the log is to the
+// size it is rolled at, and when git housekeeping last ran. Stuck is whether the tick reads as
+// hung: nothing has ended within 30 minutes, or a holder has held the lock that long. False where
+// watch.json is what Go cannot read.
 func Health() (line string, stuck, ok bool) {
 	state, ok := loadState()
 	if !ok {
@@ -31,7 +32,12 @@ func Health() (line string, stuck, ok bool) {
 	if info, err := os.Stat(logPath()); err == nil {
 		size = info.Size()
 	}
-	return fmt.Sprintf("%s · %s · %s %.1f MB of %d MB", held, ended, logName, float64(size)/(1<<20), logMax>>20), stuck || silent, true
+	line = fmt.Sprintf("%s · %s · %s %.1f MB of %d MB", held, ended, logName, float64(size)/(1<<20), logMax>>20)
+	// named once a tick has run it: until then there is nothing to name
+	if at, ok := markedAt(housekeepingMark()); ok {
+		line += " · git housekeeping ran " + terminal.FormatAge(epoch(time.Now())-at) + " ago"
+	}
+	return line, stuck || silent, true
 }
 
 // lastEnded is what the line says of the record the last tick left, as Python's tick_ended, and
