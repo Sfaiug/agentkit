@@ -1,10 +1,12 @@
-"""Choose the declared suite's checks for its mode and divide them, and name those that failed,
-without changing a check or keeping shared timing state."""
+"""Choose the declared suite's checks for its mode and the change and divide them, and name those
+that failed, without changing a check or keeping shared timing state."""
 
+import ast
 import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 
@@ -62,6 +64,71 @@ def parts_of(root, name):
     """The parts the test file `name` is cut into: the Go keys check's claims, any other none."""
     return ([claim[0] for claim in claims(root)]
             if name == "tests/test_go_keys.py" else [])
+
+
+GO = ("tests/test_go.py", "tests/test_go_builds.py", "tests/test_go_keys.py")
+
+
+def left_main(root):
+    """The commit where the change `root` checks out left origin/main, None where that cannot be
+    read: a stand-in folder inside a checkout is no checkout, and git would answer for that one."""
+    if not Path(root, ".git").exists():
+        return None
+    return subprocess.run(["git", "-C", str(root), "merge-base", "HEAD", "origin/main"],
+                          capture_output=True, text=True).stdout.strip() or None
+
+
+def imported(tree):
+    """Each import of the parsed module `tree` with the modules it names, a relative one's none."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            yield node, [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom) and not node.level:
+            yield node, [node.module]
+
+
+def read_by(root, name, seen):
+    """`seen`, with the module `name` and every one it imports from tests/ at `root`, directly or
+    through another: a file not there, or not Python, reads only itself."""
+    if name not in seen:
+        seen.add(name)
+        try:
+            tree = ast.parse(Path(root, "tests", f"{name}.py").read_bytes())
+        except (OSError, SyntaxError, ValueError):
+            return seen
+        for _, modules in imported(tree):
+            for module in modules:
+                read_by(root, module.partition(".")[0], seen)
+    return seen
+
+
+def go_left_out(root):
+    """The IDs of Go's tests (GO, a claim's `tests/test_go_keys.py::<key>`) a run of every test
+    leaves out, as the change `root` checks out cannot alter their verdict: the change is every
+    path differing between where it left origin/main and HEAD, a rename both.  The owner, 15 Nov
+    2026: "tests of code that is not shipped run only for changes that touch that code", and "its
+    suite runs every test file" (5 Oct) is retracted.  A claim runs in a copy without agentkit/
+    (test_go_keys.LEFT_OUT), so none reads it; a test file but GO, only a claim whose key file is
+    or imports it.  Any other path, or a change the suite cannot name, leaves none out, as on main,
+    where every test still runs."""
+    base = left_main(root)
+    # -z ends each path with a NUL; a diff that failed names none
+    changed = base and subprocess.run(["git", "-C", str(root), "diff", "--name-only", "-z",
+                                       "--no-renames", base, "HEAD"],
+                                      capture_output=True, text=True).stdout.split("\0")[:-1]
+    if not changed:
+        return set()
+    touched = set()
+    for path in changed:
+        if re.fullmatch(r"tests/test_[^/]*\.py", path) and path not in GO:
+            touched.add(Path(path).stem)
+        elif not path.startswith("agentkit/"):
+            return set()
+    keys = [key for key, *_ in claims(root)]
+    # parsing every key file costs seconds: a change to agentkit/ alone needs none
+    run = {key for key in keys if touched & read_by(root, key, set())} if touched else set()
+    return ({f"tests/test_go_keys.py::{key}" for key in keys if key not in run}
+            | {"tests/test_go.py"} | (set() if run else {"tests/test_go_builds.py"}))
 
 
 def shares(costs, total):

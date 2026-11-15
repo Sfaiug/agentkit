@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """The rest of the `tests:` suite: every tests/test_*.py neither smoke.sh nor landing.py's
-static checks (STATIC_CHECKS) run.
+static checks (STATIC_CHECKS) run, but those of Go's a whole run's change cannot alter
+(suite_shares.go_left_out).
 
 AGENTS.md runs this beside smoke.sh, so a file no task happened to list cannot go red on main
 unseen.  It is no part of smoke.sh.  Each test runs once, its file in a process of its own from the
@@ -56,8 +57,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # another piece may be compiling the checkout
 sys.path.insert(0, str(REPO))
 from agentkit import guard, host, orch, record, suite_times
-from suite_shares import (HEADERS, LIVE_CHECKS, STATIC_CHECKS, listed, name_failed, parts_of,
-                          shard, shares)
+from suite_shares import (HEADERS, LIVE_CHECKS, STATIC_CHECKS, go_left_out, imported, listed,
+                          name_failed, parts_of, shard, shares)
 
 FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
                     # bigger hosts fit more files, busier or smaller hosts fit fewer
@@ -104,13 +105,7 @@ def import_errors(root):
             except (SyntaxError, UnicodeError) as exc:
                 errors.append(f"{path.relative_to(root)}: invalid Python 3.11: {exc}")
                 continue
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    names = [alias.name for alias in node.names]
-                elif isinstance(node, ast.ImportFrom) and not node.level:
-                    names = [node.module]
-                else:
-                    continue
+            for node, names in imported(tree):
                 for name in names:
                     if name.split(".")[0] not in allowed:
                         errors.append(f"{path.relative_to(root)}:{node.lineno}: import {name} "
@@ -329,7 +324,10 @@ def main(root, others=None):
     cost = costs(root, sorted(path for path in tests.glob("test_*.py") if path.stem not in skip
                               and (only is None or str(path.relative_to(root)) in files)), only)
     if only is None:
-        # Exclude everything smoke runs before dividing the rest, regardless of its piece.
+        # Exclude everything smoke runs, and what of Go the change cannot alter, before dividing
+        # the rest, regardless of its piece.
+        left = go_left_out(root)
+        cost = {test: seconds for test, seconds in cost.items() if test not in left}
         owners = shares(cost, total)
         cost = {test: seconds for test, seconds in cost.items() if owners[test] == number}
     todo = runs(root, cost)

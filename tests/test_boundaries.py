@@ -18,6 +18,8 @@ import subprocess
 import unittest
 from pathlib import Path
 
+import suite_shares
+
 REPO = Path(__file__).resolve().parents[1]
 
 # Python and Go tests pin knowledge with fixtures, and docs describe it to a reader: both
@@ -288,7 +290,7 @@ RULES = [
 # (the owner's yes, 15 Oct 2026, set at their size of 16 Oct).  A line added makes room: a rule
 # turned into a check, what one area needs moved to a comment at that code, or what is stale
 # deleted.  No task raises a max; the owner raises one by merging that change by hand.
-WORDS = {"AGENTS.md": 1181, "orchestrator.md": 1817}
+WORDS = {"AGENTS.md": 1175, "orchestrator.md": 1817}
 
 
 def outside(rule):
@@ -312,8 +314,7 @@ def left_main():
     """The commit where this change left origin/main."""
     # against where this change started: a commit main has since moved past (as the host's
     # live check tests) is not held to what main changed after it
-    return subprocess.run(["git", "-C", str(REPO), "merge-base", "HEAD", "origin/main"],
-                          capture_output=True, text=True).stdout.strip() or "origin/main"
+    return suite_shares.left_main(REPO) or "origin/main"
 
 
 def where_change_left_main(test, path):
