@@ -111,7 +111,8 @@ def _go_cache(env):
 def _warm(cache, scratch, hidden):
     """bwrap's words showing a turn the account's Go build cache at /var/tmp/go-build, what the
     turn writes there kept in scratch; none where the cache is missing, holds or lies in a hidden
-    place, or the kernel refuses the overlay, leaving the turn an empty cache of its own there.
+    place, a hidden file has a second name, or the kernel refuses the overlay, leaving the turn an
+    empty cache of its own there.
 
     Turns compiling the standard library and every package from nothing asked for more CPU than
     the host had (15 Nov 2026). Scratch is on disk: a turn rewriting many packages writes
@@ -119,6 +120,14 @@ def _warm(cache, scratch, hidden):
     # The overlay shows the cache as the host holds it, past the box's masks.
     if cache is None or any(cache.is_relative_to(path) or path.is_relative_to(cache)
                             for path in hidden):
+        return []
+    try:
+        # A mask covers one name of a file; a hard link in the cache is another.
+        if any(not stat.S_ISDIR(info.st_mode) and info.st_nlink > 1 for info in (
+                path.lstat() for place in hidden for path in (place, *_contents(place)))):
+            return []
+    except OSError:
+        # A closed or vanishing place may hold one.
         return []
     upper, work = scratch / "go-build", scratch / "go-build-work"
     upper.mkdir()

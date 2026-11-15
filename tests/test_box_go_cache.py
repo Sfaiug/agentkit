@@ -106,6 +106,17 @@ class GoCache(unittest.TestCase):
         result = self.turned(["sh", "-c", 'test ! -e "$GOCACHE/held"'], hidden=(cache / "held",))
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_a_turn_is_not_shown_a_hidden_file_by_a_second_name_in_the_cache(self):
+        # A mask covers a key's one name; a hard link in the cache is another.
+        cache = self.home / ".cache/go-build"
+        cache.mkdir(parents=True)
+        key = self.home / ".ssh/id_fixture"
+        key.parent.mkdir()
+        key.write_text(HELD)
+        (cache / "id_fixture").hardlink_to(key)
+        result = self.turned(["sh", "-c", 'test ! -e "$GOCACHE/id_fixture"'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_a_turn_whose_run_takes_no_overlay_has_a_cache_of_its_own(self):
         # The kernel keeps no overlay's writes on another overlay, as the out dir is here.
         cache = self.home / ".cache/go-build"
