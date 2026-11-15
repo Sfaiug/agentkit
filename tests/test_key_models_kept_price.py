@@ -3,9 +3,9 @@ role's price, the owner's design of 5 Nov 2026: a round `limit` from the choice'
 cheapest compared row's both dearer and better, null for the best, with the `cost_unit` and the
 `model` and `effort` the role then uses; a take onto a row no choice removes its role's alone,
 and one that changes no row, a restart not picked, keeps and removes nothing.  A seat's are its
-record's `<role>_price`; new seats' each a file of ak's state, `models-<role>-price`, a write
-that fails saying why and the take standing.  A mark and an effort step leave every one, and
-config.toml holds none.
+record's `<role>_price`, following a rename during the write; new seats' each a file of ak's
+state, `models-<role>-price`, a write that fails saying why and the take standing.  A mark and
+an effort step leave every one, and config.toml holds none.
 
 Black-box: `AK_BIN` in a terminal (tests/fixtures/akterm.py) over a seat or in a window of its
 own, its harness a fake running five of seven invented releases, the boards held as asked
@@ -13,6 +13,7 @@ own, its harness a fake running five of seven invented releases, the boards held
 Fails against /bin/false.
 """
 
+import fcntl
 import json
 import sys
 from pathlib import Path
@@ -206,6 +207,54 @@ class KeptPrice(unittest.TestCase):
         term.keys("Down", "Left")
         term.wait("Is a directory")
         self.assertEqual(self.groups()["workers"], ["base"])
+
+    def test_a_price_write_follows_a_rename_or_says_when_the_record_went(self):
+        pane = self.seats[MOVED].pane
+        gate = self.state / "watch.lock"
+        record_lock = self.state / f".session-{MOVED}.lock"
+        self.addCleanup((self.state / "session-acme-next.json").unlink, missing_ok=True)
+        for moved in (True, False):
+            with self.subTest(moved=moved):
+                self.fresh()
+                self.home.write(f".agentkit/state/session-{MOVED}.json",
+                                {**self.seats[MOVED].record, "conversation": None})
+                (self.state / "session-acme-next.json").unlink(missing_ok=True)
+                self.home.tmux("respawn-pane", "-k", "-t", pane, "true")
+                self.until(lambda: self.home.tmux("display-message", "-p", "-t", pane,
+                                                  "#{pane_dead}").out.strip() == "1",
+                           "it never ended")
+                term = self.models(MOVED)
+                term.keys("Left")
+                term.wait("× Restart")
+                with record_lock.open("a") as held:
+                    with gate.open("a") as stop:
+                        fcntl.flock(stop, fcntl.LOCK_EX)
+                        term.keys("Down", "Enter")      # Restart: writes Fine, then waits on gate
+                        self.until(lambda: waited_for(gate), "restart never reached watch.lock")
+                        fcntl.flock(held, fcntl.LOCK_EX)
+                    # watch.lock let go: seat_effort reads Fine, keep_price resolves MOVED and waits
+                    self.until(lambda: waited_for(record_lock),
+                               "keep_price never waited on the record lock")
+                    if moved:
+                        self.home.write(".agentkit/state/session-acme-next.json",
+                                        self.record(MOVED))
+                        self.home.write(f".agentkit/state/session-{MOVED}.json",
+                                        {"renamed": "acme-next"})
+                    else:
+                        (self.state / f"session-{MOVED}.json").unlink()
+                if moved:
+                    self.keeps({"orchestrator": price("fine", 4.6)}, "acme-next")
+                    self.assertEqual(self.record("acme-next")["orchestrator"], "fine")
+                else:
+                    term.wait(f"{MOVED} has no saved models")
+
+
+def waited_for(path):
+    """Does a process wait for that lock, as Linux's /proc/locks lists it: a `->` row on its
+    inode."""
+    inode = str(path.stat().st_ino)
+    return any("->" in row.split() and row.split()[-3].rsplit(":", 1)[1] == inode
+               for row in Path("/proc/locks").read_text().splitlines())
 
 
 if __name__ == "__main__":
