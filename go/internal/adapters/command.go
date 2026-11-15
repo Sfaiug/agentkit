@@ -20,8 +20,9 @@ import (
 // fresh_command build it: ak's own env words, then the line the harness's adapter prints for
 // `interactive`, under a new conversation id or, where its TUI cannot be told one (exit 3), none;
 // and that id, "" for none.  env is what the adapter is told.  No line where none opens, and an
-// error saying why in Python's words: no adapter runs, it prints no line, or a file the harness
-// reads on its own, which nothing on the line can stop, is there.
+// error saying why in Python's words: the model is off in the model list (Refused), no adapter
+// runs, it prints no line, or a file the harness reads on its own, which nothing on the line can
+// stop, is there.
 func Fresh(name string, model config.Model, env []string, dir string) ([]string, string, error) {
 	conversation := uuid()
 	line, told, err := command(name, model, env, dir, []string{conversation, "new"}, nil)
@@ -67,6 +68,9 @@ func answering(name string) ([]string, error) {
 // seat's folder dir, whether that answered, or with then where first, naming a conversation to
 // open, exits 3: none is told one.  No line where the adapter gives none, and why.
 func command(name string, model config.Model, env []string, dir string, first, then []string) ([]string, bool, error) {
+	if err := Refused(name); err != nil {
+		return nil, false, err
+	}
 	argv, err := answering(model.Harness)
 	if err != nil {
 		return nil, false, err

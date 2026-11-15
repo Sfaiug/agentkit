@@ -70,6 +70,13 @@ RULES = [
      "home": ("agentkit/host.py", "go/internal/host/readings.go", "tools/machine.sh",
               "go/internal/machines/machine.sh"),
      "max": 0},
+    # The boot, and the clocks and boot a key sets, have one reader: the boot a key sets is then
+    # the one the whole of ak sees.  Go's two are its own until Go reads AK_NOW.
+    {"name": "the boot",
+     "flags": (),
+     "pattern": r"random/boot_id|AK_NOW\b",
+     "home": ("agentkit/pair_clock.py",),
+     "max": 2},
     # A suite piece in the helper's VM or container has no host.py either: it counts its own
     # cgroup's kills for memory, and reads nothing else of the host.  Go carries a copy in the
     # program, so a copied binary needs no checkout; TestTheCarriedScriptsAreToolsHelpers refuses

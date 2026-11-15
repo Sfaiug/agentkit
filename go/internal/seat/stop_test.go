@@ -185,3 +185,24 @@ func contents(t *testing.T, path string) string {
 	}
 	return string(data)
 }
+
+// A seat is stopped by the owner's whole mark; one nobody stopped is not, whatever it waits on,
+// and a mark Read does not know is Python's.
+func TestStoppedReadsTheMarkAsReadDoes(t *testing.T) {
+	for file, want := range map[string][2]bool{
+		"":                             {false, true},
+		`{"usage_wait": {"until": 1}}`: {false, true},
+		`{"stopped_at": 5, "closed_by_owner": true}`: {true, true},
+		`{"stopped_at": 5}`:                          {true, false},
+		`{"stopped_at": 5, "closed_by_owner": true, "usage_wait": {"until": 1}}`: {false, false},
+		`{"stopped_at": 5, "closed_by_owner": true`:                              {false, false},
+	} {
+		home := sandbox(t)
+		if file != "" {
+			write(t, filepath.Join(home, ".agentkit", "state", "seat-acme.json"), file)
+		}
+		if closed, known := Stopped("acme"); [2]bool{closed, known} != want {
+			t.Errorf("%s: Stopped = %v, %v, want %v", file, closed, known, want)
+		}
+	}
+}

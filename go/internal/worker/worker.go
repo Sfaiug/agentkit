@@ -44,9 +44,12 @@ const authGrace = 60 * time.Second // a turn over this fast that streamed nothin
 // Turn runs one turn of the model name in role on the task's text, from the resolved workspace
 // into out, resuming session where one is given: its exit status as the box reports it, and the
 // conversation it leaves.  A harness whose login has expired is a LoginExpired.  Each process the
-// turn's end stopped is a line in errOut.
+// turn's end stopped is a line in errOut.  A model off in the model list runs none (Refused).
 func Turn(name, role, body, workspace, out, session string, given Given, errOut io.Writer) (int, string, error) {
 	model, err := config.ModelNamed(name)
+	if err == nil {
+		err = Refused(name)
+	}
 	if err != nil {
 		return 0, "", err
 	}
@@ -105,7 +108,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 		env[key] = value
 	}
 	maps.Copy(env, harness.TurnEnv(model.Harness))
-	if err := receipts(out, model.Harness, env); err != nil {
+	if err := receipts(out, model, env); err != nil {
 		return 0, "", err
 	}
 	// The adapter's own stderr, a line it prints before it hands the harness stderr.log, is kept

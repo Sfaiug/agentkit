@@ -72,7 +72,8 @@ func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
 		// told already: the real tick lets its run's failure go
 		"told break": {fields: `"health": {"command": "false", "output": "down"}`, ago: 4 * 3600,
 			watch: `{"after_merge": {"github.com/acme/api": {"notified": "abc", "at": 1, "run": "fix-api"}}}`},
-		"deployment":    {fields: `"health": {}, "deployed": "true"`, left: true},
+		"deployment": {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": "touch \"$HOME/deployed\"", "repo": "/"`,
+			said: `would check run fix-api's live product: touch "$HOME/probed"` + "\n"},
 		"blob lacked":   {lacks: "blob", said: "would check run fix-api's live product: true\n"},
 		"commit lacked": {lacks: "commit", said: "would check run fix-api's live product: true\n"},
 		"kept probe": {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": null, "repo": "/"`, history: true,
@@ -148,25 +149,21 @@ func partialClone(t *testing.T, dir string, whole bool) (sha, checkout string) {
 	return sha, checkout
 }
 
-// A deployment, on the run or declared at its merge's commit, and a pass its seat may be owed,
-// known before or probed now, and a history whose tokens wait for Python's repair, are Python's,
-// left before anything is written, an older history's tables and its probe's row included.
+// A pass its seat may be owed, known before or probed now, and a history whose tokens wait for
+// Python's repair, are Python's, left before anything is written, an older history's tables and its
+// probe's row included.
 func TestMergeChecksLeaveWhatGoDoesNotRead(t *testing.T) {
-	deployed := base64.StdEncoding.EncodeToString([]byte("---\nhealth: true\ndeployed: true\n---\n"))
 	for name, each := range map[string]struct {
 		fields  string
 		history string // what made history.db older than Go's writes leave it
 	}{
-		"deployment":          {fields: `"merge_sha": "abc", "health": {}, "deployed": "true"`},
-		"declared deployment": {fields: `"repo": "/srv/acme"`},
-		"owed pass":           {fields: `"live_at": 1, "health": {}, "deployed": null, "launched_session": "acme"`},
-		"owed probe pass":     {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "launched_session": "acme"`, history: "ALTER TABLE runs DROP COLUMN no_review"},
-		"repair owed":         {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null`, history: "PRAGMA user_version=1"},
-		"typed probe pass":    {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "live_typed": {"line": "run fix-api is live."}`},
+		"owed pass":        {fields: `"live_at": 1, "health": {}, "deployed": null, "launched_session": "acme"`},
+		"owed probe pass":  {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "launched_session": "acme"`, history: "ALTER TABLE runs DROP COLUMN no_review"},
+		"repair owed":      {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null`, history: "PRAGMA user_version=1"},
+		"typed probe pass": {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "live_typed": {"line": "run fix-api is live."}`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';;
-				*contents/AGENTS.md?ref=abc*) echo '{"encoding": "base64", "content": "`+deployed+`"}';; esac`)
+			ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';; esac`)
 			put(t, filepath.Join(ak, "state", "plan-acme.md"), "- [ ] The work is done · check: `false` · acme · written 2026-10-23 09:00\n")
 			if each.history != "" {
 				older(t, each.history)

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 )
@@ -47,7 +48,8 @@ func HarnessNames() ([]string, error) {
 }
 
 // CatalogTable is the `[catalog]` table of that harness's manifest as a listing's rows, [id,
-// efforts], in file order: written from the harness's own docs for one that cannot list its models.
+// efforts, label], in file order, as tools/catalog.py prints it: written from the harness's own
+// docs for one that cannot list its models, the label the id where it names none.
 func CatalogTable(harness string) ([][]string, error) {
 	found, err := manifests()
 	if err != nil {
@@ -59,8 +61,9 @@ func CatalogTable(harness string) ([][]string, error) {
 	}
 	var rows [][]string
 	for _, model := range catalog.keys {
-		if _, ok := catalog.values[model].(*table); ok {
-			rows = append(rows, []string{model, strings.Join(words(catalog, model, "efforts"), " ")})
+		if entry, ok := catalog.values[model].(*table); ok {
+			label, _ := entry.values["label"].(string)
+			rows = append(rows, []string{model, strings.Join(words(catalog, model, "efforts"), " "), cmp.Or(label, model)})
 		}
 	}
 	return rows, nil

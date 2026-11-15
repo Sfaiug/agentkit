@@ -849,8 +849,9 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None, over=()):
     checkout changed under them, the suite's own doing as far as the lander can tell); {}
     where the checks passed or no exits were reported.  A piece out of memory
     (`gate.OUT_OF_MEMORY`) is red only where no other is, and then `short`: the host's red,
-    nobody's.  `parts`, a list, gets every red piece of that command that confirmed tests, each
-    as this names one and this one first, where this one confirmed any.
+    nobody's.  `parts`, a list, gets every red piece of that command that confirmed tests no
+    piece before it did, each as this names one, with just those tests, and this one first, where
+    this one confirmed any.
     Tests among `over`, the target's own red, are named by none: a piece that confirmed nothing
     else is not red, checks red in nothing else are `over` those they failed, and a red of
     anything else has them all `excused`."""
@@ -877,8 +878,15 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None, over=()):
             return {"command": cmd, "piece": piece, "short": True}
         tests = own[piece] if piece else None
         if tests and parts is not None:
-            parts.extend({"command": cmd, "piece": share, "tests": own[share]}
-                         for share in reds if codes[share] != gate.OUT_OF_MEMORY and own[share])
+            # A test every piece runs, red in each, is one question: asked once for each piece,
+            # it ran alone on the top rebuilt without the culprit 21 times, passing each time,
+            # before that top went whole (14 Nov 2026).
+            asked = set()
+            for share in reds:
+                still_open = [test for test in own[share] if test not in asked]
+                if codes[share] != gate.OUT_OF_MEMORY and still_open:
+                    parts.append({"command": cmd, "piece": share, "tests": still_open})
+                    asked.update(still_open)
         return {"command": cmd, "piece": piece, **({"tests": tests} if tests else {}), **excused}
     if landed:
         return {"over": sorted(set(landed))}

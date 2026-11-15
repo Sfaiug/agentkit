@@ -10,8 +10,9 @@ import (
 	"agentkit/internal/run"
 )
 
-// codexRunning are the running counts a step's `total_token_usage` holds, its input counting the
-// cached and cache-written input too, its output the reasoning (codex.py RUNNING).
+// codexRunning are the running counts a step's `total_token_usage` and a `turn.completed`'s
+// `usage` hold, their input counting the cached and cache-written input too, their output the
+// reasoning (codex.py RUNNING).
 var codexRunning = []string{"input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens"}
 
 // codexTokenSources is the rollout the seat's launch reported, while it is one, and the rollouts
@@ -113,24 +114,21 @@ func codexTokenUsage(entry, cursor *run.Object) (Spend, bool) {
 	known := cursor.Has("running") || !cursor.Has("total")
 	previous, _ := cursor.Int("total")
 	before := cursor.List("running")
-	running, grown := make([]any, len(codexRunning)), make([]int, len(codexRunning))
-	for i, key := range codexRunning {
-		now, _ := usage.Int(key)
-		now = max(now, 0) // a count it leaves out, or writes as no count, is 0
+	running, grown := make([]any, len(codexRunning)), [4]int64{}
+	for i, now := range kinds(usage, codexRunning...) {
 		was := 0.0
 		if i < len(before) {
 			was, _ = run.Num(before[i])
 		}
-		running[i], grown[i] = run.Number(strconv.Itoa(now)), max(0, now-int(was))
+		running[i], grown[i] = run.Number(strconv.FormatInt(now, 10)), max(0, now-int64(was))
 	}
 	cursor.Set("total", max(previous, total))
 	cursor.Set("running", running)
 	spend := Spend{At: at, Event: filepath.Base(cursor.Str("source")) + ":" + strconv.Itoa(total), Tokens: max(0, total-previous), Model: cursor.Get("model")}
 	if known {
-		// as input, cache write, cache read and output, the input less what was cached or
-		// written to the cache
-		fresh, cached, written, output := grown[0], grown[1], grown[2], grown[3]
-		spend.Counts = []int{max(0, fresh-cached-written), written, cached, output}
+		for _, count := range codexByType(grown) {
+			spend.Counts = append(spend.Counts, int(count))
+		}
 	}
 	return spend, true
 }
