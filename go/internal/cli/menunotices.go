@@ -1,14 +1,15 @@
 package cli
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
+	"agentkit/internal/menu"
 	"agentkit/internal/terminal"
 )
 
@@ -39,34 +40,43 @@ func menuNotices() []string {
 	return messages
 }
 
-func noticeLines(messages []string, width int) []string {
+// noticeLines are the messages wrapped at words to width, each line in from indent, the home
+// written ~ (Python's show_notices).
+func noticeLines(messages []string, width int, indent string) []string {
 	var lines []string
 	for _, message := range messages {
-		for _, part := range terminal.Wrap(strings.ReplaceAll(message, config.UserHome()+string(os.PathSeparator), "~/"), width-1) {
-			lines = append(lines, " "+part)
+		for _, part := range terminal.Wrap(strings.ReplaceAll(message, config.UserHome()+string(os.PathSeparator), "~/"), width-len(indent)) {
+			lines = append(lines, indent+part)
 		}
 	}
 	return lines
 }
 
-// Python's pause prints notices where the menu gives the terminal back. Its keyboard still
-// answers Esc immediately, and the next menu frame forgets what was on the alternate screen.
+// showMenuNotices is Python's show_notices on the screen the menu holds: the messages in the note
+// frame (pause), wrapped two spaces in, whose pages ↑ and ↓ turn so none of a note taller than the
+// screen is lost, until Enter or Esc goes on to the menu; false where the keyboard is gone.
 func showMenuNotices(messages []string, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
-	lines := noticeLines(messages, keyboard.Screen().LayoutWidth())
-	keyboard.Give()
-	keyboard.TakeKeys()
-	fmt.Fprintln(os.Stdout, strings.Join(lines, "\n"))
-	fmt.Fprint(os.Stdout, "esc back ")
+	top := 0
 	for {
-		switch key := keyboard.ReadKey(); key.Name {
-		case "enter", "esc", "eof":
-			keyboard.Give()
-			if key.Name == "eof" {
-				return false
-			}
-			keyboard.Take()
-			painter.Forget()
+		s := keyboard.Screen()
+		body, clock := noticeLines(messages, s.LayoutWidth(), "  "), time.Now().Format("15:04")
+		page := max(1, s.Height()-len(menu.Panel(s, "note", clock, nil, "esc back"))-1)
+		top = max(0, min(top, len(body)-page))
+		painter.Write(menu.Panel(s, "note", clock, body[top:min(top+page, len(body))], "esc back"), s)
+		switch key := keyboard.ReadKey(); {
+		case key.Name == "enter" || key.Name == "esc":
 			return true
+		case key.Name == "eof":
+			keyboard.Give()
+			return false
+		case key.Name == "again":
+			painter.Forget()
+		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
+			top -= page
+		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
+			top += page
+		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
+			top += page * key.Mouse.Notches
 		}
 	}
 }
