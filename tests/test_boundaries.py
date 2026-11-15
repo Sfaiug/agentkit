@@ -311,7 +311,7 @@ def outside(rule):
 
 
 def left_main():
-    """The commit where this change left origin/main."""
+    """The commit where this change left its default branch (suite_shares.left_main)."""
     # against where this change started: a commit main has since moved past (as the host's
     # live check tests) is not held to what main changed after it
     return suite_shares.left_main(REPO) or "origin/main"

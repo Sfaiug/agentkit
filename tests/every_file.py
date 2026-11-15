@@ -57,8 +57,8 @@ REPO = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True   # another piece may be compiling the checkout
 sys.path.insert(0, str(REPO))
 from agentkit import guard, host, orch, record, suite_times
-from suite_shares import (HEADERS, LIVE_CHECKS, STATIC_CHECKS, go_left_out, imported, listed,
-                          name_failed, parts_of, shard, shares)
+from suite_shares import (HEADERS, LIVE_CHECKS, STATIC_CHECKS, go_left_out, listed, name_failed,
+                          parts_of, shard, shares)
 
 FILE_MEM_MB = 230   # reservation floor: the measured peak was 229 MB with children;
                     # bigger hosts fit more files, busier or smaller hosts fit fewer
@@ -105,7 +105,13 @@ def import_errors(root):
             except (SyntaxError, UnicodeError) as exc:
                 errors.append(f"{path.relative_to(root)}: invalid Python 3.11: {exc}")
                 continue
-            for node, names in imported(tree):
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and not node.level:
+                    names = [node.module]
+                else:
+                    continue
                 for name in names:
                     if name.split(".")[0] not in allowed:
                         errors.append(f"{path.relative_to(root)}:{node.lineno}: import {name} "

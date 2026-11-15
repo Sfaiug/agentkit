@@ -1,8 +1,8 @@
 """A run of every test judges Go only on what its change can alter (suite_shares.go_left_out): a
 change to agentkit/ alone runs no Go test, one to a test file only the claims whose key file is or
 imports it, Go's build with them, and one anywhere else, or none, all of Go's tests.
-Offline: the real landing.py and every_file.py run a stand-in git checkout with an origin/main,
-whose static checks and Go's tests note what they were asked.
+Offline: the real landing.py and every_file.py run a stand-in git checkout whose default branch,
+origin/HEAD, is its origin/main, and whose static checks and Go's tests note what they were asked.
 """
 
 import os
@@ -25,7 +25,8 @@ FILES = {
     "go/keys.txt": "test_key_acme Acme\ntest_key_gadget\ntest_key_widget\n",
     "go/acme.go": "package acme\n",
     "agentkit/acme.py": "",
-    "tests/fixtures/acme.py": "",
+    "tests/fixtures/acme.py": "from . import rig\n",
+    "tests/fixtures/rig.py": "from test_acme_base import *\n",
     "tests/smoke.sh": "",
     # the real runner, on the checkout landing.py hands it
     "tests/every_file.py": "import subprocess, sys\nsys.exit(subprocess.call([sys.executable, "
@@ -33,9 +34,9 @@ FILES = {
     **{f"tests/{name}.py": NOTE for name in (*STATIC_CHECKS, "gate_contract", "test_go",
                                              "test_go_keys", "test_key_acme", "test_key_gadget",
                                              "test_acme", "test_acme_base")},
-    # a key reading a test file through another
+    # a key reading a test file through another and a package of tests/
     "tests/test_key_widget.py": "import test_acme_rig\n" + NOTE,
-    "tests/test_acme_rig.py": "from test_acme_base import *\n" + NOTE,
+    "tests/test_acme_rig.py": "import fixtures.acme\n" + NOTE,
 }
 ALL = {"tests/test_go.py", "tests/test_go_builds.py", "tests/test_go_keys.py::test_key_acme",
        "tests/test_go_keys.py::test_key_gadget", "tests/test_go_keys.py::test_key_widget"}
@@ -56,6 +57,7 @@ class GoRunsForWhatAChangeTouches(unittest.TestCase):
         self.git("init", "-q", "-b", "main")
         self.change()
         self.git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
 
     def git(self, *args):
         subprocess.run(["git", "-C", self.root, "-c", "user.name=acme",
@@ -109,6 +111,11 @@ class GoRunsForWhatAChangeTouches(unittest.TestCase):
 
     def test_a_checkout_on_its_base_runs_all(self):
         self.assertEqual(self.go_run(), ALL)
+        with self.subTest("a default branch other than main"):
+            self.change("agentkit/acme.py")
+            self.git("update-ref", "refs/remotes/origin/trunk", "HEAD")
+            self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+            self.assertEqual(self.go_run(), ALL)
 
     def test_a_folder_inside_a_checkout_is_none_of_its_own_and_runs_all(self):
         # git there answers for the checkout, whose change is not the folder's
