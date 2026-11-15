@@ -97,10 +97,7 @@ func barChip(screen terminal.Screen, word string) string {
 func barProgress(screen terminal.Screen, word, back string, unsent bool, done, total, room int) string {
 	mark, left := "", room
 	if unsent {
-		mark = "¶ unsent"
-		if screen.ASCII() {
-			mark = "* unsent"
-		}
+		mark = screen.Unsent("unsent")
 		left -= terminal.Cells(mark) + 2
 	}
 	bar, cells := "", 0
@@ -213,7 +210,7 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		{target, "status-format[0]", barLineOne()}, {target, "status-format[1]", barLineTwo()}}
 	for i, option := range barTops {
 		top := head
-		if last := barProgress(screen, seat.Word, backAt(seat.back, time.Now()), seat.unsent != "", done, total, barCells[i]); last != "" {
+		if last := barProgress(screen, seat.Word, seat.Back(time.Now()), seat.unsent != "", done, total, barCells[i]); last != "" {
 			top += "   " + last
 		}
 		own = append(own, [3]string{target, option, top})
