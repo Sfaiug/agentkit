@@ -1,14 +1,15 @@
 """`ak standby ALIAS` keeps this machine's own job before its pass: one crontab line, which makes
 the pass again every three minutes and keeps none of its output, one however often the command
 runs, every other line kept byte for byte; a first pass whose home did not answer leaves it all
-the same.  `ak standby` names the home this machine copies and the copy's age, from when the last
-pass that ended well began, and exits 0 only for a copy of that home: never before the first
-pass, nor once this machine is another home's client.  The age is the older of this machine's
-two clocks': with its wall clock set back an hour since the pass and ten minutes gone since boot,
-the copy is 10 minutes old.  A pass whose home did not answer exits non-zero and leaves the copy
-and its age going on, and one while a pass is under way copies nothing, though a pass that died
-holds none back.  Black-box, through tests/fixtures/twohomes.py, whose machine takes its clocks
-from AK_NOW (`wall seconds-since-boot boot`), one of its variables.
+the same, and a crontab that cannot be read, left as it was, ends the pass before it copies.
+`ak standby` names the home this machine copies and the copy's age, from when the last pass that
+ended well began, and exits 0 only for a copy of that home: never before the first pass, nor once
+this machine is another home's client.  The age is the older of this machine's two clocks': with
+its wall clock set back an hour since the pass and ten minutes gone since boot, the copy is 10
+minutes old.  A pass whose home did not answer exits non-zero and leaves the copy and its age
+going on, and one while a pass is under way copies nothing, though a pass that died holds none
+back.  Black-box, through tests/fixtures/twohomes.py, whose machine takes its clocks from AK_NOW
+(`wall seconds-since-boot boot`), one of its variables.
 """
 
 import os
@@ -108,6 +109,21 @@ class AStandbysJobAndAge(unittest.TestCase):
         self.assertEqual(len(self.job()), 1)
         said = self.ak("standby", now=LATER)
         self.assertNotEqual(said.code, 0, said.out)
+
+    def test_a_crontab_that_cannot_be_read_ends_the_pass_before_it_copies(self):
+        home, here = self.home, self.here
+        # its -l failing, 1, as every crontab's does for a table it cannot open; its - would write
+        here.fake("crontab", f"""#!/bin/sh
+case "$1" in
+  -l) echo "crontabs/acme: fopen: Permission denied" >&2; exit 1 ;;
+  -) exec cat >{shlex.quote(str(here.at / self.table.name))} ;;
+esac
+exit 1
+""")
+        before = here.copy()
+        done = self.ak("standby", home.name, now=PASSED)
+        self.assertNotEqual(done.code, 0)
+        self.assertEqual((self.table.read_bytes(), here.copy()), (TABLE, before))
 
     def test_a_pass_while_one_is_under_way_copies_nothing_and_one_that_died_holds_none_back(self):
         home, here = self.home, self.here

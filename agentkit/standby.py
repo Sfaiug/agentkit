@@ -66,13 +66,14 @@ def _keep_job(alias):
     path, ak, alias = map(_cron_word, (os.pathsep.join(os.get_exec_path()),
                                        config.REPO / "bin/ak", alias))
     job = f"*/3 * * * * export PATH={path}; {ak} standby {alias} >/dev/null 2>&1 ".encode()
-    table = subprocess.run(["crontab", "-l"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                           stderr=subprocess.DEVNULL)
-    # every crontab exits 1 for an account with no table yet, and only its words, which ak never
-    # reads, tell a read that failed from that; any other failure is a table writing would replace
-    if table.returncode not in (0, 1):
-        print("ak standby: the crontab could not be read, so no pass is made; `crontab -l` says "
-              "why", file=sys.stderr)
+    table = subprocess.run(["crontab", "-l"], stdin=subprocess.DEVNULL, capture_output=True)
+    # Every crontab exits 1 both for an account with no table yet and for a table it could not
+    # read, which writing would replace: only its words tell them apart, `no crontab for USER` in
+    # cronie's, Vixie's and the BSDs'.  Any other crontab's missing table is one it cannot read.
+    if table.returncode and not (table.returncode == 1 and b"no crontab for " in table.stderr):
+        said = table.stderr.decode(errors="replace").strip() or f"exit {table.returncode}"
+        print(f"ak standby: the crontab could not be read, so no pass is made: {said}",
+              file=sys.stderr)
         return False
     rows = table.stdout.removesuffix(b"\n").split(b"\n") if table.stdout else []
     wanted = b"".join(row + b"\n" for row in rows
