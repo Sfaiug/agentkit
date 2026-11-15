@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"agentkit/internal/agent"
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/plan"
@@ -127,14 +126,14 @@ func spokenFor(name string) Refusal {
 
 // holdings is what tmux holds as Python's orch.held_names and orch.sessions read it: every session
 // on ak's server, and the server of each seat.  There a session is one unless it is no record's,
-// ak did not open it and it runs no agent; on the person's own server only what ak opened is.
+// ak did not open it and it is no seat (noSeat); on the person's own server only what ak opened is.
 func holdings(state string) ([]string, map[string]string) {
 	var held []string
 	seats := map[string]string{}
 	for _, session := range tmux.Sessions(tmux.Own()) {
 		held = append(held, session.Name)
 		record, _ := run.Shared(filepath.Join(state, "session-"+session.Name+".json"))
-		if session.Mark == "1" || record != nil && !record.Has(config.Renamed) || !agent.Agentless(tmux.Own(), []string{session.Name}) {
+		if session.Mark == "1" || record != nil && !record.Has(config.Renamed) || !noSeat(session.Name) {
 			seats[session.Name] = tmux.Own()
 		}
 	}

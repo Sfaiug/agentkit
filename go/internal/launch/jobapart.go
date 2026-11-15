@@ -56,16 +56,11 @@ func ownChild(dir string, receipt *run.Object) bool {
 	return !receipt.Truthy("finished_at") && run.ProcessActive(receipt) && os.Getenv("AGENTKIT_JOB_DIR") == dir && pid == os.Getpid()
 }
 
-// adopt carries the job on as its own launcher, Python's cmd_job_resume of its own child: from the
-// directory the job was launched in, where a task naming no repository finds its checkout, on the
-// options its receipt keeps.  `ak run`'s exit status.
-func adopt(dir string, receipt *run.Object, out io.Writer) (int, error) {
-	if cwd := receipt.Str("cwd"); cwd != "" {
-		if info, err := os.Stat(cwd); err == nil && info.IsDir() {
-			os.Chdir(cwd)
-		}
-	}
-	j := &jobRun{dir: dir, receipt: receipt, seat: receipt.Str("seat"), values: map[string]string{}, flags: map[string]bool{}, out: out, say: jobLogger(dir, out)}
+// adopt carries the job on as its own launcher, Python's cmd_job_resume of its own child: on the
+// options its receipt keeps, taking up as refused the runs from before that changed (raced).
+// `ak run`'s exit status.
+func adopt(dir string, receipt *run.Object, changed map[*run.Object]*run.Object, out io.Writer) (int, error) {
+	j := &jobRun{dir: dir, receipt: receipt, seat: receipt.Str("seat"), values: map[string]string{}, flags: map[string]bool{}, out: out, say: jobLogger(dir, out), changed: changed}
 	opts := receipt.Dict("opts")
 	for _, flag := range jobValues {
 		if given, ok := opts.Get(flag).(string); ok {

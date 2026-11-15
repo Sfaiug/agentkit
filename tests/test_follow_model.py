@@ -11,6 +11,7 @@ database, no tmux.
 from contextlib import closing
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import sqlite3
 import unittest
@@ -67,6 +68,56 @@ class SeatFollows(Sandbox):
         self.looked(("opus", 60, None))
         self.looked(("opus", 90, "turbo"))          # no effort Opus takes
         self.assertEqual(held()["effort"], "low")
+
+    def wrote(self, late, content=None, **entry):
+        """A line other than an answer `late` seconds after the launch: the owner's `content`."""
+        if content is not None:
+            entry = {"type": "user", "message": {"role": "user", "content": content}, **entry}
+        with self.path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({**entry, "timestamp": stamp(late)}) + "\n")
+
+    def test_after_a_move_an_answer_counts_from_the_line_its_turn_began_with(self):
+        def held():
+            return config.session_records()[NAME]["efforts"]["opus"]["effort"]
+        self.wrote(10, "Fix the acme api")
+        config.change_efforts(NAME, lambda data: {"opus": {"effort": "max"}})   # moved on `c`
+        watch.seat_write(NAME, switched=LAUNCHED + 20)
+        # what the move typed, a question the owner answered, a prompt queued meanwhile (Claude
+        # Code hands it over beside a tool's result) and a compaction go on in the same turn
+        self.wrote(19, "<local-command-stdout>Set effort level to max</local-command-stdout>")
+        self.wrote(25, [{"type": "tool_result", "tool_use_id": "toolu_acme", "content": "yes"}])
+        self.wrote(26, type="attachment", attachment={
+            "type": "queued_command", "prompt": "And the docs", "origin": {"kind": "human"}})
+        self.wrote(27, "This session is being continued", isCompactSummary=True,
+                   turnOrigin="human")
+        self.looked(("opus", 30, "xhigh"))
+        self.assertEqual(held(), "max")
+        report = config.STATE / f"model-{THREAD}.json"      # `/effort` typed inside, mid-turn
+        report.write_text(json.dumps({"model": "claude-opus-5-5", "effort": "medium"}))
+        os.utime(report, (LAUNCHED + 35,) * 2)
+        self.looked(("opus", 40, "xhigh"))
+        self.assertEqual(held(), "medium")
+        self.wrote(50, "And the docs")
+        self.looked(("opus", 60, "low"))
+        self.assertEqual(held(), "low")
+
+    def test_after_a_move_a_turn_claude_code_begins_counts_as_one_the_owner_begins(self):
+        openers = {
+            "a task notification": dict(content="<task-notification>acme</task-notification>",
+                                        origin={"kind": "task-notification"}),
+            "a scheduled check-in": dict(content="Is acme live?", isMeta=True,
+                                         turnOrigin="scheduled"),
+            "a prompt queued after an answer": dict(type="attachment", attachment={
+                "type": "queued_command", "prompt": "And the docs", "origin": {"kind": "human"}}),
+        }
+        for late, (said, opener) in zip(range(100, 1000, 100), openers.items()):
+            with self.subTest(said):
+                config.change_efforts(NAME, lambda data: {"opus": {"effort": "max"}})
+                watch.seat_write(NAME, switched=LAUNCHED + late)
+                self.wrote(late + 10, **opener)
+                self.looked(("opus", late + 20, "low"))
+                self.assertEqual(config.session_records()[NAME]["efforts"]["opus"]["effort"],
+                                 "low")
 
     def test_an_answer_up_to_the_launch_moves_nothing(self):
         self.assertEqual(self.looked(("fable", -30, None)), "opus")

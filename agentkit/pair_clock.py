@@ -67,22 +67,25 @@ def read(line):
 
 def _stamp(line):
     wall, since, boot = line.split()
-    return Stamp(float(wall), float(since), boot)
+    clocks = float(wall), float(since)
+    # A nan or infinite clock makes every age nan or infinite, which no limit can be measured by.
+    if not all(map(math.isfinite, clocks)):
+        raise ValueError(f"a clock is no time: {line}")
+    return Stamp(*clocks, boot)
 
 
 def now():
-    """This machine's stamp now, or the one AK_NOW sets: a key's that cannot be read fails."""
+    """This machine's stamp now, or the one AK_NOW sets: a key's that cannot be read fails, and
+    so does a boot Linux cannot say (OSError), since no age can be read across an unknown one."""
     if NOW in os.environ:
         return _stamp(os.environ[NOW])
-    return Stamp(time.time(), time.clock_gettime(time.CLOCK_BOOTTIME), boot())
+    return Stamp(time.time(), time.clock_gettime(time.CLOCK_BOOTTIME), BOOT.read_text().strip())
 
 
 def boot():
     """The host's boot now, which every restart of it changes, or the one AK_NOW sets; None
     where Linux cannot say."""
-    if NOW in os.environ:
-        return now().boot
     try:
-        return BOOT.read_text().strip()
+        return now().boot
     except OSError:
         return None

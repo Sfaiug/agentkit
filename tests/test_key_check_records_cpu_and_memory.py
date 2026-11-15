@@ -12,6 +12,7 @@ reads the Home's history.db.
 
 import contextlib
 from pathlib import Path
+import shlex
 import sqlite3
 import sys
 import unittest
@@ -22,8 +23,9 @@ from test_key_every_check_leaves_a_row import Rows
 import test_key_health_pass as health
 import test_key_landing_and_health_leave_rows as probed
 
-# a second of its own CPU, all of it with 200 MB it wrote resident
-BURN = ("python3 -c \"import time; held = b'x' * (200 << 20); "
+# a second of its own CPU, all of it with 200 MB it wrote resident; this test's own Python,
+# never one found on PATH: a Home judging a program that runs no Python holds one that refuses
+BURN = (shlex.quote(sys.executable) + " -c \"import time; held = b'x' * (200 << 20); "
         "any(time.process_time() >= 1 for _ in iter(int, 1))\"")
 
 

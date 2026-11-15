@@ -26,6 +26,7 @@ const (
 type Seat struct {
 	Number                              int
 	Name, Checkout, Model, Word, Unsent string // Checkout "" is filed under none
+	Back                                string // when one out of usage comes back, `19:20`
 	Alone                               string // its model without the effort Model names
 	Done, Total                         int    // its plan's lines done, of how many; none without one
 	Builds, Reviews                     []string
@@ -380,29 +381,26 @@ func needing(seats []Seat, lines []row) bool {
 	})
 }
 
-func unsentMark(s terminal.Screen, text string) string {
-	if s.ASCII() {
-		return "* " + text
-	}
-	return "¶ " + text
-}
-
 // lastColumn is a row's one last column in room cells (menu.last_column), none where room is
-// negative saying the fewest cells that hold it: its progress (planBar, barred), and `¶ unsent` two
-// cells after where the owner left text.  The line keeps eight cells at least, unless narrow, where
-// it takes the room and never more: the count alone where no cell of line fits, the mark alone where
-// both do not.
+// negative saying the fewest cells that hold it: its progress (planBar, barred), in its place for one
+// out of usage when it comes back, `back 19:20`, and `¶ unsent` two cells after where the owner left
+// text.  The line keeps eight cells at least, unless narrow, where it takes the room and never more:
+// the count alone where no cell of line fits, the mark alone where both do not.
 func lastColumn(s terminal.Screen, seat Seat, room int, narrow bool) string {
 	mark := ""
 	if seat.Unsent != "" {
-		mark = unsentMark(s, "unsent")
+		mark = s.Unsent("unsent")
 	}
 	left := max(room, 0)
 	if mark != "" {
 		left -= terminal.Cells(mark) + 2
 	}
 	bar, text := "", ""
-	if barred(seat) {
+	switch {
+	case seat.Word == "out of usage" && seat.Back != "":
+		text = "back " + seat.Back
+		bar = s.Styled(text, seat.Word)
+	case barred(seat):
 		smallest := 8
 		if narrow {
 			smallest = 0

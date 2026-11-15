@@ -18,12 +18,14 @@ import (
 
 // SignIn is what runs that verb of a harness's adapter for the menu, `install`, `login [again]`,
 // `logout` or `forget`: the script $AGENTKIT_ADAPTER_DIR holds; else this program for a login and
-// its forget, where the manifest gives it the words of a sign-in (`[launch] login`); else the shell
-// adapter shipped beside the manifest.  This program, not the live one a seat's line runs: a
-// sign-in ends before this process does, and an older build may not carry its verbs.
+// its forget, where the manifest gives it the words of a sign-in (`[launch] login`) or the harness
+// carries the verb out itself (harness.Verb); else the shell adapter shipped beside the manifest.
+// This program, not the live one a seat's line runs: a sign-in ends before this process does, and
+// an older build may not carry its verbs.
 func SignIn(name, verb string) ([]string, error) {
 	_, err := config.Adapter(name)
-	if _, ok, _ := config.Launch(name, "login", nil); ok && errors.Is(err, config.ErrNoAdapterDir) &&
+	_, words, _ := config.Launch(name, "login", nil)
+	if (words || harness.Verb(name, verb) != nil) && errors.Is(err, config.ErrNoAdapterDir) &&
 		(verb == "login" || verb == "forget") {
 		program, _, err := config.Running()
 		return []string{program, "adapter", filepath.Dir(filepath.Dir(program)), name}, err

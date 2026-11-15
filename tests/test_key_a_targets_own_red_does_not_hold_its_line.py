@@ -3,11 +3,12 @@
 The target's tip fails t/widget.sh alone, by name, so the lander starts its repair at once.
 While that is under way the members whose stack is red in nothing else land over it, no green
 evidence kept for their trees, and one red in t/acme.sh too gets a fix naming that test alone,
-widget.sh excused.  The repair, once its stack passes widget.sh, lands with the
-`Suite-Passed-Tree` trailer, and the target's new tip holds no red.  A red that named no test
-holds the line on the retry ladder.  Black-box: the program `AK_BIN` names checks the line from
-outside through tests/fixtures/akline.py, its suite failing before it names a test where
-crash.txt is, the repair's worker scripted by fakeadapter.py and its GitHub by fakegh.py.
+widget.sh excused, as a fix given while the target was still green is once its red is found.
+The repair, once its stack passes widget.sh, lands with the `Suite-Passed-Tree` trailer, and the
+target's new tip holds no red.  A red that named no test holds the line on the retry ladder.
+Black-box: the program `AK_BIN` names checks the line from outside through
+tests/fixtures/akline.py, its suite failing before it names a test where crash.txt is, the
+repair's worker scripted by fakeadapter.py and its GitHub by fakegh.py.
 """
 
 import json
@@ -86,6 +87,17 @@ class ATargetsOwnRedDoesNotHoldItsLine(unittest.TestCase):
         self.assertTrue(line.rig.origin("log", "-1", "--format=%b", "main").endswith(
             f"Suite-Passed-Tree: {tree}"))
         self.assertNotIn(tree, self.green(line)["red"])
+
+    def test_a_fix_given_before_the_targets_named_red_was_found_excuses_it(self):
+        line = self.line(**{"retry.txt": "\n"})
+        self.member(line, {"acme.txt": "red\n"})
+        self.land(line)
+        self.assertNotIn("excused", line.verdict(1)["fix"])
+        line.rig.commit({"retry.txt": None}, "main breaks")
+        self.member(line, {"one.txt": "1\n"})
+        self.land(line)
+        fix = line.verdict(1)["fix"]
+        self.assertEqual((fix["tests"], fix["excused"]), (["acme.sh"], ["widget.sh"]))
 
     def test_a_red_that_named_no_test_holds_the_line_on_the_ladder(self):
         line = self.line(**{"crash.txt": "target breakage\n"})

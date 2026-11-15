@@ -12,7 +12,7 @@ import (
 	"agentkit/internal/host"
 )
 
-func TestTheMenuSweepsOnlyAHomeItAdmitsAndDrawsWhatTheSweepLeft(t *testing.T) {
+func TestTheMenuSweepsOnlyAHomeItAdmitsAndLogsWhatTheSweepDid(t *testing.T) {
 	if host.BootID() == "" {
 		t.Skip("no boot id to tell another boot by")
 	}
@@ -51,9 +51,10 @@ func TestTheMenuSweepsOnlyAHomeItAdmitsAndDrawsWhatTheSweepLeft(t *testing.T) {
 			if boot == "another" && (code != 3 || kept != nil) {
 				t.Fatalf("exit=%d record: %v", code, kept)
 			}
-			if boot == "this" && (code != 0 || kept == nil || !strings.HasPrefix(out.String(), " forgot the session acme, gone for 8d\nagentkit") ||
-				!strings.Contains(out.String(), "no sessions; n starts one")) {
-				t.Fatalf("exit=%d record: %v stdout=%q stderr=%q", code, kept, out.String(), errOut.String())
+			logged, _ := os.ReadFile(filepath.Join(home, ".agentkit", "tmp", "watch.log"))
+			if boot == "this" && (code != 0 || kept == nil || !strings.HasPrefix(out.String(), "agentkit") ||
+				!strings.Contains(out.String(), "no sessions; n starts one") || !strings.HasSuffix(string(logged), " forgot the session acme, gone for 8d\n")) {
+				t.Fatalf("exit=%d record: %v stdout=%q stderr=%q log=%q", code, kept, out.String(), errOut.String(), logged)
 			}
 		})
 	}

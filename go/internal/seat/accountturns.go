@@ -7,6 +7,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/notify"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 )
 
@@ -29,11 +30,7 @@ func ContinueTurns(accounts bool) (bool, error) {
 				return nil
 			}
 			at, _ := mark.Num("at")
-			stop, _ := run.ReadJSON(ownFile("stop", current))
-			turn := 0.0
-			if stop != nil {
-				turn, _ = stop.Num("turn")
-			}
+			turn, _ := plan.Prompted(current)
 			tries, _ := mark.Int("tries")
 			var next any
 			if mark.Truthy("launched") && mark.Str("boot") == host.BootID() && mark.Str("name") == current && Watching(current) && turn <= at && tries+1 < 3 {

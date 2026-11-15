@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"agentkit/internal/adapters"
-	"agentkit/internal/agent"
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
@@ -181,7 +180,7 @@ func Tidy(now time.Time) bool {
 }
 
 // find is the session tmux holds for a seat of that name, and whether all its panes have exited
-// (orch.find): one with no mark and no record is a seat only while an agent runs in it.  Not known
+// (orch.find): one with no mark and no record may be no seat (noSeat).  Not known
 // where the seat is on the person's own server, from before ak had its own.
 func find(name string, record map[string]any) (held, exited, known bool) {
 	named := func(session tmux.Session) bool { return config.Fold(session.Name) == name }
@@ -192,7 +191,7 @@ func find(name string, record map[string]any) (held, exited, known bool) {
 			return session.Mark == "1" && named(session)
 		})
 	}
-	if own[at].Mark != "1" && record == nil && agent.Agentless(tmux.Own(), []string{own[at].Name}) {
+	if own[at].Mark != "1" && record == nil && noSeat(own[at].Name) {
 		return false, false, true
 	}
 	return true, slices.Contains(tmux.Dead(tmux.Own()), own[at].Name), true

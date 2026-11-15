@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"agentkit/internal/boards"
@@ -88,7 +89,8 @@ func shares(held *run.Object) (*run.Object, error) {
 	s := spending(held)
 	defer s.db.Close()
 	weeks := map[[2]string]float64{} // by provider and the account its rows name
-	for login, plan := range s.plans(accounts, float64(time.Now().UnixNano())/1e9, SpentOver) {
+	now := float64(time.Now().UnixNano()) / 1e9
+	for login, plan := range s.plans(accounts, [2]float64{now - SpentOver, now})[0] {
 		if week, known := plan.Week(); known {
 			weeks[[2]string{login.Provider, cmp.Or(login.Account, config.DefaultAccount)}] = week
 		}
@@ -172,51 +174,63 @@ func shares(held *run.Object) (*run.Object, error) {
 	return found, nil
 }
 
-// plans is each login's Plan, Python's usage.plan_weeks over spend.weeks: per provider, a plan's
-// points and dollars are summed over every login's probe readings of its shared week over the over
-// seconds up to now, a reading kept with no plan its login's plan now.  A login's readings of one
-// plan and one week, by drift, are cut at each turn of unknown tokens (stretches); each stretch
-// rose from its earliest reading to its highest, what the login spent (listed) from the earliest
-// to the first at the highest bought that rise, and one whose spend cannot be priced counts for
-// nothing.
-func (s *spend) plans(accounts []usage.Week, now, over float64) map[usage.Week]usage.Plan {
-	type key struct{ provider, account, plan string }
+// plans is each login's Plan over each of windows, (since, until) each, Python's spend.weeks: per
+// provider, a plan's points and dollars are summed over every login's probe readings of its shared
+// week in the window, a reading kept with no plan its login's plan now.  A login's readings of one
+// plan and one week, by drift, are cut at each turn of unknown tokens (stretches), read once from
+// the earliest window, as a turn that ended before a window's first reading cuts nothing in it:
+// read for each of Checks's fourteen, they took the owner 9.4 s.  Each stretch rose from its
+// earliest reading to its highest, what the login spent (listed) from the earliest to the first at
+// the highest bought that rise, and one whose spend cannot be priced counts for nothing.
+func (s *spend) plans(accounts []usage.Week, windows ...[2]float64) []map[usage.Week]usage.Plan {
+	type key struct {
+		window                  int
+		provider, account, plan string
+	}
 	type group struct {
 		key
 		start float64
 	}
 	plans := map[usage.Week]string{} // each login's plan now, none where logins.json knows none
-	var order []group
-	groups := map[group][][2]float64{}
-	start, last := map[key]float64{}, map[key]float64{}
 	for _, login := range accounts {
 		if kept := logins.Of(login.Provider, login.Account); kept != nil {
 			plans[login] = kept.Str("plan")
 		}
-		if login.Meter == "" {
-			continue
-		}
-		for _, row := range s.db.Select("SELECT used, resets_at, at, plan FROM meter_readings WHERE provider = ? AND "+
-			"account = ? AND meter = ? AND source = 'probe' AND at >= ? AND at <= ? AND "+
-			"used IS NOT NULL AND resets_at IS NOT NULL ORDER BY resets_at",
-			login.Provider, cmp.Or(login.Account, config.DefaultAccount), login.Meter, now-over, now) {
-			used, _ := row.Num("used")
-			resets, _ := row.Num("resets_at")
-			at, _ := row.Num("at")
-			k := key{login.Provider, login.Account, cmp.Or(row.Text("plan"), plans[login])}
-			if before, seen := last[k]; !seen || resets-before > drift {
-				start[k] = resets
+	}
+	var order []group
+	groups := map[group][][2]float64{}
+	start, last := map[key]float64{}, map[key]float64{}
+	for window, span := range windows {
+		for _, login := range accounts {
+			if login.Meter == "" {
+				continue
 			}
-			last[k] = resets
-			each := group{k, start[k]}
-			if groups[each] == nil {
-				order = append(order, each)
+			for _, row := range s.db.Select("SELECT used, resets_at, at, plan FROM meter_readings WHERE provider = ? AND "+
+				"account = ? AND meter = ? AND source = 'probe' AND at >= ? AND at <= ? AND "+
+				"used IS NOT NULL AND resets_at IS NOT NULL ORDER BY resets_at",
+				login.Provider, cmp.Or(login.Account, config.DefaultAccount), login.Meter, span[0], span[1]) {
+				used, _ := row.Num("used")
+				resets, _ := row.Num("resets_at")
+				at, _ := row.Num("at")
+				k := key{window, login.Provider, login.Account, cmp.Or(row.Text("plan"), plans[login])}
+				if before, seen := last[k]; !seen || resets-before > drift {
+					start[k] = resets
+				}
+				last[k] = resets
+				each := group{k, start[k]}
+				if groups[each] == nil {
+					order = append(order, each)
+				}
+				groups[each] = append(groups[each], [2]float64{at, used})
 			}
-			groups[each] = append(groups[each], [2]float64{at, used})
 		}
 	}
-	unknown := s.db.Unknowns(now - over)
-	fits := map[[2]string]usage.Plan{} // by provider and plan
+	unknown := s.db.Unknowns(slices.MinFunc(windows, func(a, b [2]float64) int { return cmp.Compare(a[0], b[0]) })[0])
+	type fit struct {
+		window         int
+		provider, plan string
+	}
+	fits := map[fit]usage.Plan{}
 	for _, each := range order {
 		for _, stretch := range s.stretches(each.provider, each.account, groups[each], unknown) {
 			began, top, until := stretch[0], stretch[0][1], stretch[0][0]
@@ -226,17 +240,21 @@ func (s *spend) plans(accounts []usage.Week, now, over float64) map[usage.Week]u
 				}
 			}
 			if dollars, priced := s.listed(each.provider, each.account, began[0], until); priced {
-				fit := fits[[2]string{each.provider, each.plan}]
-				fit.Points, fit.Dollars = fit.Points+top-began[1], fit.Dollars+dollars
-				fits[[2]string{each.provider, each.plan}] = fit
+				at := fit{each.window, each.provider, each.plan}
+				plan := fits[at]
+				plan.Points, plan.Dollars = plan.Points+top-began[1], plan.Dollars+dollars
+				fits[at] = plan
 			}
 		}
 	}
-	found := map[usage.Week]usage.Plan{}
-	for _, login := range accounts {
-		fit := fits[[2]string{login.Provider, plans[login]}]
-		fit.Name = plans[login]
-		found[login] = fit
+	found := make([]map[usage.Week]usage.Plan, len(windows))
+	for window := range windows {
+		found[window] = map[usage.Week]usage.Plan{}
+		for _, login := range accounts {
+			plan := fits[fit{window, login.Provider, plans[login]}]
+			plan.Name = plans[login]
+			found[window][login] = plan
+		}
 	}
 	return found
 }
@@ -294,12 +312,7 @@ func (s *spend) rows(account string, since, until float64) []spent {
 		if share == 0 { // it only touches the time at an end: none of it was spent then
 			continue
 		}
-		harness := ""
-		if turn := row.Text("turn"); turn != "" {
-			receipt, _ := os.ReadFile(filepath.Join(turn, "harness"))
-			harness = strings.TrimSpace(string(receipt))
-		}
-		each := counted(row, harness, 0)
+		each := counted(row, harnessOf(row.Text("turn")), 0)
 		for i := range each.counts {
 			each.counts[i] *= share
 		}
@@ -308,6 +321,23 @@ func (s *spend) rows(account string, since, until float64) []spent {
 	}
 	return found
 }
+
+// harnessOf is the harness receipt of a turn that kept a turn_usage row, "" for none, read once in
+// a process, Python's spend._harness: a row is written once its turn has ended, and the receipt
+// changes no more after that.  Read for each of its rows in each provider's pricing, they took the
+// owner 5.9 s of an `ak usage`.
+func harnessOf(turn string) string {
+	if turn == "" {
+		return ""
+	}
+	once, _ := harnesses.LoadOrStore(turn, sync.OnceValue(func() string {
+		receipt, _ := os.ReadFile(filepath.Join(turn, "harness"))
+		return strings.TrimSpace(string(receipt))
+	}))
+	return once.(func() string)()
+}
+
+var harnesses sync.Map
 
 // counted is the row's model and counts, an unknown count counting 0 toward its tokens.
 func counted(row history.Row, harness string, tokens float64) spent {

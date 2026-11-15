@@ -46,7 +46,7 @@ class NotifyDoneIsGone(Sandbox):
         helped = self.ak("notify", "--help")
         self.assertEqual(helped.returncode, 0)
         for told in ((REPO / "orchestrator.md").read_text(),
-                     (REPO / "hooks/orchestrator-stop.sh").read_text(), helped.stdout):
+                     (REPO / "agentkit/turn_end.py").read_text(), helped.stdout):
             self.assertNotIn("notify done", told)
 
 

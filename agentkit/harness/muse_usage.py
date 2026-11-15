@@ -14,6 +14,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from agentkit import config, usage_probe
@@ -33,7 +34,7 @@ def left(reserve=0.0):
 
 
 def auth_file():
-    """(api_key or None, api base origin or None) from Muse's file credential backend."""
+    """(api_key or None, api base URL or None) from Muse's file credential backend."""
     try:
         with open(AUTH) as fh:
             meta = json.load(fh).get("providers", {}).get("meta", {})
@@ -197,8 +198,10 @@ def probe(key, origin, policy, *fallbacks):
                        "stream": True,
                        "store": False,
                        "reasoning": {"effort": effort}}).encode()
-    host = origin.split("://", 1)[1].rstrip("/")
-    conn = http.client.HTTPSConnection(host, 443, timeout=max(.001, left()))
+    url = urllib.parse.urlsplit(origin)   # its origin alone: the request names its own path
+    plain = url.scheme == "http"
+    conn = (http.client.HTTPConnection if plain else http.client.HTTPSConnection)(
+        url.hostname, url.port or (80 if plain else 443), timeout=max(.001, left()))
     try:
         conn.request("POST", "/v1/responses", body=body, headers={
             "authorization": "Bearer " + key,
@@ -248,10 +251,8 @@ def fresh():
     except (config.Error, KeyError, TypeError, ValueError):
         return result(error="invalid Muse usage policy in ~/.agentkit/config.toml")
     key, base = auth_file()
-    origin = "https://api.meta.ai"
-    if base:
-        parts = base.split("://", 1)
-        origin = parts[0] + "://" + parts[1].split("/", 1)[0]
+    # an answer key's fake Meta, on the loopback, stands in for Meta and for Muse's own base
+    origin = os.environ.get("AK_MUSE_URL") or base or "https://api.meta.ai"
     key = os.environ.get("META_API_KEY") or key
     if not key:
         if not os.path.exists(AUTH):

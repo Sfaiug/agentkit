@@ -275,9 +275,6 @@ func TestWhatTheLookDoesNotReadYetWritesNothing(t *testing.T) {
 		"a run parked on its login": func(t *testing.T, home string) {
 			runRecord(t, home, "going", map[string]any{"state": "waiting_login", "started_at": 1, "finished_at": nil})
 		},
-		"a usage refusal kept with no wait": func(t *testing.T, home string) {
-			write(t, stateFile(home, "seat-acme.json"), `{"usage_refusal": {"line": "spent", "at": 1}}`)
-		},
 		"a stall the tick keeps": func(t *testing.T, home string) {
 			write(t, stateFile(home, "watch.json"), `{"stalls": {"acme": {"kind": "login", "at": 1}}}`)
 		},

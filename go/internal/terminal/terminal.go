@@ -267,6 +267,15 @@ func (s Screen) Glyph(word string) string {
 	return styles[word].glyph
 }
 
+// Unsent is `¶ <text>`, `* <text>` without UTF-8: what the owner left unsent (menu.unsent_mark),
+// on the row, its open line and the seat's bar alike.
+func (s Screen) Unsent(text string) string {
+	if s.ascii {
+		return "* " + text
+	}
+	return "¶ " + text
+}
+
 // StateText is `glyph word`.
 func (s Screen) StateText(word string) string {
 	return s.Glyph(word) + " " + word
