@@ -84,8 +84,14 @@ def policy_of(state):
 
 
 def review_off(state):
-    """Only a launch that captured zero may deliver without reviewer evidence."""
+    """Whether the launch captured zero review rounds: it picks no reviewer and has one round."""
     return (state.get("policy") or {}).get("review_rounds") == 0
+
+
+def no_review(state):
+    """Whether the run delivers without reviewer evidence: under `review_off`, or with a change
+    its last round found touching only paths its target marks checks-only (`roundloop.review`)."""
+    return review_off(state) or state.get("checks_only") is True
 
 
 def run_dirs():

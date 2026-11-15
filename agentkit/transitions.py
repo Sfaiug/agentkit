@@ -50,11 +50,11 @@ def review_pass(state, cfg):
         return False
     if state.get("repo") and not all(evidence.get(key) for key in ("head_sha", "tree_sha")):
         return False
-    if run_record.review_off(state):
+    if run_record.no_review(state):
         return (evidence.get("no_review") is True and evidence.get("done_when") is True
                 and evidence.get("verdict") == "PASS" and evidence.get("returncode") == 0
                 and evidence.get("executor") == state.get("executor")
-                and evidence.get("reviewer") is None and state.get("reviewer") is None)
+                and evidence.get("reviewer") is None)
     if (evidence.get("returncode") != 0 or evidence.get("verdict") != "PASS"
             # a reviewed PR whose repository declares no suite ran nothing: None, not True
             or not (evidence.get("done_when") is True
@@ -153,7 +153,7 @@ def history_start(state, log=None):
                       task_checks=state.get("task_checks"),
                       orchestrator=record.get("orchestrator") if record else None,
                       change=change_name(state), kind=run_kind(state),
-                      plan_line=state.get("plan_line"), no_review=int(run_record.review_off(state)), log=log)
+                      plan_line=state.get("plan_line"), no_review=int(run_record.no_review(state)), log=log)
 
 
 def changed_files(state):
@@ -208,7 +208,7 @@ def diff_lines(repo, base, head="HEAD", added_only=False):
                 name = next(parts)
             if added != "-":
                 changes.append((name, int(added) if added_only else int(added) + int(deleted)))
-        generated = _generated(repo, base, [name for name, _ in changes])
+        generated = _marked(repo, base, [name for name, _ in changes], "linguist-generated")
         total += sum(lines for name, lines in changes if name not in generated)
     return total
 
@@ -219,8 +219,18 @@ def size_base(state):
     return state.get("target_sha") or state.get("base_sha")
 
 
-def _generated(repo, source, names):
-    """Which of `names` Git marks linguist-generated in `source`'s tree."""
+def checks_only(repo, base, head="HEAD"):
+    """Whether every path the change from `base` to `head` touches, a renamed file under both its
+    names, is marked `ak-checks-only` at `base`, as `diff_lines` reads linguist-generated: such a
+    change lands on its checks with no review (`roundloop.review`), and one marking its own paths
+    is reviewed, since they are marked only once a change of their own has landed."""
+    names = [name for name in gitcall.git(repo, "diff", "--name-only", "-z", "--no-renames",
+                                          f"{base}...{head}").split("\0") if name]
+    return bool(names) and _marked(repo, base, names, "ak-checks-only") == set(names)
+
+
+def _marked(repo, source, names, attribute):
+    """Which of `names` Git marks `attribute` in `source`'s tree."""
     if not names:
         return set()
     # Older Git has no check-attr --source; a private index reads the same tree, in the process's
@@ -228,10 +238,10 @@ def _generated(repo, source, names):
     with tempfile.TemporaryDirectory() as tmp:
         index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
         gitcall.git(repo, "read-tree", source, env=index)
-        attrs = gitcall.git(repo, "check-attr", "--cached", "-z", "linguist-generated",
+        attrs = gitcall.git(repo, "check-attr", "--cached", "-z", attribute,
                     "--", *names, env=index).split("\0")[2::3]
     if len(attrs) != len(names):
-        raise config.Error("git did not report generated attributes for the PR diff")
+        raise config.Error(f"git did not report {attribute} attributes for the diff")
     return {name for name, attr in zip(names, attrs) if attr.lower() in ("set", "true")}
 
 
@@ -285,8 +295,8 @@ def reviewed_lines(repo, base, head="HEAD"):
             added[new] = [" ".join(line[1:].split()) for line in lines if line[:1] == "+"]
         if old:
             deleted[old] = [" ".join(line[1:].split()) for line in lines if line[:1] == "-"]
-    skip_new = _generated(repo, base, sorted(added))
-    skip_old = _generated(repo, base, sorted(deleted))
+    skip_new = _marked(repo, base, sorted(added), "linguist-generated")
+    skip_old = _marked(repo, base, sorted(deleted), "linguist-generated")
     gone = {name: lines for name, lines in deleted.items() if name not in skip_old}
     # each deleted position is indexed by the run of lines from it that first reaches
     # MOVED_BLOCK alphanumerics: an added line starting no such run (a lone brace, a blank)

@@ -1328,6 +1328,8 @@ def first_review_sizes():
                 return (connection.execute(
                             "SELECT started_at, first_review_lines, rounds_used IS 1 AND "
                             "final_state IS 'pass' FROM runs WHERE first_review_lines IS NOT NULL "
+                            # a change that landed on its checks had no first review to weigh
+                            "AND NOT COALESCE(no_review, 0) "
                             f"AND NOT {own} AND COALESCE(\"change\", '') NOT LIKE '%#%' AND run_id "
                             f"NOT LIKE '%-review-pr-%' AND {counted} ORDER BY started_at",
                             record.JUDGED).fetchall(),
