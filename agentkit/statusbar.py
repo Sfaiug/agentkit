@@ -54,7 +54,6 @@ CLICK = ("bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + H
 CELLS = 36                         # a working seat's progress line and its count
 BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one is short of room
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
-DIM = terminal.colour("dim", tmux=True)
 # Line two: who builds and reviews and every task's squares, then the squares cut to six, then
 # the squares alone, then cut to six, then to one (`whys`).
 WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 5)))
@@ -122,16 +121,16 @@ def lines(name, model, word=None, last="", why=""):
     line its row opens under itself (`whys`).  Before its first word a seat's bar is its name and
     its model, and its title the name.
     """
-    top = f" {chip(word)}   " if word else " "
+    top, dim = f" {chip(word)}   " if word else " ", terminal.colour("dim", tmux=True)
     top += f"#[bold]{orch.tmux_text(name)}#[nobold]"
     if model:
-        top += f"   #[fg=#{DIM}]{orch.tmux_text(model)}#[default]"
+        top += f"   #[fg=#{dim}]{orch.tmux_text(model)}#[default]"
     if last:
         top += f"   {last}"
     key, verb = HINT.split("  ", 1)
     title = f"{name} · {word}" if word else name
     # tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
-    return (top, f"  {why}" if why else "", f"{key}#[fg=#{DIM}]  {verb} #[default]",
+    return (top, f"  {why}" if why else "", f"{key}#[fg=#{dim}]  {verb} #[default]",
             orch.tmux_text(title).replace("%", "%%"))
 
 

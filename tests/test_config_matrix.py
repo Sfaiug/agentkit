@@ -179,7 +179,7 @@ class Screen:
                 lines.lit = next(((number, (terminal.ANSI.sub("", found[1]).split() or [""])[-1])
                                   for number, line in enumerate(raw)
                                   for found in [SELECTED.search(line)] if found), None)
-                if lines and lines[0].startswith("agentkit · "):   # a narrow one sheds `config`
+                if lines and lines[0].startswith("agentkit ·"):    # a narrow one sheds `config`
                     return lines if where is None or where(lines) else None
             return None
         return self.until(ready, "the config screen")
@@ -286,7 +286,7 @@ class Matrix(unittest.TestCase):
                             for line in tail), tail)
         # the build under the last row, nothing said of the highlighted model
         version = tail.index("Version 2816 · 2026-09-29")
-        self.assertEqual(tail[version - 2].split()[0], "Limits", tail)
+        self.assertEqual(tail[version - 2].split()[0], "Theme", tail)
         self.assertEqual(tail[version - 1:], ["", "Version 2816 · 2026-09-29", "",
                                               KEYS.strip()])
         self.assertEqual(lines[-1], KEYS)
@@ -324,18 +324,20 @@ class Matrix(unittest.TestCase):
 
     def test_there_is_always_exactly_one_orchestrator(self):
         screen = Screen(self)
+        # the marks on the models' rows: `Theme` marks a theme
+        marks = lambda lines: "\n".join(line for line in lines if "Theme" not in line).count("●")
         lines = screen.frame()
-        self.assertEqual("\n".join(lines).count("●"), 1)
+        self.assertEqual(marks(lines), 1)
         # another model's mark moves the seat (the switch, its question with it, faked)
         lines = screen.press(SPACE, lambda lines: "●" in row(lines, "fable")[1])
-        self.assertEqual("\n".join(lines).count("●"), 1)
+        self.assertEqual(marks(lines), 1)
         self.assertEqual(screen.record()["orchestrator"], "fable")
         before = screen.session.read_bytes()
         lines = screen.press(b" ")                        # the one there is cannot be unmarked
         self.assertIn("●", row(lines, "fable")[1])
         self.assertEqual(screen.session.read_bytes(), before)
         lines = screen.press(DOWN * 3 + SPACE, lambda lines: "●" in row(lines, "astra")[1])
-        self.assertEqual("\n".join(lines).count("●"), 1)
+        self.assertEqual(marks(lines), 1)
         self.assertEqual(screen.record()["orchestrator"], "astra")
         screen.leave()
 
@@ -458,7 +460,7 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.proc.wait(15), 0)
 
     def test_a_click_on_a_folded_role_acts_on_that_role(self):
-        screen = Screen(self, rows=70, cols=32)
+        screen = Screen(self, rows=100, cols=32)      # every row, `Theme`'s folded marks too
         lines = screen.frame()
         self.assertTrue(all(terminal.cells(line) <= 32 for line in lines), lines)
         number, _ = row(lines, "opus")
@@ -470,6 +472,30 @@ class Matrix(unittest.TestCase):
         self.assertEqual(screen.record()["efforts"]["opus"]["exec_effort"], "max")
         self.assertEqual((lines[number], lines[number + 2]), (orch, reviews))
         self.assertIn("Opus 5.5", highlighted(lines))
+
+    def test_a_click_on_theme_s_label_marks_the_theme_in_force_whichever_cell_was_keyed(self):
+        screen = Screen(self)
+        screen.frame()
+        screen.press(DOWN, lambda lines: lit(lines, "opus") == "●")
+        lines = screen.press(RIGHT, lambda lines: on_effort(lines, "opus"))   # a cell Theme lacks
+        number, line = next((number, line) for number, line in enumerate(lines, 1)
+                            if "Theme" in line)
+        lines = screen.click(line.index("Theme") + 1, number,
+                             lambda lines: highlighted(lines).startswith("› Theme"))
+        self.assertIn("● black   ○ white", highlighted(lines))
+        self.assertEqual(screen.saved()["theme"], "black")
+        screen.leave()
+
+    def test_theme_s_marks_fold_under_its_label_where_the_values_column_is_too_narrow(self):
+        screen = Screen(self, rows=200, cols=20)
+        lines = screen.frame()
+        self.assertTrue(all(terminal.cells(line) <= 20 for line in lines), lines)
+        number = next(number for number, line in enumerate(lines, 1) if line == "  Theme")
+        self.assertEqual(lines[number:number + 2], ["    ● black", "    ○ white"])
+        screen.click(lines[number + 1].index("white") + 1, number + 2,
+                     lambda lines: "    ● white" in lines)
+        self.assertEqual(screen.saved()["theme"], "white")
+        screen.leave()
 
     def test_enter_on_discord_runs_its_step_and_version_is_no_stop(self):
         screen = Screen(self)
@@ -506,12 +532,12 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(len(lines), 23)
         self.assertTrue(highlighted(lines).startswith("› Opus"), lines)     # cut, on a phone
         lines = screen.press(DOWN * 14,
-                             lambda lines: highlighted(lines).startswith("› Limits"))
+                             lambda lines: highlighted(lines).startswith("› Theme"))
         self.assertLessEqual(len(lines), 23)
         self.assertIn("Version 2816 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 5, lambda lines: highlighted(lines) == "› Models")
+        lines = screen.press(UP * 6, lambda lines: highlighted(lines) == "› Models")
         self.assertEqual(highlighted(lines), "› Models")
         self.assertLessEqual(len(lines), 23)
         screen.leave()

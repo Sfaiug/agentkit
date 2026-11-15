@@ -124,10 +124,10 @@ func (k *Keyboard) Sense() {
 	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), theme: in}
 }
 
-// Screen is what Sense found, at the size the terminal is now.
+// Screen is what Sense found, at the size the terminal is now, in the theme in force now.
 func (k *Keyboard) Screen() Screen {
 	screen := k.sensed
-	screen.width, screen.height = width(os.Stdout), height(os.Stdout)
+	screen.width, screen.height, screen.theme = width(os.Stdout), height(os.Stdout), inForce(screen.theme)
 	return screen
 }
 

@@ -142,7 +142,7 @@ from pathlib import Path
 from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import done_check, google_cloud, logins, look, machines, open_runs, parsed, record
+from . import done_check, google_cloud, logins, look, machines, open_runs, parsed, record, themes
 from . import warm
 from .harness import load as harness_plugin
 
@@ -2973,11 +2973,12 @@ def show_notices(messages):
 # The rows under the models, each running its own step.  Owner, 10 Nov 2026: "Remove the weekly
 # audit feature for now. Dont delete it, but remove it."  `Weekly audit` (AUDIT), its value
 # audit_value's, stood between `Discord` and `Done check`.
-CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Done check", "Machines", "Limits")
+CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Done check", "Machines", "Limits", "Theme")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
 DONE_CHECK = ("row", "Done check")   # on or off, and the model that makes it (done_check.setting)
 MACHINES = ("row", "Machines")
 LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
+THEME = ("row", "Theme")         # each of themes.NAMES, the one in force marked (config_body)
 # Each of config.POLICY's numbers on `Limits`: its name there, how `Limits`' value on `c` says
 # it, before the number and its unit after, and the steps ← and → move it through (limit_step).
 # Owner, 3 Nov 2026: the keys' own names were unclear to users; 5 Nov 2026: "The executor cap
@@ -3847,7 +3848,9 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
     clock washes in and out as `lit` comes and goes (motion.washing).  Then `Models`,
     `Subscriptions`, `Discord`, `Done check`, `Machines` and `Limits` with
-    their values, unless `rows` is empty (a new session's screen).  A row is `("model", name)`
+    their values, and `Theme` with each theme's name after a mark, the one in force
+    (terminal.theme) marked, a cell each, the keys' one in `column`, unless `rows` is empty (a
+    new session's screen).  A row is `("model", name)`
     or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
     the cell on it the keys act on.  `cells` are a model row's (first, last, column), -1 its
@@ -3975,6 +3978,27 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                 "  " + terminal.cut(row, room - 2))
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
+    parts, first = [[f"  {terminal.pad(THEME[1], wide)} ", []]], 4 + wide    # the values' column
+    if first + 2 + max(map(terminal.cells, themes.NAMES)) > room:   # too wide beside the label:
+        parts, first = [["  " + THEME[1], []], ["   ", []]], 4      # under it, as a value folds
+    lead = first
+    for number, (name, theme) in enumerate(themes.NAMES.items()):
+        if parts[-1][1] and first + 2 + terminal.cells(name) > room:    # on under the first
+            parts.append([" " * (lead - 1), []])
+            first = lead
+        on, keyed = theme == terminal.theme(), at == THEME and number == column
+        mark, kind = marks[0 if on else 1], "accent" if on else "dim"
+        if moves is not None:
+            moves.append((len(lines) + len(parts) - 1, ("theme", name), mark,
+                          motion.toggled(mark, 3, kind, at == THEME, first)))
+        cell = terminal.toggle(mark, 3, kind, keyed) + name     # the keys' lit whole, as an effort
+        parts[-1][0] += (terminal.selected(cell, 1, terminal.cells(cell)) if keyed else cell) + "  "
+        parts[-1][1].append((first, first + 2 + terminal.cells(name), number))
+        first += 5 + terminal.cells(name)
+    for number, (line, cells) in enumerate(parts):
+        places[len(lines)] = (THEME, cells)
+        lines.append(terminal.highlight(line.rstrip(), number == 0, band=False) if at == THEME
+                     else line.rstrip())      # a mark is lit, as on a model's row
     return lines, places
 
 
@@ -4293,8 +4317,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     `r recommended`, opens the models screen (models_screen), what each role uses for whom the
     marks are, where ← and → take a role's next cheaper or better choice for them.  Enter or a
     click on `Models` opens its page (models_page), and on `Subscriptions` its page
-    (config_subscriptions), and on `Limits` its page (config_limits).  ↑ past the
-    first model, and the pointer, reach
+    (config_subscriptions), and on `Limits` its page (config_limits).  On `Theme` the keys come
+    onto the theme in force, ← and → move them between the two, and Space, Enter or a click on
+    one marks it, kept in config.toml as `theme = "white"`, every screen in it from its next
+    frame and this one at once (terminal.theme).  ↑ past the first model, and the pointer, reach
     the meters over the page: one is lit as the main screen lights it, its colour washing in
     over it and the labels of the models on it and out as it goes, and Enter or a click
     opens what it offers (meter_acts); on `Discord` its two
@@ -4326,7 +4352,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         columns = config_columns(selected, here[1]) if here[0] == "model" else ()
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
             column = column - 3 if column - 3 in columns else columns[0]
-        opens = here[0] in ("row", "usage")      # else a mark or an effort, changed in place
+        opens = here[0] in ("row", "usage") and here != THEME   # else changed in place
         # a meter that offers nothing opens no list (meter_acts)
         shut = here[0] == "usage" and not subscription_acts(cfg, keyboard, here[1])
         keys = terminal.keys(*([ADVICE_KEY] if advice else []),
@@ -4344,12 +4370,15 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                          refused, page_room((), keys, over) - len(body))
         over, meters, body, places, moves = meters_led((over, meters), body, places,
                                                        note_lines(told), keys, moves)
+        was = here
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             told, keys, marks=3,
                                             timeout=STIR if session else None,
                                             clock=clock, moves=moves,
                                             over=over, over_places=meters, keyed=column)
         column = column if clicked is None else clicked
+        if here == THEME != was and clicked is None:   # come to `Theme` by a key or its label:
+            column = list(themes.NAMES.values()).index(terminal.theme())    # on the one in force
         if act is None:
             if session and selected is not None:
                 seat_read(cfg, session, selected)
@@ -4385,6 +4414,13 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         elif here == ("row", CONFIG_ROWS[1]):
             if act == "enter":
                 config_subscriptions(cfg, keyboard)
+        elif here == THEME:
+            if act in ("left", "right"):
+                column = 1 if act == "right" else 0
+            elif act in ("space", "enter"):     # kept, and drawn in from the next frame on
+                before = copy.deepcopy(cfg)
+                cfg["theme"] = list(themes.NAMES)[column]
+                note = _saved(cfg, cfg, before)
         elif here[0] == "row":
             if act == "enter":
                 if here == AUDIT:

@@ -84,7 +84,7 @@ def opened(case, size):
     term.wait("esc leave")
     term.keys("c")
     term.wait("r recommended")
-    term.keys(*["j"] * 30)       # Limits is the last config row.
+    term.keys(*["j"] * 30, "k")     # Limits is over the last config row, Theme.
     term.wait("› Limits")
     term.keys("Enter")
     term.wait("› Review rounds")

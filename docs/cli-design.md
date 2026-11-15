@@ -92,9 +92,9 @@ Colour says where a thing stands. Screens ask for roles, never RGB: `working` is
 `needs you` warning, `done` success, `FAIL` and `out of usage` error, `dim`, `idle` and `waiting`
 dim; a bar's chip is on-accent on its state's. A fade nears the background; lit, the text.
 
-`themes.ROLES` (Go: `terminal/themes.go`) holds both themes; `terminal.sense` picks white on a
-light background, else black, and the colour depth, once per start. Under `NO_COLOR` nothing is
-coloured.
+`themes.ROLES` (Go: `terminal/themes.go`) holds both themes. `c`'s `Theme` row keeps one as
+config.toml's `theme`; else `terminal.sense` picks by the background, and the colour depth.
+`NO_COLOR` colours nothing.
 
 A company's colour, its provider's `colour` in config.toml else `menu.COLOURS`, colours its
 name on `c`; a harness's, from its manifest, its name over its models. Elsewhere it shows only

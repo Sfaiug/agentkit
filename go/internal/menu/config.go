@@ -13,7 +13,19 @@ import (
 // RoleHead is a role's name on the config matrix, by its place in quality.Roles.
 func RoleHead(role int) string { return [...]string{"orch", "builds", "reviews"}[role] }
 
-type ConfigOption struct{ Name, Value string }
+// A ConfigOption is a row under the models: its name, then its value, or one of its Marks marked,
+// each a cell after its mark (`Theme`).
+type ConfigOption struct {
+	Name, Value string
+	Marks       []string
+	Marked      int
+}
+
+// Marks is whether the row is a row of marks, the keys on one of them.
+func (view ConfigView) Marks() bool {
+	at := view.Row - len(view.Matrix.Names)
+	return at >= 0 && at < len(view.Options) && len(view.Options[at].Marks) > 0
+}
 
 type ConfigView struct {
 	Matrix                      *matrix.Configuration
@@ -67,6 +79,8 @@ func ConfigFrame(s terminal.Screen, view ConfigView) MatrixFrame {
 		keys = "arrows move   "
 	}
 	switch {
+	case view.Marks():
+		keys += "␣ mark   "
 	case view.Row >= len(view.Matrix.Names):
 		keys += "⏎ open   "
 	case view.Column < 3:
@@ -267,12 +281,50 @@ func configBody(s terminal.Screen, view ConfigView) []matrixRow {
 	put("", -1, nil)
 	optionWidth := 0
 	for _, option := range view.Options {
-		if option.Value != "" {
+		if option.Value != "" || len(option.Marks) > 0 {
 			optionWidth = max(optionWidth, terminal.Cells(option.Name))
 		}
 	}
 	valueWidth := max(1, room-4-optionWidth)
 	for i, option := range view.Options {
+		if len(option.Marks) > 0 { // each mark's cell its name after it, the keys' one reversed
+			line, cells, lead := "  "+terminal.Pad(option.Name, optionWidth)+" ", []matrixCell(nil), true
+			done := func() {
+				if view.Row == len(c.Names)+i {
+					line = s.Highlight(strings.TrimRight(line, " "), lead)
+				}
+				put(line, len(c.Names)+i, cells)
+			}
+			widest := 0
+			for _, name := range option.Marks {
+				widest = max(widest, terminal.Cells(name))
+			}
+			if terminal.Cells(line)+3+widest > room { // too wide beside the label: under it, as a value folds
+				line = "  " + option.Name
+				done()
+				line, lead = "   ", false
+			}
+			indent := terminal.Cells(line) // the marks' lines start under the first
+			for at, name := range option.Marks {
+				glyph, kind := "○", "dim"
+				if at == option.Marked {
+					glyph, kind = "●", "accent"
+				}
+				if s.ASCII() {
+					glyph = strings.NewReplacer("●", "*", "○", ".").Replace(glyph)
+				}
+				first := terminal.Cells(line) + 1
+				if cells != nil && first+2+terminal.Cells(name) > room { // on under the first
+					done()
+					line, cells, lead = strings.Repeat(" ", indent), nil, false
+					first = indent + 1
+				}
+				line += s.Toggle(glyph, 3, view.Row == len(c.Names)+i && view.Column == at, kind) + name + "  "
+				cells = append(cells, matrixCell{first, first + 2 + terminal.Cells(name), at})
+			}
+			done()
+			continue
+		}
 		parts := terminal.Wrap(option.Value, valueWidth)
 		if len(parts) == 0 {
 			parts = []string{""}

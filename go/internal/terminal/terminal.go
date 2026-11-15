@@ -98,7 +98,7 @@ type Screen struct {
 }
 
 func For(out io.Writer) Screen {
-	return Screen{depth: depth(out, false), width: width(out), ascii: !utf8()}
+	return Screen{depth: depth(out, false), width: width(out), ascii: !utf8(), theme: inForce(black)}
 }
 
 // TypedHere is whether a person is at this command's keyboard: agents run ak with no

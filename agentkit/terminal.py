@@ -15,12 +15,12 @@ from collections import namedtuple
 from functools import lru_cache, wraps
 from itertools import groupby
 
-from . import guard, motion, warm
-from .themes import BLACK, ROLES, WHITE
+from . import config, guard, motion, warm
+from .themes import BLACK, ROLES, WHITE, named
 
 # glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
-# table, its colour the role's in the theme in force (`THEME`).
+# table, its colour the role's in the theme in force (`theme`).
 # The five words a session reads, and the two presentation-only kinds the screens ask for
 # by name: `dim` for a note beside a row, `FAIL` for a verdict, which is no session state.
 STATE_STYLES = {
@@ -43,7 +43,7 @@ GREY = 0.15        # saturation under which a colour is a grey rather than a hue
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
          "good": "done", "spent": "out of usage"}
 _RGB = False       # the terminal takes true colour though COLORTERM does not say so (`sense`)
-THEME = BLACK      # the theme in force: white where `sense` finds the background light
+THEME = BLACK      # the theme the terminal fits: white where `sense` finds the background light
 PAD_ENV = "AGENTKIT_PADDING"   # the cells a popup asks to be left blank inside its border
 FEATURES_ENV = "AGENTKIT_TERMFEATURES"   # ... and its tmux client's terminal features
 _PAD = 0           # ... and those this process leaves (`inset`)
@@ -74,13 +74,38 @@ def style_of(word):
     return STATE_STYLES.get(word) or STATE_STYLES.get(str(word).split(" ")[0])
 
 
+_CHOSEN = [None, None]   # config.toml's stat as `chosen` last read it, and the theme it named
+
+
+def chosen():
+    """The theme config.toml names (themes.named) as the file is now: every draw asks, so nothing
+    that draws for hours, a seat's bar or the warm popup server, keeps one chosen before.  Read
+    again only once the file moved."""
+    path = os.path.join(config.HOME, config.CONFIG_NAME)    # asked for every colour: no Path made
+    try:
+        seen = os.stat(path)
+    except OSError:
+        return None
+    stamp = (path, seen.st_ino, seen.st_mtime_ns, seen.st_size)
+    if _CHOSEN[0] != stamp:
+        _CHOSEN[:] = stamp, named(path)
+    return _CHOSEN[1]
+
+
+def theme():
+    """The theme in force as a screen draws: the one config.toml names (`chosen`), else the one
+    the terminal's background fits (`THEME`)."""
+    picked = chosen()
+    return THEME if picked is None else picked
+
+
 def colour(word, tmux=False):
     """`word`'s colour -- a role's, a state's, or a kind's as `styled` reads it -- in the theme in
-    force; with `tmux`, in a tmux format (a seat's bar, a popup's border), black's whichever
-    process writes it: tmux shows it on a terminal ak never asks, and the menu's writes and the
-    tick's never disagree."""
-    role = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2]
-    return ROLES[role][BLACK if tmux else THEME]
+    force; with `tmux`, in a tmux format (a seat's bar, a popup's border), where config.toml names
+    none black's whichever process writes it: tmux shows it on a terminal ak never asks, and the
+    menu's writes and the tick's never disagree."""
+    role, picked = word if word in ROLES else STATE_STYLES[KINDS.get(word, word)][2], chosen()
+    return ROLES[role][picked if picked is not None else BLACK if tmux else THEME]
 
 
 def glyph(word):
@@ -148,7 +173,7 @@ def on_background(kind):
     """A caller's own colour -- `#RRGGBB`, or a kind as `styled` reads it -- as it reads here: on
     a light background a light grey is drawn as its mirror tone, so a white company reads black;
     a hue or a dark grey reads on both."""
-    if THEME == WHITE and kind.startswith("#") and light_grey(kind[1:]):
+    if theme() == WHITE and kind.startswith("#") and light_grey(kind[1:]):
         return "#" + "".join(f"{255 - int(kind[i:i + 2], 16):02x}" for i in (1, 3, 5))
     return kind
 
@@ -837,7 +862,7 @@ _POINTED = Spot()  # ... the `Spot` the pointer was on when it was drawn
 TICK = 10.0        # the longest any row goes unwritten: a stray write, a child's, heals by then
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
                    # one written over since (`over`); empty, nothing on it is known
-_UP_OF, _WHOLE = None, 0.0     # ... the screen they are of, and when all were written last
+_UP_OF, _WHOLE = None, 0.0     # ... the screen and theme they are of, and when all went last
 _LIST = {}         # the rows of a list (`choose`), {row: line}, over the blank ones its screen has
 _MOVED = 0.0       # when a move of the pointer was last answered
 _HELD = None       # a move read and not answered yet, and when the first of them was
@@ -1556,13 +1581,14 @@ def over(frame, rows=""):
 
 def written(lines, frame="", rising=False, screen=None):
     """`lines`, a screen from its first row, over the one up: the rows that differ from what the
-    terminal holds; all of them, what is below cleared, when `screen` is not the one up or what
-    is up not known, `lines` could scroll, and every TICK.  The cursor ends under them, where a
+    terminal holds; all of them, what is below cleared, when `screen` is not the one up, nor in
+    the theme in force, or what is up not known, `lines` could scroll, and every TICK: a row that
+    reads the same in another theme is painted anew.  The cursor ends under them, where a
     prompt goes.  `frame` goes in the same update (`over`); lines `rising` are its to write, never
     first as they are, on a cleared screen."""
     global _UP, _UP_OF, _WHOLE
     rows = [_LIST.get(row, line) for row, line in enumerate(lines, 1)]
-    starts = _starts(rows)
+    starts, screen = _starts(rows), (screen, theme())
     if (rising or not _UP or screen != _UP_OF or len(rows) >= height()
             or time.monotonic() >= _WHOLE + TICK):
         _WHOLE, text = time.monotonic(), "\033[H" + "".join(
