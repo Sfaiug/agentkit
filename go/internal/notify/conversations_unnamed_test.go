@@ -1,7 +1,6 @@
 package notify
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,8 +41,8 @@ func TestAConversationItsHarnessHasNotNamedIsNoneOfTheSeats(t *testing.T) {
 }
 
 // Asking whether an Antigravity launch has named its conversation learns nothing and takes no
-// lock: listed loosely or read strictly, the home stays as it was.
-func TestAskingANameWritesNothingBeforeAHandover(t *testing.T) {
+// lock: listed loosely or strictly, the home stays as it was.
+func TestAskingANameWritesNothing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -56,11 +55,10 @@ func TestAskingANameWritesNothingBeforeAHandover(t *testing.T) {
 		"model='astra'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n"), 0o600)
 	os.WriteFile(filepath.Join(state, "session-acme.json"), []byte(`{"orchestrator": "astra", "antigravity_launch": "`+
 		strings.Repeat("a", 32)+`"}`), 0o600)
-	if _, err := Conversations("acme", true); !errors.Is(err, ErrUnread) {
-		t.Errorf("strictly: %v", err)
-	}
-	if _, had, err := Listed("acme", false); err != nil || len(had) != 1 {
-		t.Errorf("listed loosely: %+v, %v", had, err)
+	for _, strictly := range []bool{true, false} {
+		if _, had, err := Listed("acme", strictly); err != nil || len(had) != 1 {
+			t.Errorf("listed, strictly %v: %+v, %v", strictly, had, err)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(state, "antigravity-claim.lock")); err == nil {
 		t.Errorf("asking a name made the claim's lock")

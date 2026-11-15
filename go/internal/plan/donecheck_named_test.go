@@ -13,7 +13,9 @@ import (
 // A seat's current conversation is none of its own only on proof its harness named none yet: each
 // file read for its name absent.  One there that is a folder, is not UTF-8 or says no name keeps
 // the conversation, so a finished plan is never finished on it without an error, nor does a loose
-// read of its conversations read it as having none.
+// read of its conversations read it as having none.  An Antigravity launch's is kept too, then
+// read as Python's `conversation` reads it: the other seats' records loosely, and no store its agy
+// holds open naming none, so the plan is finished.
 func TestAFinishedPlanIsFinishedOnAnUnnamedConversationOnlyOnProof(t *testing.T) {
 	token := strings.Repeat("a", 32)
 	for harness, files := range map[string]int{"opencode": 1, "muse": 1, "codex": 2, "antigravity": 1} {
@@ -63,11 +65,12 @@ func TestAFinishedPlanIsFinishedOnAnUnnamedConversationOnlyOnProof(t *testing.T)
 				finished, err := Finished("acme")
 				had, loose := notify.Conversations("acme", false)
 				unproven := held != "nothing" || harness == "antigravity" // a launch /proc may not show proves no absence
-				if !unproven && (!finished || err != nil || len(had) != 0 || loose != nil) {
-					t.Errorf("%s, file %d gone: finished %v, %v; %v, %v", harness, at, finished, err, had, loose)
+				done := held == "nothing" || harness == "antigravity"
+				if done != (finished && err == nil) {
+					t.Errorf("%s, file %d %s: finished %v, %v", harness, at, held, finished, err)
 				}
-				if unproven && (finished && err == nil || len(had) == 0 && loose == nil) {
-					t.Errorf("%s, file %d %s: finished %v, %v; read loosely %v, %v", harness, at, held, finished, err, had, loose)
+				if unproven == (len(had) == 0 && loose == nil) {
+					t.Errorf("%s, file %d %s: read loosely %v, %v", harness, at, held, had, loose)
 				}
 			}
 		}

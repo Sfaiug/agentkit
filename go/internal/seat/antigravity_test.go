@@ -2,6 +2,7 @@ package seat
 
 import (
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -45,7 +46,10 @@ func TestAntigravityStoreIsReadAtTheListingBoundary(t *testing.T) {
 				t.Fatal("Go did not read the seat without a store")
 			}
 			before := stateFiles(t, home)["session-acme.json"]
-			write(t, filepath.Join(home, ".gemini", "antigravity-cli", "conversations", "conv-acme.db"), "Python reads SQLite")
+			// a folder in its place, which Go cannot read
+			if err := os.MkdirAll(filepath.Join(home, ".gemini", "antigravity-cli", "conversations", "conv-acme.db"), 0o700); err != nil {
+				t.Fatal(err)
+			}
 			lines, found, err := listing.Explain("acme", time.Now())
 			if err != nil || !found || lines[0] != "acme  idle" || lines[2] != "  authority: screen  rule: prompt.composer" {
 				t.Fatalf("the store belongs to the next listing: %v, %v, %v", lines, found, err)

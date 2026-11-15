@@ -13,14 +13,21 @@ func TestTheLastLookAtAGoneSeatFollowsItsLatestAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, database := range map[string]string{"readable": string(readable), "unreadable": "pages"} {
+	for name, database := range map[string]string{"readable": string(readable), "unreadable": ""} {
 		t.Run(name, func(t *testing.T) {
 			home := sandbox(t)
 			write(t, filepath.Join(home, ".agentkit", "config.toml"),
 				opencodeConfig+"[models.free]\nharness='opencode'\nmodel='opencode/m-free'\neffort='low'\nprovider='test'\n")
 			t.Setenv("XDG_DATA_HOME", filepath.Join(home, "share"))
 			t.Setenv("OPENCODE_DB", "opencode.db")
-			write(t, filepath.Join(home, "share", "opencode", "opencode.db"), database)
+			path := filepath.Join(home, "share", "opencode", "opencode.db")
+			if database == "" { // a folder in its place, which Go cannot read
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				write(t, path, database)
+			}
 			token := strings.Repeat("a", 32)
 			write(t, filepath.Join(stateFile(home, "opencode-launch-"+token), "session"), "ses_Free\n")
 			record(t, home, "acme", map[string]any{"orchestrator": "vela", "workers": []string{"vela"},
