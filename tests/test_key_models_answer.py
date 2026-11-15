@@ -32,7 +32,7 @@ ROWS = [("acme-max-5", "Acme Max 5", "max", 70, 0.80, 0.80, 20.0),
 SAME = {"aa.briefcaseBreakdown.overall.elo": 1400, "aa.omniscience": 50,
         "aa.automationBenchPartialScore": 0.5}
 # what a board held from another build is asked again for lacking, carried by a retired model
-OLD = {"artificialanalysis.ai": "aa.intelligenceIndexCostPerTask.cost.total",
+OLD = {"artificialanalysis.ai": "aa.intelligenceIndexCostPerTask.cost.total aa.effort.level",
        "arena.ai": "arena.agent_task_outcome_explicit arena.agent_steerability "
                    "arena.agent_bash_reliability arena.text_factuality.coding "
                    "arena.text_style_control.coding arena.agent.lower95ci"}

@@ -64,9 +64,10 @@ EFFORT_WORDS = {"x-high": "xhigh", "extra high": "xhigh", "non-reasoning": "none
 # release's slug, name and the release that replaced it (`deprecatedTo`), its maker's name and
 # whether it is deprecated
 IDENTITY = {"artificialanalysis.ai": {"slug", "release", "maker", "deprecated"}}
-# what each board's reader gives since 26 Oct 2026, a table carried where any of its fields is:
-# Artificial Analysis's evaluations, and Arena's agent board with its interval
-ADDED = {"artificialanalysis.ai": {"aa.intelligenceIndexEvaluations"},
+# what each board's reader gives that an older one's rows lack, a table carried where any of
+# its fields is: Artificial Analysis's evaluations (26 Oct 2026) and records' efforts, which no
+# record on the one page read until 15 Nov 2026 gave, and Arena's agent board with its interval
+ADDED = {"artificialanalysis.ai": {"aa.intelligenceIndexEvaluations", "aa.effort"},
          "arena.ai": {"arena.agent.lower95ci"}}
 
 

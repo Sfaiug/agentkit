@@ -105,10 +105,22 @@ class Reread(Sandbox):
         self.assertEqual(self.asked("huggingface"), 2 * asked["huggingface"])
         self.assertEqual(self.asked("artificialanalysis"), 2 * asked["artificialanalysis"])
 
+    def test_a_board_read_off_the_one_page_is_asked_again_once(self):
+        # the one page Artificial Analysis was read off until 15 Nov 2026 gave no record's
+        # effort: a new build reads its list and release pages once
+        boards.collect(now=10000, build="abc1234")
+        self.forget("artificialanalysis.ai", "aa.effort.level")
+        asked = self.asked("artificialanalysis")
+        boards.collect(now=10001, build="def5678")
+        self.assertEqual(self.asked("artificialanalysis"), 2 * asked)
+        boards.collect(now=10002, build="ghi9012")                # its rows carry one now
+        self.assertEqual(self.asked("artificialanalysis"), 2 * asked)
+
     def test_a_new_build_waits_for_the_day_on_all_artificial_analysis_publishes(self):
         # it publishes no interval for a share `quality` reads off its task count, nor for
         # Omniscience: a new build asks again only for what a measure's error cannot lack
-        published = ({quality.INTEL, *quality.COSTS.values(), *quality.OMNISCIENCE[1:3]}
+        published = ({quality.INTEL, *quality.COSTS.values(), *quality.OMNISCIENCE[1:3],
+                      "aa.effort.level"}
                      | {column for role in quality.ROLES.values() for column, *_ in role
                         if column.startswith("aa.")}
                      | {name for pair in quality.INTERVALS.values() for name in pair})

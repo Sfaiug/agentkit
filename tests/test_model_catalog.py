@@ -47,7 +47,7 @@ def page(records):
     page hands its scripts."""
     data = json.dumps({"models": [
         {"id": f"{n:08x}-0000-4000-8000-000000000000", "slug": slug, "name": name,
-         "intelligenceIndex": index, "deprecated": deprecated,
+         "intelligenceIndex": index, "deprecated": deprecated, "effort": {"level": index},
          "intelligenceIndexEvaluations": [{"slug": "acme-bench", "score": index}],
          "release": {"slug": release, "name": release_name, "deprecatedTo": replaced_by},
          "creator": {"id": "00000000-0000-4000-8000-0000000000ac", "name": maker}}
@@ -76,6 +76,7 @@ class Catalog(Sandbox):
         rows = {row["slug"]: row for row in boards.collect(now=10000)[catalog.BOARD]["rows"]}
         self.assertEqual(rows["acme-6"], {
             "model": "Acme 6", "effort": "max", "values": {"aa.intelligenceIndex": 40,
+                                                       "aa.effort.level": 40,
                                                        "aa.intelligenceIndexEvaluations.acme-bench.score": 40},
             "slug": "acme-6", "release": {"slug": "acme-6", "name": "Acme 6",
                                           "deprecatedTo": "acme-6-5"},
@@ -84,7 +85,7 @@ class Catalog(Sandbox):
 
     def test_the_current_releases_strongest_first_each_with_its_efforts(self):
         held = boards.collect(now=10000)
-        aa = lambda index: {"aa.intelligenceIndex": index,
+        aa = lambda index: {"aa.intelligenceIndex": index, "aa.effort.level": index,
                             "aa.intelligenceIndexEvaluations.acme-bench.score": index}
         self.assertEqual(catalog.current(held), [
             {"slug": "beta-3", "name": "Beta 3", "maker": "Beta",

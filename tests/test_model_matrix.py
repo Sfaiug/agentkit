@@ -40,7 +40,8 @@ AA = [
      "price1mInputTokens": 4.0, "isReasoning": True, "omniscienceHallucinationRate": None,
      "briefcaseBreakdown": {"elo": 1800.0, "rubricPassRate": 0.6},    # flat, as the newest are
      "intelligenceIndexCostPerTask": {"cost": {"total": 5.98}}},
-    {"name": "Claude Opus 5.5 (xhigh)", "intelligenceIndex": 56},
+    {"name": "Claude Opus 5.5 (xhigh)", "intelligenceIndex": 56,
+     "effort": {"slug": "xhigh", "level": 50}},
     {"name": "Claude Haiku 4.5 (Non-reasoning)", "intelligenceIndex": 9.0,
      "intelligenceIndexEvaluations": [{"slug": "acme-bench", "score": 0.3}]},
     {"name": "Claude Sonnet 4.6 (Thinking)", "briefcaseBreakdown": {"overall": {"elo": 1500.0}}}]
