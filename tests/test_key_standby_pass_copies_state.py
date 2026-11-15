@@ -2,11 +2,12 @@
 folder on that home, at the same path: what the home deleted goes here too, and the home's runs
 and checkouts stay out; a file rewritten at the same size within a second crosses too.  This
 machine's record of its server, ak's tmp folder, its ak install and ak's repository stay as they
-were, and nothing starts from the copy.  A pass whose home does not answer, or has no ak folder,
-leaves the copy as it was, says why and exits non-zero; a machine not ALIAS's client is refused,
-saying so, as is one where a link is at what it keeps or above it in ak's folder, which a pass
-would replace or go past.  None of those renames the copy's config key by its old name, as other
-commands do.  Black-box, through tests/fixtures/twohomes.py.
+were, and nothing starts from the copy: the crontab holds the standby's own job alone.  A pass
+whose home does not answer, or has no ak folder, leaves the copy as it was, says why and exits
+non-zero; a machine not ALIAS's client is refused, saying so, as is one where a link is at what it
+keeps or above it in ak's folder, which a pass would replace or go past.  None of those renames
+the copy's config key by its old name, as other commands do.  Black-box, through
+tests/fixtures/twohomes.py.
 """
 
 import os
@@ -59,10 +60,11 @@ class APassCopiesAksFolder(unittest.TestCase):
             self.assertNotIn(path, after)
         self.assertEqual({path: after.get(path) for path in (SERVER, *OWN)},
                          {path: before[path] for path in (SERVER, *OWN)})
-        # nothing started from the copy: no seat or run, no tick or unit
+        # nothing started from the copy: no seat or run, no unit, and no tick beside the job
         self.assertNotEqual(here.tmux("list-sessions").code, 0)
-        for tool in ("crontab", "systemctl", "systemd-run"):
+        for tool in ("systemctl", "systemd-run"):
             self.assertEqual(here.calls(tool), [], tool)
+        self.assertEqual(len((here.root / "crontab").read_text().splitlines()), 1)
         # rewritten at the same size, a hundredth of a second later
         home.write(STATE, f"the home's {STATE}".upper())
         os.utime(home.path / STATE, ns=(WRITTEN + 10**7, WRITTEN + 10**7))
@@ -73,19 +75,19 @@ class APassCopiesAksFolder(unittest.TestCase):
     def test_a_pass_whose_home_does_not_answer_or_has_no_ak_folder_leaves_the_copy(self):
         home, here = self.home, self.here
         self.addCleanup(home.answer)
-        before = here.tree()
+        before = here.copy()
         home.silence()
         done = here.ak("standby", home.name)
         self.assertNotEqual(done.code, 0)
         self.assertIn(f"the pass from {home.name} failed", done.err)
-        self.assertEqual(here.tree(), before)
+        self.assertEqual(here.copy(), before)
         home.answer()
         shutil.rmtree(home.path / ".agentkit")
         done = here.ak("standby", home.name)
         self.assertNotEqual(done.code, 0)
         self.assertIn(f"the pass from {home.name} failed", done.err)
         self.assertIn(f"{here.env['HOME']}/.agentkit", done.err)    # the folder it lacks
-        self.assertEqual(here.tree(), before)
+        self.assertEqual(here.copy(), before)
 
     def test_a_machine_not_the_homes_client_or_with_a_link_where_it_keeps_its_own_is_refused(self):
         home, here = self.home, self.here
