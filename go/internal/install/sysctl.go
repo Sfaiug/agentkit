@@ -25,12 +25,36 @@ func coreDumps(out, errOut io.Writer) {
 	switch {
 	case err != nil || strings.HasPrefix(string(now), "|"):
 		// a host with no pattern to read (a Mac) has none to set
-	case exec.Command("sudo", "-n", "true").Run() != nil:
+	case !passwordless():
 		fmt.Fprintln(errOut, "note: core dumps: no passwordless sudo, so kernel.core_pattern is not set to discard them; run `sudo -v` and re-run ./install.sh")
 	case sysctlSet(live, "kernel.core_pattern", "|/bin/false", "no-core-dumps", "a crashed program leaves no core dump file"):
 		fmt.Fprintln(out, "core dumps: a crashed program leaves none, now and on every boot")
 	default:
 		fmt.Fprintln(errOut, "note: core dumps: kernel.core_pattern could not be set; see "+sysctlD())
+	}
+}
+
+// inotify leaves every session room for its inotify instances, as install.sh's step of that name
+// does.  Each harness process holds an inotify instance or two, and the kernel allows one user 128
+// whatever the host's size: 30 seats and 33 runs once held 99, and past the limit a harness's
+// file watching fails, as a test opening its own did at landing.  An instance costs kernel
+// memory only while it is open, so a floor of 8192 costs a host nothing, and a host that allows
+// more keeps its own.
+func inotify(out, errOut io.Writer) {
+	const floor = 8192
+	live := cmp.Or(os.Getenv("AK_INOTIFY_INSTANCES"), "/proc/sys/fs/inotify/max_user_instances")
+	read, err := os.ReadFile(live)
+	now := strings.TrimSpace(string(read))
+	limit, _ := strconv.Atoi(now)
+	switch {
+	case err != nil || limit >= floor:
+		// a host with no limit to read (a Mac) has none to set
+	case !passwordless():
+		fmt.Fprintln(errOut, "note: inotify: no passwordless sudo, so fs.inotify.max_user_instances stays "+now+"; run `sudo -v` and re-run ./install.sh")
+	case sysctlSet(live, "fs.inotify.max_user_instances", strconv.Itoa(floor), "inotify", "every session has room for its inotify instances"):
+		fmt.Fprintf(out, "inotify: room for %d instances per user, now and on every boot\n", floor)
+	default:
+		fmt.Fprintln(errOut, "note: inotify: fs.inotify.max_user_instances could not be set; see "+sysctlD())
 	}
 }
 
@@ -111,6 +135,12 @@ func sysctlSet(live, key, value, name, why string) bool {
 	}
 	return written(filepath.Join(dir, last+ours), "# Written by agentkit's install.sh: "+why+"\n"+key+" = "+value+"\n") &&
 		written(live, value)
+}
+
+// passwordless is whether sudo runs a command as root without asking for a password.
+func passwordless() bool {
+	_, err := sudo("true")
+	return err == nil
 }
 
 // sudo is what args run as root say, never asking for a password.
