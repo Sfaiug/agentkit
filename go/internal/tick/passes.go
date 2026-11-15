@@ -14,6 +14,7 @@ import (
 	"agentkit/internal/leftover"
 	"agentkit/internal/machines"
 	"agentkit/internal/seat"
+	"agentkit/internal/tmux"
 )
 
 // A pass is one row of the tick, as one of Python's watch.local_passes.
@@ -90,7 +91,12 @@ func table(t *ticking) []pass {
 		{"typed answers", false, every(answerable), t.typedAnswers},
 		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut, t.log.line) }},
 		{"notification retry", true, nil, t.retryNotifications},
-		{"server hooks", false, nil, hookOptions},
+		{"server hooks", false, nil, func() error {
+			if tmux.Reload() != nil {
+				return errLeft
+			}
+			return nil
+		}},
 		{"seat revival", false, configured, t.revive},
 		{"seat weights", false, nil, func() error { host.Front(); return nil }},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},

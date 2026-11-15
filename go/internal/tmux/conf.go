@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,13 +23,51 @@ const Client = "AGENTKIT_CLIENT"
 
 // Conf writes ak's own tmux config, ~/.agentkit/state/tmux.conf, and returns its path
 // (orch.tmux_conf): its own, as the owner's ~/.tmux.conf is theirs, neither read nor written.  A
-// touch scroll on a phone scrolls a seat's output, 50000 lines of it, rather than sending arrow keys
-// to the harness; a harness that quits as it opens keeps its pane, as the file is read before the
-// seat exists; a link it prints, and each repaint, reaches the owner's terminal whole; and Ctrl-b m
-// is the menu of the program a seat runs (config.Live) over whatever is running, the whole client
-// on a phone, told the client it opened on (Client).  Its hooks are in force before the seat
-// exists too, so even a harness that ends as it starts meets them.
+// link a harness prints, and each repaint, reaches the owner's terminal whole; every other line is
+// one that loads again as it loaded once (again).
 func Conf() (string, error) {
+	lines, err := again()
+	if err != nil {
+		return "", err
+	}
+	text := "# written by ak: ak's own tmux config, never the owner's ~/.tmux.conf\n" +
+		"set -as terminal-features \",*:RGB:hyperlinks:sync\"\n" + lines
+	path := filepath.Join(config.Home(), "state", "tmux.conf")
+	if kept, err := os.ReadFile(path); err == nil && string(kept) == text {
+		return path, nil
+	}
+	if err := write(path, text); err != nil {
+		return "", fmt.Errorf("cannot write the tmux config %s: %v", path, err)
+	}
+	return path, nil
+}
+
+// Reload loads those lines (again) into ak's own server (orch.set_hook_options), as tmux reads
+// Conf only when a seat starts its server or opens on it: a server running a Ctrl-b m from an older
+// ak would keep it.  tmux runs each line on its own, so one it refuses leaves the rest set, and a
+// server that is not up starts on none; what tmux refuses is the next tick's to try again.  Its
+// error is the one composing the lines.
+func Reload() error {
+	lines, err := again()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), ceiling)
+	defer cancel()
+	call := command(ctx, Own(), "source-file", "-")
+	call.Stdin = strings.NewReader(lines)
+	call.Run()
+	return nil
+}
+
+// again is Conf's lines that leave a server as they found it however often it loads them
+// (orch.server_conf): all but terminal-features, which -a adds to each time.  A touch scroll on a
+// phone scrolls a seat's output, 50000 lines of it, rather than sending arrow keys to the harness;
+// a harness that quits as it opens keeps its pane, as the file is read before the seat exists; and
+// Ctrl-b m is the menu of the program a seat runs (config.Live) over whatever is running, the
+// whole client on a phone, told the client it opened on (Client).  Its hooks are in force before
+// the seat exists too, so even a harness that ends as it starts meets them.
+func again() (string, error) {
 	program, err := config.Live()
 	hooks, failed := Hooks()
 	if err = cmp.Or(err, failed); err != nil {
@@ -40,24 +79,14 @@ func Conf() (string, error) {
 	popup := "display-popup -E -w " + size("100%", "80%") + " -h " + size("100%", "70%") + " " +
 		Word(Client+"=#{client_name} ") +
 		unformatted(Word(commandhelp.ShellJoin([]string{program, "attach", "--overlay"})))
-	text := "# written by ak: ak's own tmux config, never the owner's ~/.tmux.conf\n" +
-		"set -g mouse on\n" +
+	text := "set -g mouse on\n" +
 		"set -g history-limit 50000\n" +
 		"set -g remain-on-exit on\n"
 	for _, hook := range hooks {
 		text += "set -gq " + hook[0] + " " + Word(hook[1]) + "\n"
 	}
-	text += "set -g allow-passthrough on\n" +
-		"set -as terminal-features \",*:RGB:hyperlinks:sync\"\n" +
-		"bind-key m run-shell -C " + Word(popup) + "\n"
-	path := filepath.Join(config.Home(), "state", "tmux.conf")
-	if kept, err := os.ReadFile(path); err == nil && string(kept) == text {
-		return path, nil
-	}
-	if err := write(path, text); err != nil {
-		return "", fmt.Errorf("cannot write the tmux config %s: %v", path, err)
-	}
-	return path, nil
+	return text + "set -g allow-passthrough on\n" +
+		"bind-key m run-shell -C " + Word(popup) + "\n", nil
 }
 
 // write lands text at path whole, as a server may be reading the one there: made in ak's scratch
