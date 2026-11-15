@@ -1728,9 +1728,12 @@ def riding(session, records=None):
     and its checkout goes with the sweep, never here.
     """
     lines = []
-    for run_dir, state in run_record.runs() if records is None else records:
+    # with no census, each record read in its own try: a malformed run is skipped, not all
+    for run_dir, state in (records if records is not None
+                           else ((run_dir, None) for run_dir in run_record.run_dirs())):
         try:
-            if (transitions.launched_session(state) != session
+            state = state or run_record.read_state(run_dir)
+            if (not state or transitions.launched_session(state) != session
                     or not (state.get("handback_pending")
                             or state.get("live_at") and not state.get("live_notified"))):
                 continue
