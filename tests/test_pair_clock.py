@@ -97,6 +97,12 @@ class TheClockAKeySets(unittest.TestCase):
             self.assertEqual(stamp.boot,
                              Path("/proc/sys/kernel/random/boot_id").read_text().strip())
 
+    def test_a_boot_linux_cannot_say_gives_no_stamp(self):
+        with patch.dict(os.environ), patch.object(Path, "read_text", side_effect=PermissionError):
+            os.environ.pop(pair_clock.NOW, None)
+            self.assertRaises(OSError, pair_clock.now)
+            self.assertIsNone(pair_clock.boot())
+
     def test_the_whole_of_ak_sees_the_boot_it_gives(self):
         with at(WALL, SINCE):
             self.assertEqual(watch.boot_id(), BOOT)
