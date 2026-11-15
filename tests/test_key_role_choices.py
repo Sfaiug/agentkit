@@ -53,13 +53,14 @@ OTHERS = [("Acme Edge 1", "high", "close", {"name": "Acme Best 1", "effort": "hi
 # Shares whose qualities lie exactly 10, 1 and 1 apart, which a rating's floats put a hair
 # across: the lower row 10.00000000000001 under the best, 0.99999999999999 under the next
 EXACT = ((.57, .67), (.804, .814, .90), (.56, .57))
-# Rows a few millionths of a point apart in quality, cheapest first, and the others they leave
+# Rows a few millionths of a point apart in quality, cheapest first, and the others they leave,
+# each by the name ak says of a release the boards name by its slug (config.release_label)
 HAIR = (([("acme-cheap-1", "high", .899999998), ("acme-best-1", "high", .90)],
-         [("acme-cheap-1", "high", "close", "acme-best-1")]),
+         [("acme-cheap-1", "high", "close", "Acme Best 1")]),
         ([("acme-best-1", "high", .90), ("acme-other-1", "high", .85),
           ("acme-other-1", "max", .850000002), ("acme-next-1", "high", .850000004)],
-         [("acme-next-1", "high", "beaten", "acme-best-1"),
-          ("acme-other-1", "max", "beaten", "acme-best-1")]))
+         [("acme-next-1", "high", "beaten", "Acme Best 1"),
+          ("acme-other-1", "max", "beaten", "Acme Best 1")]))
 
 
 def hold(home, rows):
