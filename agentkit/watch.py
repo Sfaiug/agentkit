@@ -2886,12 +2886,14 @@ def hook_look(launched, answered_at=None, said="", prompt=False, card=None, reco
     Each of its starts starts it unmarked, in a session of its own: it marks itself.
     """
     owner.mark("seat look")
+    here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
+    if not here or not pane:
+        return None
     name = config.resolve_session(launched)
     number, session = next(((number, session) for number, session
                             in enumerate(orch.listing(reconcile=False), 1)
                             if session["name"] == name), (None, None))
-    here, pane = os.environ.get("TMUX", "").partition(",")[0], os.environ.get("TMUX_PANE", "")
-    if session is None or not here or not pane or orch.tmux_out(
+    if session is None or orch.tmux_out(
             "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}",
             socket=orch.seat_socket(session)) != (0, f"{here}\t{name}"):
         return None

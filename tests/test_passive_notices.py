@@ -119,36 +119,20 @@ class PassiveNotices(Sandbox):
         self.assertEqual((fact["event"], fact["kind"]), ("Notification", PASSIVE[0]))
 
     def test_a_failed_classifier_still_writes_the_notice(self):
-        bindir = self.root / "bin"
-        bindir.mkdir()
-        python = bindir / "python3"
-        python.write_text('''#!/bin/bash
-if [[ ${1:-} = -c && ${2:-} = *watch.hook_state* ]]; then
-  exit "$CHECK_STATUS"
-fi
-exec "$REAL_PYTHON" "$@"
-''')
-        python.chmod(0o755)
-        env = {**self.env, "PATH": f"{bindir}:{self.env['PATH']}",
-               "REAL_PYTHON": shutil.which("python3")}
+        (self.root / ".agentkit/config.toml").write_text("[models\n")   # no harness to ask
         later = datetime.now().timestamp() + 3600     # the hook reads the real clock
-        for status in (1, 2, 127, 137):
-            with self.subTest(status=status):
-                self.hook("UserPromptSubmit")
-                fact = json.loads(self.hook(
-                    "Notification", notification_type=PASSIVE[0],
-                    env={**env, "CHECK_STATUS": str(status)}))
-                self.assertEqual((fact["event"], fact["kind"]), ("Notification", PASSIVE[0]))
-                # by the one writer still: a fact heard later outlasts any notice, and a Stop on
-                # background work an idle prompt
-                for standing, notice in (({"event": "UserPromptSubmit", "kind": "", "at": later},
-                                          PASSIVE[0]),
-                                         ({"event": "Stop", "kind": "background", "at": 1.0},
-                                          "idle_prompt")):
-                    before = json.dumps(standing).encode()
-                    config.hook_facts_path(SEAT).write_bytes(before)
-                    self.assertEqual(self.hook("Notification", notification_type=notice,
-                                               env={**env, "CHECK_STATUS": str(status)}), before)
+        self.hook("UserPromptSubmit")
+        fact = json.loads(self.hook("Notification", notification_type=PASSIVE[0]))
+        self.assertEqual((fact["event"], fact["kind"]), ("Notification", PASSIVE[0]))
+        # by the one writer still: a fact heard later outlasts any notice, and a Stop on
+        # background work an idle prompt
+        for standing, notice in (({"event": "UserPromptSubmit", "kind": "", "at": later},
+                                  PASSIVE[0]),
+                                 ({"event": "Stop", "kind": "background", "at": 1.0},
+                                  "idle_prompt")):
+            before = json.dumps(standing).encode()
+            config.hook_facts_path(SEAT).write_bytes(before)
+            self.assertEqual(self.hook("Notification", notification_type=notice), before)
 
     def test_a_renamed_seat_keeps_its_launch_names_hook_fact(self):
         self.hook("UserPromptSubmit")
@@ -178,16 +162,24 @@ exec "$REAL_PYTHON" "$@"
         bindir.mkdir()
         ready, release = self.root / "ready", self.root / "release"
         python = bindir / "python3"
+        # the notice heard, its moment taken, and held there until released before it writes
         python.write_text('''#!/bin/bash
-if [[ ${1:-} = -c && ${2:-} = *watch.hook_state* ]]; then
-  "$REAL_PYTHON" "$@"
-  status=$?
-  : > "$QUERY_READY"
-  for ((attempt=0; attempt<500; attempt++)); do
-    [[ -f $QUERY_RELEASE ]] && break
-    sleep 0.01
-  done
-  exit "$status"
+if [[ ${1:-} = */agentkit/looker.py ]]; then
+  exec "$REAL_PYTHON" -c 'import os, runpy, sys, time
+from pathlib import Path
+look = sys.argv.pop(1)
+sys.path.insert(0, str(Path(look).resolve().parents[1]))
+from agentkit import config
+write = config.record_hook_fact
+def held(*args, **kwargs):
+    Path(os.environ["QUERY_READY"]).touch()
+    for _ in range(500):
+        if Path(os.environ["QUERY_RELEASE"]).exists():
+            break
+        time.sleep(0.01)
+    write(*args, **kwargs)
+config.record_hook_fact = held
+runpy.run_path(look, run_name="__main__")' "$@"
 fi
 exec "$REAL_PYTHON" "$@"
 ''')
@@ -214,7 +206,7 @@ exec "$REAL_PYTHON" "$@"
                     deadline = time.monotonic() + 10
                     while not ready.exists() and proc.poll() is None and time.monotonic() < deadline:
                         time.sleep(0.01)
-                    self.assertTrue(ready.exists(), "the notice never asked the manifest")
+                    self.assertTrue(ready.exists(), "the notice was never heard")
                     if event == "Stop":
                         self.asked()    # a newer prompt asks nothing: it would be his answer
                     payload = {"background_tasks": []} if script == "orchestrator-stop.sh" else {}

@@ -1,26 +1,31 @@
-"""A seat's event looked at by a process already warm: who runs hooks/seat-state.sh's look.
+"""A seat's event heard and looked at by a process already warm: who runs hooks/seat-state.sh's
+look, and writes the fact of every event but a prompt and a Stop, which the hook writes itself.
 
-A fresh Python spends seconds on its imports and on reading every run before it looks
+A fresh Python spends seconds on its imports and on reading every run before it writes or looks
 (`watch.hook_look`).  `serve`, forked by the warm server and leaving with it, has both done, at the
 server's priority, and reads the runs again at each wake as the menu does (`menu.run_records`).
 The hook's `ask`, Python without agentkit, hands it the event over a socket in STATE, and it forks
-a child per event to look on the runs as read.  Anything amiss goes cold: with no looker, one older
-than the install or one silent for `warm.WAIT`, `ask` looks itself.  Never lost nor run twice: a
-child looks once the client says go, and the client, once it has, never looks itself.
+a child per event to hear it (`record`) and look on the runs as read.  Anything amiss goes cold:
+with no looker, one older than the install or one silent for `warm.WAIT`, `ask` does both itself.
+Never lost nor run twice: a child acts once the client says go, and the client, once it has, never
+acts itself.
 """
 
 import os
 import sys
 
 
-def ask(repo, seat, answered, event):
+def ask(repo, seat, answered, event, *kind):
     """The hook's look at that seat, the owner's words on stdin: the looker's, else this
-    process's own.  In a session of its own: a harness ending the hook group ends none of it."""
+    process's own.  With the event's `kind`, and its words after a NUL on stdin, the event is
+    heard there first (`record`): this returns once its fact is down, the look going on behind.
+    In a session of its own: a harness ending the hook group ends none of it."""
     import _socket
     from warm import WAIT, place     # beside this file: run as a script, it imports no agentkit
     if os.getpgrp() != os.getpid():     # where it may, as a group leader may not
         os.setsid()
-    said = sys.stdin.read()
+    said, *text = sys.stdin.read().split("\0", 1)
+    fact = (*kind, *text)
     state, name = place(repo)
     here = None
     try:
@@ -30,10 +35,16 @@ def ask(repo, seat, answered, event):
         conn.settimeout(WAIT)
         conn.connect(name + ".look")   # beside the server's socket, lock and log
         data = b"\0".join(map(os.fsencode, (seat, answered, event, said, os.environ.get("TMUX", ""),
-                                            os.environ.get("TMUX_PANE", ""))))
+                                            os.environ.get("TMUX_PANE", ""), *fact)))
         conn.sendall(len(data).to_bytes(4, "big") + data)     # NUL is in none of them
         if conn.recv(1) == b"R":
-            conn.sendall(b"G")     # the look is the child's from here: nothing goes cold after
+            conn.sendall(b"G")     # the event is the child's from here: nothing goes cold after
+            if fact:
+                try:
+                    conn.settimeout(None)
+                    conn.recv(1)   # the child lets go once its fact is down
+                except OSError:
+                    pass
             return
     except OSError:
         pass
@@ -41,14 +52,65 @@ def ask(repo, seat, answered, event):
         os.fchdir(here)
     sys.path[0] = repo
     from agentkit import looker
-    looker.look(seat, answered, event, said)
+    looker.take(seat, answered, event, said, fact, _behind)
+
+
+def _behind():
+    """The hook goes on as this process leaves, its fact down: the look is a child's."""
+    if os.fork():
+        os._exit(0)
+
+
+def take(seat, answered, event, said, fact, go, records=None):
+    """That event as hooks/seat-state.sh hears it: one handed over with its `fact`, its kind and
+    words, is heard first (`record`), the owner's word on a card answering at that moment, and
+    `go()` lets the hook go on; then the look."""
+    if fact:
+        at = record(seat, event, *fact)
+        answered = at if said else ""
+        go()
+    look(seat, answered, event, said, records)
+
+
+def record(seat, event, kind, text):
+    """The moment that seat heard an event neither a prompt nor a Stop (`config.heard_at`),
+    taken first, its fact then put in place of the one standing (`config.record_hook_fact`)
+    unless that one is kept.
+
+    Claude says its prompt is idle a minute after a turn ends whether or not background work is
+    in flight: a seat waiting on work it started is not idle, and the Stop that said so stands
+    until that work's notification begins a turn; a question going up still replaces it.  A
+    notice the seat's own manifest gives no state writes nothing, and nor does one meaning what
+    the fact standing means -- a permission notice six seconds after the PermissionRequest that
+    wrote its question down.  An event it marks `interrupt` always writes: the owner stopped a
+    turn a harness with no prompt hook began under an earlier Stop's at_prompt, which that Stop
+    does not say.  Where nothing can say -- no record names the harness, or its config cannot be
+    read -- the event is written all the same."""
+    from . import config, watch
+    at = config.heard_at(seat)
+    row = config.resolve_session(seat)
+    fact = {"session": seat, "event": event, "kind": kind, "text": text, "at": at}
+    try:
+        harness = watch.seat_model(config.load(), row)[0]
+        state, named = watch.hook_state(harness, fact)[:2]
+        passive = bool(harness) and named not in watch.marked_events(harness, "interrupt")
+    except config.Error:
+        passive = False
+
+    def kept(standing):
+        return ((event, kind, standing.get("event"), standing.get("kind"))
+                == ("Notification", "idle_prompt", "Stop", "background")
+                or passive and state in (None, watch.hook_state(harness, standing)[0]))
+    config.record_hook_fact(row, fact, kept)
+    return at
 
 
 def look(seat, answered, event, said, records=None):
-    """`watch.hook_look` for that event as hooks/seat-state.sh hears it, on `records`."""
+    """`watch.hook_look` for that event as hooks/seat-state.sh hears it, on `records`: a card's
+    answer is the owner's word only where they gave one."""
     import json
     from . import watch
-    card = event == "PostToolUse"
+    card = event == "PostToolUse" and bool(said)
     watch.hook_look(seat, float(answered) if answered else None, "" if card else said,
                     prompt=event == "UserPromptSubmit", card=json.loads(said) if card else None,
                     records=records)
@@ -99,14 +161,14 @@ def serve():
 
 
 def _take(conn, records):
-    """In a fork of the looker: the look `conn`'s client asks for, once it says go."""
+    """In a fork of the looker: the event `conn`'s client hands over, once it says go."""
     import signal
     from . import update, warm
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)   # what the look runs is waited on
     try:
         conn.settimeout(warm.WAIT)
         asked = conn.makefile("rb")
-        seat, answered, event, said, tmux, pane = map(
+        seat, answered, event, said, tmux, pane, *fact = map(
             os.fsdecode, asked.read(int.from_bytes(asked.read(4), "big")).split(b"\0"))
         if update.outdated():
             raise OSError("outdated")       # installed over while the looker read: not its look
@@ -117,8 +179,12 @@ def _take(conn, records):
     except (OSError, ValueError):
         os._exit(1)            # the client goes cold
     os.environ.update(TMUX=tmux, TMUX_PANE=pane)
+
+    def go():               # the client goes on
+        asked.close()
+        conn.close()
     try:
-        look(seat, answered, event, said, records)
+        take(seat, answered, event, said, fact, go, records)
     except BaseException:
         sys.excepthook(*sys.exc_info())     # into the server's log, as a cold look's to nowhere
     os._exit(0)                # Python's teardown would go over all the looker holds, for nothing
@@ -126,4 +192,4 @@ def _take(conn, records):
 
 if __name__ == "__main__":
     sys.path[0] = os.path.dirname(os.path.realpath(__file__))   # warm.py, by its bare name
-    ask(os.path.dirname(sys.path[0]), *sys.argv[1:4])
+    ask(os.path.dirname(sys.path[0]), *sys.argv[1:])
