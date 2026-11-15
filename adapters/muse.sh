@@ -162,6 +162,10 @@ def theirs(groups):
               for group in groups]
     return [group for group in groups if group["hooks"]]
 
+def constant(word):
+    """Python's json reads NaN and Infinity, which JSON, and so Muse, does not."""
+    raise ValueError(f"{word} is no JSON number")
+
 signal.alarm(30)
 locked = os.path.join(os.path.dirname(path), ".settings.json.lock")
 try:
@@ -175,7 +179,7 @@ try:
         if existed:
             try:
                 with open(real, encoding="utf-8") as fh:
-                    had = json.load(fh)
+                    had = json.load(fh, parse_constant=constant)
             except ValueError as exc:
                 sys.exit(f"muse: {path} is not JSON ({exc}); left as it is")
         if not isinstance(had, dict) or not shaped(had.get("hooks")):

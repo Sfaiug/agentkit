@@ -279,6 +279,12 @@ func DecodeShown(data []byte) (any, error) {
 	return decode(&parser{data: data, limited: true, shown: true})
 }
 
+// DecodeJSON reads one JSON value as Decode does, and refuses NaN and Infinity, as JSON does: for
+// a file another program reads.
+func DecodeJSON(data []byte) (any, error) {
+	return decode(&parser{data: data, json: true})
+}
+
 func decode(p *parser) (any, error) {
 	if !utf8.Valid(p.data) {
 		return nil, fmt.Errorf("not UTF-8")
@@ -301,6 +307,7 @@ type parser struct {
 	at      int
 	limited bool // ErrLimit where Python's limits decide
 	shown   bool // a lone surrogate as U+FFFD
+	json    bool // NaN and Infinity refused
 }
 
 var numberRe = regexp.MustCompile(`^(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?|NaN|-?Infinity)`)
@@ -411,7 +418,7 @@ func (p *parser) value(depth int) (any, error) {
 	found := numberRe.Find(p.data[p.at:])
 	digits := len(strings.TrimPrefix(string(found), "-"))
 	switch {
-	case found == nil:
+	case found == nil, p.json && slices.Contains([]string{"NaN", "Infinity", "-Infinity"}, string(found)):
 		return nil, p.fail("Expecting value", p.at)
 	case p.limited && Integral(Number(found)) && digits > config.MinDigits:
 		return nil, ErrLimit
