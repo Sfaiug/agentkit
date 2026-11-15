@@ -3,11 +3,12 @@ tests/test_key_a_targets_own_red_does_not_hold_its_line.py: merges, prompts and 
 
 The tip fails tests/test_widget.py alone, by name: stacks red in nothing else land over it, on
 helper pieces too, unproven and with no trailer; one red in another test gets a fix naming that
-alone, its fixer told of the target's, and one the tip cannot name is the member's where the
-tip, run whole, fails nothing else.  The repair lands once its stack passes the test, or is the
-culprit, a stack of one tree with it answered apart; a member behind it red in that test waits
-for it, as on the tip alone the target's red fails that test whoever stands there.  Offline: the lander fixture, a shell
-suite, fake launches, wakes and helper, merges by a push.
+alone, its fixer told of the target's even where the fix came first, and one the tip cannot name
+is the member's where the tip, run whole, fails nothing else.  The repair lands once its stack
+passes the test, or is the culprit, a stack of one tree with it answered apart; a member behind
+it red in that test waits for it, as on the tip alone the target's red fails that test whoever
+stands there.  Offline: the lander fixture, a shell suite, fake launches, wakes and helper,
+merges by a push.
 """
 
 from pathlib import Path
@@ -41,8 +42,9 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
     wait = fixture.Lander.wait
 
     def line(self, **broken):
-        """Three members, the third failing test_acme.py, then the target `broken`: test_widget.py
-        fails where broken.txt or worse.txt is, test_acme.py where acme.txt is."""
+        """Three members, the third failing test_acme.py on top of the second, then the target
+        `broken`: test_widget.py fails where broken.txt or worse.txt is, test_acme.py where
+        acme.txt is."""
         (self.repo / "tests").mkdir()
         for test, marks in ((WIDGET, ("broken.txt", "worse.txt")), (ACME, ("acme.txt",))):
             (self.repo / test).write_text(
@@ -53,7 +55,8 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
         self.base = run.git(self.repo, "rev-parse", "HEAD")
         members = (self.member("first", 1, **{"first.txt": "first\n"}),
                    self.member("second", 2, **{"second.txt": "second\n"}),
-                   self.member("third", 3, **{ACME: "raise SystemExit(1)\n"}))
+                   self.member("third", 3, **{
+                       ACME: "import os\nraise SystemExit(os.path.exists('second.txt'))\n"}))
         self.advance(**broken)
         self.stack.enter_context(patch.object(gate, "derived_heavy_limit", return_value=2))
         return members
@@ -79,14 +82,41 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
         self.assertTrue(deliver.land_from_line(lp, "origin/main", merged))
         return lp.body
 
+    def assert_told(self, directory):
+        """`directory`'s fix is for test_acme.py, its own, and its landing fixer is told the
+        target itself fails test_widget.py (`prompts.excused`)."""
+        fix = self.wait(directory)["fix"]
+        self.assertEqual((fix["tests"], fix["excused"]), ([ACME], [WIDGET]))
+        lp = SimpleNamespace(state=record.read_state(directory), run_dir=directory)
+        with patch.object(roundloop, "execute", side_effect=StopIteration) as fixer, \
+                self.assertRaises(StopIteration):
+            roundloop.landing_fixer(lp, "", "final-fixer")
+        self.assertIn(f"The target itself fails {WIDGET}: not this run's to mend.",
+                      fixer.call_args.args[2])
+
+    def rejoin(self, *directories):
+        """Each delivery meets the moved target and rejoins the line (`deliver.rejoin_line`)."""
+        for directory in directories:
+            with record.record(directory) as state:
+                state["waiting_on"] = {key: state["waiting_on"][key] for key in ("line", "joined")}
+
+    def test_a_fix_given_before_the_red_was_found_is_told_of_it(self):
+        first, second, third = self.line()
+        land.check_line(self.turn)      # the target green: the third's own red, behind the two
+        wait = self.wait(third)
+        self.assertEqual((wait["fix"]["tests"], list(wait["after"])), ([ACME], ["first", "second"]))
+        self.advance(**{"broken.txt": "target breakage\n"})
+        self.rejoin(first, second)
+        land.check_line(self.turn)
+        self.assertEqual(self.red()["tests"], [WIDGET])
+        self.assert_told(third)
+
     def test_a_stack_red_only_in_the_targets_named_red_lands_over_it_unproven(self):
         first, second, third = self.line(**{"broken.txt": "target breakage\n"})
         land.check_line(self.turn)
         # the first stack's red repeats on the tip alone, by name: the target's, repaired at once
         repair = self.prepared[0][0]
         self.assertEqual((self.red()["tests"], self.red()["run"]), ([WIDGET], repair.name))
-        with record.record(third) as state:     # its fix came before the red was known
-            del state["waiting_on"]["fix"]
         said = []
         land.check_line(self.turn, said.append)
         self.assertEqual(len(self.prepared), 1)
@@ -97,14 +127,7 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
             # no proof of green: no evidence, and the tree holds the target's red should it land
             self.assertIsNone(land.passed(self.turn, wait["land"]))
             self.assertEqual(self.red(wait["land"])["run"], repair.name)
-        fix = self.wait(third)["fix"]
-        self.assertEqual((fix["tests"], fix["excused"]), ([ACME], [WIDGET]))
-        lp = SimpleNamespace(state=record.read_state(third), run_dir=third)
-        with patch.object(roundloop, "execute", side_effect=StopIteration) as fixer, \
-                self.assertRaises(StopIteration):
-            roundloop.landing_fixer(lp, "", "final-fixer")
-        self.assertIn(f"The target itself fails {WIDGET}: not this run's to mend.",
-                      fixer.call_args.args[2])
+        self.assert_told(third)
         # merged without the trailer, the line still over the red on each tree it lands
         for directory in (first, second):
             self.assertNotIn("Suite-Passed-Tree", self.deliver(directory))
@@ -135,6 +158,12 @@ class LandsOverTheTargetsNamedRed(unittest.TestCase):
         self.assertEqual([self.wait(directory)["over"] for directory in (first, second)],
                          [[WIDGET]] * 2)
         self.assertEqual(self.wait(repair)["fix"]["tests"], [WIDGET])
+        self.assertNotIn("excused", self.wait(repair)["fix"])
+        # the target moves, and its red, found again, is still the repair's to mend
+        self.advance(**{"moved.txt": "moved\n"})
+        self.rejoin(first, second)
+        land.check_line(self.turn)
+        self.assertEqual(self.red()["tests"], [WIDGET])
         self.assertNotIn("excused", self.wait(repair)["fix"])
 
     def test_a_member_red_in_the_targets_red_behind_its_repair_waits_for_the_repair(self):
