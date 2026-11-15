@@ -42,13 +42,9 @@ func menuAddThrough(host, label string, cells []menu.Cell, keyboard *terminal.Ke
 	for {
 		if !asked {
 			var err error
-			listed, err = waitAdapter(view.Title, cells, keyboard, painter, func(ctx context.Context) ([]modelListing.Provider, error) {
-				return modelListing.Providers(ctx, host)
-			})
+			listed, err = waitProviders(host, view.Title, cells, keyboard, painter)
 			if err == nil {
-				models, err = waitAdapter(view.Title, cells, keyboard, painter, func(ctx context.Context) ([]modelListing.Choice, error) {
-					return modelListing.ChoicesContext(ctx, host)
-				})
+				models, err = waitConfigCatalog(host, view.Title, cells, keyboard, painter)
 			}
 			if err == context.Canceled {
 				return true // Esc while the list was asked: back one list
