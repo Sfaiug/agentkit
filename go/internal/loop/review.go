@@ -365,40 +365,41 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted, dis
 	return verdict == "PASS", nil
 }
 
-// followupKeys are what a record keeps of its follow-ups by each one's text.
-var followupKeys = []string{"followup_checks", "followup_commits", "followup_defects"}
-
-// keepFollowups adds a review's follow-ups to the record's, each defect once, whichever round proved
-// it: the same one handed in again on a later head differs only in its proof, and the first stays.
+// keepFollowups adds a review's follow-ups to the record's, each defect once, as the last review to
+// hand it in put it: its text, command and commit take the earlier one's place, proven on the head
+// nearest to what merges.
 func keepFollowups(record, checks, commits, defects *run.Object) {
-	known := map[string]bool{}
-	if held := record.Dict("followup_defects"); held != nil {
-		for _, key := range held.Keys() {
-			known[held.Str(key)] = true
+	known := record.Dict("followup_defects")
+	byDefect := run.NewObject()
+	for _, item := range record.List("followups") {
+		text, _ := item.(string)
+		defect := text
+		if known != nil && known.Has(text) {
+			defect = known.Str(text)
 		}
-	}
-	kept := append([]any{}, record.List("followups")...)
-	merged := make([]*run.Object, len(followupKeys))
-	for i, key := range followupKeys {
-		if merged[i] = record.Dict(key); merged[i] == nil {
-			merged[i] = run.NewObject()
-		}
+		byDefect.Set(defect, item)
 	}
 	for _, item := range defects.Keys() {
-		if known[defects.Str(item)] {
-			continue
-		}
-		known[defects.Str(item)] = true
-		kept = append(kept, item)
-		for i, found := range []*run.Object{checks, commits, defects} {
-			if found.Has(item) {
-				merged[i].Set(item, found.Get(item))
-			}
-		}
+		byDefect.Set(defects.Str(item), item)
+	}
+	kept := []any{}
+	for _, defect := range byDefect.Keys() {
+		kept = append(kept, byDefect.Get(defect))
 	}
 	record.Set("followups", kept)
-	for i, key := range followupKeys {
-		record.Set(key, merged[i])
+	for i, found := range []*run.Object{checks, commits, defects} {
+		key := []string{"followup_checks", "followup_commits", "followup_defects"}[i]
+		held := record.Dict(key)
+		proofs := run.NewObject()
+		for _, item := range kept {
+			text, _ := item.(string)
+			if found.Has(text) {
+				proofs.Set(text, found.Get(text))
+			} else if held != nil && held.Has(text) {
+				proofs.Set(text, held.Get(text))
+			}
+		}
+		record.Set(key, proofs)
 	}
 }
 

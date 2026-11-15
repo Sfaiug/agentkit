@@ -147,19 +147,6 @@ func (r *Review) Notes() []any {
 	return notes
 }
 
-// Followups is each follow-up's text, each once.
-func (r *Review) Followups() []any {
-	items := []any{}
-	seen := map[string]bool{}
-	for _, row := range r.Of("follow-up") {
-		if defect := defectOf(row); !seen[defect] {
-			seen[defect] = true
-			items = append(items, itemText(row))
-		}
-	}
-	return items
-}
-
 // FollowupRecords is, by each follow-up's text, the command that can check its plan line, the
 // commit it was proven to fail on, and the defect it names whichever head proved it, Python's
 // Review.followup_checks, followup_commits and followup_defects.
@@ -194,14 +181,10 @@ func unbounded(evidence *run.Object) string {
 	return command[len(bound):]
 }
 
-// defectOf is what a follow-up names, without the proof's commit, exit status and output.
+// defectOf is what a follow-up names: its file and what is wrong there, whatever line, why or
+// proof a later round's head gives it.
 func defectOf(row *run.Object) string {
-	evidence := row.Dict("evidence")
-	proof := evidence.Get("run")
-	if !evidence.Has("run") {
-		proof = evidence.Get("quote")
-	}
-	return run.Line([]any{row.Get("path"), row.Get("line"), row.Get("what"), row.Get("why"), proof})
+	return run.Line([]any{row.Get("path"), row.Get("what")})
 }
 
 // Text is the review as review.md keeps it, Python's Review.text.
