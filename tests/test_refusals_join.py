@@ -4,8 +4,8 @@ Turns already running refuse one after another.  A refused Opus turn parks every
 login, and a Fable turn refused after it frees none of them; a refusal marked without a model
 parks every model, whatever was marked before.  Each refusal ends at its own deadline or at a
 fresh window on the meter that showed it, and neither ends another: Fable's refusals alone, or
-Fable's and Nova's, leave Opus to its own meters.  A refusal recorded before marks named a
-meter's scope parks what its names alone say, and every model where a name is two caps.
+Fable's and Nova's, leave Opus to its own meters, however often a reading holds Fable's cap.
+A refusal recorded before marks named a meter's scope parks every model its names can mean.
 
 Fake meters in a temporary HOME: nothing here reaches a real usage endpoint or a real
 credential.
@@ -148,7 +148,13 @@ class RefusalsJoin(unittest.TestCase):
         self.assertEqual(self.parked(), (["fable"], False))
         self.reads(week("weekly_all", 60), week("weekly_scoped", 90, scope="Fable"),
                    week("weekly_scoped", 30, scope="Opus"))
-        self.assertEqual(self.parked(), (["fable", "nova", "opus"], True))
+        self.assertEqual(self.parked(), (["fable", "opus"], False))
+
+    def test_a_refusal_of_a_cap_read_twice_parks_only_its_model(self):
+        fable = week("weekly_scoped", 90, scope="Fable")
+        self.reads(week("weekly_all", 60), fable, fable, week("weekly_scoped", 30, scope="Opus"))
+        self.refused("fable")
+        self.assertEqual(self.parked(), (["fable"], False))
 
 
 if __name__ == "__main__":
