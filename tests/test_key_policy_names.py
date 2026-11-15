@@ -1,4 +1,10 @@
-"""Policy names, automatic host migration and inclusive orchestrator limits, through AK_BIN."""
+"""Policy names, automatic host migration and inclusive orchestrator limits, through AK_BIN.
+
+Owner, 15 Nov 2026: these three numbers are the settings.  The order of quality, speed and cost
+and a limit on a task's words, offered beside them on 30 Oct, are not built: ak holds no task
+length limit and reads that order nowhere as a number, so a setting for either would change
+nothing.
+"""
 
 from concurrent.futures import ThreadPoolExecutor
 import fcntl

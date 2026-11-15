@@ -9,6 +9,11 @@ renamed from serves the same line; another seat's run naming a line in the same 
 does not, and a run live 20 days ago is past the window.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, against
 a history.db holding the live runs as their launches wrote them, read with sqlite3.
+
+Owner, 15 Nov 2026: the row counts `ak plan check` rewrites only.  A change reverted by hand and
+a new plan line written in place of an old one are not counted: the default branch held no
+revert commit among 2,386 since 15 Oct, a change ak puts back for breaking it is on the `broke`
+row, and nothing but a guess says one plan line replaces another.
 """
 
 import sqlite3
