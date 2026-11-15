@@ -13,13 +13,13 @@ func init() {
 	verbs["claude login-end"] = claudeLoginEnd
 }
 
-// multiple is the multiple a rate-limit tier ends in, `20x` of `default_claude_max_20x`.
+// multiple is the multiple a login's tier ends in, `20x` of `default_claude_max_20x`.
 var multiple = regexp.MustCompile(`_([0-9]+x)$`)
 
 // claudeLoginEnd is adapters/claude.sh's `login-end`, for the login $AGENTKIT_ACCOUNT names, read
 // and never renewed: whose it is; the epoch second its refresh token dies, `refreshTokenExpiresAt`,
 // which no renewal moves and which is milliseconds past eleven digits; and its plan, the login's
-// `subscriptionType` with the multiple its `rateLimitTier` ends in: `max 20x`, `pro`.
+// `subscriptionType` with the multiple its tier ends in: `max 20x`, `pro`.
 func claudeLoginEnd(_ []string, out, errOut io.Writer) int {
 	login, _, err := config.Account("claude")
 	if err != nil {
