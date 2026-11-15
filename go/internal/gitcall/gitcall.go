@@ -30,7 +30,8 @@ var Junk = []string{"__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", "
 const Making = "ak is making this checkout"
 
 // ScratchMark, a file in a detached checkout's own git directory, says a lander made it to check
-// a commit in, so gc may take it.
+// a commit in, naming the checker that made it: one a killed checker left goes when a checker next
+// starts, or with gc.
 const ScratchMark = "ak-lander-scratch"
 
 // Stamp is ak's own temporary commits' author and date, Python's STAMP: identical trees and
