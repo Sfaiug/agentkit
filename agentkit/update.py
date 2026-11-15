@@ -672,10 +672,15 @@ def update_agentkit(progress=None, pull=True):
             if progress:
                 progress(done, len(steps))
             if cmd is swap:
-                # one chosen before this lock may have been put back since (back.py)
-                target = pull if isinstance(pull, str) and pull not in _failed() else live_target()
+                # one chosen before this lock may have been put back since (back.py), or held
+                hold = _hold()
+                target = (pull if isinstance(pull, str) and pull not in _failed()
+                          and _holds(hold, pull) else live_target())
                 if not target:
-                    say("update: agentkit: origin/main moves here once its tests/live.sh passed")
+                    say(f"update: agentkit: held since {hold['commit'][:12]} was put back: moves "
+                        f"once {hold['seat']}'s fix has merged and passed tests/live.sh"
+                        if hold else
+                        "update: agentkit: origin/main moves here once its tests/live.sh passed")
                     return 0
                 say(f"update: {directory} goes to {target[:12]}")
                 owed = pending.exists()
@@ -686,6 +691,8 @@ def update_agentkit(progress=None, pull=True):
                         pending.unlink(missing_ok=True)
                     say(f"update: {why}")
                     return 1
+                if hold:    # this move holds the fix, so from here on nothing is held
+                    shutil.rmtree(config.TMP / PUT_BACK, ignore_errors=True)
                 continue
             if cmd is install:
                 # here until install.sh passes: the pull has already moved HEAD, so origin/main
@@ -946,14 +953,17 @@ def live_target():
     origin/main when the checkout has it already, when it has no `tests/live.sh`, or when a
     check of it passed or failed only where HEAD also failed; else the newest such commit,
     so what moves is exactly what passed, however far origin/main has gone on since.  A commit
-    put back (`failed`) is none of these, whatever its checks say.
+    put back (`failed`) is none of these, whatever its checks say, and while a put-back holds
+    the moves (`_hold`) neither is one lacking its fix.
     """
-    tip, failed = _git("rev-parse", "--verify", "--quiet", "origin/main")[1], _failed()
+    tip, failed, hold = (_git("rev-parse", "--verify", "--quiet", "origin/main")[1], _failed(),
+                         _hold())
     passed = {commit for started, commit, check in live_checks() if commit not in failed
-              and not _alive(check, started, time.time()) and _live_passed(check, started)}
-    if tip not in failed and (not tip or tip in passed
-                              or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]
-                              or not _git("merge-base", "--is-ancestor", tip, "HEAD")[0]):
+              and not _alive(check, started, time.time()) and _live_passed(check, started)
+              and _holds(hold, commit)}
+    if tip not in failed and _holds(hold, tip) and (
+            not tip or tip in passed or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]
+            or not _git("merge-base", "--is-ancestor", tip, "HEAD")[0]):
         return tip
     newer = _git("rev-list", "--topo-order", f"HEAD..{tip}")[1].split() if passed else []
     return next((commit for commit in newer if commit in passed), "")
@@ -964,15 +974,46 @@ def _failed():
     return set(_git("for-each-ref", "--format=%(objectname)", FAILED)[1].split())
 
 
+def _hold():
+    """The last put-back's record while it names a seat told (`put_back_hand_back`), its `fix`
+    the merge of that seat's earliest run on agentkit's repository launched since the put-back
+    (`back_at`), of those that merged, or "" until one has; None while nothing is held, a record
+    or seat that cannot be read included.  The commit put back passed its live check, so its
+    fault is one that check misses: every later commit that passes carries it until the fix's
+    merge is in.  Dated from the put-back, not from when the seat was told, so it is never late:
+    a run launched for something else before the seat read the line lets the hold go early."""
+    record = _handed(config.TMP / PUT_BACK)
+    try:
+        seat, since = config.resolve_session(record["seat"]), record["back_at"]
+    except (config.Error, OSError, TypeError, KeyError):
+        return None
+    fixes, resolved = [], {}
+    for _, state in run_record.runs():
+        try:
+            if state.get("merged") and _agentkit_run(state, seat, since, resolved):
+                fixes.append(((state.get("started_at") or 0, state.get("run_id") or ""),
+                              state.get("merge_sha")))
+        except (config.Error, OSError, TypeError):
+            continue
+    fix = min(fixes, key=lambda run: run[0], default=(None, ""))[1]
+    return {**record, "fix": fix if isinstance(fix, str) else ""}
+
+
+def _holds(hold, commit):
+    """Whether a move may go to `commit` under that `_hold`: none, or `commit` holds its fix."""
+    return hold is None or (bool(hold["fix"])
+                            and _git("merge-base", "--is-ancestor", hold["fix"], commit)[0] == 0)
+
+
 def owed_live(now):
     """(commit, since) for the commit ~/agentkit has owed going live at the longest, or None
     while it owes none: one whose tests/live.sh passed, the fast-forward's target, or HEAD while
     its install.sh is owed, from that pass, else from its landing.  What `stuck.stalls` reads, so
-    a move that fails however it fails is not quiet.
+    a move that fails however it fails is not quiet; one a put-back holds (`_hold`) is not owed.
     """
     if agentkit_dir().resolve() != config.REPO:
         return None
-    passed = {}
+    passed, hold = {}, _hold()
     for started, commit, check in live_checks():
         try:
             if not _alive(check, started, now) and _live_passed(check, started):
@@ -981,7 +1022,8 @@ def owed_live(now):
             continue
     # exit 1 is a commit HEAD lacks; anything else, one this checkout never fetched, is not owed
     owed = {commit for commit in {*passed, live_target()} - _failed()
-            if commit and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1}
+            if commit and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1
+            and _holds(hold, commit)}
     if (config.STATE / PENDING).exists():
         owed.add(_git("rev-parse", "HEAD")[1])
     since = {commit: passed.get(commit) or float(_git("log", "-1", "--format=%ct", commit)[1] or now)
@@ -1184,13 +1226,14 @@ def live_hand_back(commit, check, code, log, hand=True, *, standing=False):
 
 def put_back_hand_back(commit, said):
     """Hand back the put-back of `commit`, `said` as `ak back` said it: its record, written over
-    the last one's, which each tick delivers (`go_live`) and its fix's place is read from
-    (`first_place`).  Its caller holds `MOVING`, as the delivery does.  A record that cannot be
-    written costs its hand-back, never the put-back."""
+    the last one's, which each tick delivers (`go_live`), its fix's place is read from
+    (`first_place`), and once delivered holds every move until that fix (`_hold`).  Its caller
+    holds `MOVING`, as the delivery does.  A record that cannot be written costs its hand-back,
+    never the put-back."""
     try:
         (config.TMP / PUT_BACK).mkdir(exist_ok=True)
         _put(config.TMP / PUT_BACK / "handed", json.dumps(dict(
-            commit=commit, typed=None, told=False,
+            commit=commit, back_at=time.time(), typed=None, told=False,
             line=f"ak {said}. Fix main: your next agentkit run goes first in line, "
                  "so make it the fix.")))
     except OSError:
@@ -1265,12 +1308,19 @@ def _told(check, seat):
 
 
 def _contender(state, seat, since, resolved=None):
-    """Whether that run is the seat's, on agentkit's repository, launched since then and not
-    ended: a review of an agentkit PR, or a task in a clone of agentkit."""
-    if (state.get("state") in run_record.ENDED or (state.get("started_at") or 0) < since
+    """Whether that run is the seat's agentkit run since then (`_agentkit_run`), not ended."""
+    return (state.get("state") not in run_record.ENDED
+            and _agentkit_run(state, seat, since, resolved))
+
+
+def _agentkit_run(state, seat, since, resolved=None):
+    """Whether that run is the seat's, on agentkit's repository, launched since then: a review
+    of an agentkit PR, a task whose PR is agentkit's, which outlives the clone it ran in, or a
+    task in a clone of agentkit."""
+    if ((state.get("started_at") or 0) < since
             or transitions.launched_session(state, resolved) != seat):
         return False
-    found = transitions.PR_PARTS.match(state.get("review_pr") or "")
+    found = transitions.PR_PARTS.match(state.get("review_pr") or state.get("pr") or "")
     where = (f"{found[1]}/{found[2]}" if found else
              gitcall.git(state["repo"], "remote", "get-url", "origin", check=False)
              if state.get("repo") else "")

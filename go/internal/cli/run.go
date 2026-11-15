@@ -248,11 +248,11 @@ func validateRunSubcommand(verb string, args []string) string {
 		args = without(args, "--keep")
 	case "resume":
 		usage += " [--rounds N] [--bg]"
-		args = without(args, "--bg")
-		if len(args) == 3 && args[1] == "--rounds" && positive(args[2]) {
-			asked = args[2]
-			args = args[:1]
+		id, rounds, ok := launch.ResumeArgs(args)
+		if !ok {
+			return usage
 		}
+		args, asked = []string{id}, rounds
 	}
 	if len(args) != 1 || (verb != "status" && verb != "show" && !runID(args[0])) {
 		return usage

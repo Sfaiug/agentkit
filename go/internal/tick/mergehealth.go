@@ -21,17 +21,21 @@ import (
 // (watch.HEALTH_TIMEOUT): it must leave time for the rest of the tick.
 const healthTimeout = 30 * time.Second
 
-// A probe is what one live probe said, run once a tick for each repository and commit.
+// A probe is what one live probe said, run once a tick for each repository, commit and declaration,
+// and when it ended.
 type probe struct {
 	passed bool
 	output string
+	at     float64
 }
 
 // mergeHealth is Python's after_merge_health, the one place a merge's health is decided: what its
 // commit declares kept on its run where the run holds none, and the commit; inside its window its
 // `health:` probed, a pass making it live and a failure kept with its output for the next tick,
 // each told nobody; past it, the failure kept is its break; and history.db keeps its commit, its
-// probes and when it went live (mergeRows).  Go follows no deployment, and a pass whose line waits
+// probes and when it went live (mergeRows).  A merge declaring `deployed:` has that probed beside
+// its health, kept followed after its first pass, its line saying which way its health fails, and
+// its broken releases counted (deployed.go).  A pass whose line waits
 // in its seat's composer for its Enter is Python's to tell (handback.LiveLeft), one its seat came
 // to owe while the probe ran too, as Python probes it again and keeps that row.  Each is decided
 // once, before this merge's first write, and left there.  Once Go carries the merge its probe's row
@@ -40,25 +44,36 @@ type probe struct {
 // reading it owed first, hands its telling over.  What a pass asks of the merge's seat's other runs
 // is read from census, the merge checks' one read of every run.  A dry tick decides the same, runs
 // no probe and makes no write: it says what it would check, record and tell.
-func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, census []*run.Object, say func(string), dry bool) error {
+func mergeHealth(each *merge, key string, now float64, probes map[[3]string]probe, census []*run.Object, say func(string), dry bool) error {
 	rows, found, err := mergeReads(each, now, dry)
 	if err != nil {
 		return err
 	}
 	record, dir := each.record, filepath.Join(run.Runs(), each.name)
-	inside, health := inWindow(record, now), healthOf(record)
+	inside, health, deployed := inWindow(record, now), healthOf(record), record.Str("deployed")
 	if found.Has("health") {
 		health = healthOf(found)
 	}
-	verdict, probed, row := "", (*probe)(nil), func() {}
+	if found.Has("deployed") {
+		deployed = found.Str("deployed")
+	}
+	verdict, probed, live, row := "", (*probe)(nil), (*probe)(nil), func() {}
 	switch command := run.Text(health.Get("command")); {
-	case record.Truthy("live_at"):
+	case record.Truthy("live_at") && !(deployed != "" && health.Truthy("command") && (inside || health.Has("output"))):
 		verdict = "passed"
 	case !health.Truthy("command"):
 	case !inside:
+		live, row = deploying(probes, key, each, deployed, rows, dry)
 		// One typed line: a line break would reach the seat as Enter and send half of it.
 		output := cmp.Or(health.Str("output"), "command exited nonzero without output")
 		parts := []string{each.pr}
+		if deployed != "" {
+			passed := record.Truthy("deployed_passed") // as a dry tick, which probes nothing, reads it
+			if live != nil {
+				passed = live.passed
+			}
+			parts = append(parts, deployment(passed))
+		}
 		for _, line := range config.SplitLines(output) {
 			if strings.TrimFunc(line, config.Space) != "" {
 				parts = append(parts, line)
@@ -70,24 +85,20 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 		verdict = "pending"
 		say(fmt.Sprintf("would check run %s's live product: %s", each.name, command))
 	default:
-		said, ran := probes[[2]string{key, each.sha}]
-		if !ran {
-			asked := epoch(time.Now())
-			var exit *int
-			said.passed, said.output, exit = healthCommand(record.Str("repo"), each.sha, command, healthTimeout)
-			probes[[2]string{key, each.sha}] = said
-			row = func() { history.Ran(rows, command, asked, exit, nil) }
-		}
+		said, ran := probeOnce(probes, key, "health", each, command, rows)
 		verdict, probed = "pending", &said
 		if said.passed {
 			verdict = "passed"
 		}
+		var also func()
+		live, also = deploying(probes, key, each, deployed, rows, dry)
+		row = func() { ran(); also() }
 	}
 	if verdict == "passed" && handback.LiveLeft(record, census) {
 		return errLeft
 	}
 	row()
-	if !dry && (len(found.Keys()) > 0 || record.Str("merge_sha") != each.sha || probed != nil) {
+	if !dry && (len(found.Keys()) > 0 || record.Str("merge_sha") != each.sha || probed != nil || live != nil) {
 		err := run.Change(dir, func(current *run.Object) error {
 			for _, name := range found.Keys() {
 				current.Set(name, found.Get(name))
@@ -95,11 +106,22 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 			if current.Truthy("merged") && run.Equal(current.Get("finished_at"), record.Get("finished_at")) {
 				current.Set("merge_sha", each.sha)
 			}
-			if probed != nil && (probed.passed || current.Truthy("live_at")) {
+			if live != nil {
+				deployedOn(current, *live)
+			}
+			if probed != nil && deployed != "" {
+				failuresOn(current, probed.passed)
+			}
+			if probed != nil && (probed.passed || current.Truthy("live_at") && deployed == "") {
 				if !current.Has("live_at") {
 					current.Set("live_at", run.Float(now))
 				}
-				current.Delete("health")
+				if deployed != "" {
+					// followed on after its first pass, for a revert: what it last said goes
+					current.Set("health", run.Fields("command", health.Get("command")))
+				} else {
+					current.Delete("health")
+				}
 				verdict = "passed"
 			} else if probed != nil {
 				current.Set("health", run.Fields("command", health.Get("command"), "output", probed.output))
@@ -124,15 +146,14 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 
 // mergeReads is what mergeHealth reads of a merge before it probes or writes: where history.db
 // keeps it (mergeRows), and what its commit declares that its run does not hold, read inside its
-// window where it has not gone live; errLeft where either is Python's, a declared deployment among
-// them.
+// window where it has not gone live, or declares a deployment; errLeft where either is Python's.
 func mergeReads(each *merge, now float64, dry bool) (*history.Checked, *run.Object, error) {
 	rows, err := mergeRows(each, dry)
 	if err != nil {
 		return nil, nil, err
 	}
 	record, found := each.record, run.NewObject()
-	if !record.Truthy("live_at") && (!record.Has("health") || !record.Has("deployed")) && inWindow(record, now) && record.Truthy("repo") {
+	if (!record.Truthy("live_at") || record.Truthy("deployed")) && (!record.Has("health") || !record.Has("deployed")) && inWindow(record, now) && record.Truthy("repo") {
 		// a merge that could not read its commit, or one recorded before merges did: the commit
 		// it delivered decides, as it would have there, recorded once
 		if found, err = declared(record.Str("repo"), cmp.Or(record.Str("delivery_sha"), each.sha), each.pr, dry); err != nil {
@@ -142,9 +163,6 @@ func mergeReads(each *merge, now float64, dry bool) (*history.Checked, *run.Obje
 			if record.Has(name) {
 				found.Delete(name)
 			}
-		}
-		if found.Truthy("deployed") {
-			return nil, nil, errLeft
 		}
 	}
 	return rows, found, nil

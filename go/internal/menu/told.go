@@ -3,8 +3,11 @@ package menu
 import "agentkit/internal/terminal"
 
 // Told is text said on lines of its own under a page's rows, Python's config_limits' told: a blank
-// line, then text wrapped at a word, each line indented.
+// line, then text wrapped at a word, each line indented; nothing for no text.
 func Told(s terminal.Screen, text string) []string {
+	if text == "" {
+		return nil
+	}
 	lines := []string{""}
 	for _, part := range terminal.Wrap(text, s.LayoutWidth()-2) {
 		lines = append(lines, "  "+part)

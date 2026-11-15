@@ -184,29 +184,12 @@ func eventPaths(runDir string) []string {
 }
 
 // codexTokens is the increase the turn in out made in its thread's running total, which is what
-// Codex reports, codex.py `tokens`: the run's kept turns read in reporting order, each thread's
-// total carried from one to the next; a turn whose stream names no thread is its own total.
+// Codex reports, codex.py `tokens`: what it grew by since the thread's latest earlier turn
+// codexThreadTurn reads; a turn whose stream names no thread is its own total.
 func codexTokens(out string) (float64, bool) {
 	events := filepath.Join(out, "events.jsonl")
-	previous := map[string]float64{}
-	for _, path := range eventPaths(filepath.Dir(filepath.Dir(out))) {
-		lines, _ := jsonLines(path, nil)
-		thread := ""
-		for _, line := range lines {
-			if event, ok := line.(*run.Object); ok && event.Get("type") == "thread.started" {
-				thread, _ = event.Get("thread_id").(string)
-				break
-			}
-		}
-		total, said := eventTokens(path)
-		if thread == "" || !said {
-			continue
-		}
-		spent := max(0, total-previous[thread])
-		previous[thread] = total
-		if path == events {
-			return spent, true
-		}
+	if total, earlier, found := codexThreadTurn(events); found {
+		return max(0, total-earlier.total), true
 	}
 	return eventTokens(events)
 }

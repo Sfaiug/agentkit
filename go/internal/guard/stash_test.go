@@ -17,7 +17,7 @@ func TestOnlyAStashThatMayWriteAsksTheRealGit(t *testing.T) {
 	seated(t, "acme")
 	asked := filepath.Join(t.TempDir(), "asked")
 	real := filepath.Join(t.TempDir(), "git")
-	put(t, real, "#!/bin/sh\necho \"$*\" >> "+asked+"\nprintf 'worktree /a\\nHEAD x\\n\\nworktree /b\\n'\n")
+	put(t, real, "#!/bin/sh\necho \"$*\" >> '"+asked+"'\nprintf 'worktree /a\\nHEAD x\\n\\nworktree /b\\n'\n")
 	if err := os.Chmod(real, 0o777); err != nil {
 		t.Fatal(err)
 	}

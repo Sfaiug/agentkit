@@ -2,10 +2,12 @@ package harness
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -47,7 +49,7 @@ func claudeModels(_ []string, out, errOut io.Writer) int {
 		if after != "" {
 			url += "&after_id=" + after
 		}
-		curl := exec.Command("curl", "-sf", "-H", "@-", "-H", "anthropic-beta: oauth-2025-04-20",
+		curl := claudeCommand("curl", "-sf", "-H", "@-", "-H", "anthropic-beta: oauth-2025-04-20",
 			"-H", "anthropic-version: 2023-06-01", url)
 		curl.Stdin, curl.Stderr = strings.NewReader("Authorization: Bearer "+token+"\n"), errOut
 		said, err := curl.Output()
@@ -90,6 +92,27 @@ func claudeModels(_ []string, out, errOut io.Writer) int {
 	}
 	fmt.Fprintln(out, strings.Join(lines, "\n"))
 	return 0
+}
+
+// claudeCommand is that program run as claude.sh runs it: where PATH finds no claude, the script's
+// preamble puts claude's installer's folder ahead of PATH, both to find each program it runs and
+// in that program's own environment.
+func claudeCommand(name string, args ...string) *exec.Cmd {
+	if _, err := exec.LookPath("claude"); err == nil || errors.Is(err, exec.ErrDot) {
+		return exec.Command(name, args...)
+	}
+	local := os.Getenv("HOME") + "/.local/bin"
+	program := name
+	if found, err := exec.LookPath(filepath.Join(local, name)); err == nil {
+		program = found
+	}
+	cmd := exec.Command(program, args...)
+	path := local
+	if os.Getenv("PATH") != "" {
+		path += ":" + os.Getenv("PATH")
+	}
+	cmd.Env = append(os.Environ(), "PATH="+path) // exec keeps the last of a doubled variable
+	return cmd
 }
 
 // claudeBearer is the token the listing asks with, as the script finds it: the worker token, from

@@ -40,7 +40,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from . import (command_help, config, gitcall, history, logins, matrix, spend, staffing,
-               terminal, turns, usage_probe, worker)
+               terminal, turns, usage_probe, usage_turn, worker)
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -266,10 +266,10 @@ def _cached_provider(provider, account=None):
     return prov if isinstance(prov, dict) else {}
 
 
-def _lock(provider, account=None):
-    """The file one provider's probe -- or one account's of it -- is taken under, and dated by."""
-    return config.STATE / (f"{provider}-probe.lock" if account is None
-                           else f"{provider}.{account}-probe.lock")
+def _lock(provider, account=None, kind="probe"):
+    """The file one provider's probe or turn -- or one account's -- is taken under, and dated by."""
+    return config.STATE / (f"{provider}-{kind}.lock" if account is None
+                           else f"{provider}.{account}-{kind}.lock")
 
 
 def _probe_every(cfg, provider):
@@ -323,17 +323,21 @@ def _cooling(provider, account=None, every=None):
     """
     every = PROBE_EVERY if every is None else every
     now = time.time()
-    try:
-        asked = _number(float(_lock(provider, account).read_text()))
-    except (OSError, ValueError):
-        asked = None
-    if asked is not None and 0 <= now - asked < every:
+    if _within(_lock(provider, account), every, now):
         return True
     try:
         until = _number(float(_retry_file(provider, account).read_text()))
     except (OSError, ValueError):
         return False
     return until is not None and now < until
+
+
+def _within(path, every, now):
+    """Whether the moment `path` holds is less than `every` seconds before `now`."""
+    try:
+        return 0 <= now - float(path.read_text()) < every
+    except (OSError, ValueError):
+        return False
 
 
 def _kept(cached, fresh, now):
@@ -425,7 +429,7 @@ def _meter_asked(prov):
             if isinstance(name, str) and (at := _number(value)) is not None}
 
 
-def _probe_gently(cfg, provider, account=None):
+def _probe_gently(cfg, provider, account=None, turn=False):
     """`_probe`, but at most once per cadence per provider across this whole host.
 
     Whoever asks -- the tick, an open menu, `ak usage`, a pick, a refused worker, a spent
@@ -448,12 +452,12 @@ def _probe_gently(cfg, provider, account=None):
     A provider that lists `accounts` is each of them read that way, every one with its own
     mark, under the provider: the provider's own fields are then the account a worker turn
     runs on next (`_gate_flags`).  What comes back is the record as the cache holds it, with
-    the mark in force on it.
+    the mark in force on it; with `turn`, inside the cadence, as a turn read it (`_read_by_turn`).
     """
     names = config.accounts(cfg, provider) if account is None else []
     if names:
         now = time.time()
-        read = {name: _without_past(_probe_gently(cfg, provider, name), now, "the adapter")
+        read = {name: _without_past(_probe_gently(cfg, provider, name, turn), now, "the adapter")
                 for name in names}
         return _gate_flags({provider: {"provider": provider, "accounts": read}}, now, cfg)[provider]
     lock = _lock(provider, account)
@@ -471,16 +475,57 @@ def _probe_gently(cfg, provider, account=None):
         fcntl.flock(handle, fcntl.LOCK_EX)
         # Whoever we waited for has written their answer by now, and it is this one.
         cached = _cached_provider(provider, account)
-        if _cooling(provider, account, _probe_every(cfg, provider)):
+        if not _cooling(provider, account, _probe_every(cfg, provider)):
+            now = time.time()
+            lock.write_text(repr(now))
+            fresh = _ask_probe(cfg, provider, now, account)
+            _note_retry(provider, fresh, time.time(), account)
+            _keep_probed(provider, account, cached, fresh)
+            # The mark on disk travels with the record that replaces it (`_onto`), not the one
+            # `cached` held: a mark made since, or a credit that lifted it since, is the later
+            # word.
+            return _patch(provider, _kept(cached, fresh, now), account)
+    # out of the lock, which the turn's reading is written under (`record_turn_meters`)
+    return _read_by_turn(cfg, provider, account, cached) if turn else cached
+
+
+def _read_by_turn(cfg, provider, account, cached):
+    """`cached`, or where a meter its harness's turns read (`turn_windows`) is spent in it and
+    not past its reset, what one turn on that login read (`usage_turn`), measured as it began:
+    between two asks of the endpoint a login with room is read by its own turns and seats, and
+    a spent one has neither, so a window back early showed up to eighteen minutes late.
+
+    One turn a login inside PROBE_EVERY, whoever refreshes: its lock file holds when the last
+    began, written under that lock, and a caller finding it held reads what is kept rather than
+    wait on the turn in flight.
+    """
+    try:
+        harness, _ = config.provider_harness(cfg, provider)
+    except config.Error:
+        return cached
+    windows, now = harness_plugin(harness).turn_windows, time.time()
+    if not any(isinstance(m, dict) and m.get("name") in windows and not _past(m, now)
+               and (_number(m.get("used")) or 0) >= 100 for m in cached.get("meters") or []):
+        return cached
+    # the usual login goes by None and `default`, by whether accounts are listed: one login
+    lock = _lock(provider, None if account == config.DEFAULT_ACCOUNT else account, "turn")
+    try:
+        handle = lock.open("a")
+    except OSError:
+        return cached
+    with handle:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
             return cached
-        now = time.time()
-        lock.write_text(repr(now))
-        fresh = _ask_probe(cfg, provider, now, account)
-        _note_retry(provider, fresh, time.time(), account)
-        _keep_probed(provider, account, cached, fresh)
-        # The mark on disk travels with the record that replaces it (`_onto`), not the one
-        # `cached` held: a mark made since, or a credit that lifted it since, is the later word.
-        return _patch(provider, _kept(cached, fresh, now), account)
+        began = time.time()     # under the lock, so never before the last turn began
+        if _within(lock, PROBE_EVERY, began):
+            return cached
+        lock.write_text(repr(began))
+        if record_turn_meters(cfg, provider, usage_turn.meters(harness, account), account,
+                              now=began, asked=True):
+            return _cached_provider(provider, account)
+    return cached
 
 
 def _keep_probed(provider, account, cached, fresh):
@@ -574,7 +619,7 @@ def _reread(cfg, provider, cached, now):
         return _without_past(cached, now, "the cache")
 
 
-def _gate_flags(providers, now, cfg):
+def _gate_flags(providers, now, cfg, provider=None):
     """Stamp `exhausted` at 100% used, retaining the orchestrator's reset-aware flag separately.
 
     The meters are cached for up to CACHE_TTL, so a flag computed when they were fetched could
@@ -589,7 +634,7 @@ def _gate_flags(providers, now, cfg):
         # order the config lists them in -- so it is spent only when all of them are.
         # An account nobody could read ranks with the usual login and after it: its
         # login may be the very thing that failed, and a turn there parks on it.
-        accounts = _gate_flags(_logins(cfg, name, prov), now, cfg)
+        accounts = _gate_flags(_logins(cfg, name, prov), now, cfg, name)
         if accounts:
             best = min(accounts, key=lambda account: _worker_rank(account, accounts[account]))
             prov.clear()
@@ -608,12 +653,15 @@ def _gate_flags(providers, now, cfg):
             prov.update(meters=meters, error=None,
                         probed_meters={k: v for k, v in asked.items() if k in kept})
         # a provider that refused a worker is parked until it said it would have
-        # capacity, or until the meter that showed the refusal opens a new window or falls
-        until = _number(prov.get("exhausted_until"))
-        if until is None or until <= now or _fresh_window(prov, prov, now):
-            for key in MARK:
-                prov.pop(key, None)
-            until = None
+        # capacity, or until the meter that showed the refusal opens a new window or falls,
+        # each refusal on its own; the login is spent only where they park every model of it
+        held = _in_force(prov, _marks(prov), now)
+        kept = _with(prov, held)
+        prov.clear()
+        prov.update(kept)
+        parked = bool(held) and all(any(_parks(cfg, model, prov, mark) for mark in held)
+                                    for model, entry in cfg["models"].items()
+                                    if entry["provider"] == (provider or name))
         spent = False
         for meter in prov.get("meters") or []:
             resets_at = meter.get("resets_at")
@@ -628,7 +676,7 @@ def _gate_flags(providers, now, cfg):
             spent = spent or meter["exhausted"]
         # a spent window with credits left is usage left, ranked after every window still open
         prov["on_credits"] = spent and credits_left(prov) > 0
-        prov["exhausted"] = until is not None or (spent and not prov["on_credits"])
+        prov["exhausted"] = parked or (spent and not prov["on_credits"])
         split = _split_week(cfg, name, prov)
         # Derived on every read, including old caches and changes to config.toml.
         prov.pop("effective_used", None)
@@ -645,7 +693,9 @@ def _gate_flags(providers, now, cfg):
 
 
 _WRITES = itertools.count()   # a temporary name of each writer's own; see `_write`
-MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_used", "exhausted_by")
+EARLIER = "exhausted_earlier"     # the refusals in force beside the newest, each its own fields
+MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_used", "exhausted_by",
+        "exhausted_meters", EARLIER)
 
 
 def _write(change, fetched_at=None):
@@ -694,15 +744,15 @@ def _onto(old, new, now, spent=None):
 
     A mark is made by the refusal that makes it (`mark_exhausted`) and by nothing else, so any
     mark on another writer's reading is the file's from when that reading began, and is not
-    written back.  The mark the file holds stays while it is in force against what is written
-    (`_carry_mark`): its deadline, or a fresh window with room, ends it as it ends every mark.
-    A credit spent at `spent` lifts it too, when it was made then or before -- a refusal of
-    the week the credit replaced; a mark made since refused the week it opened, and stays.
+    written back.  Each mark the file holds stays while it is in force against what is written
+    (`_in_force`): its deadline, or a fresh window with room, ends it as it ends every mark.
+    A credit spent at `spent` lifts one too, when it was made then or before -- a refusal of
+    the week the credit replaced, which the meters the spend hands back say has room again; a
+    mark made since refused the week it opened, and stays.
     """
-    new = {key: value for key, value in new.items() if key not in MARK}
-    if spent is not None and (_number(old.get("exhausted_at")) or 0) <= spent:
-        return new
-    return _carry_mark(old, new, now)
+    marks = [mark for mark in _marks(old)
+             if spent is None or (_number(mark.get("exhausted_at")) or 0) > spent]
+    return _with(new, _in_force(new, marks, now))
 
 
 def _store(cfg, providers, now, fetched_at=None, counted=None):
@@ -749,9 +799,9 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
     fetched_at stays put for exactly the reason `collect` keeps it when it re-reads one
     provider: reading one must not stamp the others, which were not read, as newly measured.
     `mark` is a refusal's change instead of a reading: those fields go onto the record the
-    file holds, or onto `prov` where it holds none -- unless a credit that record carries was
-    spent at or after the mark was made, which refused the week it replaced and which that
-    credit has lifted.  `spent` is a credit's (`_onto`).
+    file holds, or onto `prov` where it holds none, beside the refusals in force there --
+    unless a credit that record carries was spent at or after the mark was made, which refused
+    the week it replaced and which that credit has lifted.  `spent` is a credit's (`_onto`).
     """
     def change(providers, now):
         old = _record(providers.get(provider))
@@ -759,7 +809,9 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
         mine = old if account is None else _record(theirs.get(account))
         if mark and (_number((mine or prov).get("reset_spent_at")) or 0) >= mark["exhausted_at"]:
             return mine or prov
-        record = {**(mine or prov), **mark} if mark else _onto(mine, prov, now, spent)
+        base = mine or prov
+        record = (_with(base, [mark, *_in_force(base, _marks(base), now)]) if mark
+                  else _onto(mine, prov, now, spent))
         providers[provider] = (record if account is None
                                else {**old, "accounts": {**theirs, account: record}})
         return record
@@ -806,36 +858,39 @@ def _fresh_window(prov, mark, now):
     return False
 
 
-def _carry_mark(old, prov, now):
-    """A refusal's deadline outlives the meters it was recorded beside, until it has passed.
+def _marks(record):
+    """The refusals `record` holds, newest first, each its own `MARK` fields: the one on it,
+    then those still in force beside it when it was made (`EARLIER`)."""
+    if not isinstance(record, dict):
+        return []
+    earlier = record.get(EARLIER) if isinstance(record.get(EARLIER), list) else []
+    return [{key: mark[key] for key in MARK if key in mark and key != EARLIER}
+            for mark in [record, *earlier]
+            if isinstance(mark, dict) and _number(mark.get("exhausted_until")) is not None]
+
+
+def _in_force(prov, marks, now):
+    """Those of `marks` still in force against `prov`, the reading: each until its own deadline.
 
     A provider that has just refused a worker is parked until it says it has capacity again,
     and the meters it reports meanwhile are not that answer: the one that is, is the time the
     refusal itself named.  Once that time is behind us the mark is gone and the probe decides.
     A new window with room on the meter that showed the refusal, or an asked reading where that
-    meter has fallen, ends it sooner and is that same answer.
-
-    Every write carries the mark the file holds this way (`_onto`) but the credit's own: the
-    meters a spend hands back are the capacity the mark said was missing, and re-applying it
-    there would withhold what was just paid for.
+    meter has fallen, ends it sooner and is that same answer (`_fresh_window`).  Two refusals
+    are two answers: neither ends the other, nor parks the models only the other was meant for.
     """
-    until = _number((old or {}).get("exhausted_until"))
-    if until is None or until <= now:
-        return prov
-    marked_at = _number((old or {}).get("exhausted_at"))
-    ends = (old or {}).get("exhausted_ends")
-    if _fresh_window(prov, old, now):
-        return prov
-    mark = {**prov, "exhausted_until": until}
-    if marked_at is not None:
-        mark["exhausted_at"] = marked_at
-    if isinstance(ends, dict):
-        mark["exhausted_ends"] = ends
-    if isinstance(old.get("exhausted_used"), dict):
-        mark["exhausted_used"] = old["exhausted_used"]
-    if isinstance(old.get("exhausted_by"), str):
-        mark["exhausted_by"] = old["exhausted_by"]
-    return mark
+    return [mark for mark in marks
+            if mark["exhausted_until"] > now and not _fresh_window(prov, mark, now)]
+
+
+def _with(prov, marks):
+    """`prov` holding `marks`, newest first: the newest one's fields its own, the rest beside."""
+    record = {key: value for key, value in prov.items() if key not in MARK}
+    if marks:
+        record.update(marks[0])
+    if marks[1:]:
+        record[EARLIER] = marks[1:]
+    return record
 
 
 def _on_disk(cfg):
@@ -910,7 +965,7 @@ def collect(cfg, *, refresh=False):
                 return Readings(_gate_flags(providers, now, cfg))
         except (OSError, ValueError, TypeError, KeyError):
             pass
-    providers = {name: _without_past(_probe_gently(cfg, name), now, "the adapter")
+    providers = {name: _without_past(_probe_gently(cfg, name, turn=refresh), now, "the adapter")
                  for name in cfg["providers"]}
     # What is answered is what was written, a mark another worker made meanwhile included.
     providers = _store(cfg, providers, now, now)
@@ -1027,7 +1082,7 @@ def replenish(cfg, provider, account=None, kind=None):
         return False, available
     spent_at = time.time()
     # The reading in hand is of the window the credit just replaced, so it goes, as a rolled
-    # window does (`_reread`), and a mark it carried is lifted (`_carry_mark`).  What replaced
+    # window does (`_reread`), and a mark it carried is lifted (`_onto`).  What replaced
     # it is what the spend itself read back: `reset` asks the meters once the credit has gone,
     # so that is a fresh reading and no second request, and what a refused probe wrote down
     # about the old one (`_kept`) goes with it.  That is every meter where it answers `meters`,
@@ -1081,9 +1136,9 @@ def _next_window(prov, now):
     return min([end for end in ends if end is not None and end > now], default=None)
 
 
-def mark_exhausted(cfg, provider, until=None, account=None):
-    """Park a provider -- or that account of it -- that has just refused a worker, until it
-    says it has capacity again.
+def mark_exhausted(cfg, provider, until=None, account=None, model=None):
+    """Park a provider -- or that account of it -- that has just refused a turn of `model`,
+    until it says it has capacity again.
 
     `until` is the harness's own "try again at", when its refusal named one; otherwise the
     soonest of the provider's own windows still to roll over, which is its other way of saying
@@ -1099,6 +1154,12 @@ def mark_exhausted(cfg, provider, until=None, account=None):
     room; a refusal no meter showed waits for its deadline.  An account's mark
     is its own: the provider stays eligible on its other accounts.  Returns the deadline
     recorded.
+
+    The refusal shows on a meter gating `model`, and the mark records the meters it can have
+    come from (`exhausted_meters`): that one, or with none showing it, every meter gating
+    `model`.  It parks only the models those all gate (`_parks`), so a refusal of Fable's own
+    cap leaves Opus to its meters.  A mark made without a model records none, and parks every
+    model.
     """
     now = time.time()
     try:
@@ -1110,10 +1171,11 @@ def mark_exhausted(cfg, provider, until=None, account=None):
     said = _number(until) is not None and until > now
     if not said:
         until = _next_window(prov, now) or now + DRY_FOR
+    meters = [meter for meter in prov.get("meters") or []
+              if isinstance(meter, dict) and isinstance(meter.get("name"), str)]
+    gating = _gating_meters(cfg, model, {provider: {"meters": meters}})[0] if model else meters
     ends, levels, shown = {}, {}, []
-    for meter in prov.get("meters") or []:
-        if not isinstance(meter, dict) or not isinstance(meter.get("name"), str):
-            continue
+    for meter in meters:
         used = _number(meter.get("used"))
         if used is not None:
             levels[meter["name"]] = used
@@ -1123,20 +1185,22 @@ def mark_exhausted(cfg, provider, until=None, account=None):
             # the refusal shows on a meter spent as it came, of several the last to reset,
             # and never on a session -- or a window that does not say it is none -- when the
             # refusal outlasts one
-            if (used or 0) >= 100 and not (
+            if meter in gating and (used or 0) >= 100 and not (
                     _number(meter.get("window_secs")) in (SESSION_SECS, None)
                     and until - now > SESSION_SECS):
                 shown.append((end, meter["name"]))
     if not said and not shown:
         until = min(until, now + DRY_FOR)
+    by = max(shown, default=(0, None))[1]
+    named = [by] if by else [meter["name"] for meter in gating]
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
-                                          "exhausted_used": levels,
-                                          "exhausted_by": max(shown, default=(0, None))[1]})
+                                          "exhausted_used": levels, "exhausted_by": by,
+                                          "exhausted_meters": named if model else []})
     return float(until)
 
 
-def record_turn_meters(cfg, provider, meters, account=None, now=None):
+def record_turn_meters(cfg, provider, meters, account=None, now=None, asked=False):
     """The meters a worker turn, or a seat's status render (`watch.hook_meters`), reported about
     the account it ran on become that reading.
 
@@ -1148,6 +1212,8 @@ def record_turn_meters(cfg, provider, meters, account=None, now=None):
     turn that said nothing changes nothing, and an older reading never replaces a
     newer one: the write shares the probe's own lock, so a probe in flight cannot
     write back the reading from before the turn. Returns whether anything was written.
+    `asked`: ak ran the turn to read them (`_read_by_turn`), so they were asked for as it
+    began, as a probe's are, and a fall they show ends a refusal's mark (`_fresh_window`).
 
     The usual login goes by two names, None and `default`, and its reading is kept where
     config.toml now says (`_on_disk`): under `default` where the provider lists it, else
@@ -1177,13 +1243,13 @@ def record_turn_meters(cfg, provider, meters, account=None, now=None):
     except OSError:
         handle = None
     if handle is None:
-        return _record_turn_meters(cfg, provider, fresh, account, measured)
+        return _record_turn_meters(cfg, provider, fresh, account, measured, asked)
     with handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
-        return _record_turn_meters(cfg, provider, fresh, account, measured)
+        return _record_turn_meters(cfg, provider, fresh, account, measured, asked)
 
 
-def _record_turn_meters(cfg, provider, fresh, account, measured):
+def _record_turn_meters(cfg, provider, fresh, account, measured, asked):
     """The read-modify-write itself, with the account's probe lock held."""
     cached = _cached_provider(provider, account)
     cached = cached if isinstance(cached, dict) else {}
@@ -1204,7 +1270,9 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
     _keep(provider, account, fresh, measured, "turn")
     # Normalized as a probed meter is, because every reader of the snapshot reads one.
     new = {m["name"]: {**_normalized(m, measured), "measured_at": measured} for m in fresh}
-    asked = {name: at for name, at in _meter_asked(cached).items() if name not in new}
+    probed = {name: at for name, at in _meter_asked(cached).items() if name not in new}
+    if asked:
+        probed.update(dict.fromkeys(new, measured))
     merged = [new.get(m["name"], m) for m in old]
     merged += [meter for name, meter in new.items() if name not in held]
     prov = dict(cached)
@@ -1216,7 +1284,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
             prov.setdefault("via", via)
         except config.Error:
             pass
-    prov.update(meters=merged, probed_at=max(measured, stood or 0), probed_meters=asked,
+    prov.update(meters=merged, probed_at=max(measured, stood or 0), probed_meters=probed,
                 error=None, pace=max((m["pace"] for m in merged if m.get("pace") is not None),
                                      default=None))
     for key in ("fetched_at", "probe_error", "probe_failed_at", "stale_since"):
@@ -1391,6 +1459,23 @@ def _gating_meters(cfg, name, providers):
     return [m for m in meters if m.get("scope") or m["name"] not in claimed], PROVIDER_METERS
 
 
+def _parks(cfg, name, prov, mark):
+    """Whether the refusal `mark` on `prov`, a reading of this model's provider, can have been
+    meant for this model: each meter it can have come from (`mark_exhausted`) gates it too.
+
+    The mark names meters, not the model refused, so it reads whatever config.toml says whose
+    each meter is by now.  One naming none -- made without a model, or before marks named
+    any -- or a meter this reading no longer holds parks every model: whose it was, nobody knows.
+    """
+    recorded = mark.get("exhausted_meters")
+    meters = [m for m in prov.get("meters") or [] if isinstance(m, dict)]
+    if not isinstance(recorded, list) or not set(recorded) <= {m.get("name") for m in meters}:
+        return True
+    provider = config.model(cfg, name)["provider"]
+    return set(recorded) <= {m["name"] for m in
+                             _gating_meters(cfg, name, {provider: {"meters": meters}})[0]}
+
+
 def model_pace(cfg, name, providers):
     """(pace, label) for worker ranking; pace None when nothing is reported."""
     meters, label = _gating_meters(cfg, name, providers)
@@ -1446,13 +1531,34 @@ def shared_week(cfg, provider, prov, now=None):
     that cannot be drawn is better than a wrong one.
     The picker is unaffected -- it ranks each model on the meters gating it (`_gating_meters`).
 
-    The menu's row and the `resets` column of the table both read this one answer, so the two
-    can never disagree about which week they are naming the reset time of.
+    The menu's row and the table's row (`rows`) both read this one answer, so the two can never
+    disagree about which week they are naming.
     """
-    meters = readable(prov, time.time() if now is None else now)
-    claimed = {entry["meter"] for entry in cfg["models"].values()
-               if entry.get("provider") == provider and entry.get("meter")}
-    return _worst([m for m in meters if m.get("name") not in claimed and not m.get("scope")])
+    return _worst([m for m in readable(prov, time.time() if now is None else now)
+                   if not _own_cap(cfg, provider, m)])
+
+
+def _own_cap(cfg, provider, meter):
+    """Whether this meter of `provider` is one model's own cap: its provider names its owner
+    (`scope`), or a `meter` in config.toml claims it."""
+    return bool(meter.get("scope")) or any(
+        entry.get("provider") == provider and entry.get("meter") == meter.get("name")
+        for entry in cfg["models"].values() if entry.get("meter"))
+
+
+def _as_shared(cfg, provider, prov, week):
+    """This login as its row in `ak usage` reads it: `week`, its shared week, its one weekly
+    meter beside its 5h session, or the login as it is where it has none.  It is spent as its
+    flags say unless the only meters spent are models' own caps: Opus still runs on a login
+    whose Fable cap is full.  Only the row: the pick, `--json` and each model's gate read the
+    flags as they are."""
+    if week is None:
+        return prov
+    meters = prov.get("meters") or []
+    spent = [m for m in meters if m.get("exhausted")]
+    capped = spent and all(_own_cap(cfg, provider, m) for m in spent)
+    return {**prov, "meters": [week, *(m for m in meters if m.get("window_secs") == SESSION_SECS)],
+            **({"exhausted": False, "on_credits": False} if capped else {})}
 
 
 def provider_headroom(prov, cfg, provider=None):
@@ -1571,12 +1677,11 @@ def model_exhausted(cfg, name, providers):
     meters, _ = _gating_meters(cfg, name, providers)
     provider = config.model(cfg, name)["provider"]
     prov = providers.get(provider, {})
-    until = _number(prov.get("exhausted_until") if isinstance(prov, dict) else None)
-    now = time.time()
-    if until is not None and until > now:
-        if not _fresh_window(prov, prov, now):
-            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(until))
-            return True, f"{provider} ran dry; nothing is picked on it until {when}"
+    parking = [mark["exhausted_until"] for mark in _in_force(prov, _marks(prov), time.time())
+               if _parks(cfg, name, prov, mark)]
+    if parking:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(max(parking)))
+        return True, f"{provider} ran dry; nothing is picked on it until {when}"
     spent = [m for m in meters if m["used"] >= 100]
     if not spent or credits_left(prov):
         return False, None
@@ -1893,25 +1998,24 @@ def _accounts(cfg, providers):
 def rows(cfg, providers):
     """One row per provider, in plain words: what is left of its week and session, and how long.
 
-    `left` is the tightest weekly meter, because that is what the picker ranks on;
-    `resets` is the shared week's, because that is the week the menu row names and the two
-    must say the same thing, `holds` is what that same week of its plan holds at list prices
-    and `a month` that login's price (`price`).  On a split allowance they can be different
-    meters, which is why the two lines under the table print both.  A provider with several
-    accounts is a row per account, `Claude II`, each on its own meters and its own plan.
+    Every number reads the shared week (`_as_shared`), the one the menu row names; a row with
+    no shared week reads the tightest weekly meter.  `holds` is what that week of its plan holds
+    at list prices and `a month` that login's price (`price`).  A provider with several accounts
+    is a row per account, `Claude II`, each on its own meters and its own plan.
     """
     now = time.time()
     weeks = plan_weeks(cfg, providers, now)
     out = []
     for label, name, prov, account in _accounts(cfg, providers):
+        shared = shared_week(cfg, name, prov, now)
+        prov = _as_shared(cfg, name, prov, shared)
         week = _weekly(prov)
         session = _worst([m for m in prov.get("meters") or []
                           if m.get("window_secs") == SESSION_SECS])
-        shared = shared_week(cfg, name, prov, now) or {}
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
-                    _held(weeks[name][account][1], shared), _digits(price(cfg, name, account)),
-                    reset_when(shared, now) or "-",
+                    _held(weeks[name][account][1], shared or {}),
+                    _digits(price(cfg, name, account)), reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
                     _num(_number(prov.get("resets")), 0),

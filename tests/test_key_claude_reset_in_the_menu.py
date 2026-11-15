@@ -125,7 +125,8 @@ class ClaudeResetInTheMenu(unittest.TestCase):
                                               "reset_kinds": after["reset_kinds"],
                                               "meters": after["meters"]}), given=("Fable",))
         self.spend_fable()
-        self.noted("Claude · 60% left")
+        # the notice says what the spend changed: a Fable reset leaves the week's cell as it was
+        self.noted("  Claude · 60% left · Fable 100% left · 1 weekly, 2 Fable resets in hand")
         line = self.pointed("Fable 100%")
         self.assertIn(" · Fable 100% left", line)
         self.assertTrue(line.endswith(" · 1 weekly, 2 Fable resets in hand"), line)

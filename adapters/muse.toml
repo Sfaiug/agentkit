@@ -73,7 +73,7 @@ programs = ["muse-bin-*"]
 capture = true
 strips_timestamp = true
 
-# Muse 1.4.7's hooks reach a seat from its launch (`adapters/muse.sh interactive`).  Its own
+# Muse 1.4.7's hooks reach a seat from its launch line and Muse's settings file.  Its own
 # question tool fires no tool hook, but its dialog opening is a Notification of its own kind,
 # which no text on the screen can fake: that decides `asking`, as an approval's notice does on a
 # seat launched without yolo.  The turn's states stay the screen's, as on a muse with no hooks.

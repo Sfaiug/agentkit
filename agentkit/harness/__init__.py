@@ -1064,6 +1064,12 @@ class Harness:
             return hook(Path(out))
         return []
 
+    @property
+    def turn_windows(self):
+        """The names of the meters `turn_meters` reads: none by default."""
+        hook = self._hook("turn_windows")
+        return frozenset(hook() if hook else ())
+
     def status_meters(self, windows):
         """The meters a seat's status render said of its own account (`watch.hook_meters`)."""
         hook = self._hook("status_meters")
