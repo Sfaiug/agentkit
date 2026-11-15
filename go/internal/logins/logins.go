@@ -106,13 +106,13 @@ func Renewed(provider, account, harness string) {
 // usable: no harness, no such verb, a failure, a timeout, or anything but that object
 // (logins._ask).
 func Ask(harness, account string) *run.Object {
-	adapter, err := config.LoginAdapter(harness)
+	words, err := asking(harness)
 	if err != nil || harness == "" {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), askTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, adapter, "login-end")
+	cmd := exec.CommandContext(ctx, words[0], append(words[1:], "login-end")...)
 	cmd.Env, cmd.WaitDelay = append(os.Environ(), config.AccountEnv(account)), time.Second
 	stop := host.AdapterCall(cmd) // hung, its readers die with it rather than pile up
 	cmd.Cancel = func() error { stop(); return nil }

@@ -115,12 +115,18 @@ func claudeEnds(oauth *run.Object) (int64, bool) {
 
 // claudeWho is `; logged in as <email>` where Claude Code wrote down whose the login is, else "".
 func claudeWho(login config.Login) string {
+	if email := claudeEmail(login); email != "" {
+		return "; logged in as " + email
+	}
+	return ""
+}
+
+// claudeEmail is whose the login is, as Claude Code writes it down beside the login; "" for nobody.
+func claudeEmail(login config.Login) string {
 	data, _ := os.ReadFile(config.LoginPath("claude", "who", login))
 	value, _ := run.Decode(data)
 	if whole, ok := value.(*run.Object); ok && whole.Dict("oauthAccount") != nil {
-		if email := whole.Dict("oauthAccount").Str("emailAddress"); email != "" {
-			return "; logged in as " + email
-		}
+		return whole.Dict("oauthAccount").Str("emailAddress")
 	}
 	return ""
 }
