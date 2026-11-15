@@ -19,12 +19,13 @@ import (
 )
 
 // breaks is the rest of after_merge_checks for one repository: its oldest failing merge after the
-// newest passing one is handed back to fix, once.  The break is kept in watch.json until a seat
+// newest passing one is handed back to fix, once, unless reverting picked a broken live release:
+// that one's line is told instead.  The break is kept in watch.json until a seat
 // at its prompt is told it, however long past its window, with its composer mark, so a line whose
 // Enter did not land gets its Enter and is never typed twice; one told stays told until a later
 // merge passes, or no red is left.  A dry tick writes no run and types nothing: it says the break
 // it would hand back.
-func (t *ticking) breaks(key string, merges []*merge, now float64) error {
+func (t *ticking) breaks(key string, merges []*merge, now float64, release *merge, line string) error {
 	episodes := t.state.Dict("after_merge")
 	var expired []string
 	for _, each := range merges {
@@ -61,6 +62,12 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 			episodes.Delete(key)
 		}
 		episode = run.NewObject()
+	}
+	if held := cmp.Or(episode.Dict("pending"), run.NewObject()); release != nil &&
+		release.name != episode.Str("run") && release.name != held.Str("run") && !held.Truthy("typed") {
+		// a live release's revert supersedes an older break, once any typed line is sent
+		episodes.Delete(key)
+		episode, stored = run.NewObject(), false
 	}
 	if notified := episode.Str("notified"); notified != "" {
 		ended, ok := dated(episode, "finished")
@@ -118,22 +125,26 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 		}
 	}
 	if pending == nil {
-		at := -1
-		for i, each := range merges {
-			if each.verdict == "passed" {
-				at = -1
-			} else if each.verdict == "failed" && at < 0 {
-				at = i
+		broke := release
+		if broke == nil {
+			at := -1
+			for i, each := range merges {
+				if each.verdict == "passed" {
+					at = -1
+				} else if each.verdict == "failed" && at < 0 {
+					at = i
+				}
 			}
+			if at < 0 {
+				return closeHealth()
+			}
+			if slices.ContainsFunc(merges[at+1:], func(each *merge) bool { return each.verdict == "unknown" }) {
+				t.log.line(fmt.Sprintf("WARN %s: a newer merge's health is unreadable; the after-merge notice waits a tick", key))
+				return nil
+			}
+			broke = merges[at]
 		}
-		if at < 0 {
-			return closeHealth()
-		}
-		if slices.ContainsFunc(merges[at+1:], func(each *merge) bool { return each.verdict == "unknown" }) {
-			t.log.line(fmt.Sprintf("WARN %s: a newer merge's health is unreadable; the after-merge notice waits a tick", key))
-			return nil
-		}
-		broke, branch := merges[at], any("main")
+		branch := any("main")
 		for _, key := range []string{"base", "target"} {
 			if broke.record.Truthy(key) {
 				branch = broke.record.Get(key)
@@ -141,13 +152,18 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 		}
 		target, _ := branch.(string) // the branch merged into, short: `origin/main` is `main`
 		target = cmp.Or(strings.TrimPrefix(target, "origin/"), "main")
-		var session any
+		if release == nil {
+			line = fmt.Sprintf("%s failed on %s after this merge. %s. Fix the target.", broke.check, target, broke.at)
+		}
+		var session, check any // a release still inside its window has failed no check yet
 		if name := run.Seat(broke.record); name != "" {
 			session = name
 		}
-		pending = run.Fields("sha", broke.sha, "line", fmt.Sprintf("%s failed on %s after this merge. %s. Fix the target.", broke.check, target, broke.at),
-			"typed", nil, "run", broke.name, "check", broke.check, "source", "health", "finished", run.Float(broke.finished),
-			"target", target, "session", session)
+		if broke.check != "" {
+			check = broke.check
+		}
+		pending = run.Fields("sha", broke.sha, "line", line, "typed", nil, "run", broke.name, "check", check, "source", "health",
+			"finished", run.Float(broke.finished), "target", target, "session", session)
 		// kept until it is told or its repository goes green: a seat in a turn is told at its
 		// next prompt, past the window its merge leaves meanwhile.  Until watch.json
 		// keeps it, its run's health is its only record, so it waits a tick, that left in place.
