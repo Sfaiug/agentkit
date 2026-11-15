@@ -3,6 +3,7 @@ package seat
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
@@ -77,6 +78,17 @@ func SaveMarks(name string, mark func(*run.Object) (*run.Object, string), steps 
 		if note != "" {
 			selectionErr = fmt.Errorf("%s", note)
 			return false
+		}
+		// a group naming a model the config runs no more, removed since the screen read it, is
+		// refused as Python's orch.role_groups refuses it: the record names only models it runs
+		for _, each := range slices.Concat(selected.List("workers"), selected.List("reviewers")) {
+			name, _ := each.(string)
+			if _, runs := models[name]; runs {
+				continue
+			}
+			if models[name], selectionErr = config.ModelNamed(name); selectionErr != nil {
+				return false
+			}
 		}
 		changed := set([]field{{"workers", selected.Get("workers")}, {"reviewers", selected.Get("reviewers")}})(data)
 		if changed {
