@@ -106,7 +106,7 @@ class QuestionCard(unittest.TestCase):
                 card = ["", *(f"  {line}" for text in (menu.STOP_ASK.format("alpha"), NONE)
                               for line in terminal.wrap(text, min(cols, 120) - 2)), *answers, ""]
                 first = top - len(card) + 2           # its first line's index on the screen
-                # Keep's band runs on to the layout's edge in blanks
+                # Keep's lit cell ends in a blank
                 self.assertEqual([line.rstrip() for line in asked[first:first + len(card)]], card)
                 # right under its row, and under the line a phone draws under that row
                 self.assertIn("alpha", asked[first - (2 if cols == 40 else 1)])
