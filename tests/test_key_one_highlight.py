@@ -30,6 +30,7 @@ SELECTION, BLACK = "48;2;8;48;93", "48;2;0;0;0"     # the black theme's selectio
 WIDTH = 100                                         # the terminal's, and so the layout's
 MAIN_KEYS = "↑↓←→ move   ⏎ open   n new   c config   esc leave"
 MARKS = "●○■□"
+ACT, REMOVE = "→ spend a reset", "− remove"         # ChatGPT's acts, a reset in hand
 
 
 def ground(shown):
@@ -156,17 +157,20 @@ class OneHighlight(unittest.TestCase):
         self.assertEqual(lit_rows(shown), keyed)
         self.assertEqual((shown[fable - 1], shown[astra - 1]), (first[fable - 1], first[astra - 1]))
 
-    def test_on_subscriptions_the_keys_act_and_the_pointers_are_drawn_alike(self):
+    def chatgpt(self):
+        """Subscriptions from `c`, the keys on ChatGPT's line's first act, `ACT`."""
         self.config()
         self.term.keys("Down", "Down", "Down")      # past 6 Astra and `Models`
         self.calm(lambda shown: starts(shown, "› Subscriptions"))
         self.term.keys("Enter")
         self.calm(lambda shown: starts(shown, "› Claude"))
-        self.term.keys("Down", "Right")             # ChatGPT's line, its first act
-        act = "→ spend a reset"
-        shown = self.calm(lambda shown: starts(shown, "› ChatGPT") and lit_rows(shown))
-        col, row = self.row(shown, act)
-        span = list(range(col - 1, col + len(act) + 1))     # with a cell before and after
+        self.term.keys("Down", "Right")
+        return self.calm(lambda shown: starts(shown, "› ChatGPT") and lit_rows(shown))
+
+    def test_on_subscriptions_the_keys_act_and_the_pointers_are_drawn_alike(self):
+        shown = self.chatgpt()
+        col, row = self.row(shown, ACT)
+        span = list(range(col - 1, col + len(ACT) + 1))     # with a cell before and after
         self.assertEqual(lit_rows(shown), {row: span})
         keyed = shown[row - 1]
         self.term.keys("Right")                     # onto `− remove`: the act is at rest
@@ -175,6 +179,22 @@ class OneHighlight(unittest.TestCase):
         shown = self.calm(lambda shown: col in lit_rows(shown).get(row, []))
         self.assertEqual(lit_rows(shown), {row: span})
         self.assertEqual(shown[row - 1], keyed)
+
+    def test_an_act_filling_a_narrow_line_is_lit_on_that_line_alone(self):
+        self.chatgpt()
+        self.term.resize(len(ACT) + 4, 40)          # the act, past the indent, fills the line
+        shown = self.calm(lambda shown: len(shown[0]) == len(ACT) + 4
+                          and starts(shown, f"    {ACT}"))
+        col, row = self.row(shown, ACT)
+        # lit from the cell before it to the last column, the act after it on the next row
+        self.assertEqual(lit_rows(shown), {row: list(range(col - 1, len(ACT) + 5))})
+        self.assertEqual(self.row(shown, REMOVE), (col, row + 1))
+        # the pointer where that one is drawn lights it, and the first at rest
+        self.term.type(point(col + 3, row + 1))
+        shown = self.calm(lambda shown: row + 1 in lit_rows(shown))
+        self.assertEqual(lit_rows(shown), {row + 1: list(range(col - 1, col + len(REMOVE) + 1))})
+        self.assertEqual((self.row(shown, ACT), self.row(shown, REMOVE)),
+                         ((col, row), (col, row + 1)))
 
     def test_in_sixteen_colours_a_seat_has_its_mark_alone(self):
         self.assertEqual(grounds(self.main(TERM="xterm-16color")), {None})

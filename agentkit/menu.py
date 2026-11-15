@@ -5090,8 +5090,11 @@ def opened_line(told, kind, texts, on, room):
             lines[-1][1].append((5 + used + gap, 4 + used + gap + wide, index))
         lines[-1] = (lines[-1][0] + " " * gap + shown, lines[-1][1])
         used += gap + wide
-    return [(next((terminal.selected(line, first - 1, last + 1) for first, last, index in cells
-                   if texts[index] == on), line), cells) for line, cells in lines]
+    # an act alone filling its line has no cell after it: lit past the line's end, it would
+    # wrap and push every row under it off the place recorded for it
+    return [(next((terminal.selected(line, first - 1, min(last + 1, 4 + room))
+                   for first, last, index in cells if texts[index] == on), line), cells)
+            for line, cells in lines]
 
 
 def page_body(rows, at=None, moves=None):

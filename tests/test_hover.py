@@ -225,9 +225,9 @@ class Screens(Sandbox):
                               ESC)
         self.assertEqual(len(screens), 5)
         self.assertEqual(marked(screens[2], "lit"), {keys[1]: "esc back"})
-        self.assertEqual(highlighted(screens[2]), [])
+        self.assertEqual((highlighted(screens[2]), marked(screens[2], "reverse")), ([], {}))
         self.assertEqual(marked(screens[3], "lit"), {})
-        self.assertEqual(highlighted(screens[3]), [])
+        self.assertEqual((highlighted(screens[3]), marked(screens[3], "reverse")), ([], {}))
         self.assertOneHighlight(screens[4], "6 Astra")
         self.assertEqual(marked(screens[4], "lit"), {mark[1]: "□"})
 
