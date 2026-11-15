@@ -34,8 +34,10 @@ def ask(repo, seat, answered, event, *kind):
         conn = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
         conn.settimeout(WAIT)
         conn.connect(name + ".look")   # beside the server's socket, lock and log
-        data = b"\0".join(map(os.fsencode, (seat, answered, event, said, os.environ.get("TMUX", ""),
-                                            os.environ.get("TMUX_PANE", ""), *fact)))
+        # with the pane it is heard in and the adapters that say what it means (`_take`)
+        data = b"\0".join(map(os.fsencode, (seat, answered, event, said, *(
+            os.environ.get(var, "") for var in ("TMUX", "TMUX_PANE", "AGENTKIT_ADAPTER_DIR")),
+            *fact)))
         conn.sendall(len(data).to_bytes(4, "big") + data)     # NUL is in none of them
         if conn.recv(1) == b"R":
             conn.sendall(b"G")     # the event is the child's from here: nothing goes cold after
@@ -84,24 +86,28 @@ def record(seat, event, kind, text):
     the fact standing means -- a permission notice six seconds after the PermissionRequest that
     wrote its question down.  An event it marks `interrupt` always writes: the owner stopped a
     turn a harness with no prompt hook began under an earlier Stop's at_prompt, which that Stop
-    does not say.  Where nothing can say -- no record names the harness, or its config cannot be
-    read -- the event is written all the same."""
-    from . import config, watch
-    at = config.heard_at(seat)
+    does not say.  Where nothing can say -- no record names the harness, or the asking fails,
+    however late -- the event is written all the same."""
+    from . import config
+    at = config.heard_at(seat)      # before the classifier's imports, however long they take
     row = config.resolve_session(seat)
     fact = {"session": seat, "event": event, "kind": kind, "text": text, "at": at}
+
+    def background(standing):
+        return ((event, kind, standing.get("event"), standing.get("kind"))
+                == ("Notification", "idle_prompt", "Stop", "background"))
     try:
+        from . import watch
         harness = watch.seat_model(config.load(), row)[0]
         state, named = watch.hook_state(harness, fact)[:2]
         passive = bool(harness) and named not in watch.marked_events(harness, "interrupt")
-    except config.Error:
-        passive = False
 
-    def kept(standing):
-        return ((event, kind, standing.get("event"), standing.get("kind"))
-                == ("Notification", "idle_prompt", "Stop", "background")
-                or passive and state in (None, watch.hook_state(harness, standing)[0]))
-    config.record_hook_fact(row, fact, kept)
+        def kept(standing):
+            return background(standing) or passive and state in (
+                None, watch.hook_state(harness, standing)[0])
+        config.record_hook_fact(row, fact, kept)
+    except Exception:       # the asking failed, before the fact standing was read or as it was
+        config.record_hook_fact(row, fact, background)
     return at
 
 
@@ -163,15 +169,17 @@ def serve():
 def _take(conn, records):
     """In a fork of the looker: the event `conn`'s client hands over, once it says go."""
     import signal
-    from . import update, warm
+    from . import config, update, warm
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)   # what the look runs is waited on
     try:
         conn.settimeout(warm.WAIT)
         asked = conn.makefile("rb")
-        seat, answered, event, said, tmux, pane, *fact = map(
+        seat, answered, event, said, tmux, pane, adapters, *fact = map(
             os.fsdecode, asked.read(int.from_bytes(asked.read(4), "big")).split(b"\0"))
         if update.outdated():
             raise OSError("outdated")       # installed over while the looker read: not its look
+        if adapters != os.environ.get(config.ADAPTER_DIR_ENV, ""):
+            raise OSError("other adapters")     # what an event means is the hook's adapters' to say
         conn.sendall(b"R")
         conn.settimeout(None)   # its go or its end: one given up on as it said go would be lost
         if asked.read(1) != b"G":

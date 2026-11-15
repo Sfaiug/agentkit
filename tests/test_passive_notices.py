@@ -119,20 +119,57 @@ class PassiveNotices(Sandbox):
         self.assertEqual((fact["event"], fact["kind"]), ("Notification", PASSIVE[0]))
 
     def test_a_failed_classifier_still_writes_the_notice(self):
-        (self.root / ".agentkit/config.toml").write_text("[models\n")   # no harness to ask
+        adapters, bindir = self.root / "adapters", self.root / "bin"
+        adapters.mkdir()
+        bindir.mkdir()
+        # the manifest made unreadable as the writer judges the fact standing by it
+        (bindir / "python3").write_text('''#!/bin/bash
+if [[ ${1:-} = */agentkit/looker.py ]]; then
+  exec "$REAL_PYTHON" -c 'import os, runpy, sys
+from pathlib import Path
+look = sys.argv.pop(1)
+sys.path.insert(0, str(Path(look).resolve().parents[1]))
+from agentkit import config
+write = config.record_hook_fact
+def broken(*args, **kwargs):
+    Path(os.environ["AGENTKIT_ADAPTER_DIR"], "claude.toml").write_text("[hooks\\n")
+    write(*args, **kwargs)
+config.record_hook_fact = broken
+runpy.run_path(look, run_name="__main__")' "$@"
+fi
+exec "$REAL_PYTHON" "$@"
+''')
+        (bindir / "python3").chmod(0o755)
+        shipped = (REPO / "adapters/claude.toml").read_text()
+        settings = self.root / ".agentkit/config.toml"
+        env = {**self.env, config.ADAPTER_DIR_ENV: str(adapters)}
         later = datetime.now().timestamp() + 3600     # the hook reads the real clock
-        self.hook("UserPromptSubmit")
-        fact = json.loads(self.hook("Notification", notification_type=PASSIVE[0]))
-        self.assertEqual((fact["event"], fact["kind"]), ("Notification", PASSIVE[0]))
-        # by the one writer still: a fact heard later outlasts any notice, and a Stop on
-        # background work an idle prompt
-        for standing, notice in (({"event": "UserPromptSubmit", "kind": "", "at": later},
-                                  PASSIVE[0]),
-                                 ({"event": "Stop", "kind": "background", "at": 1.0},
-                                  "idle_prompt")):
-            before = json.dumps(standing).encode()
-            config.hook_facts_path(SEAT).write_bytes(before)
-            self.assertEqual(self.hook("Notification", notification_type=notice), before)
+        for failure, unreadable, manifest, hooked in (
+                ("an unreadable config", "[models\n", shipped, env),
+                ("a malformed manifest", None, "[hooks]\nevent = 1\n", env),
+                ("a manifest unreadable under the writer", None, shipped,
+                 {**env, "PATH": f"{bindir}:{env['PATH']}", "REAL_PYTHON": shutil.which("python3")})):
+            with self.subTest(failure):
+                if unreadable:
+                    settings.write_text(unreadable)
+                else:
+                    settings.unlink(missing_ok=True)
+
+                def notice(kind):
+                    (adapters / "claude.toml").write_text(manifest)
+                    return self.hook("Notification", notification_type=kind, env=hooked)
+                self.hook("UserPromptSubmit")
+                fact = json.loads(notice(PASSIVE[0]))
+                self.assertEqual((fact["event"], fact["kind"]), ("Notification", PASSIVE[0]))
+                # by the one writer still: a fact heard later outlasts any notice, and a Stop on
+                # background work an idle prompt
+                for standing, kind in (({"event": "UserPromptSubmit", "kind": "", "at": later},
+                                        PASSIVE[0]),
+                                       ({"event": "Stop", "kind": "background", "at": 1.0},
+                                        "idle_prompt")):
+                    before = json.dumps(standing).encode()
+                    config.hook_facts_path(SEAT).write_bytes(before)
+                    self.assertEqual(notice(kind), before)
 
     def test_a_renamed_seat_keeps_its_launch_names_hook_fact(self):
         self.hook("UserPromptSubmit")
@@ -162,24 +199,20 @@ class PassiveNotices(Sandbox):
         bindir.mkdir()
         ready, release = self.root / "ready", self.root / "release"
         python = bindir / "python3"
-        # the notice heard, its moment taken, and held there until released before it writes
+        # the notice heard, its moment taken, and held as its classifier is imported until released
         python.write_text('''#!/bin/bash
 if [[ ${1:-} = */agentkit/looker.py ]]; then
   exec "$REAL_PYTHON" -c 'import os, runpy, sys, time
 from pathlib import Path
-look = sys.argv.pop(1)
-sys.path.insert(0, str(Path(look).resolve().parents[1]))
-from agentkit import config
-write = config.record_hook_fact
-def held(*args, **kwargs):
-    Path(os.environ["QUERY_READY"]).touch()
-    for _ in range(500):
-        if Path(os.environ["QUERY_RELEASE"]).exists():
-            break
-        time.sleep(0.01)
-    write(*args, **kwargs)
-config.record_hook_fact = held
-runpy.run_path(look, run_name="__main__")' "$@"
+def held(event, args):
+    if event == "import" and args[0] == "agentkit.watch":
+        Path(os.environ["QUERY_READY"]).touch()
+        for _ in range(500):
+            if Path(os.environ["QUERY_RELEASE"]).exists():
+                break
+            time.sleep(0.01)
+sys.addaudithook(held)
+runpy.run_path(sys.argv.pop(1), run_name="__main__")' "$@"
 fi
 exec "$REAL_PYTHON" "$@"
 ''')
