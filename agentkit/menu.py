@@ -3278,7 +3278,7 @@ def keep_price(cfg, session, selected, answer, role, before):
     the `model` and `effort` the role then uses, so a better model that gets that cheap later
     can take over; a row no choice removes it.  Written after the take, off the reading it is
     judged by, so no other write need know of it: in the seat's record as it stands, under its
-    lock, else in price_path.  What to say under the rows, or ""."""
+    lock, following a rename meanwhile, else in price_path.  What to say under the rows, or ""."""
     model, effort, row = matrix.uses(cfg, selected, answer)[role]
     if row is before:
         return ""               # a take onto the model and effort it ran: no row changed
@@ -3287,13 +3287,22 @@ def keep_price(cfg, session, selected, answer, role, before):
              "effort": effort} if id(row) in found["limits"] else None
     try:
         if session is not None:
-            config.update_session(config.resolve_session(session), **{PRICE_FIELDS[role]: entry})
-        elif entry is None:
+            with look.aside():      # a rename meanwhile is on the disk now, never in a pass
+                seat = config.resolve_session(session)
+                for _ in range(config.RENAME_HOPS + 1):
+                    if config.update_session(seat, **{PRICE_FIELDS[role]: entry}) is not None:
+                        return ""
+                    if (moved := config.resolve_session(seat)) == seat:
+                        return f"session: {session} has no saved models"
+                    seat = moved
+            return (f"session: {config.session_path(session)}: more than {config.RENAME_HOPS} "
+                    "renames deep")
+        if entry is None:
             price_path(role).unlink(missing_ok=True)
         else:
             _moved_in(price_path(role), json.dumps(entry))
     except (config.Error, OSError) as exc:
-        return f"{'session' if session else 'state'}: {exc}"
+        return f"{'session' if session is not None else 'state'}: {exc}"
     return ""
 
 
