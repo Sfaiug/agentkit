@@ -10,8 +10,7 @@ import (
 
 // ServedLine is the open line a seat's task with those checks serves, Python's served_line: the
 // first open line whose check is one of them, runs of space folded, else "" for none, however
-// few are open.  It names the line by its outcome and when it was written, `<what> ·
-// written <when>`, which `ak plan check` keeps when it replaces the check.  Read under the seat's
+// few are open.  It names the line by its link, `<what> · written <when>`.  Read under the seat's
 // lock, as Python's open_lines reads it, so a rename never moves the plan out from under the read.
 func ServedLine(name string, checks []string) (string, error) {
 	var opened []string
@@ -27,7 +26,7 @@ func ServedLine(name string, checks []string) (string, error) {
 	}
 	for _, line := range opened {
 		if written, _ := parse(line); wanted[folded(written.Check)] {
-			return written.What + " · written " + written.When, nil
+			return written.link(), nil
 		}
 	}
 	return "", nil

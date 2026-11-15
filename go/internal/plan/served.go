@@ -10,7 +10,7 @@ func Unserved(name string, served []string) (bool, error) {
 	for line, err := range (Look{}).owed(name, false) {
 		if err != nil {
 			unread = err
-		} else if line.When == "" || !slices.Contains(served, line.What+" · written "+line.When) {
+		} else if line.When == "" || !slices.Contains(served, line.link()) {
 			return true, nil
 		}
 	}

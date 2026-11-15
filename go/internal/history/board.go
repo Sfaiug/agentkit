@@ -2,7 +2,9 @@ package history
 
 import (
 	"cmp"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"agentkit/internal/run"
 )
@@ -71,6 +73,29 @@ func (db *DB) Dones(since, until float64) ([]Row, bool) {
 		"AND owner.conversation = dones.conversation "+
 		"AND owner.at >= dones.began AND owner.at <= dones.at) AS answered "+
 		"FROM dones WHERE at >= ? AND at <= ?", since, until)
+}
+
+// RewriteWindow is how long after a run takes a plan line live `ak plan check` replacing that
+// line's check counts as a rewrite, in seconds.
+const RewriteWindow = 14 * 86400
+
+// Rewrote is Python's history.rewrote: check_rewritten_at stamped, once, on each run the seats
+// launched for planLine that went live within RewriteWindow before now.  Where no history stands
+// no run went live, and none is made.
+func Rewrote(seats []string, planLine string, log func(string)) {
+	if _, err := os.Stat(Path()); err != nil {
+		return
+	}
+	at := now()
+	args := []any{at, at - RewriteWindow, at, planLine}
+	for _, seat := range seats {
+		args = append(args, seat)
+	}
+	apply(log, func(db *DB) error {
+		return db.exec("UPDATE runs SET check_rewritten_at = ? WHERE check_rewritten_at IS NULL "+
+			"AND live_at BETWEEN ? AND ? AND plan_line = ? "+
+			"AND session IN ("+strings.Repeat(",?", len(seats))[1:]+")", args...)
+	})
 }
 
 // Rewrites are the real runs that took a plan line live in the inclusive range, each with whether
