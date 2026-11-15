@@ -27,8 +27,10 @@ from fixtures.gitrig import Rig
 # A script runs in this process, as `python3 bin/ak` ran this one, so it still sees itself as
 # bin/ak, the name Python's tells a run's own process by; a binary replaces this process.
 # Started by this test's own Python, never one found on PATH: a Home judging a program that
-# runs no Python holds a python3 there that refuses.
-AK = f"#!{sys.executable}\n" + '''import json, os, subprocess, sys
+# runs no Python holds a python3 there that refuses.  sh starts it, as a shebang splits a path
+# at its spaces; Python reads that line only up to its `#`, and `format` its braces doubled.
+AK = ("#!/bin/sh\n_=0#; exec '" + sys.executable.replace("'", "'\\''") + "' \"$0\" \"$@\"\n"
+      ).replace("{", "{{").replace("}", "}}") + '''import json, os, subprocess, sys
 from pathlib import Path
 program = Path(__file__).resolve().with_name("program")
 commit = subprocess.run(["git", "-C", program.parent, "rev-parse", "HEAD"], capture_output=True,
