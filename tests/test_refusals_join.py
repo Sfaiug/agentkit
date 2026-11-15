@@ -6,8 +6,10 @@ parks every model, whatever was marked before.  Each refusal ends at its own dea
 fresh window on the meter that showed it, and neither ends another: Fable's refusals alone, or
 Fable's and Nova's, leave Opus to its own meters, however often a reading holds Fable's cap.
 A refusal recorded before marks named a meter's scope parks every model its names can mean.
-Caps of one name and two scopes are two meters: a refusal of Fable's ends on Fable's alone, and
-a turn reading Fable's leaves Opus's as it was.
+Caps of one name and two scopes are two meters: a refusal of Fable's ends on Fable's alone, an
+ask of Opus's is none of Fable's, and a turn reading Fable's leaves Opus's as it was, as it does
+a cap whose name is Fable's name and scope.  A refusal recorded before marks named the cap that
+showed it by scope ends on its name's fresh window.
 
 Fake meters in a temporary HOME: nothing here reaches a real usage endpoint or a real
 credential.
@@ -187,6 +189,41 @@ class RefusalsJoin(unittest.TestCase):
         meters = usage.collect(self.cfg)["acme"]["meters"]
         self.assertEqual(sorted((m["scope"], m["used"]) for m in meters
                                 if m["name"] == "weekly_scoped"), [("Fable", 95), ("Opus", 30)])
+
+    def test_an_asked_reading_of_opus_s_cap_is_no_ask_of_fable_s(self):
+        self.fable_refused_beside_opus()
+        for used, scope, asked in ((90, "Fable", False), (31, "Opus", True)):
+            self.now += 1
+            usage.record_turn_meters(self.cfg, "acme", [week("weekly_scoped", used, scope=scope)],
+                                     now=self.now, asked=asked)
+            self.assertEqual(self.parked(), (["fable"], False))
+
+    def test_a_cap_named_as_fable_s_name_and_scope_is_a_cap_of_its_own(self):
+        self.read(week("weekly_all", 60), week("weekly_scoped", 100, scope="Fable"),
+                  week("weekly_scoped Fable", 30))
+        self.refused("fable")
+        self.now += 1
+        usage.record_turn_meters(self.cfg, "acme", [week("weekly_scoped", 95, scope="Fable")],
+                                 now=self.now, asked=True)
+        self.assertEqual(self.parked(), ([], False))
+        self.assertEqual([(m["name"], m.get("scope"), m["used"])
+                          for m in usage.collect(self.cfg)["acme"]["meters"]],
+                         [("weekly_all", None, 60), ("weekly_scoped", "Fable", 95),
+                          ("weekly_scoped Fable", None, 30)])
+
+    def test_a_mark_naming_its_cap_by_name_alone_ends_on_that_name_s_fresh_window(self):
+        self.read(week("weekly_all", 60), week("weekly_scoped", 100, scope="Fable"))
+        self.refused("fable")
+        cache = config.STATE / "usage.json"
+        blob = json.loads(cache.read_text())
+        mark = blob["providers"]["acme"]
+        mark["exhausted_by"] = "weekly_scoped"
+        mark["exhausted_used"] = {"weekly_all": 60, "weekly_scoped": 100}
+        cache.write_text(json.dumps(blob))
+        self.now += 1
+        usage.record_turn_meters(self.cfg, "acme", [
+            week("weekly_scoped", 10, scope="Fable", resets_at=NOW + WEEK)], now=self.now)
+        self.assertEqual(self.parked(), ([], False))
 
 
 if __name__ == "__main__":

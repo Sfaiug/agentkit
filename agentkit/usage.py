@@ -422,7 +422,8 @@ def _ask_probe(cfg, provider, now, account=None):
 
 
 def _meter_asked(prov):
-    """{meter_name: when it was last asked and measured}, for `prov`'s probed meters."""
+    """{meter_name: when every cap of that name was last asked and measured}, for `prov`'s
+    probed meters."""
     if not isinstance(prov, dict) or not isinstance(prov.get("probed_meters"), dict):
         return {}
     return {name: at for name, value in prov["probed_meters"].items()
@@ -825,28 +826,28 @@ def _fresh_window(prov, mark, now):
     """Whether the meter that showed the refusal `mark` records now has room again: a later
     reset, or a lower reading asked after the refusal.
 
-    That meter is the one `mark_exhausted` named (`exhausted_by`, a `_key`).  Another meter's
-    new window says nothing of the refusal: the 5-hour session rolling over under a weekly
+    That meter is the one `mark_exhausted` named (`exhausted_by`, as `_names` reads it).  Another
+    meter's new window says nothing of the refusal: the 5-hour session rolling over under a weekly
     refusal leaves that week as spent as it was, and neither does Opus's cap of Fable's name.
     A mark that names none ends at its deadline alone.
     Only reported reset times identify a replacement, and inside the same window only a reading
     asked after the refusal that fell by more than a point of jitter counts: a meter below 100
     that never fell is not permission to be refused again.
     """
-    name = mark.get("exhausted_by") if isinstance(mark, dict) else None
+    by = mark.get("exhausted_by") if isinstance(mark, dict) else None
+    name = by[0] if isinstance(by, list) and by else by
     if not isinstance(prov, dict) or not isinstance(name, str) or not name:
         return False
     ends = mark.get("exhausted_ends")
     levels = mark.get("exhausted_used")
     at = _number(mark.get("exhausted_at"))
-    probed = _meter_asked(prov)
+    asked = _meter_asked(prov).get(name)
     # Marks written before `exhausted_used` existed named a meter only at 100%+.
     stood = (_number(levels.get(name)) if isinstance(levels, dict)
              else 100.0 if "exhausted_used" not in mark else None)
     for meter in prov.get("meters") or []:
-        if not isinstance(meter, dict) or _key(meter) != name:
+        if not isinstance(meter, dict) or not _names(by, meter):
             continue
-        asked = probed.get(meter.get("name"))
         used = _number(meter.get("used"))
         if used is None or used >= 100 or _past(meter, now):
             continue
@@ -1180,21 +1181,25 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
     for meter in meters:
         used = _number(meter.get("used"))
         if used is not None:
-            levels[_key(meter)] = used
+            levels[meter["name"]] = used
         end = _number(meter.get("resets_at"))
         if end is not None:
-            ends[_key(meter)] = end
+            ends[meter["name"]] = end
             # the refusal shows on a meter spent as it came, of several the last to reset,
             # and never on a session -- or a window that does not say it is none -- when the
             # refusal outlasts one
             if meter in gating and (used or 0) >= 100 and not (
                     _number(meter.get("window_secs")) in (SESSION_SECS, None)
                     and until - now > SESSION_SECS):
-                shown.append((end, _key(meter), _identity(meter)))
+                shown.append((end, meter["name"], meter))
     if not said and not shown:
         until = min(until, now + DRY_FOR)
-    _, by, showed = max(shown, key=lambda each: each[:2], default=(0, None, None))
-    named = [showed] if by else [_identity(meter) for meter in gating]
+    _, name, showed = max(shown, key=lambda each: each[:2], default=(0, None, None))
+    if showed:
+        # where caps of two scopes share its name, its own: the one `_fresh_window` reads there
+        levels[name], ends[name] = _number(showed["used"]), _number(showed["resets_at"])
+    by = _identity(showed) if showed else None
+    named = [by] if by else [_identity(meter) for meter in gating]
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
                                           "exhausted_used": levels, "exhausted_by": by,
@@ -1275,7 +1280,9 @@ def _record_turn_meters(cfg, provider, fresh, account, measured, asked):
     names = {m["name"] for m in fresh}
     probed = {name: at for name, at in _meter_asked(cached).items() if name not in names}
     if asked:
-        probed.update(dict.fromkeys(names, measured))
+        # a name is asked where every cap of it was (`_meter_asked`): Opus's read asks no Fable's
+        probed.update(dict.fromkeys(names - {m["name"] for m in old if _key(m) not in new},
+                                    measured))
     merged = [new.get(_key(m), m) for m in old]
     merged += [meter for key, meter in new.items() if key not in held]
     prov = dict(cached)
@@ -1469,26 +1476,30 @@ def _identity(meter):
 
 
 def _key(meter):
-    """`_identity` as the key of what a mark or a turn keeps per cap: a cap nobody owns by its
-    name alone, as marks have always keyed it."""
-    name, scope = _identity(meter)
-    return f"{name} {scope}" if scope else name
+    """`_identity` as a dict's key: two caps sharing a name are two keys."""
+    return tuple(_identity(meter))
+
+
+def _names(recorded, meter):
+    """Whether `recorded`, a meter a mark names, is `meter`: its `_identity`, or its name alone
+    in a mark made before marks named scopes."""
+    return recorded in (meter.get("name"), _identity(meter))
 
 
 def _parks(cfg, name, prov, mark):
     """Whether the refusal `mark` on `prov`, a reading of this model's provider, can have been
     meant for this model: each meter it can have come from (`mark_exhausted`) can be one gating it.
 
-    The mark names meters (`_identity`, or by name alone where made before marks named scopes),
-    not the model refused, so it reads whatever config.toml says whose each meter is by now.
-    One naming none -- made without a model, or before marks named any -- or a meter this
-    reading no longer holds parks every model: whose it was, nobody knows.
+    The mark names meters (`_names`), not the model refused, so it reads whatever config.toml
+    says whose each meter is by now.  One naming none -- made without a model, or before marks
+    named any -- or a meter this reading no longer holds parks every model: whose it was, nobody
+    knows.
     """
     recorded = mark.get("exhausted_meters")
     meters = [m for m in prov.get("meters") or [] if isinstance(m, dict)]
 
     def named(among):
-        return all(any(r in (m.get("name"), _identity(m)) for m in among) for r in recorded)
+        return all(any(_names(r, m) for m in among) for r in recorded)
 
     if not isinstance(recorded, list) or not named(meters):
         return True
