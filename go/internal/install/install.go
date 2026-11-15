@@ -2,8 +2,8 @@
 // runs it as `ak install`, unlisted, so each step has one home here, the same on every system.
 // So far it holds install.sh's options, its step (1), a Mac's Linux machine, the seat guards,
 // the old rulebook links undone, the yolo defaults, the role's record, the tick's crontab line,
-// the install stamp and the phone's key; what else writes outside the home (packages,
-// harnesses) is still to come.
+// the install stamp, the phone's key and no core dumps; what else writes outside the home
+// (packages, harnesses) is still to come.
 package install
 
 import (
@@ -28,6 +28,20 @@ const serverName = "agentkit"
 
 // Main is install.sh run with args: what it says, and its exit code.
 func Main(args []string, out, errOut io.Writer) int {
+	// go/install.sh's own, after the rest: exit 0 where HOME is a sandbox, whose install leaves
+	// the host as it is, and each step that changes the host, alone
+	if len(args) == 1 {
+		switch args[0] {
+		case "--sandboxed":
+			if sandbox() {
+				return 0
+			}
+			return 1
+		case "--core-dumps":
+			coreDumps(out, errOut)
+			return 0
+		}
+	}
 	role, alias, key, refused := options(args)
 	if refused != "" {
 		fmt.Fprintln(errOut, "install.sh: "+refused)
