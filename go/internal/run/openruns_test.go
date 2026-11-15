@@ -38,6 +38,9 @@ func TestARunAtRestIsLookedAtAgainOnlyByAFullRead(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond) // their ctime, which no Chtimes sets back, a second old: at rest
 	reader := &Reader{}
 	states(reader)
+	// the next full read not due however slowly this host writes, as its pace from the first read's
+	// cost alone would have it on a loaded one
+	reader.due = time.Now().Add(time.Hour)
 	write("ended", "running", week.Add(time.Second))
 	write("going", "pass", week.Add(time.Second))
 	write("new", "running", time.Now())
