@@ -1,11 +1,12 @@
 """A seat's event heard and looked at by a process already warm: who runs hooks/seat-state.sh's
-look, and writes the fact of every event but a prompt and a Stop, which the hook writes itself.
+and watch.start_look's look, and writes the fact of every event but a prompt and a Stop, which
+its hook writes itself.
 
 A fresh Python spends seconds on its imports and on reading every run before it writes or looks
 (`watch.hook_look`).  `serve`, forked by the warm server and leaving with it, has both done, at the
 server's priority, and reads the runs again at each wake as the menu does (`menu.run_records`).
-The hook's `ask`, Python without agentkit, hands it the event over a socket in STATE, and it forks
-a child per event to hear it (`record`) and look on the runs as read.  Anything amiss goes cold:
+`ask`, Python without agentkit, hands it the look over a socket in STATE, and it forks a child
+per call to hear the event (`record`) and look on the runs as read.  Anything amiss goes cold:
 with no looker, one older than the install or one silent for `warm.WAIT`, `ask` does both itself.
 Never lost nor run twice: a child acts once the client says go, and the client, once it has, never
 acts itself.
@@ -15,11 +16,11 @@ import os
 import sys
 
 
-def ask(repo, seat, answered, event, *kind):
-    """The hook's look at that seat, the owner's words on stdin: the looker's, else this
-    process's own.  With the event's `kind`, and its words after a NUL on stdin, the event is
-    heard there first (`record`): this returns once its fact is down, the look going on behind.
-    In a session of its own: a harness ending the hook group ends none of it."""
+def ask(repo, seat, answered="", event="", *kind):
+    """Look at that seat, the owner's words on stdin: the looker's, else this process's own,
+    returning once the look ends.  With the event's `kind`, and its words after a NUL on stdin,
+    the event is heard there first (`record`) and this returns once its fact is down, the look
+    going on behind.  In a session of its own: a harness ending the hook group ends none of it."""
     import _socket
     from warm import WAIT, place     # beside this file: run as a script, it imports no agentkit
     if os.getpgrp() != os.getpid():     # where it may, as a group leader may not
@@ -40,13 +41,12 @@ def ask(repo, seat, answered, event, *kind):
             *fact)))
         conn.sendall(len(data).to_bytes(4, "big") + data)     # NUL is in none of them
         if conn.recv(1) == b"R":
-            conn.sendall(b"G")     # the event is the child's from here: nothing goes cold after
-            if fact:
-                try:
-                    conn.settimeout(None)
-                    conn.recv(1)   # the child lets go once its fact is down
-                except OSError:
-                    pass
+            conn.sendall(b"G")     # the look is the child's from here: nothing goes cold after
+            try:
+                conn.settimeout(None)
+                conn.recv(1)       # the child lets go once its fact is down, or as its look ends
+            except OSError:
+                pass
             return
     except OSError:
         pass

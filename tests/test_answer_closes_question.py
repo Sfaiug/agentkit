@@ -128,7 +128,11 @@ class AnswerClosesQuestion(Sandbox):
                    "FAKE_SEAT": self.seat["name"],
                    "FAKE_CAPTURE": str(REPO / "tests/fixtures/claude-prompt-pane.txt"),
                    "TEST_PYTHON": sys.executable, "LOOK_FINISHED": str(finished), **(env or {})}
-        looks = script == "seat-state.sh" and environ["TMUX"] and environ["TMUX_PANE"]
+        subagent = any(key in payload for key in ("agent_id", "agent_type", "subagentType"))
+        looks = (not subagent
+                 and (script == "seat-state.sh"
+                      or "background_tasks" in payload or "backgroundTasks" in payload)
+                 and environ["TMUX"] and environ["TMUX_PANE"])
         if looks:
             self.addCleanup(self.wait_look, finished)
         result = subprocess.run(["bash", str(REPO / "hooks" / script)],
