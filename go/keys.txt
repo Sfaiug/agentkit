@@ -327,7 +327,7 @@ test_key_login_end_cadence
 test_key_login_end_window
 test_key_login_plan
 test_key_login_refusing_a_run_needs_you
-test_key_login_resume WorktreeGone ConflictFixer
+test_key_login_resume LoginBack WorktreeGone ConflictFixer
 test_key_login_resume WorktreeGone
 test_key_login_words
 test_key_lost_pieces_go_to_another_machine

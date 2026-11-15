@@ -41,7 +41,8 @@ type Live struct {
 	Title        any      // its conversation's custom title: "" for none, nil where none is read
 	WrappedUp    bool     // its harness ended its last turn for a spent subscription (watch.limit_ended)
 	Record, File *run.Object
-	Exited       bool // tmux holds it with all its panes dead: watch.health still reads its login
+	Exited       bool  // tmux holds it with all its panes dead: watch.health still reads its login
+	Owed         *Owed // the login a run of its own waits on its owner for, nil for none
 }
 
 // Seats is the name of every seat the home holds but a legacy one, another program's session that
@@ -107,7 +108,8 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 	if !seat.live || record == nil || err != nil || len(session) != 3 || exited {
 		return Live{}, false
 	}
-	if !liveClimbs(state, seat, found, seconds(now)) {
+	login, err := owedOf(seat.mine)
+	if err != nil || !liveClimbs(state, seat, found, seconds(now)) {
 		return Live{}, false
 	}
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
@@ -130,7 +132,7 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 		Stall: seen.stallOn(seat.own, pane, tail, recorded, kept), Login: seen.loginOn(seat.own, tail, recorded, kept),
 		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line), Refused: refused,
 		Bound: session[1] != "", Attached: session[0] != "" && session[0] != "0", Path: session[2], Pane: pane,
-		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: harness.Moment(wrapped) != 0, Record: record, File: file}, true
+		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: harness.Moment(wrapped) != 0, Record: record, File: file, Owed: login}, true
 }
 
 // Health is the tick's look at a seat its panes run on (watch.health): its conversation's title read

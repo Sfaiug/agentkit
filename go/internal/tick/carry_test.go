@@ -183,7 +183,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"state/notification-outbox/a.json": "{}",
 		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "resets_at": 2}}}`,
 		"state/watch.json#auth":            `{"auth_out": ["claude"]}`,
-		"state/watch.json#run login":       `{"stalls": {"acme": {"kind": "auth", "harness": "claude", "evidence": "run", "notice": "", "told": 1}}}`,
 		"state/watch.json#surrogate":       `{"mine": "\ud800"}`,
 		"config.toml":                      "[audit]\non = true\n",
 	} {

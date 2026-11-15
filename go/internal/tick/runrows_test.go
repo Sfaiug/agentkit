@@ -37,7 +37,7 @@ func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
 // that record byte for byte, and stop before the following row when its work is Python's.
 func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 	for row, due := range map[string]string{
-		"seat health":      `{"state":"waiting_login"}`,
+		"seat health":      `{"state":"fail","scope":"acme.scope"}`,
 		"dead loops":       `{"state":"running","scope":"acme.scope"}`,
 		"stall recovery":   `{"state":"stalled"}`,
 		"exhausted resume": `{"state":"exhausted","error":"reviewer: API/transport errors"}`,

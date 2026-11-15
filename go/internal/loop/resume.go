@@ -94,7 +94,7 @@ func unitless(record *run.Object) bool {
 
 // point is whether the run was cut off where Go goes on from, Python's rounds and continuation: an
 // answer with no closing is Python's road, but for the refusal a run waits out on a provider's
-// window, which is no answer.
+// window or the login it parked on, which is no answer (the `pending` Python's turn keeps).
 func point(dir string, record *run.Object) bool {
 	rounds, known := record.Int("rounds")
 	spent := len(record.List("round_summaries"))
@@ -129,7 +129,7 @@ func point(dir string, record *run.Object) bool {
 		return false
 	}
 	name, _, _ := openWorker(round)
-	refused := run.ExhaustedWait(record) == "window"
+	refused := run.ExhaustedWait(record) == "window" || record.Str("state") == "waiting_login"
 	return name != "" && (refused || !spoke(latestTurn(round, name))) || answered(round) != ""
 }
 
