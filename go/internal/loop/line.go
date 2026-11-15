@@ -142,6 +142,13 @@ func (r *repoPlace) landFromLine(l *loop, upstream string, record *run.Object, d
 	}
 	// what left the line, or rejoined it, did so under the lock: the next pass checks what is left
 	defer startLine(turn, stampedLog{l.dir})
+	// what ends unmerged goes back to what a run has for the wait or repair ahead
+	host.Weigh(record.Str("scope"), true, l.say)
+	defer func() {
+		if after, _ := run.Read(l.dir); after == nil || !after.Truthy("merged") {
+			host.Weigh(record.Str("scope"), false, l.say)
+		}
+	}()
 	held, err := r.mergeLock(l, upstream)
 	if err != nil {
 		return err
