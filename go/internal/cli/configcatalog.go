@@ -32,18 +32,21 @@ func waitProviders(host, title string, cells []menu.Cell, keyboard *terminal.Key
 	})
 }
 
-// waitAdapter is what ask answers, the frame up while an adapter is asked, saying it waits on what
-// doing names.  The UI owns every draw; the adapter owns only its answer. Esc cancels and reaps it.
+// waitAdapter is what ask answers, the frame up while an adapter or a machine is asked, saying it
+// waits on what doing names.  The UI owns every draw; ask owns only its answer. Esc, or a click on
+// `esc back`, cancels and reaps it.
 func waitAdapter[T any](title, doing string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter, ask func(context.Context) (T, error)) (T, error) {
 	var none T
 	ctx, cancel := context.WithCancel(context.Background())
 	clock := &motion.Clock{}
 	frame := time.AfterFunc(time.Hour, keyboard.Wake)
 	defer frame.Stop()
+	var lines []string // as drawn, what a click is read against
 	draw := func() {
 		screen := keyboard.Screen()
 		clock.Draw(motion.Now())
-		painter.Write(menu.CatalogWaiting(screen, title, time.Now().Format("15:04"), doing, cells, clock), screen)
+		lines = menu.CatalogWaiting(screen, title, time.Now().Format("15:04"), doing, cells, clock)
+		painter.Write(lines, screen)
 		if next, due := clock.Next(); due {
 			frame.Reset(next)
 		} else {
@@ -64,6 +67,7 @@ func waitAdapter[T any](title, doing string, cells []menu.Cell, keyboard *termin
 	}()
 	defer func() { cancel(); <-ended }()
 	var typed []terminal.Key // for the screen the catalog opens
+	var clicks terminal.Clicks
 	for {
 		select {
 		case got := <-result:
@@ -75,6 +79,11 @@ func waitAdapter[T any](title, doing string, cells []menu.Cell, keyboard *termin
 		switch key.Name {
 		case "esc", "eof":
 			return none, context.Canceled
+		case "pointer":
+			if clicks.Click(key.Mouse) && menu.WaitingBack(lines, key.Mouse) {
+				return none, context.Canceled
+			}
+			typed = append(typed, key)
 		case "again":
 			painter.Forget()
 		case "wake":

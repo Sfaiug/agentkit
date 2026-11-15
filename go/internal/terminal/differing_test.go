@@ -32,6 +32,26 @@ func TestOnlyTheRowsThatDifferGoOutAndEveryRowOnceATick(t *testing.T) {
 	}
 }
 
+// A line to paste wider than the terminal goes out once, over the blank rows it wraps onto, which
+// are written once they are rows of their own again.
+func TestAnUnbrokenLineIsWrittenOverTheRowsItWrapsOnto(t *testing.T) {
+	var out strings.Builder
+	painter, screen := NewPainter(&out), Screen{width: 10, height: 5}
+	for _, each := range []struct {
+		lines []string
+		want  string
+	}{
+		{append(append([]string{"agentkit"}, screen.Unbroken("curl acme | sh")...), "end"),
+			"\x1b[1;1Hagentkit\x1b[K\x1b[2;1Hcurl acme | sh\x1b[K\x1b[4;1Hend\x1b[K\x1b[5;1H\x1b[J"},
+		{[]string{"agentkit", "acme", "", "end"}, "\x1b[2;1Hacme\x1b[K\x1b[3;1H\x1b[K\x1b[5;1H\x1b[J"},
+	} {
+		out.Reset()
+		if painter.Write(each.lines, screen); out.String() != hold(each.want) {
+			t.Fatalf("%q wrote %q, want %q", each.lines, out.String(), hold(each.want))
+		}
+	}
+}
+
 // A span that moves writes only the rows it left and came to again, then itself over them; a span
 // that stays where it was, as it was, is left alone.
 func TestSpansThatMoveWriteOnlyTheirRows(t *testing.T) {

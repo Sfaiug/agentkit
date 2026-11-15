@@ -43,6 +43,7 @@ type Keyboard struct {
 	woken   [2]*os.File
 	wake    atomic.Bool
 	mu      sync.Mutex
+	size    [2]int // the terminal's columns and rows as the last Screen, or `again`, had them
 	pending []os.Signal
 	cont    chan os.Signal
 	heard   chan os.Signal
@@ -128,7 +129,20 @@ func (k *Keyboard) Sense() {
 func (k *Keyboard) Screen() Screen {
 	screen := k.sensed
 	screen.width, screen.height, screen.theme = width(os.Stdout), height(os.Stdout), inForce(screen.theme)
+	k.mu.Lock()
+	k.size = [2]int{screen.width, screen.height}
+	k.mu.Unlock()
 	return screen
+}
+
+// resized is whether the terminal's size is no longer the one the last Screen had, said once.
+func (k *Keyboard) resized() bool {
+	now := [2]int{width(os.Stdout), height(os.Stdout)}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	was := k.size
+	k.size = now
+	return was != [2]int{} && was != now
 }
 
 // Wake ends the wait of a ReadKey with `wake`, from any goroutine.
@@ -139,8 +153,19 @@ func (k *Keyboard) Wake() {
 
 // ReadKey waits for the next key, answering what happens meanwhile.  A kill, a hang-up, ^\ or ^C
 // gives the terminal back and exits as a shell reports that signal; a stop gives it back, stops, and
-// on going on takes it again; a resize or that return says `again`.
+// on going on takes it again; a resize or that return says `again`.  A key read on a terminal resized
+// since the last Screen waits for the next read, `again` first: what the frame drawn before put
+// where is not where the key lands, and the resize's signal may come after the key.
 func (k *Keyboard) ReadKey() Key {
+	key := k.readKey()
+	if key.Name != "again" && key.Name != "eof" && k.resized() {
+		k.unread = append([]Key{key}, k.unread...)
+		return Key{Name: "again"}
+	}
+	return key
+}
+
+func (k *Keyboard) readKey() Key {
 	for {
 		if k.answer() {
 			return Key{Name: "again"}

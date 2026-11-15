@@ -1,6 +1,7 @@
 package googlecloud
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -55,11 +56,11 @@ func idle(listed []Machine, line string) map[string]int {
 		return nil
 	}
 	held := map[string]int{}
-	for i, said := range host.Ask(reached) {
-		if said == nil {
+	for i, said := range host.Ask(context.Background(), reached) {
+		if said.Out == nil {
 			continue
 		}
-		answer := strings.TrimSpace(*said)
+		answer := strings.TrimSpace(*said.Out)
 		digits := strings.TrimPrefix(answer, "-")
 		seconds, _ := strconv.Atoi(answer) // past an int, its most, as Python's int is no less
 		if digits == "" || strings.Trim(digits, "0123456789") != "" {

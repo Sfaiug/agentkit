@@ -27,3 +27,19 @@ func TestASwipeIsOneKeyAndTheKeyAfterItTheNext(t *testing.T) {
 		}
 	}
 }
+
+// A key read on a terminal resized since the last frame was drawn waits for a frame at the new
+// size: the resize's signal may come after it.
+func TestAKeyAfterAResizeComesAfterAFrameAtTheNewSize(t *testing.T) {
+	t.Setenv("COLUMNS", "25")
+	t.Setenv("LINES", "9")
+	keyboard := &Keyboard{keyed: []byte("jk"), size: [2]int{120, 40}}
+	if got := keyboard.ReadKey(); got.Name != "again" {
+		t.Fatalf("a key on a resized terminal read as %+v, not again", got)
+	}
+	for _, want := range []string{"j", "k"} {
+		if got := keyboard.ReadKey(); got.Name != "char" || got.Char != want {
+			t.Errorf("read %+v, want %q", got, want)
+		}
+	}
+}

@@ -36,9 +36,11 @@ type PageRow struct {
 	List    func() ([]PageRow, bool)
 	Several bool // List's choices are each taken in or out, Enter closing it; else Enter picks the lit one
 	// Enter or a click: a field opens under the row, Placeholder dim in it until a key types over
-	// it; its Enter gives Field what was typed, and what to say under the rows
+	// it, and Around's lines as they are under it; its Enter gives Field what was typed, and what
+	// to say under the rows
 	Field       func(typed string) string
 	Placeholder string
+	Around      func(terminal.Screen) []string
 }
 
 // Page is a page `c` opens, `config · <Name>`, as one draw has it.
@@ -146,18 +148,20 @@ func pageTop(lines []pageEntry, at pageEntry, top, page int) int {
 }
 
 // ConfigPage draws a page `c` opens as page_body draws one: each row's label, then its value lined
-// up past the widest label and wrapped at a word under itself, never cut, or folded under its
-// label where a word, or a value with arrows whole, is too wide beside it; an open list's choices
-// under its row, indented, or an open field under the row's last line (fieldLine).  The
-// highlighted row stays on the page, a page of it where it is taller, or the field, no row lit;
-// the pointed row's own lines after the rows, as lines of that row (config_page's); what was said
-// and the note under the page, and the key line names what Space and Enter do there.  On the
-// clock the page comes up as it opens (comeUp), a list comes up under its row, and a mark that
-// flips goes through its half (motion.Clock.Mark).
+// up past the widest label beside a value and wrapped at a word under itself, never cut, or folded
+// under its label where a word, or a value with arrows whole, is too wide beside it; an open list's
+// choices under its row, indented, or an open field under the row's last line (fieldLine), its
+// Around under it.  The highlighted row stays on the page, a page of it where it is taller, or the
+// field with its Around, no row lit; the pointed row's own lines after the rows, as lines of that
+// row (config_page's); what was said and the note under the page, and the key line names what Space
+// and Enter do there.  On the clock the page comes up as it opens (comeUp), a list comes up under
+// its row, and a mark that flips goes through its half (motion.Clock.Mark).
 func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	room, wide, clock := s.LayoutWidth(), 0, view.Motion
 	for _, row := range view.Rows {
-		wide = max(wide, terminal.Cells(row.Label))
+		if row.Value != "" || row.Aside != "" || row.Flip != nil { // a label alone lines nothing up
+			wide = max(wide, terminal.Cells(row.Label))
+		}
 	}
 	at := pageEntry{view.At, -1}
 	if len(view.Choices) > 0 {
@@ -183,7 +187,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 		if row.Colour != "" {
 			label = s.Styled(label, row.Colour)
 		}
-		lead := "  " + terminal.Pad(label, wide) + "  "
+		lead := "  " + label + strings.Repeat(" ", max(0, wide-terminal.Cells(row.Label))) + "  " // one alone may be wider: never cut
 		if entry.choice >= 0 {
 			lead = "    "
 		}
@@ -285,6 +289,11 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			}
 			if view.Typed != nil {
 				body, lines = append(body, fieldLine(s, *view.Typed, row.Placeholder)), append(lines, at)
+				if row.Around != nil {
+					for _, line := range row.Around(s) {
+						body, lines = append(body, line), append(lines, at)
+					}
+				}
 			}
 		}
 	}

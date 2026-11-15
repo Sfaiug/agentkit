@@ -2,9 +2,11 @@ package cli
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"agentkit/internal/config"
 	"agentkit/internal/googlecloud"
@@ -16,8 +18,40 @@ import (
 
 // menuMachines is `Machines` on `c` (menu.config_machines), from the tick's records alone: a row
 // for every machine ak may use, this one first, Enter opening its work but on this one's; then
-// the cloud's, Space switching it on or off, saved at once, and Enter opening its work.
+// the cloud's, Space switching it on or off, saved at once, and Enter opening its work.  Last,
+// `+ add a machine` takes an ssh address, with the line that makes a new machine ready under its
+// field, and adds the machine once it answers, else says why not (machines.Ask, machines.Add);
+// Esc while it is asked goes back, nothing written.
 func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+	join := sync.OnceValues(machines.JoinLine) // made as the field first opens: it makes ak's key
+	add := menu.PageRow{Label: "+ add a machine", Field: func(typed string) string {
+		name := strings.TrimFunc(typed, config.Space)
+		if name == "" {
+			return ""
+		}
+		why, err := waitAdapter("config · machines", "asking "+name, nil, keyboard, painter, func(ctx context.Context) (string, error) {
+			return machines.Ask(ctx, name), nil
+		})
+		if err != nil || why != "" {
+			return why // gone back, or it did not answer: nothing written
+		}
+		return saved(machines.Add(name, seat.KeepConfigEfforts))
+	}, Placeholder: "its ssh address: a Host of ~/.ssh/config, a host name or user@host",
+		Around: func(s terminal.Screen) []string {
+			line, err := join()
+			words := "Run this on a new Linux machine, then type above the address it prints:"
+			if err != nil {
+				words = "The line that makes a new machine ready cannot be made: " + config.PyError(err)
+			}
+			lines := []string{""}
+			for _, part := range terminal.Wrap(words, s.LayoutWidth()-4) {
+				lines = append(lines, s.Styled("    "+part, "dim"))
+			}
+			if err != nil {
+				return lines
+			}
+			return append(lines, s.Unbroken("    "+line)...)
+		}}
 	return configPage("machines", "", func() ([]menu.PageRow, bool) {
 		var rows []menu.PageRow
 		for _, machine := range machines.Known() {
@@ -35,7 +69,7 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 		work, known := workWords(machines.Cloud)
 		return append(rows, menu.PageRow{Label: "Google Cloud", Value: googlecloud.Summary(true) + " · " + work, On: active,
 			Flip: func() string { return saved(machines.Cloud.Save("active", !active, seat.KeepConfigEfforts)) },
-			Open: func() bool { return menuMachineWork(machines.Cloud.Name, keyboard, painter) }}), known
+			Open: func() bool { return menuMachineWork(machines.Cloud.Name, keyboard, painter) }}, add), known
 	}, keyboard, painter)
 }
 
