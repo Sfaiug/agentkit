@@ -214,6 +214,30 @@ def rows(cfg, kept=None):
                                           files=files)
 
 
+def config_mark():
+    """config.toml's inode and mtime, None while there is none: a save replaces the file, a hand
+    edit rewrites it."""
+    try:
+        stat = (config.HOME / config.CONFIG_NAME).stat()
+    except OSError:
+        return None
+    return stat.st_ino, stat.st_mtime_ns
+
+
+def configured(cfg, mark):
+    """(`cfg`, config.toml's mark now), the config read again where the file changed since it
+    was read at `mark` (config_mark), whoever wrote it, as the main screen (`Live.configure`)
+    and `c` (config_matrix) both follow it.  One that does not load, a hand edit with an error,
+    leaves `cfg` until the file's next change."""
+    now = config_mark()
+    if now != mark:
+        try:
+            cfg = config.load()
+        except (config.Error, OSError, ValueError, TypeError, KeyError):
+            pass
+    return cfg, now
+
+
 class Live:
     """The main screen's usage probe and its reads, off the thread that draws, and their way of
     asking for a draw.
@@ -231,7 +255,7 @@ class Live:
     """
 
     def __init__(self, cfg, every=None):
-        self.cfg, self.configured = cfg, self.config_mark()
+        self.cfg, self.configured = cfg, config_mark()
         self.configuring = threading.Lock()   # one reload at a time (`configure`)
         self.every = usage.PROBE_EVERY if every is None else every
         self.started = None          # when the probe now running was started, or None
@@ -462,32 +486,16 @@ class Live:
             found += [(key, entry["rows"], entry["error"]) for key, entry in _SWITCHES.items()]
         return found
 
-    @staticmethod
-    def config_mark():
-        """config.toml's inode and mtime, None while there is none: a save replaces the file,
-        a hand edit rewrites it."""
-        try:
-            stat = (config.HOME / config.CONFIG_NAME).stat()
-        except OSError:
-            return None
-        return stat.st_ino, stat.st_mtime_ns
-
     def configure(self):
-        """config.toml read again if it changed since last read, whoever wrote it -- `c` in this
-        window or another -- and everything read again on it (`ask`), so every read, probe, draw
-        and key after it acts on the config as saved.  One that does not load, a hand edit with
-        an error, leaves the last that did, until its next change.  The watcher and the draw
-        both call it, one at a time, so a slow load never lands over a newer one."""
+        """config.toml read again if it changed (configured) -- `c` in this window or another
+        saved it -- and everything read again on it (`ask`), so every read, probe, draw and
+        key after it acts on the config as saved.  The watcher and the draw both call it, one
+        at a time, so a slow load never lands over a newer one."""
         with self.configuring:
-            mark = self.config_mark()
-            if mark == self.configured:
-                return
-            self.configured = mark
-            try:
-                self.cfg = config.load()
-            except (config.Error, OSError, ValueError, TypeError, KeyError):
-                return
-        self.ask()
+            cfg, self.configured = configured(self.cfg, self.configured)
+            news, self.cfg = cfg is not self.cfg, cfg
+        if news:
+            self.ask()
 
     def _watch(self):
         cost = STIR                  # the first look leaves the first frame the interpreter
@@ -4341,8 +4349,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     there alone, for a seat not made yet; no row under the models, no `r` and no `a`; Enter on a
     mark or an effort starts the session, true, and Esc goes back to the row, false.
 
-    `selected` follows `session`'s record every second while waiting for a key, on this thread
-    so a read cannot land over a save; the highlight and column stay where they are.
+    `cfg` follows config.toml, whoever saves it (configured), and `selected` `session`'s record
+    over it, both read again before each draw -- every second while waiting for a key -- on this
+    thread so a read cannot land over a save; the highlight and column stay where they are while
+    their row is.  The born row's screen keeps the row's config, its seat's to be made of.
     Its role marks are that seat's models: Space or a
     click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
@@ -4383,12 +4393,23 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     seat = (session, selected) if session or born else None     # whose efforts a step changes
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
     refused = {}      # what the last `a` said (apply_defaults), fitted under the rows each draw
+    # config.toml's mark as `cfg` was read at: unknown, the caller's read may be long gone, so
+    # the first pass reads it again; and the subscriptions the meters were last drawn from
+    read, subs = None, []
     while True:
-        if not session and not born and selected is not None:   # a page that took a model out
-            selected.update(copy.deepcopy(cfg["defaults"]))      # moved them
+        if not born:
+            cfg, read = configured(cfg, read)
+        if session and selected is not None:
+            seat_read(cfg, session, selected)
+        if not session and not born and selected is not None:   # a page or a save that took a
+            selected.update(copy.deepcopy(cfg["defaults"]))      # model out moved them
+        drawn, subs, spans = subs, usage_rows(cfg), {}
+        if here and here[0] == "usage":     # a meter's row is its subscription's, wherever it went
+            mine = drawn[here[1] - 1][::3]      # its provider and account
+            here = next((("usage", number) for number, sub in enumerate(subs, 1)
+                         if sub[::3] == mine), None)
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
-        subs, spans = usage_rows(cfg), {}
         over, meters = config_meters(cfg, lit, subs, spans)
         models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in under)]
@@ -4418,16 +4439,14 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         was = here
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             told, keys, marks=3,
-                                            timeout=STIR if session else None,
+                                            timeout=None if born else STIR,
                                             clock=clock, moves=moves,
                                             over=over, over_places=meters, keyed=column)
         column = column if clicked is None else clicked
         if here == THEME != was and clicked is None:   # come to `Theme` by a key or its label:
             column = list(themes.NAMES.values()).index(terminal.theme())    # on the one in force
         if act is None:
-            if session and selected is not None:
-                seat_read(cfg, session, selected)
-            continue                  # a resize or the pointer: drawn again
+            continue                  # a tick, a resize or the pointer: drawn again
         note, refused = "", {}
 
         def around(card, keys):   # the matrix laid out at this draw's size, the question under it
@@ -4478,11 +4497,6 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                     config_limits(cfg)
                 else:
                     config_discord()
-                try:
-                    cfg = config.load()
-                except config.Error as exc:
-                    pause(f"config: {exc}")
-                    return cfg
         elif column < 0:          # a click on its label: the highlight on its first mark
             column = config_columns(selected, here[1])[0]
         elif act in ("left", "right"):
