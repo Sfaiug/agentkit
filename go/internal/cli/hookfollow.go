@@ -14,15 +14,14 @@ import (
 // in a pane, the one place a hook can be the seat's own client's, and on a prompt only for
 // somebody's words.  first runs right before the move is written (seat.Claim), where a prompt's
 // turn is latched, as Python's hook latches it before its follow.  False where Go hands it over,
-// with nothing written: a move its harness's follow does not carry (`harness.Moves`) among them.
+// with nothing written.
 func following(launched string, event *run.Object, first func() bool) bool {
 	if os.Getenv("TMUX") == "" || os.Getenv("TMUX_PANE") == "" ||
 		event.Get("hook_event_name") == "UserPromptSubmit" && ownersWords(event) == nil {
 		return true
 	}
-	kind := config.SeatHarness(launched)
-	if to := harness.HookFollows(kind, event); to != nil {
+	if to := harness.HookFollows(config.SeatHarness(launched), event); to != nil {
 		return seat.Claim(launched, *to, os.Getppid(), first)
 	}
-	return !harness.Moves(kind, event)
+	return true
 }
