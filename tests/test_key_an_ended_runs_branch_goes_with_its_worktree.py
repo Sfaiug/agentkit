@@ -76,6 +76,9 @@ class ClosedPullRequestBranches(unittest.TestCase):
 
         cls.closed_fail = plant_run(home, rig, gh, "closed-fail", 8)
         cls.closed_pass = plant_run(home, rig, gh, "closed-pass", 8, state="pass", no_merge=True)
+        cls.old_closed = plant_run(home, rig, gh, "old-closed", 31)
+        cls.old_gone_wt = plant_run(home, rig, gh, "old-tree-gone", 31)
+        rig.git("worktree", "remove", "--force", str(cls.old_gone_wt[0]))
         cls.split_origin = plant_run(home, fetch_rig, gh, "split-origin", 8, push_rig=push_rig)
         cls.moved = plant_run(home, rig, gh, "moved-after", 8)
         cls.moved_tip = advance_origin_branch(rig, cls.moved[1], cls.moved[2])
@@ -111,21 +114,25 @@ class ClosedPullRequestBranches(unittest.TestCase):
         self.assertEqual(self.after_dry_push, self.before_push)
 
         lines = self.dry.out.splitlines()
-        for wt, branch, _, _ in (self.closed_fail, self.closed_pass, self.split_origin,
-                                 self.moved, self.open_pr, self.merged_pr):
+        old_dir = self.home.path / ".agentkit" / "runs" / "old-closed"
+        for target, branch in (*(row[:2] for row in (self.closed_fail, self.closed_pass,
+                                                     self.split_origin, self.moved,
+                                                     self.open_pr, self.merged_pr)),
+                               (old_dir, self.old_closed[1])):
             matches = [i for i, line in enumerate(lines)
-                       if line.startswith("gc: would remove ") and f" {wt}" in line]
+                       if line.startswith("gc: would remove ") and f" {target}" in line]
             self.assertEqual(len(matches), 1, lines)
             self.assertEqual(lines[matches[0] + 1],
                              f"gc: would remove remote-branch {branch}: {CONDITION}")
-        self.assertEqual(len([line for line in lines if "remote-branch" in line]), 6)
+        self.assertEqual(len([line for line in lines if "remote-branch" in line]), 7)
 
     def test_closed_unmerged_pr_branch_goes_on_both_worktree_paths_and_split_origin(self):
         self.assertEqual((self.collected.code, self.collected.err), (0, ""))
-        for wt, _, _, _ in (self.closed_fail, self.closed_pass, self.split_origin):
+        for wt, _, _, _ in (self.closed_fail, self.closed_pass, self.old_closed,
+                            self.split_origin):
             self.assertFalse(wt.exists(), wt)
-        self.assertNotIn(self.closed_fail[1], self.rig.branches())
-        self.assertNotIn(self.closed_pass[1], self.rig.branches())
+        for row in (self.closed_fail, self.closed_pass, self.old_closed):
+            self.assertNotIn(row[1], self.rig.branches())
         self.assertEqual(self.fetch_rig.branches(), ["main"])
         self.assertEqual(self.push_rig.branches(), ["main"])
         hook_seen = self.push_hook_log.read_text()
@@ -138,7 +145,8 @@ class ClosedPullRequestBranches(unittest.TestCase):
             self.assertFalse(wt.exists(), wt)
         remaining = {b: self.rig.head(b) for b in self.rig.branches()}
         self.assertEqual(remaining.get(self.moved[1]), self.moved_tip)
-        for _, branch, sha, _ in (self.open_pr, self.merged_pr, self.no_pr, self.reviewed_pr):
+        for _, branch, sha, _ in (self.open_pr, self.merged_pr, self.no_pr, self.reviewed_pr,
+                                  self.old_gone_wt):
             self.assertEqual(remaining.get(branch), sha)
         self.assertIn(f"gc: kept remote-branch {self.moved[1]}:", self.collected.out)
 
@@ -146,10 +154,10 @@ class ClosedPullRequestBranches(unittest.TestCase):
         wt, branch, sha, url = self.kept
         self.assertTrue(wt.exists())
         self.assertEqual(self.rig.head(branch), sha)
-        self.assertEqual(len(self.gc_gh_calls), 6)
+        self.assertEqual(len(self.gc_gh_calls), 7)
         for call in self.gc_gh_calls:
             self.assertEqual((call[:2], call[3:]), (["pr", "view"], ["--json", "state"]))
-            self.assertNotIn(call[2], (url, self.reviewed_pr[3]))
+            self.assertNotIn(call[2], (url, self.reviewed_pr[3], self.old_gone_wt[3]))
 
     def test_unanswered_pr_or_refusing_hook_is_reported_and_stops_nothing_else(self):
         with Home() as home:

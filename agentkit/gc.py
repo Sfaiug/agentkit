@@ -847,6 +847,16 @@ def own_tree(state):
     return tree if tree in (config.WT / run_id, config.WORK / run_id) else None
 
 
+def old_run_tree(state, left):
+    """The checkout under ~/.agentkit/wt an old-run removal takes with its record, or None."""
+    tree = own_tree(state)
+    if (tree is not None and tree.parent == config.WT and not state.get("scratch")
+            and str(tree) not in left and clearable(tree)
+            and worktrees.checkout_removable(state)):
+        return tree
+    return None
+
+
 def drop_tree(state, tree, report, keep_branch=None, with_run=False):
     """`drop_checkout` for gc: True when the tree is gone.
 
@@ -918,10 +928,14 @@ def gc_candidates(now=None):
             else:
                 keep_for_seat = session_lives(owner)
             if not keep_for_seat:
+                tree = old_run_tree(state, left)
+                pushed = pushed_branch(state) if tree is not None else None
                 yield {"action": "remove", "kind": "old-run", "path": str(directory),
                        "run": str(directory), "whole": True, "final": not interrupted,
                        "interrupted_at": interrupted,
-                       "state_identity": retention.fingerprint(directory / "run.json")}
+                       "state_identity": retention.fingerprint(directory / "run.json"),
+                       **({"remote_branch": pushed[1],
+                           "remote_tree": str(tree)} if pushed else {})}
                 continue
         # A failed, blocked, stopped or error checkout goes when the seat has been
         # told, or a week later, whichever is first -- unless a resume can still
@@ -1434,16 +1448,14 @@ def gc(report, automatic=False):
                                 # clutters the next run's name check. A tree already
                                 # reported as left behind is not tried again.
                                 tree = own_tree(state)
-                                had_tree = (tree is not None and tree.parent == config.WT
-                                            and not state.get("scratch") and retention.present(tree)
-                                            and str(tree) not in leftovers())
+                                remote_tree = old_run_tree(state, leftovers())
                                 if tree is not None and str(tree) in leftovers():
                                     worktrees.drop_local_branch(state.get("repo"), state.get("branch"),
                                                       report)
                                 else:
                                     drop_tree(state, tree, report, keep_branch=False,
                                               with_run=True)
-                                if had_tree and not retention.present(tree):
+                                if remote_tree is not None and not retention.present(remote_tree):
                                     remote_branch_state = state
                             retention.remove(directory, directory=True)
                             done = not directory.exists()
@@ -1626,9 +1638,10 @@ def cmd_gc(argv):
         plan = sweep_plan()
         listed = {item["path"] for item in plan}
         plan += [item for item in gc_plan() if item["path"] not in listed]
+        trees = {item["path"] for item in plan if item["kind"].endswith("-worktree")}
         for item in plan:
             print(f"gc: would {item['action']} {item['kind']} {item['path']}{gc_why(item)}")
-            if item.get("remote_branch"):
+            if item.get("remote_branch") and item.get("remote_tree") not in trees:
                 print(f"gc: would remove remote-branch {item['remote_branch']}: "
                       f"{REMOTE_BRANCH_IF}")
         if not plan:
