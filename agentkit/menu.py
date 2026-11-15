@@ -4402,7 +4402,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         if session and selected is not None:
             seat_read(cfg, session, selected)
         if not session and not born and selected is not None:   # a page or a save that took a
-            selected.update(copy.deepcopy(cfg["defaults"]))      # model out moved them
+            selected.clear()                                     # model out moved them, and a
+            selected.update(copy.deepcopy(cfg["defaults"]))      # role they dropped goes
         drawn, subs, spans = subs, usage_rows(cfg), {}
         if here and here[0] == "usage":     # a meter's row is its subscription's, wherever it went
             mine = drawn[here[1] - 1][::3]      # its provider and account
