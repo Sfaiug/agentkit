@@ -393,6 +393,30 @@ class SuitePieces(unittest.TestCase):
         self.assertEqual(flags, {"1"})
         self.assertEqual(len(gate._heavy_held()), 0)
 
+    def test_a_piece_beside_a_sibling_takes_its_turn_once_the_cores_have_room_for_it(self):
+        hold = gate._GateHold(ExitStack(), [1, 2], more=lambda *_: ([], 2), cost=(0.8, 410))
+        first = hold.take(lambda: False)    # beside none of its own: no look
+        waits = []
+
+        def take(wanted):
+            with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(
+                    {"cpus": 4, "cpu_wanted": wanted})}), \
+                    patch.object(hold.lock, "wait", waits.append):
+                return hold.take(lambda: bool(waits))
+        self.assertIsNone(take(3.3))
+        self.assertEqual(waits, [gate.GATE_POLL])
+        waits.clear()
+        # 4 cores less 3.2 threads leave 0.8 of one, float dust aside
+        hold.give(take(3.2))
+        self.assertEqual(waits, [])
+
+        def look():    # the sibling ends while this piece looks
+            hold.give(first)
+            return 0
+        with patch.object(host, "cpu_room", look), \
+                patch.object(hold.lock, "wait", lambda _: self.fail("waited beside no piece")):
+            self.assertIsNotNone(hold.take(lambda: False))
+
     def test_isolated_cgroup_cost_is_saved_and_sizes_later_pieces(self):
         state = record.read_state(self.run_dir)
         record.save_state(self.run_dir, {**state, "scope": "acme"})
