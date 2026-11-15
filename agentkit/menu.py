@@ -169,9 +169,13 @@ WALK_EVERY = 60          # seconds one walk of a quiet run answers for: silence 
 _WALKED = {}             # a quiet run's directory: when it was walked, on time.monotonic, and what
                          # that found
 STIR = 1.0               # ... and the longest it goes between looks for a seat's word or the meters
-LOOKS = 100              # ... the wait before a look, in what the last look cost its thread: a
-                         # quick host draws news as it is written, and looking spends a hundredth
-                         # of a thread whatever the host's speed or load
+LOOKS = 1000             # ... the wait before a look, in what the last look cost its thread: a
+                         # quick host draws news as it is written, and looking spends a thousandth
+                         # of a thread whatever the host's speed or load.  That share does not
+                         # shrink on a quicker host as the screen's other work does: a hundredth,
+                         # some fifty ticks a minute, was up to a sixth of the minute a screen over
+                         # sixty gone seats may spend on a loaded host, and more on an idle one
+                         # (tests/test_key_gone_seats_cost_an_open_screen_little.py)
 # What the `—` says, from the error the last probe left; the first match wins.  No pattern here
 # guesses at a login: `token`, `401` and `login` turn up in lines a logged-in seat produces too,
 # and the one party that can say is the harness's `auth` verb, which the probe asks and records.

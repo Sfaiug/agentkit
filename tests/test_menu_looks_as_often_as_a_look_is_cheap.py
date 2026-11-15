@@ -17,7 +17,7 @@ class LooksAsOftenAsALookIsCheap(Sandbox):
     def test_the_wait_follows_what_the_last_look_cost(self):
         live = menu.Live(config.load())
         self.addCleanup(live.close)
-        now, waits, costs = [0.0], [], [0.002, 0.5, 0.005]
+        now, waits, costs = [0.0], [], [0.0002, 0.5, 0.0005]
 
         def wait(timeout):
             waits.append(timeout)
@@ -34,7 +34,7 @@ class LooksAsOftenAsALookIsCheap(Sandbox):
                 patch.object(live, "recorded", recorded):
             live._watch()
         self.assertEqual(waits[0], menu.STIR)
-        for waited, want in zip(waits[1:], (menu.LOOKS * 0.002, menu.STIR, menu.LOOKS * 0.005)):
+        for waited, want in zip(waits[1:], (menu.LOOKS * 0.0002, menu.STIR, menu.LOOKS * 0.0005)):
             self.assertAlmostEqual(waited, want)
 
 
