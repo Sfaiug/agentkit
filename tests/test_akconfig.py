@@ -44,7 +44,7 @@ class Config(unittest.TestCase):
         self.assertEqual(config["defaults"], {"orchestrator": "gamma", "workers": ["gamma"]})
         self.assertEqual(config["providers"]["acme"], {"mode": "payg"})
         self.assertEqual((config["within"], config["audit2"]), (3, {"note": "kept"}))
-        self.assertNotIn("audit", config)
+        self.assertEqual(config["audit"], {"on": True})
 
     def test_ak_meters_exactly_the_providers_of_the_models_written(self):
         akconfig.write(self.home, {"opus": "claude", "beta": "codex"})

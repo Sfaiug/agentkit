@@ -44,7 +44,7 @@ func TestACardAnswerFactFollowsARenameItWaitedOut(t *testing.T) {
 	answer := []byte(`{"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion", ` +
 		`"tool_response": {"answers": {"Which port?": "8080"}}}`)
 	exit := make(chan int)
-	go func() { exit <- seatState(answer, new(bytes.Buffer)) }()
+	go func() { exit <- seatState(answer, os.Getppid(), new(bytes.Buffer)) }()
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
 		if _, err := os.Stat(asked); err == nil {
 			break

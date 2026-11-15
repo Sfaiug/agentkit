@@ -70,13 +70,14 @@ carries the colour (`terminal.state_text`, `terminal.state_colour`).
 
 Every screen reads the same keys, one key at a time, with no Enter.
 
-- **Arrows, Space and Enter:** the arrows move the highlight (`terminal.highlight`), Space marks
-  what it is on, and Enter goes forward (`terminal.keys`).
+- **Arrows, Space and Enter:** the arrows move the highlight, on selection: a row whole, a cell
+  over its width, its row bold (`terminal.highlight`, `terminal.selected`). Space marks what it
+  is on, and Enter goes forward (`terminal.keys`).
 - **Esc:** Esc goes back, and on the main screen it leaves.
 - **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
 - **Digits:** a digit opens that seat.
-- **Pointer:** a click does what the key would do. The pointer lights what a click there
-  would act on, never a second highlight or more words.
+- **Pointer:** a click does what the key would do. The pointer lights what a click would act
+  on, never a second highlight.
 
 A key that does nothing says nothing. Every key is answered within 100 ms.
 From a pipe or file the menu reads a line at a time: a key, then Enter. Helpers:
@@ -89,8 +90,7 @@ Example: `↑↓←→ move   ␣ mark   a add a company   esc back`.
 
 Colour says where a thing stands. Screens ask for roles, never RGB: `working` is accent,
 `needs you` warning, `done` success, `FAIL` and `out of usage` error, `dim`, `idle` and `waiting`
-dim; the pointer and a row acted on whole light on selection; a bar's chip is on-accent on its
-state's. A fade nears the background; lit, the text.
+dim; a bar's chip is on-accent on its state's. A fade nears the background; lit, the text.
 
 `themes.ROLES` (Go: `terminal/themes.go`) holds both themes; `terminal.sense` picks white on a
 light background, else black, and the colour depth, once per start. Under `NO_COLOR` nothing is

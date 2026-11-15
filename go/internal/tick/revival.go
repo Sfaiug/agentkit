@@ -125,7 +125,7 @@ func (t *ticking) owedLines() error {
 		return errLeft
 	}
 	for _, name := range names {
-		if carried, err := seat.TellOwed(name, t.log.line); err != nil || !carried {
+		if carried, err := seat.TellMoves(name, t.log.line); err != nil || !carried {
 			if err != nil {
 				return err
 			}

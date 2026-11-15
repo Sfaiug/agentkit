@@ -25,7 +25,7 @@ class Meta(http.server.BaseHTTPRequestHandler):
         asked = json.loads(self.rfile.read(int(self.headers["content-length"])))
         self.server.requests.append({"path": self.path, **asked})
         status = self.server.answers.get(asked["model"], 404)
-        body = {200: "data: " + json.dumps(self.server.frame) + "\n",
+        body = {200: "data: " + json.dumps(self.server.frame) + "\n\n",
                 404: '{"error":{"code":"model_not_found","message":"no such model"}}',
                 500: '{"error":{"code":"server_error"}}'}[status].encode()
         self.send_response(status)

@@ -1,8 +1,9 @@
 """The edges of a seat's look by the warm looker (`agentkit/looker.py`).
 
 A census that could not be read authorizes no completion nudge; the looker's census serves every
-decision the look makes, the usage wait and the account's settlement too; and a looker installed
-over while it read, or orphaned as it starts, refuses the event and leaves the current socket be.
+decision the look makes, the usage wait and the account's settlement too; a looker installed over
+while it read, or handed an event heard under other adapters, refuses it; and one orphaned as it
+starts leaves the current socket be.
 """
 
 import inspect
@@ -208,7 +209,7 @@ class LookerLifecycle(unittest.TestCase):
         try:
             self.assertEqual(os.read(reached_r, 1), b"r")
             (config.STATE / "installed-at").write_text(str(time.time()))
-            data = b"acme-api\0\0UserPromptSubmit\0go\0/fake/acme,1,0\0%7"
+            data = b"acme-api\0\0UserPromptSubmit\0go\0/fake/acme,1,0\0%7\0"
             conn.sendall(len(data).to_bytes(4, "big") + data)
             os.write(gate_w, b"g")
             try:
@@ -218,6 +219,29 @@ class LookerLifecycle(unittest.TestCase):
         finally:
             conn.close()
         self.assertNotEqual(ready, b"R", "code older than the install must refuse the event")
+
+    def test_an_event_heard_under_other_adapters_is_refused_before_ready(self):
+        mine = str(self.root / "adapters")
+        p = patch.dict(os.environ, {config.ADAPTER_DIR_ENV: mine})
+        p.start()
+        self.addCleanup(p.stop)
+        self.start(lambda **_kw: [])
+
+        def ready(adapters):
+            conn = self.connect()
+            try:
+                data = b"\0".join((b"acme-api", b"", b"Notification", b"", b"/fake/acme,1,0", b"%7",
+                                   adapters.encode(), b"permission_prompt", b""))
+                conn.sendall(len(data).to_bytes(4, "big") + data)
+                try:
+                    return conn.recv(1)
+                except (ConnectionAbortedError, ConnectionResetError):
+                    return b""
+            finally:
+                conn.close()        # never told go: the child leaves without a look
+        self.assertEqual(ready(mine), b"R", "the looker's own adapters are its to hear")
+        self.assertNotEqual(ready(str(self.root / "other")), b"R",
+                            "what an event means is the hook's adapters' to say: it goes cold")
 
     def test_an_orphan_finishing_startup_cannot_replace_the_current_socket(self):
         reached_r, reached_w = self.pipes()

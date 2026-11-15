@@ -109,7 +109,7 @@ class AMachineThatRanTheLineIsAddedByItself(unittest.TestCase):
         self.term.wait("esc leave")
         self.term.keys("c")
         self.term.wait(lambda screen: "agentkit · config " in screen and "Machines" in screen)
-        self.term.keys(*(["Down"] * 6))       # one model, then the sixth config row
+        self.term.keys(*(["Down"] * 5))       # one model, then the fifth config row
         self.term.wait("› Machines")
         self.term.keys("Enter")
         self.term.wait(lambda screen: "config · machines" in screen and ADD in screen)

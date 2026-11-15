@@ -21,18 +21,25 @@ var plainID = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // Claim is Python's harness.claim: the seat launched as launched, on that harness, goes on in the
 // conversation a hook whose parent is pid reported, with its transcript and id_source.  Only from
-// the seat's own client (agent.OwnsHook), with the transcript that conversation's own file for the
-// seat, while the seat owns the one it is on and no other
+// the seat's own client (agent.OwnsHook, counted from Followed.From), with the transcript that
+// conversation's own file for the seat, while the seat owns the one it is on and no other
 // seat's record names the new one, as its own or one it left.  The one left stays the seat's for
 // its done check (`left`); one it goes back to is its current one again, read once.  One a harness
 // learns from its own evidence (harness.Learns) goes into the record first, whether the seat moves
-// or not.  To keep one (Followed.Keep) is to add it to those the seat left, unless it is among them
-// already, and move nothing.  The seat's
+// or not, and a seat that evidence puts in none, or only in another seat's, takes the new one as
+// its first.  To keep one (Followed.Keep) is to add it to those the seat left, unless it is among
+// them already, and move nothing.  The seat's
 // lock, which a delivery holds while it types the very prompt a hook may report, is never taken:
-// its name holds under `claims`.  False where Go does not carry it, with nothing written.  first,
+// its name holds under `claims`.  False where Go does not carry it, with nothing written; carried,
+// Followed.Then runs after.  first,
 // where given, runs right before the move is written, once its record has read under its lock,
 // and false writes none: what its hook writes before the move, written only where Go carries it.
-func Claim(launched string, to harness.Followed, pid int, first func() bool) bool {
+func Claim(launched string, to harness.Followed, pid int, first func() bool) (carried bool) {
+	defer func() {
+		if carried && to.Then != nil {
+			to.Then(launched)
+		}
+	}()
 	id, named := to.Conversation.(string)
 	file, filed := to.Transcript.(string)
 	if !named || !filed || !plainID.MatchString(id) || strings.HasPrefix(id, "-") {
@@ -43,7 +50,7 @@ func Claim(launched string, to harness.Followed, pid int, first func() bool) boo
 		return true
 	}
 	state := filepath.Join(config.Home(), "state")
-	carried := true
+	carried = true
 	claims(state, func() error {
 		carried = claim(state, launched, to, id, file, pid, first)
 		return nil
@@ -74,25 +81,8 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 		!record.Truthy("cwd") || record.Get("conversation") == id {
 		return true
 	}
-	if harness.Learns(to.Harness) {
-		// the one its harness's evidence says the seat is in, which that evidence may not have
-		// written into its record yet; a seat in none, or only in another seat's, is Python's
-		current := harness.Current(to.Harness, fields)
-		if current == "" || spoken(name, current) {
-			return false
-		}
-		if record.Get("conversation") != current {
-			if err := update(state, name, set([]field{{"conversation", current}})); err != nil {
-				return !errors.Is(err, run.ErrLoneSurrogate)
-			}
-			record.Set("conversation", current)
-		}
-		if current == id {
-			return true
-		}
-	} else if owned, known := harness.Owns(to.Harness, record, record.Str("conversation")); !owned {
-		return known
-	}
+	// the file its harness names and the seat's session, read first: Go hands over where it
+	// cannot read either, before the record learns anything
 	filed := ""
 	if to.Filed != nil {
 		filed = to.Filed(fields, id)
@@ -106,17 +96,39 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 		}
 		filed = named
 	}
-	if config.Resolve(transcript) != config.Resolve(filed) || spoken(name, id) {
-		return true
-	}
 	held, exited, known := find(name, fields)
 	if !known {
 		return false
 	}
+	current := record.Str("conversation") // the one the seat leaves, "" for none
+	if harness.Learns(to.Harness) {
+		// the one its harness's evidence says the seat is in, which that evidence may not have
+		// written into its record yet: none where it names only another seat's
+		if current = harness.Current(to.Harness, fields); current != "" && spoken(name, current) {
+			current = ""
+		}
+		if current != "" && record.Get("conversation") != current {
+			if err := update(state, name, set([]field{{"conversation", current}})); err != nil {
+				return !errors.Is(err, run.ErrLoneSurrogate)
+			}
+			record.Set("conversation", current)
+		}
+		if current == id {
+			return true
+		}
+	} else if owned, known := harness.Owns(to.Harness, record, current); !owned {
+		return known
+	}
+	if config.Resolve(transcript) != config.Resolve(filed) || spoken(name, id) {
+		return true
+	}
+	if to.From != nil {
+		pid = to.From(pid)
+	}
 	if !held || exited || !agent.OwnsHook(tmux.Own(), name, pid, to.Client) {
 		return true
 	}
-	now := record.Get("conversation")
+	now := current
 	if to.Keep {
 		now = id
 	}
@@ -126,7 +138,10 @@ func claim(state, launched string, to harness.Followed, id, transcript string, p
 	}) {
 		return true // kept already: a report that comes late or twice undoes no move
 	}
-	changes := []field{{"conversation", id}, {"left", gone}, {"id_source", to.Source}}
+	changes := []field{{"conversation", id}, {"left", gone}}
+	if to.Source != "" {
+		changes = append(changes, field{"id_source", to.Source})
+	}
 	if to.Keep {
 		changes = []field{{"left", gone}}
 	}
@@ -175,9 +190,10 @@ func spoken(name, id string) bool {
 
 // left is the record's `left` with now added last, of that harness, each beside the account and
 // directory it was written under, which the record's own go on to name the seat's next ones
-// (notify.left): the conversation it is on, which it leaves, or one it keeps.  The one the seat
-// goes on in is its current one again.  False where an entry is none Python's claim reads.
-func left(record *run.Object, kind, id string, now any) ([]any, bool) {
+// (notify.left): the conversation it is on, which it leaves, or one it keeps; a seat on none, ""
+// for now, leaves none.  The one the seat goes on in is its current one again.  False where an
+// entry is none Python's claim reads.
+func left(record *run.Object, kind, id, now string) ([]any, bool) {
 	kept, listed := record.Get("left").([]any)
 	if record.Has("left") && !listed {
 		return nil, false
@@ -201,6 +217,9 @@ func left(record *run.Object, kind, id string, now any) ([]any, bool) {
 			entry.Set(key, was.Get(key))
 		}
 		gone = append(gone, entry)
+	}
+	if now == "" {
+		return gone, true
 	}
 	added := run.NewObject()
 	added.Set("harness", kind)

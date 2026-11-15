@@ -9,8 +9,10 @@ import (
 	"agentkit/internal/seat"
 )
 
-// hooked is each hook an adapter's command may name, as the stubs under go/hooks are named.
-var hooked = map[string]func(payload []byte, out io.Writer) int{"seat-state": seatState, "orchestrator-stop": orchestratorStop}
+// hooked is each hook an adapter's command may name, as the stubs under go/hooks are named, run
+// by the harness that ran the command.
+var hooked = map[string]func(payload []byte, out io.Writer) int{"orchestrator-stop": orchestratorStop,
+	"seat-state": func(payload []byte, out io.Writer) int { return seatState(payload, os.Getppid(), out) }}
 
 // Adapter hooks use the same fact writer, rename following and locks as installed hooks: the event
 // as its harness reads it goes to each hook the command names in turn, the seat's state where it

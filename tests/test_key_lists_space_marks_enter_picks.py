@@ -8,7 +8,8 @@ it, each key line naming only what Space and Enter do there; on `Subscriptions` 
 click runs the lit act and Space runs nothing.  Black-box: `AK_BIN`'s menu in a terminal
 (tests/fixtures/akterm.py), its harnesses faked (tests/fixtures/fakeadapter.py), judged by
 what the terminal shows, config.toml and the logins run; NO_COLOR.  This test fails against
-`/bin/false`.
+`/bin/false`.  No row on `c` opens `Weekly audit` since 10 Nov 2026 (menu.CONFIG_ROWS): its
+page, Python ak's, runs in that terminal by itself.
 """
 
 import json
@@ -94,8 +95,9 @@ class ListsSpaceMarksEnterPicks(unittest.TestCase):
         self.assertEqual(akconfig.read(self.home), before)
 
     def test_on_weekly_audit_space_flips_on_and_enter_opens_orchestrator_s_list_to_pick(self):
-        self.to("Weekly audit")
-        self.term.keys("Enter")
+        self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"}, page="config_audit")
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
+                        "sleep 86400", server=SERVER)
         self.to("On", MARK)
         self.term.keys("Enter")                       # nothing: On is a mark
         self.term.keys("Space")

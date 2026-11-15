@@ -19,8 +19,8 @@ checks, `check` adds a check run to a commit, and `pr merge` refuses a required 
 has not passed.  `auth status` and `api` answer too: user, graphql's protection and
 merge-body queries, search/issues, and under repos/<slug>/: the open pulls, a PR as the REST
 API has it and its reviews, branch rules, and a commit's check runs and statuses.  `reply`
-scripts an answer ahead of all of it: LOGGED_OUT and OFFLINE are what gh says when it cannot
-reach GitHub.
+scripts an answer ahead of all of it, or after GitHub `acted` on the call: LOGGED_OUT and
+OFFLINE are what gh says when it cannot reach GitHub.
 
 The state is `<root>/github.json`; every call is logged where `home.calls("gh")` reads it, and
 with when it came where `asked` does.
@@ -124,13 +124,14 @@ class GitHub:
         with _locked(self.file) as state:
             state["access"][slug] = permission
 
-    def reply(self, prefix, out="", *, err="", code=0, times=None):
+    def reply(self, prefix, out="", *, err="", code=0, times=None, acted=False):
         """Answer the calls whose space-joined argv starts with `prefix` so, `times` times or
-        for good, ahead of everything else; "" is every call.  `{in N}` in `out` is the epoch
-        second N seconds after the call, as GitHub names a reset."""
+        for good, ahead of everything else; "" is every call.  `acted` has GitHub do what the
+        call asks first, as a merge made before its answer failed.  `{in N}` in `out` is the
+        epoch second N seconds after the call, as GitHub names a reset."""
         with _locked(self.file) as state:
             state["replies"].append({"prefix": prefix, "out": out, "err": err, "code": code,
-                                     "times": times})
+                                     "times": times, "acted": acted})
 
     def restore(self):
         """Forget every `reply`: GitHub answers for itself again."""
@@ -513,6 +514,8 @@ def main(file, log, *argv):
         for reply in state["replies"]:
             if " ".join(argv).startswith(reply["prefix"]) and reply["times"] != 0:
                 reply["times"] = None if reply["times"] is None else reply["times"] - 1
+                if reply["acted"]:
+                    _answer(state, list(argv), os.getcwd())
                 out = re.sub(r"\{in (\d+)\}", lambda m: str(int(now) + int(m[1])), reply["out"])
                 err, code = reply["err"], reply["code"]
                 break

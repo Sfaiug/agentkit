@@ -308,8 +308,7 @@ func actedOn(record *run.Object) bool {
 	case owed:
 		return true
 	case run.Active(record):
-		// a launch waiting for its slot is the tick's to adopt
-		return !run.GoesOn(record, seconds(time.Now())) && !(state == "queued" && record.Truthy("slot_waiting"))
+		return !run.GoesOn(record, seconds(time.Now()))
 	case state == "waiting":
 		return run.NeedsRecovery(record)
 	default:

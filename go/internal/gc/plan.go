@@ -61,6 +61,7 @@ var families = []func(*reads) []Item{
 	(*reads).runs,
 	(*reads).finishedJobs,
 	(*reads).ephemeral,
+	(*reads).leftScratch,
 	(*reads).staleWorktrees,
 	(*reads).seatFiles,
 	(*reads).modelReports,

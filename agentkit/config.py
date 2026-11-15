@@ -750,19 +750,37 @@ def running(cfg, harness, model_id):
     return [name for name in offered(cfg) if runs(name)]
 
 
-def add_model(cfg, entry, label):
+def take_in(cfg, entry, row):
+    """`entry`'s provider, the one a harness lists as `row` (id, name, mode), in `cfg` as `+ add
+    a subscription` takes it in: its table where the config has none, the shipped one where the
+    shipped default has it, else that mode under that name; and that mode on `entry` where the
+    table says another."""
+    if row[0] not in cfg["providers"]:
+        tables = shipped().get("providers") or {}
+        cfg["providers"][row[0]] = (copy.deepcopy(tables[row[0]]) if row[0] in tables
+                                    else {"mode": row[2], "name": row[1]})
+    # a table that came with another harness's login: Codex's plan pays for no
+    # call OpenCode makes on an OpenAI key
+    if row[2] != cfg["providers"][row[0]].get("mode", "subscription"):
+        entry["mode"] = row[2]
+
+
+def add_model(cfg, entry, label, row=None):
     """`entry` in the config file as it is now, named from its model's `label` (short_name),
-    and in `cfg`, its provider's table with it, for its holder to go on with: read, added and
-    saved under one lock, so two added at once are both kept.  Where the file runs that model
-    on that harness by then (running), that entry, nothing added.  Its name; Error or OSError
-    where the file will not read or save, or could not run it (model), its provider gone from
-    it since `cfg` was read."""
+    its provider taken in as its harness lists it in `row` where given (take_in), and in `cfg`,
+    its provider's table with it, for its holder to go on with: read, added and saved under one
+    lock, so two added at once are both kept.  Where the file runs that model on that harness
+    by then (running), that entry, nothing added.  Its name; Error or OSError where the file
+    will not read or save, or could not run it (model), its provider gone from it since `cfg`
+    was read."""
     with _config_lock():
         now = load()
         name = next(iter(running(now, entry["harness"], entry["model"])), None)
         if name is None:
             name = short_name(now, label)
             now["models"][name] = entry
+            if row:
+                take_in(now, entry, row)
             model(now, name)
             save(now)
     cfg["models"][name] = now["models"][name]
@@ -1327,23 +1345,36 @@ def model_label(harness, model, said=""):
     label its manifest's `[catalog]` gives that id, else its name and number, read off what its
     harness calls it (`said`, else the id) so that a model nobody has written down is named too.
 
-    A provider's prefix (`acme/`) and a trailing date (`-20251101`) are no part of that name, nor
-    its maker's family word, the manifest's `family`, where the name opens with it, unless only
-    numbers follow.  A hyphen is a space, between two numbers a point, and a word in small
-    letters opens with a capital: where the family word is `Acme`, `acme-nova-7-1` is `Nova 7.1`,
-    `ACME-7.2-Vega` is `7.2 Vega` and `acme-7-20251101` is `Acme 7`.
+    A provider's prefix (`acme/`) and a trailing date (`-20251101`) are no part of that name,
+    and the rest is said as every model's name is (`spoken`), the family word the manifest's.
     """
     table = manifest(harness).get("catalog")
     entry = table.get(model) if isinstance(table, dict) else None
     label = entry.get("label") if isinstance(entry, dict) else None
     if isinstance(label, str) and label:
         return label
-    name = re.sub(r"-[0-9]{8}$", "", (said or model).rsplit("/", 1)[-1])
-    family = manifest(harness).get("family")
-    if (isinstance(family, str) and family and name[:len(family)].lower() == family.lower()
-            and name[len(family):len(family) + 1] in ("", "-", " ")):
-        rest = name[len(family) + 1:]
-        name = family + name[len(family):] if not rest.strip("0123456789.- ") else rest
+    return spoken(re.sub(r"-[0-9]{8}$", "", (said or model).rsplit("/", 1)[-1]),
+                  [manifest(harness).get("family")])
+
+
+def release_label(name):
+    """What every screen calls the release a board names `name`: said as a model's name is
+    (`spoken`), the family words every manifest's, so `Acme Nova 7.1` is `Nova 7.1` however a
+    seat runs it, and a release nobody runs is named too."""
+    return spoken(name, [found.get("family") for _, found in manifests()])
+
+
+def spoken(name, families):
+    """`name` as ak says a model's: without its maker's family word, the first of `families`
+    it opens with, unless only numbers follow.  A hyphen is a space, between two numbers a
+    point, and a word in small letters opens with a capital: where the family word is `Acme`,
+    `acme-nova-7-1` is `Nova 7.1`, `ACME-7.2-Vega` is `7.2 Vega` and `acme-7` is `Acme 7`."""
+    for family in families:
+        if (isinstance(family, str) and family and name[:len(family)].lower() == family.lower()
+                and name[len(family):len(family) + 1] in ("", "-", " ")):
+            rest = name[len(family) + 1:]
+            name = family + name[len(family):] if not rest.strip("0123456789.- ") else rest
+            break
     name = re.sub(r"(?<=[0-9])-(?=[0-9])", ".", name).replace("-", " ")
     return " ".join(word[:1].upper() + word[1:] if word.islower() else word
                     for word in name.split())
@@ -1987,16 +2018,18 @@ def reviewers(cfg, seat=None):
 
 
 def audit(cfg):
-    """The weekly audit's setting, `[audit]` in config.toml: whether it runs (`on`, true until
-    written false) and the models its seat takes, `orchestrator`, `workers` and `reviewers`,
+    """The weekly audit's setting, `[audit]` in config.toml: whether it runs (`on`, false until
+    written true) and the models its seat takes, `orchestrator`, `workers` and `reviewers`,
     each `[defaults]`'s where the table leaves it out.  A name no `[models.*]` entry offers,
-    or an empty reviewer list, is an Error naming it, so the `c` row and the tick say the same
+    or an empty reviewer list, is an Error naming it, so its page and the tick say the same
     thing."""
     table = cfg.get("audit", {})
     if not isinstance(table, dict):
         raise Error(f"~/.agentkit/{CONFIG_NAME}: [audit] must be a table")
     defaults = cfg["defaults"]
-    on = table.get("on", True)
+    # Owner, 10 Nov 2026: "Remove the weekly audit feature for now. Dont delete it, but remove
+    # it."  Off where config.toml says nothing; `on = true` brings it back as it was.
+    on = table.get("on", False)
     if not isinstance(on, bool):
         raise Error(f"~/.agentkit/{CONFIG_NAME}: [audit].on must be true or false (got {on!r})")
     setting = {"on": on, "orchestrator": table.get("orchestrator", defaults["orchestrator"]),

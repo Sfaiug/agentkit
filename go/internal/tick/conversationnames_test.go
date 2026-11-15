@@ -29,10 +29,10 @@ func namingHome(t *testing.T, beta map[string]any) string {
 	return names[1]
 }
 
-// A seat whose conversation Go leaves to Python to name hands the row over before any seat's
-// transcript is given its name.
+// A seat whose conversation Go leaves to Python to name, as an Antigravity launch /proc shows no
+// agy of, hands the row over before any seat's transcript is given its name.
 func TestConversationNamesHandOverBeforeKeepingAny(t *testing.T) {
-	kept := namingHome(t, map[string]any{"orchestrator": "agy", "conversation": "conv-beta", "id_source": "antigravity-hook", "cwd": t.TempDir()})
+	kept := namingHome(t, map[string]any{"orchestrator": "agy", "antigravity_launch": "t-beta", "cwd": t.TempDir()})
 	if err := keepConversations(); !errors.Is(err, errLeft) {
 		t.Fatalf("the row ended on %v", err)
 	}

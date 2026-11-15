@@ -8,7 +8,9 @@ program `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py) with i
 its harnesses the fakes of tests/fixtures/fakeadapter.py.  Its clock injected: `AK_MOTION_CLOCK`
 names a file of seconds that stands still until the test moves it, so a motion's frame is
 written however late the host's load makes it; what the pane is written is read from tmux's
-`pipe-pane`, never timed off a capture.  Fails against `/bin/false`.
+`pipe-pane`, never timed off a capture.  Fails against `/bin/false`.  No row on `c` opens
+`Weekly audit` since 10 Nov 2026 (menu.CONFIG_ROWS): its page, Python ak's, runs in a terminal
+by itself.
 """
 
 import re
@@ -37,14 +39,20 @@ class CPagesComeUp(unittest.TestCase):
                                    "astra": {"harness": "codex", "effort": "high"}})
         self.clock = self.home.root / "clock"
         self.at(1000)
-        self.term = Terminal(self.home, size=(100, 30), env={"AK_MOTION_CLOCK": str(self.clock)})
+        self.opened()
         self.term.wait("esc leave")
-        self.raw = self.home.root / "raw"
+        self.term.keys("c", "j", "j")
+        self.term.wait("› Models")
+
+    def opened(self, page=None):
+        """A terminal of its own on the clock, ak's menu or `page` (akterm.Terminal), what its
+        pane is written piped to `raw`."""
+        self.term = Terminal(self.home, size=(100, 30), env={"AK_MOTION_CLOCK": str(self.clock)},
+                             page=page)
+        self.raw = self.home.root / f"raw{self.term.pane}"
         piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane, f"cat >>{self.raw}",
                                server=SERVER)
         self.assertEqual(piped.code, 0, piped.err)
-        self.term.keys("c", "j", "j")
-        self.term.wait("› Models")
 
     def at(self, seconds):
         """ak's motion at `seconds` from now on: its clock's file swapped whole, never read half
@@ -76,7 +84,7 @@ class CPagesComeUp(unittest.TestCase):
         self.written(f"{NOTE}.*agentkit{NAME} ")      # and then all of it
 
     def test_space_on_audits_on_is_written_half_way_before_the_new_mark(self):
-        self.term.keys("j", "j", "j", "Enter")
+        self.opened("config_audit")
         self.term.wait(lambda screen: re.search(r"› On +○ off", screen))
         self.at(self.now + 10)          # the page up
         shown = r"On +(\x1b\[[\d;]*m)○"        # its ink alone: the page up, no fade over it

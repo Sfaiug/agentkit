@@ -7,12 +7,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
@@ -44,7 +42,7 @@ func (t *ticking) deadLoops() error {
 		switch {
 		case !DeadLoop(dir, record, now):
 			return true
-		case scoped(record):
+		case run.Scoped(record):
 			return false // Python asks the unit whether its memory cap ended the loop, and stops it
 		case wt == "" && !(record.Str("state") == "queued" && record.Truthy("slot_waiting")):
 			return true // nothing to continue into: reap's to hand back
@@ -127,7 +125,7 @@ func (t *ticking) deadLoops() error {
 // loop not parked, past its launch's grace, its process gone and no other of the run's at work, and
 // a plan the pass acts on now, not a resume already ordered nor a backoff being waited out.
 func DeadLoop(dir string, record *run.Object, now float64) bool {
-	ending := loopDeath(record)
+	ending := run.LoopDeath(record)
 	if !run.Active(record) && !(record.Str("state") == "interrupted" && ending != nil) {
 		return false
 	}
@@ -139,80 +137,7 @@ func DeadLoop(dir string, record *run.Object, now float64) bool {
 		return false
 	}
 	action, _, _ := deadPlan(record, now)
-	return action != "skip" && !working(dir)
-}
-
-// loopDeath is transitions.loop_death: the last death where it ended the loop the record names now,
-// else nil.  A resume starts a new loop and leaves the deaths as they were, so one of another pid,
-// or noted before this loop started (a pid comes round again), is an earlier loop's.
-func loopDeath(record *run.Object) *run.Object {
-	deaths := record.List("deaths")
-	if len(deaths) == 0 {
-		return nil
-	}
-	death, ok := deaths[len(deaths)-1].(*run.Object)
-	if !ok || !run.Equal(death.Get("pid"), record.Get("pid")) {
-		return nil
-	}
-	at, dated := death.Num("at")
-	if identity := record.Dict("process_identity"); identity != nil && dated {
-		if start, ok := identity.Num("started_at"); ok && at < start {
-			return nil
-		}
-	}
-	return death
-}
-
-// working is whether a process of the run outlives its recorded loop, Python's _run_working: one
-// carrying its marker, this process or an ancestor too, as when a worker calls `ak doctor`, or an
-// `ak run resume` of it that has not recorded its pid yet, which a second resume would race.
-func working(dir string) bool {
-	return slices.ContainsFunc(host.Carrying(dir), live) || resuming(dir)
-}
-
-// resuming is whether a live `ak run resume` of the run is at work, as Python's watch.resumes
-// reads one under any ak's bin/, a Python interpreter running it naming it next: one writing the
-// run's log, or this checkout's, its bin/ak or this program.  Another's that does not only follows
-// the run from a terminal, and counted, it would keep the tick from resuming the loop it waits on.
-func resuming(dir string) bool {
-	log, _ := os.Stat(filepath.Join(dir, "log.txt"))
-	entries, _ := os.ReadDir("/proc")
-	for _, entry := range entries {
-		pid, err := strconv.Atoi(entry.Name())
-		if err != nil || !live(pid) {
-			continue
-		}
-		said, _ := os.ReadFile("/proc/" + entry.Name() + "/cmdline")
-		args := strings.Split(strings.TrimSuffix(string(said), "\x00"), "\x00")
-		if len(args) > 1 && strings.HasPrefix(filepath.Base(args[0]), "python") {
-			args = args[1:]
-		}
-		if len(args) < 3 || args[1] != "run" || args[2] != "resume" || filepath.Base(args[0]) != "ak" || filepath.Base(filepath.Dir(args[0])) != "bin" {
-			continue
-		}
-		if id, _, ok := launch.ResumeArgs(args[3:]); !ok || id != filepath.Base(dir) {
-			continue
-		}
-		if out, err := os.Stat("/proc/" + entry.Name() + "/fd/1"); err == nil && log != nil && os.SameFile(out, log) {
-			return true
-		}
-		if self, _, _ := config.Running(); args[0] == self || args[0] == filepath.Join(config.Repo(), "bin", "ak") {
-			return true
-		}
-	}
-	return false
-}
-
-// live is whether the process runs, not one that has exited and not yet been reaped.
-func live(pid int) bool {
-	stat, ok := host.ReadStat(pid)
-	return ok && !stat.Exited()
-}
-
-// scoped is whether a unit the manager holds ran that loop (turns.scope_is_real).
-func scoped(record *run.Object) bool {
-	scope := record.Str("scope")
-	return scope != "" && !strings.HasPrefix(scope, "none")
+	return action != "skip" && !run.Working(dir)
 }
 
 // deadPlan is _dead_plan: what the tick does with a loop whose process is gone, the deaths it
@@ -235,7 +160,7 @@ func deadPlan(record *run.Object, now float64) (string, []any, string) {
 	if len(deaths) > 0 {
 		last = deaths[len(deaths)-1].(*run.Object)
 	}
-	ending := loopDeath(record)
+	ending := run.LoopDeath(record)
 	reaped := ending != nil && !ending.Truthy("parked") && !ending.Truthy("resumed_at")
 	// the hour runs to the death being judged, not to the tick judging it
 	upto := now

@@ -11,11 +11,12 @@ import (
 // said nothing, as Python's check reads them with its other records.
 func TestOrchCheckReadsThePicturesWhateverTheOwnerSaid(t *testing.T) {
 	home := sandbox(t)
+	t.Setenv("AGENTKIT_ADAPTER_DIR", t.TempDir()) // so the checker is Go's: none is asked
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[models.opus]\nharness = \"claude\"\n"+
 		"model = \"claude-opus-5-5\"\neffort = \"xhigh\"\nprovider = \"anthropic\"\n"+
 		"[providers.anthropic]\nmode = \"subscription\"\n")
 	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"),
-		`{"orchestrator": "opus", "cwd": "/code/acme", "conversation": "c-review"}`)
+		`{"orchestrator": "opus", "cwd": "/code/acme", "conversation": "c-review", "workers": ["opus"]}`)
 	write(t, filepath.Join(home, ".claude", "projects", "-code-acme", "c-review.jsonl"),
 		`{"type": "assistant", "timestamp": "2026-11-05T10:00:00Z", "message": {"role": "assistant", "content": "Ready."}}`+"\n")
 	if err := os.Mkdir(filepath.Join(home, ".agentkit", "state", "pictures-acme.jsonl"), 0o700); err != nil {

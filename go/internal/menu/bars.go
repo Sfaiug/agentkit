@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 
 	"agentkit/internal/motion"
 	"agentkit/internal/terminal"
@@ -44,8 +45,10 @@ func moving(s terminal.Screen, seats []Seat, clock *motion.Clock) []Seat {
 
 // planBar is a seat's progress in room cells, its count included (terminal.plan_bar): a smooth line
 // of how much of its plan is done in its word's colour, then `done of total`, both as far as the line
-// has moved (moving; motion.growing, motion.counting); with no plan the same line, nothing done, and `no
-// plan yet`.  Never under smallest cells of line, the count alone where no cell of it fits.
+// has moved (moving; motion.growing, motion.counting), then ` · 2 tasks` while it has tasks in flight,
+// as the count stays the plan's; with no plan the same line, nothing done, and `no plan yet`.  Never
+// under smallest cells of line, the count alone where no cell of it fits, without its tasks where they
+// do not fit either.
 func planBar(s terminal.Screen, seat Seat, room, smallest int) string {
 	count, shown := noPlan, noPlan
 	if seat.Total > 0 {
@@ -53,9 +56,16 @@ func planBar(s terminal.Screen, seat Seat, room, smallest int) string {
 		counted := int(math.RoundToEven(float64(seat.counted) + float64(seat.Done-seat.counted)*seat.moved))
 		shown = fmt.Sprintf("%*s", len(count), fmt.Sprintf("%d of %d", counted, seat.Total))
 	}
-	size := max(smallest, room-terminal.Cells(count)-1)
+	going := ""
+	if n := len(seat.Tasks); n > 0 {
+		going = map[bool]string{true: ", ", false: " · "}[s.ASCII()] + strconv.Itoa(n) + " task" + map[bool]string{true: "s"}[n != 1]
+	}
+	size := max(smallest, room-terminal.Cells(count+going)-1)
 	if size < 1 {
+		if terminal.Cells(count+going) <= room {
+			return count + going
+		}
 		return count
 	}
-	return s.GlidingLine(seat.from, float64(seat.Done)/float64(max(seat.Total, 1)), seat.moved, seat.lit, size, seat.Word) + " " + shown
+	return s.GlidingLine(seat.from, float64(seat.Done)/float64(max(seat.Total, 1)), seat.moved, seat.lit, size, seat.Word) + " " + shown + going
 }

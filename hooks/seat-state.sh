@@ -12,7 +12,9 @@
 # the seat's record and its status bar say what the event means now rather than at the next
 # menu draw or tick.  The look also records the owner's answer to a question. It runs in the
 # background, in a session of its own, holding nothing of the harness's: the harness never
-# waits on it, even while a notice's lock is held for delivery.
+# waits on it, even while a notice's lock is held for delivery.  Every event but a prompt and a
+# Stop is heard where it is looked at (agentkit/looker.py): its moment, its fact and its look in
+# one hand-over to the warm looker, which has its imports done, else in the client, cold.
 #
 # A worker is silent here as it is everywhere: a headless `ak worker` runs the same harness with
 # the same hooks, and a seat's row must never be moved by one.  No $AGENTKIT_SESSION, or
@@ -50,13 +52,13 @@ print(config.heard_at(sys.argv[2]))
 }
 
 seat_state() {
-  local payload=$1 jq=$2 owner=$3 said=$4 ts=$5 seat event kind text dir row next hop write
+  local payload=$1 jq=$2 owner=$3 said=$4 ts=$5 seat event kind text dir row next hop
   seat=${AGENTKIT_SESSION:-}
 
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null) || return 0
   [[ -n $event ]] || return 0
   [[ $event != SessionStart ]] || return 0
-  [[ -n $ts ]] || ts=$(heard "$seat")
+  [[ $event != Stop ]] || ts=$(heard "$seat")
   # the payload field that tells one kind of that event from another: Claude's Notification
   # carries notification_type, a PermissionRequest the tool it wants -- and one harness spells
   # both camelCase, so the twins are read beside them -- and a compaction its trigger
@@ -66,6 +68,14 @@ seat_state() {
   # reader fits them to its own room, and on stdin, for one argument holds 128 KiB
   text=$("$jq" -r '(.tool_input.questions[0].question)? // .message // .title // ""' \
     <<<"$payload" 2>/dev/null) || text=''
+  # Any other event is the looker's to hear (`looker.record`), wherever the harness runs, and
+  # the hook goes on once its fact is down: an event the harness waits on is never written after
+  # the next.  The owner's word on a card answers at the moment the event is heard.
+  if [[ $event != UserPromptSubmit && $event != Stop ]]; then
+    printf '%s\0%s' "$said" "$text" | /usr/bin/env python3 \
+      "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" "$seat" "" "$event" "$kind" >/dev/null 2>&1
+    return 0
+  fi
 
   dir="$HOME/.agentkit/state"
   # The record the seat's row reads is under the name the seat goes by now: `ak orch rename`
@@ -96,45 +106,17 @@ config.record_hook_fact(row, lifecycle.stop_fact(seat, json.load(sys.stdin), flo
 ' "${BASH_SOURCE[0]}" "$row" "$seat" "$ts" <<<"$payload" && look "$seat"
     return 0
   fi
-  # The fact standing is read, judged and replaced by one writer at a time, as
-  # hooks/orchestrator-stop.sh replaces it with its Stop (`config.record_hook_fact`): an event its
-  # harness does not wait on can finish after a newer one, and is never put back over it.
-  # Claude says its prompt is idle a minute after a turn ends whether or not background work is
-  # in flight: a seat waiting on work it started is not idle, and the Stop that said so stands
-  # until that work's notification begins a turn; a question going up still replaces it.
-  write='
+  # The fact standing is replaced by one writer at a time, as hooks/orchestrator-stop.sh
+  # replaces it with its Stop (`config.record_hook_fact`): an event its harness does not wait on
+  # can finish after a newer one, and is never put back over it.
+  /usr/bin/env python3 -c '
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import config
 row, seat, event, kind, at = sys.argv[2:]
-text = sys.stdin.read()[:-1]
-fact = {"session": seat, "event": event, "kind": kind, "text": text, "at": float(at)}
-def passive(standing):
-    return False
-def kept(standing):
-    return ((event, kind, standing.get("event"), standing.get("kind"))
-            == ("Notification", "idle_prompt", "Stop", "background") or passive(standing))
-'
-  # Only events that could be passive ask the classifier, before that writer's turn, which then
-  # judges with it; prompt and Stop do not.  A notice the seat's own manifest gives no state
-  # writes nothing, and nor does one meaning what the fact standing means -- a permission notice
-  # six seconds after the PermissionRequest that wrote its question down.  An event it marks
-  # `interrupt` always writes: the owner stopped a turn a harness with no prompt hook began
-  # under an earlier Stop's at_prompt, which that Stop does not say.  Where nothing can
-  # say -- no record names the harness, or the asking fails -- the event is written all the same.
-  /usr/bin/env python3 -c "$write"'
-if event not in ("UserPromptSubmit", "Stop"):
-    from agentkit import watch
-    harness = watch.seat_model(config.load(), row)[0]
-    state, said = watch.hook_state(harness, fact)[:2]
-    def passive(standing):
-        return (bool(harness) and said not in watch.marked_events(harness, "interrupt")
-                and state in (None, watch.hook_state(harness, standing)[0]))
-config.record_hook_fact(row, fact, kept)
-' "${BASH_SOURCE[0]}" "$row" "$seat" "$event" "$kind" "$ts" <<<"$text" ||
-    /usr/bin/env python3 -c "$write"'
-config.record_hook_fact(row, fact, kept)
+config.record_hook_fact(row, {"session": seat, "event": event, "kind": kind,
+                              "text": sys.stdin.read()[:-1], "at": float(at)})
 ' "${BASH_SOURCE[0]}" "$row" "$seat" "$event" "$kind" "$ts" <<<"$text"
 
   # The owner's word answers an older question, once the background look checks its pane --

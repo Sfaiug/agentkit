@@ -29,7 +29,7 @@ DAY = 86400
 # nobody answers keeps it off the network, as offline.
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
-AUDIT = '[audit]\norchestrator = "beta"\nworkers = ["beta"]\nreviewers = ["alpha"]\n'
+AUDIT = '[audit]\non = true\norchestrator = "beta"\nworkers = ["beta"]\nreviewers = ["alpha"]\n'
 LOSS = "the largest loss is product runs merged in round 1, 60% against 80% the week before"
 # a week with a quality measure worse is a loss whatever speed did. [14 Oct]
 RULE = ("Quality, then speed, then cost: a gain in speed or cost while a quality measure gets "
@@ -66,7 +66,7 @@ class AuditSeat(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        akconfig.write(home, {"alpha": "claude", "beta": "claude"}, audit=True, extra=AUDIT)
+        akconfig.write(home, {"alpha": "claude", "beta": "claude"}, audit=None, extra=AUDIT)
         cls.state = home.path / ".agentkit" / "state"
         seed_history(home, time.time())
         began = time.time()

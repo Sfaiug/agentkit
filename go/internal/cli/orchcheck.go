@@ -132,7 +132,8 @@ func gaps(ctx context.Context, name string, record map[string]any, errOut io.Wri
 	// reader deciding whether a check is owed, which ends a seat it reads as done, waits for one as
 	// strict as Python's
 	current, had, err := notify.Listed(name, false)
-	// before any is read, as reading one may take a claim's lock or keep what its evidence follows
+	// every case Python carries settled before any conversation is read, as reading one may take a
+	// claim's lock or keep what its evidence follows
 	if errors.Is(err, notify.ErrUnread) || err == nil && slices.ContainsFunc(had, func(each notify.Conversation) bool {
 		return !harness.Reads(each.Harness, false)
 	}) {
@@ -142,6 +143,8 @@ func gaps(ctx context.Context, name string, record map[string]any, errOut io.Wri
 	}
 	if len(had) == 0 {
 		return nil, "", fmt.Errorf("no seat named %s whose conversation ak can read", name)
+	} else if err := checkCarried(name); err != nil {
+		return nil, "", err
 	}
 	var said [][]harness.Turn
 	var owner []plan.Said
@@ -154,22 +157,18 @@ func gaps(ctx context.Context, name string, record map[string]any, errOut io.Wri
 		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
 	}
 	// read with the seat's other records, as Python's check reads them, so one that cannot be read
-	// stops the check whatever its owner said; one Go reads otherwise is Python's where it goes on
+	// stops the check whatever its owner said
 	pictures, err := keptPictures(name)
-	switch {
-	case err != nil && !errors.Is(err, errLeft):
+	if err != nil {
 		return nil, "", err
-	case len(owner) == 0:
+	} else if len(owner) == 0 {
 		return nil, "", nil // asked nothing, so nothing is missing
-	case err != nil:
-		return nil, "", err
 	}
 	lines, err := plan.Lines(name)
 	if err != nil {
 		return nil, "", err
 	}
-	// every record read, and every case Python carries settled, before the pick's meters or the
-	// turn's folders are written
+	// every record read before the pick's meters or the turn's folders are written
 	files, err := checkFiles(name, owner, said, lines, pictures)
 	if err != nil {
 		return nil, "", err

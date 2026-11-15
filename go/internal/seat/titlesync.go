@@ -82,7 +82,7 @@ func SyncTitle(name string, log func(string)) (bool, error) {
 	}
 	// each Enter only while this try is still the seat's and its line alone is in the composer,
 	// as sync_title's veto holds back its retry
-	if !typeAtPane(name, pane, line, nil, typed, log, stale, true) {
+	if !typeAtPane(name, pane, line, nil, typed, nil, log, stale, true) {
 		return true, nil
 	}
 	return true, titleHeld(name, own, func(record *run.Object, title any) []field {

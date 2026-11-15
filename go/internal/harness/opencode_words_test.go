@@ -59,7 +59,7 @@ func TestOpenCodeReadsAReportedSessionWhereItCanReadItsDatabase(t *testing.T) {
 	if err := os.WriteFile(database, []byte("pages"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	check(false) // a database SQLite cannot read is Python's to read
+	check(true) // a file that is not SQLite holds no turn, as Python's harness.rows reads it
 	record.Set("conversation", "legacy")
 	record.Set("opencode_launch", "../"+token)
 	check(true) // not a receipt token, as Python's path_for decides

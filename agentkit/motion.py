@@ -126,8 +126,8 @@ def shimmering(word, began, kind=None, bright=False):
     """An effort's `word` that a step at `began` took to its model's highest: one light through
     it, a letter at a time left to right, in SHIMMER seconds, and then as the draw wrote it; and
     when it is still.  The word is written whole from its first cell, so a letter two cells wide
-    keeps both.  `kind` is how the draw styled it -- `reverse` where the highlight's cell is,
-    `dim` on a spent model's row -- and `bright` is the highlighted row."""
+    keeps both.  `kind` is how the draw styled it -- `dim` on a spent model's row -- and `bright`
+    is the highlighted row."""
     light = terminal.faded("working", -BRIGHTER)
 
     def at(now):
@@ -135,8 +135,6 @@ def shimmering(word, began, kind=None, bright=False):
         dark, shone, rest = word[:lit], terminal.styled(word[lit:lit + 1], light), word[lit + 1:]
         if kind:
             dark, rest = terminal.styled(dark, kind), terminal.styled(rest, kind)
-        if kind == "reverse":
-            shone = terminal.styled(shone, kind)
         text = dark + shone + rest
         return terminal.bright(text) if bright else text
     return at, began + SHIMMER
@@ -154,9 +152,8 @@ def toggled(mark, width, kind, bright, column):
         shown = terminal.toggle(mark, width, kind)
         if before == mark:
             clock.start([(row, column - 1)], *nudging(shown, since, bright))
-        elif before in HALF and mark in HALF:
-            # its open one is dim, or reversed where the keys are (terminal.toggle)
-            half = terminal.toggle(HALF[mark], width, kind if kind == "reverse" else "dim")
+        elif before in HALF and mark in HALF:       # its open one is dim
+            half = terminal.toggle(HALF[mark], width, "dim")
             clock.start([(row, column)], *halving(shown, half, since, TOGGLE, bright))
     return start
 

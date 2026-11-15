@@ -25,7 +25,7 @@ func TestACardsAnswerHeardOutsideItsPaneAnswersNothing(t *testing.T) {
 	kept, _ := os.ReadFile(filepath.Join(state, "seat-acme.json"))
 	answer := []byte(`{"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion", ` +
 		`"tool_response": {"answers": {"Which port?": "8080"}}}`)
-	if code := seatState(answer, new(bytes.Buffer)); code != 0 {
+	if code := seatState(answer, os.Getppid(), new(bytes.Buffer)); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	if _, err := os.Stat(filepath.Join(state, "hook-acme.json")); err != nil {

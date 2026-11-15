@@ -68,11 +68,11 @@ class APassCopiesLoginsAndConversations(unittest.TestCase):
     def test_a_pass_that_cannot_read_a_conversation_fails_and_leaves_aks_folder(self):
         home, here = self.home, self.here
         (home.path / CONVERSATION).chmod(0)
-        before = {path: data for path, data in here.tree().items() if path.startswith(".agentkit")}
+        before = {path: data for path, data in here.copy().items() if path.startswith(".agentkit")}
         done = here.ak("standby", home.name)
         self.assertNotEqual(done.code, 0)
         self.assertIn(f"the pass from {home.name} failed", done.err)
-        self.assertEqual({path: data for path, data in here.tree().items()
+        self.assertEqual({path: data for path, data in here.copy().items()
                           if path.startswith(".agentkit")}, before)
 
     def test_a_link_here_at_a_harnesss_folder_refuses_the_pass(self):

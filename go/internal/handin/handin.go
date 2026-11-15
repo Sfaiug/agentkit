@@ -316,6 +316,9 @@ func (t *turn) checked(args []string) (*run.Object, error) {
 	if args[0] == "follow-up" && command != "" && !planCheck(command, root) {
 		return nil, errors.New("write a follow-up's --run as one shell command, without backticks, line breaks or this checkout's path: it becomes a plan check")
 	}
+	if guard := exitGuard(command); guard != "" {
+		return nil, errors.New("`" + guard + "` makes the command pass whatever the code does, so its replay could call a defect fixed, or win a dispute, without testing anything; write a command whose exit is the check's")
+	}
 	evidence := run.NewObject()
 	if hasQuote {
 		evidence.Set("quote", quote)

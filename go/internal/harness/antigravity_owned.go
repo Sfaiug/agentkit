@@ -3,12 +3,15 @@ package harness
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
@@ -17,6 +20,14 @@ import (
 
 // antigravityOwned is the conversation the seat owns (antigravity.py `conversation`).
 func antigravityOwned(record map[string]any) string {
+	conversation, _ := antigravityFound(record)
+	return conversation
+}
+
+// antigravityFound is antigravityOwned, and the error where the lock its launch's conversation is
+// learned under cannot be taken, as Python's `conversation` raises reading strictly
+// (harness.unread).
+func antigravityFound(record map[string]any) (string, error) {
 	return antigravityLearn(antigravityEvidence(record), true)
 }
 
@@ -41,20 +52,23 @@ var learned = struct {
 // own: none for none, nor a guess between two.  Learning, what it learns now it keeps, for Claim to
 // write down beside the launch's token, so it outlives the process and a stale launch's is never a
 // later one's; nothing is written before the command ends, which may yet hand the seat over or
-// run dry.  Else it only asks, keeping nothing and taking no lock (antigravityNamed).  "" for none.
-func antigravityLearn(record *run.Object, learn bool) string {
+// run dry.  Else it only asks, keeping nothing and taking no lock (antigravityNamed).  "" for none,
+// and the error where the lock cannot be taken.
+func antigravityLearn(record *run.Object, learn bool) (string, error) {
 	mine := antigravityMine(record)
 	token, launched := record.Get("antigravity_launch").(string)
 	if mine != "" || !launched {
-		return mine
+		return mine, nil
 	}
 	// One learning at a time, from the records as they stand: a caller's copy may predate this
 	// launch's claim, and another seat's may land while the fds are read.  An ask answers a
 	// moment early, as one reading just before that claim landed would.
 	if learn {
-		claiming, err := lock.Wait(context.Background(), antigravityClaimLock())
-		if err != nil {
-			return ""
+		claiming, err := antigravityClaiming()
+		if errors.Is(err, fs.ErrNotExist) { // no state folder: Python's unread reads no record either
+			return "", nil
+		} else if err != nil {
+			return "", err
 		}
 		defer claiming.Close()
 	}
@@ -69,10 +83,10 @@ func antigravityLearn(record *run.Object, learn bool) string {
 	}
 	name, seat, others := launchSeats("antigravity_launch", token)
 	if name == "" {
-		return ""
+		return "", nil
 	}
 	if mine := owns(seat); mine != "" {
-		return mine
+		return mine, nil
 	}
 	held := antigravityHeld(token)
 	for _, other := range others {
@@ -82,9 +96,9 @@ func antigravityLearn(record *run.Object, learn bool) string {
 		if learn {
 			learned.by[token] = open[0]
 		}
-		return open[0]
+		return open[0], nil
 	}
-	return ""
+	return "", nil
 }
 
 // Claim writes down, as a command ends, each conversation it learned a seat's launch holds open
@@ -98,7 +112,7 @@ func Claim(carried bool) {
 	if !carried || len(claims) == 0 {
 		return
 	}
-	claiming, err := lock.Wait(context.Background(), antigravityClaimLock())
+	claiming, err := antigravityClaiming()
 	if err != nil {
 		return
 	}
@@ -108,15 +122,34 @@ func Claim(carried bool) {
 	}
 }
 
-// antigravityClaimLock is the lock Python's claim takes too, one at a time across seats.
-func antigravityClaimLock() string {
-	return filepath.Join(config.Home(), "state", "antigravity-claim.lock")
+// antigravityClaiming takes the lock Python's claim takes too, one at a time across seats, as
+// Python's `learning` opens it: to append, so a folder in its place is an error, whose lock
+// lock.Wait would take.
+func antigravityClaiming() (*os.File, error) {
+	path := filepath.Join(config.Home(), "state", "antigravity-claim.lock")
+	claiming, err := lock.Wait(context.Background(), path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := claiming.Stat()
+	if err == nil && info.IsDir() {
+		err = &fs.PathError{Op: "open", Path: path, Err: syscall.EISDIR}
+	}
+	if err != nil {
+		claiming.Close()
+		return nil, err
+	}
+	return claiming, nil
 }
 
-// antigravityMine is what that record alone says its seat owns: a launcher's id, or the one its
-// launch saw (antigravity.py `owned`).
+// antigravityHook is the id_source of a conversation the seat's own agy took a prompt in, which
+// Python's hook claims (antigravity.py SOURCE, `follow`).
+const antigravityHook = "antigravity-hook"
+
+// antigravityMine is what that record alone says its seat owns: a launcher's id, one its agy took
+// a prompt in, or the one its launch saw (antigravity.py `owned`).
 func antigravityMine(record *run.Object) string {
-	if record.Str("id_source") == "launcher" {
+	if source := record.Str("id_source"); source == "launcher" || source == antigravityHook {
 		return record.Str("conversation")
 	}
 	if seen := record.Dict("antigravity_open"); seen != nil && run.Equal(seen.Get("launch"), record.Get("antigravity_launch")) {

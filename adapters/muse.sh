@@ -136,7 +136,7 @@ wire() {
   adapter=$(python3 -c 'import shlex, sys; print(shlex.quote(sys.argv[1]))' \
       "$REPO/adapters/muse.sh") && ours=$(groups "exec bash $adapter" "$1") && mkdir -p -- "$dir" &&
     python3 - "$dir/settings.json" "$ours" <<'PY'
-import contextlib, fcntl, json, os, shlex, shutil, signal, sys, tempfile
+import contextlib, fcntl, json, math, os, shlex, shutil, signal, sys, tempfile
 
 path, ours = sys.argv[1], json.loads(sys.argv[2])
 
@@ -162,9 +162,12 @@ def theirs(groups):
               for group in groups]
     return [group for group in groups if group["hooks"]]
 
-def constant(word):
-    """Python's json reads NaN and Infinity, which JSON, and so Muse, does not."""
-    raise ValueError(f"{word} is no JSON number")
+def finite(text):
+    """A float as JSON, and so Muse, holds one: Python's json reads NaN, Infinity, and 1e400 as
+    Infinity, each of which json.dumps writes back as no JSON."""
+    if not math.isfinite(value := float(text)):
+        raise ValueError(f"{text} is no finite float")
+    return value
 
 signal.alarm(30)
 locked = os.path.join(os.path.dirname(path), ".settings.json.lock")
@@ -179,9 +182,9 @@ try:
         if existed:
             try:
                 with open(real, encoding="utf-8") as fh:
-                    had = json.load(fh, parse_constant=constant)
+                    had = json.load(fh, parse_constant=finite, parse_float=finite)
             except ValueError as exc:
-                sys.exit(f"muse: {path} is not JSON ({exc}); left as it is")
+                sys.exit(f"muse: {path}: {exc}; left as it is")
         if not isinstance(had, dict) or not shaped(had.get("hooks")):
             sys.exit(f"muse: {path} is not settings of Muse's shape; left as it is")
         hooks = {event: kept for event, groups in (had.get("hooks") or {}).items()

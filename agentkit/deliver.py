@@ -610,8 +610,9 @@ def is_delivery(lp, current, upstream):
             and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
 
 
-def merged_anyway(lp, url, upstream):
-    """Did GitHub merge this delivery whatever `gh pr merge` answered?  Records it when it did.
+def merged_anyway(lp, url, upstream, rc, out):
+    """Did GitHub merge this delivery whatever `gh pr merge` answered (`rc`, `out`)?  Records it
+    when it did, logging that answer, so whether GitHub, gh or ak failed the call shows.
 
     A 5xx or a stopped call may have merged it, and `--delete-branch` exits non-zero on a
     merge that went through when the repository deleted the head branch first (`Reference
@@ -625,8 +626,11 @@ def merged_anyway(lp, url, upstream):
         raise
     except config.Error:
         return False
-    return (current.get("merged") and is_delivery(lp, current, upstream)
-            and merged(lp, url, lp.state["merge_method"]))
+    if not (current.get("merged") and is_delivery(lp, current, upstream)):
+        return False
+    answered = "stopped" if rc is None else f"exited {rc}"     # a stop's words are its output
+    lp.log(f"WARN gh pr merge {answered}, yet GitHub merged the PR: {out[-400:]}")
+    return merged(lp, url, lp.state["merge_method"])
 
 
 def do_merge(lp, url, upstream):
@@ -726,7 +730,7 @@ def do_merge(lp, url, upstream):
             return True
         if lost:
             # the last attempt's 5xx may have merged too, and no re-check followed it
-            if merged_anyway(lp, url, upstream):
+            if merged_anyway(lp, url, upstream, rc, out):
                 return True
             return roundloop.park_waiting(
                 lp, f"gh pr merge --{method} failed after {GITHUB_RETRIES} retries: {cause}; "
@@ -742,7 +746,7 @@ def do_merge(lp, url, upstream):
                 break
         if gitcall.stopped(rc, out) or gitcall.stopped(vrc, why):
             # a merge that stopped may still have gone through server-side
-            if merged_anyway(lp, url, upstream):
+            if merged_anyway(lp, url, upstream, rc, out):
                 return True
             raise gitcall.Stopped(out if gitcall.stopped(rc, out) else why)
         if attempt == 2 or why not in ("BEHIND", "DIRTY", "CLEAN"):
@@ -764,7 +768,7 @@ def do_merge(lp, url, upstream):
             return False
         if not refresh_pr_body(lp):
             return False
-    if merged_anyway(lp, url, upstream):
+    if merged_anyway(lp, url, upstream, rc, out):
         return True
     return roundloop.note(lp, f"gh pr merge --{method} failed"
                     f"{f' with the PR {why}' if why else ''}; the PR is open at {url}: {out[-400:]}",

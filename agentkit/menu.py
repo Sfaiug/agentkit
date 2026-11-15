@@ -2970,9 +2970,10 @@ def show_notices(messages):
         pause(*said)
 
 
-# The rows under the models, each running its own step.
-CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Weekly audit", "Done check", "Machines",
-               "Limits")
+# The rows under the models, each running its own step.  Owner, 10 Nov 2026: "Remove the weekly
+# audit feature for now. Dont delete it, but remove it."  `Weekly audit` (AUDIT), its value
+# audit_value's, stood between `Discord` and `Done check`.
+CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Done check", "Machines", "Limits")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
 DONE_CHECK = ("row", "Done check")   # on or off, and the model that makes it (done_check.setting)
 MACHINES = ("row", "Machines")
@@ -3114,7 +3115,7 @@ def take_choice(cfg, name, selected, providers, role, model, effort, around):
     that restarts it (seat_effort).  With no `name`, `selected` being [defaults], the role is
     taken there, the orchestrator at `effort` as the entry's `effort`, and the entry and
     [defaults] are saved in one write (defaults_saved), no open seat changing.  What to say
-    under the rows, or ""."""
+    under the rows, "" once taken; None where the restart was not picked."""
     if name is not None and role == "orchestrate":
         return seat_effort(cfg, name, selected, model, effort, around, providers=providers)
     key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
@@ -3242,16 +3243,57 @@ def models_unit():
 
 
 def next_unit(unit):
-    """The unit `u` turns to after `unit`, kept for the screen to open in (models_unit): moved in
-    whole from a file of its own, so screens turning it at once each leave a unit."""
+    """The unit `u` turns to after `unit`, kept for the screen to open in (models_unit)."""
     units = list(UNITS)
     unit = units[(units.index(unit) + 1) % len(units)]
-    config.ensure_dirs()
-    with tempfile.NamedTemporaryFile("w", dir=config.STATE, prefix=".models-unit-",
-                                     delete=False) as part:
-        part.write(unit)
-    os.replace(part.name, unit_path())
+    _moved_in(unit_path(), unit)
     return unit
+
+
+def _moved_in(path, text):
+    """`text` as `path`, a file of the models screen's in ak's state: moved in whole from a file
+    of its own, so screens writing it at once each leave a whole one."""
+    config.ensure_dirs()
+    with tempfile.NamedTemporaryFile("w", dir=config.STATE, prefix=f".{path.name}-",
+                                     delete=False) as part:
+        part.write(text)
+    os.replace(part.name, path)
+
+
+# the field of a seat's record each role's kept price is (keep_price)
+PRICE_FIELDS = {role: f"{word}_price" for role, word in matrix.CONFIG_ROLES.items()}
+
+
+def price_path(role):
+    """Where new seats' kept price for `role` is (keep_price): in ak's state beside the unit's
+    (unit_path), never the config, so no writer of [defaults] need know of it."""
+    return config.STATE / f"models-{matrix.CONFIG_ROLES[role]}-price"
+
+
+def keep_price(cfg, session, selected, answer, role, before):
+    """Once a take (take_choice) has moved `role` of seat `session`, else of new seats, off the
+    row `before` as `selected` now reads (matrix.uses), the price it stopped at, the owner's
+    design of 5 Nov 2026: the choice's `limit` (matrix.answer's `limits`), the `cost_unit` and
+    the `model` and `effort` the role then uses, so a better model that gets that cheap later
+    can take over; a row no choice removes it.  Written after the take, off the reading it is
+    judged by, so no other write need know of it: in the seat's record as it stands, under its
+    lock, else in price_path.  What to say under the rows, or ""."""
+    model, effort, row = matrix.uses(cfg, selected, answer)[role]
+    if row is before:
+        return ""               # a take onto the model and effort it ran: no row changed
+    found = answer[role]
+    entry = {"limit": found["limits"][id(row)], "cost_unit": found["cost_unit"], "model": model,
+             "effort": effort} if id(row) in found["limits"] else None
+    try:
+        if session is not None:
+            config.update_session(config.resolve_session(session), **{PRICE_FIELDS[role]: entry})
+        elif entry is None:
+            price_path(role).unlink(missing_ok=True)
+        else:
+            _moved_in(price_path(role), json.dumps(entry))
+    except (config.Error, OSError) as exc:
+        return f"{'session' if session else 'state'}: {exc}"
+    return ""
 
 
 def figures(value):
@@ -3361,7 +3403,7 @@ EIGHTHS = " ▁▂▃▄▅▆▇"     # a bar's top, the eighths of a cell it f
 def columned(text, room, after=" -."):
     """`text` on lines of `room` cells, never cut (docs/cli-design.md): wrapped at its spaces, a
     word wider than a line broken after each hyphen in it, a part still wider after each dot
-    (`GPT-` over `6.1`, a version kept whole where it can be), and a part with neither left
+    (`Acme-` over `7.1`, a version kept whole where it can be), and a part with neither left
     whole, wider than `room`, as models_bars widens its column to it; `text` plain, as a board's
     name may hold control characters (terminal.plain)."""
     text = terminal.plain(text)
@@ -3552,11 +3594,12 @@ def models_screen(cfg, session, selected, providers):
     the page leaves room for, over models_read until Esc, the boards read as it opens
     (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
     bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or better
-    choice for its role at once (next_choice, take_choice), the owner's design of 5 Nov 2026, the
-    last row a role was shown using that is no choice staying one of its bars and steps; ⏎ or a
-    click opens the why (models_why) of the row the role uses, else of its first choice.  `p`
-    lists companies (company_list), and `u` counts every cost in the next unit (next_unit), the
-    screen opening in the last one (models_unit)."""
+    choice for its role at once (next_choice, take_choice), keeping the price it stopped at
+    (keep_price), the owner's design of 5 Nov 2026, the last row a role was shown using that is
+    no choice staying one of its bars and steps; ⏎ or a click opens the why (models_why) of the
+    row the role uses, else of its first choice.  `p` lists companies (company_list), and `u`
+    counts every cost in the next unit (next_unit), the screen opening in the last one
+    (models_unit)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -3618,6 +3661,8 @@ def models_screen(cfg, session, selected, providers):
                                 own[here[1]])
             if found:
                 note = take_choice(cfg, session, selected, providers, here[1], *found, around)
+                if note == "":    # taken: `selected` may also hold another window's write since
+                    note = keep_price(cfg, session, selected, answer, here[1], used[here[1]][2])
         elif act == "p":
             note, answer = company_list(cfg, title), None
         elif act == "u":
@@ -3663,8 +3708,8 @@ def companies_body(makers, yours, off, at=None, column=0):
     """The company list's lines and {line: (row, cells)}: each of `yours` with a listed model a
     line, its name, then each of those models (`makers`), `■` on in the accent, or `□` and dim
     where `off` holds it; where the width runs out they go on under the column where they
-    began.  The keys' cell, `column` of the row `at` (its name 0), is reversed
-    (terminal.toggle).  Last, `+ add a company`."""
+    began.  The keys' cell, `column` of the row `at` (its name 0), is lit (terminal.toggle).
+    Last, `+ add a company`."""
     room, (on, out) = terminal.layout_width(), "■□" if terminal.utf8() else "#-"
     shown = [maker for maker in yours if maker in makers]
     label = max((terminal.cells(maker) for maker in shown), default=0)
@@ -3681,8 +3726,7 @@ def companies_body(makers, yours, off, at=None, column=0):
             if number > 1 and first + width - 2 > room:      # its space after may go
                 parts.append([" " * (start - 1), []])
                 first = start
-            parts[-1][0] += terminal.toggle(text, width, "reverse" if row == at
-                                            and number == column else kind)
+            parts[-1][0] += terminal.toggle(text, width, kind, row == at and number == column)
             parts[-1][0] += " " * (0 if number else label - terminal.cells(text))
             parts[-1][1].append((first, first + width - 1, number))
         for number, (line, cells) in enumerate(parts):
@@ -3802,7 +3846,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     A model `providers` read as spent is dim.  A model whose provider runs the subscription
     `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
     clock washes in and out as `lit` comes and goes (motion.washing).  Then `Models`,
-    `Subscriptions`, `Discord`, `Weekly audit`, `Done check`, `Machines` and `Limits` with
+    `Subscriptions`, `Discord`, `Done check`, `Machines` and `Limits` with
     their values, unless `rows` is empty (a new session's screen).  A row is `("model", name)`
     or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
@@ -3886,15 +3930,16 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
                     line, first = line + " " * width[number], first + width[number]
                     continue
                 text = texts[number] if number < 3 else efforts[name, number]
-                kind = ("reverse" if at == ("model", name) and number == column else
-                        "dim" if note or text in (marks[1], marks[3])
+                keyed = at == ("model", name) and number == column
+                kind = ("dim" if note or text in (marks[1], marks[3])
                         else "accent" if number < 3 else None)
-                if number >= 3:   # the keys' effort is its word reversed, its cells before it
+                if number >= 3:   # an effort is its cells and then its word, the keys' lit whole
                     lead = leads[name, number]
                     lead = terminal.styled(terminal.plain(lead, True), kind) if (
                         kind == "dim" and lead) else lead
                     text = lead + (terminal.styled(text, kind) if kind else text)
-                line += (terminal.toggle(text, width[number], kind) if number < 3 else
+                    text = terminal.selected(text, 1, terminal.cells(text)) if keyed else text
+                line += (terminal.toggle(text, width[number], kind, keyed) if number < 3 else
                          text + " " * (width[number] - terminal.cells(text)))
                 if number < 3 and moves is not None:
                     moves.append((len(lines) + len(parts), ("mark", name, number), text,
@@ -3919,8 +3964,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     if not rows:
         return lines, places
     lines.append("")
-    values = ("", "", discord_value(), audit_value(cfg), done_check_value(cfg), machines_value(),
-              limits_value(cfg))
+    values = ("", "", discord_value(), done_check_value(cfg), machines_value(), limits_value(cfg))
     # the values line up past the widest row that has one
     wide = max(terminal.cells(row) for row in CONFIG_ROWS[2:])
     for row, value in zip(CONFIG_ROWS, values):
@@ -3990,7 +4034,8 @@ def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, sea
     instead, asking first where that restarts it (seat_effort).  A seat not made yet, named
     None, holds its efforts in its record alone (the born row's, born_models).
     The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
-    never stands between the key and its frame.  What to say under the matrix, or ""."""
+    never stands between the key and its frame.  What to say under the matrix, or "", or None
+    for a restart not picked (seat_effort)."""
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
         levels = config.efforts(entry.get("harness"), entry.get("model"),
@@ -4021,7 +4066,7 @@ def seat_effort(cfg, name, selected, model, effort, around, providers=None):
     (terminal.confirm), the owner's 24 Oct words about the orchestrator: "it should ask me to
     confirm. As this restarts the session."  The move alone writes the record
     (orch.switch_orchestrator), and `selected` then holds it as it is.  What to say under the
-    rows, or ""."""
+    rows, or ""; None where Restart was not picked."""
     note = orch.switch_orchestrator(cfg, name, model, providers=providers, effort=effort,
                                     asked=lambda kept: (
         terminal.confirm((RESTART_ASK if effort else MOVE_ASK).format(
@@ -4030,7 +4075,7 @@ def seat_effort(cfg, name, selected, model, effort, around, providers=None):
         selected.update(config.load_session(cfg, name, required=False) or {})
     except (config.Error, OSError) as exc:
         return note or f"session: {exc}"
-    return note or ""
+    return note
 
 
 def _set_effort(entry, key, effort, hold=()):
@@ -4583,28 +4628,12 @@ def config_add(cfg, keyboard, through):
                 note = f"{', '.join(taken)} runs {model['id']} at {effort} already"
                 continue
             name, before = config.short_name(cfg, model["label"]), copy.deepcopy(cfg)
-            _take_in(cfg, name, config.model_entry(harness, model["id"], model["label"],
-                                                   effort=effort, provider=provider),
-                     next(row for row in listed if row[0] == provider))
+            cfg["models"][name] = entry = config.model_entry(
+                harness, model["id"], model["label"], effort=effort, provider=provider)
+            config.take_in(cfg, entry, next(row for row in listed if row[0] == provider))
             note = _saved(cfg, cfg, before)
             if not note:
                 return name
-
-
-def _take_in(cfg, name, entry, row):
-    """`entry` in `cfg` as `name`, its provider the one a harness lists as `row` (id, name,
-    mode), with that provider's table where the config has none: the shipped one where the
-    shipped default has it, else that mode under that name.  The model takes that mode as its
-    own where its provider's table says another."""
-    cfg["models"][name] = entry
-    if row[0] not in cfg["providers"]:
-        tables = config.shipped().get("providers") or {}
-        cfg["providers"][row[0]] = (copy.deepcopy(tables[row[0]]) if row[0] in tables
-                                    else {"mode": row[2], "name": row[1]})
-    # a table that came with another harness's login: Codex's plan pays for no
-    # call OpenCode makes on an OpenAI key
-    if row[2] != cfg["providers"][row[0]].get("mode", "subscription"):
-        entry["mode"] = row[2]
 
 
 def _by_label(names, label):
@@ -5028,23 +5057,28 @@ def config_subscriptions(cfg, keyboard):
 
 def opened_line(told, kind, texts, on, room):
     """The line a pointed row of `Subscriptions` opens: `told` in `kind`, then `texts` three
-    spaces apart, the one that is `on` reversed (bracketed with no colour), wrapped in `room`
-    cells, never cut; each line with its texts' places, (first, last, index), from 1."""
+    spaces apart, the one that is `on` lit with a cell before and after it (terminal.selected,
+    bracketed with no colour), wrapped in `room` cells, never cut; each line with its texts'
+    places, (first, last, index), from 1."""
     pieces = [(terminal.styled(part, kind), None) for part in terminal.wrap(told, room) if part]
     for index, text in enumerate(texts):
-        pieces.append((text if text != on else terminal.styled(text, "reverse")
-                       if terminal.colour_depth() else f"[{text}]", index))
+        pieces.append((f"[{text}]" if text == on and not terminal.colour_depth() else text,
+                       index))
     lines, used = [("    ", [])], 0
     for shown, index in pieces:
         wide = terminal.cells(terminal.plain(shown))
-        if used and used + 3 + wide > room:
+        if used and used + 3 + wide + (index is not None) > room:   # an act's cell after it
             lines, used = [*lines, ("    ", [])], 0
         gap = 3 if used else 0
         if index is not None:
             lines[-1][1].append((5 + used + gap, 4 + used + gap + wide, index))
         lines[-1] = (lines[-1][0] + " " * gap + shown, lines[-1][1])
         used += gap + wide
-    return lines
+    # an act alone filling its line has no cell after it: lit past the line's end, it would
+    # wrap and push every row under it off the place recorded for it
+    return [(next((terminal.selected(line, first - 1, min(last + 1, 4 + room))
+                   for first, last, index in cells if texts[index] == on), line), cells)
+            for line, cells in lines]
 
 
 def page_body(rows, at=None, moves=None):
@@ -5258,7 +5292,7 @@ def models_page(cfg, keyboard):
     provider's table as the page opened; any other named from its label (config.short_name), at
     its harness's first model's effort, else `high`, as near as it goes (_nearest), under that
     model's provider, else one shipped to run there, or the one it is listed under, taken in
-    as `add a subscription` takes it (_take_in).  Enter on a provider logs in to it on
+    as `add a subscription` takes it (config.take_in).  Enter on a provider logs in to it on
     `keyboard`'s terminal, and its models are listed.  Saved at once."""
     full, empty = ("■", "□") if terminal.utf8() else ("#", "-")
     tables = copy.deepcopy(cfg["providers"])
@@ -5296,7 +5330,7 @@ def models_page(cfg, keyboard):
             effort=_nearest(first.get("effort", "high"), model["efforts"]),
             provider=row[0] if row else first.get("provider", runs[harness])))]
         if row and key not in gone:
-            _take_in(cfg, *entries[0], row)
+            config.take_in(cfg, entries[0][1], row)
             tables.setdefault(row[0], copy.deepcopy(cfg["providers"][row[0]]))
         for name, entry in entries:
             cfg["models"][name] = entry
@@ -6175,9 +6209,8 @@ def features_body(rows, at=None, column=0, moves=None):
         line = "  " + shown + " " * (label - terminal.cells(shown))
         cells, first = [], 2 + label + 1
         for number, (text, width) in enumerate(zip(texts, widths)):
-            kind = ("reverse" if at == row["id"] and number == column else
-                    "dim" if text in (off, fixed) else ("accent", "ok")[number])
-            line += "  " + terminal.toggle(text, width, kind)
+            kind = "dim" if text in (off, fixed) else ("accent", "ok")[number]
+            line += "  " + terminal.toggle(text, width, kind, at == row["id"] and number == column)
             if moves is not None:
                 moves.append((len(lines), ("mark", row["id"], number), text, motion.toggled(
                     text, width, kind, at == row["id"], first + 2)))

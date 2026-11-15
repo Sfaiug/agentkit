@@ -18,7 +18,9 @@ machine.  akbin's `boxable()` says whether bubblewrap can build the machines her
 
 A key holds one machine: `vm.client_of(mini)` makes it the other's client, as install.sh records
 it; `mini.silence()` turns it off and `mini.hang()` has it take ssh and answer nothing, till
-`mini.answer()`.
+`mini.answer()`.  Each machine's crontab is installer.py's, its table `root / "crontab"` on the
+test's side, and `vm.copy()` is its `tree` but ak's tmp folder, each machine's own: what a
+standby's pass copies, or leaves as it was.
 """
 
 import contextlib
@@ -35,6 +37,7 @@ import threading
 from pathlib import Path
 
 from .akbin import _FILES, AK, REPO, Home, _binds, _end, _strays, _wait_gone
+from .installer import CRONTAB
 
 # ssh [-o OPTION | -FLAG]... NAME [COMMAND]...: NAME and COMMAND, a line however long, to the
 # sshd on $1, with this ssh's own input and outputs, and its answer, the exit of COMMAND or 255,
@@ -69,6 +72,7 @@ class Machine(Home):
         self.env["AK_CGROUP_ROOT"] = str(self.at / "cgroups")
         self.fake("ssh", f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -I -c "
                          f'{shlex.quote(SSH)} {shlex.quote(str(self.sshd))} "$@"\n')
+        self.fake("crontab", CRONTAB.format(table=shlex.quote(str(self.at / "crontab"))))
 
     def on(self, env=None, cwd=None):
         """bwrap's words starting a command on this machine, with `env` over its environment, in
@@ -95,6 +99,11 @@ class Machine(Home):
         `install.sh --server` there leave them: this one's record names it, and it keeps none."""
         (server.path / ".agentkit" / "state" / "server").unlink(missing_ok=True)
         self.write(".agentkit/state/server", f"{server.name}\n")
+
+    def copy(self):
+        """`tree` but ak's tmp folder."""
+        return {path: data for path, data in self.tree().items()
+                if not Path(path).is_relative_to(".agentkit/tmp")}
 
     def silence(self):
         """Turn this machine off till it `answer`s: nothing starts on it, ssh to it fails, 255,

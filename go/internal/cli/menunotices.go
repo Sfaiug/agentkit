@@ -54,15 +54,18 @@ func noticeLines(messages []string, width int, indent string) []string {
 
 // showMenuNotices is Python's show_notices on the screen the menu holds: the messages in the note
 // frame (pause), wrapped two spaces in, whose pages ↑ and ↓ turn so none of a note taller than the
-// screen is lost, until Enter or Esc goes on to the menu; false where the keyboard is gone.
+// screen is lost, until Enter, Esc or a click on `esc back` goes on to the menu; false where the
+// keyboard is gone.
 func showMenuNotices(messages []string, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	top := 0
+	var clicks terminal.Clicks
 	for {
 		s := keyboard.Screen()
 		body, clock := noticeLines(messages, s.LayoutWidth(), "  "), time.Now().Format("15:04")
 		page := max(1, s.Height()-len(menu.Panel(s, "note", clock, nil, "esc back"))-1)
 		top = max(0, min(top, len(body)-page))
-		painter.Write(menu.Panel(s, "note", clock, body[top:min(top+page, len(body))], "esc back"), s)
+		lines := menu.Panel(s, "note", clock, body[top:min(top+page, len(body))], "esc back")
+		painter.Write(lines, s)
 		switch key := keyboard.ReadKey(); {
 		case key.Name == "enter" || key.Name == "esc":
 			return true
@@ -77,6 +80,10 @@ func showMenuNotices(messages []string, keyboard *terminal.Keyboard, painter *te
 			top += page
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			top += page * key.Mouse.Notches
+		case key.Name == "pointer" && clicks.Click(key.Mouse) && key.Mouse.Row == len(lines):
+			if _, on := terminal.Under(lines[len(lines)-1], key.Mouse.Column); on {
+				return true // on `esc back`, the key line's one item and the panel's last line
+			}
 		}
 	}
 }

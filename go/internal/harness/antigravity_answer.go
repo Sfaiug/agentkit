@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io/fs"
+	"iter"
 	"os"
 	"slices"
 	"strings"
@@ -30,9 +31,9 @@ type agyAnswered struct {
 // antigravityStored is the reconciled plugin of a record owning that conversation: its last answer
 // read from its store once, for the whole listing, a store landing or growing while it waits to
 // publish the word the next listing's; no answer where it has no store, nor for a record owning
-// another conversation by the time it is asked.  False where the store is there and Go cannot read
-// it: Python's look reads that as no answer and leaves the seat on its old model, so Go hands the
-// seat over before anything is written.
+// another conversation by the time it is asked, nor where the store is not SQLite.  False where it
+// is there and Go cannot read it otherwise: Python's look reads that as no answer and leaves the
+// seat on its old model, so Go hands the seat over before anything is written.
 func antigravityStored(own plugin, conversation, path string) (plugin, bool) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return own, true
@@ -57,7 +58,9 @@ func antigravityAnswered(path string) (*agyAnswered, bool) {
 	defer conn.Close()
 	stmt, _, err := conn.Prepare("SELECT (SELECT metadata FROM steps WHERE step_type = ? ORDER BY idx DESC LIMIT 1)," +
 		" (SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1)")
-	if errors.Is(err, sqlite3.ERROR) { // tables not the query's, as agy 1.2.13 keeps no generations: none in any SQLite
+	// tables not the query's, as agy 1.2.13 keeps no generations, or a file that is not SQLite:
+	// Python's sqlite3.Error reads none
+	if errors.Is(err, sqlite3.ERROR) || errors.Is(err, sqlite3.NOTADB) {
 		return nil, true
 	}
 	if err != nil {
@@ -108,37 +111,47 @@ func (read *agyReading) varint(message []byte, at int) (uint64, int, bool) {
 	return value, at + size, size > 0
 }
 
-// field is that length-delimited field of a protocol buffer message, nil where the message does
-// not hold it whole.
+// field is the first length-delimited field of that number a protocol buffer message holds whole,
+// nil where it holds none.
 func (read *agyReading) field(message []byte, number uint64) []byte {
-	for at := 0; at < len(message); {
-		key, next, whole := read.varint(message, at)
-		if !whole {
-			return nil
-		}
-		at = next
-		switch key & 7 {
-		case 2:
-			size, next, whole := read.varint(message, at)
-			if !whole || size > uint64(len(message)-next) {
-				return nil
-			}
-			if at = next + int(size); key>>3 == number {
-				return message[next:at]
-			}
-		case 0:
-			if _, at, whole = read.varint(message, at); !whole {
-				return nil
-			}
-		case 1:
-			at += 8
-		case 5:
-			at += 4
-		default:
-			return nil
-		}
+	for found := range read.fields(message, number) {
+		return found
 	}
 	return nil
+}
+
+// fields is each length-delimited field of that number a protocol buffer message holds whole, in
+// order, up to where it no longer reads.
+func (read *agyReading) fields(message []byte, number uint64) iter.Seq[[]byte] {
+	return func(yield func([]byte) bool) {
+		for at := 0; at < len(message); {
+			key, next, whole := read.varint(message, at)
+			if !whole {
+				return
+			}
+			at = next
+			switch key & 7 {
+			case 2:
+				size, next, whole := read.varint(message, at)
+				if !whole || size > uint64(len(message)-next) {
+					return
+				}
+				if at = next + int(size); key>>3 == number && !yield(message[next:at]) {
+					return
+				}
+			case 0:
+				if _, at, whole = read.varint(message, at); !whole {
+					return
+				}
+			case 1:
+				at += 8
+			case 5:
+				at += 4
+			default:
+				return
+			}
+		}
+	}
 }
 
 // timestamp is a Timestamp's seconds (field 1) and nanoseconds (2, omitted when 0) as seconds,

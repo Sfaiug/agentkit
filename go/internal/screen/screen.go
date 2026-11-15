@@ -162,6 +162,15 @@ func Tail(pane string) string {
 	return strings.Join(lastOf(rows, tailRows), "\n")
 }
 
+// Drawn is Tail's rows as drawn: no attributes and right-stripped, each indented as it stands.
+func Drawn(pane string) string {
+	rows := strings.Split(Tail(pane), "\n")
+	for at, row := range rows {
+		rows[at] = strings.TrimRightFunc(strip(row), config.Space)
+	}
+	return strings.Join(rows, "\n")
+}
+
 // Read is the first rule, in the manifest's order, that the pane's tail matches.
 func (r *Rules) Read(pane string) Reading {
 	tail := Tail(pane)

@@ -103,3 +103,38 @@ func RowOf(rated []*quality.Rating, model config.Model, effort string) *quality.
 	}
 	return nil
 }
+
+// NextChoice is what ← (step -1) or → (1) takes off row, the row a role uses, of its answer found,
+// as Python's menu.next_choice, the owner's design of 5 Nov 2026: the configured model taking the
+// next choice down or up, in order of cost and on a tie of quality, the first of c's names running
+// it, and that choice's effort; false past either end.  A row that is no choice stands at its cost
+// and quality, one with no cost as the best choice.
+func (c *Configuration) NextChoice(found *quality.Said, row *quality.Rating, step int) (string, string, bool) {
+	steps := slices.Clone(found.Choices)
+	if row == nil || row.Cost == nil {
+		if len(steps) == 0 {
+			return "", "", false
+		}
+		row = steps[len(steps)-1]
+	}
+	if !slices.Contains(steps, row) {
+		steps = append(steps, row)
+	}
+	slices.SortStableFunc(steps, func(a, b *quality.Rating) int {
+		return cmp.Or(cmp.Compare(*a.Cost, *b.Cost), cmp.Compare(a.Quality, b.Quality))
+	})
+	if step < 0 {
+		slices.Reverse(steps)
+	}
+	at := slices.Index(steps, row) + 1
+	if at == len(steps) {
+		return "", "", false
+	}
+	next := steps[at]
+	for _, name := range c.Names {
+		if slices.Contains(next.Runners, [2]string{c.Models[name].Harness, c.Models[name].ID}) {
+			return name, next.Effort, true
+		}
+	}
+	return "", "", false
+}

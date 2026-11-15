@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/history"
 	"agentkit/internal/lock"
 	"agentkit/internal/notify"
 )
@@ -61,6 +62,10 @@ func parse(text string) (entry, bool) {
 	line.bare = text[len("- [ ] "):end]
 	return line, true
 }
+
+// link is the words a run names the line it serves by (`plan_line`): its outcome and when it was
+// written, which `ak plan check` keeps when it replaces the check.
+func (l entry) link() string { return l.What + " · written " + l.When }
 
 // proven is a check line ticked with the commit its check passed on: done for good.
 func (l entry) proven() bool {
@@ -487,7 +492,8 @@ func Check(ctx context.Context, name, number, check string) (string, error) {
 		}
 	}
 	fresh := added(old.What, check, old.Project, old.When, old.Base).ticked("")
-	return fresh, notify.Held(ctx, name, func(current string) error {
+	var seats []string
+	if err := notify.Held(ctx, name, func(current string) error {
 		lines, err := read(current)
 		if err != nil {
 			return err
@@ -495,9 +501,16 @@ func Check(ctx context.Context, name, number, check string) (string, error) {
 		for i, text := range lines {
 			if strings.TrimFunc(text, config.Space) == line {
 				lines[i] = text[:len(text)-len(strings.TrimLeftFunc(text, config.Space))] + fresh
+				seats = Names(current)
 				return write(current, lines)
 			}
 		}
 		return fmt.Errorf("plan line %s changed while its new check ran; run `ak plan check` again", number)
-	})
+	}); err != nil {
+		return "", err
+	}
+	if check != old.Check { // its own check again gives the line nothing new
+		history.Rewrote(seats, old.link(), nil)
+	}
+	return fresh, nil
 }

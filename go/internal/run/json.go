@@ -279,8 +279,9 @@ func DecodeShown(data []byte) (any, error) {
 	return decode(&parser{data: data, limited: true, shown: true})
 }
 
-// DecodeJSON reads one JSON value as Decode does, and refuses NaN and Infinity, as JSON does: for
-// a file another program reads.
+// DecodeJSON reads one JSON value as Decode does, and refuses a float Python reads as NaN or
+// Infinity, 1e400 among them, which Encode would write back as no JSON: for a file another
+// program reads.
 func DecodeJSON(data []byte) (any, error) {
 	return decode(&parser{data: data, json: true})
 }
@@ -307,7 +308,7 @@ type parser struct {
 	at      int
 	limited bool // ErrLimit where Python's limits decide
 	shown   bool // a lone surrogate as U+FFFD
-	json    bool // NaN and Infinity refused
+	json    bool // a float Python reads as NaN or Infinity refused
 }
 
 var numberRe = regexp.MustCompile(`^(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][-+]?[0-9]+)?|NaN|-?Infinity)`)
@@ -417,9 +418,12 @@ func (p *parser) value(depth int) (any, error) {
 	}
 	found := numberRe.Find(p.data[p.at:])
 	digits := len(strings.TrimPrefix(string(found), "-"))
+	parsed, _ := Num(Number(found))
 	switch {
-	case found == nil, p.json && slices.Contains([]string{"NaN", "Infinity", "-Infinity"}, string(found)):
+	case found == nil:
 		return nil, p.fail("Expecting value", p.at)
+	case p.json && !Integral(Number(found)) && (math.IsInf(parsed, 0) || math.IsNaN(parsed)):
+		return nil, p.fail(string(found)+" is no finite float", p.at)
 	case p.limited && Integral(Number(found)) && digits > config.MinDigits:
 		return nil, ErrLimit
 	case Integral(Number(found)) && digits > config.MaxDigits:

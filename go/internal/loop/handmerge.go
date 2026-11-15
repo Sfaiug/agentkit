@@ -80,7 +80,8 @@ func Merge(dir string, out, errOut io.Writer) (int, string, error) {
 	if record.Truthy("pr") && !record.Truthy("delivery_sha") {
 		return 2, id + ": no recorded delivery SHA; cannot safely retry the merge", nil
 	}
-	log, err := os.Open(filepath.Join(dir, "log.txt"))
+	// made where none is yet, as Python's logger makes it with its first line
+	log, err := os.OpenFile(filepath.Join(dir, "log.txt"), os.O_RDONLY|os.O_CREATE, 0o666)
 	if err != nil {
 		return 0, "", err
 	}

@@ -35,7 +35,7 @@ with Home() as home:
     term.wait("esc leave", bound=10)
     term.keys("c")
     term.wait("› Fable 5.1", bound=10)
-    term.keys(*["Down"] * 6)
+    term.keys(*["Down"] * 5)
     term.wait("› Done check", bound=10)
     term.keys("Enter", "Space")
     assert term.exit_code(bound=10) == 3

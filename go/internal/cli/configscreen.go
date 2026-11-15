@@ -121,7 +121,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 				view.Away = true
 			}
 		case key.Name == "char" && key.Char == "r":
-			if !menuModels("config · recommended · "+view.Scope, c, keyboard, painter) {
+			if !menuModels(session, c, keyboard, painter) {
 				return false
 			}
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
@@ -129,32 +129,8 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 				return false
 			}
 		}
-		if key.Name == "enter" && view.Row == len(c.Names)+2 {
-			if !menuDiscord(keyboard, painter) {
-				return false
-			}
-			continue
-		}
-		if key.Name == "enter" && view.Row == len(c.Names)+3 {
-			if !menuAudit(keyboard, painter) {
-				return false
-			}
-			continue
-		}
-		if key.Name == "enter" && view.Row == len(c.Names)+4 {
-			if !menuDoneCheck(keyboard, painter) {
-				return false
-			}
-			continue
-		}
-		if key.Name == "enter" && view.Row == len(c.Names)+5 {
-			if !menuMachines(keyboard, painter) {
-				return false
-			}
-			continue
-		}
-		if key.Name == "enter" && view.Row == len(c.Names)+6 {
-			if !menuLimits(keyboard, painter) {
+		if key.Name == "enter" && view.Row >= len(c.Names)+2 {
+			if !configPages[view.Options[view.Row-len(c.Names)].Name](keyboard, painter) {
 				return false
 			}
 			continue
@@ -233,15 +209,17 @@ func configNames(selected *run.Object, key string) []string {
 	return names
 }
 
+// configPages are the pages Enter opens on the rows under Subscriptions, by the row's name.
+var configPages = map[string]func(*terminal.Keyboard, *terminal.Painter) bool{
+	"Discord": menuDiscord, "Weekly audit": menuAudit, "Done check": menuDoneCheck,
+	"Machines": menuMachines, "Limits": menuLimits,
+}
+
+// configOptions are the rows under the models, as menu.CONFIG_ROWS. Owner, 10 Nov 2026: "Remove
+// the weekly audit feature for now. Dont delete it, but remove it." `Weekly audit`, its value
+// menu.audit_value's, stood between Discord and Done check.
 func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	discord, cloud := menu.ConfigServices()
-	setting, on, err := config.Audit()
-	audit := ""
-	if err != nil {
-		audit = err.Error()
-	} else {
-		audit = onOff(on) + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + auditNames(setting.Workers, c.Models) + " · " + menu.RoleHead(2) + " " + auditNames(setting.Reviewers, c.Models)
-	}
 	checker, on, err := config.DoneCheck()
 	check := ""
 	if err != nil {
@@ -259,7 +237,7 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 		noun = "machine"
 	}
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
-		{Name: "Weekly audit", Value: audit}, {Name: "Done check", Value: check},
+		{Name: "Done check", Value: check},
 		{Name: "Machines", Value: fmt.Sprintf("%d %s · Google Cloud %s", known, noun, cloud)},
 		{Name: "Limits", Value: limits}}, true
 }
