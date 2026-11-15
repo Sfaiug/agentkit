@@ -108,6 +108,33 @@ def _go_cache(env):
         return None
 
 
+def _warm(cache, scratch, hidden):
+    """bwrap's words showing a turn the account's Go build cache at /var/tmp/go-build, what the
+    turn writes there kept in scratch, or none where the cache is missing or hidden or the kernel
+    refuses the overlay, leaving the turn an empty cache of its own there.
+
+    Turns compiling the standard library and every package from nothing asked for more CPU than
+    the host had (15 Nov 2026). Scratch is on disk: a turn rewriting many packages writes
+    hundreds of MB."""
+    # The overlay shows the cache as the host holds it, past the box's masks.
+    if cache is None or any(cache.is_relative_to(path) or path.is_relative_to(cache)
+                            for path in hidden):
+        return []
+    upper, work = scratch / "go-build", scratch / "go-build-work"
+    upper.mkdir()
+    work.mkdir()
+    layers = ["--overlay-src", str(cache), "--overlay", str(upper), str(work)]
+    try:
+        # The kernel keeps an overlay's writes on few filesystems, not on NFS or another overlay,
+        # and a box it refused would not start.
+        refused = subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/", *layers,
+                                  str(cache), "--", "true"], capture_output=True,
+                                 timeout=10).returncode
+    except (OSError, subprocess.SubprocessError):
+        refused = True
+    return [] if refused else [*layers, "/var/tmp/go-build"]
+
+
 def _homes(env, cwd):
     base = Path(cwd or os.getcwd())
     return {base / (env.get("HOME") or Path.home()), Path(pwd.getpwuid(os.getuid()).pw_dir)}
@@ -486,10 +513,10 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
             mounts, overlaid = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
-            cmd[at:at] = mounts
             clean["TMPDIR"] = "/var/tmp"
             if not home_overlay:
                 # Go caches builds under HOME, read-only here: a turn's build failed (5 Nov 2026).
+                mounts += _warm(_go_cache(clean), Path(scratch), targets)
                 clean["GOCACHE"] = "/var/tmp/go-build"
             elif "GOCACHE" not in clean:
                 # A check's throwaway HOME shows the account's warm cache, but a command moving
@@ -499,6 +526,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 cache = _go_cache(clean)
                 if cache and overlaid(cache) and folders.isdisjoint((cache, *cache.parents)):
                     clean["GOCACHE"] = str(cache)
+            cmd[at:at] = mounts
             yield [*cmd, *filtered, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write, *fds), "stop": stop, "began": report.exists,
                 "declared": declared}

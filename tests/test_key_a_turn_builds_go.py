@@ -1,9 +1,11 @@
 """An `ak worker` turn builds Go, though its HOME, where Go keeps its build cache, is read-only.
 
-A turn's box gives Go a build cache of its own, so a done-when `go test` the executor runs
-compiles instead of failing on a read-only cache.  Black-box: the program `AK_BIN` names runs
-from outside through tests/fixtures/akbin.py, with a scripted harness from fakeadapter.py whose
-`sh` step builds a Go package inside the turn; the class skips where bubblewrap cannot box one.
+A turn's box gives Go a build cache it writes, the account's beneath writes of its own where
+the account has one (tests/test_key_a_turn_builds_on_the_accounts_go_cache.py), so a done-when
+`go test` the executor runs compiles instead of failing on a read-only cache.  Black-box: the
+program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, with a scripted harness
+from fakeadapter.py whose `sh` step builds a Go package inside the turn; the class skips where
+bubblewrap cannot box one.
 """
 
 import sys
