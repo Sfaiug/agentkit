@@ -22,6 +22,8 @@ import (
 const (
 	machineName  = "ak"
 	machineAlias = "lima-" + machineName
+	// ak's own LaunchDaemon, which runs tools/linux-machine.sh's check every minute
+	machineCheck = "com.agentkit.linux-machine"
 )
 
 // mac is whether this host is a Mac, as install.sh reads it: by `uname -s`.
@@ -90,17 +92,23 @@ func machineUp(name string, out, errOut io.Writer) error {
 			return err
 		}
 	}
+	// Memory is a reservation: the Mac never gets back what the machine has once touched, so a
+	// machine holding more than its share, as one made by hand may, is held to it.
+	memory, err := reading(0, 0, "sysctl", "-n", "hw.memsize")
+	if err != nil {
+		return err
+	}
+	mem := share(memory>>30, 4) // bytes, in GiB
 	if _, err := os.Stat(filepath.Join(dir, "lima.yaml")); err != nil {
-		// Cores are shared with macOS as it runs, so a quarter left to it is room to schedule.
-		// Memory is a reservation: the Mac never gets back what the machine has once touched.
+		// Cores are shared with macOS as it runs, so a quarter left to it is room to schedule, and
+		// a machine made with more keeps them: they come back to macOS whenever it idles.
 		// The disk grows as it fills and never shrinks, so it is a share of the space free now.
 		cores, coresErr := reading(0, 0, "sysctl", "-n", "hw.ncpu")
-		memory, memoryErr := reading(0, 0, "sysctl", "-n", "hw.memsize")
 		free, freeErr := reading(1, 3, "df", "-Pk", config.UserHome())
-		if err := errors.Join(coresErr, memoryErr, freeErr); err != nil {
+		if err := errors.Join(coresErr, freeErr); err != nil {
 			return err
 		}
-		cpus, mem, disk := share(cores, 2), share(memory>>30, 4), share(free>>20, 64) // bytes and KiB, in GiB
+		cpus, disk := share(cores, 2), share(free>>20, 64) // KiB, in GiB
 		// Debian stable, which boots systemd; --mount-none: the machine sees none of the Mac's folders
 		if err := tool(out, errOut, "limactl", "create", "--tty=false", "--name="+machineName,
 			fmt.Sprintf("--cpus=%d", cpus), fmt.Sprintf("--memory=%d", mem), fmt.Sprintf("--disk=%d", disk),
@@ -109,8 +117,17 @@ func machineUp(name string, out, errOut io.Writer) error {
 			return err
 		}
 		fmt.Fprintf(out, "linux: this Mac's Linux machine has %d cores, %d GiB of memory and %d GiB of disk\n", cpus, mem, disk)
+	} else if had, err := reading(0, 0, "limactl", "list", "--format", "{{.Memory}}", machineName); err == nil && had > mem<<30 {
+		when := "now"
+		if status() == "Running" {
+			when = "from its next start"
+		}
+		if err := start(dir, out, errOut, fmt.Sprintf("--memory=%d", mem)); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "linux: this Mac's Linux machine takes %d GiB of memory %s, not %d GiB, leaving macOS its share\n", mem, when, had>>30)
 	}
-	if err := tool(out, errOut, "limactl", "start", "--tty=false", machineName); err != nil { // one up stays as it is
+	if err := start(dir, out, errOut); err != nil { // one already up stays as it is
 		return err
 	}
 	// A system LaunchDaemon starts it with the Mac, before anyone logs in; enabling asks for sudo.
@@ -124,6 +141,9 @@ func machineUp(name string, out, errOut io.Writer) error {
 		}
 		fmt.Fprintln(out, "linux: this Mac's Linux machine starts when the Mac does")
 	}
+	if err := watched(name, limaHome, daemons, out, errOut); err != nil {
+		return err
+	}
 	if err := awake(out, errOut); err != nil {
 		return err
 	}
@@ -133,6 +153,101 @@ func machineUp(name string, out, errOut io.Writer) error {
 	}
 	return reachable(dir, out)
 }
+
+// status is the machine's state as Lima says it: Running, Stopped, or Broken while its host agent
+// does not answer Lima.
+func status() string {
+	said, _ := exec.Command("limactl", "list", "--format", "{{.Status}}", machineName).Output()
+	return strings.TrimSpace(string(said))
+}
+
+// start is tools/linux-machine.sh's linux_machine_start, whose answer its check reads: `limactl
+// start` returns once the machine answers, so starting one counts as its answer, read off the
+// check's own clock, `date +%s`.  One already running stays as it is, and so does its last
+// answer: it may hang.  Lima writes the flags it is given into the machine's file even while it
+// runs, where they hold from its next start.
+func start(dir string, out, errOut io.Writer, flags ...string) error {
+	running := status() == "Running"
+	if running && len(flags) == 0 {
+		return nil
+	}
+	if err := tool(out, errOut, "limactl", slices.Concat([]string{"start", "--tty=false"}, flags, []string{machineName})...); err != nil {
+		return err
+	}
+	if running {
+		return nil
+	}
+	now, err := exec.Command("date", "+%s").Output()
+	if err != nil {
+		return fmt.Errorf("date: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dir, "answered"), now, 0o666)
+}
+
+// watched has launchd run tools/linux-machine.sh's check every minute, as linux_machine_up does:
+// Lima's own daemon runs only at boot.  launchd reads a changed plist only as it loads it, so one
+// loaded is booted out before its plist changes: one that will not go fails the install and
+// keeps the old plist, which the next install finds changed still.  One not loaded, booted out or
+// never loaded, is loaded.  The plist is compared as the account, so it is one the account reads,
+// as Lima's is: it holds paths, no secret.  tee keeps an existing file's mode, so one an earlier
+// install left only root reads is written once more and made readable.
+func watched(name, store, daemons string, out, errOut io.Writer) error {
+	limactl, err := exec.LookPath("limactl")
+	if err != nil {
+		return err
+	}
+	// As the account, whom launchd gives neither its HOME, Homebrew's PATH nor the Lima store
+	// the install used.  The host agent a check's `limactl start` leaves outlives the check.
+	daemon := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>%s</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>%s</string></array>
+  <key>UserName</key><string>%s</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>%s</string>
+    <key>PATH</key><string>%s</string>
+    <key>LIMA_HOME</key><string>%s</string>
+  </dict>
+  <key>StartInterval</key><integer>60</integer>
+  <key>AbandonProcessGroup</key><true/>
+</dict>
+</plist>
+`, machineCheck, xmlText(filepath.Join(config.Repo(), "tools", "linux-machine.sh")), xmlText(name),
+		xmlText(config.UserHome()), xmlText(filepath.Dir(limactl)+":/usr/bin:/bin:/usr/sbin:/sbin"), xmlText(store))
+	plist, service := filepath.Join(daemons, machineCheck+".plist"), "system/"+machineCheck
+	loaded := exec.Command("launchctl", "print", service).Run() == nil
+	if had, err := os.ReadFile(plist); err != nil || string(had) != daemon {
+		if loaded {
+			if err := tool(out, errOut, "sudo", "launchctl", "bootout", service); err != nil {
+				return err
+			}
+		}
+		tee := exec.Command("sudo", "tee", plist)
+		tee.Stdin, tee.Stderr = strings.NewReader(daemon), errOut
+		if err := tee.Run(); err != nil {
+			return fmt.Errorf("sudo tee %s: %w", plist, err)
+		}
+		if err := tool(out, errOut, "sudo", "chmod", "644", plist); err != nil {
+			return err
+		}
+		loaded = false
+	}
+	if loaded {
+		return nil
+	}
+	if err := tool(out, errOut, "sudo", "launchctl", "bootstrap", "system", plist); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "linux: this Mac's Linux machine starts again by itself when it stops or stops answering")
+	return nil
+}
+
+// xmlText is a string as XML text: a path may hold `&` or `<`.
+var xmlText = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;").Replace
 
 // awake keeps the Mac up for its machine: on power it never sleeps, though its display may, and
 // it starts again by itself when power comes back after a cut.  pmset keeps both across
