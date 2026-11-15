@@ -13,6 +13,7 @@ import (
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handback"
 	"agentkit/internal/history"
+	"agentkit/internal/livefollow"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -99,7 +100,9 @@ func mergeHealth(each *merge, key string, now float64, probes map[[3]string]prob
 	}
 	row()
 	if !dry && (len(found.Keys()) > 0 || record.Str("merge_sha") != each.sha || probed != nil || live != nil) {
+		var before *run.Object
 		err := run.Change(dir, func(current *run.Object) error {
+			before = current.Copy()
 			for _, name := range found.Keys() {
 				current.Set(name, found.Get(name))
 			}
@@ -132,6 +135,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[3]string]prob
 		if err != nil {
 			return err
 		}
+		livefollow.Merged(dir, before, record) // a `health:` found late
 		each.record = record
 	}
 	keepMerge(rows, record, verdict == "passed", say)

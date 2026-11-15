@@ -1,6 +1,6 @@
-"""`c`'s `Done check` row opens a page of its own, as `Weekly audit`'s does: `On`, on until the
-owner turns it off, and `Model`, the seat's reviewer until the owner picks a model, each change
-written to `[done_check]` in config.toml at once.
+"""`c`'s `Done check` row opens a page of its own: `On`, on until the owner turns it off, and
+`Model`, the seat's reviewer until the owner picks a model, each change written to
+`[done_check]` in config.toml at once.
 
 Space on `On` writes `on = false`, and again `on = true`.  Enter on `Model` opens the seat's
 reviewer and every model offered, ● on the one in use: taking the second model writes it as
@@ -75,8 +75,8 @@ class DoneCheckSetting(unittest.TestCase):
     def test_on_turns_off_and_on_and_the_model_picked_makes_the_check(self):
         self.term.keys("c")
         self.term.wait("› Fable 5.1")
-        self.term.keys(*["Down"] * 6)       # past both models, Models, Subscriptions, Discord
-        self.term.wait(shows(r"› Done check +on · the seat's reviewer"))   # and Weekly audit
+        self.term.keys(*["Down"] * 5)       # past both models, Models, Subscriptions, Discord
+        self.term.wait(shows(r"› Done check +on · the seat's reviewer"))
         self.term.keys("Enter")
         self.term.wait(shows(r"agentkit · config · done check +\d\d:\d\d", r"› On +● on",
                              r"  Model +the seat's reviewer", keys=MARK))

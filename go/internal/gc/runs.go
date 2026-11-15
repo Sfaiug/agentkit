@@ -163,13 +163,14 @@ func (r *reads) runs() []Item {
 		// a throwaway repo's run is the smoke suite's own: on nobody's list, naming no project
 		if throwaway(record.Get("repo")) && expired(first(record, "finished_at", "started_at"), r.now, r.age()) &&
 			!record.Truthy("notification_pending") && !record.Truthy("pending_inbox") && !record.Truthy("handback_pending") &&
-			quiet && safe(dir) {
+			quiet && r.scratch(dir, true) == nil && safe(dir) {
 			found = append(found, Item{"remove", "throwaway-run", dir, "", takeWhole(dir, false, nil)})
 			continue
 		}
 		// a seat that still exists keeps its runs however old: they are what it is made of
 		interrupted := idleInterrupted(record, r.now)
-		if (interrupted != nil || provablyFinal(record) && runAgedOut(dir, record, r.now)) && quiet && safe(dir) {
+		if (interrupted != nil || provablyFinal(record) && runAgedOut(dir, record, r.now)) && quiet &&
+			r.scratch(dir, true) == nil && safe(dir) {
 			seat, named := launchedSession(record)
 			lives := false
 			if named {
@@ -209,6 +210,33 @@ func (r *reads) runs() []Item {
 				continue
 			}
 			found = append(found, Item{"compress", "merged-log", each.path, "", takeLog(dir, each.path, each.stat)})
+		}
+	}
+	return found
+}
+
+// scratch is each folder in a run's folder whose mark names a maker that lives, or one gone, as
+// asked.  The mark alone decides: a box's processes see the folder under another path, so no look
+// at who holds it proves anything (gc.scratches).
+func (r *reads) scratch(dir string, lives bool) []string {
+	var found []string
+	for _, folder := range children(dir) {
+		if maker := r.json(filepath.Join(folder, run.ScratchMark)); maker != nil && writerActive(maker) == lives {
+			found = append(found, folder)
+		}
+	}
+	return found
+}
+
+// leftScratch is each scratch folder in a run's folder whose maker is gone, the run in any state:
+// a killed maker removes none of its own, and a run's folder stays 30 days (gc.left_scratch).
+func (r *reads) leftScratch() []Item {
+	var found []Item
+	for _, dir := range children(runsDir()) {
+		for _, folder := range r.scratch(dir, false) {
+			// a maker gone stays gone: nothing to judge again
+			take := func(*collection) (bool, error) { return true, clearScratch(folder) }
+			found = append(found, Item{"remove", "run-scratch", folder, "", take})
 		}
 	}
 	return found

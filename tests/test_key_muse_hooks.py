@@ -55,8 +55,8 @@ exec {python} {pane} {root}/question.txt {root}/"$AGENTKIT_SESSION".typed
 SCHEMA = '{"hook_event": {"enum": ["stop", "notification", "post_tool_batch", "interrupt"]}}'
 OLDER = '{"hook_event": {"enum": []}}'    # a muse that runs no lifecycle hooks
 FILE = ".config/muse/settings.json"
-UNREAD = ("{broken", '{"hooks": null, "threshold": NaN}', "null", '{"hooks": []}',
-          '{"hooks": {"Stop": {}}}', '{"hooks": {"Stop": [null]}}',
+UNREAD = ("{broken", '{"hooks": null, "threshold": NaN}', '{"hooks": null, "threshold": -1e400}',
+          "null", '{"hooks": []}', '{"hooks": {"Stop": {}}}', '{"hooks": {"Stop": [null]}}',
           '{"hooks": {"Stop": [{"hooks": null}]}}')
 
 

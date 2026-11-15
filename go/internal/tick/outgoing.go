@@ -14,6 +14,7 @@ import (
 	"agentkit/internal/gh"
 	"agentkit/internal/handback"
 	"agentkit/internal/history"
+	"agentkit/internal/livefollow"
 	"agentkit/internal/lock"
 	"agentkit/internal/loop"
 	"agentkit/internal/plan"
@@ -325,9 +326,10 @@ func runFor(address string) (string, *run.Object) {
 }
 
 // recordDecision is Python's record_decision: the run's merge_note becomes the decision, and a
-// merge records what it leaves on the run (mergeRecord), ends the run's history row, and runs its
-// seat's plan checks and follow-ups; result.md says so, written again while the run's worktree is
-// there, else the note added under a heading of its own.  False where nothing was written.
+// merge records what it leaves on the run (mergeRecord), hands it to its project's live follower
+// (livefollow.Merged), ends the run's history row, and runs its seat's plan checks and follow-ups;
+// result.md says so, written again while the run's worktree is there, else the note added under a
+// heading of its own.  False where nothing was written.
 func recordDecision(dir string, record *run.Object, note string, merged bool) bool {
 	fields := run.Fields("merge_note", note)
 	if merged && mergeRecord(record, fields) != nil {
@@ -338,9 +340,11 @@ func recordDecision(dir string, record *run.Object, note string, merged bool) bo
 			to.Set(name, fields.Get(name))
 		}
 	}
-	if run.Change(dir, func(current *run.Object) error { put(current); return nil }) != nil {
+	var before, after *run.Object
+	if run.Change(dir, func(current *run.Object) error { before, after = current.Copy(), current; put(current); return nil }) != nil {
 		return false
 	}
+	livefollow.Merged(dir, before, after)
 	put(record)
 	result := record
 	if merged {

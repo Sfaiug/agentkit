@@ -46,9 +46,10 @@ func feeds(state string, entry fs.DirEntry, names, live []string) bool {
 // whose word no plan decides, what its last done check that found no gap read, mid-replace too,
 // which plan reads to weigh whether a finished plan owes another, the last answer to whether it
 // owes one, which only that answer reads (plan.checkOwed), as does that answer's write on its way
-// (owedWrite), and the latch its stop hook keeps a turn's start in, which no word reads.
+// (owedWrite), and the latch its stop hook keeps a turn's start in and the clock Python's hooks
+// order its facts by (config.heard_at), which no word reads.
 var kinds = map[string][]string{"session": {"json"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "checked": {"txt", "txt.new"}, "owed": {"json"}, "stop": {"json"}}
+	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "checked": {"txt", "txt.new"}, "owed": {"json"}, "stop": {"json"}, "heard": {"json"}}
 
 // quiet is whether watch.json holds nothing a seat's word reads but what Go reads: the logins the
 // tick found, which the ladder's first rungs read themselves, and stalls only those a word reads as

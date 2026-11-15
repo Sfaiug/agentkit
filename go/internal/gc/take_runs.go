@@ -35,9 +35,10 @@ func takeSandbox(path string) func(*collection) (bool, error) {
 	}
 }
 
-// takeWhole takes a run's directory whole under its recovery lock: a throwaway run's while its
-// record is as planned; an old run's while its seat is still gone and it is as final, or as long
-// interrupted, as planned, its checkout and branch going first (gc.gc).
+// takeWhole takes a run's directory whole under its recovery lock, while it holds no scratch whose
+// maker lives: a throwaway run's while its record is as planned; an old run's while its seat is
+// still gone and it is as final, or as long interrupted, as planned, its checkout and branch going
+// first (gc.gc).
 func takeWhole(dir string, old bool, interrupted any) func(*collection) (bool, error) {
 	file := filepath.Join(dir, "run.json")
 	identity, _ := fingerprint(file)
@@ -55,7 +56,7 @@ func takeWhole(dir string, old bool, interrupted any) func(*collection) (bool, e
 		// a final run does not wait for a second look at its record; one resumed since does
 		now, _ := fingerprint(file)
 		same := old && interrupted == nil && provablyFinal(state) || now == identity
-		if !same || writerActive(state) || busy(dir, r.paths) {
+		if !same || writerActive(state) || busy(dir, r.paths) || r.scratch(dir, true) != nil {
 			return false, nil
 		}
 		if old {

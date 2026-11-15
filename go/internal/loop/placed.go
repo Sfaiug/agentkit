@@ -57,7 +57,7 @@ func Place(cmd *exec.Cmd, output, unit string, detached bool, record *run.Object
 	return pid, nil
 }
 
-// land starts the line's lander (lander) into the line's log, in a unit of its own, Python's
+// land starts the line's lander (host.Serving) into the line's log, in a unit of its own, Python's
 // start_line: ahead of every run for the CPU, as every passed run waits behind its check,
 // and capped at the most any member was capped at or peaked at, or one run's cap below the slice's
 // ceiling, the host's memory where none is set, whichever is more: never the small scope of
@@ -65,7 +65,7 @@ func Place(cmd *exec.Cmd, output, unit string, detached bool, record *run.Object
 // service's manager stops what is left in that: either way the lander outlives the wakes it
 // starts until they hand their runs to units of their own (CheckLine), and what its checks leave
 // ends with their box.
-func land(turn string, members []member, env []string) error {
+func land(turn string, members []member) error {
 	ceiling := host.SliceMemoryMax()
 	if ceiling == 0 {
 		total, _ := host.Read().Number("mem_total_mb", "total_mb", "mem_total")
@@ -86,11 +86,10 @@ func land(turn string, members []member, env []string) error {
 		}
 		most = max(most, float64(capMB))
 	}
-	cmd, err := lander(filepath.Base(turn))
+	cmd, err := host.Serving("run", "--lander", filepath.Base(turn))
 	if err != nil {
 		return err
 	}
-	cmd.Env = env
 	unit := fmt.Sprintf("agentkit-lander-%s-%d", strings.TrimPrefix(filepath.Base(beside(turn, "")), ".merge-"), time.Now().UnixNano())
 	_, _, _, err = host.Place(cmd, beside(turn, ".log"), unit, host.Limits(int(math.Ceil(most)), host.LanderWeight), true)
 	return err

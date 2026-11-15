@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"context"
 	"slices"
 
 	"agentkit/internal/config"
-	modelListing "agentkit/internal/listing"
 	"agentkit/internal/terminal"
 )
 
@@ -22,9 +20,7 @@ func modelsList(harness string, keyboard *terminal.Keyboard, painter *terminal.P
 		}
 		return choices, err
 	}
-	listed, err := waitAdapter(title, nil, keyboard, painter, func(ctx context.Context) ([]modelListing.Provider, error) {
-		return modelListing.Providers(ctx, harness)
-	})
+	listed, err := waitProviders(harness, title, nil, keyboard, painter)
 	if err != nil {
 		return nil, err
 	}

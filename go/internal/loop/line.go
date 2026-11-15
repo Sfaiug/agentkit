@@ -259,17 +259,7 @@ func startLine(turn string, said io.Writer) {
 	if !ready {
 		return // the joining attempt finishes its cleanup before a wake
 	}
-	env, err := config.ChildEnv()
-	if err == nil {
-		// this work outlives its caller and must not belong to the caller's stop sweep
-		env = slices.DeleteFunc(env, func(pair string) bool {
-			key, _, _ := strings.Cut(pair, "=")
-			return slices.Contains([]string{host.Marker, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE", "AK_RUN_DEPTH",
-				"AGENTKIT_JOB_DIR", "AGENTKIT_SESSION", "AGENTKIT_UNATTENDED"}, key)
-		})
-		err = land(turn, members, append(env, "AK_RUN_DEPTH=0"))
-	}
-	if err != nil {
+	if err := land(turn, members); err != nil {
 		fmt.Fprintf(said, "WARN could not start lander for %s: %v\n", filepath.Base(turn), err)
 	}
 }
@@ -370,6 +360,7 @@ func CheckLine(name string, out io.Writer) int {
 	took := passes(turn)
 	started := time.Now()
 	keepPasses(turn, run.Fields("took", took, "started", clock(), "pid", os.Getpid(), "process_identity", Identity(os.Getpid())))
+	clearLeft()
 	err = checkTurn(turn, code, stampedOut{out})
 	if spent := time.Since(started); spent >= checkedPass {
 		took = append(took, spent.Seconds())[max(0, len(took)+1-20):]
@@ -457,8 +448,9 @@ func number(record *run.Object, key string, fallback float64) float64 {
 	return fallback
 }
 
-// addScratch checks the commit out at path, detached, Python's add_worktree with the scratch mark:
-// locked while git makes it, so gc takes one a killed lander left, and no other checkout for it.
+// addScratch checks the commit out at path, detached, Python's add_worktree with the scratch mark,
+// which names this process as its maker for clearLeft: locked while git makes it, so gc takes one
+// a killed lander left, and no other checkout for it.
 func addScratch(repo, path, commit string) (int, string, error) {
 	g := gitcall.Git{Repo: repo, Env: gitcall.ProjectEnv(repo)}
 	held, err := gitcall.PrepareCheckout(repo)
@@ -472,7 +464,8 @@ func addScratch(repo, path, commit string) (int, string, error) {
 	}
 	own, err := gitcall.Git{Repo: path}.Must("rev-parse", "--absolute-git-dir")
 	if err == nil {
-		err = os.WriteFile(filepath.Join(own, gitcall.ScratchMark), nil, 0o666)
+		maker := run.Fields("pid", os.Getpid(), "process_identity", Identity(os.Getpid()))
+		err = os.WriteFile(filepath.Join(own, gitcall.ScratchMark), []byte(run.Encode(maker)), 0o666)
 	}
 	if err != nil {
 		return 0, "", err

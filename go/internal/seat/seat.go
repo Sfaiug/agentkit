@@ -267,7 +267,7 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 		return Seat{}, false
 	}
 	seat, known := recorded(state, name, record, models, readers)
-	if !known || !only(record, slices.Concat(recordFields, launchKeys, harness.RecordKeys(models[record.Str("orchestrator")].Harness))) {
+	if !known || !kept(record, models) {
 		return Seat{}, false
 	}
 	previous, known := seatRead(state, name)
@@ -661,6 +661,12 @@ func base(path string) string {
 		return ""
 	}
 	return parts[len(parts)-1]
+}
+
+// kept is whether a record holds only what Go reads of it, for a word or a stop: every seat's
+// keys, what a launch writes, and its harness's own.
+func kept(record *run.Object, models map[string]config.Model) bool {
+	return only(record, slices.Concat(recordFields, launchKeys, harness.RecordKeys(models[record.Str("orchestrator")].Harness)))
 }
 
 func only(object *run.Object, fields []string) bool {

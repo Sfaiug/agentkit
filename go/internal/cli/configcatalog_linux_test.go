@@ -58,8 +58,8 @@ for page, colour, size in (("config", False, (100, 30)), ("models", False, (100,
                 term.keys("j", "j", "Enter")
                 term.wait("config · models", bound=10)
                 term.keys("Enter")
-            shown = term.wait(lambda s: marker.exists() and "Reading models" in s, bound=10)
-            assert shown.splitlines()[0].startswith("agentkit") and "esc back" in shown and "Reading models" in shown, shown
+            shown = term.wait(lambda s: marker.exists() and "reading the" in s, bound=10)
+            assert shown.splitlines()[0].startswith("agentkit") and "esc back" in shown and "reading the" in shown, shown
             if size[0] >= 60:
                 assert "agentkit · config" in shown.splitlines()[0], shown
             if colour:
@@ -68,7 +68,7 @@ for page, colour, size in (("config", False, (100, 30)), ("models", False, (100,
             term.keys("Escape")
             if page == "models":
                 # the list opens saying so, as Python's does (menu.models_page), and Esc shuts it
-                term.wait(lambda s: "not read: esc and open it again" in s and "Reading models" not in s, bound=3)
+                term.wait(lambda s: "not read: esc and open it again" in s and "reading the" not in s, bound=3)
                 term.keys("Escape")
                 term.wait(lambda s: "config · models" in s and "not read" not in s, bound=3)
                 term.keys("Escape")

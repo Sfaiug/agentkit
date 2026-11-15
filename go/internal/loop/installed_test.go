@@ -35,9 +35,10 @@ func TestALanderStartsTheInstalledAk(t *testing.T) {
 		t.Fatal(err)
 	}
 	said := filepath.Join(home, "lander")
+	t.Setenv("AK_TEST_LANDER", said)
 	started := func() string {
 		os.Remove(said)
-		if err := land(turn, nil, append(os.Environ(), "AK_TEST_LANDER="+said)); err != nil {
+		if err := land(turn, nil); err != nil {
 			t.Fatal(err)
 		}
 		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {

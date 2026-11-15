@@ -86,11 +86,6 @@ func TestAFinishedPlanOwesItsCheckUntilOneReadWhatItsOwnerSaid(t *testing.T) {
 	write(filepath.Join(home, ".claude-previous", "projects", "-code-acme-before", "conv-1.jsonl"), said("01", "Add a retry button."))
 	owes(true, "said in a conversation it left")
 
-	// a conversation its launcher named, so one its harness named
-	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "gemini", "cwd": "/code/acme", "conversation": "conv-ag", "id_source": "launcher"}`)
-	if _, err := Finished("acme"); !errors.Is(err, ErrUnread) {
-		t.Errorf("a harness whose answers Go does not read: %v", err)
-	}
 	// a harness whose receipt Go reads less strictly than Python is Python's
 	token := strings.Repeat("a", 32)
 	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "spark", "cwd": "/code/acme", "muse_launch": "`+token+`"}`)

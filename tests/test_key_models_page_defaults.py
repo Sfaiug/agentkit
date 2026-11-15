@@ -1,8 +1,8 @@
 """Taking out on `Models` the model new seats orchestrate with moves its place to the first model
-left, on `c` and in config.toml alike, and the weekly audit, which follows [defaults], with it.
+left, on `c` and in config.toml alike.
 
-Before, the place stayed with the model gone: no orchestrator mark was full, `Weekly audit` read
-`unknown model`, and config.toml kept naming it.  Black-box: the program `AK_BIN` names, in a
+Before, the place stayed with the model gone: no orchestrator mark was full and config.toml kept
+naming it.  Black-box: the program `AK_BIN` names, in a
 person's terminal (tests/fixtures/akterm.py), its harnesses the fakes of
 tests/fixtures/fakeadapter.py, judged by what the terminal shows and config.toml; this test
 fails against `/bin/false`.  The terminal has no colour (NO_COLOR).
@@ -65,8 +65,6 @@ class ModelsPageDefaults(unittest.TestCase):
         screen = term.wait(lambda screen: key_line(screen) == OPEN_KEYS and "› Models" in screen)
         self.assertEqual(orch_mark(screen, "6 Astra"), "●")
         self.assertFalse(any(line[2:].startswith("Fable 5.1 ") for line in lines(screen)), screen)
-        self.assertIn("  Weekly audit  off · orch 6 Astra · builds 6 Astra · reviews "
-                      "6 Astra", lines(screen))
         self.assertEqual(akconfig.read(home)["defaults"],
                          {"orchestrator": "astra", "workers": ["astra"]})
 

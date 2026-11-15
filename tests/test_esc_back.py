@@ -39,6 +39,7 @@ from agentkit import menu, orch, terminal
 # The child: the real loop, screens, fields and key reader; fakes for the seats and what acts.
 CHILD = r"""
 import os, sys
+from contextlib import closing
 sys.path.insert(0, os.environ["ESC_REPO"])
 from agentkit import config, menu, motion, orch, terminal, usage
 motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
@@ -89,6 +90,11 @@ for module, name in ((menu, "config_matrix"), (menu, "models_page"),
                      (menu, "new_session"),
                      (menu, "pause"), (terminal, "choose")):
     mark_return(module, name)
+if os.environ.get("ESC_PAGE"):     # a page no row opens, by itself as the menu runs one
+    with closing(terminal.Keyboard()) as keyboard:
+        keyboard.take()
+        getattr(menu, os.environ["ESC_PAGE"])(cfg)
+    sys.exit(0)
 code = menu.loop(cfg, overlay=os.environ.get("ESC_OVERLAY") == "1")
 print("<back loop>", flush=True)
 sys.exit(code)
@@ -115,7 +121,7 @@ def title(name):
 class Menu:
     """One child menu on a pty over a HOME with ~/code/ACME: what it wrote, keys sent to it."""
 
-    def __init__(self, case, own=None, notice=""):
+    def __init__(self, case, own=None, notice="", page=None):
         self.case = case
         home = tempfile.TemporaryDirectory(prefix="esc-back-")
         case.addCleanup(home.cleanup)
@@ -135,6 +141,8 @@ class Menu:
             env.update({"ESC_OVERLAY": "1", "AGENTKIT_SESSION": own})
         if notice:
             env["ESC_NOTICE"] = notice
+        if page:
+            env["ESC_PAGE"] = page
         self.keys = "esc leave"
         self.proc = subprocess.Popen([sys.executable, "-c", CHILD], stdin=self.slave,
                                      stdout=self.slave, stderr=self.slave, env=env,
@@ -302,12 +310,9 @@ class EscBack(unittest.TestCase):
         menu_.press(DOWN + ENTER, title("config · discord"))
         menu_.back("config_discord", title("config · discord"))
         self.assertEqual(list(menu_.home.rglob("discord_*")), [])   # a `q` there writes nothing
-        menu_.press(DOWN + ENTER, title("config · weekly audit"))
-        menu_.back("config_audit", title("config · weekly audit"))
-        self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor is an [audit] written
         menu_.press(DOWN + ENTER, title("config · done check"))
         menu_.back("config_done_check", title("config · done check"))
-        self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor a [done_check]
+        self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor is a [done_check]
         menu_.press(DOWN + ENTER, title("config · machines"))
         menu_.back("config_machines", title("config · machines"))
         menu_.press(DOWN + ENTER, title("config · limits"))
@@ -315,6 +320,12 @@ class EscBack(unittest.TestCase):
         self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor a number
         menu_.back("config_matrix", config_)
         menu_.leave()
+
+    def test_the_weekly_audit_page_no_row_opens_goes_back_on_esc(self):
+        menu_ = Menu(self, page="config_audit")      # off `c` since 10 Nov 2026 (CONFIG_ROWS)
+        menu_.back("config_audit", title("config · weekly audit"))
+        self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor is an [audit] written
+        self.assertEqual(menu_.proc.wait(15), 0, menu_.text()[-3000:])
 
     def test_n_goes_back_from_its_row_and_from_its_models(self):
         menu_ = Menu(self)

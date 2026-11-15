@@ -140,7 +140,9 @@ func look(state, name string, now time.Time) (seen, bool) {
 			continue
 		}
 		seat, known := recorded(state, each, held, models, nil)
-		if !known || !only(held, stoppable) {
+		// another seat's record the stop reconciles as a word reads it; the stopped one's ends
+		// with it, which Go does only of what it knows
+		if !known || each == name && !only(held, stoppable) || !kept(held, models) {
 			return seen{}, false
 		}
 		found.records = append(found.records, seat)

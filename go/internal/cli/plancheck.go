@@ -21,11 +21,12 @@ func planCheck(ctx context.Context, name string, out, errOut io.Writer) error {
 	return err
 }
 
-// checkCarried is errLeft where Python makes seat current's done check (gaps), settled before the
-// plan is ticked from what the check reads, nothing drawn or written: the owner's words, which
-// plan's reader of whether the check is owed has read as strictly as Python's, the pictures
-// (keptPictures) and runs (checkFiles) its workspace holds and the model that checks (checking).  Any other end is
-// the check's own to say.
+// checkCarried is errLeft where Python makes seat current's done check (gaps), settled from what
+// that alone needs, nothing drawn: the pictures (keptPictures) and runs (checkFiles) its workspace
+// holds and the model that checks (checking).  The check settles it before it reads the seat's
+// conversations, as reading a live launch's takes its claim's lock, and `ak plan` before it ticks
+// the plan from what the check reads; the owner's words are each one's own to settle, and any other
+// end is the check's own to say.
 func checkCarried(current string) error {
 	_, record, err := config.ResolveSession(current)
 	if err != nil {

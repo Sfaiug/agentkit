@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"time"
 
+	"agentkit/internal/config"
 	modelListing "agentkit/internal/listing"
 	"agentkit/internal/menu"
 	"agentkit/internal/motion"
@@ -17,14 +19,22 @@ func waitingConfigCatalog(keyboard *terminal.Keyboard, painter *terminal.Painter
 }
 
 func waitConfigCatalog(harness, title string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter) ([]modelListing.Choice, error) {
-	return waitAdapter(title, cells, keyboard, painter, func(ctx context.Context) ([]modelListing.Choice, error) {
+	return waitAdapter(title, "reading the models "+harness+" offers", cells, keyboard, painter, func(ctx context.Context) ([]modelListing.Choice, error) {
 		return modelListing.ChoicesContext(ctx, harness)
 	})
 }
 
-// waitAdapter is what ask answers, the frame up while an adapter is asked.  The UI owns every draw;
-// the adapter owns only its answer. Esc cancels and reaps it.
-func waitAdapter[T any](title string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter, ask func(context.Context) (T, error)) (T, error) {
+// waitProviders is the providers host lists, asked while the screen titled title waits on it.
+func waitProviders(host, title string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter) ([]modelListing.Provider, error) {
+	_, labels := config.ProviderHosts()
+	return waitAdapter(title, "asking "+cmp.Or(labels[host], host)+" which providers it has", cells, keyboard, painter, func(ctx context.Context) ([]modelListing.Provider, error) {
+		return modelListing.Providers(ctx, host)
+	})
+}
+
+// waitAdapter is what ask answers, the frame up while an adapter is asked, saying it waits on what
+// doing names.  The UI owns every draw; the adapter owns only its answer. Esc cancels and reaps it.
+func waitAdapter[T any](title, doing string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter, ask func(context.Context) (T, error)) (T, error) {
 	var none T
 	ctx, cancel := context.WithCancel(context.Background())
 	clock := &motion.Clock{}
@@ -33,7 +43,7 @@ func waitAdapter[T any](title string, cells []menu.Cell, keyboard *terminal.Keyb
 	draw := func() {
 		screen := keyboard.Screen()
 		clock.Draw(motion.Now())
-		painter.Write(menu.CatalogWaiting(screen, title, time.Now().Format("15:04"), cells, clock), screen)
+		painter.Write(menu.CatalogWaiting(screen, title, time.Now().Format("15:04"), doing, cells, clock), screen)
 		if next, due := clock.Next(); due {
 			frame.Reset(next)
 		} else {

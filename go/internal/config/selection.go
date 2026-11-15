@@ -39,7 +39,9 @@ func audit(root *table) (Selection, bool, error) {
 	if held.Reviewers == nil {
 		held.Reviewers = held.Workers
 	}
-	on := true
+	// Owner, 10 Nov 2026: "Remove the weekly audit feature for now. Dont delete it, but remove
+	// it."  Off where config.toml says nothing, as config.audit reads it.
+	on := false
 	value := root.get("audit")
 	if value == nil {
 		value = newTable()

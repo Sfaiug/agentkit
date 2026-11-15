@@ -174,7 +174,7 @@ class LimitsPage(unittest.TestCase):
 
     def test_c_shows_one_limits_row_with_the_three_values(self):
         shown = lines(self.c().wait("Limits"))
-        self.assertIn("  Limits        review 3 rounds · executor 300 lines · orchestrator 50 "
+        self.assertIn("  Limits      review 3 rounds · executor 300 lines · orchestrator 50 "
                       "lines", shown)
         for gone in ("review_rounds", "executor_lines", "orchestrator_lines"):
             self.assertFalse([line for line in shown if line.split()[:1] == [gone]], shown)

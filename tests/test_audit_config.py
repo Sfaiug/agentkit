@@ -1,6 +1,7 @@
-"""The weekly audit is a config setting: `[audit]` in config.toml says whether it runs and which
-models orchestrate, execute and review it, `[defaults]`'s for whatever it leaves out, and the
-`c` screen's `Weekly audit` row shows it and opens its page, a row a key.
+"""The weekly audit is a config setting: `[audit]` in config.toml says whether it runs, off until
+it says on, and which models orchestrate, execute and review it, `[defaults]`'s for whatever it
+leaves out; its page shows it and writes it, a row a key.  `c` lists no row for it since 10 Nov
+2026 (menu.CONFIG_ROWS), so the page is called here.
 
 Offline: a temporary HOME holding the shipped default config, and the screen read from a pipe
 with its keys fed in, so no terminal, tmux or key is touched.
@@ -44,17 +45,17 @@ class AuditSetting(unittest.TestCase):
         self.path.write_text((REPO / config.DEFAULT_CONFIG_NAME).read_text() + "\n[audit]\n"
                              + table)
 
-    def test_the_setting_is_on_with_the_defaults_until_the_table_says_otherwise(self):
+    def test_the_setting_is_off_with_the_defaults_until_the_table_says_otherwise(self):
         cfg = config.load()
         self.assertEqual(config.audit(cfg), {
-            "on": True, "orchestrator": "opus", "workers": ["opus", "astra"],
+            "on": False, "orchestrator": "opus", "workers": ["opus", "astra"],
             "reviewers": ["opus", "astra"]})
-        self.write('on = false\norchestrator = "fable"\nworkers = []\nreviewers = ["astra"]\n')
+        self.write('on = true\norchestrator = "fable"\nworkers = []\nreviewers = ["astra"]\n')
         self.assertEqual(config.audit(config.load()), {
-            "on": False, "orchestrator": "fable", "workers": [], "reviewers": ["astra"]})
+            "on": True, "orchestrator": "fable", "workers": [], "reviewers": ["astra"]})
         self.write('reviewers = ["astra"]\n')       # the rest stays the defaults'
         self.assertEqual(config.audit(config.load()), {
-            "on": True, "orchestrator": "opus", "workers": ["opus", "astra"], "reviewers": ["astra"]})
+            "on": False, "orchestrator": "opus", "workers": ["opus", "astra"], "reviewers": ["astra"]})
 
     def test_a_setting_the_config_cannot_read_is_an_error_that_names_it(self):
         for table, words in (('orchestrator = "nova"\n', "unknown model 'nova'"),
@@ -66,16 +67,16 @@ class AuditSetting(unittest.TestCase):
             with self.assertRaises(config.Error) as caught:
                 config.audit(config.load())
             self.assertIn(words, str(caught.exception))
-        # the row shows that same line instead of a value
+        # the row's value shows that same line instead of a value
         self.write('orchestrator = "nova"\n')
         self.assertIn("unknown model 'nova'", menu.audit_value(config.load()))
 
     def test_the_row_says_on_or_off_and_the_three_roles_by_full_name(self):
         self.assertEqual(menu.audit_value(config.load()),
-                         "on · orch Opus 5.5 · builds Opus 5.5, 6 Astra · reviews Opus 5.5, 6 Astra")
-        self.write('on = false\nworkers = []\nreviewers = ["astra"]\n')
+                         "off · orch Opus 5.5 · builds Opus 5.5, 6 Astra · reviews Opus 5.5, 6 Astra")
+        self.write('on = true\nworkers = []\nreviewers = ["astra"]\n')
         self.assertEqual(menu.audit_value(config.load()),
-                         "off · orch Opus 5.5 · builds nobody · reviews 6 Astra")
+                         "on · orch Opus 5.5 · builds nobody · reviews 6 Astra")
 
     def page(self, *keys):
         """The page against `keys`, then Esc until it is gone, on a phone's 40 columns; the
@@ -95,14 +96,14 @@ class AuditSetting(unittest.TestCase):
         return tomllib.loads(self.path.read_text()).get("audit")
 
     def test_each_row_writes_its_key_at_once_keeping_the_rest(self):
-        self.page("space")                                   # On: off
-        self.assertEqual(self.table(), {"on": False})
+        self.page("space")                                   # On: on
+        self.assertEqual(self.table(), {"on": True})
         # Orchestrator's list opens on the one it is, opus: fable is the one over it
         self.page("down", "enter", "up", "enter")
-        self.assertEqual(self.table(), {"on": False, "orchestrator": "fable"})
+        self.assertEqual(self.table(), {"on": True, "orchestrator": "fable"})
         # Reviews' opens on the first reviewer; Space takes it out, and the list stays open
         frames = self.page("down", "down", "down", "enter", "space", "down", "down", "space")
-        self.assertEqual(self.table(), {"on": False, "orchestrator": "fable",
+        self.assertEqual(self.table(), {"on": True, "orchestrator": "fable",
                                         "reviewers": ["astra", "spark"]})
         self.assertIn("    □ Opus 5.5", frames[-2])       # the last key's frame, before the Esc
         self.assertIn("›   ■ Spark 1.3 Contributor", frames[-2])
@@ -112,7 +113,7 @@ class AuditSetting(unittest.TestCase):
         self.assertEqual(self.table()["workers"], [])
         self.assertIn("› Builds        nobody", frames[-1])     # Esc: its row lit again
         self.assertEqual(config.audit(config.load()), {
-            "on": False, "orchestrator": "fable", "workers": [], "reviewers": ["astra", "spark"]})
+            "on": True, "orchestrator": "fable", "workers": [], "reviewers": ["astra", "spark"]})
 
     def test_esc_closes_a_list_and_a_refused_change_writes_nothing(self):
         before = self.path.read_text()
@@ -147,32 +148,14 @@ class AuditSetting(unittest.TestCase):
         self.path.write_text('audit = "broken"\n' + (REPO / config.DEFAULT_CONFIG_NAME).read_text())
         self.assertIn("[audit] must be a table", menu.audit_value(config.load()))
         self.page("space")
-        self.assertEqual(self.table(), {"on": False})
+        self.assertEqual(self.table(), {"on": True})
 
-    def test_a_long_name_wraps_on_the_row_and_the_page_never_cut(self):
+    def test_a_long_name_is_never_cut_on_the_page(self):
         self.write('orchestrator = "spark"\nworkers = ["spark"]\nreviewers = ["spark"]\n')
-        with patch.object(terminal, "width", return_value=60):
-            lines, places = menu.config_body(config.load())
-        row = " ".join(terminal.ANSI.sub("", lines[line]) for line, (key, _) in places.items()
-                       if key == menu.AUDIT)
-        self.assertIn("· reviews Spark 1.3 Contributor", " ".join(row.split()))
         page = "\n".join(self.page()[-1])
-        self.assertNotIn("…", row + page)
+        self.assertNotIn("…", page)
         for role in ("Orchestrator", "Builds", "Reviews"):
             self.assertIn(f"  {role}", page)
-
-    def test_c_shows_the_row_with_its_value_from_a_pipe(self):
-        out = io.StringIO()
-        with patch.object(menu, "read", side_effect=[]) as read, redirect_stdout(out):
-            menu.show_config(False)
-        self.assertEqual(read.call_count, 0)
-        text = terminal.ANSI.sub("", out.getvalue())
-        self.assertIn("Weekly audit", text)
-        self.assertIn("on · orch Opus 5.5 · builds Opus 5.5, 6 Astra · reviews Opus 5.5, 6 Astra",
-                      " ".join(text.split()))
-        rows = [line.split()[0] for line in text.splitlines() if line.startswith("  ")]
-        self.assertLess(rows.index("Discord"), rows.index("Weekly"))
-        self.assertLess(rows.index("Weekly"), rows.index("Version"))
 
 
 if __name__ == "__main__":

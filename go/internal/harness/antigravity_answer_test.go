@@ -125,18 +125,14 @@ func TestAntigravityReadsTheModelOfItsLatestAnswer(t *testing.T) {
 	}
 }
 
-func TestAntigravityHandsOverAStoreItCannotRead(t *testing.T) {
-	for name, write := range map[string]func(t *testing.T, path string){
-		"not SQLite": func(t *testing.T, path string) {
-			if err := os.WriteFile(path, []byte("pages"), 0o600); err != nil {
-				t.Fatal(err)
-			}
-		},
-		"a folder": func(t *testing.T, path string) {
-			if err := os.Mkdir(path, 0o700); err != nil {
-				t.Fatal(err)
-			}
-		},
+func TestAntigravityHandsOverAStoreItCannotReadButOneThatIsNotSQLite(t *testing.T) {
+	for name, each := range map[string]struct {
+		write func(path string) error
+		ready bool
+	}{
+		// as Python's harness.rows reads it: no answer
+		"not SQLite": {func(path string) error { return os.WriteFile(path, []byte("pages"), 0o600) }, true},
+		"a folder":   {func(path string) error { return os.Mkdir(path, 0o700) }, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
@@ -146,9 +142,16 @@ func TestAntigravityHandsOverAStoreItCannotRead(t *testing.T) {
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			write(t, path)
-			if _, ready := For("antigravity").Reconciled("acme", run.Fields("conversation", "conv-acme", "id_source", "launcher")); ready {
-				t.Fatal("a store that cannot be read was read as holding no answer")
+			if err := each.write(path); err != nil {
+				t.Fatal(err)
+			}
+			record := run.Fields("conversation", "conv-acme", "id_source", "launcher")
+			reader, ready := For("antigravity").Reconciled("acme", record)
+			if ready != each.ready {
+				t.Fatalf("ready %v", ready)
+			}
+			if _, _, _, found := reader.LastAnswer(record); ready && found {
+				t.Fatal("a store that is not SQLite held an answer")
 			}
 		})
 	}

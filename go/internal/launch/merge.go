@@ -21,8 +21,10 @@ func Merge(id string, out, errOut io.Writer) (int, string, error) {
 	if record == nil || surroundings(id) || !loop.Mergeable(record) || config.Check() != nil || box.Check() != nil {
 		return 0, "", ErrPython
 	}
-	// a delivery from integration checks the task's own commands once more
-	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || !driverHere() {
+	// a delivery from integration checks the task's own commands once more, and any may run a turn,
+	// which needs a driver here; where only its meters are missing, one GitHub merged already is
+	// only recorded
+	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || !driverHere() && !(box.Supported && loop.GitHubMerged(dir, record)) {
 		return 0, "", ErrPython
 	}
 	if !run.Carries(record) {

@@ -14,16 +14,20 @@ const claudeHook = "claude-hook"
 
 // Followed is a conversation a hook's event says a seat's own client went on in (Harness.follow):
 // the harness whose seat it moves, the conversation and its transcript as the event names them,
-// whether a process runs that harness's own client, and the id_source the record takes with it.
-// Filed is where that harness files a conversation for the seat whose record that is, nil for its
-// plugin's `conversation` (harness.claim's `filed`); Keep keeps the conversation among those the
-// seat left and moves nothing (harness.claim's `keep`).
+// whether a process runs that harness's own client, and the id_source the record takes with it,
+// none for "".  Filed is where that harness files a conversation for the seat whose record that
+// is, nil for its plugin's `conversation` (harness.claim's `filed`); Keep keeps the conversation
+// among those the seat left and moves nothing (harness.claim's `keep`).  From is the process a
+// hook whose parent is pid counts the seat's own client from, nil for that parent; Then, where
+// given, runs once the claim is carried, whatever it decided, launched the seat's launch name.
 type Followed struct {
 	Harness, Source          string
 	Conversation, Transcript any
 	Client                   func(words []string) bool
 	Filed                    func(record map[string]any, conversation string) string
 	Keep                     bool
+	From                     func(pid int) int
+	Then                     func(launched string)
 }
 
 // claudeFollows is only Claude's /clear, which opens a new conversation, and /resume, which goes

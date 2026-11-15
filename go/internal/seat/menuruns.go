@@ -56,7 +56,8 @@ func menuRuns(held []run.Held, now time.Time) (map[string][]ran, map[string][]ra
 		records = append(records, record)
 		view, known := viewRun(record, now)
 		var read bool
-		if view.place, read = place(record, each.Name); !known || !read {
+		// a run filed under no seat is in no seat's word, so a view Go cannot read of it holds none up
+		if view.place, read = place(record, each.Name); !known && name != "" || !read {
 			return nil, nil, false
 		}
 		mine[name] = append(mine[name], ran{name: each.Name, record: record, quiet: silence(filepath.Join(run.Runs(), each.Name), record, now), view: &view, census: census})

@@ -6,8 +6,8 @@ the models a test gives, so ak can pick no other.  A model the shipped config na
 entry there, a test's keys over it; any other name is its own model id on the harness given,
 at effort `high`, on that harness's shipped provider.  Each provider named gets its shipped
 table, less a `usage_model` naming a model left out (as config.remove_model drops it), else
-`mode = "subscription"`.  The audit is off unless `audit=True`: on, a tick opens an audit seat
-by itself.
+`mode = "subscription"`.  `audit` is `[audit] on`, false unless given: on, a tick opens an audit
+seat by itself.  None writes no `[audit]` table, as a home that never set it.
 
     from fixtures.akbin import Home
     from fixtures import akconfig
@@ -49,8 +49,8 @@ def write(home, models, *, workers=None, orchestrator=None, reviewers=None, prov
                     _SHIPPED["providers"].get(provider, {"mode": "subscription"}).items()
                     if key != "usage_model" or value in models}
         tables[f"providers.{json.dumps(provider)}"] = keys
-    if not audit:
-        tables["audit"] = {"on": False}
+    if audit is not None:
+        tables["audit"] = {"on": audit}
     defaults = {"orchestrator": orchestrator or next(iter(models)),
                 "workers": list(models) if workers is None else workers,
                 **({"reviewers": reviewers} if reviewers else {})}
