@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/handback"
@@ -144,14 +143,7 @@ func (t *ticking) breaks(key string, merges []*merge, now float64, release *merg
 			}
 			broke = merges[at]
 		}
-		branch := any("main")
-		for _, key := range []string{"base", "target"} {
-			if broke.record.Truthy(key) {
-				branch = broke.record.Get(key)
-			}
-		}
-		target, _ := branch.(string) // the branch merged into, short: `origin/main` is `main`
-		target = cmp.Or(strings.TrimPrefix(target, "origin/"), "main")
+		target := mergedInto(broke.record)
 		if release == nil {
 			line = fmt.Sprintf("%s failed on %s after this merge. %s. Fix the target.", broke.check, target, broke.at)
 		}

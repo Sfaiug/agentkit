@@ -22,15 +22,8 @@ var Drivable func(config.Binding, config.Numbers) error
 // drive the run they bind.
 func LaunchForSeat(session, name, path, text string, origin *run.Object) (string, error) {
 	state := run.Fields("launched_session", session)
-	if os.Getenv("AK_MAX_RUNS") != "0" {
-		return "", fmt.Errorf("%w: host admission is Python's", ErrLeft)
-	}
-	_, bound, numbers, err := bindSeat(state, origin)
-	if err == nil {
-		err = Drivable(bound, numbers)
-	}
-	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrLeft, err)
+	if err := carried(state, origin); err != nil {
+		return "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return "", err
@@ -72,4 +65,21 @@ func LaunchForSeat(session, name, path, text string, origin *run.Object) (string
 		return "", err
 	}
 	return filepath.Base(dir), start()
+}
+
+// carried is nil where Go carries a launch the tick makes for the seat state names, with origin's
+// repository: the host's admission, the seat's lists, the project's numbers and the run they bind;
+// ErrLeft otherwise.
+func carried(state, origin *run.Object) error {
+	if os.Getenv("AK_MAX_RUNS") != "0" {
+		return fmt.Errorf("%w: host admission is Python's", ErrLeft)
+	}
+	_, bound, numbers, err := bindSeat(state, origin)
+	if err == nil {
+		err = Drivable(bound, numbers)
+	}
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrLeft, err)
+	}
+	return nil
 }

@@ -15,9 +15,9 @@ const revertSchema = "Live health fails; no revert: a schema change cannot be un
 // revertLine is after_merge_revert from the broken release it picked to where its revert starts:
 // the line the release's seat is told instead of a break.  A code revert cannot undo a schema
 // change, so a diff from the release's first parent touching a `migrations` or `alembic`
-// directory, or a `.sql` file, is named instead; any other's revert is the next milestone's,
-// errLeft.  A parent the checkout lacks is fetched, from origin, else the pull request's
-// repository; where neither gives it, or the diff cannot be read, that is said and "" told.
+// directory, or a `.sql` file, is named instead; any other is reverted (revertRun).  A parent the
+// checkout lacks is fetched, from origin, else the pull request's repository; where neither gives
+// it, or the diff cannot be read, that is said and "" told.
 func revertLine(each *merge, say func(string)) (string, error) {
 	g, parent := gitcall.Git{Repo: each.record.Str("repo")}, each.sha+"^"
 	missing, _, err := g.Out("cat-file", "-e", parent)
@@ -62,5 +62,5 @@ func revertLine(each *merge, say func(string)) (string, error) {
 			return revertSchema, nil
 		}
 	}
-	return "", errLeft
+	return revertRun(each, say)
 }

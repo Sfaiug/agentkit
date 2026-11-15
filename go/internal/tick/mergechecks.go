@@ -16,7 +16,8 @@ import (
 )
 
 // A merge's live product is followed for three hours (watch.AFTER_MERGE_WINDOW), and one break
-// per repository is handed back to fix, as Python's after_merge_checks does. A revert is Python's.
+// per repository is handed back to fix, or a broken live release reverted, as Python's
+// after_merge_checks does.
 const mergeWindow = 3 * 3600
 
 // A merge is one followed run as the merge checks read it, with its verdict: passed, failed,
