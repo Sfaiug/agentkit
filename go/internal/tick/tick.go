@@ -53,6 +53,18 @@ func Overlap(out, errOut io.Writer) bool {
 	return true
 }
 
+// Client is a tick on a client, whose home may be a copy of its server's at the same paths: one
+// there would resume, land and tell all of it a second time, so it says whose client the machine
+// is and does nothing else.  Its line is dated, not rolled: a roll takes a lock in the state folder.
+// False, with nothing written, on a server.
+func Client(out io.Writer) bool {
+	alias := config.ServerAlias()
+	if alias != "" {
+		fmt.Fprintf(newLog(out, io.Discard).out, "this machine is a client of %s and runs no tick\n", alias)
+	}
+	return alias != ""
+}
+
 func lockPath() string { return filepath.Join(config.Home(), "state", "watch.tick.lock") }
 
 func logPath() string { return config.TickLog() }

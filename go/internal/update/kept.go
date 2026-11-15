@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
@@ -18,7 +17,7 @@ import (
 // its bin/ak, which the cron line runs.  "" on a client, which runs no tick that could make its
 // moves final, so keeps nothing, a link a server left it included.
 func keepLink() string {
-	if server, _ := os.ReadFile(filepath.Join(config.Home(), "state", "server")); strings.TrimFunc(string(server), config.Space) != "" {
+	if config.ServerAlias() != "" {
 		return ""
 	}
 	return filepath.Join(config.Home(), "tmp", "keep", "ak")

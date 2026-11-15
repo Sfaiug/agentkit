@@ -21,10 +21,12 @@ import (
 )
 
 func carry(args []string, out, errOut io.Writer) int {
-	config.MigratePolicy()
 	command, rest, help := "attach", args, ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command, rest, help = args[0], args[1:], args[0]
+	}
+	if command != "watch" { // the tick renames once it knows it is no client's (tick.Client)
+		config.MigratePolicy()
 	}
 	handover.Runs(command)
 	if command == "adapter" { // unlisted, as commandhelp says
