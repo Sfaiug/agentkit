@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -73,15 +72,13 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 		fmt.Fprintf(errOut, "ak orch: %s\n", err)
 		return 2
 	}
-	// the models the seat may open on: the one asked for, else any the question may pick
-	choices, fallback := []string{orchestrator}, ""
-	if orchestrator == "" {
-		var unread error
-		choices, err = config.Offered()
-		fallback, unread = config.DefaultOrchestrator()
-		if err = cmp.Or(err, unread); err != nil {
-			return failed(err)
-		}
+	choices, err := opensOn(orchestrator)
+	fallback := ""
+	if err == nil && orchestrator == "" {
+		fallback, err = config.DefaultOrchestrator()
+	}
+	if err != nil {
+		return failed(err)
 	}
 	for _, each := range choices {
 		if model, err := config.ModelNamed(each); err != nil || !seat.Carried(name, model, dryRun) {
