@@ -41,11 +41,11 @@ func Owned(name string, record map[string]any) (string, bool) {
 	return conversation, true
 }
 
-// Recorded is each conversation a seat's record proves beside the one it names, by every harness's
-// own evidence (harness.recorded_conversations, each plugin's `owned`): the one its Antigravity
-// launch saw, the one its Muse launch reported; "" for none.
+// Recorded is each conversation a seat's record proves (harness.recorded_conversations): the one
+// it names, then each by every harness's own evidence, its plugin's `owned`: the one its
+// Antigravity launch saw, the one its Muse launch reported; "" for none.
 func Recorded(record *run.Object) []string {
-	return []string{antigravityMine(record), museReceived(map[string]any{"muse_launch": record.Get("muse_launch")})}
+	return []string{record.Str("conversation"), antigravityMine(record), museReceived(map[string]any{"muse_launch": record.Get("muse_launch")})}
 }
 
 // launchSeats is the seat whose record carries that launch's token under key, "" for none, and
@@ -74,7 +74,7 @@ func namedElsewhere(key, token, conversation string) bool {
 	_, _, others := launchSeats(key, token)
 	return slices.ContainsFunc(others, func(other *run.Object) bool {
 		left, _ := other.Get("left").([]any)
-		return other.Get("conversation") == conversation || slices.Contains(Recorded(other), conversation) ||
+		return slices.Contains(Recorded(other), conversation) ||
 			slices.ContainsFunc(left, func(was any) bool {
 				entry, _ := was.(*run.Object)
 				return entry != nil && entry.Get("conversation") == conversation
