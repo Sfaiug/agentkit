@@ -43,12 +43,22 @@ func TestDeadLoopsLeaveAloneWhatPythonsPassLeavesAlone(t *testing.T) {
 	deadRun(t, ak, "interrupted", "state", "interrupted")
 	// a worker of the run outlives its loop, carrying its marker
 	deadRun(t, ak, "worked")
-	worker := exec.Command("sleep", "600")
+	worker := exec.Command("cat")
 	worker.Env = append(os.Environ(), host.Marker+"="+filepath.Join(ak, "runs", "worked"))
+	in, _ := worker.StdinPipe()
+	out, _ := worker.StdoutPipe()
 	if err := worker.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { worker.Process.Kill(); worker.Wait() })
+	// Start returns before the kernel shows the worker's environment, the end of its exec: cat
+	// echoing a line is past it
+	if _, err := io.WriteString(in, "\n"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := out.Read(make([]byte, 1)); err != nil {
+		t.Fatal(err)
+	}
 	before := files(t, filepath.Join(ak, "runs"))
 	var said bytes.Buffer
 	tick := &ticking{log: newLog(&said, io.Discard), clock: time.Now}
