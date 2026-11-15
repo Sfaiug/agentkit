@@ -25,10 +25,30 @@ import (
 // gcEvery is how often a repository is collected, Python's gc.GC_INTERVAL.
 const gcEvery = 86400
 
-// housekeeping is the git housekeeping row (gc.git_housekeeping): each
+// housekeepingEvery is how often the row runs, Python's gc.HOUSEKEEPING_INTERVAL: a tick has 3
+// minutes, and housekeeping need not take from every one.
+const housekeepingEvery = 3600
+
+// housekeepingMark is where the time the row last ran is kept (gc.housekeeping_mark).
+func housekeepingMark() string { return filepath.Join(config.Home(), "state", "git-housekeeping") }
+
+// housekeeping is the git housekeeping row (gc.git_housekeeping), at most once an hour: each
 // repository a checkout or a seat works in once, kept from collecting itself and collected in the
-// foreground once a day while nothing holds it; a busy one waits for a later tick.
-func (t *ticking) housekeeping() error {
+// foreground once a day while nothing holds it; a busy one waits for the next hour's.
+func (t *ticking) housekeeping() (err error) {
+	ran, now := housekeepingMark(), epoch(t.clock())
+	if fresh(ran, now, housekeepingEvery) {
+		return nil
+	}
+	// marked before the work, so housekeeping that fails or is cut short waits its hour too
+	if err := setMark(ran, now); err != nil {
+		return err
+	}
+	defer func() {
+		if errors.Is(err, errLeft) {
+			os.Remove(ran) // Python's tick, which runs next, takes the hour Go leaves it
+		}
+	}()
 	lives, err := lives()
 	if err != nil {
 		return err
@@ -77,10 +97,8 @@ func (t *ticking) collect(repo, common string, seatPaths []string) error {
 	}
 	defer held.Close()
 	mark, now := filepath.Join(common, "ak-gc"), epoch(t.clock())
-	if data, err := os.ReadFile(mark); err == nil {
-		if at, err := strconv.ParseFloat(gitcall.Strip(string(data)), 64); err == nil && now-gcEvery < at && at <= now {
-			return nil
-		}
+	if fresh(mark, now, gcEvery) {
+		return nil
 	}
 	paths, known, err := busyPaths()
 	if err != nil {
@@ -98,7 +116,7 @@ func (t *ticking) collect(repo, common string, seatPaths []string) error {
 		return nil
 	}
 	// attempts are marked too: a failed gc must not run on every tick
-	if err := os.WriteFile(mark, []byte(string(run.Float(now))+"\n"), 0o666); err != nil {
+	if err := setMark(mark, now); err != nil {
 		return err
 	}
 	env, err := config.ChildEnv()
@@ -118,6 +136,28 @@ func (t *ticking) collect(repo, common string, seatPaths []string) error {
 		t.log.line("git gc: " + repo)
 	}
 	return nil
+}
+
+// fresh is whether a mark holds a time within the last so many seconds: one ahead of this clock,
+// set back since, holds no work off.
+func fresh(mark string, now, every float64) bool {
+	at, ok := markedAt(mark)
+	return ok && now-every < at && at <= now
+}
+
+// markedAt is the Unix time a mark holds (gc.stamped), false where it holds none.
+func markedAt(mark string) (float64, bool) {
+	data, err := os.ReadFile(mark)
+	if err != nil {
+		return 0, false
+	}
+	at, err := strconv.ParseFloat(gitcall.Strip(string(data)), 64)
+	return at, err == nil
+}
+
+// setMark writes the time in Python's form, so either program reads the other's.
+func setMark(mark string, now float64) error {
+	return os.WriteFile(mark, []byte(string(run.Float(now))+"\n"), 0o666)
 }
 
 // noAutoGC keeps git from collecting the repository by itself (gitcall.no_auto_gc): a turn's
