@@ -14,11 +14,12 @@ terminal a person started it from.
 """
 
 import shlex
+import sys
 import tempfile
 import time
 from pathlib import Path
 
-from .akbin import AK
+from .akbin import AK, REPO
 
 SERVER = "agentkit-term"
 # Every row is the program's.  The server outlives its last terminal, so the next one never
@@ -29,13 +30,27 @@ CONF = "set -g status off\nset -g default-terminal xterm-256color\nset -g exit-e
 # outlives a Ctrl-C that ends the program, whose SIGINT stays its default; the program gets ak's
 # colours, which the Home's NO_COLOR turns off for its piped runs.
 KEEP = 'trap : INT; env -u TMUX -u TMUX_PANE -u NO_COLOR "$@"; echo $? >"$0"; exec sleep 86400'
+# A page of Python ak's menu by itself, as the menu runs one: painted, on a keyboard it has taken.
+PAGE = """import sys
+sys.path.insert(0, {repo!r})
+from contextlib import closing
+from agentkit import config, menu, terminal
+terminal.screens()
+with closing(terminal.Keyboard()) as keyboard:
+    if keyboard.take():
+        terminal.sense()
+    menu.{page}(config.load())
+"""
 
 
 class Terminal:
     """`args` run after `program`, by default the one `AK_BIN` names; `env` adds to its
-    environment."""
+    environment.  `page` names a page of Python ak's menu (agentkit/menu.py) to run by itself
+    instead, over the Home's config: one no row opens, which no claim of Go's can reach."""
 
-    def __init__(self, home, *args, size=(100, 40), env=None, program=AK):
+    def __init__(self, home, *args, size=(100, 40), env=None, program=AK, page=None):
+        if page:
+            program, args = sys.executable, ("-c", PAGE.format(repo=str(REPO), page=page))
         self.home = home
         conf = home.root / "terminal.conf"
         conf.write_text(CONF)

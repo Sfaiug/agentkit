@@ -2970,9 +2970,10 @@ def show_notices(messages):
         pause(*said)
 
 
-# The rows under the models, each running its own step.
-CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Weekly audit", "Done check", "Machines",
-               "Limits")
+# The rows under the models, each running its own step.  Owner, 10 Nov 2026: "Remove the weekly
+# audit feature for now. Dont delete it, but remove it."  `Weekly audit` (AUDIT), its value
+# audit_value's, stood between `Discord` and `Done check`.
+CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Done check", "Machines", "Limits")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
 DONE_CHECK = ("row", "Done check")   # on or off, and the model that makes it (done_check.setting)
 MACHINES = ("row", "Machines")
@@ -3802,7 +3803,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     A model `providers` read as spent is dim.  A model whose provider runs the subscription
     `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
     clock washes in and out as `lit` comes and goes (motion.washing).  Then `Models`,
-    `Subscriptions`, `Discord`, `Weekly audit`, `Done check`, `Machines` and `Limits` with
+    `Subscriptions`, `Discord`, `Done check`, `Machines` and `Limits` with
     their values, unless `rows` is empty (a new session's screen).  A row is `("model", name)`
     or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
@@ -3919,8 +3920,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     if not rows:
         return lines, places
     lines.append("")
-    values = ("", "", discord_value(), audit_value(cfg), done_check_value(cfg), machines_value(),
-              limits_value(cfg))
+    values = ("", "", discord_value(), done_check_value(cfg), machines_value(), limits_value(cfg))
     # the values line up past the widest row that has one
     wide = max(terminal.cells(row) for row in CONFIG_ROWS[2:])
     for row, value in zip(CONFIG_ROWS, values):
