@@ -159,7 +159,7 @@ func followLive(dir string, shared *census, say func(string)) error {
 			return errLeft
 		}
 		each := &merge{name: filepath.Base(dir), pr: record.Str("pr"), record: record}
-		if err := verdict(each, record.Str("repo"), epoch(at), map[[2]string]probe{}, census, say, false); err != nil {
+		if err := verdict(each, record.Str("repo"), epoch(at), map[[3]string]probe{}, census, say, false); err != nil {
 			return err
 		}
 		if each.verdict == "passed" {
