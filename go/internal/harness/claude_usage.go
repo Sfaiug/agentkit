@@ -71,7 +71,7 @@ func claudeUsage(login config.Login) *run.Object {
 		}
 		answer := unknown(why)
 		if retry := claudeRetry(dump.Name()); retry > 0 {
-			answer.Set("retry_after", run.Number(strconv.FormatInt(retry, 10)))
+			answer.Set("retry_after", int(retry))
 		}
 		return answer
 	}
@@ -163,15 +163,15 @@ func claudeMeters(reading any) ([]any, bool) {
 		if err != nil {
 			return nil, false
 		}
-		window := "604800"
+		window := 604800
 		if limit.Get("group") == "session" {
-			window = "18000"
+			window = 18000
 		}
 		meter := run.NewObject()
 		meter.Set("name", limit.Get("kind"))
 		meter.Set("used", limit.Get("percent"))
-		meter.Set("resets_at", run.Number(strconv.FormatInt(resets.Unix(), 10)))
-		meter.Set("window_secs", run.Number(window))
+		meter.Set("resets_at", int(resets.Unix()))
+		meter.Set("window_secs", window)
 		for _, whose := range []string{"model", "surface"} {
 			if name, _ := at(limit, "scope", whose, "display_name").(string); name != "" {
 				meter.Set("scope", name)

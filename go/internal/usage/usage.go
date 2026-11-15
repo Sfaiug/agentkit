@@ -200,7 +200,7 @@ func (r *Readings) Shown(listed func(provider, account string) any, plans map[We
 // gating is the meters that gate that model and its provider's reading, Python's
 // usage._gating_meters, which every reader of a model's meters asks: never a cap that is another
 // model's.  A cap is the model's its provider names in its `scope`, each word of which is a word of
-// the model's id or of the name every screen shows it by (`Fable` names `claude-fable-5-2`);
+// the model's id or of the name every screen shows it by (`Fable` names `acme-fable-5-2`);
 // without one, the model's whose `meter` claims it.  Of the rest, a model naming a `meter` is
 // gated by that one, the shared week and the session; any other by all of them.
 func (r *Readings) gating(name string) ([]*run.Object, *run.Object) {
