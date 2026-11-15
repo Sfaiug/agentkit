@@ -221,11 +221,11 @@ def size_base(state):
 
 def checks_only(repo, base, head="HEAD"):
     """Whether every path the change from `base` to `head` touches, a renamed file under both its
-    names, is marked `ak-checks-only` at `base`, as `diff_lines` reads linguist-generated: such a
-    change lands on its checks with no review (`roundloop.review`), and one marking its own paths
-    is reviewed, since they are marked only once a change of their own has landed."""
+    names, is marked `ak-checks-only` at `base`, as `diff_lines` reads linguist-generated, so a
+    change cannot mark its own paths: such a change lands on its checks with no review
+    (`roundloop.review`).  One whose diff git cannot read is reviewed."""
     names = [name for name in gitcall.git(repo, "diff", "--name-only", "-z", "--no-renames",
-                                          f"{base}...{head}").split("\0") if name]
+                                          f"{base}...{head}", check=False).split("\0") if name]
     return bool(names) and _marked(repo, base, names, "ak-checks-only") == set(names)
 
 
@@ -235,11 +235,14 @@ def _marked(repo, source, names, attribute):
         return set()
     # Older Git has no check-attr --source; a private index reads the same tree, in the process's
     # own temporary directory: a worker's box, where `ak hand-in` counts too, writes nowhere else.
+    attrs = []
     with tempfile.TemporaryDirectory() as tmp:
         index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
         gitcall.git(repo, "read-tree", source, env=index)
-        attrs = gitcall.git(repo, "check-attr", "--cached", "-z", attribute,
-                    "--", *names, env=index).split("\0")[2::3]
+        # a thousand at a time: a change can touch more paths than one command line holds
+        for start in range(0, len(names), 1000):
+            attrs += gitcall.git(repo, "check-attr", "--cached", "-z", attribute, "--",
+                                 *names[start:start + 1000], env=index).split("\0")[2::3]
     if len(attrs) != len(names):
         raise config.Error(f"git did not report {attribute} attributes for the diff")
     return {name for name, attr in zip(names, attrs) if attr.lower() in ("set", "true")}
