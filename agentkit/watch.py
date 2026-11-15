@@ -4233,7 +4233,9 @@ def composer_holds(name, session, line, cfg=None, *, exact=False, harness=None):
     and another's top goes above the read; or the harness's fold of a line longer than `[screen]
     folds_over`.  What the owner types goes in at its end, so none of these is a line with the
     owner's words beside it, and a one-row draft that only ends the way the line does is the
-    owner's.  It is also a composer read whole holding that line joined in order with others
+    owner's.  Spaces alone beside the line read as the line: a wrap draws as whitespace too, so
+    none of it is told apart, and the owner took that on 15 Nov 2026, as nothing with content
+    is lost and a cursor is drawn differently by every harness.  It is also a composer read whole holding that line joined in order with others
     ak typed there (`_joined`): a line drawn late joins the next.
     `exact` requires the whole composer to be read and hold the full line: a cropped or
     scrolled composer, suffix or paste fold is no proof without a delivery mark.  `harness`,
