@@ -16,9 +16,9 @@ func TestCatalogWaitKeepsItsFrameAndStaysStillWithoutColour(t *testing.T) {
 		s := screenAt(t, width)
 		clock, now := &motion.Clock{}, time.Unix(123, 0)
 		clock.Draw(now)
-		first := CatalogWaiting(s, "config", "12:34", nil, clock)
+		first := CatalogWaiting(s, "config", "12:34", "reading the models acme offers", nil, clock)
 		clock.Draw(now.Add(time.Second))
-		second := CatalogWaiting(s, "config", "12:34", nil, clock)
+		second := CatalogWaiting(s, "config", "12:34", "reading the models acme offers", nil, clock)
 		if !slices.Equal(first, second) || first[len(first)-1] != "  esc back" || !strings.Contains(first[1], "━") {
 			t.Fatalf("bad waiting frame at %s: %q", width, first)
 		}

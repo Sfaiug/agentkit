@@ -45,7 +45,7 @@ with Home() as home:
     term = Terminal(home, "attach", "--overlay", size=(100, 40), env={"AGENTKIT_SESSION": "acme", "NO_COLOR": "1"})
     term.wait("esc leave", bound=10)
     term.keys("c")
-    term.wait(lambda s: "Subscriptions" in s and "Reading models" not in s, bound=10)
+    term.wait(lambda s: "Subscriptions" in s and "reading the models" not in s, bound=10)
     term.keys("Down", "Down", "Enter")
     term.wait(lambda s: title(s) == PAGE and row_at(s, "Claude") is not None, bound=10)
     term.keys("Down", "Down")
@@ -55,7 +55,7 @@ with Home() as home:
     term.keys(*["Down"] * rows.index("Claude II"), "Enter")
     term.wait(lambda s: title(s) == PAGE and row_at(s, "Claude II") is not None, bound=10)
     term.keys("Escape")
-    term.wait(lambda s: title(s) != PAGE and "Subscriptions" in s and "Reading models" not in s, bound=10)
+    term.wait(lambda s: title(s) != PAGE and "Subscriptions" in s and "reading the models" not in s, bound=10)
     term.keys("Up", "Up", "Right", "Right", "Right", "Space")   # one's build effort, stepped once
     deadline = time.monotonic() + 10
     while "exec_effort" not in (efforts := json.loads(record.read_text()).get("efforts", {})).get("one", {}) and time.monotonic() < deadline:

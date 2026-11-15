@@ -109,7 +109,7 @@ func addProvider(picked menu.Addable, account string, cells []menu.Cell, keyboar
 	if verb := adapterVerbs(keyboard, painter, on, append(installing(on), "login"), account, picked.Provider, true); verb != "" {
 		return notAdded(on, verb, picked.Label)
 	}
-	listed, err := waitAdapter(addTitle, cells, keyboard, painter, func(ctx context.Context) ([]modelListing.Choice, error) {
+	listed, err := waitAdapter(addTitle, "reading the models "+on+" offers", cells, keyboard, painter, func(ctx context.Context) ([]modelListing.Choice, error) {
 		return modelListing.ChoicesAdding(ctx, on, picked.Provider, account)
 	})
 	if err == context.Canceled {
