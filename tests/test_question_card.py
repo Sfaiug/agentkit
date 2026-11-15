@@ -71,10 +71,12 @@ class QuestionCard(unittest.TestCase):
         with patch.object(terminal, "colour_depth", return_value=256):
             dim, warn = terminal.styled("  " + MEANS, "dim"), terminal.styled("× Stop", "amber")
         self.assertEqual(card, ["", "  " + QUESTION, dim, "", "", ""])
-        # the choices on the card's two rows before its last: Keep lit, a row of a list on the
-        # selection to the layout's last column, and Stop in the warn colour
+        # the choices on the card's two rows before its last: Keep lit, on the selection over its
+        # text and a cell each side, its row no band, and Stop in the warn colour
         keep, stop = (row.split("\x1b[K")[0] for row in re.split(r"\x1b\[\d+;1H", out)[1:3])
-        self.assertEqual(terminal.ANSI.sub("", keep), "› ✓ Keep".ljust(120))
+        self.assertEqual(terminal.ANSI.sub("", keep), "› ✓ Keep ")
+        self.assertEqual([column for column, back in enumerate(terminal._grounds(keep), 1)
+                          if back], list(range(2, 10)))
         self.assertIn("48;5;23m", keep)
         self.assertTrue(stop.endswith("  " + warn), repr(stop))
         # on a phone the question and its meaning wrap and no choice does

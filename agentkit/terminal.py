@@ -1303,9 +1303,9 @@ def step(key):
 
 def highlight(line, mark=True, band=True):
     """The keys' row: `›` in the accent colour in its first column, its text bright, and with
-    `band`, as a row Enter or a click acts on as a whole (a seat, a choice), on the theme's
-    selection from its first column to the layout's last where the terminal draws 256 colours
-    or more.  The row of a lit cell -- a mark on `c` -- has no band.
+    `band`, as a row Enter or a click acts on as a whole (a seat), on the theme's selection
+    from its first column to the layout's last where the terminal draws 256 colours or more.
+    The row of a lit cell -- a mark on `c`, a list's answer (`choose`) -- has no band.
 
     Every row a list draws starts with a space, so the mark takes it and no column moves; a
     row's second line, on a phone, is brightened and banded without one.
@@ -1711,9 +1711,11 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
     while True:
         lines = []
         for number, choice in enumerate(choices):
-            line = cut(str(choice), width() - 3)
-            line = "  " + (styled(line, "amber") if choice == warn else line)
-            lines.append(highlight(line) if number == at and not _AWAY else line)
+            text = cut(str(choice), width() - 3)       # room for the mark and a cell each side
+            line = "  " + (styled(text, "amber") if choice == warn else text)
+            # an answer is a cell, lit over its text and a cell each side, its row no band
+            lines.append(highlight(selected(line, 2, cells(text) + 3), band=False)
+                         if number == at and not _AWAY else line)
         if again:
             _LIST = dict(enumerate(lines, top)) if top and _UP else {}
             moved, again = around(None if at is None else choices[at]), False

@@ -408,8 +408,8 @@ class Screens(Sandbox):
         screens = run(lambda: terminal.choose(choices, around=around), move(5, 5), move(*keys),
                       b"k", move(1, 2), ESC)[1]
         self.assertEqual([(marked(grid, "lit"), highlighted(grid)) for grid in screens[1:]],
-                         [({5: "› Grok"}, ["› Grok"]), ({keys[1]: "esc back"}, []),
-                          ({4: "› ChatGPT"}, ["› ChatGPT"]), ({}, [])])
+                         [({5: "Grok"}, ["› Grok"]), ({keys[1]: "esc back"}, []),
+                          ({4: "ChatGPT"}, ["› ChatGPT"]), ({}, [])])
         # on nothing the highlight is out, Enter only brings it back, and the next one picks
         answer, screens = run(lambda: terminal.choose(choices, around=around), move(5, 5),
                               move(1, 2), b"\r", ESC)
