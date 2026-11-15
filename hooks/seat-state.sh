@@ -6,15 +6,15 @@
 # and the classifier reads adapters/<harness>.toml to say what that event means. A notice with
 # no state leaves that fact alone, so it cannot erase a turn or restore one over a Stop. A prompt
 # also starts a turn, and ~/.agentkit/state/stop-<seat>.json is where that moment is kept, for
-# hooks/orchestrator-stop.sh to judge the turn's end against.
+# hooks/orchestrator-stop.sh to judge the turn's end against (`looker.prompted`).
 #
 # Every event it hears also has the seat looked at again at once (`watch.hook_look`), so
 # the seat's record and its status bar say what the event means now rather than at the next
 # menu draw or tick.  The look also records the owner's answer to a question. It runs in the
 # background, in a session of its own, holding nothing of the harness's: the harness never
-# waits on it, even while a notice's lock is held for delivery.  Every event but a prompt and a
-# Stop is heard where it is looked at (agentkit/looker.py): its moment, its fact and its look in
-# one hand-over to the warm looker, which has its imports done, else in the client, cold.
+# waits on it, even while a notice's lock is held for delivery.  Every event but a Stop is heard
+# where it is looked at (agentkit/looker.py): its moment, its fact and its look in one hand-over
+# to the warm looker, which has its imports done, else in the client, cold.
 #
 # A worker is silent here as it is everywhere: a headless `ak worker` runs the same harness with
 # the same hooks, and a seat's row must never be moved by one.  No $AGENTKIT_SESSION, or
@@ -32,11 +32,9 @@ set -u
 # pane, which is where every seat's harness runs; watch.hook_look checks the pane is the seat's,
 # on the seat's own server.
 look() {
-  local seat=$1 answered=${2:-} said=${3:-} event=${4:-}
   [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] || return 0
-  # the owner's words go on its stdin: on its command line, a long one would never run it
-  ( printf '%s' "$said" | /usr/bin/env python3 "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" \
-      "$seat" "$answered" "$event" >/dev/null 2>&1 & )
+  ( /usr/bin/env python3 "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" "$1" \
+      </dev/null >/dev/null 2>&1 & )
 }
 
 # The moment that seat heard its event, on its own clock (`config.heard_at`), which never runs
@@ -52,13 +50,12 @@ print(config.heard_at(sys.argv[2]))
 }
 
 seat_state() {
-  local payload=$1 jq=$2 owner=$3 said=$4 ts=$5 seat event kind text dir row next hop
+  local payload=$1 jq=$2 owner=$3 said=$4 seat event kind text ts dir row next hop pid=''
   seat=${AGENTKIT_SESSION:-}
 
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null) || return 0
   [[ -n $event ]] || return 0
   [[ $event != SessionStart ]] || return 0
-  [[ $event != Stop ]] || ts=$(heard "$seat")
   # the payload field that tells one kind of that event from another: Claude's Notification
   # carries notification_type, a PermissionRequest the tool it wants -- and one harness spells
   # both camelCase, so the twins are read beside them -- and a compaction its trigger
@@ -70,12 +67,20 @@ seat_state() {
     <<<"$payload" 2>/dev/null) || text=''
   # Any other event is the looker's to hear (`looker.record`), wherever the harness runs, and
   # the hook goes on once its fact is down: an event the harness waits on is never written after
-  # the next.  The owner's word on a card answers at the moment the event is heard.
-  if [[ $event != UserPromptSubmit && $event != Stop ]]; then
+  # the next.  The owner's word answers at the moment the event is heard.  A prompt
+  # (`looker.prompted`) comes with its payload, and with the hook's caller, while it lives, for
+  # the seat to follow on somebody's words in a pane; what it says, its news, is the hook's.
+  if [[ $event = UserPromptSubmit ]]; then
+    [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} && $owner = true ]] && pid=$PPID
+    printf '%s\0%s\0%s' "$said" "$text" "$payload" | /usr/bin/env python3 \
+      "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" "$seat" "$owner" "$event" "$kind" "$pid"
+    return 0
+  elif [[ $event != Stop ]]; then
     printf '%s\0%s' "$said" "$text" | /usr/bin/env python3 \
-      "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" "$seat" "" "$event" "$kind" >/dev/null 2>&1
+      "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" "$seat" "$owner" "$event" "$kind" >/dev/null
     return 0
   fi
+  ts=$(heard "$seat")
 
   dir="$HOME/.agentkit/state"
   # The record the seat's row reads is under the name the seat goes by now: `ak orch rename`
@@ -118,20 +123,12 @@ row, seat, event, kind, at = sys.argv[2:]
 config.record_hook_fact(row, {"session": seat, "event": event, "kind": kind,
                               "text": sys.stdin.read()[:-1], "at": float(at)})
 ' "${BASH_SOURCE[0]}" "$row" "$seat" "$event" "$kind" "$ts" <<<"$text"
-
-  # The owner's word answers an older question, once the background look checks its pane --
-  # and, for a prompt, the seat's conversation (`notify.answer_written`).  The launch name still
-  # resolves after a rename; main leaves harness bookkeeping alone.
-  if [[ $owner = true ]]; then
-    look "$seat" "$ts" "$said" "$event"
-  else
-    look "$seat"
-  fi
+  look "$seat"
 }
 
 main() {
   umask 077
-  local payload=$1 jq event owner=true said='' ts='' seat=${AGENTKIT_SESSION:-} dir tmp
+  local payload=$1 jq event owner=true said='' seat=${AGENTKIT_SESSION:-}
   [[ ${AK_RUN_ROLE:-} != worker ]] || return 0
   # The seat's name is one component of a path here as it is everywhere else.
   case "$seat" in */*|.|..|"") return 0 ;; esac
@@ -152,21 +149,9 @@ main() {
       <<<"$payload" >/dev/null 2>&1; then
     owner=false
   fi
-  # Record the turn before optional context imports or I/O can fail or time out. Keep the
-  # question fact standing until its context has been read: the watcher can answer it as soon
-  # as the prompt fact appears, even before this hook starts its own background look.
   if [[ $event = UserPromptSubmit ]]; then
-    ts=$(heard "$seat")
-    dir="$HOME/.agentkit/state"
-    /bin/mkdir -p -- "$dir" || return 0
-    tmp="$dir/stop-$seat.json.tmp.$$"
-    "$jq" -n --arg session "$seat" --argjson turn "$ts" \
-      '{session: $session, turn: $turn, blocks: 0}' \
-      >"$tmp" || { /bin/rm -f -- "$tmp"; return 0; }
-    /bin/mv -f -- "$tmp" "$dir/stop-$seat.json" || /bin/rm -f -- "$tmp"
     said=$("$jq" -r '[(.prompt // empty), (.message // empty)] | map(strings)
                      | first // ""' <<<"$payload" 2>/dev/null) || said=''
-    news "$payload" "$owner" "$said"
   # The owner's answer to the harness's own question tool is their word as a prompt is, and
   # answers only the questions it names: by their words, or by an id its call gives the words
   # of, each beside the choices the card showed with it (`notify.replied`).  A card cancelled
@@ -183,51 +168,39 @@ main() {
                         | select(. != [])' <<<"$payload" 2>/dev/null); then
     owner=false
   fi
-  seat_state "$payload" "$jq" "$owner" "$said" "$ts" >/dev/null 2>&1
+  # A prompt's news is the hook's output; nothing else it hears says anything.
+  if [[ $event = UserPromptSubmit ]]; then
+    seat_state "$payload" "$jq" "$owner" "$said"
+  else
+    seat_state "$payload" "$jq" "$owner" "$said" >/dev/null 2>&1
+  fi
   # SessionStart first captures the conversation its harness vouches for.
   if [[ $event = SessionStart ]]; then
-    news "$payload" "$owner" "$said"
+    news "$payload"
   fi
 }
 
-# A seat's prompt carries its rulebook news and the questions it may answer; a harness that
-# takes no context, a worker, a client that is not the seat's own conversation and every other
-# event print nothing. A compaction (a `SessionStart` from `compact`) leaves the conversation
+# A seat's SessionStart: first, while the hook's caller lives and before a background look reads
+# it, the seat goes on in the conversation the event names where its own process went
+# (`Harness.follow`), only in a pane.  A compaction (`source` compact) leaves the conversation
 # holding its launch's rulebook again, which its next prompt is then told about.
-#
-# First, while the hook's caller lives and before a background look reads it, the seat goes on
-# in the conversation the event names where its own process went (`Harness.follow`): only in a
-# pane, and on a prompt only for somebody's words, never a slash command or a harness's own turn.
 news() {
-  local payload=$1 owner=$2 said=$3 jq event pid=''
-  [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || return 0
-  jq=$(command -v jq) || return 0
-  event=$("$jq" -r '.hook_event_name // empty' <<<"$payload")
-  [[ $event = UserPromptSubmit || $event = SessionStart ]] || return 0
-  [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} && ( $event = SessionStart || $owner = true ) ]] &&
-    pid=$PPID
-  # JSON contains no literal NUL; both it and a long answer travel on stdin, never argv.
-  printf '%s\0%s' "$payload" "$said" | /usr/bin/env python3 -c '
+  local payload=$1 pid=''
+  [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]] && pid=$PPID
+  # JSON travels on stdin, never argv.
+  printf '%s' "$payload" | /usr/bin/env python3 -c '
 import contextlib, json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
 from agentkit import config, orch
-payload, said = sys.stdin.read().split("\0", 1)
-payload = json.loads(payload)
-if sys.argv[4]:
-    with contextlib.suppress(Exception):    # the seat stays put, and its news still goes
+payload = json.load(sys.stdin)
+if sys.argv[3]:
+    with contextlib.suppress(Exception):    # the seat stays put, and a compaction is still heard
         orch.seat_plugin(config.session_records().get(config.resolve_session(sys.argv[2]), {})
-                         ).follow(sys.argv[2], payload, int(sys.argv[4]))
-if payload.get("hook_event_name") == "SessionStart":
-    if payload.get("source") == "compact":
-        orch.rulebook_compacted(sys.argv[2], payload.get("session_id"))
-    sys.exit(0)
-news = orch.prompt_news(sys.argv[2], payload.get("session_id"),
-                        said if sys.argv[3] == "true" else None)
-if news:
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
-                                             "additionalContext": news}}))
-' "${BASH_SOURCE[0]}" "$AGENTKIT_SESSION" "$owner" "$pid"
+                         ).follow(sys.argv[2], payload, int(sys.argv[3]))
+if payload.get("source") == "compact":
+    orch.rulebook_compacted(sys.argv[2], payload.get("session_id"))
+' "${BASH_SOURCE[0]}" "$AGENTKIT_SESSION" "$pid"
 }
 
 payload=$(/bin/cat 2>/dev/null) || payload=''
