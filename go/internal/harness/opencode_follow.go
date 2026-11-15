@@ -2,10 +2,8 @@ package harness
 
 import (
 	"errors"
-	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 
@@ -14,20 +12,18 @@ import (
 	"agentkit/internal/run"
 )
 
-func init() { verbs["opencode receipt"] = opencodeReceiptVerb }
-
 // opencodeFollows is a prompt the seat's own OpenCode took into a top-level session, whoever typed
 // it, its first one too (opencode.py `follow`): opencode.db, which keeps every session and so is
 // each one's file, says which as the prompt is reported, a subagent's session naming the one that
 // started it there, and never followed.  The session the seat is in then goes into its launch's
-// receipt (opencodeReceived).
+// receipt (opencodeReceive).
 func opencodeFollows(event *run.Object) *Followed {
 	session := event.Str("session_id")
 	if event.Get("hook_event_name") != "UserPromptSubmit" || !opencodeSession.MatchString(session) || !opencodeTop(session) {
 		return nil
 	}
 	return &Followed{Harness: "opencode", Conversation: session, Transcript: opencodeDatabase(), Client: opencodeClient,
-		Filed: func(map[string]any, string) string { return opencodeDatabase() }, From: opencodeCounted, Then: opencodeReceived}
+		Filed: func(map[string]any, string) string { return opencodeDatabase() }, From: opencodeCounted, Then: opencodeReceive}
 }
 
 // opencodeTop is whether opencode.db holds that session as a top-level one: not where it cannot be
@@ -59,23 +55,6 @@ func opencodeCounted(pid int) int {
 		return parent
 	}
 	return pid
-}
-
-// opencodeReceived has `ak adapter - opencode receipt` write the launch's receipt, a process of its
-// own the hook waits on, as Python's hook waits on its interpreter: OpenCode's plugin ends a hook
-// still running after 5 seconds, which leaves that process to land a write that stalled.
-func opencodeReceived(launched string) {
-	if self, err := os.Executable(); err == nil {
-		exec.Command(self, "adapter", "-", "opencode", "receipt", launched).Run()
-	}
-}
-
-// opencodeReceiptVerb is opencodeReceive of the seat launched as its one argument.
-func opencodeReceiptVerb(args []string, _, _ io.Writer) int {
-	if len(args) == 1 {
-		opencodeReceive(args[0])
-	}
-	return 0
 }
 
 // opencodeReceive puts the session the seat is in into its launch's receipt, whole and renamed

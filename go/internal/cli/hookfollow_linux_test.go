@@ -52,7 +52,7 @@ func grokPrompt(t *testing.T, name, server, meanwhile string, prepare func(state
 	}
 	prompt := []byte(`{"hook_event_name": "UserPromptSubmit", "session_id": "new-session", "cwd": "/code/acme", "prompt": "Please go on."}`)
 	var out bytes.Buffer
-	if code = seatState(prompt, &out); out.Len() != 0 {
+	if code = seatState(prompt, os.Getppid(), &out); out.Len() != 0 {
 		t.Fatalf("%s: said %q", name, out.String())
 	}
 	return code, state
@@ -135,7 +135,7 @@ func TestAnOpenCodeFollowLeftToPythonLearnsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	code := seatState([]byte(`{"hook_event_name": "UserPromptSubmit", "session_id": "ses_AcmeNew", "prompt": "Build acme."}`), new(bytes.Buffer))
+	code := seatState([]byte(`{"hook_event_name": "UserPromptSubmit", "session_id": "ses_AcmeNew", "prompt": "Build acme."}`), os.Getppid(), new(bytes.Buffer))
 	kept, _ := os.ReadFile(filepath.Join(state, "session-acme.json"))
 	latched, _ := os.ReadFile(filepath.Join(state, "stop-acme.json"))
 	if code != 3 || string(kept) != record || string(latched) != grokLatch {
