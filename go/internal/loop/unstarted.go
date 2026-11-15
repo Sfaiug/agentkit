@@ -12,7 +12,7 @@ func Unstarted(record *run.Object) bool {
 		return false
 	}
 	for _, key := range pythonRoads {
-		if record.Truthy(key) {
+		if onRoad(record, key) {
 			return false
 		}
 	}
