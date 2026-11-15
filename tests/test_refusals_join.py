@@ -6,6 +6,8 @@ parks every model, whatever was marked before.  Each refusal ends at its own dea
 fresh window on the meter that showed it, and neither ends another: Fable's refusals alone, or
 Fable's and Nova's, leave Opus to its own meters, however often a reading holds Fable's cap.
 A refusal recorded before marks named a meter's scope parks every model its names can mean.
+Caps of one name and two scopes are two meters: a refusal of Fable's ends on Fable's alone, and
+a turn reading Fable's leaves Opus's as it was.
 
 Fake meters in a temporary HOME: nothing here reaches a real usage endpoint or a real
 credential.
@@ -155,6 +157,36 @@ class RefusalsJoin(unittest.TestCase):
         self.reads(week("weekly_all", 60), fable, fable, week("weekly_scoped", 30, scope="Opus"))
         self.refused("fable")
         self.assertEqual(self.parked(), (["fable"], False))
+
+    def fable_refused_beside_opus(self):
+        """The login's record once Fable is refused at 100, Opus's cap of the same name at 30."""
+        self.read(week("weekly_all", 60), week("weekly_scoped", 100, scope="Fable"),
+                  week("weekly_scoped", 30, scope="Opus"))
+        self.refused("fable")
+        return json.loads((config.STATE / "usage.json").read_text())["providers"]["acme"]
+
+    def test_a_new_window_on_another_scope_keeps_the_refusal(self):
+        prov = self.fable_refused_beside_opus()
+        mark = usage._marks(prov)[0]
+        prov["meters"][2]["resets_at"] += 86400
+        self.assertEqual(usage._in_force(prov, [mark], NOW), [mark])
+
+    def test_an_asked_fall_of_the_refused_cap_ends_it_beside_another_scope(self):
+        prov = self.fable_refused_beside_opus()
+        mark = usage._marks(prov)[0]
+        prov["meters"][1]["used"] = 90
+        prov["probed_meters"] = {"weekly_scoped": NOW + 1}
+        self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [])
+
+    def test_a_turn_reading_one_scope_keeps_the_other(self):
+        self.read(week("weekly_all", 60), week("weekly_scoped", 90, scope="Fable"),
+                  week("weekly_scoped", 30, scope="Opus"))
+        self.now += 1
+        usage.record_turn_meters(self.cfg, "acme", [week("weekly_scoped", 95, scope="Fable")],
+                                 now=self.now)
+        meters = usage.collect(self.cfg)["acme"]["meters"]
+        self.assertEqual(sorted((m["scope"], m["used"]) for m in meters
+                                if m["name"] == "weekly_scoped"), [("Fable", 95), ("Opus", 30)])
 
 
 if __name__ == "__main__":

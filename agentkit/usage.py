@@ -825,9 +825,10 @@ def _fresh_window(prov, mark, now):
     """Whether the meter that showed the refusal `mark` records now has room again: a later
     reset, or a lower reading asked after the refusal.
 
-    That meter is the one `mark_exhausted` named (`exhausted_by`).  Another meter's new window
-    says nothing of the refusal: the 5-hour session rolling over under a weekly refusal leaves
-    that week as spent as it was.  A mark that names none ends at its deadline alone.
+    That meter is the one `mark_exhausted` named (`exhausted_by`, a `_key`).  Another meter's
+    new window says nothing of the refusal: the 5-hour session rolling over under a weekly
+    refusal leaves that week as spent as it was, and neither does Opus's cap of Fable's name.
+    A mark that names none ends at its deadline alone.
     Only reported reset times identify a replacement, and inside the same window only a reading
     asked after the refusal that fell by more than a point of jitter counts: a meter below 100
     that never fell is not permission to be refused again.
@@ -838,13 +839,14 @@ def _fresh_window(prov, mark, now):
     ends = mark.get("exhausted_ends")
     levels = mark.get("exhausted_used")
     at = _number(mark.get("exhausted_at"))
-    asked = _meter_asked(prov).get(name)
+    probed = _meter_asked(prov)
     # Marks written before `exhausted_used` existed named a meter only at 100%+.
     stood = (_number(levels.get(name)) if isinstance(levels, dict)
              else 100.0 if "exhausted_used" not in mark else None)
     for meter in prov.get("meters") or []:
-        if not isinstance(meter, dict) or meter.get("name") != name:
+        if not isinstance(meter, dict) or _key(meter) != name:
             continue
+        asked = probed.get(meter.get("name"))
         used = _number(meter.get("used"))
         if used is None or used >= 100 or _past(meter, now):
             continue
@@ -1178,17 +1180,17 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
     for meter in meters:
         used = _number(meter.get("used"))
         if used is not None:
-            levels[meter["name"]] = used
+            levels[_key(meter)] = used
         end = _number(meter.get("resets_at"))
         if end is not None:
-            ends[meter["name"]] = end
+            ends[_key(meter)] = end
             # the refusal shows on a meter spent as it came, of several the last to reset,
             # and never on a session -- or a window that does not say it is none -- when the
             # refusal outlasts one
             if meter in gating and (used or 0) >= 100 and not (
                     _number(meter.get("window_secs")) in (SESSION_SECS, None)
                     and until - now > SESSION_SECS):
-                shown.append((end, meter["name"], _identity(meter)))
+                shown.append((end, _key(meter), _identity(meter)))
     if not said and not shown:
         until = min(until, now + DRY_FOR)
     _, by, showed = max(shown, key=lambda each: each[:2], default=(0, None, None))
@@ -1207,7 +1209,7 @@ def record_turn_meters(cfg, provider, meters, account=None, now=None, asked=Fals
     A file and no request, so neither the snapshot's five minutes nor any probe stands
     between it and the menu, `ak usage` and the next pick. The endpoint's own cadence
     is untouched -- no ask went out, so none is written down, and a meter the turn
-    does not carry keeps refreshing on it. Only the meters the turn carries are
+    does not carry keeps refreshing on it. Only the caps the turn carries (`_key`) are
     replaced, and only on that account: a turn never moves another login's meters. A
     turn that said nothing changes nothing, and an older reading never replaces a
     newer one: the write shares the probe's own lock, so a probe in flight cannot
@@ -1263,18 +1265,19 @@ def _record_turn_meters(cfg, provider, fresh, account, measured, asked):
     old = [{**m, "measured_at": _number(m.get("measured_at")) or stood}
            for m in (cached.get("meters") if isinstance(cached.get("meters"), list) else [])
            if isinstance(m, dict) and isinstance(m.get("name"), str)]
-    held = {m["name"]: m["measured_at"] for m in old}
-    fresh = [m for m in fresh if (at := held.get(m["name"])) is None or measured > at]
+    held = {_key(m): m["measured_at"] for m in old}
+    fresh = [m for m in fresh if (at := held.get(_key(m))) is None or measured > at]
     if not fresh:
         return False
     _keep(provider, account, fresh, measured, "turn")
     # Normalized as a probed meter is, because every reader of the snapshot reads one.
-    new = {m["name"]: {**_normalized(m, measured), "measured_at": measured} for m in fresh}
-    probed = {name: at for name, at in _meter_asked(cached).items() if name not in new}
+    new = {_key(m): {**_normalized(m, measured), "measured_at": measured} for m in fresh}
+    names = {m["name"] for m in fresh}
+    probed = {name: at for name, at in _meter_asked(cached).items() if name not in names}
     if asked:
-        probed.update(dict.fromkeys(new, measured))
-    merged = [new.get(m["name"], m) for m in old]
-    merged += [meter for name, meter in new.items() if name not in held]
+        probed.update(dict.fromkeys(names, measured))
+    merged = [new.get(_key(m), m) for m in old]
+    merged += [meter for key, meter in new.items() if key not in held]
     prov = dict(cached)
     prov.setdefault("provider", provider)
     if "harness" not in prov or "via" not in prov:
@@ -1463,6 +1466,13 @@ def _identity(meter):
     """Which cap a meter is: its name and whose it is, for two caps of different scopes may
     share a name."""
     return [meter.get("name"), meter.get("scope")]
+
+
+def _key(meter):
+    """`_identity` as the key of what a mark or a turn keeps per cap: a cap nobody owns by its
+    name alone, as marks have always keyed it."""
+    name, scope = _identity(meter)
+    return f"{name} {scope}" if scope else name
 
 
 def _parks(cfg, name, prov, mark):
