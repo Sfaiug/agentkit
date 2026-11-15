@@ -29,10 +29,7 @@ func (f Frame) Confirm(s terminal.Screen, name, question, meaning, action string
 			card = append(card, row{line: "  " + line})
 		}
 	}
-	keep, end := "✓ Keep", "× "+action
-	if s.ASCII() {
-		keep, end = "v Keep", "x "+action
-	}
+	keep, end := choices(s, action)
 	card = append(card, row{"  " + keep, "Keep"}, row{"  " + s.Styled(end, "amber"), action}, row{})
 	if h.Cursor != action {
 		h.Cursor = "Keep"

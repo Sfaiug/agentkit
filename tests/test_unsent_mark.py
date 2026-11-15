@@ -91,7 +91,8 @@ class UnsentMark(Sandbox):
                     patch.object(terminal, "_POINTER", None), redirect_stdout(out):
                 menu.draw(self.cfg, [], cursor=cursor, drawn={}, look=False,
                           groups=([{"name": "acme", "checkout": None, "seats": infos}], infos, 0, 0))
-            lines = [bare(line) for line in out.getvalue().splitlines()]
+            # the highlighted row's band runs on in blanks
+            lines = [bare(line).rstrip() for line in out.getvalue().splitlines()]
             self.assertIn("esc leave", "\n".join(lines[-3:]))
             self.assertNotIn("LAST", "\n".join(lines))
             return lines

@@ -4415,7 +4415,9 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
     while it lists it (`config.lists`), and a move within it that `in_place` takes in the
     running harness asks none; another provider, or a login it lists no more, takes
     `listed_login`'s, judged by what it said. No answer withholds nothing, the way a turn goes
-    ahead on an `auth` verb that said nothing.
+    ahead on an `auth` verb that said nothing; a no reads `<model>: <subscription> is signed
+    out`, as every screen names the model and `c` the subscription, and offers no key: `c`
+    offers `log in again` only on a login that ends soon or has ended (subscription_acts).
     """
     def provider_of(current):
         try:
@@ -4460,7 +4462,13 @@ def _switch_plan(cfg, name, model, providers, effort=None, in_place=None):
     else:
         ok, why = harness_plugin(harness).seat_auth(account)
     if ok is False:
-        return f"{model}: {why}", None
+        from . import watch   # here, not at the top: watch imports this module
+        try:    # the adapter's line, whole, for whoever debugs it; the owner reads plain words
+            watch.note(f"orch: {name} stays put, {model}'s seat login said no: {why}")
+        except OSError:
+            pass
+        return (f"{config.model_name(cfg, model)}: "
+                f"{config.account_label(cfg, new_provider, account)} is signed out"), None
     return "", account
 
 

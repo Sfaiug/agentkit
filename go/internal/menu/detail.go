@@ -21,7 +21,7 @@ func detail(s terminal.Screen, seat Seat, room int, clock *motion.Clock) []strin
 	}
 	var lines []string
 	if seat.Unsent != "" {
-		for _, line := range terminal.Wrap(unsentMark(s, seat.Unsent), room) {
+		for _, line := range terminal.Wrap(s.Unsent(seat.Unsent), room) {
 			lines = append(lines, s.Styled(line, "amber"))
 		}
 	}

@@ -1188,11 +1188,11 @@ def mark_exhausted(cfg, provider, until=None, account=None, model=None):
             if meter in gating and (used or 0) >= 100 and not (
                     _number(meter.get("window_secs")) in (SESSION_SECS, None)
                     and until - now > SESSION_SECS):
-                shown.append((end, meter["name"]))
+                shown.append((end, meter["name"], _identity(meter)))
     if not said and not shown:
         until = min(until, now + DRY_FOR)
-    by = max(shown, default=(0, None))[1]
-    named = [by] if by else [meter["name"] for meter in gating]
+    _, by, showed = max(shown, key=lambda each: each[:2], default=(0, None, None))
+    named = [showed] if by else [_identity(meter) for meter in gating]
     _patch(provider, prov, account, mark={"exhausted_until": float(until),
                                           "exhausted_at": float(now), "exhausted_ends": ends,
                                           "exhausted_used": levels, "exhausted_by": by,
@@ -1459,21 +1459,31 @@ def _gating_meters(cfg, name, providers):
     return [m for m in meters if m.get("scope") or m["name"] not in claimed], PROVIDER_METERS
 
 
+def _identity(meter):
+    """Which cap a meter is: its name and whose it is, for two caps of different scopes may
+    share a name."""
+    return [meter.get("name"), meter.get("scope")]
+
+
 def _parks(cfg, name, prov, mark):
     """Whether the refusal `mark` on `prov`, a reading of this model's provider, can have been
-    meant for this model: each meter it can have come from (`mark_exhausted`) gates it too.
+    meant for this model: each meter it can have come from (`mark_exhausted`) can be one gating it.
 
-    The mark names meters, not the model refused, so it reads whatever config.toml says whose
-    each meter is by now.  One naming none -- made without a model, or before marks named
-    any -- or a meter this reading no longer holds parks every model: whose it was, nobody knows.
+    The mark names meters (`_identity`, or by name alone where made before marks named scopes),
+    not the model refused, so it reads whatever config.toml says whose each meter is by now.
+    One naming none -- made without a model, or before marks named any -- or a meter this
+    reading no longer holds parks every model: whose it was, nobody knows.
     """
     recorded = mark.get("exhausted_meters")
     meters = [m for m in prov.get("meters") or [] if isinstance(m, dict)]
-    if not isinstance(recorded, list) or not set(recorded) <= {m.get("name") for m in meters}:
+
+    def named(among):
+        return all(any(r in (m.get("name"), _identity(m)) for m in among) for r in recorded)
+
+    if not isinstance(recorded, list) or not named(meters):
         return True
     provider = config.model(cfg, name)["provider"]
-    return set(recorded) <= {m["name"] for m in
-                             _gating_meters(cfg, name, {provider: {"meters": meters}})[0]}
+    return named(_gating_meters(cfg, name, {provider: {"meters": meters}})[0])
 
 
 def model_pace(cfg, name, providers):
@@ -1508,15 +1518,17 @@ def _weekly(prov):
     return _worst([m for m in prov.get("meters") or [] if m.get("window_secs") != SESSION_SECS])
 
 
-def readable(prov, now):
-    """This provider's weekly meters a number can actually be read from.
-
-    A numeric used% in a window that has not rolled over, the 5h session aside: what a bar can
-    be drawn from, and what the shared week is chosen among.
-    """
+def legible(prov, now):
+    """This provider's meters a number can actually be read from: a numeric used% in a window
+    that has not rolled over."""
     return [m for m in prov.get("meters") or []
-            if m.get("window_secs") != SESSION_SECS and _number(m.get("used")) is not None
-            and not _past(m, now)]
+            if _number(m.get("used")) is not None and not _past(m, now)]
+
+
+def readable(prov, now):
+    """This provider's weekly meters a number can actually be read from (`legible`), the 5h
+    session aside: what a bar can be drawn from, and what the shared week is chosen among."""
+    return [m for m in legible(prov, now) if m.get("window_secs") != SESSION_SECS]
 
 
 def shared_week(cfg, provider, prov, now=None):
@@ -2079,6 +2091,11 @@ def render(cfg, providers, order, *, repo=None):
         if len({value for _, value in budgets}) > 1:
             lines.append("  budget: " + "; ".join(f"{n} {_budget_label(*value)}"
                                                   for n, value in budgets))
+    # a row reads the shared week, so a cap its provider names for one model, its week's or its
+    # 5h window's, is said under the table, in the menu row's words (`menu.scoped_notes`)
+    lines += [f"{label}: {meter['scope']} {_pct(_left(meter['used']))} left"
+              for label, _, prov, _ in _accounts(cfg, providers)
+              for meter in legible(prov, now) if meter.get("scope")]
     # the numbers say the provider is unknown; only the adapter can say why -- and a
     # refusal is not a why, so an error that only says the probe was refused says nothing
     lines += [f"note: {name} {prov['error']}" for name, _, prov, _ in _accounts(cfg, providers)

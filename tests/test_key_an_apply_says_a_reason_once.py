@@ -4,9 +4,9 @@ held, and what it says never pushes the matrix's rows off the screen.
 The owner (12 Nov 2026), of fourteen seats under fourteen copies of one reason that scrolled the
 screen off its own rows: "weird output … Not user friendly."  Black-box: `AK_BIN`, in a person's
 terminal (tests/fixtures/akterm.py) over seats as ak leaves them (tests/fixtures/akseat.py), their
-harnesses fakes (tests/fixtures/fakeadapter.py): six seats on GPT-6-Astra gone from tmux, whose
-move to Fable 5.1 the fake Claude Code's `auth` refuses in the same words, and with them one on
-Opus 5.5, gone too, whose own login `auth` refuses in other words.  Fails against `/bin/false`,
+harnesses fakes (tests/fixtures/fakeadapter.py): six seats on 6 Astra gone from tmux, whose
+move to Fable 5.1 the fake Claude Code's `auth` refuses on Claude I, and with them one on
+Opus 5.5, gone too, whose own login, Claude II, `auth` refuses too.  Fails against `/bin/false`,
 and against an ak that says the six's reason six times.
 
 Each draw fits what was said to the terminal as it is: the names leading a reason to its width,
@@ -25,12 +25,14 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
-# as long as a harness's own words may be: two lines with the six's names before it
 NO_LOGIN = "token expired; run claude, type /login and sign in again to open a seat here"
-SIX = [f"acme-{number}" for number in range(1, 7)]
+# named so long that their reason, every name before it, takes two lines
+SIX = [f"acme-fix-{number}" for number in range(1, 7)]
 SIX_LED = ", ".join(SIX)        # every name fits the line
+SIX_WHY = "Fable 5.1: Claude I is signed out"
 OTHER = "acme-0"        # listed first, so its reason is said first
 LOGIN = "acme-ii"       # its own login, which only it asks
+OTHER_WHY = "Fable 5.1: Claude II is signed out"
 SIGNED_OUT = "this login was signed out on another machine"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
@@ -75,7 +77,8 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
         self.fakes["claude"].answer("auth", NO_LOGIN, 1)
         akconfig.write(self.home, {"fable": {"harness": "claude", "effort": "xhigh"},
                                    "opus": "claude", "astra": "codex"},
-                       workers=["fable"], reviewers=["fable"])
+                       workers=["fable"], reviewers=["fable"],
+                       providers={"anthropic": {"accounts": ["default", LOGIN]}})
         for name in SIX:
             Seat(self.home, name, model="astra", alive=False,
                  record={"workers": ["astra"], "reviewers": ["astra"]})
@@ -92,25 +95,25 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
         self.term.wait(lambda screen: "  × Apply" in lines(screen))
         self.term.keys("Down", "Enter")
         return self.term.wait(lambda screen: key_line(screen) == KEYS
-                              and "fable: token expired;" in screen), before
+                              and "signed out" in screen), before
 
     def test_six_seats_refused_alike_are_told_once_led_by_the_names_that_fit(self):
         after, before = self.applied()
         _, *six = said(after)
-        self.assertEqual((len(six), told(*six)), (2, f"{SIX_LED}: fable: {NO_LOGIN}"), after)
+        self.assertEqual((len(six), told(*six)), (2, f"{SIX_LED}: {SIX_WHY}"), after)
         self.assertEqual(matrix(after), matrix(before))
         self.term.resize(40, 45)
         narrow = self.term.wait(lambda screen: "─" * 41 not in screen
-                                and "acme-3 and 3 more:" in screen)
+                                and "acme-fix-2 and 4 more:" in screen)
         self.assertEqual(told(*said(narrow)[1:]),
-                         f"acme-1, acme-2, acme-3 and 3 more: fable: {NO_LOGIN}", narrow)
+                         f"acme-fix-1, acme-fix-2 and 4 more: {SIX_WHY}", narrow)
         self.term.resize(100, 30)
         wide = self.term.wait(lambda screen: key_line(screen) == KEYS and SIX_LED in screen)
         self.assertEqual(said(wide), said(after))
 
     def other(self):
         """A seat on Opus 5.5, listed first and gone from tmux too, whose move keeps its own
-        login, which `auth` refuses in other words."""
+        login, which `auth` refuses too."""
         self.fakes["claude"].answer("auth", SIGNED_OUT, 1, account=LOGIN)
         Seat(self.home, OTHER, model="opus", alive=False,
              record={"workers": ["opus"], "reviewers": ["opus"], "account": LOGIN})
@@ -120,21 +123,21 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
         after, before = self.applied()
         version, other, *six = said(after)
         self.assertEqual(version, "  Version ?")
-        self.assertEqual(other, f"  {OTHER}: fable: {SIGNED_OUT}", after)
-        self.assertEqual((len(six), told(*six)), (2, f"{SIX_LED}: fable: {NO_LOGIN}"), after)
+        self.assertEqual(other, f"  {OTHER}: {OTHER_WHY}", after)
+        self.assertEqual((len(six), told(*six)), (2, f"{SIX_LED}: {SIX_WHY}"), after)
         self.assertEqual(matrix(after), matrix(before))
 
     def test_a_shorter_terminal_keeps_every_row_and_says_how_many_more(self):
         self.other()
         after, before = self.applied()
-        self.term.resize(100, 27)       # a line too short for both reasons under the rows
+        self.term.resize(100, 28)       # a line too short for both reasons under the rows
         shorter = self.term.wait(lambda screen: "  1 more reason" in lines(screen))
         version, other, more = said(shorter)
         self.assertEqual(version, "  Version ?")
-        self.assertEqual(other, f"  {OTHER}: fable: {SIGNED_OUT}", shorter)
+        self.assertEqual(other, f"  {OTHER}: {OTHER_WHY}", shorter)
         self.assertEqual(matrix(shorter), matrix(before))
         self.assertEqual(key_line(shorter), KEYS)
-        self.term.resize(100, 25)       # the rows leave one line: the count takes the version's
+        self.term.resize(100, 26)       # the rows leave one line: the count takes the version's
         shortest = self.term.wait(lambda screen: "  2 more reasons" in lines(screen))
         self.assertEqual(said(shortest), ["  2 more reasons"])
         self.assertEqual(matrix(shortest), matrix(before))

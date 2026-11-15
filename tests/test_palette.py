@@ -117,7 +117,8 @@ class Palette(unittest.TestCase):
                               ("needs you", "142;94;0"), ("done", "0;121;53"),
                               ("FAIL", "197;42;47"), ("dim", "111;117;126")):
                 self.assertIn(f"38;2;{rgb}m", terminal.styled("x", kind), kind)
-            self.assertIn("38;2;0;103;198m", terminal.highlight(" row"))
+            # its `›` in the accent on the selection, both white's
+            self.assertIn("38;2;0;103;198;48;2;220;236;255m›", terminal.highlight(" row"))
         # a dark answer, BEL-ended, and no answer at all within a second: black
         self.sense(b"\033]11;rgb:1e1e/1e1e/2e2e\007", ATTRIBUTES)
         self.assertEqual(terminal.THEME, terminal.BLACK)

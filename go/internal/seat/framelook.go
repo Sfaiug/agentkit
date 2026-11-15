@@ -24,7 +24,7 @@ type glance struct {
 
 // look is a frame's look at each seat whose panes run on, writing nothing: each one's seat file as
 // it stands, one capture of its screen and its word decided from them.  ErrUnread where one is
-// Python's to answer, or on the ak screen to draw.
+// Python's to answer.
 func (home Home) look(now float64) ([]glance, error) {
 	state := filepath.Join(config.Home(), "state")
 	seen := make([]glance, len(home.Seats))
@@ -33,14 +33,14 @@ func (home Home) look(now float64) ([]glance, error) {
 			continue
 		}
 		var err error
-		if seen[at], err = home.Seats[at].glanced(state, now, home.drawn); err != nil {
+		if seen[at], err = home.Seats[at].glanced(state, now); err != nil {
 			return nil, err
 		}
 	}
 	return seen, nil
 }
 
-func (seat *Seat) glanced(state string, now float64, drawn bool) (glance, error) {
+func (seat *Seat) glanced(state string, now float64) (glance, error) {
 	var seen glance
 	if !seat.stands(state, now) {
 		return seen, ErrUnread
@@ -52,14 +52,7 @@ func (seat *Seat) glanced(state string, now float64, drawn bool) (glance, error)
 			seen.found.stall, seen.found.login = nil, nil
 		}
 	}
-	if err := seat.decided(state, seen.found, now, seen.attached); err != nil {
-		return seen, err
-	}
-	// when one out of usage comes back, and the model it could go on with, are Python's to draw
-	if drawn && seat.Word == "out of usage" {
-		return seen, ErrUnread
-	}
-	return seen, nil
+	return seen, seat.decided(state, seen.found, now, seen.attached)
 }
 
 // stands is whether the seat file, as it stands, is still one Go reads by the rule its reading took

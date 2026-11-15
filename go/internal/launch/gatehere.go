@@ -1,6 +1,8 @@
 package launch
 
 import (
+	"context"
+
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
 )
@@ -23,7 +25,7 @@ func pollsHere(record *run.Object) bool {
 	if depth, _ := runDepth(); !gated(depth) {
 		return true
 	}
-	slots, err := holdSlots()
+	slots, err := holdCheck(context.Background())
 	if err != nil {
 		return false
 	}

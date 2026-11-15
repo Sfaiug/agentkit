@@ -162,6 +162,10 @@ def theirs(groups):
               for group in groups]
     return [group for group in groups if group["hooks"]]
 
+def constant(word):
+    """Python's json reads NaN and Infinity, which JSON, and so Muse, does not."""
+    raise ValueError(f"{word} is no JSON number")
+
 signal.alarm(30)
 locked = os.path.join(os.path.dirname(path), ".settings.json.lock")
 try:
@@ -175,7 +179,7 @@ try:
         if existed:
             try:
                 with open(real, encoding="utf-8") as fh:
-                    had = json.load(fh)
+                    had = json.load(fh, parse_constant=constant)
             except ValueError as exc:
                 sys.exit(f"muse: {path} is not JSON ({exc}); left as it is")
         if not isinstance(had, dict) or not shaped(had.get("hooks")):
@@ -197,6 +201,27 @@ except OSError as exc:
 PY
 }
 cmd=${1:-}; shift 2>/dev/null || true
+# A hook the settings file starts is handed none of the seat's environment, nor what a launch
+# line's command carries (`interactive`): its parent, the Muse the file's `exec` makes it a child
+# of (`wire`), holds the launch's.  Every Muse a seat's pane starts, or one beside it, holds the
+# seat's name too, so it goes on only from the seat's own (`orch.owns_hook`), before it writes
+# anything; one naming no seat, or whose environment cannot be read, is outside ak.
+case $cmd in hook|call)
+  if [ -z "${AGENTKIT_SESSION:-}" ]; then
+    while IFS= read -r -d '' var; do
+      case $var in AGENTKIT_SESSION=*|TMUX=*|TMUX_PANE=*|AGENTKIT_MUSE_RECEIPT=*|XDG_DATA_HOME=*)
+        export "${var?}" ;;
+      esac
+    done 2>/dev/null </proc/"$PPID"/environ
+    [ -n "${AGENTKIT_SESSION:-}" ] && python3 -c 'import sys
+sys.path.insert(0, sys.argv[1])
+from agentkit import config, orch
+from agentkit.harness import muse
+session = orch.find(config.resolve_session(sys.argv[2]))
+sys.exit(not (session and orch.owns_hook(session, int(sys.argv[3]), muse.is_process)))' \
+      "$REPO" "$AGENTKIT_SESSION" "$PPID" 2>/dev/null || exit 0
+  fi ;;
+esac
 
 case "$cmd" in
 run)
@@ -456,12 +481,16 @@ call)
   # have been moved on `c` and back inside Muse since, and only what is newer than its last move
   # counts (watch.follow_model).  Only a changed one starts the seat's look, as a Claude seat's
   # status render does (hooks/claude-status.sh): it runs on every call, so one that changes
-  # nothing runs no Python.  It prints nothing, as Muse was checked running it.
+  # nothing runs no Python past whose it is.  It prints nothing, as Muse was checked running it.
   at=$(jq -nr 'now * 1e6 | floor') || exit 0     # before the call is read, however long that takes
   report=$(jq -er 'select(.session_id | strings | test("^[A-Za-z0-9_-]+$"))
       | select(.model | strings | length > 0)
       | .session_id, ({model, effort: .options["meta.reasoning.effort"]} | tojson)' 2>/dev/null) ||
     exit 0
+  # Muse's settings file (`wire`) runs it in every session, a seat's or not, and only a seat's
+  # launch line names the seat: a call that names none keeps nothing, as hooks/seat-state.sh
+  # writes nothing -- once the call is read, so Muse hands it over to a hook still listening.
+  [ -n "${AGENTKIT_SESSION:-}" ] || exit 0
   sid=${report%%$'\n'*} report=${report#*$'\n'}
   logs=("${XDG_DATA_HOME:-$HOME/.local/share}"/muse/sessions/*/*/*/"$sid"/session.jsonl)
   [ -e "${logs[0]}" ] || exit 0

@@ -24,5 +24,5 @@ func grokLend(login config.Login) Loan {
 	for _, entry := range entries {
 		entry.Delete("refresh_token")
 	}
-	return Loan{Copy: run.Line(value), Ends: ends}
+	return Loan{Copy: run.Line(value), Ends: ends, File: file}
 }

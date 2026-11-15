@@ -95,3 +95,22 @@ func TestAMovingPlanGlidesThere(t *testing.T) {
 		t.Fatal("a line there still moves")
 	}
 }
+
+// A seat out of usage says when it comes back in its progress's place, whatever its plan, and what
+// the owner left unsent after it; with no moment to come back, its word alone.
+func TestASeatOutOfUsageSaysWhenItComesBack(t *testing.T) {
+	view := View{Clock: "14:02"}
+	for i, each := range []Seat{{Name: "atoll-spent", Word: "out of usage", Back: "19:20", Done: 1, Total: 4},
+		{Name: "atoll-held", Word: "out of usage", Back: "Fri 19:20", Unsent: "and the docs"},
+		{Name: "atoll-moved", Word: "out of usage"}} {
+		each.Number, each.Model, each.Checkout = i+1, "Fable 5.1", "/home/acme/code/atoll"
+		view.Seats = append(view.Seats, each)
+	}
+	lines := Lines(view, 100, 30)
+	for name, want := range map[string]string{"atoll-spent": "○ out of usage  back 19:20",
+		"atoll-held": "○ out of usage  back Fri 19:20  ¶ unsent", "atoll-moved": "○ out of usage"} {
+		if row := strings.TrimRight(rowOf(lines, name), " "); !strings.HasSuffix(row, want) {
+			t.Errorf("%q, not ending %q", row, want)
+		}
+	}
+}

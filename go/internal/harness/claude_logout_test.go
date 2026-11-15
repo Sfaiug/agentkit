@@ -122,3 +122,34 @@ func TestClaudeLogoutEndsAsBashGivesIt(t *testing.T) {
 		}
 	}
 }
+
+// Claude Code's own sign-in and sign-out start the claude the script finds: one PATH finds in the
+// current directory, as bash runs it, and where PATH finds none, the one in ~/.local/bin, claude's
+// installer's folder, which then leads PATH for what it runs too.
+func TestClaudeAuthStartsTheClaudeItsScriptFinds(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake Claude Code is a shell script")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("AGENTKIT_ACCOUNT", "")
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	write := func(path, text string) {
+		os.MkdirAll(filepath.Dir(filepath.Join(home, path)), 0o700)
+		os.WriteFile(filepath.Join(home, path), []byte(text), 0o700)
+	}
+	write(".credentials.json", "{}")
+	write("claude", "#!/bin/sh\nexit 5\n")
+	write(".local/bin/claude", "#!/usr/bin/env acme-node\n")
+	write(".local/bin/acme-node", "#!/bin/sh\nexit 7\n")
+	wd, _ := os.Getwd()
+	os.Chdir(home)
+	t.Cleanup(func() { os.Chdir(wd) })
+	for path, code := range map[string]int{".": 5, filepath.Join(home, "bin"): 7} {
+		t.Setenv("PATH", path)
+		var errOut bytes.Buffer
+		if got := Verb("claude", "logout")(nil, io.Discard, &errOut); got != code {
+			t.Errorf("PATH %s: exit %d, not %d: %q", path, got, code, errOut.String())
+		}
+	}
+}

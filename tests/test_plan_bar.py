@@ -235,7 +235,8 @@ class PlanBar(Sandbox):
                         lines = terminal.ANSI.sub("", output.getvalue()).splitlines()
                         row = next(row for row, spot in drawn["spots"].items()
                                    if spot[0] == "acme")
-                        self.assertRegex(lines[row - 1], rf"^› +{number}(  |$)")
+                        # its band's blanks off, to the layout's edge
+                        self.assertRegex(lines[row - 1].rstrip(), rf"^› +{number}(  |$)")
                         self.assertLessEqual(terminal.cells(lines[row - 1]), width)
 
     def test_a_phone_s_tasks_line_never_runs_past_the_screen(self):

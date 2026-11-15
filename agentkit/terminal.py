@@ -13,6 +13,7 @@ import time
 import unicodedata
 from collections import namedtuple
 from functools import lru_cache, wraps
+from itertools import groupby
 
 from . import guard, motion, warm
 from .themes import BLACK, ROLES, WHITE
@@ -1274,18 +1275,29 @@ def step(key):
             or {"k": -1, "j": 1}.get(key.char, 0))
 
 
-def highlight(line, mark=True):
-    """A list's highlighted row: `›` in the accent colour in its first column, its text bright.
+def highlight(line, mark=True, band=True):
+    """The keys' row: `›` in the accent colour in its first column, its text bright, and with
+    `band`, as a row Enter or a click acts on as a whole (a seat, a choice), on the theme's
+    selection from its first column to the layout's last where the terminal draws 256 colours
+    or more.  The row of a lit cell -- a mark on `c` -- has no band.
 
     Every row a list draws starts with a space, so the mark takes it and no column moves; a
-    row's second line, on a phone, is brightened without one.  Each colour inside the row ends
-    in a reset, and every reset turns the brightness back on.
+    row's second line, on a phone, is brightened and banded without one.
     """
     if mark:
         line = styled("›" if utf8() else ">", "accent") + line[1:]
+    line = bright(line)
+    if band and colour_depth() > 8:
+        return backed(line, colour("selection"), 1, layout_width())
+    return line
+
+
+def bright(text):
+    """`text` bold, as every cell of the keys' row is: each colour inside it ends in a reset, and
+    every reset turns the brightness back on."""
     if not colour_depth():
-        return line
-    return "\033[1m" + line.replace("\033[0m", "\033[0;1m") + "\033[0m"
+        return text
+    return "\033[1m" + text.replace("\033[0m", "\033[0;1m") + "\033[0m"
 
 
 def key_spans(line):
@@ -1384,18 +1396,22 @@ def on_screen():
 
 
 def pointed(row, column, text):
-    """`text`, written from `column` of `row` over the screen up, with the pointer's light where
-    it falls on the cell `lit` lit: what moves there between draws (`motion.Clock.frame`) keeps
-    it, never the keys' reverse."""
-    if (_POINTED.cell is None or isinstance(_POINTED.cell, tuple)
-            or _POINTER is None or row != _POINTER.row
-            or column > _POINTED.last or not colour_depth()):
-        return text
-    first, last = max(1, _POINTED.first - column + 1), min(_POINTED.last - column + 1, cells(text))
-    if first > last:
-        return text
-    # A shake's reverse can start before the cell under the pointer.
-    return backed(text.replace("\033[7m", ""), colour("selection"), first, last)
+    """`text`, written from `column` of `row` over the screen up, each of its cells on the
+    background the screen has there as last drawn (`lit`) where it is not on that already:
+    what moves between draws (`motion.Clock.frame`) keeps the highlight it moves in, a row's
+    band and the pointer's light alike, never the keys' reverse inside it."""
+    screen = _grounds(_PAINTED[row - 1]) if 0 < row <= len(_PAINTED) else ()
+    grounds = [back if back != own else "" for back, own in zip(screen[column - 1:],
+                                                                _grounds(text))]
+    if any(grounds):
+        # A shake's reverse can start before the cell under the pointer.
+        text = text.replace("\033[7m", "")
+    at = 1
+    for back, run in groupby(grounds):
+        size = len(list(run))
+        text = _on(text, back, at, at + size - 1) if back else text
+        at += size
+    return text
 
 
 def cell_texts(line):
@@ -1417,15 +1433,14 @@ def cell_texts(line):
     return found
 
 
-def backed_as(text, line, cell):
-    """`text` on the background `line` has at its `cell`, counted from 1, every style in it
-    kept: what is written inside a row's glow stays on it."""
-    back, at = "", 0
+@lru_cache(maxsize=256)
+def _grounds(line):
+    """The background each cell of a drawn `line` is on, as the SGR parameters that set it, ""
+    where none is: a frame asks for the screen's every row it moves a cell on."""
+    grounds, back = [], ""
     for token in re.findall(f"{ANSI.pattern}|.", line, re.S):
         if not token.startswith("\033"):
-            at += cells(token)
-            if at >= cell:
-                break
+            grounds += [back] * cells(token)
         elif token.endswith("m"):
             # the background each code leaves: none after a reset, a `48`'s colour
             parts = token[2:-1].split(";")
@@ -1437,17 +1452,27 @@ def backed_as(text, line, cell):
                     size = 4 if parts[0] == "2" else 2
                     back = ";".join([part, *parts[:size]]) if part == "48" else back
                     parts = parts[size:]
-    if not back:
-        return text
-    return (f"\033[{back}m" + _SGR.sub(lambda code: f"\033[{code[1] or '0'};{back}m", text)
-            + "\033[49m")
+    return tuple(grounds)
+
+
+def backed_as(text, line, cell):
+    """`text` on the background `line` has at its `cell`, counted from 1, every style in it
+    kept: what is written inside a row's glow stays on it."""
+    grounds = _grounds(line)
+    back = grounds[cell - 1] if 0 < cell <= len(grounds) else ""
+    return _on(text, back, 1, cells(text)) if back else text
 
 
 def backed(line, rgb, first, last):
     """`line` with its cells `first` to `last`, counted from 1, on the background `rgb`, every
     style in them kept and any past its end blank; reversed at eight colours."""
-    depth = colour_depth()
-    back, off = (ink(rgb, "48"), "49") if depth > 8 else ("7", "27")
+    return _on(line, ink(rgb, "48") if colour_depth() > 8 else "7", first, last)
+
+
+def _on(line, back, first, last):
+    """`line` with its cells `first` to `last` on `back`, the SGR parameters of a background or
+    of reverse (`7`), every style in them kept and any past its end blank."""
+    off = "27" if back == "7" else "49"
     out, at, on = "", 0, None      # on: None before the cell, True in it, False past it
     for token in re.findall(f"{ANSI.pattern}|.", line, re.S):
         if on is None and at + 1 >= first:

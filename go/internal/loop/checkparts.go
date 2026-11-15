@@ -35,9 +35,9 @@ type testReport struct {
 // and log), whether a red piece repeated none, each command that passed with the tests it ran, nil
 // for all, each piece's goes' exits, and whether its last go of the listed tests passed what its
 // tree holds; and the history rows it left, taken back where it is
-// handed on.  A whole check refuses a change that adds a test file slower than the piece target
-// of one of its suites, each on its own pass (suitetimes.Refusal), counting the files it adds
-// since base.
+// handed on.  A whole check refuses a change that adds or slows a test file over the piece target
+// of one of its suites, each on its own pass (suitetimes.Refusal), counting the files it adds or
+// edits since base.
 type checkSelection struct {
 	shard   string
 	tests   []string
@@ -63,7 +63,7 @@ func selectedCheck(selections []*checkSelection) *checkSelection {
 
 func (s *checkSelection) pinned() bool { return s != nil && (s.shard != "" || s.tests != nil) }
 
-// judges is whether the check refuses a slow added test file on command's pass.
+// judges is whether the check refuses a slow test file on command's pass.
 func (s *checkSelection) judges(command string) bool {
 	return s != nil && !s.pinned() && slices.Contains(s.suites, command)
 }

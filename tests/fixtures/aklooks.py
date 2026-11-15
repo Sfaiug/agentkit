@@ -71,6 +71,12 @@ def look(lines, text, on=None):
     raise AssertionError(f"no line shows {text!r}" + (f" beside {on!r}" if on else ""))
 
 
+def ink(shown):
+    """A look's text, its colour and attributes, whatever it is on: the highlight's row stands on
+    the selection (tests/test_key_one_highlight.py)."""
+    return {part for part in shown if not part.startswith("48")}
+
+
 def colours(lines):
     """Every colour drawn anywhere on the screen, text's and background's alike."""
     return {part for line in lines for _, shown in line for part in shown} - ATTRIBUTES

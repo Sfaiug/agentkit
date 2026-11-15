@@ -1,8 +1,10 @@
 """tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of seven fake
 Gos, Python's ak with one thing more, is named by the kind of that one thing, and each site a Go
 hands over at by Go's own words, alike in its output and its record; the Home keeps every byte
-and modification time; a box's HOME starts as the home is; a stop while a box or a preview starts
-leaves nothing of it running; and where no box can be built, nothing runs."""
+and modification time; one difference two shadows confirm, but for a number, is one case, kept
+with the last one's runs, and a flake is none; a box's HOME starts as the home is; a stop while a
+box or a preview starts leaves nothing of it running; and where no box can be built, nothing
+runs."""
 
 import json
 import math
@@ -101,6 +103,22 @@ class Shadowed(Shadowing):
         self.assertEqual((code, named), (1, {("hand-over", site) for site in sites}), said)
 
     @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
+    def test_a_difference_seen_again_is_one_case(self):
+        cases = self.fakes / "cases"
+        # each run's own pid, a flake, then a count that moved between two shadows
+        for name, count in (("flake", "$$"), ("41", "41"), ("42", "42")):
+            line = f"{count} lines only go prints"
+            code, named, said = self.shadow("--go", self.fake(name, GO.format(f'echo "{line}"')),
+                                            "--cases", str(cases))
+            self.assertEqual(code, 0 if name == "flake" else 1, said)
+        [case] = cases.iterdir()
+        kept = json.loads((case / "case.json").read_text())
+        self.assertEqual((kept["ak"], kept["kind"], kept["what"], kept["confirmed"]),
+                         (list(COMMAND), "line", f"only go: stdout: {line}", 2))
+        go = json.loads((case / "runs.json").read_text())["go"]
+        self.assertIn(line, go["stdout"].splitlines())
+
+    @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
     def test_every_run_reads_one_moment_of_the_host(self):
         # memory and load, which move between any two runs on a working host
         program = self.fake("ak", "cat /proc/meminfo /proc/loadavg")
@@ -163,7 +181,7 @@ class Shadowed(Shadowing):
         found = [None] * len(shadow.PREVIEWS)
 
         def previews():
-            shadow.previews(found, program, program, self.home.path, scratch, math.inf)
+            shadow.previews(found, program, program, self.home.path, None, scratch, math.inf)
 
         self.enterContext(mock.patch.dict(os.environ, PATH=f"{self.fakes}:{os.environ['PATH']}"))
         # Each preview's box check tells the signals it holds off, and builds no box.

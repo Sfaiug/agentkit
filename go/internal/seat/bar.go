@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"agentkit/internal/agent"
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
@@ -98,10 +97,7 @@ func barChip(screen terminal.Screen, word string) string {
 func barProgress(screen terminal.Screen, word, back string, unsent bool, done, total, room int) string {
 	mark, left := "", room
 	if unsent {
-		mark = "¶ unsent"
-		if screen.ASCII() {
-			mark = "* unsent"
-		}
+		mark = screen.Unsent("unsent")
 		left -= terminal.Cells(mark) + 2
 	}
 	bar, cells := "", 0
@@ -214,7 +210,7 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		{target, "status-format[0]", barLineOne()}, {target, "status-format[1]", barLineTwo()}}
 	for i, option := range barTops {
 		top := head
-		if last := barProgress(screen, seat.Word, backAt(seat.back, time.Now()), seat.unsent != "", done, total, barCells[i]); last != "" {
+		if last := barProgress(screen, seat.Word, seat.Back(time.Now()), seat.unsent != "", done, total, barCells[i]); last != "" {
 			top += "   " + last
 		}
 		own = append(own, [3]string{target, option, top})
@@ -315,13 +311,13 @@ func resolved(path string) string {
 }
 
 // barSeats are those sessions that are seats, each with the word it last announced: what each
-// bar's right end counts (statusbar.seats).  A session no seat has a record of and running no agent
-// is no seat, and neither is one under a name no seat can have.
+// bar's right end counts (statusbar.seats).  A session without ak's mark that no seat has a record
+// of may be no seat (noSeat), and neither is one under a name no seat can have.
 func barSeats(state string, listed []barRow) (found []barRow) {
 	for _, row := range listed {
 		_, unrecorded := os.Stat(filepath.Join(state, "session-"+row.name+".json"))
 		if !strings.HasPrefix(row.id, "$") || config.SessionName(row.name) != row.name ||
-			row.mark != "1" && unrecorded != nil && agent.Agentless(tmux.Own(), []string{row.name}) {
+			row.mark != "1" && unrecorded != nil && noSeat(row.name) {
 			continue
 		}
 		if file, _ := run.Shared(filepath.Join(state, "seat-"+row.name+".json")); file != nil {

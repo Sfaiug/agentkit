@@ -1,9 +1,10 @@
 """Every list marks what is on, highlights its row and names its keys the same way, the owner's
 ask of 10 Nov 2026 that ak feel like one app (docs/cli-design.md, Words and Keys): `recommended`
-draws the row the keys are on bold behind a `›` in the accent; on `c` a mark that is on is in
-the accent and one that is off dim, the orchestrator's build mark too, filled while it builds
-everything as no model is marked to; and the company list, where any model may be on, marks one
-`■` in the accent and one off `□` dim, Space marking it, its key line read as every list's.
+draws the row the keys are on bold behind a `›` in the accent, all of it on one band, the
+selection; on `c` a mark that is on is in the accent and one that is off dim, the orchestrator's
+build mark too, filled while it builds everything as no model is marked to; and the company
+list, where any model may be on, marks one `■` in the accent and one off `□` dim, Space marking
+it, its key line read as every list's.
 
 Black-box: the program `AK_BIN` names in a terminal of 24-bit colour (tests/fixtures/akterm.py),
 over the boards and harnesses of tests/test_key_models_company_list.py; each cell judged by how
@@ -43,9 +44,13 @@ class OneVocabulary(Opened):
 
     def test_recommended_draws_its_row_bold_behind_a_chevron_in_the_accent(self):
         shown = settled(self.walk(("r recommended", "r")), "boards read")
-        self.assertEqual(look(shown, "›"), {"1", *self.accent})
-        self.assertEqual(look(shown, "orchestrator  Acme Mid 5 high", on="›"),
-                         {"1", *self.plain})
+        row = look(shown, "orchestrator  Acme Mid 5 high", on="›")
+        ground = {part for part in self.plain if part.startswith("48")}     # the screen's
+        band = {part for part in row if part.startswith("48")}
+        self.assertEqual(len(band), 1, row)
+        self.assertNotEqual(band, ground)
+        self.assertEqual(row, {"1", *self.plain - ground, *band})
+        self.assertEqual(look(shown, "›"), {"1", *self.accent - ground, *band})
         self.assertEqual([line for line in map(plain, shown) if "▸" in line], [])
 
     def test_c_draws_a_mark_that_is_on_in_the_accent_and_one_that_is_off_dim(self):

@@ -1,6 +1,7 @@
 """A live check of a commit shadows Go on its home before its suite: tests/live.sh runs
-tests/shadow.py's previews there, writes what each found to the check's shadow.json, and exits as
-its suite does; run as a harness gate, or with `AK_LIVE_FAILED` naming anything but
+tests/shadow.py's previews there, writes what each found to the check's shadow.json, keeps each
+difference one confirms as a case under the Home's .agentkit/tmp/shadow/cases, and exits as its
+suite does; run as a harness gate, or with `AK_LIVE_FAILED` naming anything but
 `<check>/failed`, it shadows nothing.
 
 On an akinstall Home, each case commits this checkout's tests/live.sh and tests/shadow.py, with
@@ -41,6 +42,7 @@ EOF
 chmod +x "$out"
 """
 LINE = "a line only go prints"
+CASES = Path(".agentkit/tmp/shadow/cases")
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
@@ -75,6 +77,12 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
                              timeout=900)
         return done, check
 
+    def cases(self):
+        """What each case the Home keeps is of: the command, the kind and the words."""
+        return sorted((kept["ak"], kept["kind"], kept["what"])
+                      for kept in (json.loads((case / "case.json").read_text())
+                                   for case in (self.home.path / CASES).glob("*")))
+
     def git(self, *args):
         done = self.home.run("git", "-C", str(self.seed), *args)
         self.assertEqual(done.code, 0, done.err)
@@ -92,6 +100,7 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
         lines = done.out.splitlines()
         self.assertEqual([line.partition(": ran, ")[0] for line in lines],
                          [f"shadow: ak {shlex.join(argv)}" for argv in PREVIEWS] + ["suite"], said)
+        self.assertEqual(self.cases(), [], said)
 
     def test_a_go_that_prints_one_line_more(self):
         done, check = self.live(0, f'echo "{LINE}"')
@@ -101,6 +110,8 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
             with self.subTest(preview["ak"]):
                 self.assertTrue(preview["ran"], said)
                 self.assertIn(["line", f"only go: stdout: {LINE}"], preview["differences"], said)
+        self.assertEqual(self.cases(), sorted((list(argv), "line", f"only go: stdout: {LINE}")
+                                              for argv in PREVIEWS), said)
 
     def test_a_go_that_does_not_build(self):
         done, check = self.live(0, None)

@@ -417,16 +417,50 @@ def unanswered(record, cwd, conversation):
     return user_message(entry.get("timestamp"), said) if said else None
 
 
+def begins(entry):
+    """Whether a transcript line begins a turn: the owner's prompt, or the line Claude Code marks
+    with the origin of the turn it begins (`turnOrigin`, 2.1.302; a compaction's summary carries
+    it on inside the turn), before that a task notification by its own origin."""
+    if entry.get("isCompactSummary"):
+        return False
+    origin = entry.get("origin")
+    return (prompt(entry) is not None or bool(entry.get("turnOrigin"))
+            or isinstance(origin, dict) and origin.get("kind") == "task-notification")
+
+
 def running(record, cwd, conversation):
-    """The newer of that conversation's last answer and its status-line report."""
+    """The newer of that conversation's last answer and its status-line report, the answer
+    dated by the line that began its turn, else by its own time: Claude Code stamps each
+    answer with the effort its turn began at, an `/effort` taken in that turn notwithstanding
+    (2.1.323), so an answer of a turn a move went into says what the move left."""
     from . import last_entry, model_report, moment
     path = transcript(record, cwd, conversation)
-    entry = path and last_entry(path, lambda entry: entry.get("type") == "assistant"
-                                and not entry.get("isSidechain")
-                                and isinstance(entry.get("message"), dict)
-                                and entry["message"].get("model") not in (None, "<synthetic>"))
-    latest = ((entry["message"]["model"], entry.get("effort"), moment(entry.get("timestamp")))
-              if entry else None)
+    found, began = [], []
+
+    def pick(entry):
+        # Read back from the end: the last answer, then the line its turn began with.  A prompt
+        # queued while a turn runs goes to the model beside a tool's result, inside that turn.
+        if entry.get("isSidechain"):
+            return False
+        if not found:
+            if (entry.get("type") == "assistant" and isinstance(entry.get("message"), dict)
+                    and entry["message"].get("model") not in (None, "<synthetic>")):
+                found.append(entry)
+            return False
+        if began and entry.get("type") == "assistant":
+            return True
+        message = entry.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if began and entry.get("type") == "user" and isinstance(content, list) and any(
+                isinstance(part, dict) and part.get("type") == "tool_result" for part in content):
+            began.clear()
+        if begins(entry):
+            began[:] = [entry]
+            return entry.get("type") == "user"
+        return False
+    path and last_entry(path, pick)
+    latest = ((found[0]["message"]["model"], found[0].get("effort"),
+               moment((began or found)[0].get("timestamp"))) if found else None)
     report = model_report(conversation)
     return report if report and (not latest or report[2] > (latest[2] or 0)) else latest
 

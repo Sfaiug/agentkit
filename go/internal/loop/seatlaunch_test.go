@@ -4,9 +4,12 @@ package loop
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"agentkit/internal/config"
@@ -73,6 +76,42 @@ func TestAFixWaitsFromItsFirstReceiptWithTheSeatsCurrentListsAndNoParent(t *test
 	record, _ = run.Read(child)
 	if record.Str("state") != "queued" || !record.Truthy("slot_waiting") || record.Get("pid") != nil {
 		t.Fatalf("a failed launch lost its queue place: %s", run.Line(record))
+	}
+}
+
+// A follow-up's start asks Drivable of the lists and numbers its run was bound with: one Go would
+// not drive to its end starts no driver, its receipt queued for Python's tick, and one Go drives
+// starts as before.
+func TestARunGoDoesNotDriveStaysQueuedForPython(t *testing.T) {
+	rig(t, 0)
+	seatLaunchFixture(t)
+	t.Setenv("AK_MAX_RUNS", "0")
+	previous := Drivable
+	t.Cleanup(func() { Drivable = previous })
+	for _, refusal := range []error{errors.New("several logins"), nil} {
+		var lists config.Binding
+		var numbers config.Numbers
+		Drivable = func(bound config.Binding, held config.Numbers) error { lists, numbers = bound, held; return refusal }
+		child := filepath.Join(run.Runs(), fmt.Sprint("fix-", refusal == nil))
+		os.Mkdir(child, 0o700)
+		os.WriteFile(filepath.Join(child, "task.md"), []byte("# Fix retry\n"), 0o600)
+		start, err := launchForSeat(child, run.Fields("launched_session", "acme"), run.Fields("followup", run.Fields("check", "false"), "repo", os.Getenv("HOME")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = start()
+		record, _ := run.Read(child)
+		// the receipt holds its launcher's pid until a driver takes it
+		pid, _ := record.Int("pid")
+		driven := pid != os.Getpid()
+		if driven {
+			t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+		}
+		policy, _ := run.Policy(record)
+		if (err == nil) != (refusal == nil) || driven != (refusal == nil) || record.Str("state") != "queued" ||
+			fmt.Sprint(lists.Workers, lists.Reviewers) != "[opus] [astra]" || numbers != policy {
+			t.Fatalf("refused %v: start %v, asked of %v %v, record %s", refusal, err, lists, numbers, run.Line(record))
+		}
 	}
 }
 

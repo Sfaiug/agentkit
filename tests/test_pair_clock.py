@@ -71,6 +71,13 @@ class AStampsLine(unittest.TestCase):
                      "1789000000.0 3600.0 acme boot"):
             self.assertIsNone(pair_clock.read(line), line)
 
+    def test_a_clock_that_is_no_time_is_no_stamp(self):
+        for clock in ("nan", "inf", "-inf", "1e1000"):
+            for line in (f"{clock} 3600.0 acme-boot-1", f"1789000000.0 {clock} acme-boot-1"):
+                self.assertIsNone(pair_clock.read(line), line)
+                with at(*line.split()), self.assertRaises(ValueError):
+                    pair_clock.now()
+
 
 class TheClockAKeySets(unittest.TestCase):
     def test_the_variable_gives_both_clocks_and_the_boot(self):
@@ -89,6 +96,12 @@ class TheClockAKeySets(unittest.TestCase):
                 self.assertLessEqual(stamp[clock], after[clock])
             self.assertEqual(stamp.boot,
                              Path("/proc/sys/kernel/random/boot_id").read_text().strip())
+
+    def test_a_boot_linux_cannot_say_gives_no_stamp(self):
+        with patch.dict(os.environ), patch.object(Path, "read_text", side_effect=PermissionError):
+            os.environ.pop(pair_clock.NOW, None)
+            self.assertRaises(OSError, pair_clock.now)
+            self.assertIsNone(pair_clock.boot())
 
     def test_the_whole_of_ak_sees_the_boot_it_gives(self):
         with at(WALL, SINCE):

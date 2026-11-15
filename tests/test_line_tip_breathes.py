@@ -52,7 +52,8 @@ class Breathes(Sandbox):
             menu.draw(self.cfg, self.seats, menu.KEYS, 0, cursor, {}, look=False,
                       records=self.records, clock=clock)
         lines = terminal.ANSI.sub("", out.getvalue().split("\033[J")[0]).split("\n")
-        return [line.replace("\033[K", "") for line in lines], clock
+        # the highlighted row's band runs on to the layout's edge in blanks
+        return [line.replace("\033[K", "").rstrip() for line in lines], clock
 
     def cell(self, lines, row_of, char, last=True):
         row = next(n for n, line in enumerate(lines, 1) if row_of(line))
