@@ -38,23 +38,27 @@ case $1 in
 esac
 """
 
-# Each detached look is waited for before assertions or sandbox cleanup, its exit status kept
-# despite the hook's silent redirects. No clock bounds a hook, its look or the fake tmux that
-# look asks (`orch.TMUX_CEILING`): a loaded host stretches each past any bound, and one that
-# never ends stops the suite for its silence.
+# Each detached look is waited for before assertions or sandbox cleanup, how it ended kept
+# despite the hook's silent redirects, by the process that looked: an event heard cold leaves
+# its look to a child of the client the hook waits on. No clock bounds a hook, its look or the
+# fake tmux that look asks (`orch.TMUX_CEILING`): a loaded host stretches each past any bound,
+# and one that never ends stops the suite for its silence.
 PYTHON = r"""#!/bin/bash
 if [[ $1 = */agentkit/looker.py ]]; then
-  "$TEST_PYTHON" -c 'import runpy, sys
+  exec "$TEST_PYTHON" -c 'import os, runpy, sys
 from pathlib import Path
 look = sys.argv.pop(1)
 sys.path.insert(0, str(Path(look).resolve().parents[1]))
 from agentkit import orch
 orch.TMUX_CEILING = None
-runpy.run_path(look, run_name="__main__")' "$@"
-  printf '%s\n' "$?" >"$LOOK_FINISHED"
-else
-  exec "$TEST_PYTHON" "$@"
+ended = "1"
+try:
+    runpy.run_path(look, run_name="__main__")
+    ended = "0"
+finally:
+    Path(os.environ["LOOK_FINISHED"]).write_text(ended + "\n")' "$@"
 fi
+exec "$TEST_PYTHON" "$@"
 """
 
 
