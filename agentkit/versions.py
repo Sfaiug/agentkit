@@ -94,8 +94,9 @@ def checkout(code=None):
 
 
 def keep_link():
-    """Where a move keeps the version it replaced; None on a client, which runs no tick that could
-    make its moves final, so keeps nothing, a link a server left it included."""
+    """Where a move keeps the version it replaced; None on a client, which runs no tick: its move
+    is final once the program it put live starts (`update.update_agentkit`), so it keeps nothing,
+    a link a server left it included."""
     return None if config.server_alias() else config.TMP / KEEP
 
 
@@ -337,18 +338,19 @@ def keep_times(live, new, commit):
 
 
 def switch(live, commit):
-    """Put `commit` live at `live`, swapped in whole once its `install.sh --prepare` passed: ""
-    once it is or there is nothing to move, else why not, `live` then as it was.  Forward only,
-    as a fast-forward went: a commit `live` already has moves nothing, and one beside it is
+    """Put `commit` live at `live`, swapped in whole once its `install.sh --prepare` passed:
+    ("", the folder the version it replaced is left in) once it is, ("", None) where there is
+    nothing to move, else (why not, None), `live` then as it was.  Forward only, as a
+    fast-forward went: a commit `live` already has moves nothing, and one beside it is
     refused."""
     live = live.resolve()       # a link at ~/agentkit stays, and what it names is swapped
     if git(live, "merge-base", "--is-ancestor", commit, "HEAD")[0] == 0:
-        return ""
+        return "", None
     if git(live, "merge-base", "--is-ancestor", "HEAD", commit)[0] != 0:
-        return f"{commit[:12]} is not ahead of what {live} has"
+        return f"{commit[:12]} is not ahead of what {live} has", None
     why = adopt(live)
     if why:
-        return why
+        return why, None
     tidy(live)
     (config.HOME / VERSIONS).mkdir(parents=True, exist_ok=True)
     new = Path(tempfile.mkdtemp(prefix=f"{commit[:12]}.", dir=config.HOME / VERSIONS))
@@ -356,13 +358,13 @@ def switch(live, commit):
                      LOCKED, str(new), commit)
     if code:
         remove(new)
-        return f"{commit[:12]} could not be checked out in {new}: {said}"
+        return f"{commit[:12]} could not be checked out in {new}: {said}", None
     # every seat's hooks and the tick run ~/agentkit/bin/ak, so a version goes live ready to run:
     # Go's is built from go/, which git does not track
     code, said = run([str(new / "install.sh"), "--prepare"], new)
     if code:
         remove(new)
-        return f"{commit[:12]} could not be prepared in {new}: {said or f'exit {code}'}"
+        return f"{commit[:12]} could not be prepared in {new}: {said or f'exit {code}'}", None
     keep = keep_link()
     try:
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
@@ -378,6 +380,6 @@ def switch(live, commit):
         if kept() == new:       # nothing was replaced
             keep.unlink(missing_ok=True)
         remove(new)
-        return f"{new} could not be swapped in for {live}: {exc}"
+        return f"{new} could not be swapped in for {live}: {exc}", None
     repair(live, new)
-    return ""
+    return "", new
