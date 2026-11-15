@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -186,7 +185,7 @@ func pinnedHead(record *run.Object) string {
 // unmoved is the lander's pending members less each whose PR's head moved past its review, Python's
 // _pr_moved: its seat pushed since, so checking the reviewed head tests code nobody will land, and
 // the red that sends it back for review is published at once.
-func unmoved(prefix, pending []member, said io.Writer) []member {
+func unmoved(prefix, pending []member) []member {
 	var kept []member
 	for _, m := range pending {
 		moved := pullMoved(m.record)
@@ -197,7 +196,7 @@ func unmoved(prefix, pending []member, said io.Writer) []member {
 		path := filepath.Join(m.dir, "lander.log")
 		if os.WriteFile(path, []byte(moved+"\n"), 0o666) == nil {
 			verdict := run.Fields("fix", run.Fields("line", moved, "log", path, "moved", true))
-			withCandidates(prefix, []member{m}, func() bool { return publish(m.dir, m.record, verdict, said) })
+			withCandidates(prefix, []member{m}, func() bool { return publish(m.dir, m.record, verdict) })
 		}
 	}
 	return kept

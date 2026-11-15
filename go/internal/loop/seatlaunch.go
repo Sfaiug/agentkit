@@ -7,8 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/history"
@@ -99,19 +97,14 @@ func bindSeat(state, origin *run.Object) (string, config.Binding, config.Numbers
 	return session, bound, policy, err
 }
 
-// siblingEnv drops the ending's process-sweep marker and turn variables. The fix's own
-// driver installs its marker and ancestry after taking its own slot.
+// siblingEnv is a follow-up's, apart from its ending (host.Apart), on the ending's seat. The fix's
+// own driver installs its marker and ancestry after taking its own slot.
 func siblingEnv(record *run.Object) ([]string, error) {
-	env, err := config.ChildEnv()
+	env, err := host.Apart(0)
 	if err != nil {
 		return nil, err
 	}
-	env = slices.DeleteFunc(env, func(pair string) bool {
-		key, _, _ := strings.Cut(pair, "=")
-		return slices.Contains([]string{host.Marker, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_DEPTH",
-			"AGENTKIT_UNATTENDED", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE", "AGENTKIT_SESSION"}, key)
-	})
-	return append(env, "AK_RUN_DEPTH=0", "AGENTKIT_SESSION="+run.Seat(record)), nil
+	return append(env, "AGENTKIT_SESSION="+run.Seat(record)), nil
 }
 
 // A queued launch that could not spawn keeps its place for the tick to recover.

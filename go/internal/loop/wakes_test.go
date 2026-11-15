@@ -90,7 +90,7 @@ func TestALanderOutlivesTheWakesItStarts(t *testing.T) {
 	}
 	defer held.Close()
 	ended := filepath.Join(home, "ended")
-	if err := detach(filepath.Join(home, "log.txt"), append(os.Environ(), "AK_TEST_WAKE_ENDED="+ended), "run", "resume", "fix-api"); err != nil {
+	if _, err := detach(filepath.Join(home, "log.txt"), append(os.Environ(), "AK_TEST_WAKE_ENDED="+ended), "run", "resume", "fix-api"); err != nil {
 		t.Fatal(err)
 	}
 	if code := CheckLine(line, io.Discard); code != 0 {
@@ -122,7 +122,7 @@ func TestOnlyTheLinesHeadIsWokenToDeliver(t *testing.T) {
 	first := filepath.Join(run.Runs(), "fix-1")
 	woken := func(but string) []string {
 		var said bytes.Buffer
-		deliverNext(line, but, &said)
+		deliverNext(line, but, nil, &said)
 		var names []string
 		for _, found := range regexp.MustCompile(`could not resume (\S+):`).FindAllStringSubmatch(said.String(), -1) {
 			names = append(names, found[1])

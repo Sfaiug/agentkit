@@ -17,10 +17,10 @@ import (
 // hours.
 const wakeEvery = 10 * time.Second
 
-// given tells the pass's wake of a red just published.
+// given tells the pass's wake of a verdict just published.
 var given = make(chan struct{}, 1)
 
-func redGiven() {
+func verdictGiven() {
 	select {
 	case given <- struct{}{}:
 	default: // one telling is waiting already
@@ -29,18 +29,22 @@ func redGiven() {
 
 // waking starts the pass's wake, Python's _waking, and returns its end: each run parked in the
 // line as it stands on a red Go's woken run carries, waiting on no run with a place in the line
-// (redBehind), is woken once a pass.  It wakes as the pass starts, after each red the pass gives,
-// every wakeEvery while it runs, and as it ends.
+// (redBehind), is woken once a pass, and then the line's next delivery (deliverNext).  It wakes as
+// the pass starts, after each verdict the pass gives, every wakeEvery while it runs, and as it ends.
 func waking(line string, said io.Writer) (end func()) {
 	done, ended := make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(ended)
-		woken := map[string]bool{}
-		for {
+		woken, launched := map[string]bool{}, map[string]<-chan struct{}{}
+		wake := func() {
 			wakeReds(line, woken, said)
+			deliverNext(line, "", launched, said)
+		}
+		for {
+			wake()
 			select {
 			case <-done:
-				wakeReds(line, woken, said)
+				wake()
 				return
 			case <-given:
 			case <-time.After(wakeEvery):
@@ -68,7 +72,7 @@ func wakeReds(line string, woken map[string]bool, said io.Writer) {
 		if err == nil {
 			if current, _ := run.Read(m.dir); run.Equal(current, m.record) && !run.ProcessActive(current) {
 				woken[id] = true // a resume takes its record a moment after it starts
-				err = resume(m.dir, current)
+				_, err = resume(m.dir, current)
 			}
 			held.Close()
 		}

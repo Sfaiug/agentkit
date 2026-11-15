@@ -143,7 +143,7 @@ func (r *repoPlace) landFromLine(l *loop, upstream string, record *run.Object, d
 	// what left the line, or rejoined it, did so under the lock: this delivery's turn is over, so the
 	// next is woken, and the next pass checks what is left
 	defer func() {
-		deliverNext(filepath.Base(turn), l.dir, stampedLog{l.dir})
+		deliverNext(filepath.Base(turn), l.dir, nil, stampedLog{l.dir})
 		startLine(turn, stampedLog{l.dir})
 	}()
 	// what ends unmerged goes back to what a run has for the wait or repair ahead
@@ -272,25 +272,27 @@ func startLine(turn string, said io.Writer) {
 // a service's manager stops all that is left in it when the lander or driver ends (CheckLine, drive).
 var wakesUnderWay sync.WaitGroup
 
-// detach starts this program with args in a session of its own, appending to log, as a wake.
-func detach(log string, env []string, args ...string) error {
+// detach starts this program with args in a session of its own, appending to log, as a wake, and
+// returns what closes as it ends.
+func detach(log string, env []string, args ...string) (<-chan struct{}, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	out, err := os.OpenFile(log, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer out.Close()
 	cmd := exec.Command(self, args...)
 	cmd.Env, cmd.Stdout, cmd.Stderr, cmd.SysProcAttr = env, out, out, host.Detached()
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 	wakesUnderWay.Add(1)
-	go func() { cmd.Wait(); wakesUnderWay.Done() }() // a zombie still answers as alive
-	return nil
+	ended := make(chan struct{})
+	go func() { cmd.Wait(); close(ended); wakesUnderWay.Done() }() // a zombie still answers as alive
+	return ended, nil
 }
 
 // Logging is whether this process writes into the run's log, as a lander's wake does, Python's
@@ -319,41 +321,62 @@ func lineMembers(name string) (found []member) {
 }
 
 // deliverNext wakes the line's head, its first green delivery, where it waits with no process of
-// its own, Python's deliver_next: only the head takes the delivery lock (deliveryLock), so one woken
-// behind it would only wait there.  The run but, whose delivery just ended, is passed over.
-func deliverNext(line, but string, said io.Writer) {
+// its own and no resume of it is coming up, Python's deliver_next: only the head takes the delivery
+// lock (deliveryLock), so one woken behind it would only wait there.  On 13 Nov 2026 a green stack
+// of 41 woke 41 runs, the load went from 125 to 215 on 18 cores and one merged every ~100 s, against
+// 15 to 25 s uncontended.  Each wake of a pass asks it (waking), and each delivery as it ends
+// (landFromLine), the run but, whose delivery just ended, passed over.  A resume coming up writes
+// the run's log (run.Resumes) until it takes the record or ends; a terminal's only follows the run
+// it started.  launched, nil for none, holds the end of each head's resume a pass started: one
+// refused or dead is woken again at the pass's next wake.  Its lock is tried, as wakeReds' is.
+func deliverNext(line, but string, launched map[string]<-chan struct{}, said io.Writer) {
+	var greens []member
 	for _, m := range lineMembers(line) {
-		if m.dir == but || !green(m.record.Dict("waiting_on")) {
-			continue
+		if m.dir != but && green(m.record.Dict("waiting_on")) {
+			greens = append(greens, m)
 		}
-		if m.record.Str("state") == "waiting" {
-			wake(m, said)
-		}
+	}
+	if len(greens) == 0 {
 		return
 	}
-}
-
-// wake starts the member's own `ak run resume` on the verdict written to it, under its lock, while
-// its record is the one read and no process of its own runs.
-func wake(m member, said io.Writer) {
-	err := run.Change(m.dir, func(record *run.Object) error {
-		if !run.Equal(record, m.record) || run.ProcessActive(record) {
-			return nil
+	head, id := greens[0], filepath.Base(greens[0].dir)
+	if ended, ok := launched[id]; ok {
+		select {
+		case <-ended:
+		default:
+			return
 		}
-		return resume(m.dir, record)
-	})
-	if err != nil {
-		fmt.Fprintf(said, "WARN could not resume %s: %v\n", filepath.Base(m.dir), err)
 	}
+	held, err := lock.Try(filepath.Join(head.dir, run.RecoveryLock))
+	if errors.Is(err, lock.ErrHeld) {
+		return
+	}
+	if err == nil {
+		defer held.Close()
+		current, _ := run.Read(head.dir)
+		if head.record.Str("state") != "waiting" || !run.Equal(current, head.record) || run.ProcessActive(current) ||
+			slices.ContainsFunc(run.Resumes(head.dir), func(resume run.Resume) bool { return resume.Writes }) {
+			return
+		}
+		var ended <-chan struct{}
+		if ended, err = resume(head.dir, current); err == nil {
+			if launched != nil {
+				launched[id] = ended
+			}
+			fmt.Fprintf(said, "%s delivers next in %s, %d waiting behind it\n", id, line, len(greens)-1)
+			return
+		}
+	}
+	fmt.Fprintf(said, "WARN could not resume %s: %v\n", id, err)
 }
 
 // resume starts the run's own `ak run resume`, Python's launch_resume: into its log, at the depth
-// its record holds, apart from the caller's run (host.Apart).
-func resume(dir string, record *run.Object) error {
+// its record holds, apart from the caller's run (host.Apart).  What it returns closes as that ends.
+func resume(dir string, record *run.Object) (<-chan struct{}, error) {
 	depth, _ := record.Int("run_depth")
 	env, err := host.Apart(depth)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	return detach(filepath.Join(dir, "log.txt"), env, "run", "resume", filepath.Base(dir))
 }
@@ -430,9 +453,9 @@ func unchanged(dir string, saved *run.Object) bool {
 }
 
 // publish writes the verdict onto the member, Python's publish: only a record still the one this
-// pass read, with no process of its own, takes it.  A green wakes the line's head (deliverNext), the
-// member itself only as that; a red is the pass's wake's (wakes.go), told of it.
-func publish(dir string, saved, verdict *run.Object, said io.Writer) bool {
+// pass read, with no process of its own, takes it.  Who it wakes is the pass's wake's (wakes.go),
+// told of it.
+func publish(dir string, saved, verdict *run.Object) bool {
 	err := run.Change(dir, func(current *run.Object) error {
 		if !run.Equal(current, saved) || run.ProcessActive(current) {
 			return errStale
@@ -447,11 +470,7 @@ func publish(dir string, saved, verdict *run.Object, said io.Writer) bool {
 	if err != nil {
 		return false
 	}
-	if verdict.Has("fix") {
-		redGiven()
-	} else {
-		deliverNext(landingLine(saved), "", said)
-	}
+	verdictGiven()
 	return true
 }
 

@@ -192,7 +192,7 @@ func (l *loop) repairTarget(turn, tree string, record, red *run.Object) string {
 	if record.Truthy("review_pr") {
 		path := filepath.Join(l.dir, "target-red.log")
 		if os.WriteFile(path, []byte(probe.Str("text")+"\n"), 0o666) == nil {
-			publish(l.dir, record, run.Fields("fix", run.Fields("line", strings.Split(probe.Str("text"), "\n")[0], "log", path)), l.voice)
+			publish(l.dir, record, run.Fields("fix", run.Fields("line", strings.Split(probe.Str("text"), "\n")[0], "log", path)))
 		}
 		return ""
 	}
