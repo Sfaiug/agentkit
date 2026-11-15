@@ -15,13 +15,14 @@ import (
 
 // Interruptible is whether Python's reap interrupts the record of the run at dir and Go carries it:
 // a going run whose loop is gone past all reap waits for (run.GoesOn), and that left nothing to stop
-// or that Go cannot read: no process of the run still running, which reap would stop or leave at
-// work; no unit to ask whether its memory cap ended the loop, or to stop; no worktree for the dead
-// loops row to continue into, whose death reap records rather than tells; and no wait, whose
-// landing line Python's save of the interruption times into history.db and wakes.
+// or that Go cannot read: no process of the run still at work (run.Working, as the dead loops row
+// reads it), which reap would stop or race; no unit to ask whether its memory cap ended the loop,
+// or to stop; no worktree for the dead loops row to continue into, whose death reap records rather
+// than tells; and no wait, whose landing line Python's save of the interruption times into
+// history.db and wakes.
 func Interruptible(dir string, record *run.Object, now float64) bool {
 	info, err := os.Stat(record.Str("worktree"))
-	return run.Active(record) && !run.GoesOn(record, now) && len(host.Marked(dir)) == 0 && !run.Scoped(record) &&
+	return run.Active(record) && !run.GoesOn(record, now) && !run.Working(dir) && !run.Scoped(record) &&
 		!(err == nil && info.IsDir()) && record.Get("waiting_on") == nil && !run.Lined(record)
 }
 

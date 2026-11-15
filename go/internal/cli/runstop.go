@@ -9,6 +9,7 @@ import (
 	"agentkit/internal/job"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
+	"agentkit/internal/run"
 )
 
 func init() {
@@ -38,7 +39,7 @@ func runStop(args []string, out, errOut io.Writer) int {
 // runResume is `ak run resume <id> [--rounds N] [--bg]`, its arguments checked already: a job's
 // in the background or with rounds, and any point Go cannot pick up from are Python's.
 func runResume(args []string, out, errOut io.Writer) int {
-	id, asked, ok := launch.ResumeArgs(args)
+	id, asked, ok := run.ResumeArgs(args)
 	rounds, err := 0, error(nil)
 	if asked != "" {
 		rounds, err = strconv.Atoi(asked) // a number past Go's int is Python's

@@ -29,7 +29,7 @@ func TestAGoingRunWithAProcessLeftIsNotInterrupted(t *testing.T) {
 	t.Cleanup(func() { worker.Process.Kill(); worker.Wait() })
 	// Start returns once the exec is under way, which on a loaded host can be before /proc shows
 	// the environment the worker is marked by
-	for deadline := time.Now().Add(10 * time.Second); len(host.Marked(dir)) == 0; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(10 * time.Second); !run.Working(dir); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("the worker never showed its marker")
 		}
