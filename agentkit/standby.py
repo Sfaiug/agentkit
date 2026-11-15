@@ -34,10 +34,10 @@ KEPT = tuple(path for path in (config.STATE / "server", versions.repository(),
              if path.is_relative_to(config.HOME))
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
 GOES = 3        # a go during which files vanished on the home leaves their old copies here
-# This machine's own folder of the copy: the stamp of the last pass that ended well, and the lock
-# a pass holds, which the kernel lets go of when the pass ends, however it ends.
-FOLDER = config.TMP / "standby"
-COPIED, LOCK = FOLDER / "copied", FOLDER / "lock"
+# This machine's own folder of the copy, in ak's tmp folder: the stamp of the last pass that ended
+# well, and the lock a pass holds, which the kernel lets go of when the pass ends, however it ends.
+# Names, not paths: each follows HOME, as config's places do.
+FOLDER, COPIED, LOCK = "standby", "copied", "lock"
 TAG = b"# agentkit standby"     # what the job's line in the crontab ends in
 
 
@@ -119,7 +119,7 @@ def _shown():
         print("ak standby: this machine is no home's client, so it keeps no copy", file=sys.stderr)
         return 1
     try:
-        line, of = COPIED.read_text().splitlines()
+        line, of = (config.TMP / FOLDER / COPIED).read_text().splitlines()
     except (OSError, ValueError):     # none yet, or one cut short
         line = of = None
     stamp = pair_clock.read(line) if of == alias else None
@@ -155,8 +155,9 @@ def main(argv):
         print(f"ak standby: refused: {reason}", file=sys.stderr)
     if refused:
         return 1
-    FOLDER.mkdir(parents=True, exist_ok=True)
-    with LOCK.open("a") as lock:
+    folder = config.TMP / FOLDER
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / LOCK).open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -169,7 +170,7 @@ def main(argv):
         if _copy(alias, home, copied):
             return 1
         # whole or not at all: a write cut short leaves the last stamp
-        new = COPIED.with_name("copied.new")
+        new = folder / f"{COPIED}.new"
         new.write_text(f"{began.line()}\n{alias}\n")
-        new.replace(COPIED)
+        new.replace(folder / COPIED)
     return 0
