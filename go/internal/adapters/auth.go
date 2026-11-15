@@ -37,6 +37,22 @@ func Auth(name string, args []string, out, errOut io.Writer) int {
 	return 0
 }
 
+// Usage answers `usage` as the Python adapters do: the login's meters as one JSON object, a login
+// that lapsed where only a turn of its harness renews it renewed first, as `auth` renews it: the
+// usage page refuses the worker token a lapsed seat login falls back to.
+func Usage(name string, out, errOut io.Writer) int {
+	login, err := account(name)
+	read := harness.Usage(name)
+	if err != nil || read == nil {
+		return refused(name, "usage", err, errOut)
+	}
+	if answer, _ := harness.Auth(name, login, true); answer.Lapsed {
+		renew(name, login)
+	}
+	fmt.Fprintln(out, read(login))
+	return 0
+}
+
 // renew runs the harness's `[launch] renew` turn, `hi` down its stdin, in ak's tmp, one per login
 // at a time under its `[login] lock`, which its Python adapter takes too: whoever waited finds the
 // login renewed and starts none.  Silent: `auth` answers in one line.

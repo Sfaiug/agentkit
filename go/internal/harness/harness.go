@@ -76,6 +76,7 @@ type plugin struct {
 	notices map[string][]string
 	turnEnv map[string]string
 	auth    func(login config.Login, seat bool) Answer
+	usage   func(login config.Login) *run.Object
 	lend    func(login config.Login) Loan
 	// looks is whether Go reads the screen of this harness's seats, and recorded the error its
 	// conversation ends on (Python's plugin `error`).

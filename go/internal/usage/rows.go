@@ -110,8 +110,8 @@ func (r *Readings) source(name string) source {
 }
 
 // sharedWeek is the weekly meter every model of that provider draws on, Python's
-// usage.shared_week: the tightest one read in a window still open that no model claims as its
-// own cap; nil where there is none.
+// usage.shared_week: the tightest one read in a window still open that is no model's own cap, one
+// its provider names the owner of (`scope`) or a model claims; nil where there is none.
 func (r *Readings) sharedWeek(name string, prov *run.Object) *run.Object {
 	claimed := map[string]bool{}
 	for _, model := range r.models {
@@ -121,7 +121,7 @@ func (r *Readings) sharedWeek(name string, prov *run.Object) *run.Object {
 	}
 	var worst *run.Object
 	for _, meter := range objects(prov.Get("meters")) {
-		if !session(meter) && numbers(meter, "used") && !past(meter, r.now) && !claimed[meter.Str("name")] &&
+		if !session(meter) && numbers(meter, "used") && !past(meter, r.now) && !meter.Truthy("scope") && !claimed[meter.Str("name")] &&
 			(worst == nil || used(meter) > used(worst)) {
 			worst = meter
 		}

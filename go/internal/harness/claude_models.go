@@ -101,12 +101,7 @@ func claudeCommand(name string, args ...string) *exec.Cmd {
 // claudeBearer is the token the listing asks with, as the script finds it: the worker token, from
 // the environment or its file, else the seat's own login's, never renewed for this; "" for none.
 func claudeBearer(login config.Login) string {
-	file, variable := config.WorkerToken("claude", login)
-	if token := getenv(login, variable); token != "" {
-		return token
-	}
-	data, _ := os.ReadFile(file)
-	if token := strings.TrimRight(string(data), "\n"); token != "" {
+	if token := claudeWorkerToken(login); token != "" {
 		return token
 	}
 	_, _, oauth := claudeLogin(login)

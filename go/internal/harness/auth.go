@@ -6,6 +6,7 @@ import (
 	"unicode"
 
 	"agentkit/internal/config"
+	"agentkit/internal/run"
 )
 
 // An Answer is a harness's login read for its adapter's `auth`: whether a turn, or the seat, can
@@ -23,6 +24,16 @@ func Auth(name string, login config.Login, seat bool) (Answer, bool) {
 		return hook(login, seat), true
 	}
 	return Answer{}, false
+}
+
+// Usage is that harness's reading of its subscription's meters on a login, its adapter's `usage`
+// answer as one JSON line; nil where Go does not read that harness's meters yet.
+func Usage(name string) func(login config.Login) string {
+	hook := plugins[name].usage
+	if hook == nil {
+		return nil
+	}
+	return func(login config.Login) string { return run.Line(hook(login)) }
 }
 
 // getenv is the variable as a call on the login sees it.
