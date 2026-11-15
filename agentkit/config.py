@@ -750,19 +750,37 @@ def running(cfg, harness, model_id):
     return [name for name in offered(cfg) if runs(name)]
 
 
-def add_model(cfg, entry, label):
+def take_in(cfg, entry, row):
+    """`entry`'s provider, the one a harness lists as `row` (id, name, mode), in `cfg` as `+ add
+    a subscription` takes it in: its table where the config has none, the shipped one where the
+    shipped default has it, else that mode under that name; and that mode on `entry` where the
+    table says another."""
+    if row[0] not in cfg["providers"]:
+        tables = shipped().get("providers") or {}
+        cfg["providers"][row[0]] = (copy.deepcopy(tables[row[0]]) if row[0] in tables
+                                    else {"mode": row[2], "name": row[1]})
+    # a table that came with another harness's login: Codex's plan pays for no
+    # call OpenCode makes on an OpenAI key
+    if row[2] != cfg["providers"][row[0]].get("mode", "subscription"):
+        entry["mode"] = row[2]
+
+
+def add_model(cfg, entry, label, row=None):
     """`entry` in the config file as it is now, named from its model's `label` (short_name),
-    and in `cfg`, its provider's table with it, for its holder to go on with: read, added and
-    saved under one lock, so two added at once are both kept.  Where the file runs that model
-    on that harness by then (running), that entry, nothing added.  Its name; Error or OSError
-    where the file will not read or save, or could not run it (model), its provider gone from
-    it since `cfg` was read."""
+    its provider taken in as its harness lists it in `row` where given (take_in), and in `cfg`,
+    its provider's table with it, for its holder to go on with: read, added and saved under one
+    lock, so two added at once are both kept.  Where the file runs that model on that harness
+    by then (running), that entry, nothing added.  Its name; Error or OSError where the file
+    will not read or save, or could not run it (model), its provider gone from it since `cfg`
+    was read."""
     with _config_lock():
         now = load()
         name = next(iter(running(now, entry["harness"], entry["model"])), None)
         if name is None:
             name = short_name(now, label)
             now["models"][name] = entry
+            if row:
+                take_in(now, entry, row)
             model(now, name)
             save(now)
     cfg["models"][name] = now["models"][name]

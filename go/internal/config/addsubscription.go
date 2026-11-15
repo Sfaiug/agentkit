@@ -166,7 +166,7 @@ func TakeIn(model, harness, id, effort, provider, label, mode string, keep func(
 
 // takeIn gives a model entry under a provider a host lists that provider's table where providers have
 // none: the shipped default's where it has one, else the listed mode under the listed name.  The
-// entry takes that mode as its own where its provider's table says another (menu._take_in).
+// entry takes that mode as its own where its provider's table says another (config.take_in).
 func takeIn(providers, entry *table, under Listed) {
 	if providers.get(under.ID) == nil {
 		shipped, _ := parseDocument(defaultConfig)
