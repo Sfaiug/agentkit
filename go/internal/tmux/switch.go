@@ -15,12 +15,16 @@ func Inside(server string) bool {
 	return socket != "" && filepath.Base(socket) == server
 }
 
-// Switch moves this process's client to the session by exactly that name; only $TMUX says which
-// client that is.  Its error is what tmux said refusing.
+// Switch moves this process's client to the session by exactly that name: the popup's, where it
+// names one (Client), else the one $TMUX finds.  Its error is what tmux said refusing.
 func Switch(server, name string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), ceiling)
 	defer cancel()
-	call := command(ctx, server, "switch-client", "-t", "="+name)
+	args := []string{"switch-client", "-t", "=" + name}
+	if client := os.Getenv(Client); client != "" {
+		args = append(args, "-c", client)
+	}
+	call := command(ctx, server, args...)
 	call.Env = append(call.Env, "TMUX="+os.Getenv("TMUX"))
 	_, err := call.Output()
 	if refused, ok := err.(*exec.ExitError); ok {
