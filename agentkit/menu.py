@@ -2580,9 +2580,7 @@ def session_window(prov, now):
     The furthest along of its session meters with a numeric used% in a window that has not
     rolled over; the week aside, this is what stops a turn first.
     """
-    meters = [m for m in prov.get("meters") or []
-              if m.get("window_secs") == usage.SESSION_SECS
-              and usage._number(m.get("used")) is not None and not usage._past(m, now)]
+    meters = [m for m in usage.legible(prov, now) if m.get("window_secs") == usage.SESSION_SECS]
     return max(meters, key=lambda m: m["used"]) if meters else None
 
 
