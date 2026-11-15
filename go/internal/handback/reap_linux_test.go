@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
@@ -26,6 +27,13 @@ func TestAGoingRunWithAProcessLeftIsNotInterrupted(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { worker.Process.Kill(); worker.Wait() })
+	// Start returns once the exec is under way, which on a loaded host can be before /proc shows
+	// the environment the worker is marked by
+	for deadline := time.Now().Add(10 * time.Second); len(host.Marked(dir)) == 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the worker never showed its marker")
+		}
+	}
 	now := seconds()
 	for _, state := range []string{"queued", "running"} {
 		planted := run.Fields("run_id", "acme-launch", "state", state, "queued_at", run.Float(now-3600), "started_at", run.Float(now-3600))
