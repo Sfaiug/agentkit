@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,22 +17,30 @@ import (
 	"agentkit/internal/run"
 )
 
-// hook carries out what a hook stub under go/hooks hands over, `ak hook <stem>`, and a seat's
+// hook carries out what a hook stub under go/hooks hands over, `ak hook <stem>`, or its file
+// and the harness's process that ran it, which is otherwise this one's parent, and a seat's
 // status line, `ak hook status`: the event's JSON on stdin.  A hook that fails loudly is a
 // harness that stops, so it reads all its stdin, prints nothing but its harness's answer on out
 // and exits 0, whatever it was handed and whatever fails; only a decision it leaves to Python
 // exits 3.
 func hook(args []string, out io.Writer) (code int) {
 	defer func() { recover() }()
-	handover.Runs(strings.Join(append([]string{"hook"}, args...), " "))
+	stem, caller := "", os.Getppid()
+	if len(args) > 0 {
+		stem = strings.TrimSuffix(filepath.Base(args[0]), ".sh")
+	}
+	if len(args) == 2 {
+		caller, _ = strconv.Atoi(args[1])
+	}
+	handover.Runs(strings.TrimSpace("hook " + stem))
 	payload, err := io.ReadAll(os.Stdin)
 	switch {
-	case len(args) != 1:
-	case args[0] == "seat-state":
-		return seatState(payload, out)
-	case args[0] == "orchestrator-stop" && err == nil:
+	case len(args) == 0 || len(args) > 2:
+	case stem == "seat-state":
+		return seatState(payload, caller, out)
+	case stem == "orchestrator-stop" && err == nil:
 		return orchestratorStop(payload, out)
-	case args[0] == "status" && err == nil:
+	case stem == "status" && err == nil:
 		return status(payload, out)
 	}
 	return 0
@@ -50,7 +60,7 @@ var subAgent = []string{"agent_id", "agentId", "agent_type", "agentType", "subag
 // is latched.  Each event it writes has the seat looked at again at once, off the harness's
 // path, with the owner's prompt it heard; their answer on a question card is recorded first, or,
 // where Go does not record it as Python does, left to Python with nothing written.
-func seatState(payload []byte, out io.Writer) int {
+func seatState(payload []byte, caller int, out io.Writer) int {
 	seat := os.Getenv("AGENTKIT_SESSION")
 	read, _ := run.Decode(payload)
 	event, _ := read.(*run.Object)
@@ -59,7 +69,7 @@ func seatState(payload []byte, out io.Writer) int {
 	}
 	name := event.Str("hook_event_name")
 	if name == "SessionStart" {
-		if !following(seat, event, nil) {
+		if !following(seat, event, caller, nil) {
 			return leftToPython()
 		}
 		compacted(seat, event)
@@ -83,7 +93,7 @@ func seatState(payload []byte, out io.Writer) int {
 		}{seat, at, 0})
 		// latched once: by a move about to be written, else here
 		latched := sync.OnceValue(func() bool { return relatch(seat, string(data)) == nil })
-		if !following(seat, event, latched) {
+		if !following(seat, event, caller, latched) {
 			return leftToPython()
 		}
 		if !latched() {

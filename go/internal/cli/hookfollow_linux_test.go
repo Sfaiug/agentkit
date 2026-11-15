@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ncruces/go-sqlite3"
+
 	"agentkit/internal/run"
+	"agentkit/internal/sqlite"
 )
 
 const (
@@ -49,7 +52,7 @@ func grokPrompt(t *testing.T, name, server, meanwhile string, prepare func(state
 	}
 	prompt := []byte(`{"hook_event_name": "UserPromptSubmit", "session_id": "new-session", "cwd": "/code/acme", "prompt": "Please go on."}`)
 	var out bytes.Buffer
-	if code = seatState(prompt, &out); out.Len() != 0 {
+	if code = seatState(prompt, os.Getppid(), &out); out.Len() != 0 {
 		t.Fatalf("%s: said %q", name, out.String())
 	}
 	return code, state
@@ -99,5 +102,43 @@ func TestAFollowLeftToPythonFindsTheTurnUnlatched(t *testing.T) {
 		if code != 3 || string(kept) != each.record || string(latched) != grokLatch {
 			t.Fatalf("%s: exit %d, left %s and %s", each.name, code, kept, latched)
 		}
+	}
+}
+
+// A follow Go hands over writes nothing first, not even the session an OpenCode seat's receipt
+// says it is in, which the claim learns before it moves the seat: here one on the person's own
+// tmux server, from before ak had its own.
+func TestAnOpenCodeFollowLeftToPythonLearnsNothing(t *testing.T) {
+	const record = `{"orchestrator": "mimo", "conversation": null, "cwd": "/code/acme", "opencode_launch": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`
+	home := sandbox(t)
+	state := filepath.Join(home, ".agentkit", "state")
+	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[models.mimo]\nharness='opencode'\nmodel='mimo-1'\neffort='low'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
+	write(t, filepath.Join(state, "session-acme.json"), record)
+	write(t, filepath.Join(state, "stop-acme.json"), grokLatch)
+	write(t, filepath.Join(state, "opencode-launch-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "session"), "ses_AcmeOld")
+	database := filepath.Join(home, "opencode.db")
+	conn, err := sqlite.Open(database, sqlite3.OPEN_READWRITE|sqlite3.OPEN_CREATE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Exec("CREATE TABLE session_v2 (id TEXT, parent_id TEXT); INSERT INTO session_v2 VALUES ('ses_AcmeNew', NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	t.Setenv("OPENCODE_DB", database)
+	t.Setenv("AGENTKIT_SESSION", "acme")
+	t.Setenv("TMUX", "/tmp/acme-test,1,0")
+	t.Setenv("TMUX_PANE", "%1")
+	bin := t.TempDir()
+	write(t, filepath.Join(bin, "tmux"), "#!/bin/sh\ncase \"$1\" in -L) exit 1 ;; esac\ncase \"$*\" in *list-sessions*) printf 'acme\\t1\\n' ;; *) exit 1 ;; esac\n")
+	if err := os.Chmod(filepath.Join(bin, "tmux"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	code := seatState([]byte(`{"hook_event_name": "UserPromptSubmit", "session_id": "ses_AcmeNew", "prompt": "Build acme."}`), os.Getppid(), new(bytes.Buffer))
+	kept, _ := os.ReadFile(filepath.Join(state, "session-acme.json"))
+	latched, _ := os.ReadFile(filepath.Join(state, "stop-acme.json"))
+	if code != 3 || string(kept) != record || string(latched) != grokLatch {
+		t.Fatalf("exit %d, left %s and %s", code, kept, latched)
 	}
 }

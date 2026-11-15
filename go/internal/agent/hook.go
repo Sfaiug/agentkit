@@ -9,6 +9,21 @@ import (
 	"agentkit/internal/tmux"
 )
 
+// Process is the words of that process's command and its parent's ID, as the `ps` reading every
+// asker shares lists them (orch.processes): none, and itself for its parent, where it lists none.
+// Only read the words: they are every asker's.
+func Process(pid int) (words []string, parent int) {
+	commands, children := processes(nil)
+	if words, listed := commands[pid]; listed {
+		for parent, kids := range children {
+			if slices.Contains(kids, pid) {
+				return words, parent
+			}
+		}
+	}
+	return nil, pid
+}
+
 // OwnsHook is whether the hook whose parent is pid comes from the client in the pane the seat's
 // launch made, on that server (orch.owns_hook): every pane of the session inherits the seat's
 // name, so the hook's pane must be the one the launch saved, and a nested client inherits even
