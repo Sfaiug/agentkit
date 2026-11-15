@@ -179,7 +179,7 @@ class Screen:
                 lines.lit = next(((number, (terminal.ANSI.sub("", found[1]).split() or [""])[-1])
                                   for number, line in enumerate(raw)
                                   for found in [SELECTED.search(line)] if found), None)
-                if lines and lines[0].startswith("agentkit · "):   # a narrow one sheds `config`
+                if lines and lines[0].startswith("agentkit ·"):    # a narrow one sheds `config`
                     return lines if where is None or where(lines) else None
             return None
         return self.until(ready, "the config screen")
@@ -487,13 +487,13 @@ class Matrix(unittest.TestCase):
         screen.leave()
 
     def test_theme_s_marks_fold_under_its_label_where_the_values_column_is_too_narrow(self):
-        screen = Screen(self, rows=200, cols=22)
+        screen = Screen(self, rows=200, cols=20)
         lines = screen.frame()
-        self.assertTrue(all(terminal.cells(line) <= 22 for line in lines), lines)
+        self.assertTrue(all(terminal.cells(line) <= 20 for line in lines), lines)
         number = next(number for number, line in enumerate(lines, 1) if line == "  Theme")
-        self.assertEqual(lines[number], "    ● black   ○ white")
-        screen.click(lines[number].index("white") + 1, number + 1,
-                     lambda lines: "○ black   ● white" in "\n".join(lines))
+        self.assertEqual(lines[number:number + 2], ["    ● black", "    ○ white"])
+        screen.click(lines[number + 1].index("white") + 1, number + 2,
+                     lambda lines: "    ● white" in lines)
         self.assertEqual(screen.saved()["theme"], "white")
         screen.leave()
 
