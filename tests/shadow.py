@@ -2,7 +2,8 @@
 write, and name every way Go differs.
 
     python3 tests/shadow.py [--python BIN] [--go BIN|python] [--home DIR] [--cases DIR] -- <ak argv>
-    python3 tests/shadow.py [those options] --record FILE [-- <ak argv>]
+    python3 tests/shadow.py [those options] --record FILE [--streak DAYS] [-- <ak argv>]
+    python3 tests/shadow.py --streak DAYS --holds N
 
 `--python` is this checkout's bin/ak unless named, `--home` is $HOME, and `--go` is AK_BIN, a
 relative name read from the checkout, else go/bin/ak built as tests/test_go_keys.py builds it.
@@ -20,10 +21,16 @@ tests/live.sh has it do so on each live check of a commit.
 `--cases` keeps each confirmed difference, with what its runs did, in a folder of DIR's that the
 same difference seen again on a later shadow lands in too (`keep`).
 
+`--streak` keeps in DAYS the UTC days on which a shadow of `PREVIEWS` ran each and confirmed no
+difference, since the last that confirmed one: such a shadow adds its day, one that confirms a
+difference empties DAYS, and one that did not run each preview leaves it be.  With `--holds N` it
+shadows nothing: it prints DAYS's days and exits 0 if they hold the last N UTC days in a row,
+today or yesterday the last of them, else 1.
+
 Exit 1 if any is confirmed, 2 if no box or no Go can be built (then nothing runs) or a file a
 run touched cannot be read, 130 if stopped, else 0.
-Besides FILE, DIR's cases, go/bin/ak and Go's own cache, when it builds Go, it writes nothing
-outside its scratch folder.
+Besides FILE, DIR's cases, DAYS, go/bin/ak and Go's own cache, when it builds Go, it writes
+nothing outside its scratch folder.
 """
 
 import argparse
@@ -484,6 +491,33 @@ def _write(path, value):
     written.replace(path)
 
 
+def _day(seconds):
+    """The UTC day `seconds` since the epoch fall in, as DAYS holds it: ISO, so they sort."""
+    return time.strftime("%Y-%m-%d", time.gmtime(seconds))
+
+
+def _days(streak):
+    return json.loads(streak.read_text()) if streak.exists() else []
+
+
+def advance(streak, confirmed):
+    """Add today to the days `streak` holds, or empty it if a shadow of every preview
+    `confirmed` a difference."""
+    streak.parent.mkdir(parents=True, exist_ok=True)
+    _write(streak, [] if confirmed else sorted({*_days(streak), _day(time.time())}))
+
+
+def holds(streak, n):
+    """Print the days `streak` holds, and whether they hold the last `n` UTC days in a row, today
+    or yesterday the last of them: today's live check may be yet to run."""
+    days, now = _days(streak), time.time()
+    for day in days:
+        print(day)
+    # a UTC day is 86400 seconds of the epoch's, none leap
+    return any(all(_day(now - back * 86400) in days for back in range(last, last + n))
+               for last in (0, 1))
+
+
 def ready(go, python, home, scratch, until):
     """The Go to run, and why nothing can run where nothing can: no box, or no Go, built by
     `until` on the monotonic clock."""
@@ -560,8 +594,14 @@ def main():
     parser.add_argument("--home", default=os.environ.get("HOME"))
     parser.add_argument("--record", metavar="FILE")
     parser.add_argument("--cases", metavar="DIR")
+    parser.add_argument("--streak", metavar="DAYS", type=Path)
+    parser.add_argument("--holds", metavar="N", type=int)
     parser.add_argument("argv", nargs="*", metavar="-- <ak argv>")
     args = parser.parse_args()
+    if args.holds is not None:
+        if not args.streak:
+            parser.error("--holds reads the days --streak names")
+        return 0 if holds(args.streak, args.holds) else 1
     python, home = os.path.abspath(args.python), Path(args.home).resolve()
     every = bool(args.record and not args.argv)
     found = [dict(ak=list(argv), ran=False, differences=[], flakes=[])
@@ -585,6 +625,8 @@ def main():
         elif every:
             previews(found, python, go, home, args.cases, scratch, until)
             confirmed = any(each["differences"] for each in found)
+            if args.streak and all(each["ran"] for each in found):
+                advance(args.streak, confirmed)
         else:
             confirmed, flakes, runs = shadow(args.argv, python, go, home, scratch)
             if not any(done["cut"] for done in runs):
