@@ -2,7 +2,9 @@
 tests/shadow.py's previews there, writes what each found to the check's shadow.json, keeps each
 difference one confirms as a case under the Home's .agentkit/tmp/shadow/cases, and exits as its
 suite does; run as a harness gate, or with `AK_LIVE_FAILED` naming anything but
-`<check>/failed`, it shadows nothing.
+`<check>/failed`, it shadows nothing.  An agreeing Go adds today to the streak beside the cases, a
+Go one line apart restarts it, empty, and a Go that does not build leaves it as it was, as the
+streak command, `tests/shadow.py --streak <it> --holds N`, tells.
 
 On an akinstall Home, each case commits this checkout's tests/live.sh and tests/shadow.py, with
 what they import, beside a stand-in tests/smoke.sh exiting as the case picks, and runs the check
@@ -43,6 +45,12 @@ chmod +x "$out"
 """
 LINE = "a line only go prints"
 CASES = Path(".agentkit/tmp/shadow/cases")
+STREAK = Path(".agentkit/tmp/shadow/streak")
+
+
+def day(back):
+    """The UTC day `back` days before today, as the streak holds it."""
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() - back * 86400))
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
@@ -83,6 +91,12 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
                       for kept in (json.loads((case / "case.json").read_text())
                                    for case in (self.home.path / CASES).glob("*")))
 
+    def holds(self, n):
+        """The streak command's exit for `n` days, and the days it printed."""
+        done = self.home.run(sys.executable, REPO / "tests" / "shadow.py",
+                             "--streak", self.home.path / STREAK, "--holds", str(n))
+        return done.code, done.out.splitlines()
+
     def git(self, *args):
         done = self.home.run("git", "-C", str(self.seed), *args)
         self.assertEqual(done.code, 0, done.err)
@@ -101,8 +115,21 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
         self.assertEqual([line.partition(": ran, ")[0] for line in lines],
                          [f"shadow: ak {shlex.join(argv)}" for argv in PREVIEWS] + ["suite"], said)
         self.assertEqual(self.cases(), [], said)
+        self.assertEqual(self.holds(1), (0, [day(0)]), said)
+
+    def test_six_days_in_a_row_and_an_agreeing_go(self):
+        planted = [day(back) for back in range(6, 0, -1)]
+        self.home.write(STREAK, planted)
+        # yesterday the last: today's check may be yet to run
+        self.assertEqual((self.holds(6)[0], self.holds(7)[0]), (0, 1))
+        done, _ = self.live(0, "")
+        said = done.out + done.err
+        self.assertEqual(done.code, 0, said)
+        self.assertEqual(self.holds(7), (0, [*planted, day(0)]), said)
+        self.assertEqual(self.holds(8)[0], 1, said)
 
     def test_a_go_that_prints_one_line_more(self):
+        self.home.write(STREAK, [day(0)])
         done, check = self.live(0, f'echo "{LINE}"')
         said = done.out + done.err
         self.assertEqual(done.code, 0, said)
@@ -112,8 +139,11 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
                 self.assertIn(["line", f"only go: stdout: {LINE}"], preview["differences"], said)
         self.assertEqual(self.cases(), sorted((list(argv), "line", f"only go: stdout: {LINE}")
                                               for argv in PREVIEWS), said)
+        self.assertEqual(self.holds(1), (1, []), said)
 
     def test_a_go_that_does_not_build(self):
+        planted = [day(0)]
+        self.home.write(STREAK, planted)
         done, check = self.live(0, None)
         said = done.out + done.err
         self.assertEqual(done.code, 0, said)
@@ -121,6 +151,7 @@ class ALiveCheckRunsTheShadow(unittest.TestCase):
         self.assertEqual(record["nothing_ran"], "no Go was built")
         self.assertEqual([preview["ran"] for preview in record["previews"]],
                          [False] * len(PREVIEWS))
+        self.assertEqual(self.holds(1), (0, planted), said)
 
     def test_a_harness_gate(self):
         log = self.home.path / ".agentkit" / "update.log"
