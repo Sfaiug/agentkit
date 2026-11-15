@@ -3,8 +3,12 @@ package cli
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"agentkit/internal/host"
+	"agentkit/internal/run"
 )
 
 // What Go cannot yet show as Python ak does, it refuses having printed and written nothing.
@@ -119,5 +123,37 @@ func TestRunStatusHistoryPassesOverWhatNoSeatRecords(t *testing.T) {
 				t.Fatalf("got (%d, %q, %q)", code, out.String(), errOut.String())
 			}
 		})
+	}
+}
+
+// A look at a run whose loop died, its death the tick's to carry on, writes the interruption and
+// the death as Python's reap does, and where it cannot write them shows neither: the look is
+// Python's then, the record as it was.
+func TestRunStatusShowsTheDeathItWrote(t *testing.T) {
+	for _, writable := range []bool{true, false} {
+		home := sandbox(t)
+		dir := filepath.Join(home, ".agentkit", "runs", "fix-api")
+		gone := exec.Command(os.Args[0], "-test.run=^$")
+		if err := os.MkdirAll(dir, 0o700); err != nil || gone.Run() != nil {
+			t.Fatal(err)
+		}
+		if err := run.Create(dir, run.Fields("run_id", "fix-api", "state", "running", "pid", gone.Process.Pid,
+			"process_identity", run.Fields("boot", host.BootID(), "ticks", 0, "started_at", 0), "worktree", t.TempDir())); err != nil {
+			t.Fatal(err)
+		}
+		read, _ := run.Read(dir)
+		if !writable {
+			// the record's next write cannot land, its read and its locks still work
+			if err := os.Mkdir(filepath.Join(dir, "run.tmp"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var out, errOut bytes.Buffer
+		code := Main([]string{"run", "status", "fix-api", "--json"}, &out, &errOut)
+		after, _ := run.Read(dir)
+		reaped := after.Str("state") == "interrupted" && len(after.List("deaths")) == 1
+		if writable && (code != 0 || !reaped) || !writable && (code == 0 || !run.Equal(after, read)) {
+			t.Fatalf("writable %v: exit %d, %s\n%s%s", writable, code, run.Line(after), &out, &errOut)
+		}
 	}
 }
