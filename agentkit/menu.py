@@ -3362,7 +3362,7 @@ EIGHTHS = " ▁▂▃▄▅▆▇"     # a bar's top, the eighths of a cell it f
 def columned(text, room, after=" -."):
     """`text` on lines of `room` cells, never cut (docs/cli-design.md): wrapped at its spaces, a
     word wider than a line broken after each hyphen in it, a part still wider after each dot
-    (`GPT-` over `6.1`, a version kept whole where it can be), and a part with neither left
+    (`Acme-` over `7.1`, a version kept whole where it can be), and a part with neither left
     whole, wider than `room`, as models_bars widens its column to it; `text` plain, as a board's
     name may hold control characters (terminal.plain)."""
     text = terminal.plain(text)
