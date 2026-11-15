@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
@@ -24,6 +26,19 @@ func RoundsRefusal(asked string, budget int, err error) string {
 		return err.Error()
 	}
 	return task.RoundsOver(asked, "--rounds", budget)
+}
+
+// ResumeArgs are the run and the rounds `ak run resume` is given, Python's run.resume_args:
+// `<id> [--rounds N] [--bg]`, its rounds "" where none are asked, false where they are not that.
+func ResumeArgs(args []string) (id, rounds string, ok bool) {
+	args = slices.DeleteFunc(slices.Clone(args), func(arg string) bool { return arg == "--bg" })
+	if len(args) == 3 && args[1] == "--rounds" && config.Digits(args[2]) && strings.TrimLeft(args[2], "0") != "" {
+		rounds, args = args[2], args[:1]
+	}
+	if len(args) != 1 || filepath.Base(args[0]) != args[0] || args[0] == "." || args[0] == ".." {
+		return "", "", false
+	}
+	return args[0], rounds, true
 }
 
 // ResumeBudget is the rounds a resume of id holds to, as Python's resume reads them: a job's,

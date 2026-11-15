@@ -896,6 +896,10 @@ def turn_meters(out):
     return found or []
 
 
+def turn_windows():
+    return [name for _, name, _ in WINDOWS]
+
+
 def status_meters(windows):
     """The account's limits a status render carried, as endpoint meters, or []: each window of
     its `rate_limits` (2.1.322) as hooks/claude-status.sh's jq printed it, `{"seven_day":

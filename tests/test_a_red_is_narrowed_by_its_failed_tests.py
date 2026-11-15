@@ -1,8 +1,8 @@
 """A red batch whose suite piece named the tests that failed again alone is narrowed by those
 tests first: each halfway step runs them alone, a pass, each named as run, moving the search
 deeper, and the stack right behind the deepest one they pass in is the member that turned them
-red.  A confirmed failure moves the search earlier.  It fixes; the tests run alone on the top
-rebuilt without it, and passing there, that top, checked whole, lands with every stack under it
+red.  A confirmed failure moves the search earlier.  It fixes, at once as they fail on the
+target's tip with it alone too; the tests run alone on the top rebuilt without it, and passing there, that top, checked whole, lands with every stack under it
 in the same pass.  An inconclusive step gets its whole check, as without them.  No stack below
 the first holding a red test's file runs it; a test named by no file runs there, and a suite
 naming it not there passes it, unless the run moved its checkout, and a probe on a suite helper
@@ -64,9 +64,11 @@ class NarrowFixture(test_lander.LanderFixture):
         super().setUp()
         self.trees = []
 
-    def narrow(self, suite, base, count, culprit, change):
+    def narrow(self, suite, base, count, culprit, change, waits=False):
         """Land `count` members on a target declaring `suite` and holding `base`, the
-        `culprit` adding `change`: the checks that ran, as (members, tests), its red."""
+        `culprit` adding `change`, which `waits` for the members ahead of it where its tests'
+        check on the target's tip with it alone proves nothing: the checks that ran, as
+        (members, tests), its red."""
         for name, text in {"AGENTS.md": f"---\ntests: {suite}\n---\n", **base}.items():
             (self.repo / name).write_text(text)
         self.commit("declare a suite that names its failed tests")
@@ -84,9 +86,10 @@ class NarrowFixture(test_lander.LanderFixture):
             self.assertNotIn("fix", wait)
             self.assertEqual(wait["after"], {m.name: self.wait(m)["land"] for m in good[:index]})
             self.assertFalse(set(change) & self.stacked_files(wait["land"]))
-        # red on top of members ahead, it waits for them to leave the line; first, it is fixed now
-        ahead = {m.name: self.wait(m)["land"] for m in members[:culprit - 1]}
-        self.assertEqual(self.wait(members[culprit - 1])["after"], ahead)
+        # red on top of members ahead, it waits for them to leave the line unless its tests fail
+        # on the target's tip with it alone too; with none ahead, or so, it is fixed now
+        ahead = {m.name: self.wait(m)["land"] for m in members[:culprit - 1]} if waits else {}
+        self.assertEqual(self.wait(members[culprit - 1]).get("after", {}), ahead)
         self.assertEqual(sorted(call.args[0] for call in self.wake.call_args_list),
                          sorted(m.name for m in members if m == good[0] or m not in good and not ahead))
         self.assert_members_deliver_in_order(good)
@@ -103,6 +106,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4, 5, 6), None),       # the deepest, whole: red on t_tax
             (on(1, 2, 3), ["t_tax"]),           # halfway: they pass, deeper
             (on(1, 2, 3, 4), ["t_tax"]),        # confirmed red, behind their pass
+            (on(4), ["t_tax"]),                 # on the tip with it alone: red, its own
             (on(1, 2, 3, 5, 6), ["t_tax"]),     # rebuilt: they pass, so whole checks go on
             (on(1, 2, 3, 5, 6), None)])         # rebuilt, whole
         self.assertEqual(fix["tests"], ["t_tax"])
@@ -114,6 +118,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
         self.assertEqual(checked, [
             (on(1, 2, 3, 4), None),             # the deepest, whole: red on test_new.sh
             (on(1, 2, 3), ["test_new.sh"]),     # the first holding it: confirmed red, blamed
+            (on(3), ["test_new.sh"]),           # on the tip with it alone: red, its own
             (on(1, 2, 4), ["test_new.sh"]),     # rebuilt: not there, proves nothing
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new.sh"])
@@ -125,6 +130,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4), None),             # the deepest, whole: red on test_new.sh
             (on(1, 2), ["test_new"]),           # not there: it passes, deeper
             (on(1, 2, 3), ["test_new"]),        # confirmed red, behind its pass
+            (on(3), ["test_new"]),              # on the tip with it alone: red, its own
             (on(1, 2, 4), ["test_new"]),        # rebuilt: not there, it passes
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new"])
@@ -141,6 +147,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3), ["t_tax"]),           # moved its checkout: proves nothing
             (on(1, 2, 3), None),                # on the stack itself: green
             (on(1, 2, 3, 4), ["t_tax"]),
+            (on(4), ["t_tax"]),
             (on(1, 2, 3, 5, 6), ["t_tax"]),     # moved its checkout: proves nothing
             (on(1, 2, 3, 5, 6), None)])
         self.assertEqual(run.git(self.repo, "rev-parse", "kept"), kept)
@@ -155,6 +162,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2), ["test_new"]),           # moved its checkout: proves nothing
             (on(1, 2), None),                   # on the stack itself: green
             (on(1, 2, 3), ["test_new"]),
+            (on(3), ["test_new"]),
             (on(1, 2, 4), ["test_new"]),
             (on(1, 2, 4), None)])
 

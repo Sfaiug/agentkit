@@ -62,7 +62,9 @@ class RedStackNamesItsTests(unittest.TestCase):
                 land.check_line(self.turn)
             self.checks.clear()
             land.check_line(self.turn)
-        self.assertEqual(self.checks, [])
+        # the kept red answers its stack: just its tests run again, on the target's tip with
+        # the member alone, where they fail too
+        self.assertEqual([kw.get("only") for *_, kw in self.checks], [["t_tax"]])
         self.assertEqual(self.wait(later)["fix"].get("tests"), ["t_tax"])
 
     def test_a_red_that_needs_its_whole_piece_names_none(self):

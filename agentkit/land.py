@@ -2,7 +2,8 @@
 
 Green evidence names the tested tree, including for stacks it covers. A red stack
 after a green one blames its newest member, whose fixer waits until the runs ahead of it in
-that stack have left the line; later stacks are rebuilt without it.
+that stack have left the line, unless the tests it failed fail again on the target's tip with
+it alone; later stacks are rebuilt without it.
 A red suite piece runs again on the target's tip alone before anyone is blamed: red there
 pauses the line on the retry ladder, and red through the ladder is the target's own and
 gets one repair, at once where the tests that failed it fail again there alone.  So does a
@@ -1375,16 +1376,47 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                 rebuild = True
                 return True
 
+            def blame(index, answer):
+                """Give the member of the red stack at `index`, right behind green ones, its
+                verdict, and leave it out of the stacks rebuilt next.  With runs under it, the
+                tests it failed run once more on the target's tip with it alone, on its stack's
+                checkout, whose check has answered: red there, the red is its own, and that
+                check's verdict goes out as one against the bare tip does, its fix at once
+                (blamed for a name one test refuses anywhere, a member waited two hours for the
+                24 runs ahead of it to land, 14 Nov 2026).  Otherwise the red may need a run
+                ahead, and its verdict names them (`after`)."""
+                nonlocal pending, rebuild
+                member, saved, scratch = stacks[index][:3]
+                fix, after, there = answer["fix"], ahead(index), {}
+                if member not in verdicts:
+                    if after and fix.get("tests") and not stopped():
+                        _, text = _stack_member(repo, saved, tip, upstream, opened, scratch)
+                        if not text:
+                            # alone on the tip it stands on no repair of `over` but its own
+                            there = _check_tests(member, saved, scratch,
+                                                 run.git(scratch, "rev-parse", "HEAD^{tree}"),
+                                                 fix["command"], fix["piece"], fix["tests"], log,
+                                                 () if not over or member.name == over["run"]
+                                                 else tuple(over["tests"]))
+                    if "fix" in there:
+                        log(f"{' '.join(fix['tests'])} fail on {upstream} at {tip[:12]} with "
+                            f"{member.name} alone: its fix starts now")
+                        alone(member, there)
+                    else:
+                        verdicts[member] = {**answer, "after": after}
+                        ready({member: verdicts[member]})
+                pending = [(m, s) for m, s in pending if m not in verdicts or "land" in verdicts[m]]
+                rebuild = True
+
             def decide():
-                nonlocal pending, rebuild, target_red
+                nonlocal target_red
                 if target_red:
                     return
-                green_prefix = bool(prefix)
                 for index, (member, saved, scratch, tree, checks, excused) in enumerate(stacks):
                     answer = answers.get((tree, checks, excused))
                     # A red is blamed only behind stacks all answered green: an unanswered
                     # one ahead may be the culprit, and removing it changes every later tree.
-                    if answer is None or ("fix" in answer and index and not green_prefix):
+                    if answer is None:
                         break
                     # The target's tip answers for a red suite before anyone is blamed, whatever
                     # pass the target has on record, as the host, not the change, may have
@@ -1408,17 +1440,14 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                                           excused):
                             target_red = True
                             return
-                    if member not in verdicts:
-                        answer = verdicts[member] = {**answer, "after": ahead(index)}
-                        ready({member: answer})
-                    green_prefix = "land" in answer
                     if "fix" in answer:
                         # Only this green-to-red transition identifies a culprit.
                         # Later stacks need new checks on trees without this member.
-                        pending = [(m, s) for m, s in pending
-                                   if m not in verdicts or "land" in verdicts[m]]
-                        rebuild = True
+                        blame(index, answer)
                         return
+                    if member not in verdicts:
+                        verdicts[member] = {**answer, "after": ahead(index)}
+                        ready({member: verdicts[member]})
 
             with ThreadPoolExecutor(max_workers=max(1, limit)) as pool:
                 running = {}
@@ -1493,13 +1522,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                             if narrowing and low + 1 == red_index:
                                 # It passes alone on the stack just ahead and fails on its own:
                                 # its change turned it red, whatever the stacks ahead hold.
-                                member = stacks[red_index][0]
-                                if member not in verdicts:
-                                    verdicts[member] = {**failing, "after": ahead(red_index)}
-                                    ready({member: verdicts[member]})
-                                pending = [(m, s) for m, s in pending
-                                           if m not in verdicts or "land" in verdicts[m]]
-                                rebuild = True
+                                blame(red_index, failing)
                                 break
                             # No stack below the command's first runs it: the search starts
                             # just ahead of that one, and it reaches lower only on evidence.

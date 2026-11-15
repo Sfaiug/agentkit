@@ -526,7 +526,7 @@ class QuotaDry(unittest.TestCase):
         self.replenished.append(provider)
         return False, float(self.providers[provider]["resets"])
 
-    def mark(self, cfg, provider, until=None):
+    def mark(self, cfg, provider, until=None, **_kw):
         """The real contract: the time named, else the soonest window, else DRY_FOR."""
         if until is None or until <= self.now:
             ends = [m.get("resets_at") for m in self.providers[provider].get("meters") or []]

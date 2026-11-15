@@ -1404,6 +1404,22 @@ def findings(since, until):
         return []
 
 
+def run_findings(run_id):
+    """The run's `findings` rows in round order, as `record_review` wrote them; none for a run
+    with no row or where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    "SELECT * FROM findings WHERE run_id=? ORDER BY round, rowid", (run_id,))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
 def checks(since, until):
     """Check rows of runs ended in the inclusive range, including unfinished checks.
     No rows before checks were kept (30 Oct 2026), or where the database cannot answer."""
