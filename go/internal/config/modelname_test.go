@@ -20,3 +20,21 @@ func TestALabelTheTableGivesWinsEvenWhereItIsTheID(t *testing.T) {
 		}
 	}
 }
+
+// A harness runs other makers' models too: each is said without its own maker's family word,
+// whichever harness runs it, as a board's release is.
+func TestAModelIsSaidWithoutItsMakersFamilyWordWhicheverHarnessRunsIt(t *testing.T) {
+	dir := t.TempDir()
+	for name, family := range map[string]string{"acme": "Acme", "zeta": "Zeta"} {
+		if err := os.WriteFile(filepath.Join(dir, name+".toml"), []byte("family = \""+family+"\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv(adapterDir, dir)
+	if got := ModelLabel("zeta", "acme/acme-nova-7-1", ""); got != "Nova 7.1" {
+		t.Errorf("ModelLabel: %q, not Nova 7.1", got)
+	}
+	if got := Spoken("Acme Nova 7.1"); got != "Nova 7.1" {
+		t.Errorf("Spoken: %q, not Nova 7.1", got)
+	}
+}

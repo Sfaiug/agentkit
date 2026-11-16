@@ -25,7 +25,8 @@ var trailingDate = regexp.MustCompile(`-[0-9]{8}$`)
 // ModelLabel is what every screen calls the model a harness runs as id and lists as said
 // (config.model_label): its manifest's catalog label for that id, else its name and number read
 // off said, else the id. A provider's prefix and a trailing date are no part of that name, and the
-// rest is said as every model's name is (spoken), the family word the manifest's.
+// rest is Spoken: a harness runs other makers' models too, and `acme-nova-7-1` is `Nova 7.1`
+// whichever runs it.
 func ModelLabel(harness, id, said string) string {
 	catalog, _ := Tree(harness, "catalog")
 	if entry, ok := catalog[id].(map[string]any); ok {
@@ -36,30 +37,19 @@ func ModelLabel(harness, id, said string) string {
 	if said == "" {
 		said = id
 	}
-	found, _ := manifests()
-	family, _ := found[harness].get("family").(string)
-	return spoken(trailingDate.ReplaceAllString(said[strings.LastIndexByte(said, '/')+1:], ""), family)
+	return Spoken(trailingDate.ReplaceAllString(said[strings.LastIndexByte(said, '/')+1:], ""))
 }
 
-// ReleaseLabel is what every screen calls the release a board names name (config.release_label):
-// said as a model's name is (spoken), the family words every manifest's, so `Acme Nova 7.1` is
-// `Nova 7.1` however a seat runs it, and a release nobody runs is named too.
-func ReleaseLabel(name string) string {
+// Spoken is name as ak says a model's, a seat's (ModelLabel) or a board's release
+// (config.spoken of config.families, config.release_label): without its maker's family word, the
+// first manifest's `family`, by harness name, it opens with, unless only numbers follow. A hyphen
+// is a space, between two numbers a point, and a word in small letters opens with a capital: where
+// the family word is `Acme`, `acme-nova-7-1` is `Nova 7.1`, `ACME-7.2-Vega` is `7.2 Vega` and
+// `acme-7` is `Acme 7`.
+func Spoken(name string) string {
 	found, _ := manifests()
-	var families []string
 	for _, harness := range slices.Sorted(maps.Keys(found)) {
 		family, _ := found[harness].get("family").(string)
-		families = append(families, family)
-	}
-	return spoken(name, families...)
-}
-
-// spoken is name as ak says a model's (config.spoken): without its maker's family word, the first
-// of families it opens with, unless only numbers follow. A hyphen is a space, between two numbers
-// a point, and a word in small letters opens with a capital: where the family word is `Acme`,
-// `acme-nova-7-1` is `Nova 7.1`, `ACME-7.2-Vega` is `7.2 Vega` and `acme-7` is `Acme 7`.
-func spoken(name string, families ...string) string {
-	for _, family := range families {
 		if n := len(family); n > 0 && len(name) >= n && strings.EqualFold(name[:n], family) &&
 			(len(name) == n || name[n] == '-' || name[n] == ' ') {
 			if rest := name[min(n+1, len(name)):]; strings.Trim(rest, "0123456789.- ") == "" {

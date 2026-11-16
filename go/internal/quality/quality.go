@@ -146,7 +146,7 @@ func worth(kind string, best, value float64) float64 {
 	return 100 * ln10 / 400 * t / float64((1+t)*(1+t))
 }
 
-// A Row is one release at one effort: Name as ak says it (config.ReleaseLabel), BoardName as the
+// A Row is one release at one effort: Name as ak says it (config.Spoken), BoardName as the
 // board does, Effort "" where it names none, Values its numbers by column.
 type Row struct {
 	Release, Name, BoardName, Effort, Maker string

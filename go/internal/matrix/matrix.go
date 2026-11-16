@@ -162,7 +162,7 @@ func indexOf(releases []*boards.Release) map[string][]hit {
 	return index
 }
 
-// lineup is a row per current release and effort, `name` as ak says it (config.ReleaseLabel) and
+// lineup is a row per current release and effort, `name` as ak says it (config.Spoken) and
 // `board_name` as the board does, with its values as the catalog joins them and `yours`: each model of offers that found matches to this release alone, as {"harness", "model"},
 // at each effort it lists and at a row naming no effort, which is the model however it is run, or
 // at the release's default where it lists none but `none`.
@@ -201,7 +201,7 @@ func lineup(held *run.Object, harnesses []any, offers map[string][]listing.Model
 		for _, effort := range release.Efforts {
 			row := run.NewObject()
 			row.Set("release", release.Slug)
-			row.Set("name", config.ReleaseLabel(name))
+			row.Set("name", config.Spoken(name))
 			row.Set("board_name", release.Name)
 			row.Set("maker", release.Maker)
 			if effort.Word == "" {
