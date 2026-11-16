@@ -648,9 +648,9 @@ def update_agentkit(progress=None, pull=True):
     Once install.sh passed, a move not final yet is put back (`back.put_back`) where the new
     version's `ak doctor` fails and the kept one's passes on this home: it is the new program
     that reads the home wrongly, and its next tick would act on that reading.  A fault both
-    show is the home's.  A client keeps nothing and runs no tick, so its move is put back where
-    the program it put live does not start, up to the ssh it would run: the next `ak` typed
-    there is that program.
+    show is the home's.  A client runs no tick, so its move is final once the program it put live
+    starts, up to the ssh it would run, and put back where it does not: the next `ak` typed there
+    is that program.
     """
     from . import back   # here, before the move: after it, ~/agentkit holds the new version's code
     config.ensure_dirs()
@@ -669,15 +669,17 @@ def update_agentkit(progress=None, pull=True):
             say("update: agentkit: moves once the harness upgrade running now ends")
             return 0
         pending = config.STATE / PENDING
-        if pull and versions.kept():
-            # no move starts before the last is final (versions.final); an owed install still runs
+        client = config.server_alias()
+        if pull and versions.kept() and not client:
+            # no move starts before the last is final (versions.final); an owed install still
+            # runs.  A client has no keeper to put back one whose install.sh keeps failing, so
+            # it moves on with its home, a fix to that install.sh included
             say("update: agentkit: moves once a tick of the version live now completes")
             if not pending.exists():
                 return 0
             pull = False
         install = [str(directory / "install.sh")]
         swap = ["swap"]     # to a commit known later, by `versions.switch`: no command of its own
-        replaced = None     # where the version a move here replaced is left
         steps = ([["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"], swap]
                  if pull is True else [swap] if pull else []) + [install]
         for done, cmd in enumerate(steps):
@@ -703,7 +705,7 @@ def update_agentkit(progress=None, pull=True):
                 say(f"update: {directory} goes to {target[:12]}")
                 owed = pending.exists()
                 pending.touch()     # a tick cut off once it is swapped in still owes the install
-                why, replaced = versions.switch(directory, target)
+                why = versions.switch(directory, target)
                 if why:
                     if not owed:    # nothing was swapped in, so the version live owes nothing new
                         pending.unlink(missing_ok=True)
@@ -728,18 +730,21 @@ def update_agentkit(progress=None, pull=True):
             if proc.returncode != 0:
                 say(f"update: {shlex.join(cmd)} exited {proc.returncode}")
                 return proc.returncode
-        ak = str(directory / "bin" / "ak")
-        if replaced and config.server_alias():
+        ak, kept = str(directory / "bin" / "ak"), versions.kept()
+        if kept and client:
             for argv in ([ak, "--help"], [ak, "--dry-run"]):
                 code = versions.run(argv, **PINS)[0]
                 if code:
-                    back.put_back(f": its {shlex.join(argv)} exited {code}", replaced=replaced)
+                    back.put_back(f": its {shlex.join(argv)} exited {code}")
                     return 1
-        # while the install is still owed, so no tick ending meanwhile makes the move final
-        doctor = versions.kept() and versions.run([ak, "doctor"], **PINS)[0]
-        if doctor and not versions.run([str(versions.keep_link()), "doctor"], **PINS)[0]:
-            back.put_back(f": its ak doctor exited {doctor} where the kept version's exited 0")
-            return 1
+            # final, the link gone first: one cut off before the mark goes owes an install alone
+            versions.keep_link().unlink(missing_ok=True)
+        elif kept:
+            # while the install is still owed, so no tick ending meanwhile makes the move final
+            doctor = versions.run([ak, "doctor"], **PINS)[0]
+            if doctor and not versions.run([str(versions.keep_link()), "doctor"], **PINS)[0]:
+                back.put_back(f": its ak doctor exited {doctor} where the kept version's exited 0")
+                return 1
         pending.unlink(missing_ok=True)
         if progress:
             progress(len(steps), len(steps))

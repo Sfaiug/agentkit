@@ -6,8 +6,9 @@ keeper puts its moves back.  Its move goes to the commit ak is at on its server
 runs the bin/ak it put live with `--help` and then `--dry-run`, the client's start up to the ssh
 it would run, and where either exits non-zero ~/agentkit goes back to the commit it left, that
 commit's install.sh runs, `ak update` exits non-zero with a last line naming both commits and the
-command, and no later update moves to the commit put back.  A program that starts goes live,
-nothing of the version it replaced kept; a home tries neither command.  Black-box, through
+command, and no later update moves to the commit put back, as where that install.sh failed once
+and the next `ak update` ran it again.  A program that starts goes live, nothing of the version
+it replaced kept; a home tries neither command.  Black-box, through
 tests/fixtures/twohomes.py: `acme-vm`'s install is the one moved, to the commit `acme-mini`'s is
 at, which has a bin/ak exiting 1 for one flag and running the program for every other verb, and an
 install.sh adding `moved` to HOME/installed, the one before `installed`.  `ak update` is the
@@ -29,6 +30,9 @@ from fixtures.twohomes import Machines
 # the commit moved to's bin/ak: `{flag}` exits 1, every other verb is the program's
 FAILS = '#!/bin/sh\n[ "$1" != {flag} ] || exit 1\nexec "$(dirname "$0")/program" "$@"\n'
 INSTALL = '#!/bin/sh\n[ "$1" != --prepare ] || exit 0\necho moved >>"$HOME/installed"\n'
+ONCE = ('#!/bin/sh\n[ "$1" != --prepare ] || exit 0\n'    # INSTALL, its first run failing
+        '[ -e "$HOME/tried" ] || { touch "$HOME/tried"; exit 3; }\n'
+        'echo moved >>"$HOME/installed"\n')
 UNINSTALLED = """[update]
 version = ["acme-harness", "--version"]
 upgrade = ["acme-harness", "upgrade"]
@@ -38,10 +42,10 @@ KEPT = ".agentkit/tmp/keep/ak"     # where a home keeps the version a move repla
 
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
 class AClientMoveThatCannotStartIsPutBack(unittest.TestCase):
-    def update(self, flag=None, client=True):
+    def update(self, flag=None, client=True, script=INSTALL):
         """`ak update` on `acme-vm`, with `client` a client of `acme-mini`, whose install is at
-        origin's main one commit ahead, its bin/ak exiting 1 for `flag`: what it did, the commit
-        before and the one moved to."""
+        origin's main one commit ahead, its bin/ak exiting 1 for `flag` and its install.sh
+        `script`: what it did, the commit before and the one moved to."""
         server, home = self.enterContext(Machines("acme-mini", "acme-vm"))
         self.home = home
         home.program = AK     # the program's own `ak update`, as above
@@ -57,7 +61,7 @@ class AClientMoveThatCannotStartIsPutBack(unittest.TestCase):
             ak.rename(ak.with_name("program"))
             ak.write_text(FAILS.format(flag=flag))
             ak.chmod(0o755)
-        (install.seed / "install.sh").write_text(INSTALL)
+        (install.seed / "install.sh").write_text(script)
         after = install.advance()
         server.install.git("fetch", "-q", "origin")
         server.install.git("merge", "-q", "--ff-only", after)
@@ -67,8 +71,7 @@ class AClientMoveThatCannotStartIsPutBack(unittest.TestCase):
         """What a person sees of the move: the commit live and the installs."""
         return self.install.head(), self.install.installed.read_text().splitlines()
 
-    def assert_put_back(self, flag):
-        done, before, after = self.update(flag)
+    def assert_put_back(self, done, before, after, flag):
         self.assertNotEqual(done.code, 0, done.out + done.err)
         last = done.out.splitlines()[-1]
         for named in (before[:7], after[:7], flag):
@@ -78,10 +81,16 @@ class AClientMoveThatCannotStartIsPutBack(unittest.TestCase):
         self.assertEqual(self.seen(), (before, ["moved", "installed"]))
 
     def test_a_dry_run_that_fails_is_put_back(self):
-        self.assert_put_back("--dry-run")
+        self.assert_put_back(*self.update("--dry-run"), "--dry-run")
 
     def test_a_help_that_fails_is_put_back(self):
-        self.assert_put_back("--help")
+        self.assert_put_back(*self.update("--help"), "--help")
+
+    def test_a_retried_install_still_puts_back_a_program_that_cannot_start(self):
+        done, before, after = self.update("--help", script=ONCE)
+        self.assertNotEqual(done.code, 0, done.out + done.err)
+        self.assertEqual(self.install.head(), after)    # live, its install.sh owed
+        self.assert_put_back(self.home.ak("update", timeout=300), before, after, "--help")
 
     def test_a_program_that_starts_goes_live(self):
         done, before, after = self.update()

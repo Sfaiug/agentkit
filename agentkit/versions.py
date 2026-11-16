@@ -13,8 +13,9 @@ record in the repository is locked: a `git worktree prune` that could not see ~/
 take it, and without it no git works there and nothing moves it again.
 
 A move is final only once a tick of the version it put live completes with its install.sh passed
-(`final`): until then the version it replaced is kept (`kept`) and nothing else moves, for the
-way back (`back`) to run from.
+(`final`), on a client, which runs no tick, once that version starts after it
+(`update.update_agentkit`): until then the version it replaced is kept (`kept`), for the way back
+(`back`) to run from, and on a home nothing else moves.
 
 A clone at ~/agentkit is adopted at its first move, once it is main as origin left it
 (`update.left_as_is`): its repository goes to `REPOSITORY`, a link left in its place, and each
@@ -94,18 +95,15 @@ def checkout(code=None):
 
 
 def keep_link():
-    """Where a move keeps the version it replaced; None on a client, which runs no tick: its move
-    is final once the program it put live starts (`update.update_agentkit`), so it keeps nothing,
-    a link a server left it included."""
-    return None if config.server_alias() else config.TMP / KEEP
+    """Where a move keeps the version it replaced."""
+    return config.TMP / KEEP
 
 
 def kept():
     """The version the last move replaced, while that move is not final: the folder of the bin/ak
     `keep_link` names, else None."""
-    link = keep_link()
     try:
-        return Path(os.readlink(link)).parents[1] if link else None
+        return Path(os.readlink(keep_link())).parents[1]
     except OSError:
         return None
 
@@ -119,7 +117,7 @@ def final(ended, completed=True):
     lock, so `back` counts its hour from there."""
     from . import update     # here, not at the top: it imports this module
     link = keep_link()
-    if not (link and config.BEGAN and os.path.lexists(link)):
+    if not (config.BEGAN and os.path.lexists(link)):
         return
     with holding():     # as `switch` holds it from a move's link to its exchange
         replaced = kept()
@@ -338,19 +336,18 @@ def keep_times(live, new, commit):
 
 
 def switch(live, commit):
-    """Put `commit` live at `live`, swapped in whole once its `install.sh --prepare` passed:
-    ("", the folder the version it replaced is left in) once it is, ("", None) where there is
-    nothing to move, else (why not, None), `live` then as it was.  Forward only, as a
-    fast-forward went: a commit `live` already has moves nothing, and one beside it is
+    """Put `commit` live at `live`, swapped in whole once its `install.sh --prepare` passed: ""
+    once it is or there is nothing to move, else why not, `live` then as it was.  Forward only,
+    as a fast-forward went: a commit `live` already has moves nothing, and one beside it is
     refused."""
     live = live.resolve()       # a link at ~/agentkit stays, and what it names is swapped
     if git(live, "merge-base", "--is-ancestor", commit, "HEAD")[0] == 0:
-        return "", None
+        return ""
     if git(live, "merge-base", "--is-ancestor", "HEAD", commit)[0] != 0:
-        return f"{commit[:12]} is not ahead of what {live} has", None
+        return f"{commit[:12]} is not ahead of what {live} has"
     why = adopt(live)
     if why:
-        return why, None
+        return why
     tidy(live)
     (config.HOME / VERSIONS).mkdir(parents=True, exist_ok=True)
     new = Path(tempfile.mkdtemp(prefix=f"{commit[:12]}.", dir=config.HOME / VERSIONS))
@@ -358,21 +355,22 @@ def switch(live, commit):
                      LOCKED, str(new), commit)
     if code:
         remove(new)
-        return f"{commit[:12]} could not be checked out in {new}: {said}", None
+        return f"{commit[:12]} could not be checked out in {new}: {said}"
     # every seat's hooks and the tick run ~/agentkit/bin/ak, so a version goes live ready to run:
     # Go's is built from go/, which git does not track
     code, said = run([str(new / "install.sh"), "--prepare"], new)
     if code:
         remove(new)
-        return f"{commit[:12]} could not be prepared in {new}: {said or f'exit {code}'}", None
+        return f"{commit[:12]} could not be prepared in {new}: {said or f'exit {code}'}"
     keep = keep_link()
     try:
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
         keep_times(live, new, commit)
         with holding():     # a tick of the version replaced, completing between them, would take it
-            if keep:
-                # before the exchange, which leaves the version replaced at `new`: a move cut
-                # off right after it is kept too
+            # before the exchange, which leaves the version replaced at `new`: a move cut off
+            # right after it is kept too.  A client moves on from one not final, its install.sh
+            # failing, and the way back stays the version last final.
+            if not os.path.lexists(keep):
                 keep.parent.mkdir(parents=True, exist_ok=True)
                 keep.symlink_to(new / "bin" / "ak")
             exchange(live, new)
@@ -380,6 +378,6 @@ def switch(live, commit):
         if kept() == new:       # nothing was replaced
             keep.unlink(missing_ok=True)
         remove(new)
-        return f"{new} could not be swapped in for {live}: {exc}", None
+        return f"{new} could not be swapped in for {live}: {exc}"
     repair(live, new)
-    return "", new
+    return ""
