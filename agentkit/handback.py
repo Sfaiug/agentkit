@@ -268,9 +268,9 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     about a stop is silent: the diff-stat fallback names it, and its remedy is logged.
     """
     wt = Path(state["worktree"])
-    reviewer = "no review" if run_record.review_off(state) else state["reviewer"]
+    reviewer = "no review" if run_record.no_review(state) else state["reviewer"]
     parts = ["", f"VERDICT: {state['verdict']}",
-             "no review" if run_record.review_off(state) else
+             "no review" if run_record.no_review(state) else
              f"rounds: {len(state['round_summaries'])} of {state['rounds']}"]
     if state.get("scratch"):
         # no branch, no PR, no merge: the files are where this run's work went
@@ -1544,7 +1544,7 @@ def decision(run_dir, state, word, why, move, save=True, report=False):
     a typed line's bound (`watch.too_long`): `why` in whole sentences, the move's detail dropped first, then
     UNSAID for `why`, else refused as `seat_notice` refuses.  A line cut short saves its whole, an older
     result maybe lacking it; without `save` the caller handles persistence. `report` returns its uncut opening."""
-    rounds = ("(no review)" if run_record.review_off(state) else
+    rounds = ("(no review)" if run_record.no_review(state) else
               f"({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0})")
     if report:
         return (f"# {word} {rounds} — {state.get('title') or run_dir.name}\n"

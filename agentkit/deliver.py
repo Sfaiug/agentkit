@@ -142,10 +142,12 @@ def pr_body(state):
         lines += ["No done-when commands recorded."]
     if accepted:
         lines += ["", "## Risk", "", *("- " + line for line in accepted)]
+    unreviewed = run_record.no_review(state)
     lines += ["", "---", "",
              f"- verdict: {state['verdict']}",
+             "- no review" if unreviewed else
              f"- rounds: {len(state['round_summaries'])} of {state['rounds']}",
-             f"- executor: {state['executor']}, reviewer: {state['reviewer']}",
+             f"- executor: {state['executor']}, reviewer: {'no review' if unreviewed else state['reviewer']}",
              f"- run: {state['run_id']}",
              # every merge call follows the final check and a body written after it, so the
              # merged PR says how it went without a call after the merge

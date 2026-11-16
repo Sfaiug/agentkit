@@ -120,6 +120,7 @@ class Loop:
         history.update_run(self.state.get("run_id"), repo=self.state.get("repo"),
                            executor=self.executor, reviewer=self.reviewer,
                            executor_effort=self.state.get("executor_effort"),
+                           no_review=int(run_record.no_review(self.state)),
                            rounds_used=len(self.state.get("round_summaries") or []),
                            session=transitions.launched_session(self.state), log=self.log)
 
@@ -1126,7 +1127,14 @@ def execute(lp, role, text, name):
 
 def review(lp, summary, ok, dw_log, preface="", record=True):
     action = (lambda: fails_on_base(lp)) if ok and needs_base_proof(lp) else None
-    if run_record.review_off(lp.state):
+    # settled each time a round would go to review, from every file the change touches then: a
+    # task's change touching only paths its target marks checks-only lands once its checks pass
+    if ok and not (lp.scratch or lp.state.get("review_pr")) and transitions.checks_only(
+            lp.wt, lp.state.get("target_sha") or lp.upstream):
+        lp.state["checks_only"] = True
+    else:
+        lp.state.pop("checks_only", None)
+    if run_record.no_review(lp.state):
         if lp.state.get("review_pr"):
             restore_review_checkout(lp, "tests")
         if action:
