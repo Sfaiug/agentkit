@@ -1,16 +1,15 @@
 """`ak back [--when-broken]`: the last move of ~/agentkit put back, by the version it replaced.
 
-A move links that version's bin/ak at `versions.keep_link` until a tick of the version it put
-live completes with its install.sh passed (`versions.final`), and while the link is there the
-cron line runs it with --when-broken before each tick, which puts the move back once `WAIT` has
-passed from the link's time: the move gives it, and the tick that made the move sets it to its
-own end.  `ak back` puts it back at once, and so does the move itself where the version it put
-live reads the home as broken and the one it replaced does not, or on a client, which keeps
-nothing, where the program it put live does not start (`update.update_agentkit`).  The commit
-put back first gets a ref under `update.FAILED`, so no move goes to it again; once it is back the
-owner is paged, and on a home a seat is handed it to fix (`update.put_back_hand_back`), whose
-merge every move then waits for.  Every later step reads and runs from the version put back at
-~/agentkit.
+A move links that version's bin/ak at `versions.keep_link` until the move is final (`versions`),
+and while the link is there a home's cron line runs it with --when-broken before each tick, which
+puts the move back once `WAIT` has passed from the link's time: the move gives it, and the tick
+that made the move sets it to its own end.  `ak back` puts it back at once, and so does the move
+itself where the version it put live reads the home as broken and the one it replaced does not,
+or on a client, which runs no tick, where the program it put live does not start
+(`update.update_agentkit`).  The commit put back first gets a ref under `update.FAILED`, so no
+move goes to it again; once it is back the owner is paged, and on a home a seat is handed it to
+fix (`update.put_back_hand_back`), whose merge every move then waits for.  Every later step reads
+and runs from the version put back at ~/agentkit.
 """
 
 import fcntl
@@ -45,13 +44,12 @@ def main(argv):
                         else f": no tick of it completed within {within}", WAIT)
 
 
-def put_back(why, wait=0, replaced=None):
+def put_back(why, wait=0):
     """The last move of ~/agentkit put back once `wait` has passed from the link's time, said and
-    paged with `why`; the exit code.  A client's move links nothing (`versions.keep_link`), so
-    it names the folder the version it `replaced` is in.  Its caller holds `update.MOVING`."""
+    paged with `why`; the exit code.  Its caller holds `update.MOVING`."""
     live, link = update.agentkit_dir().resolve(), versions.keep_link()
     with versions.holding():    # as a tick making the move final holds it
-        kept = replaced or versions.kept()
+        kept = versions.kept()
         if not kept:
             print("ak back: nothing to put back: no move of ak waits to be final", file=sys.stderr)
             return 1
@@ -75,8 +73,7 @@ def put_back(why, wait=0, replaced=None):
         except OSError as exc:
             print(f"ak back: {kept} could not be swapped in for {live}: {exc}", file=sys.stderr)
             return 1
-        if link:
-            link.unlink()
+        link.unlink()
     # its version is at ~/agentkit now: the adapters every child's environment is made from
     config.REPO = live
     pending = config.STATE / update.PENDING     # each tick runs install.sh until it passes
@@ -85,7 +82,7 @@ def put_back(why, wait=0, replaced=None):
     said = f"went back from {moved[:12]} to {back[:12]}{why}"
     print(f"ak back: {said}")
     notify.page(f"back:{moved}", "ak", f"🔴 ak {said}", line=f"🔴 ak {said}", happened=True)
-    if link:    # a client has no seat to fix it, nor a tick to tell one
+    if not config.server_alias():   # a client has no seat to fix it, nor a tick to tell one
         update.put_back_hand_back(moved, said)
     code, output = versions.run([str(live / "install.sh")], live, **update.PINS)
     if code:

@@ -198,10 +198,9 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.live(self.new)
         self.assertIsNotNone(versions.kept())
 
-    def test_a_client_keeps_nothing_and_a_move_a_server_left_it_holds_nothing(self):
+    def test_a_move_a_server_left_a_client_holds_nothing_and_its_own_is_final_once_it_starts(self):
         self.go_live(final=False)
         (config.STATE / "server").write_text("acme\n")
-        left = os.readlink(config.TMP / versions.KEEP)
         ak = self.root / "seed" / "bin" / "ak"     # one that starts: a client's move tries it
         ak.parent.mkdir()
         ak.write_text("#!/bin/sh\n")
@@ -209,7 +208,7 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         third = self.push("third")
         self.go_live(final=False)
         self.live(third)
-        self.assertEqual(os.readlink(config.TMP / versions.KEEP), left)     # none of its own
+        self.assertIsNone(versions.kept())
 
     def test_an_adoption_cut_off_between_its_renames_is_finished(self):
         (self.clone / ".git").rename(versions.repository())
