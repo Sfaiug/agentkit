@@ -3584,9 +3584,9 @@ def flowed(parts, room, hang=0):
     lines = [""]
     for part in parts:
         gap = "   " if lines[-1] else ""
-        for word in " ".join(terminal.wrap(part, room - hang)).split():
+        for word in " ".join(terminal.wrap(part, room)).split():
             if lines[-1] and terminal.cells(lines[-1] + gap + word) > room:
-                lines.append(" " * hang + word)
+                lines.extend(" " * hang + piece for piece in terminal.wrap(word, room - hang))
             else:
                 lines[-1] += gap + word
             gap = " "
