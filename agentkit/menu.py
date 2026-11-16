@@ -248,6 +248,9 @@ def configured(cfg, mark):
 # The config `c` or Subscriptions holds and config.toml's mark as it last read or saved it
 # (holding): that config is written only over that file (_saved)
 _held = None, None
+# The mark of a config whose read is the caller's, maybe long gone: unlike any file's, a missing
+# one's None too, so the first pass reads config.toml again (configured)
+UNREAD = object()
 # What a screen says of a key whose save it refused, config.toml changed since it read it
 CHANGED = "config.toml changed since this screen read it: that key was not taken"
 
@@ -4603,8 +4606,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     refused = {}      # what the last `a` said (apply_defaults), fitted under the rows each draw
     subs = []         # the subscriptions the meters were last drawn from
     global _held
-    if not born:      # config.toml's mark as `cfg` was read at: unknown, the caller's read may
-        _held = cfg, None     # be long gone, so the first pass reads it again
+    if not born:
+        _held = cfg, UNREAD
     while True:
         if not born:        # a file that will not load is tried each pass (holding)
             cfg = holding(cfg)
@@ -5285,7 +5288,7 @@ def config_subscriptions(cfg, keyboard, whose=None):
     and closes the page; what was held before is held again after.  What to say under the
     screen back: CHANGED, or ""."""
     global _held
-    outer, _held = _held, (cfg, None)     # `cfg`'s read is the caller's, maybe long gone
+    outer, _held = _held, (cfg, UNREAD)
     try:
         return _subscriptions(holding(cfg), keyboard, whose)
     except Changed:
