@@ -96,6 +96,38 @@ class AChangeOfLooksAloneLandsOnItsQuickChecks(unittest.TestCase):
         self.land(line)
         self.assertEqual(self.checked(line), (0, [False]), line.runs())
 
+    def test_behind_a_delivery_that_drops_deployed_it_waits_like_any(self):
+        line = self.line()
+        self.join(line, {"AGENTS.md": RULES.replace("deployed: true\n", "")})
+        self.land(line, IDLE)
+        self.join(line, STYLE)
+        self.land(line)
+        self.assertEqual(self.checked(line), (1, [True, False]), line.runs())
+
+    def test_a_stylesheet_committed_in_a_clone_of_its_own_lands_as_any(self):
+        line = self.line()
+        self.join(line, {"app.js": "x\n"})
+        self.join(line, STYLE)
+        clone = line.home.path / "code" / "acme-copy"
+
+        def git(*args):
+            done = line.home.run("git", *args)
+            self.assertEqual(done.code, 0, done.err)
+            return done.out.strip()
+
+        git("clone", "-q", str(line.rig.bare), str(clone))
+        (clone / "site.css").write_text(STYLE["site.css"])
+        git("-C", str(clone), "add", ".")
+        git("-C", str(clone), "commit", "-qm", "restyle")
+        head = git("-C", str(clone), "rev-parse", "HEAD")
+        state = record(line.members[1])
+        state.update(repo=str(clone), worktree=str(clone))
+        state["review"].update(head_sha=head, passed_head_sha=head,
+                               tree_sha=git("-C", str(clone), "rev-parse", "HEAD^{tree}"))
+        (line.members[1] / "run.json").write_text(json.dumps(state))
+        self.land(line)
+        self.assertEqual(self.checked(line), (0, [False, True]), line.runs())
+
     def test_a_stylesheet_beside_a_script_waits(self):
         line = self.line()
         self.join(line, {**STYLE, "app.js": "x\n"})

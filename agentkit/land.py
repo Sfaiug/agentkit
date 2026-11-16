@@ -730,7 +730,8 @@ def check_line(turn, log=lambda _: None):
                 ready = {saved["review"]["head_sha"]: member for member, saved in members[index:]
                          if saved.get("state") == "waiting" and not record.process_active(saved)
                          and (saved.get("review") or {}).get("verdict") == "PASS"
-                         and not {"land", "fix"} & saved["waiting_on"].keys()}
+                         and not {"land", "fix"} & saved["waiting_on"].keys()
+                         and not _member_commit(repo, saved, saved["review"]["head_sha"])[0]}
                 looks = {ready[head] for head in looks_alone.changes(repo, tip, ready)}
                 members[index:] = sorted(members[index:], key=lambda member: (
                     not green_delivery(member[1]["waiting_on"]), member[0] not in looks))
@@ -896,8 +897,8 @@ def check_line(turn, log=lambda _: None):
                 note(turn, [], directory.name, red_stacks={})
             if checked:
                 return
-            if "land" in verdict and "fix" not in verdict:
-                prefix.append((directory, state))
+            if green_delivery(state["waiting_on"]):    # as its record took it: a fresh one
+                prefix.append((directory, state))     # it refused stacks nothing
 
 
 def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None, over=()):
@@ -1254,22 +1255,24 @@ def _check_tree(directory, state, scratch, tree, checks, log, suite, over=()):
 def _looks(directory, state, repo, tip, prefix, log):
     """The verdict of its own a change of looks alone (`looks_alone`) gets at a pass's start,
     before any suite, so no whole run is under way when it lands: stacked on the target's `tip`
-    and the deliveries ahead of it, `prefix`, as they land, its task's `# once` commands run,
-    never a suite, then `land` with `looks`, or a red of its own after them; {} where anything
-    else stands in its way, and the pass checks it as any."""
+    and the deliveries ahead of it, `prefix`, as they land, and of looks alone there too, on
+    what it lands on, its task's `# once` commands run, never a suite, then `land` with
+    `looks`, or a red of its own after them; {} where anything else stands in its way, and the
+    pass checks it as any."""
     from . import roundloop, run
     upstream = _upstream(state)
     with ExitStack() as opened:
         top = tip
         for member, saved in [*prefix, (directory, state)]:
+            below = top
             scratch, text = _stack_member(repo, saved, top, upstream, opened)
             if text:
                 return {}
             top, tree = (run.git(scratch, "rev-parse", ref) for ref in ("HEAD", "HEAD^{tree}"))
             if member != directory and tree != saved["waiting_on"]["land"]:
                 return {}
-        if _pr_moved(state, {}) or roundloop.rules_check(
-                SimpleNamespace(wt=scratch, base_sha=tip, scratch=False)):
+        if (not looks_alone.changes(scratch, below, [top]) or _pr_moved(state, {})
+                or roundloop.rules_check(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False))):
             return {}
         whole = {gitcall.declared_suite(scratch, ref=tip), gitcall.declared(scratch, "tests")}
         checks = [cmd for cmd in _landing_checks(directory, state, scratch, tip)
