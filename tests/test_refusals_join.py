@@ -14,13 +14,17 @@ scope resolves its cap from `exhausted_meters` where that carries one, and recov
 where another scope overwrote its starting level; one naming no scope anywhere ends on its name's
 fresh window.
 A reset the owner spends lifts a refusal made before it, however late that is written, a probe's
-reading written in between included; one made after the reset stays.
+reading written in between included; one made after the reset stays.  A reset of one cap
+(`Fable`) lifts only a refusal that can have come from that cap, whatever it reads back: one
+naming that cap by name alone is lifted, one naming only the week stays, and a reset of the
+login spent before it still lifts every refusal made before that.
 
 Fake meters in a temporary HOME: nothing here reaches a real usage endpoint or a real
 credential.
 """
 
 from contextlib import ExitStack
+from itertools import product
 import json
 import os
 from pathlib import Path
@@ -103,22 +107,25 @@ class RefusalsJoin(unittest.TestCase):
         for model in models:
             usage.mark_exhausted(self.cfg, "acme", until, model=model)
 
-    def refused_while(self, model, *meanwhile):
-        """`model` refused a second on, its refusal written once each of `meanwhile` has run."""
+    def refused_while(self, model, *meanwhile, meters=None):
+        """`model` refused a second on, its refusal written once each of `meanwhile` has run,
+        naming `meters` where given, as one made before marks named scopes does."""
         real = usage._patch
 
         def stalled(provider, prov, account=None, **kw):
             if kw.get("mark"):
                 for step in meanwhile:
                     step()
+                if meters is not None:
+                    kw["mark"]["exhausted_meters"] = meters
             return real(provider, prov, account, **kw)
 
         self.now += 1
         with patch.object(usage, "_patch", side_effect=stalled):
             usage.mark_exhausted(self.cfg, "acme", NOW + 7200, model=model)
 
-    def spends_a_reset(self):
-        """The owner spends the login's one reset a second on, and it reads its week back."""
+    def spends_a_reset(self, kind=None, back=BACK):
+        """The owner spends the login's one reset of `kind` a second on, and it reads `back`."""
         self.now += 1
         adapters = config.HOME / "adapters"
         adapters.mkdir(exist_ok=True)
@@ -128,8 +135,8 @@ class RefusalsJoin(unittest.TestCase):
                 patch.object(usage, "_probe_gently", return_value={
                     **reading, "harness": "fake", "resets": 1}), \
                 patch.object(usage, "_adapter_json", return_value={
-                    "code": "reset", "available": 0, "meters": BACK}):
-            self.assertEqual(usage.replenish(self.cfg, "acme"), (True, 0.0))
+                    "code": "reset", "available": 0, "meters": back}):
+            self.assertEqual(usage.replenish(self.cfg, "acme", kind=kind), (True, 0.0))
 
     def probed(self):
         """A probe's reading of the week the reset handed back, written a second on."""
@@ -348,6 +355,40 @@ class RefusalsJoin(unittest.TestCase):
         self.spends_a_reset()
         self.refused_while("fable", self.probed)
         self.assertEqual(self.parked(), (["fable"], False))
+
+    def fable_reset_after(self, model, meters, fable=90):
+        """`model` refused naming `meters`, Fable's cap at `fable`, then a Fable reset spent,
+        its refusal written before it and after it, the reset reading back every meter and
+        none: the models parked each time."""
+        parked = {}
+        for after, back in product((False, True), (BACK, [])):
+            self.now = NOW
+            self.read(week("weekly_all", 60), week("weekly_scoped", fable, scope="Fable"),
+                      week("weekly_nova", 10, scope="Nova"))
+            spend = lambda: self.spends_a_reset("Fable", back)  # noqa: E731
+            self.refused_while(model, *[spend] * after, meters=meters)
+            if not after:
+                spend()
+            parked[after, bool(back)] = self.parked()[0]
+        return parked
+
+    def test_a_cap_s_reset_lifts_a_refusal_naming_that_cap_by_name_alone(self):
+        for fable in (100, 90):
+            parked = self.fable_reset_after("fable", ["weekly_scoped"], fable)
+            self.assertFalse([how for how, models in parked.items() if "fable" in models],
+                             (fable, parked))
+
+    def test_a_cap_s_reset_keeps_a_refusal_of_the_week(self):
+        parked = self.fable_reset_after("opus", ["weekly_all"])
+        self.assertFalse([how for how, models in parked.items() if "opus" not in models], parked)
+
+    def test_a_login_s_reset_lifts_a_refusal_made_before_it_however_late_a_cap_s_follows(self):
+        for back in (BACK, []):
+            self.now = NOW
+            self.read(week("weekly_all", 60), week("weekly_scoped", 90, scope="Fable"))
+            self.refused_while("opus", lambda: self.spends_a_reset("weekly", back),
+                               lambda: self.spends_a_reset("Fable", back))
+            self.assertNotIn("opus", self.parked()[0], back)
 
 
 if __name__ == "__main__":
