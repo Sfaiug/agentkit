@@ -20,7 +20,9 @@ from .themes import BLACK, ROLES, WHITE, named
 
 # glyph, ASCII glyph, role of the theme, eight-colour tone, emphasis. Words remain the
 # contract with the classifier; every presentation (including tmux formats) comes from this
-# table, its colour the role's in the theme in force (`theme`).
+# table, its colour the role's in the theme in force (`theme`), and that colour alone: a faint
+# cell is drawn darker than its colour, one of neither theme.  Eight colours hold no grey of the
+# theme's, so there what is dim is faint, in its tone.
 # The five words a session reads, and the presentation-only kinds the screens ask for by name:
 # `dim` for a note beside a row, `FAIL` for a verdict, which is no session state, and the
 # roles of text no state's colour is, `muted`, `border` and `info` (docs/cli-design.md, Colour).
@@ -29,15 +31,15 @@ STATE_STYLES = {
     "working": ("●", "*", "accent", "36", ""),
     "done": ("✓", "v", "success", "32", ""),
     # nothing running, asked or owed: quiet, as the eye should pass over it
-    "idle": ("○", "o", "dim", "37", "2"),
+    "idle": ("○", "o", "dim", "2;37", ""),
     # its subscriptions are spent: an error, as nothing moves until usage comes back or the owner
     # moves it, and idle's open circle says it comes back by itself
     "out of usage": ("○", "o", "error", "31", ""),
     "FAIL": ("×", "x", "error", "31", ""),
-    "dim": ("·", ".", "dim", "37", "2"),
+    "dim": ("·", ".", "dim", "2", ""),
     # No session word: a run parked on something that lifts by itself says what it waits for
     # instead of a word, and the open circle is what says nobody has to act on it.
-    "waiting": ("○", "o", "dim", "37", "2"),
+    "waiting": ("○", "o", "dim", "2;37", ""),
     # at eight colours, plain; a line faint, as a note is; what ak says cyan
     "muted": ("", "", "muted", "39", ""),
     "border": ("", "", "border", "2", ""),
@@ -423,9 +425,7 @@ def styled(text, kind):
         tone, emphasis = (basic_colour(own), "") if own else STATE_STYLES[word][3:]
         rgb = own or colour(word)
         code = ink(rgb) if depth > 8 else tone
-        if kind == "dim" and depth == 8:
-            code = "2"  # the existing eight-colour notes
-        elif emphasis:
+        if emphasis:
             code = emphasis + ";" + code
     return f"\033[{code}m{text}\033[0m"
 
