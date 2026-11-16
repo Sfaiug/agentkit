@@ -1317,19 +1317,21 @@ def _looks(directory, state, repo, tip, prefix, log):
 def _waits_for_company(turn, stacks, checks, suite, log):
     """Whether `checks`, the whole check of the last of `stacks` on those before it, wait, the
     pass then ending with none started: where they run a suite, the target's `suite` or a
-    `tests:` line one of `stacks` declares (`_landing_checks`), while the host has no idle
-    processor (its load at its processor count or over, by ak's own readings), the line holds
+    `tests:` line one of `stacks` declares (`_landing_checks`), while the host has no room
+    for all its pieces at once (`gate.fits_whole`), the line holds
     no member launched `--first`, no repair and no held install's fix (`update.first_place`,
     admitted as `--first` is), and its longest-ready member without a verdict, one
     `check_line` checks, has been in line under BATCH.  Lines ran their suites whole back to
     back, 19 to 32 runs a day a project, each for the few members that joined during the last,
     on a host loaded over twice its processors (13 to 16 Nov 2026): one run now covers two hours
-    of changes.  With an idle processor nothing waits, so a larger host ends the wait by itself.
+    of changes.  A run's end left a processor idle for a minute, and 27 of a day's 65 runs
+    started in that dip for the one or two members there (16 Nov 2026): a suite takes every
+    free turn for some 40 minutes, so only room for all of it says no other work waits on it.
     Asked of the clock, the readings and the line as they are, whatever led the pass to the
     run, and nothing kept: the callers that retry a pass ask again.  The test suites'
     `AK_MAX_RUNS=0` lifts it, as every host gate."""
-    from . import host
-    if os.environ.get("AK_MAX_RUNS") == "0" or host.load_per_core() < 1:
+    from . import gate
+    if os.environ.get("AK_MAX_RUNS") == "0":
         return False
     members = [state for _, state in line(turn)]
     since = min((state["waiting_on"]["joined"] for state in members
@@ -1341,10 +1343,10 @@ def _waits_for_company(turn, stacks, checks, suite, log):
             for state in members):
         return False
     suites = {suite, *(gitcall.declared_at(scratch, tree, "tests")
-                       for _, _, scratch, tree, *_ in stacks)}
-    if not suites & set(checks):
+                       for _, _, scratch, tree, *_ in stacks)} & set(checks)
+    if all(gate.fits_whole(command, stacks[-1][2]) for command in suites):
         return False
-    log(f"no processor is idle: the suite runs whole for everyone in line by "
+    log(f"no room for all the suite's pieces at once: it runs whole for everyone in line by "
         f"{time.strftime('%H:%M', time.localtime(since + BATCH))}")
     return True
 

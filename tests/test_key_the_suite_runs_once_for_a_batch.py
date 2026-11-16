@@ -1,9 +1,9 @@
-"""On a busy host a lander starts no whole run of a suite before its line has waited: with no
-processor idle (the load at the processor count), a pass starts none until the line's
+"""On a busy host a lander starts no whole run of a suite before its line has waited: without
+room for all its pieces at once, though some fit, a pass starts none until the line's
 longest-ready member without a verdict has been in line two hours, then checks everyone ready
 together, so one whole run covers two hours of changes; a member the pass would not check, its
-own process still running, opens no wait however long it has been in line.  With an idle
-processor nothing waits, nor does a line holding a run launched `--first`, nor a project with no
+own process still running, opens no wait however long it has been in line.  With room for all
+its pieces nothing waits, nor does a line holding a run launched `--first`, nor a project with no
 suite, though a suite only a member's branch declares waits like any, even where a member
 stacked on it declares none again.  What the line already holds green is delivered whatever the
 host's load: no suite starts for it.
@@ -26,8 +26,9 @@ from fixtures.akbin import owner
 from fixtures.akline import SUITE, Line, rules
 
 HOUR = 3600
-BUSY = {"cpus": 4, "load": 4, "free_mb": 16000}     # no processor idle
-IDLE = {"cpus": 4, "load": 3.5, "free_mb": 16000}
+# A piece unmeasured costs 0.7 of a processor: four fit five pieces.
+BUSY = {"cpus": 4, "load": 2, "free_mb": 16000}     # idle processors for two
+IDLE = {"cpus": 4, "load": 0.5, "free_mb": 16000}   # room for all five
 
 
 class TheSuiteRunsOnceForABatch(unittest.TestCase):
@@ -82,7 +83,7 @@ class TheSuiteRunsOnceForABatch(unittest.TestCase):
         self.land(BUSY)
         self.assertEqual(self.checked(), (1, [True, True]), self.line.runs())
 
-    def test_with_an_idle_processor_a_member_is_checked_at_once(self):
+    def test_with_room_for_all_its_pieces_a_member_is_checked_at_once(self):
         self.join()
         self.land(IDLE)
         self.assertEqual(self.checked(), (1, [True]), self.line.runs())
