@@ -1,9 +1,7 @@
-"""`Subscriptions` on `c` comes up and lights as `c` does: the pointer moving onto `Claude II`
-is written a frame with its label part of the way to its company's colour before the frame
-with all of it; the page opening is written a frame whose header has `agentkit` and only part
-of `config · subscriptions` before the frame with all of it; `+ add a subscription` is bright
-only while it is highlighted; a company is named in its colour; and the line a row opens comes
-up under it.
+"""`Subscriptions` on `c` comes up and lights as `c` does: the page opening is written a frame
+whose header has `agentkit` and only part of `config · subscriptions` before the frame with all
+of it; `+ add a subscription` is bright only while it is highlighted; a company is named in its
+colour; and the line a row opens comes up under it.
 
 The owner's ask of 27 Oct 2026, coherence everywhere.  Black-box: the program `AK_BIN` names,
 in a person's terminal (tests/fixtures/akterm.py) with its colours, its harness the fake of
@@ -28,27 +26,8 @@ ADD = "+ add a subscription"          # the page's last line
 HEADER = re.compile(r"agentkit([^\x1b\n]*?) +\d\d:\d\d")    # each header written, its name
 SGR = re.compile(r"\x1b\[([\d;]*)m")
 POINT = "\x1b[<35;8;{row}M"           # the pointer moved, no button down, at column 8 of a row
-FADING = re.compile(r"\x1b\[38;2;[\d;]+m +− remove")     # the opened line part of the way up
-
-
-def labels(out, label):
-    """Each write of `label` from its own cell, the third column: the colour each of its
-    letters is written in, None for none."""
-    found = []
-    for at in (place.end() for place in re.finditer(r"\x1b\[\d+;3H", out)):
-        ink, inks, letters = None, [], ""
-        while len(letters) < len(label) and at < len(out):
-            if style := SGR.match(out, at):
-                reset = style[1] in ("", "0") or style[1].startswith("0;")
-                colours = re.findall(r"38;[25];[\d;]+", style[1])
-                ink, at = colours[-1] if colours else None if reset else ink, style.end()
-            elif out[at] == "\x1b":
-                break                 # another cell's write: not this label
-            else:
-                inks, letters, at = [*inks, ink], letters + out[at], at + 1
-        if letters == label:
-            found.append(inks)
-    return found
+# the opened line part of the way up, its acts at rest: the pointer on the row lights its own cell
+FADING = re.compile(r"\x1b\[38;2;[\d;]+m[^\x1b]*− remove")
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -96,19 +75,6 @@ class SubscriptionsLightAsC(unittest.TestCase):
     def row(self, label):
         return next(number for number, line in enumerate(self.term.screen().split("\n"), 1)
                     if f" {label} " in line)
-
-    def test_the_pointed_subscription_washes_into_its_company_s_colour(self):
-        self.term.type(POINT.format(row=self.row("Claude I")))
-        since = self.raw.stat().st_size
-        self.term.type(POINT.format(row=self.row("Claude II")))
-
-        def lit(inks):                # all of the label in one colour: the wash's last frame
-            return inks[0] is not None and len(set(inks)) == 1
-        out = self.written(lambda out: any(map(lit, labels(out, "Claude II"))), since)
-        frames = labels(out, "Claude II")
-        last = next(number for number, inks in enumerate(frames) if lit(inks))
-        self.assertTrue(frames[:last], frames)          # part of the way first
-        self.assertTrue(all(set(inks) != set(frames[last]) for inks in frames[:last]), frames)
 
     def test_the_page_comes_up_its_name_writing_itself_out(self):
         # the page's first frame writes it top down: its header, then under its rows `add`

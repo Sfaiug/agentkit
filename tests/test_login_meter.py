@@ -53,11 +53,9 @@ class LoginMeter(Sandbox):
             self.assertIn(meter + terminal.styled("─" * 5, "border"), self.cell(label))
         # a login that ended, on a subscription with no reading to draw, says so in amber
         self.assertIn(terminal.styled("—", "amber")[:-4], self.cell("Muse"))
-        # under the pointer the meter is its company's colour, as every other one is
-        second = number(self.cfg, "Claude II")
-        lit = self.cell("Claude II", second)
-        self.assertNotIn(terminal.styled(meter, "amber"), lit)
-        self.assertIn(terminal.styled(meter, menu.colour(self.cfg, "anthropic")), lit)
+        # under the pointer it stays amber, its cell on the selection as any cell is lit
+        lit = self.cell("Claude II", number(self.cfg, "Claude II"))
+        self.assertEqual(lit, terminal.selected(self.cell("Claude II"), 3, 2 + menu.COLUMN))
 
     def test_b_the_line_under_the_pointer_says_whose_login_and_when_it_ends(self):
         detail = menu.usage_detail(self.cfg, number(self.cfg, "Claude II"), 120)

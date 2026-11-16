@@ -1395,10 +1395,10 @@ def pointer():
     return _POINTER
 
 
-def pointer_spot(spots):
-    """The `Spot` of a screen's `spots` the pointer is on; an empty one while a key has the
-    highlight, or before the pointer moved."""
-    return under(_POINTER, spots) if _POINTER else Spot()
+def pointer_spot(spots=None):
+    """The `Spot` of a screen's `spots`, by default the screen up's (`lit`), the pointer is on;
+    an empty one while a key has the highlight, or before the pointer moved."""
+    return under(_POINTER, _SPOTS if spots is None else spots) if _POINTER else Spot()
 
 
 def lit(lines, spots):

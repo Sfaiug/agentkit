@@ -413,6 +413,7 @@ test_key_new_subscription_signs_in_afresh
 test_key_nightly_review
 test_key_no_compaction
 test_key_no_model_screen
+test_key_no_name_has_a_colour
 test_key_no_run_is_parked
 test_key_nothing_cut
 test_key_notice_hook
@@ -709,7 +710,6 @@ test_key_wait_on_a_job WaitOnAJob.test_its_handback_ends_the_wait_once WaitOnAJo
 test_key_wait_records
 test_key_waiting_run_says_where_it_waits
 test_key_waiting_suite_goes_to_the_mac
-test_key_wash_on_a_light_background
 test_key_watch_dry_run
 test_key_week_from_its_own_spend
 test_key_week_checked

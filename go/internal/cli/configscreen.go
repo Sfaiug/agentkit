@@ -62,7 +62,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		if view.Options, known = configOptions(c, screen); !known {
 			return false
 		}
-		if view.Row < len(c.Names) {
+		if view.Row >= 0 && view.Row < len(c.Names) {
 			columns := c.Columns(c.Names[view.Row])
 			if !slices.Contains(columns, view.Column) {
 				view.Column = max(0, view.Column-3)
@@ -74,6 +74,10 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		drawn = view.Row
 		view.Clock = time.Now().Format("15:04")
 		frame := menu.ConfigFrame(screen, view)
+		if view.Row < frame.First { // its meter's grid gone at this width: onto the first model
+			view.Row = 0
+			frame = menu.ConfigFrame(screen, view)
+		}
 		view.Top = frame.Top
 		painter.Write(frame.Lines, screen)
 		key := nextKey(c)
@@ -93,7 +97,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		case key.Name == "esc" || key.Name == "eof":
 			return true
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
-			view.Row = max(0, view.Row-1)
+			view.Row = max(frame.First, view.Row-1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
 			view.Row = min(len(c.Names)+len(view.Options)-1, view.Row+1)
 		case (key.Name == "left" || key.Name == "right") && view.Marks():
@@ -102,7 +106,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 				view.Column = len(view.Options[view.Row-len(c.Names)].Marks) - 1
 			}
 		case key.Name == "left" || key.Name == "right":
-			if view.Row < len(c.Names) {
+			if view.Row >= 0 && view.Row < len(c.Names) {
 				columns := c.Columns(c.Names[view.Row])
 				step := -1
 				if key.Name == "right" {
@@ -114,15 +118,17 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		case key.Name == "pointer":
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
-				view.Row = max(0, min(len(c.Names)+len(view.Options)-1, view.Row+mouse.Notches))
+				view.Row = max(frame.First, min(len(c.Names)+len(view.Options)-1, view.Row+mouse.Notches))
 			} else if row, column, hit := frame.Hit(mouse); hit {
-				if view.Row = row; column >= 0 || !view.Marks() {
+				switch view.Row = row; {
+				case row < 0: // a meter keeps the column the keys left
+				case column >= 0 || !view.Marks():
 					view.Column = max(0, column)
-				} else if row != drawn { // onto `Theme` off its marks: the keys on the theme in force
+				case row != drawn: // onto `Theme` off its marks: the keys on the theme in force
 					view.Column = view.Options[row-len(c.Names)].Marked
 				}
 				if mouse.Released && mouse.Button&3 == 0 {
-					if row >= len(c.Names) {
+					if row < 0 || row >= len(c.Names) {
 						key.Name = "enter"
 					} else if column >= 0 {
 						key.Name = "space"
@@ -146,6 +152,13 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		if (key.Name == "enter" || key.Name == "space") && view.Marks() {
 			if err := config.SaveTheme(terminal.Themes[view.Column], seat.KeepConfigEfforts); err != nil {
 				view.Note = err.Error()
+			}
+			continue
+		}
+		if key.Name == "enter" && view.Row < 0 {
+			// what a meter offers is Python's (menu.meter_acts): one that offers nothing opens no list
+			if len(view.Cells[len(view.Cells)+view.Row].Acts(false)) > 0 {
+				return false
 			}
 			continue
 		}
@@ -179,7 +192,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			view.Matrix, view.Row = c, len(c.Names)+page
 			continue
 		}
-		if key.Name != "space" || view.Row >= len(c.Names) {
+		if key.Name != "space" || view.Row < 0 || view.Row >= len(c.Names) {
 			continue
 		}
 		if view.Column == 0 && c.Selected.Str("orchestrator") == c.Names[view.Row] {

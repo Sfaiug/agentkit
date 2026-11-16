@@ -97,8 +97,7 @@ the background; lit, the text.
 `themes.ROLES` (Go: `terminal/themes.go`) holds both themes; `NO_COLOR` colours nothing.
 
 A company's colour, its provider's `colour` in config.toml else `menu.COLOURS`, colours its
-name on `c`; a harness's, from its manifest, its name over its models. Elsewhere it shows only
-under the pointer, on its meter, lighting its meter and models.
+name on `c` and under the usage grid; a harness's, from its manifest, its name over its models.
 
 ## Motion
 

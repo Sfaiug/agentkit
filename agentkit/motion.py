@@ -12,9 +12,8 @@ nudges; an effort's bar a step filled rises into place and a step onto a model's
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes;
 a popup's content fades in once, as it opens, and a page's under its
 header as it opens, its name writing itself out in the header; the rule under a screen's
-header glides while its content is fetched, a spinner turning beside what ak waits on; a
-subscription the pointer comes onto washes into its company's colour, its models with it, and
-drains when it leaves -- and every motion runs on this same clock
+header glides while its content is fetched, a spinner turning beside what ak waits on -- and
+every motion runs on this same clock
 (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
 (`Clock.start`), asking first which of its values are news
 (`Clock.look`); the wait loop asks how long until the next frame (`Clock.wait`) and what to
@@ -58,9 +57,6 @@ LAP = 1.2           # ... the segment on that rule takes along it, and again, un
 SEGMENT = 8         # cells that segment is long
 SPIN = 2 * FRAME    # seconds each of the spinner's glyphs shows beside what ak waits on
 SPINNER = "▖▘▝▗"     # quadrants, which a terminal draws itself, and `|/-\` without UTF-8
-WASH = 0.3          # seconds a subscription's colour takes to wash in under the pointer
-DRAIN = 0.2         # ... and to drain once the pointer leaves it
-EDGE = 0.4          # how lit the edge of that wash is: that far toward the foreground
 
 
 def breath(now):
@@ -318,49 +314,6 @@ def sweeping(cells, began, kind, bright=False):
             return terminal.bright(lit) if bright else lit
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + SWEEP
-
-
-def colouring(text, began, colour, into, rest=None, bright=False):
-    """`text`, cells drawn in `rest` (None: plain) and in a company's `colour` while the pointer
-    is on its subscription, from `began`, when the pointer came onto it (`into`) or left it: the
-    colour washes in left to right in WASH seconds, a light riding its edge, or drains right to
-    left in DRAIN; its animation, and when it is still.  The text is written whole from its
-    first cell, so a letter two cells wide keeps both and a combining mark its letter.
-    `bright` is the highlighted row's, where every cell is."""
-    took, size = WASH if into else DRAIN, terminal.cells(text)
-    start, end = terminal.faded(rest or "dim", 0 if rest else -1), terminal.faded(colour, 0)
-    lift = terminal.faded("dim", -1)
-
-    def mixed(one, other, amount):
-        return "#" + "".join(
-            f"{round(int(one[i:i + 2], 16) * (1 - amount) + int(other[i:i + 2], 16) * amount):02x}"
-            for i in (1, 3, 5))
-
-    def letter(char, p):
-        p = min(1, max(0, p))
-        kind = (rest if p <= 0 else colour if p >= 1 else
-                mixed(mixed(start, end, p), lift, EDGE * math.sin(math.pi * p)))
-        return terminal.styled(char, kind) if kind else char
-
-    def at(now):
-        reached = eased((now - began) / took)
-        front = (reached if into else 1 - reached) * (size + 2)
-        # each letter by the last cell it takes, from 0: a combining mark has its letter's
-        drawn = "".join(letter(char, front + 1 - terminal.cells(text[:n + 1]))
-                        for n, char in enumerate(text))
-        return terminal.bright(drawn) if bright else drawn
-    return at, began + took
-
-
-def washing(cells, colour, bright=False):
-    """How a subscription's cells on one row move on a screen's clock as the highlight or the
-    pointer comes onto it or leaves it (`colouring`): `cells` are (column, text, what it is
-    drawn in at rest).  A function of the clock, the screen row, since when and what it showed
-    before, True when it was lit and drains now."""
-    def start(clock, row, since, before):
-        for column, text, rest in cells:
-            clock.start([(row, column)], *colouring(text, since, colour, not before, rest, bright))
-    return start
 
 
 def fetching(clock, began):
