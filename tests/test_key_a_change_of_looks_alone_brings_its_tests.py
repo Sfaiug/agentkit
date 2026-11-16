@@ -5,8 +5,9 @@ one also where, beside a stylesheet, it edits tests the project's time record ti
 says they are tests (a `tests/` directory here).  At its verdict of its own those run by name, with
 the target's `tests:` line, on the tree it would land as, before its task's `# once` commands:
 passing, it lands with no whole run, its merge ending with `Looks-Alone-Tree: <tree>`; red there,
-it waits for the whole run as any member.  A change that adds a test, which has no time yet,
-waits; so does one of a timed test alone, and one beside a timed file whose path names no test.
+it waits for the whole run as any member.  A test page with a suffix of looks runs as a test.
+A change that adds a test waits, even one a round already timed; so does one of a timed test
+alone, one beside a timed file whose path names no test, and one beside a timed AGENTS.md.
 
 Black-box, as that key and with its fixtures: the program `AK_BIN` names, on a busy host where a
 whole suite waits for company, checks a landing line through tests/fixtures/akline.py, whose
@@ -43,14 +44,16 @@ exit $code
 """
 TEST = "./tests/look_test.sh"    # as the record spells it
 # a module whose doctests the suite times: it ships
-TIMES = {TEST: 1, "widget.py": 1}
+# a round times a test before its change is on the target: tests/new_test.sh
+TIMES = {TEST: 1, "widget.py": 1, "tests/new_test.sh": 1, "tests/page_test.md": 1,
+         "tests/AGENTS.md": 1}
 EDITED = {**STYLE, "tests/look_test.sh": "true  # blink\n"}
 
 
 class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
-    def line(self):
+    def line(self, **files):
         line = Line({"AGENTS.md": RULES, "suite.sh": RUNNER, "tests/look_test.sh": "true\n",
-                     "widget.py": "x\n"})
+                     "widget.py": "x\n", **files})
         self.addCleanup(line.close)
         line.home.env.pop("AK_MAX_RUNS")
         line.home.env["AK_HOST_READINGS"] = json.dumps(BUSY)
@@ -107,10 +110,17 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
         self.assertEqual(self.checked(line), (0, [False]), line.runs())
         self.assertEqual({test for test, _ in self.ran(line)}, {TEST})
 
-    def waits(self, files):
-        """A member whose branch adds `files` waits, while one behind it that brings its test
-        lands."""
-        line = self.line()
+    def test_a_test_page_runs_as_a_test(self):
+        line = self.line(**{"tests/page_test.md": "true\n"})
+        self.join(line, {**STYLE, "tests/page_test.md": "false\n"})
+        self.land(line)
+        self.assertEqual(self.checked(line), (0, [False]), line.runs())
+        self.assertEqual({test for test, _ in self.ran(line)}, {"tests/page_test.md"})
+
+    def waits(self, files, **target):
+        """A member whose branch adds `files` to a target holding `target` too waits, while one
+        behind it that brings its test lands."""
+        line = self.line(**target)
         self.join(line, files)
         self.join(line, EDITED)
         self.land(line)
@@ -126,6 +136,10 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
 
     def test_one_beside_a_timed_file_whose_path_names_no_test_waits(self):
         self.waits({**STYLE, "widget.py": "y\n"})
+
+    def test_one_beside_a_timed_agents_md_waits(self):
+        self.waits({**STYLE, "tests/AGENTS.md": "Other rules.\n"},
+                   **{"tests/AGENTS.md": "Rules.\n"})
 
 
 if __name__ == "__main__":
