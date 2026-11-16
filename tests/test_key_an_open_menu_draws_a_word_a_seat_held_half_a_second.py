@@ -2,12 +2,14 @@
 
 A screen looked at its seats' records once a second, so a word a seat's record said for less
 was read only if a look happened to fall on it, and any word was drawn up to a second late.
-It now looks again as soon as looking is cheap, so a word that comes and goes is seen.
+It now looks more often, so a word that comes and goes is seen, on a screen listing sixty gone
+seats too, whose records each look stats as well: one that waited for a look a multiple of what
+the last one cost waited longer the more seats it listed.
 The word is `working`, written to a seat's record and taken back HOLD later for a word the
 screen then shows: the read the next try starts from, so no try rides on when the last look
 fell.  A loaded host may still miss one, and a screen looking once a second catches the odd
 one, so the word is drawn more often than not.  Black-box: the program `AK_BIN` names runs in a
-person's terminal (tests/fixtures/akterm.py) beside a seat of tests/fixtures/akseat.py.
+person's terminal (tests/fixtures/akterm.py) beside seats of tests/fixtures/akseat.py.
 """
 
 import sys
@@ -21,6 +23,7 @@ from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
+from test_key_gone_seats_cost_an_open_screen_little import GONE
 from test_key_idle_screen_reads_only_what_changed import row
 
 HOLD = 0.5        # seconds the seat's record says `working`: half of what lay between two looks
@@ -38,6 +41,8 @@ class AWordHeldHalfASecond(unittest.TestCase):
         self.addCleanup(self.home.close)
         akconfig.write(self.home, ["opus"])
         Seat(self.home, "acme")
+        for name in GONE:
+            Seat(self.home, name, alive=False, planned=True)
         self.menu = Terminal(self.home, size=(100, 24))
         self.menu.wait(row("acme", "○ idle"), bound=120)
 

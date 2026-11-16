@@ -1438,14 +1438,26 @@ def seat_file(kind, name):
 
 
 def seat_files(kind, paths=None):
-    """(seat, path) for one SEAT_FILES kind, from `paths` or the state directory, in name order."""
-    head, tail = f"{kind}-", f".{SEAT_FILES[kind]}"
+    """(seat, path) for one SEAT_FILES kind, from `paths` or the state directory, in name order.
+    The state directory's are kept while it is unchanged (`parsed`), paths and all, so only read
+    them: an open screen stats every seat's record several times a second, and making each path
+    again was most of what that cost."""
     try:
-        names = parsed.read(_self.STATE, os.listdir) if paths is None else [path.name for path in paths]
+        return (parsed.read(_self.STATE, _LISTED[kind]) if paths is None
+                else _seat_files(kind, [path.name for path in paths]))
     except OSError:
         return []       # no state yet, or none to list
+
+
+def _seat_files(kind, names):
+    head, tail = f"{kind}-", f".{SEAT_FILES[kind]}"
     return [(name[len(head):-len(tail)], _self.STATE / name) for name in sorted(names)
             if name.startswith(head) and name.endswith(tail)]
+
+
+# a parse a kind, the same at every call: `parsed` keeps an answer under its file and its parse
+_LISTED = {kind: lambda state, kind=kind: _seat_files(kind, os.listdir(state))
+           for kind in SEAT_FILES}
 
 
 def seat_file_owner(path):
