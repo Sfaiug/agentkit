@@ -31,7 +31,9 @@ LIVE = SEATS[:3]
 GONE = [f"acme-past-{n:02}" for n in range(60)]
 EVERY = 3         # seconds between two writes of a live seat's file, each a read of the screen's
 LOOKS = 360       # what that minute may cost, in plain looks: deciding every seat on every read
-                  # costs about 430, deciding the changed ones about 305
+                  # cost about 430, deciding the changed ones about 305; with looks for news four
+                  # times a second it is 265 to 330, and with each draw laying its seats out once
+                  # about 255
 
 
 class GoneSeatsCostAnOpenScreenLittle(OpenScreen):

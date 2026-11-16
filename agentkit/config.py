@@ -1474,7 +1474,7 @@ _LISTED = {kind: lambda state, kind=kind: _seat_files(kind, os.listdir(state))
 
 def seat_file_owner(path):
     """(kind, seat) for a `<kind>-<seat>.<anything>` file of a SEAT_FILES kind, None otherwise."""
-    stem, dot, ext = Path(path).name.rpartition(".")
+    stem, dot, ext = os.path.basename(path).rpartition(".")
     kind, sep, name = stem.partition("-")
     return (kind, name) if dot and ext and sep and name and kind in SEAT_FILES else None
 
