@@ -7,8 +7,10 @@ section added after the merge must cut it again rather than be cut itself.
 
 Owner, 15 Nov 2026: only a squash or merge commit ak's own call made gets the line.  A rebase
 merge, a PR its maintainer merges and one found merged after ak's call failed get none: there
-ak cannot be sure one command undoes the whole PR.  Of November's 2,128 merges all were squashes
-by ak's own call, none a rebase or a maintainer's.
+ak cannot be sure one command undoes the whole PR.  Of November's 2,128 merges all were squashes,
+none a rebase or a maintainer's.  Found merged after ak's call read as failed were 5 of the 59
+merges of 15 Nov, not the "about one" the owner was told: tests/test_key_merge_call_only_merges.py
+holds what was done about them.
 """
 
 import json
