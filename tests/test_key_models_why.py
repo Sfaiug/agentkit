@@ -6,8 +6,9 @@ no runs measured, and where that comes from -- its runs, its board price times w
 provider cost a board dollar, or on every provider at list prices at its own plan's rate, or its
 board price alone; the rule that makes the choices; and under `others`, in the order of the
 role's others, why each is none -- beaten, within a point of a choice, far below the best, no
-room, or not set up -- a role with none having no `others`.  Esc returns with `›` where it was,
-and a page taller than the screen turns with ↓ and ↑.
+room, or not set up -- each one's lines after its first two cells further in, a role with none
+having no `others`.  Esc returns with `›` where it was, and a page taller than the screen turns
+with ↓ and ↑.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
 harnesses fakes listing invented models, the boards held as just asked with invented rows, and
@@ -133,13 +134,13 @@ CRUX_BUILDS_40 = [
     "           point apart, none more than",
     "           10 below, five at most",
     "  others   Holm 1 high, 94.5 for ≈$2.00:",
-    "           within a point of Acme Mid 5",
-    "           high, 94.0 for ≈$1.50",
+    "             within a point of Acme Mid",
+    "             5 high, 94.0 for ≈$1.50",
     "           Bolt 3 medium, 88.0 for",
-    "           ≈$3.00: beaten by Acme Mid 5",
-    "           high, 94.0 for ≈$1.50",
+    "             ≈$3.00: beaten by Acme Mid",
+    "             5 high, 94.0 for ≈$1.50",
     "           Crux 2 low, 80.0 for ≈$1.00:",
-    "           20.0 below the best"]
+    "             20.0 below the best"]
 
 
 def boards(found, priced=True):
@@ -257,6 +258,28 @@ class ModelsWhy(unittest.TestCase):
         self.write(TWO, ["crux"])
         term = self.models(40)
         self.assertEqual(self.why(term, "Down"), CRUX_BUILDS_40)
+
+    def test_an_others_line_that_wraps_hangs_under_its_first_line(self):
+        self.write(TWO[:-1], ["crux"])          # no Holm 1: two others
+        # each first line where `choices`'s value starts, `others` as wide, the rest two cells in
+        self.assertEqual(self.why(self.models(40), "Down")[-5:], [
+            "  others   Bolt 3 medium, 88.0 for",
+            "             ≈$3.00: beaten by Acme Mid",
+            "             5 high, 94.0 for ≈$1.50",
+            "           Crux 2 low, 80.0 for ≈$1.00:",
+            "             20.0 below the best"])
+        self.assertEqual(self.why(self.models(), "Down"), [
+            "  why Crux 2 low builds",
+            "",
+            "  quality  80.0   give or take 7.1, from two benchmarks",
+            "           FrontierCode 2.0, Arena Agent no score, counted as its worst, Terminal-Bench 4.0",
+            "           20.0 below the best, Acme Max 5 max",
+            "",
+            "  cost     ≈$1.00 a build   its board price alone: no build of yours priced a model",
+            "",
+            CHOICES,
+            "  others   Bolt 3 medium, 88.0 for ≈$3.00: beaten by Acme Mid 5 high, 94.0 for ≈$1.50",
+            "           Crux 2 low, 80.0 for ≈$1.00: 20.0 below the best"])
 
     def test_a_why_taller_than_the_screen_turns_its_pages_to_its_last_line_and_back(self):
         # judged against the same why on a screen it fits: the page as it is drawn, whatever
