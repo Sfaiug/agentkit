@@ -3086,12 +3086,12 @@ def next_choice(cfg, found, row, step, kept):
     """What ← (`step` -1) or → (1) takes off `row`, the row a role uses, of its answer `found`
     (matrix.answer), the owner's design of 5 Nov 2026: (model, effort) of its next step down or
     up, in order of cost and on a tie of quality; None past either end.  The steps: its
-    `choices`, each as the configured model taking it (matrix.runner) at its effort, and the row
+    `choices`, each as the model a take of it takes (matrix.takes) at its effort, and the row
     of `kept` (model, effort, row) where it is no choice, `whys` holding it (matrix._choices), as
     the role used it: the owner, 12 Nov 2026.  A `row` that is no step stands at its cost and
     quality, one with no cost as its best choice."""
     name, effort, own = kept
-    steps = [(one, matrix.runner(cfg, one), one["effort"]) for one in found["choices"]]
+    steps = [(one, matrix.takes(cfg, one), one["effort"]) for one in found["choices"]]
     steps += [(own, name, effort)] if id(own) in found["whys"] else []
     here = row if row and row["cost"] is not None else next(reversed(found["choices"]), None)
     if here is None:
@@ -3103,7 +3103,8 @@ def next_choice(cfg, found, row, step, kept):
 
 
 def take_choice(cfg, name, selected, providers, role, model, effort, around):
-    """A take (next_choice): seat `name`'s `role` becomes `model` at `effort`.  An executor or
+    """A take (next_choice): seat `name`'s `role` becomes `model` at `effort`, its model set up
+    first where none of yours runs it (set_up), the role staying where that fails.  An executor or
     reviewer takes it as the seat's own effort for that role (`exec_effort`, `review_effort`;
     one at the model's effort or at none leaves it following the effort, _follows), the role
     and the effort saved to the seat's record as it stands in one write (roles_saved), or
@@ -3112,6 +3113,9 @@ def take_choice(cfg, name, selected, providers, role, model, effort, around):
     taken there, the orchestrator at `effort` as the entry's `effort`, and the entry and
     [defaults] are saved in one write (defaults_saved), no open seat changing.  What to say
     under the rows, "" once taken; None where the restart was not picked."""
+    model, note = set_up(cfg, model, effort)
+    if note:
+        return note
     if name is not None and role == "orchestrate":
         return seat_effort(cfg, name, selected, model, effort, around, providers=providers)
     key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
@@ -3127,6 +3131,28 @@ def take_choice(cfg, name, selected, providers, role, model, effort, around):
     # seat's move does (config.orchestrating_at)
     _set_effort(cfg["models"][model], key, effort, config.ROLE_EFFORTS.values())
     return defaults_saved(cfg, selected, changed, before)
+
+
+def set_up(cfg, model, effort):
+    """`model` as a take takes it (matrix.takes): a configured model's name as it is, else the
+    model set up as the take begins, so the config holds only what a role took: beside one of
+    yours as a seat's harness running a model no entry runs adds one (watch._taken_in), asking no
+    harness, at `effort` where the model takes it; `c`'s mark follows the file where nothing
+    else changed it since `c` read it (_saved).  (its name, ""), else (None, why it was not
+    added)."""
+    global _held
+    if isinstance(model, str):
+        return model, ""
+    from . import watch     # here, not at the top: the menu draws without the tick
+    try:
+        with config._config_lock():
+            ours = _held[0] is cfg and config_mark() == _held[1]
+            names = watch._taken_in(cfg, model, (model["model"], effort), None)
+            if ours:
+                _held = cfg, config_mark()
+    except (config.Error, OSError) as exc:
+        return None, f"config: {exc}"
+    return (names[0], "") if names else (None, f"config: {model['model']} is listed no more")
 
 
 def efforts_saved(cfg, name, selected, steps):
@@ -3218,7 +3244,7 @@ SOURCES = {"measured": "from {runs} of your {run}s",
 WHYS = {"beaten": "beaten by {by}", "close": "within {apart} of {by}",
         "far below": "{below} below the best",
         "no room": "the {places} places go to better choices",
-        "not set up": "would be a choice, but no model of yours runs it"}
+        "not set up": "would be a choice, but it is listed nowhere a model of yours runs"}
 NUMBERS = "zero one two three four five six seven eight nine".split()
 
 
@@ -3339,10 +3365,11 @@ class _Unjudged(Exception):
 
 def price_take(cfg, session, selected, providers, answer, role):
     """Where `role` of seat `session`, else of new seats, keeps a price that holds (price_held),
-    the best of its choices in `answer` (matrix.answer) costing no more than its limit, the best
-    for none, once that is not the row it uses, the owner's design of 5 Nov 2026: taken as ← and
-    → take it (take_choice), its entry then naming the model and effort the role uses, its
-    limit and unit as they were.  A seat's in one write of the record under its lock
+    the best of its choices in `answer` (matrix.answer) a configured model runs (matrix.runner),
+    as by itself nothing is set up, costing no more than its limit, the best for none, once that
+    is not the row it uses, the owner's design of 5 Nov 2026: taken as ← and → take it
+    (take_choice), its entry then naming the model and effort the role uses, its limit and unit
+    as they were.  A seat's in one write of the record under its lock
     (roles_saved), only while that still holds the model, effort and entry judged here; else
     nothing is written, said or read again, the screen as stale as it is while another window
     saves.  A seat's orchestrator stays, as moving it moves the seat's own session: only ← or →
@@ -3354,8 +3381,8 @@ def price_take(cfg, session, selected, providers, answer, role):
         return ""
     used, found = matrix.uses(cfg, selected, answer)[role], answer[role]
     price = price_held(session, role, used, found)
-    best = next((row for row in reversed(found["choices"]) if price and (
-        price["limit"] is None or row["cost"] <= price["limit"])), None)
+    best = next((row for row in reversed(found["choices"]) if price and matrix.runner(cfg, row)
+                 and (price["limit"] is None or row["cost"] <= price["limit"])), None)
     if best is None or best is used[2]:
         return ""
     model, field = matrix.runner(cfg, best), PRICE_FIELDS[role]

@@ -1,5 +1,5 @@
 """`r recommended` on `c` names its keys, and ⏎ opens the why of the orchestrator's first
-choice, its model at its effort being no row, Crux 2, which no configured model runs, being none.
+choice, its model at its effort being no row, Crux 2, which no harness lists, being none.
 
 Black-box: the program `AK_BIN` names in a terminal (tests/fixtures/akterm.py), its harnesses
 fakes listing invented models, the boards held as just asked with invented rows and any board
@@ -70,7 +70,7 @@ class ModelsAnswer(unittest.TestCase):
         cls.addClassCleanup(home.close)
         fakes = fakeadapter.install(home, claude="pass", codex="pass")
         fakes["claude"].answer("models", "acme-mid-5\tAcme Mid 5\tlow medium high xhigh max\n")
-        fakes["codex"].answer("models", "bolt-3\tBolt 3\tlow medium high\ncrux-2\tCrux 2\tlow\n")
+        fakes["codex"].answer("models", "bolt-3\tBolt 3\tlow medium high\n")
         akconfig.write(home, {"mid": {"harness": "claude", "model": "acme-mid-5", "effort": "low"},
                               "bolt": {"harness": "codex", "model": "bolt-3", "effort": "low"}})
         home.write(".agentkit/state/boards.json", boards())

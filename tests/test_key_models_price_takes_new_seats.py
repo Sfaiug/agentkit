@@ -4,7 +4,9 @@ orchestrator too, takes the best of its choices that costs no more than its limi
 not the row it uses, the owner's design of 5 Nov 2026: into [defaults] as ← and → take it, no
 open seat's record changing, its entry in ak's state then naming the new model and effort, its
 limit and unit as they were, saying `executor took Acme Mid 1 medium, the best up to $0.30 a
-build` under the rows.  Where every choice costs more than its limit the role stays.
+build` under the rows.  Where every choice costs more than its limit the role stays.  By itself
+nothing is set up: a choice no configured model runs is passed over for the best that one runs,
+config.toml gaining no model.
 
 Black-box: `AK_BIN` in a terminal (tests/fixtures/akterm.py) in a window of its own, a seat open
 beside it, a fake harness running five invented releases, the boards held as asked
@@ -42,11 +44,11 @@ class NewSeatsPriceTakes(unittest.TestCase):
         Seat(home, SEAT, model="top", record={**CREW, "orchestrator": "top"})     # open: it stays
         cls.state = home.path / ".agentkit/state"
 
-    def fresh(self, mid, **kept):
-        """The config with new seats on CREW, the boards with Mid at cost `mid`, and new seats
-        keeping the prices `kept` by role, as a test starts."""
+    def fresh(self, mid, names=NAMES, crew=CREW, **kept):
+        """The config running `names` with new seats on `crew`, the boards with Mid at cost
+        `mid`, and new seats keeping the prices `kept` by role, as a test starts."""
         akconfig.write(self.home, {name: {"harness": "claude", "model": f"acme-{name}-1"}
-                                   for name in NAMES}, **CREW)
+                                   for name in names}, **crew)
         self.boards(mid)
         for role in ROLES:
             self.path(role).unlink(missing_ok=True)
@@ -111,6 +113,15 @@ class NewSeatsPriceTakes(unittest.TestCase):
         self.assertEqual(tuple(cfg["defaults"][key] for key in CREW), ("mid", ["step"], ["fine"]))
         self.assertEqual((kept, seat), ({"orchestrator": price("mid", "medium")}, before[2]))
         self.assertEqual(cfg["models"]["mid"]["effort"], "medium")
+
+    def test_a_best_choice_not_set_up_is_passed_over_for_the_best_that_is(self):
+        names = tuple(name for name in NAMES if name != "mid")
+        self.fresh(CHEAP, names, {**CREW, "workers": ["base"]}, executor=price("base"))
+        self.said(self.recommended(),
+                  "executor took Acme Step 1 high, the best up to $0.30 a build")
+        cfg, kept, _ = self.held()
+        self.assertEqual((cfg["defaults"]["workers"], tuple(cfg["models"])), (["step"], names))
+        self.assertEqual(kept, {"executor": price("step")})
 
     def test_a_role_whose_every_choice_costs_more_than_its_limit_stays(self):
         self.fresh(CHEAP, orchestrator=price("step", limit=0.1),

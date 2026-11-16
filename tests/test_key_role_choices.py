@@ -1,5 +1,5 @@
 """Each role's answer holds up to five choices a point apart, and the best of each other model.
-Of the rows compared that have a cost and a configured model runs, the front holds each better
+Of the rows compared that have a cost and that a take can take, the front holds each better
 than every cheaper one, the best last.  `choices`: its rows within 10 points of the best,
 cheapest first, each a point or more above the last kept, the best taking the place of one less
 than a point below it; the costliest five.  `others`: the best row of each release with no
@@ -8,8 +8,8 @@ front, `far below`, by null, more than 10 points under the best; else `close` to
 choice, less than a point from it; else `no room`, by null, a point or more under every choice,
 as the costliest five leave it.  Qualities exactly 10 or 1 apart are so, whatever a rating's
 roundoff, and a row a millionth of a point better still ranks above; a row between two choices
-is close to the nearer, however little nearer.  A row no configured model
-runs is no choice (tests/test_key_models_choices_are_yours.py).
+is close to the nearer, however little nearer.  A row no take can take is no choice
+(tests/test_key_models_choices_are_yours.py).
 
 Black-box: AK_BIN in a temporary HOME, the boards held as just asked with invented releases of
 one maker, its one harness a fake running each, a configured model each; only `ak models
