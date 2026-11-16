@@ -36,11 +36,15 @@ func NewPainter(out io.Writer) *Painter { return &Painter{out: out} }
 // has passed.  Each row is addressed, so a frame filling the screen never scrolls.  A frame taller
 // than it goes out whole, each row ended by a newline, so the screen scrolls and keeps its last rows,
 // which addressing would stack on the last; what is up after it is unknown.  A span goes out where
-// it is not up as it is, or the row under it went out.
+// it is not up as it is, or the row under it went out; a row past the lines a span left is cleared.
 func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	tall := len(lines) > screen.Height()
 	whole := !p.known || screen != p.of || tall || time.Since(p.whole) >= Tick
 	left, wrapped := moved(p.over, over), onto(p.up, p.of)
+	past := false // a span left a row past the lines, which no line writes over
+	for row, gone := range left {
+		past = past || gone && row > len(lines)
+	}
 	// a row a line wrapped onto is no row of its own: once it is one again, it is written
 	held := func(at int) bool {
 		return !whole && at < len(lines) && at < len(p.up) && lines[at] == p.up[at] && !left[at+1] && !wrapped[at]
@@ -54,7 +58,7 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 			}
 		}
 		frame.WriteString("\x1b[J")
-	} else if rows := differing(lines, held, screen); whole || rows != "" || len(lines) < len(p.up) {
+	} else if rows := differing(lines, held, screen); whole || rows != "" || len(lines) < len(p.up) || past {
 		frame.WriteString(rows)
 		// Addressing a row past the last lands on the last, where a clear would erase it.
 		if len(lines) < screen.Height() {
@@ -75,6 +79,19 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	}
 	p.up, p.over, p.of, p.known = slices.Clone(lines), slices.Clone(over), screen, !tall
 }
+
+// Holds is what the terminal holds, the lines last written and the screen they are on, or nil where
+// that is not known: what a theme chosen comes down over (motion.Clock.Turned).
+func (p *Painter) Holds() ([]string, Screen) {
+	if !p.known {
+		return nil, Screen{}
+	}
+	return p.up, p.of
+}
+
+// Kept is line written as a row of this screen, its tail cleared, in this screen's theme whatever
+// screen it goes out on: a row of what was up before a theme was chosen (motion.Clock.Turned).
+func (s Screen) Kept(line string) string { return s.paint(cleared(line, s)) }
 
 // paint is text as it leaves for the terminal, as Python's terminal._Screen paints it: on the theme's
 // background, in its text wherever it sets no colour, each reset putting both back, and the terminal

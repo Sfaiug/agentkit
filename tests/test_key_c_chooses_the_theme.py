@@ -34,17 +34,21 @@ def sgr(rgb, ground="38"):
     return f"{ground};2;" + ";".join(str(channel) for channel in bytes.fromhex(rgb))
 
 
+def theme_of(line):
+    """The theme a row of the screen is whole in, BLACK or WHITE -- drawn across, every cell on
+    its background or its selection -- else None."""
+    wide = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char, _ in line)
+    return next((rgb for rgb in (BLACK, WHITE) if wide == SIZE[0] and all(
+        {sgr(rgb, "48"), sgr(SELECTION[rgb], "48")} & shown for _, shown in line)), None)
+
+
 def off(rows, rgb):
-    """The first row of the screen that is not every cell on `rgb` or its selection, its number
-    and text, else None."""
+    """The first row of the screen that is not whole in `rgb` (theme_of), its number and text,
+    else None."""
     if len(rows) < SIZE[1]:
         return len(rows) + 1, "(missing)"
-    grounds = {sgr(rgb, "48"), sgr(SELECTION[rgb], "48")}
-    for number, line in enumerate(rows[:SIZE[1]], 1):
-        wide = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char, _ in line)
-        if wide != SIZE[0] or any(not grounds & set(shown) for _, shown in line):
-            return number, plain(line)
-    return None
+    return next(((number, plain(line)) for number, line in enumerate(rows[:SIZE[1]], 1)
+                 if theme_of(line) != rgb), None)
 
 
 def theme_row(screen):

@@ -275,9 +275,11 @@ class _Screen:
         return len(text)
 
 
-def _painted(text):
-    """`text` on the theme's background, in its text where it sets no colour (`_Screen`)."""
-    back, fore = ink(colour("background"), "48"), ink(colour("text"))
+def _painted(text, theme=None):
+    """`text` on the background of `theme` (themes.WHITE or BLACK), else of the theme in force,
+    in its text where it sets no colour (`_Screen`)."""
+    back, fore = (ink(colour(role) if theme is None else ROLES[role][theme], ground)
+                  for role, ground in (("background", "48"), ("text", "38")))
     again = {"": f"0;{back};{fore}", "0": f"0;{back};{fore}", "39": fore, "49": back}
 
     def put_back(code):
@@ -1546,6 +1548,19 @@ def _cleared(line):
     and a clear there erases it -- the clock's last digit on a terminal no wider than the layout."""
     return line if cells(line) and not (_PAD + cells(line)) % (width() + 2 * _PAD) \
         else f"{line}\033[K"
+
+
+def rows(lines, theme=None):
+    """`lines`, a screen top down, as each row it reaches is written whole over what is up, its
+    tail cleared: blank under the lines, and the padding under them too, which a row past the
+    last is moved onto, as the padding over them goes with the first (`_Screen`); in `theme`
+    where one is given, whichever is in force as they go out.  What a theme chosen comes down
+    (`motion.Clock.rise`)."""
+    size, out = height() + _PAD, []
+    for row, line in enumerate([*lines, *[""] * size][:size], 1):
+        text = f"\033[{row};1H{_cleared(line)}"
+        out.append(text if theme is None else _painted(text, theme))
+    return out
 
 
 def unbroken(text):

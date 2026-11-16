@@ -27,6 +27,19 @@ func TestOnlyTheSpansThatMovedGoOut(t *testing.T) {
 	}
 }
 
+// A span that leaves a row no line is on leaves it blank, as the rows under the lines are: a theme
+// chosen coming down past the last line (motion.Clock.Turned).
+func TestARowPastTheLinesASpanLeftIsCleared(t *testing.T) {
+	var out strings.Builder
+	painter, screen := NewPainter(&out), Screen{width: 8, height: 4}
+	painter.Write([]string{"agentkit"}, screen, Span{3, 1, "old"}, Span{4, 1, "old"})
+	out.Reset()
+	painter.Write([]string{"agentkit"}, screen, Span{4, 1, "old"})
+	if want := hold("\x1b[2;1H\x1b[J\x1b[4;1Hold"); out.String() != want {
+		t.Fatalf("a span gone past the lines wrote %q, want %q", out.String(), want)
+	}
+}
+
 // A frame as tall as the screen goes out row by row and nothing after its last: a newline there
 // would scroll its header away, and a clear would erase that row.
 func TestAFrameFillingTheScreenKeepsItsHeader(t *testing.T) {

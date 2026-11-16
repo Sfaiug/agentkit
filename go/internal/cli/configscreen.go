@@ -12,6 +12,7 @@ import (
 	"agentkit/internal/machines"
 	"agentkit/internal/matrix"
 	"agentkit/internal/menu"
+	"agentkit/internal/motion"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
@@ -56,6 +57,9 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 	defer painter.Forget()
 	nextKey := followSeat(session, keyboard)
 	drawn := -1 // the row the last draw highlighted
+	clock := &motion.Clock{}
+	frames := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame
+	defer frames.Stop()
 	for {
 		var known bool
 		screen := keyboard.Screen()
@@ -79,13 +83,22 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			frame = menu.ConfigFrame(screen, view)
 		}
 		view.Top = frame.Top
-		painter.Write(frame.Lines, screen)
+		clock.Draw(motion.Now())
+		painter.Write(frame.Lines, screen, clock.Turned(screen, painter)...)
+		if next, due := clock.Next(); due {
+			frames.Reset(next)
+		} else {
+			frames.Stop()
+		}
 		key := nextKey(c)
+		if key.Name != "wake" && key.Name != "pointer" {
+			clock.Finish() // a key or a resize, not the pointer, ends what moves on its last frame
+		}
 		switch {
 		case key.Name == "again": // a resize: drawn whole again, what was said and the pointer's place kept
 			painter.Forget()
 			continue
-		case key.Name == "wake": // the seat's record changed: drawn again, what was said kept
+		case key.Name == "wake": // the seat's record changed, or a frame is due: drawn again, what was said kept
 			continue
 		case view.Away && (key.Name == "space" || key.Name == "enter"):
 			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it
