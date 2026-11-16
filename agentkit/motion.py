@@ -519,8 +519,9 @@ class Clock:
     def frame(self):
         """What to write now: the lines still rising and every cell that moves, faded with them,
         or each cell whose text moved since it was last written, no other, on the background
-        the screen has under it, the highlight's where it is (`terminal.pointed`); while a theme
-        comes down the screen every row, and what moves only above the line it has come to."""
+        the screen has under it, the highlight's where it is (`terminal.pointed`) and the fading
+        selection's where it left (`light`); while a theme comes down the screen every row, and
+        what moves only above the line it has come to."""
         now, self.last = moment(), time.monotonic()
         later, self.later = self.later, []
         for key, start, row, before in later:   # touched news, shown first here (`begin`)
@@ -544,7 +545,7 @@ class Clock:
                           for row, line in enumerate(self.rising, 1))
             # every cell that moves written over them again, and once they are up, as drawn
             self.shown, self.rising = {}, self.rising if amount > 0 else None
-        screen, fading = terminal.on_screen(), {}     # row -> where the highlight fades on it
+        screen, fades = terminal.on_screen(), {}      # row -> where the highlight fades on it
         for what, (since, spans) in list(self.leaving.items()):
             x = (now - since) / LEAVES
             rgb = terminal.faded("selection", eased(x))[1:]
@@ -553,7 +554,7 @@ class Clock:
                     continue
                 text = terminal.columns(screen[row - 1], left, right)
                 if x < 1:
-                    fading.setdefault(row, []).append((left, right, rgb))
+                    fades.setdefault(row, []).append((left, right, rgb))
                     text = terminal.backed(text, rgb, 1, right - left + 1)
                 elif terminal.cells(text) <= right - left:
                     text += "\033[K"        # past the line's end, cleared as its draw left it
@@ -582,7 +583,7 @@ class Clock:
             if row < below and self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
                 lit = terminal.pointed(row, column, text)
-                for left, right, rgb in fading.get(row, ()):
+                for left, right, rgb in fades.get(row, ()):
                     if left < column + width and right >= column:
                         lit = terminal.backed(lit, rgb, max(left, column) - column + 1,
                                               min(right, column + width - 1) - column + 1)

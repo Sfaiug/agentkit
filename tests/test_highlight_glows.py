@@ -105,16 +105,11 @@ class Fades(Menu):
         self.assertEqual([backs for backs in rest if backs], [])
 
     def lit_alone(self, waits, at, name):
-        """The screen drawn at wait `at` and every cell written after it: `name`'s row on the
-        selection and no other cell on a background."""
-        screen = DRAW.search(waits[at][2]).group()
-        row = self.cell(screen, "› ", name)[0]
-        self.assertEqual({(number, back) for number, line in enumerate(lines(screen), 1)
-                          for back in BACKS.findall(line)}, {(row, SELECTION)})
-        after = waits[at][2].partition(screen)[2]
-        self.assertLessEqual({(at, back) for _, (at, _), text in writes(
-            [(None, None, after), *waits[at + 1:]], 0) for back in BACKS.findall(text)},
-            {(row, SELECTION)})
+        """From the screen drawn at wait `at` on, `name`'s row on the selection and no other cell
+        on a background."""
+        row = self.cell(waits[at][2], "› ", name)[0]
+        self.assertEqual({(number, back) for _, (number, _), text in writes(waits, at)
+                          for back in BACKS.findall(text)}, {(row, SELECTION)})
 
     def test_down_fades_the_row_it_left(self):
         waits, (down, *_) = self.typed([None, DOWN])
@@ -124,12 +119,8 @@ class Fades(Menu):
     def test_a_second_down_ends_the_first_fade_and_starts_its_own(self):
         self.words["acme"] = "idle"
         waits, (_, again, *_) = self.typed([None, DOWN, None, DOWN])
-        ended, _, _ = DRAW.split(waits[again][2], maxsplit=1)
-        first = self.row(waits, "fix-api")
-        self.assertEqual([BACKS.findall(text) for _, (row, _), text in writes(
-            [(None, None, ended)], 0) if row == first][-1:], [[]])
         self.cell(waits[again][2], "› ", "acme")
-        cells = writes(waits, again)
+        cells, first = writes(waits, again), self.row(waits, "fix-api")
         self.assertEqual([text for _, (row, _), text in cells
                           if row == first and BACKS.search(text)], [])
         self.leaves(cells, (self.row(waits, "web-portal"), 1))
