@@ -37,7 +37,7 @@ def chosen(lp):
     """(the target's `tests:` line, the tests of it the round runs), or None where the round has
     no change of its own (scratch, another's PR) or none to run.  A record's `./tests/a.py` is
     git's `tests/a.py`."""
-    from . import deliver, land    # here, not at the top: deliver reaches roundloop
+    from . import deliver, gate, land    # here, not at the top: they reach roundloop
     if lp.scratch or lp.state.get("review_pr"):
         return None
     line = gitcall.declared_suite(lp.wt, lp.upstream, ref=lp.state.get("target_sha"))
@@ -50,8 +50,9 @@ def chosen(lp):
     reds, piece, _ = history.test_audit(Path(lp.state["repo"]).name, _now() - WINDOW)
     held = land.red_tests(deliver.turn_path(lp, lp.upstream), gitcall.git(
         lp.wt, "rev-parse", f"{lp.state.get('target_sha') or lp.upstream}^{{tree}}"))
-    # One piece of the suite, a ceiling as WINDOW is: a suite cut finer runs fewer.
-    left = sum(times.values()) if piece is None else piece
+    # One piece of the suite, a ceiling as WINDOW is: a suite cut finer runs fewer.  One the
+    # target runs uncut, whatever it ran as before, or whose pieces nothing timed yet, the whole.
+    left = piece if piece is not None and gate.names_shard(line) else sum(times.values())
     for test, red in sorted(reds.items(), key=lambda item: (-item[1]["landings"], item[0])):
         file = test.partition("::")[0]
         if (red["landings"] and test in times and times[test] <= left and test not in held
