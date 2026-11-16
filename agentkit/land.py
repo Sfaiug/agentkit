@@ -1265,9 +1265,10 @@ def _looks(directory, state, repo, tip, prefix, log):
     """The verdict of its own a change of looks alone (`looks_alone`) gets at a pass's start,
     before any suite, so no whole run is under way when it lands: stacked on the target's `tip`
     and the deliveries ahead of it, `prefix`, as they land, and of looks alone there too, on
-    what it lands on, its task's `# once` commands run, never a suite, then `land` with
-    `looks`, or a red of its own after them; {} where anything else stands in its way, and the
-    pass checks it as any."""
+    what it lands on, the tests it brings run by name with the target's suite line, as a round
+    runs them, then its task's `# once` commands, never a whole suite, then `land` with
+    `looks`, or a red of its own after them; {} where anything else stands in its way or a test
+    it brings fails, and the pass checks it as any, so the whole suite blames it or clears it."""
     from . import roundloop, run
     upstream = _upstream(state)
     with ExitStack() as opened:
@@ -1280,10 +1281,16 @@ def _looks(directory, state, repo, tip, prefix, log):
             top, tree = (run.git(scratch, "rev-parse", ref) for ref in ("HEAD", "HEAD^{tree}"))
             if member != directory and tree != saved["waiting_on"]["land"]:
                 return {}
-        if (not looks_alone.changes(scratch, below, [top]) or _pr_moved(state, {})
+        tests = looks_alone.changes(scratch, below, [top]).get(top)
+        if (tests is None or _pr_moved(state, {})
                 or roundloop.rules_check(SimpleNamespace(wt=scratch, base_sha=tip, scratch=False))):
             return {}
-        whole = {gitcall.declared_suite(scratch, ref=tip), gitcall.declared(scratch, "tests")}
+        suite = gitcall.declared_suite(scratch, ref=tip)
+        if tests and not _check(directory, state, scratch, [suite],
+                                directory / f"lander-{tree}-tests.log", log, shard="1/1",
+                                only=tests)[0]:
+            return {}
+        whole = {suite, gitcall.declared(scratch, "tests")}
         checks = [cmd for cmd in _landing_checks(directory, state, scratch, tip)
                   if cmd not in whole]
         answer = (_check_tree(directory, state, scratch, tree, checks, log, None) if checks
