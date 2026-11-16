@@ -37,6 +37,9 @@ FILES = {
     # a key reading a test file through another and a package of tests/
     "tests/test_key_widget.py": "import test_acme_rig\n" + NOTE,
     "tests/test_acme_rig.py": "import fixtures.acme\n" + NOTE,
+    # a key reading a test file as the parent of a module it lacks
+    "tests/test_key_gadget.py": "try:\n    import test_acme_base.child\nexcept ImportError:\n"
+                                "    pass\n" + NOTE,
 }
 ALL = {"tests/test_go.py", "tests/test_go_builds.py", "tests/test_go_keys.py::test_key_acme",
        "tests/test_go_keys.py::test_key_gadget", "tests/test_go_keys.py::test_key_widget"}
@@ -101,7 +104,8 @@ class GoRunsForWhatAChangeTouches(unittest.TestCase):
     def test_a_change_to_a_test_file_a_claimed_key_imports_runs_its_claims(self):
         self.change("tests/test_acme_base.py")
         self.assertEqual(self.go_run(),
-                         {"tests/test_go_builds.py", "tests/test_go_keys.py::test_key_widget"})
+                         {"tests/test_go_builds.py", "tests/test_go_keys.py::test_key_gadget",
+                          "tests/test_go_keys.py::test_key_widget"})
 
     def test_a_change_to_go_or_to_the_fixtures_runs_all(self):
         for name in ("go/acme.go", "tests/fixtures/acme.py"):

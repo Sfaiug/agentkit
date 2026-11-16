@@ -109,10 +109,12 @@ def imports(root, path):
                      for name in [None, *(alias.name for alias in node.names)]]
         else:
             continue
+        # each prefix of a dotted name is loaded before the rest, as a package or a plain module
+        # whose child may be missing
         for parts in (name.split(".") for name in names if name):
-            found += [os.path.join(base, *parts[:end], "__init__.py")
-                      for end in range(1, len(parts) + 1)]
-            found.append(os.path.join(base, *parts[:-1], f"{parts[-1]}.py"))
+            for end in range(1, len(parts) + 1):
+                module = os.path.join(base, *parts[:end])
+                found += [os.path.join(module, "__init__.py"), f"{module}.py"]
     return found
 
 
