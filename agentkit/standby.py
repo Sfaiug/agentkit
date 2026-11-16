@@ -13,9 +13,11 @@ that ends well evens it out.
 
 Before the pass it keeps this machine's own job, which makes the pass again every three minutes,
 as the home's tick runs, after the keeper of a move of ak here, as the tick's line runs it
-(`back`).  A pass that ends well stamps when it began, and from which home, then why ak here
-stayed where it was, if it did, and at its end does with the last move here what the end of a
-tick does on a home (`versions.final`): a pass of the version that move put live makes it final.
+(`back`), then sends again, as a tick does, each page of this machine's own the webhook did not
+take (`notify.retry_pending`), whether the home answers or not.  A pass that ends well stamps
+when it began, and from which home, then why ak here stayed where it was, if it did, and at its
+end does with the last move here what the end of a tick does on a home (`versions.final`): a
+pass of the version that move put live makes it final.
 That is all a pass keeps: one that fails, however it fails, writes nothing and makes nothing
 final, for it cannot tell a silent home from code that is broken, and `ak standby`, which reads
 the copy's age from the stamp, shows passes failing as an age that goes on growing.  A pass's
@@ -31,14 +33,16 @@ import subprocess
 import sys
 import time
 
-from . import command_help, config, machine_turn, move, pair_clock, terminal, update, versions
+from . import (command_help, config, machine_turn, move, notify, pair_clock, terminal, update,
+               versions)
 
 # This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
-# a client of, its ak install and whether its install.sh is owed, and what each machine keeps
-# through a move; then the runs and checkouts.
+# a client of, its ak install and whether its install.sh is owed, the pages it sent and owes
+# (`back` pages from here), and what each machine keeps through a move; then the runs and
+# checkouts.
 KEPT = tuple(path for path in (config.STATE / "server", versions.repository(),
                                config.HOME / versions.VERSIONS, config.STATE / update.PENDING,
-                               *move.KEPT,
+                               notify.outbox(), *move.KEPT,
                                config.RUNS, config.WT, config.WORK)
              if path.is_relative_to(config.HOME))
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
@@ -191,6 +195,7 @@ def main(argv):
             return 1
         if not _keep_job(alias):
             return 1
+        notify.retry_pending()
         began = pair_clock.now()
         if _copy(alias, home, copied):
             return 1
