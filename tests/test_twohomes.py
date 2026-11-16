@@ -189,6 +189,15 @@ class TwoHomes(unittest.TestCase):
                     self.assertEqual((done.code, done.out), (0, f"{other.name}\n"), done.err)
             self.assertEqual(laptop.run("ssh", "acme-nas", "hostname").code, 255)
 
+    def test_a_home_put_elsewhere_is_where_its_own_machine_alone_finds_it(self):
+        with Machines("acme-mini", "acme-mac", homes={"acme-mac": "Users/acme"}) as (mini, mac):
+            self.assertEqual(mac.env["HOME"], str(mac.at / "Users" / "acme"))
+            for machine, other in ((mini, mac), (mac, mini)):
+                home = machine.env["HOME"]
+                done = other.run("ssh", machine.name, 'echo "$HOME"; pwd; cat agentkit/notes')
+                self.assertEqual(done.out, f"{home}\n{home}\nnotes\n", done.err)
+                self.assertNotEqual(other.run("ls", home).code, 0)
+
     def test_a_process_ends_with_its_machine_alone_whatever_its_environment_keeps(self):
         # its machine's tmux dir is the one variable a machine's commands hold alone
         with Machines("acme-mini", "acme-vm") as (mini, vm):
