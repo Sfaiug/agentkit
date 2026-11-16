@@ -2,14 +2,16 @@
 provider the row is priced on has foretold, the owner's design of 5 Nov 2026: of each plan, as a
 screen names it, how many of the last seven days `ak usage --json`'s `plan_checks` checked it
 on, the points its week foretold for them against those its meter rose, and how far high or low
-that is, of what it rose; a plan no day checked says so.
+that is, of what it rose; a plan no day checked says so, as does one whose login, or provider,
+the usage cache holds nothing of while its first probe asks.
 
-Black-box, as tests/test_key_models_why.py: the program `AK_BIN` names in a terminal, the row
-priced by finished builds on its provider, and three logins' readings of their week and their
-spend written as tests/test_key_week_checked.py writes them; judged by the screen.  Fails against
-/bin/false.
+Black-box, as tests/test_key_models_why.py: the program `AK_BIN` names in a terminal, a row
+priced by finished builds on its provider, three logins' readings of their week and their spend
+written as tests/test_key_week_checked.py writes them, and the probes of a fourth login and of
+another provider held on their probe locks; judged by the screen.  Fails against /bin/false.
 """
 
+import fcntl
 import sys
 from pathlib import Path
 import unittest
@@ -31,12 +33,12 @@ CHECKED = {100: ["Max's week, checked on 2 days: it foretold 18 points where its
                  "50% high",
                  "Pro's week, checked on 1 day: it foretold 10 points where its meter rose 25, "
                  "60% low",
-                 "Team's week: no day checked yet"],
+                 "Team's week: no day checked yet", "Scale's week: no day checked yet"],
            40: ["Max's week, checked on 2", "days: it foretold 18 points",
                 "where its meter rose 12, 50%", "high",
                 "Pro's week, checked on 1 day:", "it foretold 10 points where",
                 "its meter rose 25, 60% low",
-                "Team's week: no day checked", "yet"]}
+                "Team's week: no day checked", "yet", "Scale's week: no day checked", "yet"]}
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -49,14 +51,21 @@ class ModelsWhyChecked(unittest.TestCase):
         fakes["claude"].answer("models", "acme-mid-5\tAcme Mid 5\tlow medium high xhigh max\n"
                                          "acme-max-5\tAcme Max 5\thigh max\n")
         fakes["codex"].answer("models", "bolt-3\tBolt 3\tlow medium high\ncrux-2\tCrux 2\tlow\n")
-        accounts = {"default": "Max", "second": "Pro", "third": "Team"}
+        accounts = {"default": "Max", "second": "Pro", "third": "Team", "fourth": "Scale"}
+        # every login's week but the fourth's, and none of OpenAI's, whose one login is on Crew
         meter = {"meters": [{"name": "weekly", "used": 40, "window_secs": 7 * DAY,
                              "resets_at": WEEK}]}
-        home.write(".agentkit/state/usage.json", {"providers": {
-            "anthropic": {"accounts": dict.fromkeys(accounts, meter)}, "openai": meter}})
-        home.write(".agentkit/state/logins.json", {"anthropic": {
-            account: {"email": f"{account}@acme.test", "ends": None, "plan": plan,
-                      "checked_at": NOW} for account, plan in accounts.items()}})
+        home.write(".agentkit/state/usage.json", {"providers": {"anthropic": {
+            "accounts": dict.fromkeys(list(accounts)[:3], meter)}}})
+        # ... their first probes still asking as the screen is read: each waits on its lock
+        for login in ("anthropic.fourth", "openai"):
+            lock = (home.path / f".agentkit/state/{login}-probe.lock").open("a")
+            cls.addClassCleanup(lock.close)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+        home.write(".agentkit/state/logins.json", {
+            provider: {account: {"email": f"{account}@acme.test", "ends": None, "plan": plan,
+                                 "checked_at": NOW} for account, plan in plans.items()}
+            for provider, plans in (("anthropic", accounts), ("openai", {"default": "Crew"}))})
         home.write(".agentkit/state/boards.json", boards(DRAWN))
         # Acme Max 5 high builds, priced at what Acme Mid 5's builds on Anthropic took
         akconfig.write(home, MODELS, orchestrator="crux", workers=["max"], providers={
@@ -93,9 +102,9 @@ class ModelsWhyChecked(unittest.TestCase):
         rows["seat_usage"].append((f"claude:seat-{len(rows['seat_usage'])}", NOW - ago * HOUR,
                                    dollars * 1e6, account, "acme-mid-5", dollars * 1e6, 0, 0, 0))
 
-    def cost(self, width):
-        """The lines of the executor's why under `cost`, `r` on `c` in a window `width` cells
-        wide."""
+    def cost(self, width, *keys):
+        """The lines under `cost` of the why of the row `keys` move to, `r` on `c` in a window
+        `width` cells wide."""
         term = Terminal(self.home, size=(width, 60), env=ENV)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -104,7 +113,7 @@ class ModelsWhyChecked(unittest.TestCase):
         term.wait("r recommended")
         term.keys("r")
         term.wait(" 94.8 ")        # the executor's quality: the answer priced, its row there
-        term.keys("Down", "Enter")
+        term.keys(*keys, "Enter")
         # drawn whole once its own key line, the last, stands under its heading
         shown = lines(term.wait(lambda screen: "\n  why " in screen and lines(
             screen.rstrip())[-1] == "  esc back").rstrip())
@@ -114,8 +123,12 @@ class ModelsWhyChecked(unittest.TestCase):
     def test_each_plan_of_its_provider_says_how_far_off_its_week_foretold(self):
         for width, want in CHECKED.items():
             with self.subTest(width=width):
-                block = self.cost(width)
+                block = self.cost(width, "Down")
                 self.assertEqual(block[-len(want):], [" " * 11 + line for line in want], block)
+
+    def test_a_plan_the_usage_cache_holds_no_meter_of_is_checked_on_no_day(self):
+        # Crux 2 orchestrates, priced at OpenAI's own plan's rate
+        self.assertEqual(self.cost(100)[-1], " " * 11 + "Crew's week: no day checked yet")
 
 
 if __name__ == "__main__":

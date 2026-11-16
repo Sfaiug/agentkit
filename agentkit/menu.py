@@ -3657,20 +3657,19 @@ def flowed(parts, room, hang=0):
 
 
 def plans_checked(cfg, provider):
-    """(plan, checks) of each plan of `provider`'s logins as the usage cache holds them
-    (usage.held), as a screen names it, and the days of its week usage.plan_checks checked, in
-    its logins' order: one plan once, as each of its logins is checked on the same week, and a
-    login whose plan is not known naming none."""
+    """(plan, checks) of each plan of `provider`'s logins, in the order the config lists them,
+    as a screen names it, and the days of its week usage.plan_checks checked: one plan once, as
+    each of its logins is checked on the same week, of whichever the usage cache (usage.held)
+    holds, none while it holds none of them; a login whose plan is not known names none."""
     held = usage.held(cfg)
-    if provider not in held:
-        return []
+    checked = (usage.plan_checks(cfg, {provider: held[provider]}, time.time())[provider]
+               if provider in held else {})
     plans = {}
-    for account, checks in usage.plan_checks(cfg, {provider: held[provider]},
-                                             time.time())[provider].items():
+    for account in config.accounts(cfg, provider) or [None]:
         plan = logins.whose(provider, account)[1]
         if plan:
-            plans.setdefault(harness_plugin(logins.harness(cfg, provider)).plan_name(plan),
-                             checks)
+            plan = harness_plugin(logins.harness(cfg, provider)).plan_name(plan)
+            plans[plan] = plans.get(plan) or checked.get(account, [])
     return list(plans.items())
 
 
