@@ -8,6 +8,9 @@ Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/a
 projects from gitrig.py with scripted harnesses from fakeadapter.py; the host readings injected
 (AK_HOST_READINGS) and a run's peak kept in a history database hold admission on the unit's room,
 and each first in line is let in on a stall, the queue's own clock set back two hours.
+Owner, 16 Nov 2026: no run behind the first in line is let in ahead of it.  Every run answers to
+the same host gates and the first to the fewest of them, so while the first is held no run
+behind it would pass.
 """
 
 import fcntl
