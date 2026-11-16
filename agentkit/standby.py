@@ -2,7 +2,8 @@
 of, at the same path, but the runs and their checkouts, which a pass of their own copies.  Before
 it, what a seat carrying on from the copy needs of each harness: its logins, every account's, and
 the folders its conversations start from, each at its path, the rest of that harness's folders
-this machine's own.
+this machine's own.  After it, ak here moves to the commit ak is at on the home, once the home's
+move there is final, so the ak that takes over is the one that was live.
 
 rsync writes straight into the copy, sending what changed within each file, compressed, over the
 owner's line; each file lands whole, the old one or the new one.  A pass cut short leaves some
@@ -10,9 +11,11 @@ files newer than others, as any pass over a live home does within its own minute
 that ends well evens it out.
 
 Before the pass it keeps this machine's own job, which makes the pass again every three minutes,
-as the home's tick runs, and a pass that ends well stamps when it began, and from which home.  That
-stamp is all a pass keeps: one that fails, however it fails, writes nothing, so `ak standby`, which
-reads the copy's age from the stamp, shows passes failing as an age that goes on growing.
+as the home's tick runs, and a pass that ends well stamps when it began, and from which home, then
+why ak here stayed where it was, if it did.  That stamp is all a pass keeps: one that fails,
+however it fails, writes nothing, so `ak standby`, which reads the copy's age from the stamp, shows
+passes failing as an age that goes on growing.  A pass's exit is its copy's alone: the copy is what
+a takeover needs first.
 """
 
 import fcntl
@@ -20,25 +23,29 @@ import glob
 import math
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
-from . import command_help, config, machine_turn, move, pair_clock, terminal, versions
+from . import command_help, config, machine_turn, move, pair_clock, terminal, update, versions
 
 # This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
-# a client of, its ak install, and what each machine keeps through a move; then the runs and
-# checkouts.
+# a client of, its ak install and whether its install.sh is owed, and what each machine keeps
+# through a move; then the runs and checkouts.
 KEPT = tuple(path for path in (config.STATE / "server", versions.repository(),
-                               config.HOME / versions.VERSIONS, *move.KEPT,
+                               config.HOME / versions.VERSIONS, config.STATE / update.PENDING,
+                               *move.KEPT,
                                config.RUNS, config.WT, config.WORK)
              if path.is_relative_to(config.HOME))
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
 GOES = 3        # a go during which files vanished on the home leaves their old copies here
 # This machine's own folder of the copy, in ak's tmp folder: the stamp of the last pass that ended
 # well, and the lock a pass holds, which the kernel lets go of when the pass ends, however it ends.
-# Names, not paths: each follows HOME, as config's places do.
+# Names, not paths: each follows HOME, as config's places do.  install.sh keeps the runs, checkouts
+# and work of a client with this folder, a standby.
 FOLDER, COPIED, LOCK = "standby", "copied", "lock"
 TAG = b"# agentkit standby"     # what the job's line in the crontab ends in
+UNSETTLED = 3   # the home's answer while its last move of ak is not final
 
 
 def _harnesses():
@@ -111,6 +118,58 @@ def _copy(alias, home, copied):
     return 0
 
 
+def _follow(alias):
+    """Move ak here to the commit ~/agentkit is at on `alias`, as every move of ak goes
+    (`update.update_agentkit`), once that home's move there is final (`versions.final`), its
+    install.sh run again while it is owed: None once ak here is that commit, its install.sh
+    passed, else why not.  The home ran the commit's live checks already."""
+    # The home is no client, so its keep link is where `versions.keep_link` names it there.  A
+    # move links before it swaps, and a put-back swaps before it unlinks: a HEAD the same on
+    # both sides of no link is final.
+    head = f"git -C {shlex.quote(str(update.agentkit_dir()))} rev-parse --verify HEAD"
+    script = (f"head=$({head}) || exit\n"
+              f"[ ! -L {shlex.quote(str(config.TMP / versions.KEEP))} ] || exit {UNSETTLED}\n"
+              f'[ "$({head})" = "$head" ] || exit {UNSETTLED}\n'
+              'echo "$head"')
+    try:
+        asked = subprocess.run(["ssh", alias, shlex.join(["sh", "-c", script])],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True, timeout=TIMEOUT)
+        code, commit = asked.returncode, asked.stdout.strip()
+    except subprocess.TimeoutExpired:
+        code = 255
+    if code == 255:     # ssh's own failure
+        return "it did not say which commit its ak is at"
+    if code == UNSETTLED:
+        return "its last move of ak is not final yet"
+    if code:
+        return "it has no install of ak"
+    owed = config.STATE / update.PENDING
+    if update._git("rev-parse", "HEAD")[1] != commit:
+        # forward only, as `versions.switch` goes, asked here: a move to a commit HEAD has would
+        # still run install.sh
+        ancestor = update._git("merge-base", "--is-ancestor", commit, "HEAD")[0]
+        if not ancestor:
+            return "this machine is ahead of it"
+        if ancestor != 1:   # git's fatal, for a commit not here: from ak's remote, as the home's
+            update._git("fetch", "--quiet", "origin", "main", timeout=update.FETCH_CAP)
+    elif not owed.exists():
+        return None
+    update.update_agentkit(pull=commit)
+    if update._git("rev-parse", "HEAD")[1] == commit and not owed.exists():
+        return None
+    return (f"{commit[:12]} is marked failed here" if commit in update._failed()
+            else f"{commit[:12]} could not be had")
+
+
+def _stamp(own, *lines):
+    """The stamp of a pass that ended well, whole or not at all: a write cut short leaves the
+    last."""
+    new = own / f"{COPIED}.new"
+    new.write_text("".join(f"{line}\n" for line in lines))
+    new.replace(own / COPIED)
+
+
 def _shown():
     """Show the home this machine copies and the copy's age, from the stamp of the last pass
     that ended well: 0 only for a stamp of that home."""
@@ -119,7 +178,7 @@ def _shown():
         print("ak standby: this machine is no home's client, so it keeps no copy", file=sys.stderr)
         return 1
     try:
-        line, of = (config.TMP / FOLDER / COPIED).read_text().splitlines()
+        line, of, *stayed = (config.TMP / FOLDER / COPIED).read_text().splitlines()
     except (OSError, ValueError):     # none yet, or one cut short
         line = of = None
     stamp = pair_clock.read(line) if of == alias else None
@@ -130,6 +189,8 @@ def _shown():
     age = stamp.age_at_most()
     print(f"this machine copies {alias}: the copy is "
           + (f"{terminal.format_age(age)} old" if age < math.inf else "from before this boot"))
+    for why in stayed:
+        print(f"ak here does not follow {alias} yet: {why}")
     return 0
 
 
@@ -169,8 +230,7 @@ def main(argv):
         began = pair_clock.now()
         if _copy(alias, home, copied):
             return 1
-        # whole or not at all: a write cut short leaves the last stamp
-        new = own / f"{COPIED}.new"
-        new.write_text(f"{began.line()}\n{alias}\n")
-        new.replace(own / COPIED)
+        _stamp(own, began.line(), alias)
+        if why := _follow(alias):
+            _stamp(own, began.line(), alias, why)
     return 0

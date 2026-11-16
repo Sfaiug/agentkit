@@ -109,7 +109,8 @@ if [ "$ROLE" = server ]; then
 else
   # These belong to the server's loop. Remove only these paths, without following symlinks;
   # the bridge, server pointer, credentials and other local state must survive a reinstall.
-  # A mistaken --client or unavailable Tailscale must not erase the server's unfinished work.
+  # A mistaken --client or unavailable Tailscale must not erase the server's unfinished work,
+  # nor a standby's pass (agentkit/standby.py) what a takeover carries on from.
   if is_server_box "$SERVER_NAME"; then
     CLIENT_PRUNE_PENDING="local loop state kept: this host identifies as $SERVER_NAME; inspect it on the server before removing it"
   elif [ -d "$AK/runs" ] && ! python3 - "$AK/runs" <<'PYPRUNE'
@@ -129,7 +130,7 @@ except (OSError, ValueError) as exc:
 PYPRUNE
   then
     CLIENT_PRUNE_PENDING="local loop state kept: unfinished or unreadable runs; inspect them on the server before removing them"
-  else
+  elif [ ! -d "$AK/tmp/standby" ]; then
     rm -rf -- "$AK/runs" "$AK/wt" "$AK/work"
   fi
 fi

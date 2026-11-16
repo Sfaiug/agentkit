@@ -128,9 +128,10 @@ func install(role, alias string, machine, sandboxed bool, out, errOut io.Writer)
 		private = append(private, loop...)
 	} else if kept := loopKept(ak); kept != "" {
 		fmt.Fprintln(errOut, "note: local loop state kept: "+kept)
-	} else {
+	} else if info, err := os.Stat(filepath.Join(ak, "tmp", "standby")); err != nil || !info.IsDir() {
 		// the server's loop alone, its links not followed: the record, credentials and the
-		// rest of this host's own state stay
+		// rest of this host's own state stay, and a standby's (agentkit/standby.py) stays
+		// whole, as a takeover carries on from it
 		for _, dir := range loop {
 			if err := os.RemoveAll(dir); err != nil {
 				return err
