@@ -71,7 +71,9 @@ class RunTree(unittest.TestCase):
         stack = ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(account_home(self.root))
-        stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
+        # config read the real HOME at import: moved, every place follows it, so the owner's
+        # stored model list never judges the fixture's config
+        stack.enter_context(patch.object(config, "HOME", self.root / ".agentkit"))
         stack.enter_context(patch.dict(os.environ, {
             "HOME": str(self.root), worker.RUN_MARKER: "", "AK_PARENT_RUN": "",
             "AK_RUN_LOG": "", "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
