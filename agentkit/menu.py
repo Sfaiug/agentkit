@@ -3662,10 +3662,13 @@ def plans_checked(cfg, provider):
     each of its logins is checked on the same week, of whichever the usage cache (usage.held)
     holds, none while it holds none of them; a login whose plan is not known names none."""
     held = usage.held(cfg)
-    checked = (usage.plan_checks(cfg, {provider: held[provider]}, time.time())[provider]
-               if provider in held else {})
+    # the usual login by its name: the cache keys it None until the config lists accounts and
+    # it next reads them, the config by name once it lists them, and either may be first
+    checked = {account or config.DEFAULT_ACCOUNT: checks for account, checks in (
+        usage.plan_checks(cfg, {provider: held[provider]}, time.time())[provider].items()
+        if provider in held else ())}
     plans = {}
-    for account in config.accounts(cfg, provider) or [None]:
+    for account in config.accounts(cfg, provider) or [config.DEFAULT_ACCOUNT]:
         plan = logins.whose(provider, account)[1]
         if plan:
             plan = harness_plugin(logins.harness(cfg, provider)).plan_name(plan)
