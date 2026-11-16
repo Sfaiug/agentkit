@@ -9,8 +9,8 @@ screen as it was, in the old, the line reaching the last row 0.35 s on.  A key e
 last frame.
 
 Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour that sets no
-background (tests/fixtures/akterm.py) over one working seat (tests/fixtures/akseat.py), each cell
-judged by how it looks (tests/fixtures/aklooks.py).  Its clock injected: `AK_MOTION_CLOCK` names
+background (tests/fixtures/akterm.py) over one working seat (tests/fixtures/akseat.py), each row
+judged whole in a theme as tests/test_key_c_chooses_the_theme.py judges it.  Its clock injected: `AK_MOTION_CLOCK` names
 a file of seconds that stands still until the test moves it, so each frame is read off the screen
 at the moment set, however late the host's load makes it.
 """
@@ -19,7 +19,6 @@ import sys
 from pathlib import Path
 import time
 import tomllib
-import unicodedata
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -27,34 +26,17 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.aklooks import look, looks, plain
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
+from test_key_c_chooses_the_theme import BLACK, CONFIG, SELECTION, SIZE, WHITE, sgr, theme_of
 
-SIZE = (100, 40)
-BLACK, WHITE, TEXT = "000000", "ffffff", "181c22"    # the backgrounds, and white's text
-GROUNDS = {BLACK: {BLACK, "08305d"}, WHITE: {WHITE, "dcecff"}}   # ... each with its selection
+TEXT = "181c22"         # white's text
 HALF = SIZE[1] // 2
-CONFIG = ".agentkit/config.toml"
-
-
-def sgr(rgb, ground="38"):
-    return f"{ground};2;" + ";".join(str(channel) for channel in bytes.fromhex(rgb))
-
-
-def grounds(line):
-    """The background of each cell of a line of `looks`, as RGB, None where it has none."""
-    return [next((part for part in shown if part.startswith("48;2;")), None) for _, shown in line]
+# a cell on any other background is in neither theme
+GROUNDS = {sgr(rgb, "48") for rgb in (BLACK, WHITE, *SELECTION.values())}
 
 
 def themes(rows):
-    """The theme each row of the screen is whole in, BLACK or WHITE, or None for a row that is
-    not: a cell of each, one on no background or another, or a row not drawn across."""
-    found = []
-    for line in rows[:SIZE[1]]:
-        wide = sum(2 if unicodedata.east_asian_width(char) in "WF" else 1 for char, _ in line)
-        backs = set(grounds(line))
-        found.append(next((theme for theme, own in GROUNDS.items()
-                           if wide == SIZE[0] and backs <= {sgr(rgb, "48") for rgb in own}),
-                          None))
-    return found + [None] * (SIZE[1] - len(found))
+    """The theme each row of the screen is whole in (theme_of), top down."""
+    return [theme_of(line) for line in rows[:SIZE[1]]] + [None] * (SIZE[1] - len(rows))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -98,12 +80,11 @@ class ThemeComesDownTheScreen(unittest.TestCase):
         """The screen's looks once each row is whole in the theme `wanted` names for it; on
         every look on the way no cell is on a background but the themes' and their selections'.
         """
-        allowed = {sgr(rgb, "48") for own in GROUNDS.values() for rgb in own}
         deadline = time.monotonic() + 30
         while True:
             rows = looks(self.menu.screen(colours=True, blank=True))
             stray = next(((number, plain(line)) for number, line in enumerate(rows[:SIZE[1]], 1)
-                          if set(grounds(line)) - allowed), None)
+                          if any(not GROUNDS & shown for _, shown in line)), None)
             self.assertIsNone(stray, "a cell on a background of neither theme")
             if themes(rows) == wanted:
                 return rows
