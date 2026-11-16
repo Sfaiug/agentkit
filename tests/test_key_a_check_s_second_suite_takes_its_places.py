@@ -1,9 +1,10 @@
 """A check's second suite runs its pieces side by side, as its first did: a member that rewrites
 the `tests:` line is checked by the target's line and then by its own, each on this host's turns.
 
-Black-box: `AK_BIN` checks a landing line through tests/fixtures/akline.py on a host that fits
-three pieces (AK_HOST_READINGS).  The member's line gives every test the word `own`: given it, a
-test marks its start in the project's Git storage and runs until the test here releases it.
+Black-box: `AK_BIN` checks a landing line through tests/fixtures/akline.py on a host whose
+memory fits three pieces, however many run (AK_HOST_READINGS).  The member's line gives every
+test the word `own`: given it, a test marks its start in the project's Git storage and runs until
+the test here releases it.
 """
 
 import json
@@ -15,7 +16,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akline import Line, SUITE, rules
 
-READINGS = {"AK_HOST_READINGS": json.dumps({"cpus": 4, "load": 0, "free_mb": 1300})}
+READINGS = {"AK_HOST_READINGS": json.dumps(
+    {"cpus": 4, "load": 0, "free_mb": 1300, "mem_total_mb": 1300})}
 HELD = """[ "${1:-}" = own ] || exit 0
 cd "$(git rev-parse --git-common-dir)" && touch "started-${0##*/}"
 until [ -e release ]; do sleep 0.1; done

@@ -966,8 +966,8 @@ class _Pieces:
                 if ended() or not self.mine(there):
                     self.there -= bool(there)
                     return None
-            turn = self.hold.take(lambda: ended() or not self.waiting) if (
-                not there and self.hold) else True
+            turn = True if there or not self.hold else self.hold.take(
+                lambda: ended() or not self.waiting, wanted=lambda: len(self.waiting))
             with self.cond:
                 mine = turn is not None and self.mine(there)
                 if mine:
@@ -1010,15 +1010,16 @@ class _GateHold:
     or a reviewer lets it go from inside the frame that took it.  Releasing unlocks
     the slot and closes the files, as leaving the frame would have.
     A sharded suite has `pieces` places here, the derived limit it was admitted at by `cost`,
-    one piece's; each takes a turn of its own (`take`), and turns the host frees join the hold
-    (`more`).  A later suite of its check is admitted here by its own (`suite`).
+    one piece's, which cut it; each piece takes a turn of its own (`take`), so its pieces at once
+    are its turns, and turns the host frees join the hold while a piece waits for one (`more`).
+    A later suite of its check is admitted here by its own (`suite`).
     """
 
     def __init__(self, files, slots, context=None, pieces=None, more=None, queued=None,
                  cost=None):
         self.files, self.slots, self.context = files, slots, context
         self.pieces, self.more, self.queued, self.cost = pieces or len(slots), more, queued, cost
-        self.idle, self.waiting, self.waited, self.shown = list(slots), 0, False, False
+        self.idle, self.waiting, self.uneven, self.shown = list(slots), 0, False, False
         # A turn a piece gives back wakes the piece taking at once, not at the next poll.
         self.lock, self.taking, self.queue = threading.Condition(), threading.Lock(), ExitStack()
 
@@ -1037,17 +1038,19 @@ class _GateHold:
             self.slots += freed
             self.idle += freed
 
-    def take(self, stopped):
+    def take(self, stopped, wanted=lambda: 1):
         """A held turn no other piece runs on, or None once `stopped()`; `give` it back.
 
         One piece takes at a time.  While any piece waits, the suite is one waiter holding
         turns, at the place it was admitted at (`queued`), and the piece taking asks the host
-        for the turns freed since (`more`).  Beside a piece of its own it takes an idle turn
-        only while the host's cores, less the threads that want one now, fit one more piece
-        (`host.cpu_room`): CPU used never passes the cores, however many threads wait for one.
-        Room it waits for as for a turn, but as no waiter in the host's line: it holds one.
-        The next piece looks once this one has its turn, as a piece shows its threads only
-        in a later look.
+        for the turns freed since (`more`), keeping one for each of the `wanted()` pieces that
+        wait for one, its own among them: the others go at once to the next holder in rank.
+        Beside a piece of its own it takes an idle turn only while the host's cores, less the
+        threads that want one now, fit one more piece (`host.cpu_room`): CPU used never passes
+        the cores, however many threads wait for one.  Room it waits for as for a turn, but as
+        no waiter in the host's line: it holds one.  The next piece looks once this one has its
+        turn, as a piece shows its threads only in a later look.  A turn joining mid-suite, or
+        one left idle for room, leaves the suite's pieces at once `uneven`.
         """
         with self.lock:
             self.waiting += 1
@@ -1064,13 +1067,12 @@ class _GateHold:
                         if idle and (looked or not cost or len(self.idle) == len(self.slots)):
                             return self.idle.pop()
                         if looked is False:
-                            self.waited = True
+                            self.uneven = True
                             self.queue.close()
                             self.shown = False
                             self.lock.wait(GATE_POLL)
                             continue
                         if not idle:
-                            self.waited = True
                             if self.queued and not self.shown:
                                 self.queue.enter_context(self.queued())
                                 self.shown = True
@@ -1084,6 +1086,8 @@ class _GateHold:
                             self.slots += freed
                             self.idle += freed
                         if freed:
+                            self.uneven = True
+                            self.shed(wanted())
                             continue
                     with self.lock:
                         if not self.idle:
@@ -1104,11 +1108,12 @@ class _GateHold:
                 self.idle.append(slot)
                 self.lock.notify_all()    # a place waiting for a turn sees the list end
 
-    def shed(self):
-        """Unlock each turn no piece runs on, so the first waiter in rank takes it, but the one
-        the suite keeps until it ends, for its reruns."""
+    def shed(self, wanted=0):
+        """Unlock each turn no piece runs on, but one for each of `wanted` pieces waiting for one,
+        so the first waiter in rank takes it, and the one the suite keeps until it ends, for its
+        reruns."""
         with self.lock:
-            while self.idle and len(self.slots) > 1:
+            while len(self.idle) > wanted and len(self.slots) > 1:
                 slot = self.idle.pop()
                 self.slots.remove(slot)
                 fcntl.flock(slot, fcntl.LOCK_UN)
@@ -1460,9 +1465,9 @@ def gate_turn(run_dir, log_path, log, command=None, cwd=None, *, context=None):
     A check running while this thread already holds a turn takes no second one.
     A command naming AK_SHARD gets as many places as the derived limit fits, using its
     repository's measured cost when available: it takes one turn free now, then the others free
-    now and those freed later while it ranks first, each running one piece at a time, and once
-    its last piece has started gives back each one a piece ends on, but one (`_GateHold`,
-    `_Pieces.spare`, `run_suite`).
+    now and those freed later while it ranks first, one for each piece waiting for one, each
+    running one piece at a time, and once its last piece has started gives back each one a piece
+    ends on, but one (`_GateHold`, `_Pieces.spare`, `run_suite`).
     A suite the helper has room for (`helper.start`) takes no turn here; one that waits asks it
     again each poll, and goes there once it has room.
     """
@@ -1759,7 +1764,7 @@ class _SuiteMeasure:
 
     def save(self, path, pieces, places, green):
         """`pieces` the ones that ran here, each to its end, on `places` at once, or None where
-        one waited for a place: a peak of fewer at once is no piece's memory.  A piece's CPU is
+        a place joined or stood empty mid-pass: a peak of fewer at once is no piece's memory.  A piece's CPU is
         what each needed while its box ran, so a place waited for or left empty counts none.
         A pass not `green` says how long it took and nothing of what a piece needs: one red in
         its first seconds ran no whole length, and those seconds set the next pass's pieces."""
@@ -2016,6 +2021,9 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
         places = (hold.pieces if hold else 0) + (away.most if away else 0)
         count = 2 * places or derived_heavy_limit(running=0, job_cpus=cpu, job_mem_mb=mem,
                                                   unit=True)
+        # Each piece here waits for a turn of its own: while none joins or stands idle
+        # (`_GateHold.uneven`), its turns are its pieces at once.
+        at_once = len(hold.slots) if hold else count
         # the piece threads do not inherit this thread's held turn
         env = suite_env()
         deadline = time.monotonic() + limit
@@ -2264,13 +2272,14 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                         raise
 
             results, where, pieces_left = [None] * count, [None] * count, _Pieces(range(count))
-            pull(hold.pieces if hold else 0 if away else count)
+            # a place here for each piece: the hold's turns decide how many run at once
+            pull(0 if away and not hold else count)
             # Those on the helper held none of this host's memory, nor needed its CPU.
             ran = [result for result, there in zip(results, where) if result and not there]
             if ran and not any(
                     result[2] or result[0] == SUITE_BUSY for result in results if result):
-                measure.save(path, len(ran), None if hold and hold.waited else
-                             min(len(ran), hold.pieces if hold else count),
+                measure.save(path, len(ran), None if hold and hold.uneven else
+                             min(len(ran), at_once),
                              not any(result[0] for result in results if result))
             named = {}    # by index, a piece red on a machine: what it printed there, its tests
             if any(where) and log is not None and not pieces_left.lost and all(
@@ -2358,10 +2367,10 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                 if not joined[0]:
                     break
                 away = joined[0]
-                pull(hold.pieces if hold else 0)
+                pull(len(pieces_left.waiting) if hold else 0)
             if not cancel.is_set():
                 if pieces_left.waiting:
-                    pull(hold.pieces if hold else len(pieces_left.waiting))
+                    pull(len(pieces_left.waiting))
                 if whole := [index for index in again if index not in named]:
                     attempts(whole)
             for index in pieces_left.waiting:    # stopped before it ran

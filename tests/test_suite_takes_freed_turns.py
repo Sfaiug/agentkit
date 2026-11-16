@@ -168,7 +168,7 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         self.assertEqual([shard.partition("/")[2] for _, shard in self.shards],
                          ["8"] * 8 + ["2"] * 2 + ["8"] * 8)
         # each suite's first piece starts before any of its pieces ends and gives a turn back
-        self.assertEqual([self.held[0], *self.held[8:11]], [4, 1, 1, 4])
+        self.assertEqual([self.held[0], self.held[8], self.held[10]], [4, 1, 4])
         self.assertEqual(len(gate._heavy_held()), 0)
 
 

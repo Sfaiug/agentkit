@@ -3,12 +3,13 @@ that has ended gives its turn back while another still runs; a piece killed for 
 alone, after every other piece has ended.
 
 Black-box: the program `AK_BIN` names checks a landing line from outside through
-tests/fixtures/akline.py on a host that fits three pieces, or two (AK_HOST_READINGS), so its suite
-runs in six, or four.  A held test fails its piece's first go, passes alone, and holds its piece's
-second go until the test releases it.  A killed test's first go dies by SIGKILL as its cgroup's
-`oom_kill` rises (`AK_CGROUP_ROOT`, `AK_CGROUP_FILE`).  Each go marks its start and end, in the
-order they happen, in the project's Git storage, where a boxed check may write.  The test takes a
-turn as another suite would: a non-blocking flock on one of the host's slot files.
+tests/fixtures/akline.py on a host whose memory fits three pieces, or two, however many run
+(AK_HOST_READINGS), so its suite runs in six, or four.  A held test fails its piece's first go,
+passes alone, and holds its piece's second go until the test releases it.  A killed test's first
+go dies by SIGKILL as its cgroup's `oom_kill` rises (`AK_CGROUP_ROOT`, `AK_CGROUP_FILE`).  Each go
+marks its start and end, in the order they happen, in the project's Git storage, where a boxed
+check may write.  The test takes a turn as another suite would: a non-blocking flock on one of the
+host's slot files.
 """
 
 import fcntl
@@ -21,8 +22,8 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akline import Line, RUNNER
 
-THREE = json.dumps({"cpus": 4, "load": 0, "free_mb": 1300})
-TWO = json.dumps({"cpus": 4, "load": 0, "free_mb": 900})
+THREE = json.dumps({"cpus": 4, "load": 0, "free_mb": 1300, "mem_total_mb": 1300})
+TWO = json.dumps({"cpus": 4, "load": 0, "free_mb": 900, "mem_total_mb": 900})
 UNIT = "acme.slice/lander.service"
 # Each go marks its start and end around the line's runner: a piece by its share, named tests run
 # alone as `alone`.
