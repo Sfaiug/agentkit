@@ -1846,9 +1846,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         return v5o_header(project, width), (
             project["checkout"] if "switches" in project
             else ("project", project["name"]) if project["checkout"] else None)
+    headings = [heading(project) for project in ordered]
     seat_blocks = _seat_blocks()
-    blocks = [[heading(project)] + [pair for block in own for pair in block]
-              for project, own in zip(ordered, seat_blocks)]
+    blocks = [[head] + [pair for block in own for pair in block]
+              for head, own in zip(headings, seat_blocks)]
     flat = _flat(blocks) or [("  no sessions; n starts one", None)]     # a row, budgeted as one
 
     # The highlighted seat's lines go under its row: as many kept on its page as the most any
@@ -1894,14 +1895,15 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     paged = len(flat) > 1 and len(flat) > _room(meters, False, compact)     # one page first
     room = _room(meters, paged, compact)
     # a seat under its heading: its row and, where it has one, a line under it
-    need = 1 + min(2, max((len(block) for own in seat_blocks for block in own), default=0))
+    longest = max((len(block) for own in seat_blocks for block in own), default=0)
+    need = 1 + min(2, longest)
     # the opened lines take only what a page of `least` rows leaves -- on a compact screen what
     # a seat under its heading does -- and a page that fits once they have is one
     opens = max(0, opens - max(0, (need if compact or not paged else least) - room))
     paged = paged and len(flat) > _room(meters, False, compact)
     room = max(1, _room(meters, paged, compact))
-    pages = (project_pages([(heading(project), own) for project, own
-                            in zip(ordered, _seat_blocks(room - 1))], room + opens,
+    trimmed = seat_blocks if longest <= max(1, room - 1) else _seat_blocks(room - 1)
+    pages = (project_pages(list(zip(headings, trimmed)), room + opens,
                            opens={name: min(len(lines), opens) for name, lines in said.items()})
              if paged else [flat])
     if owned and cursor is not None:
