@@ -1,8 +1,8 @@
 """A change the line's check failed twice rejoins at the back; every other rejoin keeps its place.
 
-In-process, as tests/test_lander_wakes.py is: a run's own side of its line has no black-box
-fixture.  The lander's verdicts are written as it writes them, the run's repair and re-review
-pass, and the clock is injected.
+In-process, as tests/test_lander_wakes.py is, beside the black-box key of the same name: every
+kind of rejoin, read from the line.  The lander's verdicts are written as it writes them, the
+run's repair and re-review pass, and the clock is injected.
 """
 
 from pathlib import Path
@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, deliver, land, record, roundloop
+from agentkit import config, deliver, land, record, roundloop, update
 from fixtures.sandbox import Sandbox
 
 
@@ -68,6 +68,13 @@ class FailedTwiceRejoinsAtTheBack(Sandbox):
         self.lp.state["waiting_on"] = {**self.lp.state["waiting_on"], "land": "tree"}
         self.assertFalse(deliver.rejoin_line(self.lp, "origin/main", "the PR's target moved"))
         self.assertEqual(self.line(), ["fix-docs", "fix-ui", "fix-api", "fix-cli"])
+
+    def test_a_held_installs_fix_stays_first_after_two_reds(self):
+        self.stack.enter_context(patch.object(
+            update, "first_place", side_effect=lambda state: state["run_id"] == "fix-api"))
+        self.sent_back()
+        self.sent_back()
+        self.assertEqual(self.line(), ["fix-api", "fix-docs", "fix-ui"])
 
 
 if __name__ == "__main__":
