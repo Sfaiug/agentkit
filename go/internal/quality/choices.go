@@ -110,9 +110,11 @@ func why(row *Rating, choices, front []*Rating) (string, *Rating) {
 	case above(front[len(front)-1], row) > window:
 		return "far below", nil
 	}
+	// the nearer by the qualities as they are: rounded (above), two choices a hair unlike in
+	// distance tie, and the cheaper would be named for the nearer
 	near := choices[0]
 	for _, one := range choices[1:] {
-		if math.Abs(above(one, row)) < math.Abs(above(near, row)) {
+		if math.Abs(one.Quality-row.Quality) < math.Abs(near.Quality-row.Quality) {
 			near = one
 		}
 	}
