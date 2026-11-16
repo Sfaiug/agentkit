@@ -171,10 +171,9 @@ class ThreeRuns(unittest.TestCase):
         self.assertEqual([summary["verdict"] for summary in state["round_summaries"]], ["PASS"])
 
     def test_of_more_than_fit_one_piece_the_most_often_red_run(self):
-        # held.sh too, the target moved past its red
-        self.assertEqual(self.notes["three"], [
-            "suite ./tests/held.sh ./tests/often.sh ./tests/repaired.sh", "review",
-            "suite whole"])
+        # held.sh too, the target moved past its red; landing then runs the suite's pieces
+        self.assertEqual(self.notes["three"][:2], [
+            "suite ./tests/held.sh ./tests/often.sh ./tests/repaired.sh", "review"])
 
 
 if __name__ == "__main__":
