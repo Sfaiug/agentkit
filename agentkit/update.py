@@ -635,7 +635,7 @@ def update_agentkit(progress=None, pull=True):
     start fills the rule under its header from it, and the fetch is a step of its own, so the
     rule moves through the network wait.  The move goes to `live_target`, and with none
     nothing moves or reinstalls.  `pull=False` only reinstalls what is checked out; a commit
-    moves to exactly it, already fetched.
+    moves to exactly it, already fetched, or nothing moves where it was put back or is held.
     Once install.sh passed, a move not final yet is put back (`back.put_back`) where the new
     version's `ak doctor` fails and the kept one's passes on this home: it is the new program
     that reads the home wrongly, and its next tick would act on that reading.  A fault both
@@ -675,10 +675,16 @@ def update_agentkit(progress=None, pull=True):
             if progress:
                 progress(done, len(steps))
             if cmd is swap:
-                # one chosen before this lock may have been put back since (back.py), or held
+                # one named before this lock may have been put back since (back.py), or held:
+                # nothing moves, and whoever named it names one again
                 hold = _hold()
-                target = (pull if isinstance(pull, str) and pull not in _failed()
-                          and _holds(hold, pull) else live_target())
+                if pull is True:
+                    target = live_target()      # never one put back or held
+                elif pull in _failed():
+                    say(f"update: agentkit: {pull[:12]} was put back here, so it does not move")
+                    return 0
+                else:
+                    target = pull if _holds(hold, pull) else ""
                 if not target:
                     say(f"update: agentkit: held since {hold['commit'][:12]} was put back: moves "
                         f"once {hold['seat']}'s fix has merged and passed tests/live.sh"

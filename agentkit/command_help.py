@@ -235,12 +235,15 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                 "and the folders its conversations are in, then ak's folder but its runs and checkouts.\n"
                 "It sends what changed, compressed, and what the home deleted in those folders goes here\n"
                 "too; a login or folder the home lacks stays here.  This machine keeps the rest of each\n"
-                "harness's folders, and its own record of its server, ak's tmp folder, ak's repository and\n"
-                "its versions.  Refused on any other machine, or if a link here is at one of those kept or\n"
-                "left out, at a folder between it and ak's folder, or at a folder between HOME and a\n"
-                "harness's login or conversations; one while a pass is under way copies nothing.  Without\n"
+                "harness's folders, and its own record of its server and of an install.sh owed, ak's tmp\n"
+                "folder, ak's repository and its versions.  Refused on any other machine, or if a link here\n"
+                "is at one of those kept or left out, at a folder between it and ak's folder, or at a\n"
+                "folder between HOME and a harness's login or conversations; one while a pass is under way\n"
+                "copies nothing.  After the copy, move ak here forward to the commit ak is at on that home,\n"
+                "once its move there is final, and run its install.sh again while it is owed.  Without\n"
                 "ALIAS, show the home this machine copies and the copy's age, from when the last pass that\n"
-                "ended well began: exit 1 if none from that home has.",
+                "ended well began, and why ak here does not follow that home yet: exit 1 if none from that\n"
+                "home has.",
                 "ak standby acme-mini"),
 }
 
