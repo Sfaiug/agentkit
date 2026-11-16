@@ -6265,23 +6265,26 @@ def said_once(told, held, room):
     held, every name where they fit its line, else the first ones and how many more; where the
     reasons do not fit, the most of the first that do, at least the first, and a last line saying
     how many more there are, before which `told`'s own lines give way, and then that count; a
-    first reason taller than the lines left is cut to them, ending in `…`."""
+    first reason taller than the lines left names fewer seats until it fits them, so what was
+    refused is read whole, and one no fewer names fit is cut to them, ending in `…`."""
     if not held:
         return told
     width = terminal.layout_width() - 2       # a note's line (note_lines)
 
-    def led(names):
+    def led(why, names, lines=None):
         for count in range(len(names), 0, -1):
             lead = ", ".join(names[:count]) + (f" and {len(names) - count} more"
                                                if count < len(names) else "")
-            if count == 1 or terminal.cells(lead) < width:     # and its colon
-                return lead
+            if count == 1 or terminal.cells(lead) < width and (     # and its colon
+                    lines is None or len(terminal.wrap(f"{lead}: {why}", width)) <= lines):
+                return f"{lead}: {why}"
+        return why
 
     def tall(lines):
         return sum(len(terminal.wrap(line, width)) for line in lines)
 
     head = told.splitlines()
-    reasons = [f"{led(names)}: {why}" if names else why for why, names in held.items()]
+    reasons = [led(why, names) for why, names in held.items()]
     shown = len(reasons)
     while shown > 1 and tall(head + reasons[:shown]) + (shown < len(reasons)) >= room:
         shown -= 1
@@ -6292,7 +6295,8 @@ def said_once(told, held, room):
     while head and tall(head + said) >= room:
         head.pop()
     if tall(said) >= room:      # no line for more: the first reason, under the note's blank line
-        lines, keep = terminal.wrap(reasons[0], width), max(1, room - 1)
+        keep = max(1, room - 1)
+        lines = terminal.wrap(led(*next(iter(held.items())), keep), width)
         said = lines if len(lines) <= keep else [
             *lines[:keep - 1], terminal.cut(" ".join(lines[keep - 1:]), width)]
     return "\n".join(head + said)
