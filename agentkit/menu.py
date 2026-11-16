@@ -4492,7 +4492,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     thread so a read cannot land over a save; the highlight and column stay where they are while
     their row is.  The born row's screen keeps the row's config, its seat's to be made of.  A
     key whose save is refused over a file changed since (_saved) brings the owner back here from
-    the page it was on, and says so under the rows (CHANGED).
+    the page it was on, and says so under the rows (CHANGED); a page that cannot read the file,
+    `Machines` reading it itself, brings them back saying why.
     Its role marks are that seat's models: Space or a
     click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
@@ -4671,6 +4672,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                            hold=hold, around=around, providers=providers))
         except Changed:     # the page it was made on closed; the next pass reads the file
             note = CHANGED
+        except config.Error as exc:     # a page reading config.toml mid-edit closed, and why
+            note = str(exc)
 
 
 def _runs(cfg, harness, model, effort=None):
