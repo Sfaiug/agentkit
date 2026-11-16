@@ -80,6 +80,16 @@ def left_main(root):
                           capture_output=True, text=True).stdout.strip() or None
 
 
+def change(root):
+    """Every path differing between where the change `root` checks out left its default branch
+    and HEAD, a rename both: None or none where the suite cannot name it."""
+    base = left_main(root)
+    # -z ends each path with a NUL; a diff that failed names none
+    return base and subprocess.run(["git", "-C", str(root), "diff", "--name-only", "-z",
+                                    "--no-renames", base, "HEAD"],
+                                   capture_output=True, text=True).stdout.split("\0")[:-1]
+
+
 def statements(nodes):
     """Each statement of `nodes` and of the blocks they hold: an import is one, and walking every
     expression too costs several times as long."""
@@ -90,21 +100,23 @@ def statements(nodes):
 
 
 def imports(root, path):
-    """The files, as paths from `root`, an import in its Python file `path` could load from
-    tests/, there or not: none where `path` is not there or not Python."""
+    """The files of tests/, as paths from `root`, an import in its Python file `path` could load,
+    there or not: none where `path` is not there or not Python."""
     try:
         tree = ast.parse(Path(root, path).read_bytes())
     except (OSError, SyntaxError, ValueError):
         return []
     found = []
     for node in statements(tree.body):
+        # an absolute import starts in tests/, a test file's own folder, or at the checkout's root
+        # where a test puts that on its path (`tests.fixtures.acme`)
         if isinstance(node, ast.Import):
-            base, names = "tests", [alias.name for alias in node.names]
+            bases, names = ("tests", ""), [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
             # a relative import starts in its file's package, one up for each further dot; what it
             # imports from a module may be a module of its own
-            base = os.path.normpath(os.path.join(path, *[os.pardir] * node.level)) \
-                if node.level else "tests"
+            bases = (os.path.normpath(os.path.join(path, *[os.pardir] * node.level)),) \
+                if node.level else ("tests", "")
             names = [".".join(filter(None, [node.module, name]))
                      for name in [None, *(alias.name for alias in node.names)]]
         else:
@@ -113,25 +125,55 @@ def imports(root, path):
         # whose child may be missing
         for parts in (name.split(".") for name in names if name):
             for end in range(1, len(parts) + 1):
-                module = os.path.join(base, *parts[:end])
-                found += [os.path.join(module, "__init__.py"), f"{module}.py"]
-    return found
+                for module in (os.path.join(base, *parts[:end]) for base in bases):
+                    found += [os.path.join(module, "__init__.py"), f"{module}.py"]
+    return [file for file in found if file.startswith("tests/")]
+
+
+def reached(edges, path):
+    """`path` and each file it imports, directly or through others, as `edges` gives a file's
+    own (imports)."""
+    seen, todo = set(), [path]
+    while todo:
+        if (path := todo.pop()) not in seen:
+            seen.add(path)
+            todo += edges(path)
+    return seen
+
+
+# How a test names Go's tree: `go` a word of its own, a path part ("go/keys.txt", `REPO / "go"`),
+# the go tool and its commands (`["go", "build"]`, "go env GOCACHE") or a Go file ("acme.go"),
+# or the claims' file.  Broad on purpose: a test it wrongly takes for Go's only runs, where one
+# it missed would hide a red until a change beside Go's ran it.
+GO_TREE = re.compile(r"(?<![\w-])go(?![\w-])|keys\.txt")
+
+
+def names_go(root, path):
+    """Whether a string in the code of the Python file `path`, from `root`, names Go's tree
+    (GO_TREE): one standing alone, as a docstring, is prose, as a comment is.  False where `path`
+    is not there or not Python."""
+    try:
+        source = Path(root, path).read_bytes().decode(errors="replace")
+        # most files never say it: parsing only those that might keeps a scan of all of them short
+        if not GO_TREE.search(source):
+            return False
+        tree = ast.parse(source)
+    except (OSError, SyntaxError, ValueError):
+        return False
+    prose = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Expr)}
+    return any(isinstance(node, ast.Constant) and isinstance(node.value, str)
+               and id(node) not in prose and GO_TREE.search(node.value) for node in ast.walk(tree))
 
 
 def go_left_out(root):
     """The IDs of Go's tests (GO, a claim's `tests/test_go_keys.py::<key>`) a run of every test
-    leaves out, as the change `root` checks out cannot alter their verdict: the change is every
-    path differing between where it left its default branch and HEAD, a rename both.  The owner,
+    leaves out, as the change `root` checks out (`change`) cannot alter their verdict.  The owner,
     15 Nov 2026: "tests of code that is not shipped run only for changes that touch that code",
     and "its suite runs every test file" (5 Oct) is retracted.  A claim runs in a copy without
     agentkit/ (test_go_keys.LEFT_OUT), so none reads it; a test file but GO, only a claim whose
     key file is or imports it, directly or through other files of tests/.  Any other path, or a
     change the suite cannot name, leaves none out, as on main, where every test still runs."""
-    base = left_main(root)
-    # -z ends each path with a NUL; a diff that failed names none
-    changed = base and subprocess.run(["git", "-C", str(root), "diff", "--name-only", "-z",
-                                       "--no-renames", base, "HEAD"],
-                                      capture_output=True, text=True).stdout.split("\0")[:-1]
+    changed = change(root)
     if not changed:
         return set()
     touched = set()
@@ -144,17 +186,36 @@ def go_left_out(root):
     # Each file is parsed once, and none for a change to agentkit/ alone: every key file and the
     # fixtures most import cost seconds.
     edges = functools.cache(lambda path: imports(root, path))
-
-    def read(key):
-        seen, todo = set(), [f"tests/{key}.py"]
-        while todo:
-            if (path := todo.pop()) not in seen:
-                seen.add(path)
-                todo += edges(path)
-        return seen
-    run = {key for key in keys if touched & read(key)} if touched else set()
+    run = {key for key in keys if touched & reached(edges, f"tests/{key}.py")} if touched else set()
     return ({f"tests/test_go_keys.py::{key}" for key in keys if key not in run}
             | {"tests/test_go.py"} | (set() if run else {"tests/test_go_builds.py"}))
+
+
+def python_left_out(root):
+    """The IDs of the tests of tests/*.py and smoke.sh's blocks a run of every test leaves out
+    where the change `root` checks out (`change`) is Go's alone, every path under go/ or one of
+    GO: those it cannot alter, as each runs this checkout's Python bin/ak or imports agentkit/,
+    and nothing under go/ reaches either; go_left_out's other half, by the owner's same rule.  A
+    test runs where its file's code, or that of a file of tests/ it imports, directly or through
+    others, names Go's tree (names_go), and a block of smoke.sh where its code or a file of
+    tests/ it names does, with its group (DEPENDENCIES); Go's tests and the static checks
+    (STATIC_CHECKS), which read every source file, always.  Any other change, or one the suite
+    cannot name, leaves none out."""
+    changed = change(root)
+    if not changed or not all(path.startswith("go/") or path in GO for path in changed):
+        return set()
+    names = functools.cache(lambda path: names_go(root, path))
+    edges = functools.cache(lambda path: imports(root, path))
+    reads = functools.cache(lambda path: any(map(names, reached(edges, path))))
+    left = {test for test in (f"tests/{path.name}" for path in Path(root, "tests").glob("*.py"))
+            if test not in GO and Path(test).stem not in STATIC_CHECKS and not reads(test)}
+    blocks = [(name, re.sub(r"(?m)^\s*#.*", "", body))    # a comment is prose
+              for name, body in smoke_blocks(Path(root, SMOKE).read_text()) if name]
+    kept = {name for name, code in blocks if GO_TREE.search(code) or any(
+        reads(test if test.startswith("tests/") else f"tests/{test}.py")
+        for test in re.findall(r"\btests/[\w/.-]+\.py|\btest_\w+", code))}
+    kept.update(*(group for group in DEPENDENCIES if kept & set(group)))
+    return left | {f"{SMOKE}#{name}" for name, _ in blocks if name not in kept}
 
 
 def shares(costs, total):
@@ -201,11 +262,13 @@ def smoke_blocks(source):
             for i, header in enumerate(headers)]
 
 
-def smoke_owners(blocks, root, total, live=False, offline=False):
+def smoke_owners(blocks, root, total, live=False, offline=False, left=()):
+    """Each block's share, of those its mode runs and the run does not leave out (`left`, their
+    IDs): the shares are cut from what runs."""
     groups = {name: group[0] for group in DEPENDENCIES for name in group}
     costs = {}
-    mine = [(name, body) for name, body in blocks
-            if name is not None and (name in LIVE_CHECKS) == live]
+    mine = [(name, body) for name, body in blocks if name is not None
+            and (name in LIVE_CHECKS) == live and f"{SMOKE}#{name}" not in left]
     for name, body in mine:
         # Source size estimates the work for new checks too; named test files contribute
         # their size, rather than counting a ten-case file like a hundred-case file.
@@ -223,10 +286,10 @@ def smoke_owners(blocks, root, total, live=False, offline=False):
     return {name: owners[groups.get(name, name)] for name, _ in mine}
 
 
-def smoke_source(source, root, piece, live=False, offline=False):
+def smoke_source(source, root, piece, live=False, offline=False, left=()):
     blocks = smoke_blocks(source)
     number, total = piece
-    owners = smoke_owners(blocks, root, total, live, offline)
+    owners = smoke_owners(blocks, root, total, live, offline, left)
     only = listed()
     ran = ""
     if only is not None and SMOKE not in only:
@@ -250,12 +313,13 @@ def smoke_mode():
             os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1")
 
 
-def smoke_share(path):
+def smoke_share(path, left=()):
     """The IDs of the blocks of the smoke.sh at `path` that this run's share (AK_SHARD) owns, in
-    its mode: listed in AK_ONLY, they run that share again, and nothing else."""
+    its mode, of those it does not leave out (`left`): listed in AK_ONLY, they run that share
+    again, and nothing else."""
     number, total = shard()
     owners = smoke_owners(smoke_blocks(path.read_text()), path.resolve().parents[1], total,
-                          *smoke_mode())
+                          *smoke_mode(), left)
     return [f"{SMOKE}#{name}" for name, owner in owners.items() if owner == number]
 
 
@@ -266,7 +330,11 @@ def main():
         print(exc, file=sys.stderr)
         return 2
     path = Path(sys.argv[1])
-    print(smoke_source(path.read_text(), path.resolve().parents[1], piece, *smoke_mode()), end="")
+    root = path.resolve().parents[1]
+    # A whole run leaves out the blocks a change to Go alone cannot alter; AK_ONLY's run whatever
+    # the change.
+    left = python_left_out(root) if listed() is None else set()
+    print(smoke_source(path.read_text(), root, piece, *smoke_mode(), left), end="")
     return 0
 
 
