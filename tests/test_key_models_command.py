@@ -1,6 +1,7 @@
 """`ak models` prints the models screen's lines, what each role uses and each role's bars (tests/
 test_key_models_bars.py), how many models it compares, then ak's own numbers per configured
-model; `--json` gives each role's best and line of best quality for the money too.
+model, each row named as every screen names that model; `--json` gives each role's best and
+line of best quality for the money too.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up;
 judged by the output and exit code.  Fails against /bin/false.
@@ -20,7 +21,7 @@ from test_key_models_answer import ENV, NOW, boards
 ROLES = [*(f"  {role:<12}  Acme Mid 5 low  not on the boards"
            for role in ("orchestrator", "executor", "reviewer")), ""]
 COMPARED = f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"
-OWN = ["model orch exec review", "mid   -    -    -", "bolt  -    -    -"]
+OWN = ["model      orch exec review", "Acme Mid 5 -    -    -", "Bolt 3     -    -    -"]
 
 
 class ModelsCommand(unittest.TestCase):

@@ -6,8 +6,8 @@ The executor's turn records its effort for its role (the entry's `exec_effort`, 
 config says since; the writer of a seat's own pull request is captured with the effort it runs
 at, which a restart carries with it (tests/test_review_restart.py) and the finish writes; and
 each finished review records its reviewer's (`review_effort`, else `effort`) on its review row.
-`ak models` then shows a model's own numbers per effort its runs recorded (`opus @ max`, the
-strongest first), the bare name for runs that recorded none.
+`ak models` then shows a model's own numbers per effort its runs recorded (`Opus 5.5 max`, the
+strongest first), the name alone for runs that recorded none.
 
 Offline: a throwaway HOME holds the history and run records, the config is the sandbox's, the
 boards and catalogs are faked (tests/test_model_rows.py), and the loop's save is driven on a
@@ -142,11 +142,13 @@ class LiveByEffort(Sandbox):
         self.assertEqual(own["astra"], {"orchestrate": {"runs": 1, "round_1": 100},
                                         "execute": {"runs": 1, "round_1": 100}, "review": None})
         self.assertEqual(own["gemini"], {"orchestrate": None, "execute": None, "review": None})
-        lines = [terminal.plain(line) for line in matrix.live_lines(own)]
+        lines = [terminal.plain(line) for line in matrix.live_lines(own, self.cfg)]
         text = "\n".join(lines)
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
-        self.assertRegex(text, r"\nopus @ max +- +50% of 2 +100% of 1\n")
-        self.assertRegex(text, r"\nopus +- +100% of 1 +-\n")
+        # a row is named as every screen names a model and its effort, never by its config entry
+        self.assertRegex(text, r"\nOpus 5\.5 max +- +50% of 2 +100% of 1\n")
+        self.assertRegex(text, r"\nOpus 5\.5 +- +100% of 1 +-\n")
+        self.assertNotIn(" @ ", text)
         out = io.StringIO()
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)

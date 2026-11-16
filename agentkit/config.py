@@ -1356,22 +1356,28 @@ def model_label(harness, model, said=""):
     harness calls it (`said`, else the id) so that a model nobody has written down is named too.
 
     A provider's prefix (`acme/`) and a trailing date (`-20251101`) are no part of that name,
-    and the rest is said as every model's name is (`spoken`), the family word the manifest's.
+    and the rest is said as every model's name is (`spoken`), the family words every manifest's
+    (`families`): a harness runs other makers' models too, and `acme-nova-7-1` is `Nova 7.1`
+    whichever runs it.
     """
     table = manifest(harness).get("catalog")
     entry = table.get(model) if isinstance(table, dict) else None
     label = entry.get("label") if isinstance(entry, dict) else None
     if isinstance(label, str) and label:
         return label
-    return spoken(re.sub(r"-[0-9]{8}$", "", (said or model).rsplit("/", 1)[-1]),
-                  [manifest(harness).get("family")])
+    return spoken(re.sub(r"-[0-9]{8}$", "", (said or model).rsplit("/", 1)[-1]), families())
+
+
+def families():
+    """The family word of each manifest ak reads, the words `spoken` leaves out of a name."""
+    return look.once("families", lambda: [found.get("family") for _, found in manifests()])
 
 
 def release_label(name):
     """What every screen calls the release a board names `name`: said as a model's name is
     (`spoken`), the family words every manifest's, so `Acme Nova 7.1` is `Nova 7.1` however a
     seat runs it, and a release nobody runs is named too."""
-    return spoken(name, [found.get("family") for _, found in manifests()])
+    return spoken(name, families())
 
 
 def spoken(name, families):

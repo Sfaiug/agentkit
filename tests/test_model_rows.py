@@ -35,8 +35,10 @@ def prepare(case):
     case.addCleanup(lambda: boards_test.AA.__delitem__(slice(-2, None)))
     case.stack.enter_context(patch.object(boards, "fetch_bytes", case.boards))
     # acme has a manifest and no binary here: none of its models gets a row
+    # (a manifest here keeps its family word, which every model's name is said without)
     case.stack.enter_context(patch.object(config, "manifests", return_value=[
-        (harness, {}) for harness in (*CATALOGS, "acme")]))
+        (harness, {"family": config.manifest(harness).get("family")})
+        for harness in (*CATALOGS, "acme")]))
     case.stack.enter_context(patch.object(config, "harness_present",
                                           side_effect=lambda harness: harness in CATALOGS))
     case.stack.enter_context(patch.object(config, "catalog",

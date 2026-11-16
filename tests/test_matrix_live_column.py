@@ -99,8 +99,8 @@ class LiveColumn(Sandbox):
         heading = next(i for i, line in enumerate(lines) if line.split() == ["model", "orch", "exec", "review"])
         self.assertLess(next(i for i, line in enumerate(lines) if "comparing all" in line), at)
         self.assertLess(at, heading)
-        self.assertRegex(text, r"\nopus +- +40% of 5 +67% of 3\n")
-        self.assertRegex(text, r"\nfable +33% of 3 +- +-\n")
+        self.assertRegex(text, r"\nOpus 5\.5 +- +40% of 5 +67% of 3\n")
+        self.assertRegex(text, r"\nFable 5\.1 +33% of 3 +- +-\n")
         out = io.StringIO()
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
             self.assertEqual(matrix.main(["--json"]), 0)
