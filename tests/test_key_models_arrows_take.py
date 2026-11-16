@@ -4,8 +4,10 @@ nothing, the owner's design of 5 Nov 2026.  Over a seat its executor becomes tha
 choice's effort in its record; its orchestrator asks first, as the move restarts it, `Keep`
 leaving the record as it was and `Restart` moving it, on a terminal too short for every line the
 role lines paged around the question, under the header and their numbers' heading and over the
-key line.  On `· new seats` [defaults] takes the orchestrator at once.  The key line says
-`← cheaper` and `better →`, `r` takes nothing, and a save that fails changes nothing and says why.
+key line.  On `· new seats` [defaults] takes the orchestrator at once.  A model its harness lists
+at other efforts is taken at the nearest it lists, a model listing only `none` at `none`.  The key
+line says `← cheaper` and `better →`, `r` takes nothing, and a save that fails changes nothing
+and says why.
 
 Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40, and 40 by 16, 15 and
 13 (tests/fixtures/akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own,
@@ -40,6 +42,9 @@ ROWS = [("acme-base-1", "Acme Base 1", "high", 0.82, 2),
 MODELS = {name: {"harness": "claude", "model": f"acme-{name}-1"}
           for name in ("base", "step", "top")}
 CREW = {"orchestrator": "base", "workers": ["base"], "reviewers": ["top"]}
+# Flat, which its harness runs at no effort, in Step's place on the boards at `high`
+FLAT = [("acme-flat-1", "Acme Flat 1", "high", 0.86, 4) if row[0] == "acme-step-1" else row
+        for row in ROWS]
 # what moving seat `name` onto Step asks, whatever name the harness gives Step
 ASK = re.compile(r"Restart (\S+) on .+? at medium\?")
 
@@ -73,7 +78,8 @@ class ArrowsTake(unittest.TestCase):
         cls.fake = fakeadapter.install(home, claude="pass")["claude"]
         cls.fake.answer("models", "acme-base-1\tAcme Base 1\thigh\n"
                                   "acme-step-1\tAcme Step 1\tmedium high\n"
-                                  "acme-top-1\tAcme Top 1\thigh\n")
+                                  "acme-top-1\tAcme Top 1\thigh\n"
+                                  "acme-flat-1\tAcme Flat 1\tnone\n")
         cls.config = home.path / ".agentkit/config.toml"
         cls.seats = {name: Seat(home, name, model="base", record=CREW) for name in (SEAT, MOVED)}
 
@@ -212,6 +218,30 @@ class ArrowsTake(unittest.TestCase):
                 self.assertEqual([self.record(name)["orchestrator"] for name in self.seats],
                                  ["base", "base"], "an open seat moved")
                 term.wait("Acme Step 1 medium")         # what the orchestrator uses now
+
+    def test_a_take_keeps_to_an_effort_its_model_takes(self):
+        for seat in (None, SEAT):
+            with self.subTest(seat=seat):
+                self.fresh()
+                akconfig.write(self.home, {**MODELS, "flat": {
+                    "harness": "claude", "model": "acme-flat-1", "effort": "none"}}, **CREW)
+                hold(self.home, FLAT)
+                boards = json.loads((self.home.path / ".agentkit/state/boards.json").read_text())
+                for row in boards["artificialanalysis.ai"]["rows"]:
+                    if row["slug"] == "acme-flat-1-high":   # its release's default row, the
+                        row["slug"] = "acme-flat-1"         # one a model at no effort runs
+                self.home.write(".agentkit/state/boards.json", boards)
+                term = self.models(100, seat)
+                if seat is None:        # new seats' orchestrator
+                    term.keys("Right")
+                    self.until(lambda: akconfig.read(self.home)["defaults"]["orchestrator"]
+                               == "flat", "→ took nothing")
+                    self.assertEqual(akconfig.read(self.home)["models"]["flat"]["effort"], "none")
+                else:                   # the seat's executor
+                    term.keys("Down", "Right")
+                    self.until(lambda: self.record(seat)["workers"] == ["flat"], "→ took nothing")
+                    efforts = self.record(seat).get("efforts", {}).get("flat", {})
+                    self.assertLessEqual(set(efforts.values()), {"none"}, efforts)
 
     def test_the_key_line_says_cheaper_and_better_and_r_takes_nothing(self):
         for width in WIDTHS:

@@ -3173,7 +3173,9 @@ def take_choice(cfg, name, selected, providers, role, model, effort, around):
     that restarts it (seat_effort).  With no `name`, `selected` being [defaults], the role is
     taken there, the orchestrator at `effort` as the entry's `effort`, and the entry and
     [defaults] are saved in one write (defaults_saved), no open seat changing.  What to say
-    under the rows, "" once taken; None where the restart was not picked."""
+    under the rows, "" once taken; None where the restart was not picked.  `effort` is taken
+    as the model takes it (_taken_at), the one it is set up at too."""
+    effort = _taken_at(cfg, model, effort)
     model, note = set_up(cfg, model, effort)
     if note:
         return note
@@ -3192,6 +3194,21 @@ def take_choice(cfg, name, selected, providers, role, model, effort, around):
     # seat's move does (config.orchestrating_at)
     _set_effort(cfg["models"][model], key, effort, config.ROLE_EFFORTS.values())
     return defaults_saved(cfg, selected, changed, before)
+
+
+def _taken_at(cfg, model, effort):
+    """`effort` where `model`, a take's (matrix.takes), takes it, else the nearest it takes
+    (_nearest), as its harness's saved list (config.catalog_held, then its `[catalog]` table, as
+    config.efforts reads them) lists that model's: a take asks no harness.  `effort` as it is
+    for a model whose list is not held, and None, a row's that names none, too: the model's own
+    (_set_effort)."""
+    if effort is None:
+        return None
+    entry = cfg["models"][model] if isinstance(model, str) else model
+    listed = config.catalog_held(entry["harness"], cfg) + config.catalog_table(entry["harness"])
+    levels = next((one["efforts"] for one in listed
+                   if one["id"] == entry["model"] and one["efforts"]), None)
+    return _nearest(effort, levels) if levels else effort
 
 
 def set_up(cfg, model, effort):
@@ -3457,7 +3474,8 @@ def price_take(cfg, session, selected, providers, answer, role):
         except OSError as exc:
             note = f"state: {exc}"
     else:
-        step = (model, config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]], best["effort"])
+        step = (model, config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]],
+                _taken_at(cfg, model, best["effort"]))
         judged = []     # a record gone or renamed since is never judged: change_session finds none
 
         def taken(record, now):
