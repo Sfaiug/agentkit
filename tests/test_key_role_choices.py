@@ -145,6 +145,5 @@ class RoleChoices(unittest.TestCase):
                                  [("Acme Mid 1", "close", "Acme Best 1")])
 
 
-
 if __name__ == "__main__":
     unittest.main()
