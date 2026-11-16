@@ -4,13 +4,13 @@ The owner (27 Oct 2026): "Why when I press on usage meters, do I get the option 
 I think this feature is redundant. The user should be alerted, like we do right now for claude
 code when he should login again, but not have the option to press on it and just freely login."
 A login far from its end offers no `log in again`: a click on its meter lists `→ spend a reset`
-alone while it holds one, and with none opens no list, the pointer on it still saying its line
-under the grid; its row on `c` → Subscriptions offers `− remove` alone.  A login inside its
-warning window says when it ends on that line, and its meter's list and its row both offer
-`→ log in again` first.  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py)
-over usage and logins in a temporary HOME (TZ=UTC), harnesses faked
-(tests/fixtures/fakeadapter.py), NO_COLOR, so the lit act is bracketed.  This test fails against
-`/bin/false`.
+alone while it holds one (with none it opens its row,
+tests/test_key_a_meter_opens_its_subscription.py), and its row on `c` → Subscriptions offers
+`− remove` alone.  A login inside its warning window says when it ends on that line, and its
+meter's list and its row both offer `→ log in again` first.  Black-box: `AK_BIN`'s menu in a
+terminal (tests/fixtures/akterm.py) over usage and logins in a temporary HOME (TZ=UTC),
+harnesses faked (tests/fixtures/fakeadapter.py), NO_COLOR, so the lit act is bracketed.  This
+test fails against `/bin/false`.
 """
 
 import re
@@ -93,10 +93,6 @@ class LogInAgainOnlyWhenNeeded(unittest.TestCase):
 
     def test_a_login_far_from_its_end_offers_no_log_in_again(self):
         self.open(60 * DAY)
-        self.click("Claude")
-        # no list: the ak screen stays, its line under the grid the pointer's meter's
-        self.term.wait(lambda screen: MAIN_KEYS in lines(screen)
-                       and under_grid(screen).startswith("  Claude  "))
         self.click("ChatGPT")
         listed = self.term.wait(lambda screen: UNLIT in lines(screen) and acts(screen))
         self.assertEqual(acts(listed), ["  → spend a reset"])     # lit only by a move

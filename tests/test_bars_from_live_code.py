@@ -1,7 +1,8 @@
 """Every seat's bar is drawn by the live install as it is now, and an open menu starts again on
-new code: ak from another checkout than ~/agentkit, or a process older than the install, writes
-no bar, where a worktree's menu wrote its own design over the live one's and every bar flipped
-between the two (the owner's report of 19 Oct 2026).  Offline: a temporary HOME, tmux faked.
+new code, its highlight on the seat or meter it was on: ak from another checkout than
+~/agentkit, or a process older than the install, writes no bar, where a worktree's menu wrote
+its own design over the live one's and every bar flipped between the two (the owner's report of
+19 Oct 2026).  Offline: a temporary HOME, tmux faked.
 """
 
 import io
@@ -106,6 +107,32 @@ class BarsFromLiveCode(Sandbox):
         self.assertEqual(restarts(), 0)
         (config.STATE / "installed-at").write_text(str(int(config.STARTED) + 5))
         self.assertEqual(restarts(), 1)
+
+    def test_new_code_comes_up_on_the_meter_the_old_left(self):
+        (config.STATE / "installed-at").write_text(str(int(config.STARTED) + 5))
+        handed = {}
+        def restart(_program, _argv, env):
+            handed.update(env)
+            raise SystemExit
+        def opened(env, *keys):          # the highlight of the last draw before the keys ran out
+            with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
+                                               "return_value.cfg": self.cfg}), \
+                    patch.object(menu, "moving", side_effect=[*keys, terminal.Key("esc")]), \
+                    patch.object(terminal, "Keyboard", Keyboard), \
+                    patch.object(terminal, "sense", lambda: None), \
+                    patch.dict(menu.os.environ, env), \
+                    patch.object(menu.os, "execve", side_effect=restart), \
+                    patch.object(menu, "draw", wraps=menu.draw) as draw, \
+                    redirect_stdout(io.StringIO()):
+                try:
+                    menu.loop(self.cfg, dry_run=True)
+                except SystemExit:
+                    pass
+            return draw.call_args.args[5]["cursor"]
+        left = opened({}, terminal.Key("up"), None)     # ↑ off the first row onto the last meter
+        self.assertEqual(left[0], "usage")
+        back = {name: handed[name] for name in ("AK_MENU_CURSOR", "AK_MENU_METER")}
+        self.assertEqual(opened(back), left)
 
 
 if __name__ == "__main__":

@@ -63,7 +63,7 @@ class UsageStaysOnTop(Sandbox):
         number = [terminal.plain(shown) for _, shown, _, _ in menu.usage_rows(self.cfg)
                   ].index(label) + 1
         row, column = next((row, first) for row, (_, places, *_) in drawn["spots"].items()
-                           for first, _, cell in places if cell == ("usage", number))
+                           for first, _, cell, *_ in places if cell == ("usage", number))
         with patch.object(terminal, "_POINTER", terminal.Key("point", "", column, row)), \
                 patch.object(menu, "usage_rows", side_effect=rows or menu.usage_rows):
             return self.draw(width, height, seats=1)[0]

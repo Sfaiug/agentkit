@@ -56,15 +56,15 @@ class OneKeyLine(unittest.TestCase):
         stops["Subscriptions' page"] = screen.press(
             ENTER, lambda lines: "subscriptions" in lines[0])
         self.assertIn("› Models", stops)
-        # Space where a model's mark is, Enter where a row opens; neither on a meter offering
-        # nothing, no login of it ending nor reset in hand
+        # Space where a model's mark is, Enter where a row or a meter opens
         opens = [where for where in stops if where.split()[-1] in ("Models", "Subscriptions")]
         self.assertEqual({where: lines[-1] for where, lines in stops.items()},
                          {**dict.fromkeys(stops, NEW_KEYS),
                           **dict.fromkeys(opens, NEW_KEYS.replace("␣ mark", "⏎ open")),
-                          "a meter": NEW_KEYS.replace("␣ mark   ", ""),
+                          "a meter": NEW_KEYS.replace("␣ mark", "⏎ open"),
                           "an effort": NEW_KEYS.replace("mark", "step"),
-                          # Enter's word there is its lit act's: none, as above
+                          # Enter's word there is its lit act's: none, no login of it ending
+                          # nor reset in hand
                           "Subscriptions' page": "  ↑↓←→ move   esc back"})
         screen.press(ESC, lambda lines: lines[0].rstrip().endswith("config")
                      or "config " in lines[0])

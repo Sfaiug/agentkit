@@ -1191,11 +1191,12 @@ def read_key(timeout=None, wake=None):
 
 
 def _point(key):
-    """The pointer at `key`, a move or a click: on no row of a screen that has rows, it puts out
-    the highlight (`away`)."""
+    """The pointer at `key`, a move or a click: on no row of a screen that has rows, lines or
+    cells that are rows of their own (`under`), it puts out the highlight (`away`)."""
     global _POINTER, _AWAY
     _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
-        what is not None for what, *_ in _SPOTS.values())
+        what is not None or any(own for _, _, _, *own in places)
+        for what, places, *_ in _SPOTS.values())
 
 
 def _key(fd):

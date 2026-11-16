@@ -1,7 +1,8 @@
 """A key on `c` that saves, read after another process changed config.toml since `c` read it,
 writes nothing: `c` saves the config it holds whole, so it would take out what the other wrote,
 a model `watch.follow_model` just added.  The screen goes on with the file's config and says
-the key was not taken; the same key again, the file unchanged since, is taken.
+the key was not taken; the same key again, the file unchanged since, is taken.  Subscriptions,
+opened from a meter as the ak screen opens it, holds the file it read as it opened as `c` does.
 
 Offline: a throwaway HOME, `c` opened over no seat with its keys fed in, the other save made
 in the read of the first Space, after `c` drew.
@@ -36,13 +37,13 @@ class SaveRefusedOverAChangedConfig(Sandbox):
                                     (usage, "collect", lambda *_a, **_kw: usage.Readings({}))):
             self.stack.enter_context(patch.object(target, name, side_effect=value))
 
-    def keyed(self, *reads):
-        """`c` opened over no seat, each of `reads` answering a read of a key in turn, then Esc;
-        what it drew, as it draws, in `drawn`."""
+    def keyed(self, *reads, opens=lambda: menu.show_config(False, Keyboard(), None)):
+        """`c` opened over no seat, or what `opens` opens, each of `reads` answering a read of a
+        key in turn, then Esc; what it drew, as it draws, in `drawn`."""
         self.drawn, reads = io.StringIO(), iter((*reads, lambda: Key("esc")))
         with patch.object(terminal, "read_key", side_effect=lambda *_a, **_kw: next(reads)()), \
                 redirect_stdout(self.drawn):
-            menu.show_config(False, Keyboard(), None)
+            opens()
         return terminal.plain(self.drawn.getvalue())
 
     def test_a_space_over_a_config_changed_since_writes_nothing(self):
@@ -82,6 +83,22 @@ class SaveRefusedOverAChangedConfig(Sandbox):
             return Key("space")
         self.assertIn(menu.CHANGED, self.keyed(edited, again))
         self.assertEqual(path.read_text(), broken)
+
+    def test_a_remove_on_subscriptions_opened_from_a_meter_writes_nothing_over_a_change(self):
+        added, said = [], []
+
+        def remove():               # another process's save, then Enter on `− remove`
+            added.append(config.add_model(config.load(), dict(ADDED), "Acme 1"))
+            return Key("enter")
+        # the ak screen's first meter, which offers nothing: its row on Subscriptions
+        label = menu.usage_rows(self.cfg)[0][1]
+        with patch.object(terminal, "confirm", return_value=True):
+            self.keyed(lambda: Key("right"), remove, opens=lambda: said.append(
+                menu.meter_acts(self.cfg, Keyboard(), 1, label)))
+        self.assertEqual(said, [menu.CHANGED])
+        cfg = config.load()
+        self.assertEqual(cfg["models"][added[0]]["model"], ADDED["model"])
+        self.assertEqual(cfg["providers"].keys(), self.cfg["providers"].keys())
 
 if __name__ == "__main__":
     unittest.main()
