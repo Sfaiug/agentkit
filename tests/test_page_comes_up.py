@@ -9,7 +9,7 @@ The owner's pick of 18 Oct 2026 (motion 5, a page that slides in).  Offline: a t
 no terminal, the motion clock's time injected and each frame it writes read back.
 """
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, suppress
 import io
 import os
 from pathlib import Path
@@ -38,6 +38,10 @@ class Time:
 
     def __getattr__(self, name):
         return getattr(time, name)
+
+
+class Left(Exception):
+    """The page left with no key, its opening as it got: a key ends it (motion.Clock.settle)."""
 
 
 def rows(frame):
@@ -105,9 +109,8 @@ class PageComesUp(Sandbox):
     def test_past_comes_up_under_its_header_as_it_opens(self):
         seat = {"name": "fix-api", "repo": None, "path": "/", "created": 9000, "closed": 9500}
         output = io.StringIO()
-        with patch.object(terminal, "taken", return_value=True), \
-                patch.object(terminal, "read_key", return_value=terminal.Key("esc")), \
-                redirect_stdout(output):
+        with patch.object(terminal, "taken", return_value=True), suppress(Left), \
+                patch.object(terminal, "read_key", side_effect=Left), redirect_stdout(output):
             menu.show_past({"fixture": True}, [seat], keyboard=None)
         clock, = self.made
         self.assertNotIn("\033[Hagentkit", output.getvalue())     # never first drawn as it is
@@ -125,18 +128,21 @@ class PageComesUp(Sandbox):
 
     def read(self, opens, keys, step=motion.FADE / 6):
         """What `opens()` writes read with `keys`, each `step` seconds after the one before,
-        then Esc; and the clock it made.  A key may be a call, read at once, giving the key."""
-        keys = iter([*keys, Key("esc")])
+        then left (`Left`); and the clock it made.  A key may be a call, read at once, giving
+        the key."""
+        keys = iter(keys)
 
         def read_key(*_args, **_kwargs):
-            key = next(keys)
+            key = next(keys, Left)
+            if key is Left:
+                raise Left
             if callable(key):
                 return key()
             self.time.now += step
             return key
         self.made.clear()
         self.time.now, output = OPENED, io.StringIO()
-        with patch.object(terminal, "taken", return_value=True), \
+        with patch.object(terminal, "taken", return_value=True), suppress(Left), \
                 patch.object(terminal, "read_key", side_effect=read_key), redirect_stdout(output):
             opens()
         clock, = self.made

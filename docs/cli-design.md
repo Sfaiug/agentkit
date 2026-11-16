@@ -104,7 +104,7 @@ Colour says where a thing stands and never who.
 Something moves only while worked on, once when it changes, or under the pointer: work breathes,
 news pulses, settles or nudges, a theme comes down. Each kind takes one time (`motion.py`):
 
-- **Coming up:** a row's line, a page, a popup.
+- **Coming up:** a row's line, a page, screens opening.
 - **Filling:** a mark, an effort's cell, a task's square.
 - **A light passing:** a done line, an effort's top word.
 - **A light going round,** a breath: a line with no plan, a waiting rule.

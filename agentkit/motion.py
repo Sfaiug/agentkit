@@ -403,11 +403,12 @@ class Clock:
         self.touched[key] = moment()
 
     def settle(self):
-        """A key: whatever moves ends on its last frame, the next draw showing it still, and
-        only what the key itself changes is news."""
+        """A key: whatever moves ends on its last frame, a screen coming up too, the next draw
+        showing it still, and only what the key itself changes is news."""
         self.seen = self.seen and {key: (value, None, None)
                                    for key, (value, _, _) in self.seen.items()}
         self.touched, self.turning = {}, None
+        self.opened = None if self.opened is None else -math.inf
 
     def drawn(self, moves, row):
         """A draw's frame: every cell it wrote over still, then each of its `moves` -- (line,
@@ -444,8 +445,8 @@ class Clock:
     def rise(self, lines):
         """Whether `lines`, a draw's screen top down, are the frames' to write, and what moves in
         them, where colour can move.  They come up out of the background on a clock made to
-        `fade`, or a `page`'s: whatever is drawn in the FADE seconds from its first frame -- a
-        key's draw at once, and news -- each from where the fade has got to.  Drawn in another
+        `fade`, or a `page`'s: whatever is drawn in the FADE seconds from its first frame till a
+        key (`settle`), news too, each from where the fade has got to.  Drawn in another
         theme than the draw before, one chosen on the screen, the new theme comes down it from
         its top row to its last in THEMED seconds, the first frame the top row's: the rows under
         the line it has come to are the screen as it was up, in the theme it was, so every row

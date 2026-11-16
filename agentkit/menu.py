@@ -1830,7 +1830,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
 
     `clock`, the menu's `motion.Clock`, is handed each working seat's `●` to breathe while the
     menu has the keyboard, and the news since the draw before: a `!` that turned `needs you`
-    pulses, a `✓` that turned `done` settles and a usage bar that moved glides.  Their
+    pulses, a `✓` that turned `done` settles and a usage bar that moved glides, and a seat `n`
+    makes (`born`) comes up with its line as a page's rows do, its news touched there.  Their
     first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
     the screen is drawn over.  While a popup's content fades in, the whole screen is handed to
     it, to come up out of the background (`motion.Clock.rise`).
@@ -2083,6 +2084,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         # seat turns done, is news of that seat and stays still
         moves += [(("opened",), ("seat", cursor), None, False),
                   (("page",), page, None, False)]
+        if newborn:       # the row `n` makes: its news touched as it is made
+            moves.append((("born",), True, None, False))
         news = clock.look({key: shown for key, shown, _, _ in moves})
 
         def line(name, moving, counted=None):
@@ -2121,8 +2124,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                     filled = written[column - 1 + shown[0]]
                     clock.start([(row, column + shown[0])], *motion.halving(
                         filled, terminal.styled(terminal.plain(filled), "dim"), since, lit))
-            elif key[0] in ("opened", "page"):    # what comes up out of the background
-                for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
+            elif key[0] in ("opened", "page", "born"):    # what comes up out of the background
+                coming = {"opened": opened, "page": range(top + 1, top + len(body) + 1),
+                          "born": range(top + min(own_rows, default=opened.start), opened.stop)}
+                for row in coming[key[0]]:
                     motion.fading(out[row - 1])(clock, row, since, None)
             elif shown in ("needs you", "done"):
                 # its row glows in its word's colour and fades, and a line just done is crossed
@@ -3827,7 +3832,7 @@ def models_screen(cfg, session, selected, providers):
     (models_why) of the row the role uses, else of its first choice, at once, drawn again with
     its plans' weeks (plans_checked) once they land off the drawing thread.  `p` lists companies
     (company_list), and `u` counts every cost in the next unit (next_unit), the screen opening
-    in the last one (models_unit)."""
+    in the last one (models_unit).  The why comes up as a page does."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -3907,6 +3912,7 @@ def models_screen(cfg, session, selected, providers):
                 if note == "":    # taken: `selected` may also hold another window's write since
                     note = keep_price(cfg, session, selected, answer, here[1], used[here[1]][2])
         elif act == "p":
+            clock.forget()            # another screen: the models back from it are as they are
             note, answer = company_list(cfg, title), None
         elif act == "u":
             unit = next_unit(unit)
@@ -3917,13 +3923,15 @@ def models_screen(cfg, session, selected, providers):
             # its plans' weeks take seconds to read: the page is drawn without them till they land
             weeks = []
             checking = row and Fetch(lambda name=row["provider"]: plans_checked(cfg, name))
+            clock.forget()            # another screen: the models back from it are as they are
+            opened = motion.Clock(page=True)      # the why comes up as a page of `c`'s does
             while row and key != "back":
                 if checking and not checking.is_alive():
                     weeks, checking = checking.answer(), None
                 lines = models_why(answer[role], role, row, unit, weeks)
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
-                                             [why], why, page, "", "esc back",
+                                             [why], why, page, "", "esc back", clock=opened,
                                              began=checking and checking.began,
                                              going=checking and checking.is_alive)
 
@@ -3954,12 +3962,12 @@ def models_listed(cfg, yours, off):
     return _saved(cfg, cfg, before)
 
 
-def companies_body(makers, yours, off, at=None, column=0):
+def companies_body(makers, yours, off, at=None, column=0, moves=None):
     """The company list's lines and {line: (row, cells)}: each of `yours` with a listed model a
     line, its name, then each of those models (`makers`), `■` on in the accent, or `□` and dim
     where `off` holds it; where the width runs out they go on under the column where they
     began.  The keys' cell, `column` of the row `at` (its name 0), is lit (terminal.toggle).
-    Last, `+ add a company`."""
+    Last, `+ add a company`; each mark and its move (motion.toggled) goes on `moves`."""
     room, (on, out) = terminal.layout_width(), "■□" if terminal.utf8() else "#-"
     shown = [maker for maker in yours if maker in makers]
     label = max((terminal.cells(maker) for maker in shown), default=0)
@@ -3978,6 +3986,9 @@ def companies_body(makers, yours, off, at=None, column=0):
                 first = start
             parts[-1][0] += terminal.toggle(text, width, kind, row == at and number == column)
             parts[-1][0] += " " * (0 if number else label - terminal.cells(text))
+            if number and moves is not None:      # its mark leads its text
+                moves.append((len(lines) + len(parts) - 1, ("mark", maker, number), text[0],
+                              motion.toggled(text[0], 3, kind, row == at, first)))
             parts[-1][1].append((first, first + width - 1, number))
         for number, (line, cells) in enumerate(parts):
             places[len(lines)] = (row, cells)
@@ -3998,8 +4009,9 @@ def company_list(cfg, title):
     models on, or off where all are on, each change saved at once (models_listed).  `a`, or
     Space or ⏎ on `+ add a company`, adds one all on (company_add).  Esc drops each company
     left with none on from `companies`, and all its releases from `models_off`.  What to say,
-    or ""."""
+    or "".  It comes up as a page does, its marks moving as `c`'s do (motion.Clock)."""
     title, here, column, top, note = f"{title} · models", None, 0, 0, ""
+    clock = motion.Clock(page=True)
     while True:
         (makers, yours), room = companies_listed(cfg), terminal.layout_width()
         off, now = set(cfg.get("models_off") or ()), matrix.compared(cfg)
@@ -4012,12 +4024,14 @@ def company_list(cfg, title):
                 f"{'company' if giving == 1 else 'companies'}",
                 f"{more} more {'company has' if more == 1 else 'companies have'} "
                 "benchmark scores"]
+        moves = []
         body, places = companies_body(makers, yours, off, None if terminal.away() else here,
-                                      column)
+                                      column, moves)
         act, here, clicked, top = matrix_key(
             title, body, places, rows, here, top, note, terminal.keys(
                 "a add a company", "esc back", space="mark", enter=None),
             marks=1 + max(map(len, makers.values()), default=0), keyed=column,
+            clock=clock, moves=moves,
             over=[*("  " + part for part in terminal.wrap(
                 "ak uses only the models that are on. Space marks one on or off, or, on a "
                 "company's name, all of them. A company with none on leaves the list.",
@@ -4037,6 +4051,7 @@ def company_list(cfg, title):
                                  off - {row["release"] for row in lineup if row["maker"] in gone}
                                  ) if gone else ""
         if act == "a" or act in ("space", "enter") and here == ADD_COMPANY:
+            clock.forget()            # another screen: the list back from it is drawn as it is
             added = company_add(title, makers, yours)
             if added:
                 note = models_listed(cfg, [*yours, added], off - makers[added].keys())
@@ -4053,8 +4068,9 @@ def company_list(cfg, title):
 def company_add(title, makers, yours):
     """`a` on the company list, `<title> · add a company`: each company of `makers` not among
     `yours`, strongest first, with how many listed models it has and its strongest, until ⏎ or
-    a click picks one, or Esc goes back: that company, or None."""
+    a click picks one, or Esc goes back: that company, or None.  It comes up as a page does."""
     rows, here, top = [("row", maker) for maker in makers if maker not in yours], None, 0
+    clock = motion.Clock(page=True)
     counts = {maker: f"{len(makers[maker])} model{'s' * (len(makers[maker]) != 1)}"
               for _, maker in rows}
     while True:
@@ -4067,7 +4083,7 @@ def company_add(title, makers, yours):
                 for row, line in zip(rows, body)]
         act, here, _, top = matrix_key(f"{title} · add a company", body, {
             line: (row, []) for line, row in enumerate(rows)}, rows, here, top, "",
-            terminal.keys("esc back", enter="add", move=("company",)), marks=0)
+            terminal.keys("esc back", enter="add", move=("company",)), marks=0, clock=clock)
         if act == "back" or act == "enter" and here:
             return None if act == "back" else here[1]
 
@@ -4823,9 +4839,10 @@ def config_add(cfg, keyboard, through):
     out from the models raises Back.  Nothing is typed, so no model or effort the catalog does
     not offer is ever written.  The new model is offered as orchestrator and as worker at
     once, and holds no seat's role until it is marked there.  The name it was added under, or
-    None.
+    None.  It comes up as a page does.
     """
     picked, ats, top, note = [], [0], 0, ""   # (value, texts) of each step chosen; its highlight
+    clock = motion.Clock(page=True)
     finding = None                    # typed after `/`: the open list shows only what holds it
     title = f"config · add a subscription · {config.provider_hosts().get(through, through)}"
     screen = (title, lambda: add_body(picked, [], 0)[0])
@@ -4882,14 +4899,15 @@ def config_add(cfg, keyboard, through):
         shown = body[top:top + room]
         spots = terminal.frame(title, shown + said, keys, places={
             line - top: (number, []) for line, number in places.items()
-            if top <= line < top + room})
-        key = terminal.read_key()
+            if top <= line < top + room}, drawn=lambda: clock.drawn((), None))
+        key = terminal.read_key() if clock.wait() is None else moving(clock)
         if key is None:
-            continue                  # a resize: drawn again at the new size
+            continue                  # a resize, or a while with no key: drawn again
         spot = terminal.under(key, spots)
         if key.name == "point":
             ats[-1] = at if spot.what is None else spot.what     # the highlight on its choice
             continue
+        clock.settle()                # a key ends its coming up on its last frame
         act, note = key.name, ""
         if act == "click":
             if spot.what is not None:
@@ -4917,6 +4935,7 @@ def config_add(cfg, keyboard, through):
             ats[-1] = at
             if not picked and choices[at][0][1] is None:     # a provider to log in to
                 row = next(row for row in listed if row[0] == choices[at][0][0][1])
+                clock.forget()        # the login's screen: the list back from it is as it is
                 note = _adapter_verbs(keyboard, through, ("login",), row[1], provider=row[0])
                 if not note:
                     config.forget_catalog(through)       # its models are listed now
@@ -7049,6 +7068,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 continue
             look = True
             if newborn is not None and isinstance(key, terminal.Key):
+                if key.name != "point":   # a key ends its row's coming up on its last frame
+                    clock.settle()
                 act, look = born_key(newborn, key, shown), False
                 if act == "models":
                     back = True           # the models screen, drawn where the menu was
@@ -7167,6 +7188,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
             if key == "n" and drawn is not None and cfg:
                 try:
                     newborn = born(found)     # typed where it will be
+                    clock.touch(("born",))    # news: its row comes up
                 except Back:
                     pass
                 except config.Error as exc:
