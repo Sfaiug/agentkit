@@ -197,9 +197,12 @@ def member(state):
 
 
 def line(turn):
-    """Green deliveries in tested stack order, then the rest in join order, a held install's
-    fix (`update.first_place`) ahead of those; their records every reader's (`record.runs`),
-    so only read."""
+    """Green deliveries in tested stack order, then the rest in join order, the fixes of what
+    holds them all first: a held install's (`update.first_place`) and the target's repair
+    (`handback.start_followups`), on whose stack every one behind is checked excused none of
+    the target's red (`holding`).  Joined 18th of 20, a repair was in neither of two passes
+    that found the target red in more tests and moved nobody, checking 9 then 5 from the front
+    (16 Nov 2026).  Their records every reader's (`record.runs`), so only read."""
     members = [(directory, state) for directory, state in record.runs()
                if member(state) and state["waiting_on"]["line"] == turn.name]
     deliveries = {directory.name: state["waiting_on"]["land"] for directory, state in members
@@ -210,7 +213,8 @@ def line(turn):
         not green_delivery(member[1]["waiting_on"]),
         sum(deliveries.get(name) == tree
             for name, tree in member[1]["waiting_on"].get("after", {}).items())
-        if green_delivery(member[1]["waiting_on"]) else not update.first_place(member[1]),
+        if green_delivery(member[1]["waiting_on"])
+        else not (member[1].get("repair") or update.first_place(member[1])),
         member[1]["waiting_on"]["joined"], member[0].name))
 
 

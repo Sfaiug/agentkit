@@ -14,7 +14,7 @@ import (
 
 // LineMembers is Python's land.line, which its lander and every reader of a place share: those of
 // the runs, as their reader read them, holding a place in the line by that name, green deliveries
-// in tested stack order, then join order.
+// in tested stack order, then join order, the target's repairs first.
 func LineMembers(name string, runs []Held) []Held {
 	var members []Held
 	for _, each := range runs {
@@ -50,6 +50,11 @@ func LineMembers(name string, runs []Held) []Held {
 			if order := cmp.Compare(depth(aw), depth(bw)); order != 0 {
 				return order
 			}
+		} else if a.Record.Has("repair") != b.Record.Has("repair") {
+			if a.Record.Has("repair") {
+				return -1
+			}
+			return 1
 		}
 		aj, _ := aw.Num("joined")
 		bj, _ := bw.Num("joined")
