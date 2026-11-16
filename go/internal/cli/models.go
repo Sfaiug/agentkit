@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"agentkit/internal/config"
 	"agentkit/internal/matrix"
 	"agentkit/internal/menu"
 	"agentkit/internal/quality"
@@ -72,7 +73,8 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	if len(c.Names) > 0 {
 		var own [][]string
 		for _, name := range c.Names {
-			own = append(own, []string{name, "-", "-", "-"}) // ownNumbers counts no run of it
+			// ownNumbers counts no run of it: its row is its name alone, as every screen says it
+			own = append(own, []string{config.ModelName(name, c.Models), "-", "-", "-"})
 		}
 		lines = append(append(lines, ""), menu.LiveLines(screen, own)...)
 	}
