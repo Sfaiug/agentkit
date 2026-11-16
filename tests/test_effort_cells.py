@@ -142,8 +142,9 @@ class EffortCells(unittest.TestCase):
                          {first + 4, word})
         words = [cell for cell in cells if cell[1] == word]
         self.assertEqual({text for _, _, text, _ in words}, {"max"})
-        self.assertEqual([n for *_, written in words for n in shone(written)], [0, 1, 2],
-                         "each letter lit once, left to right")
+        lit = [shone(written) for *_, written in words if shone(written)]
+        self.assertEqual(sorted(set().union(*lit)), [0, 1, 2], "each letter lit")
+        self.assertEqual([on[0] for on in lit], sorted(on[0] for on in lit), "left to right")
         self.assertEqual(shone(words[-1][3]), [])
         # and once: drawn again, moving off it and back, it is still
         for keys in (DOWN, UP):
@@ -185,8 +186,12 @@ class EffortCells(unittest.TestCase):
             self.assertEqual(empty(10.15), terminal.styled("─", "border"))
             shimmer, until = motion.shimmering("max", 10.0)
             self.assertEqual(until, 10.6)
-            for t, lit in ((0.1, [0]), (0.3, [1]), (0.5, [2]), (0.65, [])):
+            # in at its first letter and out after its last, as many lit as it is on
+            for t, lit in ((0, [0]), (0.1, [0, 1]), (0.3, [0, 1, 2]), (0.5, [2]), (0.65, [])):
                 self.assertEqual(shone(shimmer(10.0 + t)), lit)
+            # a combining mark on its letter's cell, lit with it
+            mark = motion.shimmering("ma\u0301x", 10.0)[0]
+            self.assertEqual([shone(mark(10.0 + t)) for t in (0.4, 0.5)], [[1, 2, 3], [3]])
 
     def test_the_cells_count_the_catalog_last_listed_whoever_asked(self):
         # a harness of the test's own, whose listing says its one model runs at no effort

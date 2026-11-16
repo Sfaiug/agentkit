@@ -2030,7 +2030,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             if shown == "working":
                 clock.start([cell], motion.breathing(terminal.state_glyph(shown), shown, lit))
                 if key[1] in bars and not seats[key[1]].get("bar"):     # no plan yet
-                    line(key[1], lambda cells: motion.circling(cells, lit))
+                    line(key[1], motion.circling)
             elif since is None:
                 continue
             elif key[0] == "bar" and before:    # the plan moved: its line glides there
@@ -2062,7 +2062,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                     terminal.state_glyph(shown), shown, since, lit))
                 if shown == "done" and key[1] in bars:
                     clock.grows.pop(key[1], None)
-                    line(key[1], lambda cells: motion.sweeping(cells, since, shown, lit))
+                    line(key[1], lambda cells: motion.sweeping(cells, since))
         for cell, char, bright in breaths:
             breathe, growing = motion.breathing(char, "working", bright), clock.cells.get(cell)
             if growing:       # a tip still growing in breathes once it is there
