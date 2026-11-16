@@ -55,7 +55,7 @@ class ANoteSaysItsFirstReason(unittest.TestCase):
         fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
         fakes["claude"].answer("auth", NO_LOGIN, 1)
         akconfig.write(self.home, {"fable": {"harness": "claude", "effort": "xhigh"},
-                                   "opus": "claude", "astra": "codex"},
+                                   "astra": "codex"},
                        workers=["fable"], reviewers=["fable"],
                        providers={"anthropic": {"accounts": ["default", "acme-ii"]}})
         for name in SIX:
@@ -80,6 +80,8 @@ class ANoteSaysItsFirstReason(unittest.TestCase):
         self.assertTrue(note[0].endswith("…"), after)
         self.assertTrue(f"  {REASON}".startswith(note[0][:-1]), after)
         self.assertEqual(matrix(after), matrix(before))
+        # every row stays on screen, down to the last
+        self.assertTrue(matrix(after)[-1].split("\n")[-1].startswith("  Theme "), after)
 
 
 if __name__ == "__main__":
