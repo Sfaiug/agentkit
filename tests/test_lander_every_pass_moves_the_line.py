@@ -3,14 +3,18 @@ verdicts stacked on it: the pass goes on with the stacks rebuilt without it and 
 and writes the verdicts of those ahead, while a changed first member or green delivery ahead
 still ends the pass with nothing written.  A pass that checked and moved nobody, or died, is
 followed by one of half the members, down to one alone, and a pass that writes a verdict takes
-the whole line again, even one that died after it.
+the whole line again, even one that died after it.  One that held its whole suite off for
+company counts for nothing, nor among the passes whose time is the line's pace.
 Black-box: test_key_every_pass_moves_the_line.
 
 Offline: local Git and real suites, with isolated state and fake wakes, as in test_lander.
 """
 
+import json
+import os
 from pathlib import Path
 import sys
+import time
 import unittest
 from unittest.mock import patch
 
@@ -161,6 +165,20 @@ class EveryPassMovesTheLine(fixture.LanderFixture, unittest.TestCase):
             self.checked(members[0])
         self.assertEqual(self.taken_by_each_pass(), [4, 4])
         self.assertNotIn("fruitless", land.passes(self.turn))
+
+    def test_a_pass_that_held_its_whole_suite_off_for_company_counts_for_nothing(self):
+        members = [self.member(f"member-{n}", joined=time.time(), **{f"member-{n}.txt": f"{n}\n"})
+                   for n in range(1, 3)]
+        self.advance()
+        busy = {"AK_MAX_RUNS": "1",     # the test suites' 0 lifts every host gate
+                "AK_HOST_READINGS": json.dumps({"cpus": 4, "load": 4, "free_mb": 16000})}
+        with patch.dict(os.environ, busy), \
+                patch.object(land, "CHECKED", 0):   # each as long as a check, as on a busy host
+            self.checked()
+            self.checked()
+        self.assertEqual((self.taken_by_each_pass(), self.checks), ([2, 2], []))
+        self.unanswered(*members)
+        self.assertEqual(land.passes(self.turn), {"took": []})
 
     def test_a_pass_that_waited_on_a_delivery_ahead_counts_for_nothing(self):
         head = self.member("head", joined=0, **{"head.txt": "h\n"})
