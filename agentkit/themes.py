@@ -3,9 +3,10 @@
 A screen asks for a role, and the theme in force (`terminal.theme`) says its colour: the one
 config.toml names (`named`), else the one the terminal's background fits.
 tests/test_boundaries.py counts an RGB written anywhere but here, so the next theme is a column
-of this table.  Run bare, `themes.py <config.toml> <role>`, it says the role's colour as tmux
-draws it (`terminal.colour`'s `tmux`): `Ctrl-b m`'s job asks it as the key is pressed
-(orch.FLOAT), and a start of Python that imports no more than this holds the popup up least.
+of this table.  Run bare, `themes.py <config.toml> <role>...`, it says each role's colour as tmux
+draws it (`terminal.colour`'s `tmux`), on one line: `Ctrl-b m`'s job asks them as the key is
+pressed (orch.FLOAT), and one start of Python that imports no more than this holds the popup up
+least.
 """
 
 import sys
@@ -44,4 +45,4 @@ def named(path):
 
 if __name__ == "__main__":
     chosen = named(sys.argv[1])
-    print(ROLES[sys.argv[2]][BLACK if chosen is None else chosen])
+    print(*(ROLES[role][BLACK if chosen is None else chosen] for role in sys.argv[2:]))

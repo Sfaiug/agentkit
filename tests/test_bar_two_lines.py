@@ -1,9 +1,11 @@
 """A seat's status bar is its row on the `ak` screen, with the line under it always open.
 
 Line one: its word as a chip, on its colour in the text that reads on it, bold for `! needs you`
--- the seat's name in bold, the model that orchestrates it, dim, and its progress
+-- the seat's name in bold, the model that orchestrates it, muted, and its progress
 line.  Line two: what needs you that no chat shows (an expired login, a parked run); otherwise
-who builds and who reviews and each task in flight as its squares, the key at its right end.
+who builds and who reviews and each task in flight as its squares, the key at its right end, dim,
+its word muted.  Both stand on the theme's surface, and what tmux draws of its own in the seat
+is in the theme too, each in the one in force as the bar is written.
 A question is the chat's last message or card, so line two never repeats it.
 The height is two on every write, so a seat dressed with one line gets its second at its next
 redraw and no pane resizes after; the bar is statusbar.py's alone, and no `@ak_runs` tally is
@@ -69,10 +71,12 @@ class TwoLines(Sandbox):
                                       "reviewer": "astra", "rounds": 2, "round_summaries": [],
                                       "finished_at": None, "started_at": NOW - 600})
 
-    def test_a_dressing_a_seat_gives_it_two_lines_in_the_terminal_s_own_colours(self):
+    def test_a_dressing_a_seat_gives_it_two_lines_in_its_theme(self):
         statusbar.dress("fix-api", "fable")
         self.assertEqual(self.options["status"], "2")
-        self.assertEqual(self.options["status-style"], "default")     # never tmux's green
+        self.assertEqual(self.options["status-style"], "fg=#e2e8ef,bg=#111519")   # never green
+        self.assertEqual(self.options["mode-style"], "fg=#e2e8ef,bg=#08305d")
+        self.assertEqual(self.options["message-style"], "fg=#e2e8ef,bg=#111519")
         self.assertEqual(self.options["set-titles"], "on")
         self.assertEqual(self.options["status-format[0]"], statusbar.FORMATS[0])
         self.assertEqual(self.options["status-format[1]"], statusbar.FORMATS[1])
@@ -81,7 +85,8 @@ class TwoLines(Sandbox):
         self.assertIn("#[bold]fix-api#[nobold]", top)
         self.assertIn(f"#[fg=#{MUTED}]Fable 5.1 xhigh#[default]", top)  # model and effort muted
         self.assertEqual(drawn(self.options[statusbar.WHY]), "")
-        self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
+        self.assertEqual(self.options[statusbar.KEY],
+                         f"#[fg=#868d97]Ctrl-b m#[fg=#{MUTED}]  menu #[default]")
         self.assertEqual(self.options["set-titles-string"], "fix-api")
         # ak's own server and this seat's own options, never the server's or another's
         for args, socket in self.calls:
@@ -89,6 +94,14 @@ class TwoLines(Sandbox):
             # beside the read of the other seats it counts, and the click on their names
             if args != statusbar.CLICK and args[0] != "list-sessions":
                 self.assertEqual(args[:3], ("set-option", "-t", "=fix-api:"))
+
+    def test_a1_a_theme_chosen_since_is_the_next_write_s(self):
+        statusbar.dress("fix-api", "fable")
+        (config.HOME / config.CONFIG_NAME).write_text('theme = "white"\n')   # chosen on `c`
+        statusbar.dress("fix-api", "fable")
+        self.assertEqual(self.options["status-style"], "fg=#181c22,bg=#f4f6fa")
+        self.assertEqual(self.options["mode-style"], "fg=#181c22,bg=#dcecff")
+        self.assertIn("#[fg=#535962]Fable 5.1 xhigh#[default]", self.options[statusbar.TOP])
 
     def test_b_a_working_seat_draws_its_word_its_line_and_who_builds_its_tasks(self):
         self.plan(2, 5)
