@@ -3769,18 +3769,22 @@ def models_screen(cfg, session, selected, providers):
                                                              cfg["models"][name], effort))
                           for role, (name, effort) in kept.items()}}
         said = models_said(cfg, answer, used, unit)
-
-        def laid(at):     # (over, role lines, places) at this draw's width, `at` highlighted
-            # the heading, the line that is no role's, wherever a role with no numbers leaves
-            # it, stays over the role lines where a page too short for every role follows the
-            # highlight (matrix_page), the screen's and a card's: its numbers never stand unnamed
-            lines, places = models_body(said, unit, at)
-            return ([line for number, line in enumerate(lines) if number not in places],
-                    [lines[number] for number in places], dict(enumerate(places.values())))
-        over, body, places = laid(None if terminal.away() else here[1])
         cheaper, better = ("←", "→") if terminal.utf8() else ("<", ">")
         keys = terminal.keys(f"{cheaper} cheaper", f"better {better}", "p models", "u unit",
                              "esc back", enter="why", move=("role",))
+
+        def laid(at, under, keys):    # (over, role lines, places) at this draw's size, `at` lit
+            # the heading, the line that is no role's, wherever a role with no numbers leaves
+            # it, stays over the role lines where a page too short for every role follows the
+            # highlight (matrix_page), the screen's and a card's: its numbers never stand unnamed
+            # while it leaves the page a line, else it scrolls with them, as the frame outgrowing
+            # the terminal would scroll the header off
+            lines, places = models_body(said, unit, at)
+            over = [line for number, line in enumerate(lines) if number not in places]
+            if page_room(under, keys, over) < 1:
+                return [], lines, places
+            return over, [lines[number] for number in places], dict(enumerate(places.values()))
+        over, body, places = laid(None if terminal.away() else here[1], note_lines(note), keys)
         read = ["", *models_read(compared, total, held.get("fetched_at"))]
         price = price_held(session, here[1], used[here[1]], answer[here[1]])
         # where one-cell bars leave too little room these give way whole, in turn: the comparing
@@ -3801,7 +3805,7 @@ def models_screen(cfg, session, selected, providers):
         note = ""
 
         def around(card, keys):   # the role lines the card leaves room for, the question under them
-            over, lines, places = laid(here[1])
+            over, lines, places = laid(here[1], card, keys)
             first, room = matrix_page(lines, places, here, top, card, keys, over)
             shown = lines[first:first + room]
             terminal.frame(title, [*over, *shown, *card], keys)
