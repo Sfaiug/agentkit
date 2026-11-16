@@ -116,6 +116,26 @@ class Reread(Sandbox):
         boards.collect(now=10002, build="ghi9012")                # its rows carry one now
         self.assertEqual(self.asked("artificialanalysis"), 2 * asked)
 
+    def test_a_board_read_off_records_as_given_since_15_nov_waits_for_the_day(self):
+        # no list of the index's evaluations: each one's score a field of the record and its
+        # cost a task weighted in the index
+        record = {"name": "Acme 9 (max)", "intelligenceIndex": 60, "effort": {"level": 4},
+                  "briefcaseBreakdown": {"elo": 1500.0, "lower95ci": 1490.0, "upper95ci": 1510.0},
+                  "automationBenchPartialScore": 0.5, "gdpPdfAllPass": 0.5, "frontierCode20": 0.5,
+                  "terminalBench40": 0.5, "terminalBenchScience": 0.5, "critptAgenticHard": 0.5,
+                  "omniscience": 20, "omniscienceAccuracy": 0.5,
+                  "omniscienceHallucinationRate": 0.3, "hleDiamond": 0.5,
+                  "intelligenceIndexCostPerTask": {"evaluations": [
+                      {"slug": slug, "weightedCostPerTask": 0.1} for slug in (
+                          "aa-briefcase", "automationbench-aa", "gdp-pdf", "frontiercode-2-0",
+                          "terminalbench-4-0", "terminal-bench-science", "critpt-v2-hard",
+                          "omniscience", "hle-diamond")]}}
+        with patch.object(sys.modules["test_model_matrix"], "AA", [record]):
+            boards.collect(now=10000, needs=matrix.needed(), build="abc1234")
+            asked = self.asked("artificialanalysis")
+            boards.collect(now=10001, needs=matrix.needed(), build="def5678")
+        self.assertEqual(self.asked("artificialanalysis"), asked)
+
     def test_a_new_build_waits_for_the_day_on_all_artificial_analysis_publishes(self):
         # it publishes no interval for a share `quality` reads off its task count, nor for
         # Omniscience: a new build asks again only for what a measure's error cannot lack

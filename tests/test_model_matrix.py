@@ -140,17 +140,20 @@ class ModelBoards(Sandbox):
         held = boards.collect(now=10000)
         aa = {(row["model"], row["effort"]): row["values"] for row in held["artificialanalysis.ai"]["rows"]}
         # a table's fields under its name, Briefcase's overall rating under `overall` however
-        # the record gives it, and no null
+        # the record gives it, each index evaluation's score under its slug, and no null
         self.assertEqual(aa[("Claude Opus 5.5", "max")],
                          {"aa.intelligenceIndex": 58, "aa.terminalBench40": 0.6,
                           "aa.price1mInputTokens": 4.0, "aa.briefcaseBreakdown.overall.elo": 1800.0,
                           "aa.briefcaseBreakdown.rubricPassRate": 0.6,
-                          "aa.intelligenceIndexCostPerTask.cost.total": 5.98})
+                          "aa.intelligenceIndexCostPerTask.cost.total": 5.98,
+                          "aa.intelligenceIndexEvaluations.terminalbench-4-0.score": 0.6,
+                          "aa.intelligenceIndexEvaluations.aa-briefcase.score": 1800.0})
         self.assertEqual(len(aa), 4)                               # no row for the maker
         self.assertIn(("Claude Opus 5.5", "xhigh"), aa)
         self.assertIn(("Claude Haiku 4.5", "none"), aa)            # a board's words, as ak's
         self.assertEqual(aa[("Claude Sonnet 4.6", None)],          # a bracket naming no effort
-                         {"aa.briefcaseBreakdown.overall.elo": 1500.0})
+                         {"aa.briefcaseBreakdown.overall.elo": 1500.0,
+                          "aa.intelligenceIndexEvaluations.aa-briefcase.score": 1500.0})
         self.assertEqual([url for url, _ in self.boards.asked if "artificialanalysis" in url],
                          [f"{boards.AA_SITE}/models{path}" for path in (
                              "", "/claude-opus-5-5", "/claude-haiku-4-5", "/claude-sonnet-4-6")])

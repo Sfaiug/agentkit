@@ -19,7 +19,9 @@ Callers at once share one collection: each writer of `state/boards.json` holds
 max), or at none where the board names no effort, with every number the board gives as
 `<board>.<field>`, a table's fields under the table's name
 (`aa.intelligenceIndexCostPerTask.cost.total`), a list's tables under each one's slug
-(`aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask`).
+(`aa.intelligenceIndexCostPerTask.evaluations.aa-briefcase.weightedCostPerTask`), and each index
+evaluation's score and cost a task as `aa.intelligenceIndexEvaluations.<slug>.score` and
+`.costPerTask` (`EVALUATIONS`).
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); Arena (lmarena-ai),
 leaderboard-dataset, CC-BY-4.0.
 """
@@ -64,9 +66,24 @@ EFFORT_WORDS = {"x-high": "xhigh", "extra high": "xhigh", "non-reasoning": "none
 # release's slug, name and the release that replaced it (`deprecatedTo`), its maker's name and
 # whether it is deprecated
 IDENTITY = {"artificialanalysis.ai": {"slug", "release", "maker", "deprecated"}}
+# Each evaluation of Artificial Analysis's Intelligence Index, as its methodology page
+# (/methodology/intelligence-benchmarking) said of v5.0.1 on 16 Nov 2026: the record's field of
+# its score and its weight in the index.  Since 15 Nov 2026 a record gives an evaluation's score
+# only as that field and its cost a task only times that weight
+# (`intelligenceIndexCostPerTask.evaluations`).
+EVALUATIONS = {"aa-briefcase": ("briefcaseBreakdown.overall.elo", 0.15),
+               "automationbench-aa": ("automationBenchPartialScore", 0.05),
+               "gdp-pdf": ("gdpPdfAllPass", 0.05),
+               "frontiercode-2-0": ("frontierCode20", 0.15),
+               "terminalbench-4-0": ("terminalBench40", 0.10),
+               "terminal-bench-science": ("terminalBenchScience", 0.15),
+               "critpt-v2-hard": ("critptAgenticHard", 0.10),
+               "omniscience": ("omniscience", 0.15),
+               "hle-diamond": ("hleDiamond", 0.10)}
 # what each board's reader gives that an older one's rows lack, a table carried where any of
-# its fields is: Artificial Analysis's evaluations (26 Oct 2026) and records' efforts, which no
-# record on the one page read until 15 Nov 2026 gave, and Arena's agent board with its interval
+# its fields is: Artificial Analysis's evaluations (26 Oct 2026), which no reader before 16 Nov
+# 2026 gave off a record of 15 Nov or later, and records' efforts, which no record on the one
+# page read until 15 Nov 2026 gave, and Arena's agent board with its interval
 ADDED = {"artificialanalysis.ai": {"aa.intelligenceIndexEvaluations", "aa.effort"},
          "arena.ai": {"arena.agent.lower95ci"}}
 
@@ -129,6 +146,27 @@ def _numbers(entry, prefix, into):
                     _numbers(table, f"{prefix}.{field}.{table['slug']}", into)
 
 
+def _evaluations(record, values):
+    """Into `values`, which hold `record`'s numbers (`_numbers`), each of `EVALUATIONS`' score
+    and cost a task where the record holds a number there and `values` no such column yet: the
+    score its field holds, the cost its weighted cost over its weight.  A record weighing an
+    evaluation the table lacks fails: the index changed, and its weights with it, so dividing by
+    an old one would say a wrong price as if it were read."""
+    named = {str(table.get("slug")) for table in
+             (record.get("intelligenceIndexCostPerTask") or {}).get("evaluations") or ()}
+    if unknown := sorted(named - EVALUATIONS.keys()):
+        raise ValueError(f"{record['slug']} weighs an Intelligence Index evaluation ak has no "
+                         f"weight for: {', '.join(unknown)}")
+    for slug, (field, weight) in EVALUATIONS.items():
+        column = f"aa.intelligenceIndexEvaluations.{slug}."
+        weighted = values.get(f"aa.intelligenceIndexCostPerTask.evaluations.{slug}"
+                              ".weightedCostPerTask")
+        if f"aa.{field}" in values:
+            values.setdefault(column + "score", values[f"aa.{field}"])
+        if weighted is not None:
+            values.setdefault(column + "costPerTask", weighted / weight)
+
+
 def _records(url, into):
     """Each model's record in the data the page at `url` hands its scripts into `into`, by slug,
     every field it gives a value over what another page gave; their releases' slugs, in order."""
@@ -149,10 +187,11 @@ def _records(url, into):
 
 def artificial_analysis():
     """Artificial Analysis's rows, one per model and effort, every number its pages give as
-    `aa.*` beside the record's `IDENTITY`: one per slug of the records `/models` hands its
-    scripts, a release each at its top effort, and those each of their releases' own page hands,
-    that release at every effort and others.  A page that will not load, `/models` with no
-    model's record or a release's page with none of that release fails the whole read: the
+    `aa.*` and its index's evaluations (`_evaluations`) beside the record's `IDENTITY`: one per
+    slug of the records `/models` hands its scripts, a release each at its top effort, and those
+    each of their releases' own page hands, that release at every effort and others.  A page
+    that will not load, `/models` with no model's record, a release's page with none of that
+    release or a record weighing an evaluation `EVALUATIONS` lacks fails the whole read: the
     board keeps what it last said, since one missing some models would look whole."""
     site, records = os.environ.get("AK_AA_URL", AA_SITE), {}
     listed = _records(f"{site}/models", records)
@@ -171,6 +210,7 @@ def artificial_analysis():
                                     ("elo", "lower95ci", "upper95ci") if field in briefcase}
         values = {}
         _numbers(record, "aa", values)
+        _evaluations(record, values)
         rows.append({"model": name, "effort": effort, "values": values, "slug": record["slug"],
                      "release": {field: record["release"].get(field)
                                  for field in ("slug", "name", "deprecatedTo")},
