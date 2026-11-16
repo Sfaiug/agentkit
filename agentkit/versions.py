@@ -108,6 +108,21 @@ def kept():
         return None
 
 
+def relink(live):
+    """The version the move to `live`'s commit replaced, linked at `keep_link` where a client's
+    move linked none, as before clients kept one: else its install.sh failing left the retry
+    nothing to put back to.  `switch` names the folder it checks a commit out in for that commit,
+    and the exchange leaves the version replaced there.  None where no such folder is left."""
+    code, head = git(live, "rev-parse", "HEAD")
+    for path in [] if code else sorted((config.HOME / VERSIONS).glob(f"{head[:12]}.*")):
+        found = git(path, "rev-parse", "HEAD")
+        if found[0] == 0 and found[1] != head:     # one cut off before its exchange holds `head`
+            keep_link().parent.mkdir(parents=True, exist_ok=True)
+            keep_link().symlink_to(path / "bin" / "ak")
+            return path
+    return None
+
+
 def final(ended, completed=True):
     """A tick's end at `ended`.  Only a tick that began from the folder at ~/agentkit now proves
     that version runs, and one that `completed` makes the move that put it live final, once no
