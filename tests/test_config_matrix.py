@@ -493,7 +493,7 @@ class Matrix(unittest.TestCase):
         screen.leave()
 
     def test_a_models_name_at_a_pages_foot_its_marks_under_the_page_takes_no_click(self):
-        screen = Screen(self, rows=19, cols=20)
+        screen = Screen(self, rows=18, cols=20)
         before = screen.frame()
         number = before.index("  Opus 5.5") + 1
         self.assertEqual(before[number], "", "Opus 5.5's name is not the page's last line")
@@ -502,7 +502,7 @@ class Matrix(unittest.TestCase):
         screen.leave()
 
     def test_a_resize_putting_a_models_name_under_the_still_pointer_puts_its_light_out(self):
-        screen = Screen(self, rows=13, cols=20)
+        screen = Screen(self, rows=12, cols=20)
         lines = screen.frame()
         self.assertTrue(lines[2].startswith("    orch"), lines)       # Fable's, the page's first
         col = lines[2].index("○") + 1

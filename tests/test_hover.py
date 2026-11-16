@@ -522,19 +522,24 @@ class Screens(Sandbox):
         self.assertEqual(marked(last, "reverse"), {keys[1]: "esc back"})    # eight colours
 
     def test_a_key_at_the_key_lines_end_is_lit_within_the_terminal(self):
-        def screen():
-            while True:
-                terminal.frame("acme", ["  nothing here"], "r recommended   esc back")
-                key = terminal.read_key()
-                if key is not None and key.name in ("esc", "eof"):
-                    return
-
-        # with its indent the line is the terminal's width: `esc back` goes under, so the cell
-        # lit after it is on the screen, and no line runs past its edge
-        keys = at(run(screen, ESC, cols=26)[1][0], "esc back")
-        last = run(screen, move(*keys), ESC, cols=26)[1][-1]
-        self.assertEqual(marked(last, "lit"), {keys[1]: "esc back"})
-        self.assertLessEqual(max(map(len, last.values())), 26, texts(last))
+        # each key ends its line on the terminal's last column, `esc back` after another and
+        # `a apply to all sessions` alone: its light ends there, never past the edge, where it
+        # would wrap onto the row under it
+        for line, cols, key in (("r recommended   esc back", 26, "esc back"),
+                                (f"{menu.APPLY_KEY}   esc back", 25, menu.APPLY_KEY)):
+            def screen():
+                while True:
+                    terminal.frame("acme", ["  nothing here"], line)
+                    typed = terminal.read_key()
+                    if typed is not None and typed.name in ("esc", "eof"):
+                        return
+            with self.subTest(key):
+                first = run(screen, ESC, cols=cols)[1][0]
+                keys = at(first, key)
+                last = run(screen, move(*keys), ESC, cols=cols)[1][-1]
+                self.assertEqual(marked(last, "lit"), {keys[1]: key})
+                self.assertLessEqual(max(map(len, last.values())), cols, texts(last))
+                self.assertEqual(at(last, "esc back"), at(first, "esc back"))
 
     def test_a_click_on_a_popups_padding_is_on_nothing(self):
         def screen():

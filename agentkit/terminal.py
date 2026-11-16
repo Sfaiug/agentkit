@@ -587,7 +587,7 @@ def keys(*rest, space=None, enter, move=True):
 def key_line(text, term_width=None, first=None):
     """The key line: each key dim, its word muted, wrapped to the layout; `first`, drawn as it
     is, the item in front of them."""
-    room = layout_width(term_width) - 3     # its indent, and the cell after a lit key (`key_spans`)
+    room = layout_width(term_width) - 2
     rendered = [first] if first else []
     for key, word in key_parts(text):
         dim, word = styled(key, "dim"), styled(word, "muted")
@@ -1332,10 +1332,11 @@ def selected(line, first, last):
 
 def key_spans(line):
     """(first column, last column, key) for each item of a drawn key line a click presses,
-    counted from 1: its text with one cell before and after, as it is lit (`lit`).  The words
+    counted from 1: its text with one cell before and after, as it is lit (`lit`), the one after
+    never past the layout's last column, where it would wrap onto the row under it.  The words
     for what the arrows do (MOVING) and the page's place between its arrows press nothing."""
     text = ANSI.sub("", line)
-    return [(cells(text[:item.start()]), cells(text[:item.end()]) + 1, key)
+    return [(cells(text[:item.start()]), min(cells(text[:item.end()]) + 1, layout_width()), key)
             for item in re.finditer(r"\S+(?: \S+)*", text)
             for key in [key_parts(item.group())[0][0]]
             if key not in MOVING and not key.isdigit()]
