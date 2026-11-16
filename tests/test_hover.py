@@ -31,7 +31,8 @@ from unittest.mock import Mock, call, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, menu, terminal
+from agentkit import config, menu, motion, terminal
+from agentkit.themes import RAINBOW
 from test_config_matrix import Screen
 from test_menu_keys import Menu
 from fixtures.sandbox import Sandbox
@@ -327,7 +328,11 @@ class Screens(Sandbox):
         self.assertIn("Dark mode", highlighted(screens[-1])[0])
 
     def test_an_effort_shimmering_under_the_pointer_keeps_its_light(self):
-        screen = Screen(self)
+        # Its motion on a clock standing still until the test moves it (motion.moment), so each
+        # frame shows the moment set, however late the host's load makes it.
+        clock = self.root / "clock"
+        clock.write_text("0")
+        screen = Screen(self, env={"AK_MOTION_CLOCK": str(clock)})
         lines = screen.frame()
         row = next(number for number, line in enumerate(lines, 1) if "Opus 5.5" in line)
         line = lines[row - 1]
@@ -336,8 +341,15 @@ class Screens(Sandbox):
         screen.click(word + 4, row, lambda lines: lines[row - 1][word - 1:].startswith("max "))
         mark = len(screen.text())
         screen.press(move(word, row))
-        # Let every frame land without a key or pointer move redrawing over the last one.
-        time.sleep(1.0)
+        # the light's head on the word's second letter, on its third (motion.passing), then past
+        # it: a frame each, its first letter's drawn with the pointer's light
+        places = len("max") + len(RAINBOW) - 1
+        for moment in (1.5 * motion.SWEEP / places, 2.5 * motion.SWEEP / places, motion.SWEEP):
+            written = len(screen.text())
+            clock.with_name("clock.new").write_text(repr(moment))
+            clock.with_name("clock.new").replace(clock)     # never read half written
+            screen.until(lambda text: re.search(rf"\x1b\[{row};{word}H.*?\x1b\[\?2026l",
+                                                text[written:], re.S), "its next frame")
         text = screen.text()
         updates = list(re.finditer(r"\x1b\[(\d+);(\d+)H", text[mark:]))
         frames = 0
@@ -350,7 +362,7 @@ class Screens(Sandbox):
                 grid = played(text[:end])
                 self.assertEqual(marked(grid, "lit"), {row: "━━━━━   max"})
                 self.assertEqual(marked(grid, "reverse"), {})
-        self.assertGreaterEqual(frames, 4)       # each letter shone, then the word settled
+        self.assertEqual(frames, 4)       # each letter shone, then the word settled
         self.assertEqual(marked(played(text), "lit"), {row: "━━━━━   max"})
         self.assertEqual(marked(played(text), "reverse"), {})
         screen.leave()
