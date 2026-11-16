@@ -169,6 +169,16 @@ LOOK_EVERY = 0.25        # ... the wait between two looks after the first: a wor
                          # the last look cost spent a hundredth of a thread on any host, a third of
                          # what a screen over sixty gone seats may spend on a quiet one
                          # (tests/test_key_gone_seats_cost_an_open_screen_little.py)
+# A menu starts over once a read it asked for is owed STUCK times its slowest recent read, OWED at
+# the least (`Live.stuck`).  A read slower than any lately raises that wait as it lands; as reads
+# quicken it halves every SLOW_HALF seconds: a host where reads take 20 s waits minutes, a quick
+# one OWED.  The slowest crosses the restart (SLOWEST), so one stuck again waits as long.
+STUCK = 10
+OWED = 3 * TICK
+SLOW_HALF = 300
+SLOWEST = "AK_MENU_SLOWEST"
+CLOCK = time.monotonic   # a read is owed in the time its thread takes: not `time`'s, which a
+                         # test stills to draw frame by frame
 # What the `—` says, from the error the last probe left; the first match wins.  No pattern here
 # guesses at a login: `token`, `401` and `login` turn up in lines a logged-in seat produces too,
 # and the one party that can say is the harness's `auth` verb, which the probe asks and records.
@@ -300,6 +310,11 @@ class Live:
         self.kept = {}                   # each seat's row as its reads last decided it
         self.said = []                   # warnings no notice has shown yet (`loop`, `tidy`)
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
+        try:                             # its reads' slowest lately, the last menu's (`hand_on`)
+            self.slowest = float(os.environ.pop(SLOWEST, 0))
+        except ValueError:
+            self.slowest = 0.0
+        self.landed, self.owed = CLOCK(), None   # when a read landed, since when one is owed
 
     def close(self):
         """Give the pipe back, and wait on no thread: Esc leaves at once.
@@ -420,6 +435,7 @@ class Live:
             if not self.watching.is_set():
                 return
             leaves = self.leaves
+        began = CLOCK()
         found, records, groups = rows(self.cfg, self.kept)
         with self.reading:
             if self.leaves != leaves:
@@ -427,6 +443,9 @@ class Live:
             self.read_from = found, records
             self.meet(look)
             self.last[:] = found, groups
+            now = CLOCK()
+            self.slowest = max(now - began, self.slowest * 0.5 ** ((now - self.landed) / SLOW_HALF))
+            self.landed, self.owed = now, None
 
     def meet(self, look=False):
         """Start a pass over what the last read read with `look`, or for a seat it listed that no
@@ -440,7 +459,33 @@ class Live:
     def ask(self, look=False):
         """Have everything read again, and with `look` every seat looked at, off the draw."""
         self.looking = self.looking or look
+        if self.owed is None:
+            self.owed = CLOCK()
         self.asked.set()
+
+    def stuck(self):
+        """The tick's log line saying why this menu starts over, once a read it asked for is owed
+        far longer than its reads take (STUCK); else "".  It says how long none has landed,
+        whether the watcher is alive, and each thread's innermost line of agentkit's own, so
+        what held the read is on record."""
+        now = CLOCK()
+        if self.owed is None or now - self.owed < max(OWED, STUCK * self.slowest):
+            return ""
+        names = {thread.ident: thread.name for thread in threading.enumerate()}
+        package, places = os.path.dirname(__file__) + os.sep, []
+        for ident, frame in sys._current_frames().items():
+            while frame and not frame.f_code.co_filename.startswith(package):
+                frame = frame.f_back
+            places.append(f"{names.get(ident, ident)} at " + (
+                f"{os.path.relpath(frame.f_code.co_filename, config.REPO)}:{frame.f_lineno}"
+                if frame else "no line of agentkit's"))
+        alive = self.watcher is not None and self.watcher.is_alive()
+        return (f"menu started over: no read landed for {now - self.landed:.0f} s, its watcher "
+                f"{'alive' if alive else 'gone'}; " + "; ".join(places))
+
+    def hand_on(self):
+        """What the menu this one starts again as takes of it: how slow its reads were."""
+        return {SLOWEST: repr(self.slowest)}
 
     def watch(self, last):
         """Read into `last` once, now, for the first draw -- in a menu the warm server forked, its
@@ -489,6 +534,7 @@ class Live:
         """The owner is back: the menu draws what the last read left at once, and the watcher
         reads again behind it, every seat looked at, each read landing drawn as it lands."""
         self.watching.set()
+        self.owed = None                 # none was owed while away: its wait starts here
         self.ask(look=True)
 
     def recorded(self):
@@ -6928,10 +6974,15 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
             # new code under an open menu, the tick's above all, draws it from here on, once
             # the menu's own update, whose install follows its swap, has said how it went; over a
             # frame the terminal holds till the next one, so back from a seat or a notice the
-            # list comes up first, and no key is cut short
+            # list comes up first, and no key is cut short; and so does reads stopping, once the
+            # tick's log says why (`Live.stuck`)
+            stuck = live.stuck()
             if (framed and not messages and newborn is None
-                    and (updated or (updated is False and update.outdated()))):
-                handing = {**(warm.hand_on(last, CODE) if last[1] else {}), **terminal.hand_on()}
+                    and (stuck or updated or (updated is False and update.outdated()))):
+                if stuck:
+                    tidy_log(live.say)(stuck)
+                handing = {**(warm.hand_on(last, CODE) if last[1] else {}), **terminal.hand_on(),
+                           **live.hand_on()}
                 live.close()
                 keyboard.give(held=True)
                 sys.stdout.flush()
