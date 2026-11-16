@@ -1852,6 +1852,15 @@ def unnamed(code, only, ran, output):
     return 1
 
 
+def unfinished(given, activity, failed, start=0):
+    """Of the tests `given`, those a run stopped for silence had begun and not ended: all but
+    those it named as `failed` and those it timed as passing (`suite_times.passed`) in what it
+    wrote to `activity` from byte `start`.  A hang is a red of what hung: these are its failed
+    tests."""
+    timed = suite_times.measured(activity, start)
+    return [test for test in given if test not in timed and test not in failed]
+
+
 def passes_what_it_holds(code, only, ran, failed, absent):
     """Whether a run of just the tests `only` lists, exiting `code`, passed each one its tree
     holds: it named each as run (`AK_RAN`) but those it named as not there (`AK_NOT_THERE`), as
@@ -1898,14 +1907,18 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
     killed at the limit, `OUT_OF_MEMORY` for one the kernel killed for memory -- so a caller
     decides from codes, never from what a piece printed.
     A piece its first go's silence stopped goes again, alone, after its siblings, which run on:
-    a hang costs its piece, never the pieces that pass.  `later`, seconds, is set where the
-    suite's pace stops its pieces sooner (`quiet_window`): the silence each piece's later goes
-    have.  Without it each go has the whole silence: a suite has no pace where its pieces'
-    ordinary quiet outgrew a part of it, so a part would stop pieces only slow.
+    a hang costs its piece, never the pieces that pass.  A later go silence stops is red in
+    what it had begun and not ended (`unfinished`): a whole piece's, of those it named as run
+    (`AK_RAN`), which run alone as any red piece's named tests do; one naming none stops its
+    siblings, the suite red whole.  `later`, seconds, is set
+    where the suite's pace stops its pieces sooner (`quiet_window`): the silence each piece's
+    later goes have.  Without it each go has the whole silence: a suite has no pace where its
+    pieces' ordinary quiet outgrew a part of it, so a part would stop pieces only slow.
     `confirmed`, a dict, gets by share the tests a red piece named that failed again alone;
     with `shard` and `only`, those of them its run named both as run and as failed (`AK_FAILED`)
-    where it ended in a failing exit: one dead by a signal, its exit negative, repeats nothing;
-    for a command not split, under `1/1`, those its failing run named as failed.
+    where it ended in a failing exit, or had not ended where silence stopped it: one dead by a
+    signal, its exit negative, or killed otherwise repeats nothing; for a command not split,
+    under `1/1`, those its failing run named as failed.
     `flaky`, a list, gets the tests that failed, then passed on this tree: those a command named
     so (`AK_FLAKY`), here or on the suite helper, and a red piece's named tests that passed run
     alone.  `named`, a list, gets those a failing run of the command as one piece (not split,
@@ -1936,17 +1949,26 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
         output.write(f"--- AK_SHARD={label} ---\n".encode())
         output.flush()
         ran, failed, gone = (None, [], None) if only is None else ([], [], [])
+        start, stops, timeout = output.tell(), [], kwargs.pop("on_timeout", None)
+
+        def stopped(why, pid):
+            stops.append(why)
+            if timeout is not None:
+                timeout(why, pid)
+
         code, text, killed = worker.boxed(
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
             env={**env, "AK_SHARD": share}, times=times, only=only, ran=ran, failed=failed,
-            absent=gone, flaky=flaky, used=used, **kwargs)
+            absent=gone, flaky=flaky, used=used, on_timeout=stopped, **kwargs)
         observed(shard, code, killed)
         if confirmed is not None and only is not None:
-            confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
+            confirmed[shard] = (unfinished(only, activity, failed, start) if stops == ["silence"]
+                                else [test for test in only if code > 0 and not killed
+                                      and test in ran and test in failed])
         if absent is not None and only is not None:
             # the last go's, as a re-run decides
-            absent[:] = ([test for test in only if test in gone]
-                         if passes_what_it_holds(code, only, ran, failed, gone) else [])
+            absent[:] = ([test for test in only if test in gone] if not killed
+                         and passes_what_it_holds(code, only, ran, failed, gone) else [])
         if named is not None and code > 0:
             named.extend(failed)
         if ran is not None:
@@ -2019,7 +2041,8 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
             def attempt(shard, only=None, first=False, there=None, turn=None):
                 """The piece of `shard`, or with `only` just those of its tests, as one share,
                 on the helper's `there` or on this host's `turn` (one taken when None);
-                a `first` go stopped for silence goes again."""
+                a `first` go stopped for silence goes again, and any go silence stops names as
+                its failed tests what it had not ended (`unfinished`)."""
                 run_record.stop_check(run_dir)
                 piece = files.enter_context(tempfile.NamedTemporaryFile(
                     dir=activity.parent, prefix=f"{activity.stem}-piece-", suffix=".log"))
@@ -2055,11 +2078,15 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                                 self.emit(self.pending + b"\n")
                                 self.pending = b""
 
+                stops = []
+
                 def stopped(why, pid):
+                    stops.append(why)
                     if why == "silence" and first:
                         silenced.add(shard)     # its siblings run on; it goes again after them
                     elif why != "abort":
-                        cancel.set()
+                        if why != "silence":
+                            cancel.set()        # the ceiling is every piece's; a hang below
                         if timeout is not None:
                             timeout(why, pid)
 
@@ -2082,7 +2109,7 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                     with writing:
                         log(f"AK_SHARD={label} on {there.alias}" if there else
                             f"AK_SHARD={label} runs here: {reason}")
-                stream, tests = Output(), []
+                stream, tests, ran = Output(), [], []
                 own = {**env, "AK_SHARD": shard if only is None else "1/1"}
                 if own.get(worker.RUN_MARKER):
                     # A stop ends this piece's own processes, never a sibling's that runs on.
@@ -2093,7 +2120,7 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                                        asked_at.get(shard, asked), there and there.alias) as ended:
                         here = {} if there else {"cpu": measure.cpu, "quiet": measure.quiet,
                                                  "times": times, "only": only, "failed": tests,
-                                                 "flaky": flaky, "used": ended}
+                                                 "ran": ran, "flaky": flaky, "used": ended}
                         code, _, killed = (worker.limited if there else worker.boxed)(
                             helper.piece(there, shard, there_command)
                             if there else ["bash", "-c", command],
@@ -2102,6 +2129,12 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                             on_timeout=stopped, silence=silence if first else later or silence,
                             **here, **kwargs)
                         ended["exit"] = None if killed else code
+                    if stops == ["silence"]:
+                        tests[:] = unfinished(only or ran, piece.name, tests)
+                        if not first and not tests:
+                            # Naming no test it had not ended, the suite is red whole
+                            # (`land.red_part`): what its siblings end in changes nothing.
+                            cancel.set()
                     if not there or code not in (*helper.GONE, helper.FULL):
                         observed(shard, code, killed)
                     if not there and not killed and measure.starved(code, kills):
@@ -2343,7 +2376,7 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                 each runs, its named tests or None for the whole piece, and is sent its end."""
                 code, piece, killed, tests = results[index]
                 shard = f"{index + 1}/{count}"
-                failed = only = alone = None
+                failed = only = alone = hung = None
                 how = "failed"
                 if shard in silenced and not cancel.is_set():
                     # stopped at its suite's pace: once more alone, with the rest of the limit
@@ -2357,22 +2390,29 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                     there.seek(0)
                     failed = there.read()
                     how = f"failed on the suite helper {where[index].alias}"
-                while not killed and not cancel.is_set():
+                # a go killed here with no cancel was stopped for silence (`attempt`)
+                while not cancel.is_set():
                     if code == SUITE_BUSY:
                         wait_busy()
                     elif shard in starved:
                         break   # the host's red, never a test's (`land.red_part`)
                     elif only is not None:
-                        # Failing again alone, the tests the piece named confirm it red in a
-                        # fraction of its time; passing, the whole piece decides, as a failure
-                        # can need the tests that ran before it, and a runner that stops at its
-                        # first failure names none of those it never reached.
+                        # Failing again alone, or stopped for silence again before they ended,
+                        # the tests the piece named confirm it red in a fraction of its time;
+                        # passing, the whole piece decides, as a failure can need the tests
+                        # that ran before it, and a runner that stops at its first failure names
+                        # none of those it never reached.
                         alone = ("its failed tests failed again, run alone" if code else
                                  "its failed tests passed run alone: the failure needs the "
                                  "tests that ran before them")
                         if code:
                             if confirmed is not None:
                                 confirmed[shard] = tests
+                            break
+                        if hung:
+                            # what hung needs what ran before it, and the piece's own goes,
+                            # hanging, decided it already
+                            code, piece, killed, tests = hung
                             break
                         # passing alone, they failed, then passed, whatever the piece does next
                         piece.seek(0)
@@ -2381,6 +2421,10 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                         if flaky is not None:
                             flaky.extend(only)
                         only = None
+                    elif killed:
+                        if not tests:
+                            break   # it names no test it had not ended
+                        hung, only = (code, piece, killed, tests), tests
                     elif not code:
                         break
                     elif failed is None:
@@ -2584,6 +2628,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             deadline += seconds
         log_path.write_text("")
         for cmd in cmds:
+            # its own stops alone: a hang can end in tests that failed alone, and the list go on
+            del reason[:], running[:]
             first_span = None   # the gate log's byte span of a first run that failed, while its
                                 # re-run decides: the flaky diff reads whole runs
             named = []          # the tests this command's run named failed
@@ -2694,7 +2740,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                      f"{rest / 60:g} min of silence on its second go "
                      f"({window / 60:g} on its first, at its suite's pace)")
             stopped_line = f"done-when: stopped after {cause}: {spent} (last output: {last})"
-            stopped_line += "".join(f"; still running: {command}" for command in running)
+            # each go a hang stopped names what still ran there, most often the same: once each
+            stopped_line += "".join(f"; still running: {command}"
+                                    for command in dict.fromkeys(running))
         else:
             stopped_line = (f"done-when: stopped after {limit / 3600:g}h ceiling: {spent} "
                             f"(the limit was spent before it could start)")

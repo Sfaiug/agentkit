@@ -2,7 +2,8 @@
 
 Its siblings run to their ends and keep their results, and it goes once more, alone, after
 them, with the whole limit again where its suite has no pace; silent on that go too, it fails
-the check.  Black-box: the program `AK_BIN` names checks a landing line from outside through
+the check, red in the test it had begun and not ended, which goes once more alone, as a failed
+test does.  Black-box: the program `AK_BIN` names checks a landing line from outside through
 tests/fixtures/akline.py, its member's record carrying a silence limit of three seconds, its
 suite in a fresh Home and so without a pace, cut in four pieces on three CPUs: `t/a.sh` to
 `t/d.sh`, one a piece, the member's own, so a probe of the target's tip runs none of them.
@@ -77,8 +78,9 @@ class ASilentPieceIsStoppedAlone(unittest.TestCase):
         self.assertIn("fix", verdict, verdict)
         self.assertIn("--- AK_SHARD=2/4 ---\n[killed at the limit]", said)
         self.assertIn(f"stopped after {SILENCE_MINUTES:g} min of silence", said)
+        self.assertEqual(verdict["fix"]["tests"], ["b.sh"], verdict)
         once = "start end"
-        self.assertEachGo(goes, a=once, b="start start", c=once, d=once)
+        self.assertEachGo(goes, a=once, b="start start start", c=once, d=once)
 
 
 if __name__ == "__main__":
