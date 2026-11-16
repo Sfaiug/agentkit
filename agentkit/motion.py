@@ -425,7 +425,7 @@ class Clock:
         showing it still, and only what the key itself changes is news."""
         self.seen = self.seen and {key: (value, None, None)
                                    for key, (value, _, _) in self.seen.items()}
-        self.touched, self.turning, self.leaving = {}, None, {}
+        self.touched, self.turning = {}, None
         self.opened = None if self.opened is None else -math.inf
 
     def drawn(self, moves, row):

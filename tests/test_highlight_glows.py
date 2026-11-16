@@ -10,7 +10,7 @@ import types
 import unittest
 from unittest.mock import patch
 
-from test_news_motion import CELL, Menu
+from test_news_motion import CELL, Keyboard, Menu
 from agentkit import menu, motion, terminal
 
 ESC, DOWN = b"\x1b", b"\x1b[B"
@@ -134,6 +134,29 @@ class Fades(Menu):
         ended = [text for at, _, text in CELL.findall(waits[digit][2]) if int(at) == row]
         self.assertTrue(ended)
         self.assertEqual(BACKS.findall(ended[-1]), [])
+
+    def test_a_number_typed_as_the_pointer_moves_ends_its_fades_and_comes_back_at_rest(self):
+        self.words.update({f"acme-{n}": "idle" for n in range(8)})
+        rows = [self.row(self.typed([])[0], name) for name in ("web-portal", "acme-0")]
+        points = [POINT.format(12, row).encode() for row in rows]
+        with patch.object(menu, "open_session", return_value=None):
+            waits, (*_, opened, _) = self.typed([b"1", points[0], None, points[1], None, b"0"])
+        self.lit_alone(waits, opened, "acme-7")         # seat 10, as the menu is back from it
+
+    def test_a_number_on_past_sessions_waits_with_the_fade_ended(self):
+        found = [{"name": f"acme-{n}", "repo": None, "path": "/", "created": 9000,
+                  "closed": 9500 - n} for n in range(10)]
+        with patch.object(menu, "open_session", return_value=None), \
+                patch.object(terminal, "taken", return_value=True):
+            waits, _ = self.run_menu([None, terminal.Key("down"), None, terminal.Key("char", "1")],
+                                     screen=lambda: menu.show_past(self.cfg, found,
+                                                                   keyboard=Keyboard()))
+        digit = next(n for n, (timeout, _, _) in enumerate(waits) if timeout == 0.5)
+        row = next(at for _, (at, _), text in writes(waits, 0) if "acme-0" in terminal.plain(text))
+        written = [set(BACKS.findall(text)) for _, (at, _), text in writes(waits[:digit + 1], 0)
+                   if at == row]
+        self.assertIn({SELECTION}, written)         # lit till Down, then fading
+        self.assertEqual(written[-1], set())
 
     def test_the_pointer_going_off_a_meter_fades_its_cell(self):
         screen = self.typed([])[0][0][2]
