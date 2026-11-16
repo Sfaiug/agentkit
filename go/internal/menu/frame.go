@@ -43,14 +43,14 @@ type Seat struct {
 // A Cell is a subscription on the grid: Left is 1 to 100 with a meter, 0 for credits, -1 for none;
 // Ends is what is said of a login about to end, its meter amber meanwhile.  The rest is what
 // Subscriptions says of it: its provider and account ("" for a provider's one login), the company
-// it sits under and that company's colour, the harness that signs it in, the resets it holds and
-// whose login it is; Notes, what the line under the grid says of its reading while pointed at.
+// it sits under, the harness that signs it in, the resets it holds and whose login it is; Notes,
+// what the line under the grid says of its reading while pointed at.
 type Cell struct {
-	Label, Said, Ends                           string
-	Left                                        int
-	Provider, Account, Company, Colour, Harness string
-	Held, Email, Plan                           string
-	Notes                                       []usage.Note
+	Label, Said, Ends                   string
+	Left                                int
+	Provider, Account, Company, Harness string
+	Held, Email, Plan                   string
+	Notes                               []usage.Note
 }
 
 // A View is everything the frame is drawn from.
@@ -630,9 +630,9 @@ func usageLines(s terminal.Screen, cells []Cell, width int) []string {
 // usageColumns is how many cells a line of the grid holds in width: one to three, two apart.
 func usageColumns(width int) int { return max(1, min(3, width/(cellSize+2))) }
 
-// meterLines is usageLines per cell to a line, no cell in its company's colour: what a meter has
-// left is amber while its login ends soon.  Cell lit (from 0; -1 for none) is on the selection over
-// its whole cell, as the pointer lights any, every colour in it kept (menu.usage_lines).
+// meterLines is usageLines per cell to a line: what a meter has left is amber while its login ends
+// soon.  Cell lit (from 0; -1 for none) is on the selection over its whole cell, as the pointer
+// lights any, every colour in it kept (menu.usage_lines).
 func meterLines(s terminal.Screen, cells []Cell, width, per, lit int) []string {
 	if len(cells) == 0 {
 		return nil

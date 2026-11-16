@@ -17,7 +17,7 @@ from unittest.mock import patch
 import unittest
 
 from fixtures.sandbox import REPO, Sandbox
-from fixtures.subscriptions import said
+from fixtures.subscriptions import number, said
 from agentkit import config, menu, terminal, usage
 
 
@@ -71,7 +71,8 @@ class UsageRow(Sandbox):
             self.providers["openai"]["resets"] = resets
             self.cache()
             self.assertEqual(said(self.cfg)["ChatGPT"], "empty until Mon 00:00")
-            self.assertEqual(terminal.plain(menu.usage_detail(self.cfg, 6)),
+            detail = menu.usage_detail(self.cfg, number(self.cfg, "ChatGPT"))
+            self.assertEqual(terminal.plain(detail),
                              "ChatGPT resets Mon 00:00" + (" · 2 resets in hand" if resets else ""))
             for width in (40, 100):
                 lines = menu.usage_lines(self.cfg, width)

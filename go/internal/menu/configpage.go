@@ -10,14 +10,14 @@ import (
 )
 
 // A PageRow is a row of a page `c` opens (menu.config_page's), or a choice of the list a row opens
-// under it: its label, in its colour where it has one, its value and its Aside, dim, and what its
-// keys do, nil where they do nothing.  A mark leads the value of a row Space flips, full while On:
-// ● on a row and on a choice of a list that picks one, ■ on a choice of a list of several; a choice
-// that acts is followed by its word, dim.  A choice no key acts on is a line saying why the list
-// holds none, dim.  The lit row's value that steps is drawn between the arrows that move it, dim.
+// under it: its label, its value and its Aside, dim, and what its keys do, nil where they do
+// nothing.  A mark leads the value of a row Space flips, full while On: ● on a row and on a choice
+// of a list that picks one, ■ on a choice of a list of several; a choice that acts is followed by
+// its word, dim.  A choice no key acts on is a line saying why the list holds none, dim.  The lit
+// row's value that steps is drawn between the arrows that move it, dim.
 type PageRow struct {
-	Label, Value, Colour, Aside string
-	On                          bool
+	Label, Value, Aside string
+	On                  bool
 	// while the keys are on the row: said under the page instead of the page's note, and lines
 	// drawn as they are after the rows, the row's own, paged as a tall row's
 	Note  string
@@ -183,11 +183,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 		by         int // an arrow's step
 	}
 	draw := func(row PageRow, entry pageEntry, marks string) {
-		label := row.Label
-		if row.Colour != "" {
-			label = s.Styled(label, row.Colour)
-		}
-		lead := "  " + label + strings.Repeat(" ", max(0, wide-terminal.Cells(row.Label))) + "  " // one alone may be wider: never cut
+		lead := "  " + row.Label + strings.Repeat(" ", max(0, wide-terminal.Cells(row.Label))) + "  " // one alone may be wider: never cut
 		if entry.choice >= 0 {
 			lead = "    "
 		}
@@ -235,9 +231,6 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 		folded := entry.choice < 0 && slices.ContainsFunc(whole, func(word string) bool { return terminal.Cells(word) > room-terminal.Cells(lead) })
 		if folded {
 			line := "  " + terminal.Cut(row.Label, room-2)
-			if row.Colour != "" {
-				line = "  " + s.Styled(terminal.Cut(row.Label, room-2), row.Colour)
-			}
 			if entry == lit {
 				line = highlight(line, true)
 			}

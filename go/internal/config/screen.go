@@ -1,28 +1,21 @@
 package config
 
 import (
-	"regexp"
 	"slices"
 	"strings"
 )
 
-var hexColour = regexp.MustCompile(`^#[0-9A-Fa-f]{6}$`)
-
-// ProviderLook is what a provider's table says of how a screen shows it: its own `name`, stripped,
-// and its own `colour`, where a valid one; "" for either it does not say.
-func ProviderLook(provider string) (name, colour string, err error) {
+// ProviderName is what a provider's table names it on a screen: its own `name`, stripped; "" where
+// it names none.
+func ProviderName(provider string) (string, error) {
 	root, err := load()
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	providers, _ := root.get("providers").(*table)
 	entry, _ := providers.get(provider).(*table)
-	name, _ = entry.get("name").(string)
-	colour, _ = entry.get("colour").(string)
-	if !hexColour.MatchString(colour) {
-		colour = ""
-	}
-	return strings.TrimSpace(name), colour, nil
+	name, _ := entry.get("name").(string)
+	return strings.TrimSpace(name), nil
 }
 
 const (

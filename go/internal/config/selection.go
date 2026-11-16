@@ -127,17 +127,3 @@ func doneCheck(root *table) (string, bool, error) {
 	}
 	return named, on, nil
 }
-
-// HarnessLook is the name and colour declared by a plugin, never a screen's own list.
-func HarnessLook(harness string) (name, colour string) {
-	found, _ := manifests()
-	name, _ = found[harness].get("name").(string)
-	colour, _ = found[harness].get("colour").(string)
-	if name == "" {
-		name = harness
-	}
-	if !hexColour.MatchString(colour) {
-		colour = "accent"
-	}
-	return
-}

@@ -1,5 +1,5 @@
-"""Every list of models sits under its harnesses, in each harness's colour, a model added last
-included."""
+"""Every list of models sits under its harnesses, each named bold in no colour of its own, a
+model added last included."""
 
 import os
 import sys
@@ -39,13 +39,12 @@ def cfg():
 
 
 ORDER = ["fable", "sonnet", "astra", "sol", "spark"]
-HEADINGS = [("Claude Code", "#D97757"), ("Codex", "#FFFFFF"), ("OpenCode", "#5B98F1"),
-            ("Muse Code", "#3E9EFB")]
+HEADINGS = ["Claude Code", "Codex", "OpenCode", "Muse Code"]
 
 
 class ModelsByHarness(unittest.TestCase):
     def setUp(self):
-        colour = patch.object(terminal, "colour_depth", return_value=24)   # each heading's own
+        colour = patch.object(terminal, "colour_depth", return_value=24)   # bold drawn
         colour.start()
         self.addCleanup(colour.stop)
 
@@ -60,8 +59,7 @@ class ModelsByHarness(unittest.TestCase):
         config_ = cfg()
         selected = {"orchestrator": "fable", "workers": ["fable"], "reviewers": ["astra"]}
         body, places = menu.config_body(config_, selected=selected)
-        headings = [terminal.styled(name, colour) for name, colour in HEADINGS]
-        self.assertEqual(len(set(headings)), len(HEADINGS))       # four colours, none the same
+        headings = [terminal.styled(name, "bold") for name in HEADINGS]
         # each by its full name (config.model_name), cut where the screen is narrow
         shown = [terminal.plain(body[line]).split()[0].rstrip("…")
                  for line, (hit, _) in places.items() if hit[0] == "model"]
@@ -70,8 +68,8 @@ class ModelsByHarness(unittest.TestCase):
             self.assertTrue(config.model_name(config_, name).startswith(text), (text, name))
         self.assertEqual([line for line in body if line in headings], headings)
 
-    def test_a_harness_its_manifest_gives_no_colour_is_headed_in_the_accent(self):
-        self.assertEqual(menu.model_heading("acme"), terminal.styled("acme", "accent"))
+    def test_a_harness_no_manifest_names_is_headed_by_its_own_name_bold(self):
+        self.assertEqual(menu.model_heading("acme"), terminal.styled("acme", "bold"))
 
 
 if __name__ == "__main__":

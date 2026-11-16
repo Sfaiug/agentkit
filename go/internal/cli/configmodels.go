@@ -15,7 +15,7 @@ import (
 const ticksNote = "Space on a model under its harness takes it in or out of the config."
 
 // menuConfigModels is `Models` on `c` (menu.models_page): a row per harness the config's providers
-// run on, in its colour, opening every model it lists (modelsList), ■ each the config runs there,
+// run on, by its name, opening every model it lists (modelsList), ■ each the config runs there,
 // Space taking it in or out (config.ModelTicks), saved at once; on a host, the config's providers
 // it has no login for after them, Enter logging in to one.  The models' names are read once and
 // again after each tick, as Python's page reads the config it holds.
@@ -35,12 +35,11 @@ func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bo
 		}
 		var rows []menu.PageRow
 		for _, harness := range ticks.Harnesses {
-			name, colour := config.HarnessLook(harness)
 			labels := []string{}
 			for _, name := range ticks.Names(harness, "") {
 				labels = append(labels, config.ModelName(name, models))
 			}
-			rows = append(rows, menu.PageRow{Label: name, Colour: colour, Value: cmp.Or(strings.Join(labels, ", "), "none"), Several: true,
+			rows = append(rows, menu.PageRow{Label: config.HarnessName(harness), Value: cmp.Or(strings.Join(labels, ", "), "none"), Several: true,
 				List: func() ([]menu.PageRow, bool) {
 					return modelChoices(harness, ticks, ticked, catalogs, keyboard, painter)
 				}})

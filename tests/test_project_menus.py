@@ -185,7 +185,7 @@ class Projects(Sandbox):
         folded, pages = self.draw(100, 12)
         # The grid folds to every share left, each whole, and every seat keeps its row.
         self.assertNotIn("no reading yet", folded)
-        self.assertIn("Claude 21% · MiMo — · Muse 50%", folded)
+        self.assertIn("Claude 21% · ChatGPT 69% · Muse 50%", folded)
         self.assertNotIn("↳", folded)
         self.assertIn("atoll-fix", folded)
         self.assertEqual(pages[0], 0)

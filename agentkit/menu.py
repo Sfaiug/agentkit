@@ -58,8 +58,7 @@ that reading is older than half an hour, with the weekday when it is not from to
 A probe the endpoint would not answer says nothing at all: its reading stands as it was,
 and past half an hour its age says the rest.
 The bar's filled cells are in the text's colour, amber while its login ends soon; the rows run
-red through violet by the hue of their company's own colour (`COLOURS`, or the provider's
-`colour` key), the near-greys last.  `—` is drawn
+in the order config.toml names their providers.  `—` is drawn
 only when there is no shared week to draw -- no reading at all, or nothing but one model's
 private cap -- and the words after it say why.  Everything else `ak usage` knows -- week
 elapsed, headroom, budget, outlook -- stays in `ak usage`.
@@ -118,7 +117,6 @@ ak --client`.  `ak attach` is the same menu under the name the phone
 key uses.
 """
 
-import colorsys
 import copy
 import datetime
 import decimal
@@ -159,10 +157,6 @@ OPENS = 4                # lines a page keeps for what a row opens before the us
 # seat sorts last in its project.  `watch.session_state` is what decides which of the five a
 # seat is.
 STATE_ORDER = ("needs you", "out of usage", "working", "done", "idle")
-# Each company's own colour, for its name on the `c` screen and its usage bar and row's place: a
-# provider's `colour` key in config.toml wins, and a provider named in neither is the accent.
-COLOURS = {"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3",
-           "google": "#203B9B", "mimo": "#FB8046"}
 TICK = terminal.TICK     # the longest the main screen waits for a key before drawing itself again
 WALK_EVERY = 60          # seconds one walk of a quiet run answers for: silence is told in hours, so
                          # a minute never shows, however many files a run's sandbox leaves behind
@@ -2648,36 +2642,11 @@ def _note_styled(part):
     return terminal.styled(part, "dim")
 
 
-def own_colour(cfg, name):
-    """This provider's own colour: its `colour` key, else the shipped one, else the accent."""
-    entry = cfg["providers"].get(name)
-    own = entry.get("colour") if isinstance(entry, dict) else None
-    if isinstance(own, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", own):
-        return own
-    return COLOURS.get(name, "accent")
-
-
-def colour(cfg, name):
-    """This provider's colour as it reads here (terminal.on_background)."""
-    return terminal.on_background(own_colour(cfg, name))
-
-
-def hue(kind):
-    """Where a colour sorts: red through violet by its hue, then the near-greys, lightest first.
-
-    A grey's hue is noise, so the greys go by how light they are instead.
-    """
-    rgb = kind[1:] if kind.startswith("#") else terminal.colour("accent")
-    shade, saturation, value = colorsys.rgb_to_hsv(*(int(rgb[i:i + 2], 16) / 255
-                                                     for i in (0, 2, 4)))
-    return (True, -value) if saturation < terminal.GREY else (False, shade)
-
-
 def usage_rows(cfg):
     """Each usage row `usage_lines` draws, in its order: the provider, the row's label, the
     reading it is drawn from, out of the cached meters, and its account, None for the
     provider's single row.  A provider whose table says `mode = "free"` is no subscription
-    and has no row."""
+    and has no row; the rest run in the order config.toml names them."""
     try:
         providers = json.loads((config.STATE / "usage.json").read_text())["providers"]
         if not isinstance(providers, dict):
@@ -2685,7 +2654,7 @@ def usage_rows(cfg):
     except (OSError, ValueError, KeyError, TypeError):
         providers = {}
     rows = []
-    for name in sorted(cfg["providers"], key=lambda name: hue(own_colour(cfg, name))):
+    for name in cfg["providers"]:
         if cfg["providers"][name].get("mode") == "free":
             continue
         top = providers.get(name)
@@ -2770,13 +2739,13 @@ def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
     a meter -- the bar (terminal.share_parts), full for what is left -- and what its cell says.
-    No company's colour is drawn; one whose login ends soon (`login_notes`) has what is left in
-    amber, and `lit`, from 1, the one the pointer or the highlight is on, is on the selection
-    over its whole cell, as any cell is lit (terminal.selected), every colour in it kept.  The
-    rest is said under the grid (`usage_detail`).  What each cell says is whole: the labels give
-    way to the longest, and a width with no room for a label beside it has no grid (`[]`), the
-    screen saying the readings (`usage_summary`).  `ending`, `login_notes` of `rows` where the
-    caller has read them already; `columns`, as many to a line as `Subscriptions` draws, one."""
+    One whose login ends soon (`login_notes`) has what is left in amber, and `lit`, from 1, the
+    one the pointer or the highlight is on, is on the selection over its whole cell, as any cell
+    is lit (terminal.selected), every colour in it kept.  The rest is said under the grid
+    (`usage_detail`).  What each cell says is whole: the labels give way to the longest, and a
+    width with no room for a label beside it has no grid (`[]`), the screen saying the readings
+    (`usage_summary`).  `ending`, `login_notes` of `rows` where the caller has read them already;
+    `columns`, as many to a line as `Subscriptions` draws, one."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
     if not found:
@@ -2843,7 +2812,7 @@ def meter_spots(width, count, first, rows=False):
 
 def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     """What the line under the usage grid says of subscription `number`, from 1, while the
-    pointer is on it: its label in its provider's colour, then -- each where it applies, joined
+    pointer is on it: its label, then -- each where it applies, joined
     with ` · ` -- a login that ends soon, in amber (`login_notes`), the credits it holds, when
     its week resets and what each cap its provider names has left, the resets in hand
     (`in_hand`), each cap config.toml claims that differs (`scoped_notes`), its 5-hour window
@@ -2878,7 +2847,7 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     held = terminal.cells(login or "")
     label = terminal.cut(label, room - (held if held <= room else 0))
     room -= terminal.cells(label)
-    return (terminal.styled(label, colour(cfg, name)) + "  " + terminal.styled(" · ", "dim")
+    return (label + "  " + terminal.styled(" · ", "dim")
             .join(terminal.styled(part, "amber") if part == login else terminal.styled(
                 part, "info") if part == hand else _note_styled(part)
                   for part in fitting(notes, room)))
@@ -3069,9 +3038,8 @@ def model_label(cfg, name, width):
 
 
 def model_heading(harness):
-    """The same heading over the models on `c` and `n`: their harness's name, in its colour."""
-    return terminal.styled(config.harness_name(harness),
-                           terminal.on_background(config.harness_colour(harness) or "accent"))
+    """The same heading over the models on `c` and `n`: their harness's name, bold."""
+    return terminal.styled(config.harness_name(harness), "bold")
 
 
 # each role's group in a record (its config role: matrix.CONFIG_ROLES), which a take sets
@@ -5181,8 +5149,8 @@ def meter_acts(cfg, keyboard, number, screen):
 # The owner chose this layout on 26 Oct 2026, so the details stay calm until pointed at.
 @terminal.clicks_its_own
 def config_subscriptions(cfg, keyboard):
-    """`Subscriptions` on `c`: each subscription under its company (COMPANIES), named in its colour
-    as `c` names a harness, as the main screen draws it (usage_lines), then `+ add a subscription`
+    """`Subscriptions` on `c`: each subscription under its company (COMPANIES), named bold as `c`
+    names a harness, as the main screen draws it (usage_lines), then `+ add a subscription`
     (config_add_provider).  The row the keys or the pointer are on says its resets in hand beside
     its meter where there is room, and opens a line: whose login it is and its plan (logins.whose;
     one ending as login_notes says it, amber), resets with no room beside its meter, then its acts
@@ -5215,7 +5183,7 @@ def config_subscriptions(cfg, keyboard):
             if number == 1 or subs[number - 2][0] != name:
                 company = (COMPANIES[name].split(" / ")[0] if name in COMPANIES
                            else config.provider_name(cfg, name))
-                body.append(terminal.styled(company, colour(cfg, name)))
+                body.append(terminal.styled(company, "bold"))
             places[len(body)] = (("sub", number), own)
             if number != lit:
                 body.append(line)
@@ -5627,7 +5595,7 @@ def models_page(cfg, keyboard):
         return choices, True
 
     def page():
-        return [(model_heading(harness), ", ".join(config.model_name(cfg, name)
+        return [(config.harness_name(harness), ", ".join(config.model_name(cfg, name)
                                                    for name in on(harness)) or "none",
                  ticks(harness)) for harness in harnesses], TICKS_NOTE
     config_page("models", page)

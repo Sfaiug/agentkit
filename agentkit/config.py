@@ -2316,16 +2316,6 @@ def harness_name(harness):
     return name if isinstance(name, str) and name else harness
 
 
-def harness_colour(harness):
-    """What a screen draws that harness's name in: its manifest's `colour`, `#RRGGBB`, else
-    None."""
-    try:
-        own = manifest(harness).get("colour")
-    except Error:
-        own = None
-    return own if isinstance(own, str) and re.fullmatch(r"#[0-9A-Fa-f]{6}", own) else None
-
-
 def instruction_ceiling():
     """The most of a project's AGENTS.md every harness reads on its own, and whose limit it is.
 
