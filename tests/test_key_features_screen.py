@@ -17,6 +17,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX, Home
+from fixtures.aklooks import looks
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
@@ -155,12 +156,16 @@ class FeaturesScreen(unittest.TestCase):
         term, _ = self.switches()
         hold = self.home.write("acme-features/hold", "")
         term.keys("Space")
-        term.wait(lambda screen: "━" in screen.split("\n")[1]
+
+        def rule():     # the rule's looks: one at rest, more where the rainbow glides along it
+            return {shown for _, shown in looks(term.screen(colours=True))[1]}
+        term.wait(lambda screen: len(rule()) > 1
                   and row(screen, "Dark mode") == "› Dark mode     ○      ○")
         hold.unlink()
         screen = steady(term, lambda screen: row(screen, "Dark mode")
                         == "› Dark mode     ●      ○")
         self.assertEqual(screen.split("\n")[1], "─" * 100)
+        self.assertEqual(len(rule()), 1)
         self.leave(term, "3 hidden features")
 
     def test_the_only_switches_are_you_and_everyone(self):

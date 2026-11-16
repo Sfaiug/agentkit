@@ -10,8 +10,8 @@ Every screen, painted in its theme, has the same frame, a notice's (`note`) too.
 one line: `agentkit` and the screen's name left, the clock right. Under it: one `border` rule,
 the rows, one blank line, and the key line, always last. On the main screen and on `c`, the
 usage sits under the header.
-The rule is ak's one progress indicator. It fills while ak updates itself, and a segment
-glides along it while a screen waits on what it shows. Ctrl-b m's popup's rounded border is
+The rule is ak's one progress indicator. It fills while ak updates itself, and the rainbow
+glides along it while a screen loads. Ctrl-b m's popup's rounded border is
 the border colour. Helpers: `terminal.header_line`,
 `terminal.rule_line`, `terminal.key_line`, `terminal.layout_width`.
 
@@ -93,7 +93,7 @@ Screens ask for roles, never RGB: `working` is accent, `needs you` warning, `don
 `FAIL` and `out of usage` error, `idle` and `waiting` dim; a seat's bar surface, its chip
 on-accent on its state's. Names and numbers are `text`, what tells of its neighbour `muted`, what
 the eye skips `dim`, lines `border`, ak's own word `info`; a highlight keeps them. A fade nears
-the background; lit, the text.
+the background; lit, the text; moving, the rainbow (`themes.RAINBOW`).
 
 `themes.ROLES` (Go: `terminal/themes.go`) holds both themes; `NO_COLOR` colours nothing.
 

@@ -2062,7 +2062,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                     terminal.state_glyph(shown), shown, since, lit))
                 if shown == "done" and key[1] in bars:
                     clock.grows.pop(key[1], None)
-                    line(key[1], lambda cells: motion.sweeping(cells, since, shown, lit))
+                    line(key[1], lambda cells: motion.sweeping(cells, since, lit))
         for cell, char, bright in breaths:
             breathe, growing = motion.breathing(char, "working", bright), clock.cells.get(cell)
             if growing:       # a tip still growing in breathes once it is there

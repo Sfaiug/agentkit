@@ -1,6 +1,6 @@
 """The rule under the header is ak's one progress indicator: a start update fills it under
 `agentkit · updating`, one step at a time, with no bar of its own; a screen whose content is
-still being fetched after 150 ms has a bright segment glide along it until it lands, and one
+still being fetched after 150 ms has the rainbow glide along it until it lands, and one
 fetched sooner shows nothing -- a list asked again under rows already drawn, and a `set`, as
 much as a first list, and one landing as the screen is drawn is drawn at once; Esc during a glide
 goes back within 100 ms, and a `set` it leaves behind never draws over a later one.  A screen
@@ -50,6 +50,7 @@ CLOCK = r"""
 import os, select, sys, threading, time, types
 sys.path.insert(0, os.environ["RULE_REPO"])
 from agentkit import menu, motion, terminal
+from agentkit.themes import RAINBOW
 
 
 class Waited:
@@ -108,7 +109,7 @@ def frame(*args, draw=terminal.frame, **more):
 def clock_frame(clock, write=motion.Clock.frame):
     global held
     out = write(clock)
-    held = held or hold and "━" in out
+    held = held or hold and terminal.ink(terminal.colour(RAINBOW[0])) in out   # the light's head
     return "<frame>" + out
 
 
@@ -181,7 +182,8 @@ keyboard.give()
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
-GLIDE = re.compile(r"\x1b\[2;\d+H\x1b\[[0-9;]*m━")   # a lit cell written on the rule's row
+# a light's cell on the rule's row: its `─` in a colour not the border's (black's, 3a3f46)
+GLIDE = re.compile(r"\x1b\[2;\d+H\x1b\[(?!38;2;58;63;70m)[0-9;]*m─")
 # A whole update with a row in it: a clock's cell has none.
 DRAW = re.compile(r"(?s)\x1b\[\?2026h(?:(?!\x1b\[\?2026l).)*?\x1b\[K.*?\x1b\[\?2026l")
 HUNG = 120      # seconds with no answer: a child importing cold on a loaded host takes tens of them
@@ -320,7 +322,7 @@ class RuleProgress(unittest.TestCase):
         text = screen.text()
         landed = text.rindex("\x1b[?2026h", 0, text.index("Dark mode"))
         self.assertIn("─" * 80, text[landed:])              # the rule still once it landed
-        self.assertNotIn("━", text[landed:])
+        self.assertNotRegex(text[landed:], GLIDE)
         self.assertGreater(len(GLIDE.findall(text[:landed])), 10)    # moving, not one frame
         os.write(screen.master, b"\x1b")
         screen.when("<back>")
@@ -331,7 +333,7 @@ class RuleProgress(unittest.TestCase):
         landed = screen.when("Dark mode")
         self.assertLess(landed - opened, 0.5)                # within a frame, not a second
         screen.when(r"\x1b\[H", screen.text().index("Dark mode"))    # the draw a second on
-        self.assertNotIn("━", screen.text())
+        self.assertNotRegex(screen.text(), GLIDE)
         os.write(screen.master, b"\x1b")
         screen.when("<back>")
 
@@ -339,7 +341,7 @@ class RuleProgress(unittest.TestCase):
         screen = Screen(self, 0)
         opened = screen.when("asking for its features")
         self.assertLess(screen.when("Dark mode") - opened, 0.5)
-        self.assertNotIn("━", screen.text())
+        self.assertNotRegex(screen.text(), GLIDE)
         os.write(screen.master, b"\x1b")
         screen.when("<back>")
 

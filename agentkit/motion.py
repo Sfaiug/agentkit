@@ -14,7 +14,7 @@ a popup's content fades in once, as it opens, and a page's under its
 header as it opens, its name writing itself out in the header, and a theme chosen comes down
 the screen it is chosen on, a row at a time; the rule under a screen's
 header glides while its content is fetched, a spinner turning beside what ak waits on -- and
-every motion runs on this same clock
+every motion runs on this same clock, every light that travels in the theme's rainbow (`lit`)
 (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
 (`Clock.start`), asking first which of its values are news
 (`Clock.look`); the wait loop asks how long until the next frame (`Clock.wait`) and what to
@@ -30,6 +30,7 @@ import re
 import time
 
 from . import terminal
+from .themes import RAINBOW
 
 FRAME = 1 / 20      # at most twenty frames a second
 BREATH = 2.0        # seconds a breathing cell takes out to its dimmer tone and back
@@ -54,8 +55,7 @@ HALF = {"□": "■", "■": "■", "○": "●", "●": "●"}     # a mark hal
 BRIGHTER = 0.5      # how lit news is: half way from its colour to the foreground
 FADE = 0.12         # seconds a popup's content takes to come up out of the background
 WAIT = 0.15         # ... a screen's content is fetched for before its rule says so
-LAP = 1.2           # ... the segment on that rule takes along it, and again, until it lands
-SEGMENT = 8         # cells that segment is long
+LAP = 1.2           # ... the light on that rule takes along it, and again, until it lands
 SPIN = 2 * FRAME    # seconds each of the spinner's glyphs shows beside what ak waits on
 SPINNER = "▖▘▝▗"     # quadrants, which a terminal draws itself, and `|/-\` without UTF-8
 THEMED = 0.35       # seconds a theme chosen takes to come down the screen, its top row to its last
@@ -70,6 +70,16 @@ def breath(now):
 def eased(x):
     """0 to 1 as `x` goes from 0 to 1, slow out of the one and into the other."""
     return (1 - math.cos(math.pi * min(1, max(0, x)))) / 2
+
+
+def lit(text, behind, bright=False):
+    """`text`, a cell as it shows, its head-most cell `behind` cells back from the head of a light
+    that travels: its glyph in the rainbow's colour that far down it where the light covers every
+    cell the glyph takes, `bright` on the highlighted row; else None."""
+    if not 0 <= behind <= len(RAINBOW) - terminal.cells(terminal.plain(text)):
+        return None
+    shown = terminal.styled(terminal.plain(text), "#" + terminal.colour(RAINBOW[behind]))
+    return terminal.bright(shown) if bright else shown
 
 
 def tinted(glyph, word, amount, bright=False):
@@ -122,18 +132,18 @@ def filling(up, began, bright=False):
 
 def shimmering(word, began, kind=None, bright=False):
     """An effort's `word` that a step at `began` took to its model's highest: one light through
-    it, a letter at a time left to right, in SHIMMER seconds, and then as the draw wrote it; and
+    it (`lit`), left to right, in SHIMMER seconds, and then as the draw wrote it; and
     when it is still.  The word is written whole from its first cell, so a letter two cells wide
-    keeps both.  `kind` is how the draw styled it -- `dim` on a spent model's row -- and `bright`
-    is the highlighted row."""
-    light = terminal.faded("working", -BRIGHTER)
+    keeps both, and the light's head steps onto both at once.  `kind` is how the draw styled it
+    -- `dim` on a spent model's row -- and `bright` is the highlighted row."""
+    ends = [terminal.cells(word[:n + 1]) for n in range(len(word))]
 
     def at(now):
-        lit = int(len(word) * (now - began) / SHIMMER)
-        dark, shone, rest = word[:lit], terminal.styled(word[lit:lit + 1], light), word[lit + 1:]
-        if kind:
-            dark, rest = terminal.styled(dark, kind), terminal.styled(rest, kind)
-        text = dark + shone + rest
+        head = int((terminal.cells(word) + len(RAINBOW)) * (now - began) / SHIMMER)
+        head = next((end - 1 for end in ends if end > head), head)
+        text = ""
+        for letter, end in zip(word, ends):
+            text += lit(letter, head + 1 - end) or kind and terminal.styled(letter, kind) or letter
         return terminal.bright(text) if bright else text
     return at, began + SHIMMER
 
@@ -214,8 +224,8 @@ def titled(header, x):
 def growing(cells, began, took=GROW, start=0, light=None):
     """A progress line, `cells` each of its cells as the draw wrote it: its done part grows or
     shrinks from its first `start` cells to its length in `took` seconds from `began` -- from
-    nothing as a screen opens, from its old length as its plan moves, then with one cell of
-    `light` at its head and the cells it shrinks from in `light`'s colour -- the rest of it the
+    nothing as a screen opens, from its old length as its plan moves, then with a light (`lit`)
+    at its head and the cells it shrinks from in `light`'s colour -- the rest of it the
     empty track, and each cell is then as drawn; an animation for each cell, and when it is
     still."""
     done = sum(1 for text in cells if terminal.plain(text) in ("━", "╸", "="))
@@ -229,33 +239,23 @@ def growing(cells, began, took=GROW, start=0, light=None):
             head = round(start + (done - start) * eased((now - began) / took))
             if n >= head:
                 return track if filled else text
-            if light and n == head - 1 and now < began + took:
-                return terminal.styled(terminal.plain(text) if filled else full,
-                                       terminal.faded(light, -BRIGHTER))
-            if filled:
-                return text.replace("╸", full) if n < head - 1 else text
-            return terminal.styled(full, light)
+            shown = ((text.replace("╸", full) if n < head - 1 else text) if filled else
+                     terminal.styled(full, light))
+            return light and now < began + took and lit(shown, head - 1 - n) or shown
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + took
 
 
 def circling(cells, bright=False):
     """A working seat's line with no plan yet, `cells` each of its cells as the draw wrote it: a
-    soft light three cells long goes along it left to right in ROUND seconds, in at the left and
-    out at the right, and round again -- its middle brighter than the working colour, its ends
-    half way to the background -- its place the clock's alone, so every such line moves in one
+    light (`lit`) goes along it left to right in ROUND seconds, in at the left and
+    out at the right, and round again, its place the clock's alone, so every such line moves in one
     phase; an animation for each cell, for as long as it is drawn.  `bright` on the highlighted
     row."""
-    full = "━" if terminal.utf8() else "="
-    inks = [terminal.faded("working", amount) for amount in (DIMMER, -BRIGHTER, DIMMER)]
-
     def cell(n, text):
         def at(now):
-            behind = int(now % ROUND / ROUND * (len(cells) + len(inks))) - n
-            if not 0 <= behind < len(inks):
-                return text
-            lit = terminal.styled(full, inks[behind])
-            return terminal.bright(lit) if bright else lit
+            head = int(now % ROUND / ROUND * (len(cells) + len(RAINBOW)))
+            return lit(text, head - n, bright) or text
         return at
     return [cell(n, text) for n, text in enumerate(cells)], None
 
@@ -302,18 +302,14 @@ def nudging(text, began, bright=False):
     return at, began + SHAKE
 
 
-def sweeping(cells, began, kind, bright=False):
+def sweeping(cells, began, bright=False):
     """A line just done, `cells` each of its cells as the draw wrote it, from `began`: one light
-    of `kind`'s colour crosses it left to right in SWEEP seconds, and each cell is then as
+    (`lit`) crosses it left to right in SWEEP seconds, and each cell is then as
     drawn; an animation for each cell, and when it is still."""
-    light = terminal.faded(kind, -BRIGHTER)
-
     def cell(n, text):
         def at(now):
-            if n != int(len(cells) * (now - began) / SWEEP):
-                return text
-            lit = terminal.styled(terminal.plain(text), light)
-            return terminal.bright(lit) if bright else lit
+            head = int((len(cells) + len(RAINBOW)) * (now - began) / SWEEP)
+            return lit(text, head - n, bright) or text
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + SWEEP
 
@@ -323,17 +319,16 @@ def fetching(clock, began):
     content is fetched from `began`, a cell each; `clock`.
 
     For WAIT seconds it is the rule as drawn -- a wait shorter than that shows nothing -- then a
-    bright segment SEGMENT cells long glides along it, in from the left and out at the right in
+    light (`lit`) glides along it, in from the left and out at the right in
     LAP seconds, and again; the screen draws the rule still once what it waits on has landed.
     """
-    lit = terminal.styled("━", terminal.faded("working", -BRIGHTER))
     still, size = terminal.rule_line(1), terminal.layout_width()
 
     def cell(n):
         def at(now):
             t = now - began - WAIT
-            head = eased(t % LAP / LAP) * (size + SEGMENT)
-            return lit if t >= 0 and head - SEGMENT <= n < head else still
+            head = int(eased(t % LAP / LAP) * (size + len(RAINBOW)))
+            return t >= 0 and lit(still, head - n) or still
         return at
     for n in range(size):
         clock.start([(2, 1 + n)], cell(n))

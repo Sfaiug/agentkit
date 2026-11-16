@@ -1,6 +1,6 @@
 """A working seat with no plan draws a plan's line with nothing done and `no plan yet`.
 
-The line is a plan's own, as wide as one, all a dim `─`; on the menu a soft light goes round it,
+The line is a plan's own, as wide as one, all a dim `─`; on the menu the rainbow goes round it,
 its place the clock's alone, and a frame rewrites nothing but that line and the breathing `●`.
 A seat's own tmux bar draws it still.  Every other word, and a seat with a plan, draws as before.
 Offline, in a throwaway HOME, on a true-colour terminal that is a stand-in.
@@ -17,6 +17,7 @@ import unittest
 
 from fixtures.sandbox import Sandbox
 from agentkit import config, menu, motion, orch, statusbar, terminal
+from agentkit.themes import RAINBOW
 
 WORDS = {"fix-api": "working", "add-tab": "working", "web-app": "needs you"}
 PLANS = {"add-tab": (3, 8)}
@@ -88,17 +89,19 @@ class NoPlanBar(Sandbox):
                 return clock.frame()
 
         def lit(at):
-            """The cells of fix-api's line lit at `at`, and every cell any other row shows."""
-            shown = {cell: terminal.plain(animation(at))
-                     for cell, (animation, _) in clock.cells.items()}
-            return ({column for (row, column), text in shown.items()
-                     if row == number and text == "━"},
-                    {cell: text for cell, text in shown.items() if cell[0] != number})
+            """Fix-api's line's cells in the rainbow at `at` in true colour, and other rows'."""
+            with patch.object(terminal, "colour_depth", return_value=24):
+                inks = [terminal.ink(terminal.colour(role)) for role in RAINBOW]
+                shown = {cell: animation(at) for cell, (animation, _) in clock.cells.items()}
+            return ({column for (row, column), text in shown.items() if row == number
+                     and terminal.plain(text) == "─" and any(ink in text for ink in inks)},
+                    {cell: terminal.plain(text) for cell, text in shown.items()
+                     if cell[0] != number})
 
-        early, others = lit(base + 0.4)
+        early, others = lit(base + 0.6)
         later, still = lit(base + 1.2)
-        self.assertEqual(len(early), 3)
-        self.assertEqual(len(later), 3)
+        self.assertEqual(len(early), 6)
+        self.assertEqual(len(later), 6)
         self.assertLess(max(early), min(later))         # left to right
         self.assertTrue(early | later <= set(span))
         self.assertEqual(others, still)                 # the planned row draws as drawn

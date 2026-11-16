@@ -30,6 +30,9 @@ ROLES = {
     "special": ("a23baa", "da7de0"),
     "on-accent": ("ffffff", "000000"),
 }
+# A light that moves says only that it moves, so it is no role's: from its head back, the roles
+# that say where a thing stands in the spectrum's order, each theme's own rainbow (motion.lit).
+RAINBOW = ("error", "warning", "success", "info", "accent", "special")
 
 
 def named(path):

@@ -22,6 +22,7 @@ import unittest
 from fixtures.clock import Clock
 from fixtures.sandbox import Sandbox, menu_input
 from agentkit import config, menu, motion, orch, terminal
+from agentkit.themes import RAINBOW
 
 Key = terminal.Key
 NEEDS = (0xd7, 0x92, 0x00)          # `needs you` in the black theme
@@ -60,7 +61,9 @@ class Keyboard:
         pass
 
 
-class NewsMotion(Sandbox):
+class Menu(Sandbox):
+    """The ak screen, offline, on its own clock (`run_menu`)."""
+
     def setUp(self):
         super().setUp()
         os.environ.pop("NO_COLOR")
@@ -119,13 +122,14 @@ class NewsMotion(Sandbox):
             self.live._wake()
         return step
 
-    def run_menu(self, script, after=1.2):
+    def run_menu(self, script, after=1.2, screen=None):
         """`menu.loop` through `script`, a step a wait, and each wait's timeout, when it began and
         what was written before it; and the wait at which the last step was taken.
 
         A step is None for a wait nothing is typed in, a function for news landing in it, or a
         key.  Past the script the waits run on, and the menu is left once nothing moves or
         `after` seconds have passed.  A wake still unanswered ends a wait at once, as it does.
+        `screen()`, where given, runs in the menu's place, and is left by Esc.
         """
         out, waits, steps = io.StringIO(), [], list(script)
         out.isatty = lambda: True           # a terminal, as far as colour is concerned
@@ -139,8 +143,8 @@ class NewsMotion(Sandbox):
                 return None
             if not steps:
                 last.setdefault("at", (len(waits) - 1, self.now))
-                if timeout > motion.FRAME or self.now - last["at"][1] > after:
-                    return ""
+                if timeout is None or timeout > motion.FRAME or self.now - last["at"][1] > after:
+                    return Key("esc") if screen else ""
                 self.sleep(timeout)
                 return None
             step = steps.pop(0)
@@ -148,12 +152,12 @@ class NewsMotion(Sandbox):
                 step()
                 return None
             if step is None:
-                self.sleep(min(timeout, motion.FRAME))
+                self.sleep(min(timeout or 0, motion.FRAME))
             return step
 
-        with menu_input(wait=wait_key, return_value="q"), \
-                patch("sys.stdout", out):
-            self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
+        with menu_input(wait=wait_key, return_value="q"), patch("sys.stdout", out), \
+                patch.object(terminal, "read_key", lambda *wait: wait_key("", *wait)):
+            (screen or (lambda: self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)))()
         return waits, last["at"][0]
 
     def written(self, waits, since):
@@ -199,6 +203,8 @@ class NewsMotion(Sandbox):
         """Nothing moves now: the menu was left on a wait longer than a frame."""
         self.assertGreater(waits[-1][0], motion.FRAME)
 
+
+class NewsMotion(Menu):
     def test_a_seat_turning_needs_you_pulses_twice_then_is_still(self):
         # on web-portal: the keys' row, fix-api's, stands on the selection whatever lands on it
         self.words = {"fix-api": "done", "web-portal": "working"}
@@ -261,8 +267,7 @@ class NewsMotion(Sandbox):
         self.assert_on_glow(cells, row)     # the `✓`, and the light where it crosses the row
         row += "━" not in lines[row - 1]
         start = row, terminal.cells(lines[row - 1][:lines[row - 1].index("━")]) + 1
-        light = terminal.faded("done", -motion.BRIGHTER)
-        light = tuple(int(light[n:n + 2], 16) for n in (1, 3, 5))
+        light = tuple(bytes.fromhex(terminal.colour(RAINBOW[0])))     # its head's
         first = {}
         for when, (row, column), text in cells:
             if row == start[0] and column >= start[1] and painted(text)[0][1] == light:
@@ -280,8 +285,7 @@ class NewsMotion(Sandbox):
         screen, cells = self.written(waits, at)
         self.assertIn("4 of 4", terminal.ANSI.sub("", screen))     # the draw says it at once
         start = self.cell(screen, "fix-api", "━")
-        light = terminal.faded("working", -motion.BRIGHTER)
-        light = tuple(int(light[n:n + 2], 16) for n in (1, 3, 5))
+        light = tuple(bytes.fromhex(terminal.colour(RAINBOW[0])))     # its head's
         heads = [(when, column) for when, (row, column), text in cells
                  if row == start[0] and painted(text)[0][1] == light]
         # the head moves right, from a quarter of the line to its end, in about 700 ms
