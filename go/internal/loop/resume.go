@@ -182,17 +182,9 @@ func Reopen(dir string, read *run.Object, order func(*run.Object)) error {
 		}
 		if from == "running" && !run.ResumeOrdered(record, clock()) {
 			from = "interrupted"
-			reason := "Run process exited or its identity changed."
-			run.SetAll(record, "interrupted_at", clock(), "interruption_reason", reason)
-			deaths := record.List("deaths")
-			var last *run.Object
-			if len(deaths) > 0 {
-				last, _ = deaths[len(deaths)-1].(*run.Object)
-			}
+			run.SetAll(record, "interrupted_at", clock(), "interruption_reason", run.LoopGone)
 			// once: the tick that noticed it may have recorded it already
-			if last == nil || last.Truthy("resumed_at") || !run.Equal(last.Get("pid"), record.Get("pid")) {
-				record.Set("deaths", append(append([]any{}, deaths...), run.Fields("at", clock(), "pid", record.Get("pid"), "reason", reason)))
-			}
+			run.NoteDeath(record, clock(), run.LoopGone)
 		}
 		for _, key := range delivery {
 			record.Delete(key)

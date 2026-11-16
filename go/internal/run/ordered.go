@@ -28,27 +28,6 @@ func LaunchGrace(record *Object, now float64) bool {
 	return now-at < 30
 }
 
-// LoopDeath is transitions.loop_death: the last death where it ended the loop the record names now,
-// else nil.  A resume starts a new loop and leaves the deaths as they were, so one of another pid,
-// or noted before this loop started (a pid comes round again), is an earlier loop's.
-func LoopDeath(record *Object) *Object {
-	deaths := record.List("deaths")
-	if len(deaths) == 0 {
-		return nil
-	}
-	death, ok := deaths[len(deaths)-1].(*Object)
-	if !ok || !Equal(death.Get("pid"), record.Get("pid")) {
-		return nil
-	}
-	at, dated := death.Num("at")
-	if identity := record.Dict("process_identity"); identity != nil && dated {
-		if start, ok := identity.Num("started_at"); ok && at < start {
-			return nil
-		}
-	}
-	return death
-}
-
 // Scoped is whether a unit the manager holds ran that loop (turns.scope_is_real).
 func Scoped(record *Object) bool {
 	scope := record.Str("scope")

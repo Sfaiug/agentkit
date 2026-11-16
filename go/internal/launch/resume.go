@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
@@ -30,6 +31,11 @@ type taken struct {
 	dir          string
 	read, record *run.Object
 }
+
+// ErrUnrecorded is a resume Python's refuses as one with nothing to resume, the refusal its
+// reason: Python's to a caller that does not say it into the run's log as Python's tick does, its
+// resume refusing in the background.
+var ErrUnrecorded = fmt.Errorf("%w: nothing to resume", ErrPython)
 
 // take is whether Go's resume takes the run up, decided before anything is written: nil with its
 // refusal, or ErrPython where the resume is Python's.  live is a loop the caller ends once it is
@@ -56,6 +62,9 @@ func take(id string, expected *run.Object, order func(*run.Object), live bool) (
 		return nil, 2, "blocked runs are not resumed; the orchestrator writes a new task", nil
 	case state == "stopped":
 		return nil, 2, "stopped runs are not resumed; start a new task from its branch", nil
+	}
+	if missing := unrecorded(record); missing != "" {
+		return nil, 2, fmt.Sprintf("%s: run.json records no %s; there is nothing to resume", id, missing), ErrUnrecorded
 	}
 	if !goesOn(dir, read, record) {
 		return nil, 0, "", ErrPython
@@ -112,6 +121,31 @@ func (took taken) carry(order func(*run.Object), noted func(), bg bool, out, err
 func reached(dir string, record *run.Object) bool {
 	return record != nil && gateHere(record) && !ungated(filepath.Base(dir)) &&
 		!(run.Lined(record) && !loop.Woken(record)) && run.Carries(record)
+}
+
+// unrecorded is what the record lacks to resume where Python's resume reaches its check of that
+// and refuses it: past its box and its config, and in a state it resumes, a live loop's only where
+// the tick ordered it, as one it did not is reaped first.  A run with review off may hold no rounds.
+func unrecorded(record *run.Object) string {
+	state := record.Str("state")
+	resumes := slices.Contains([]string{"interrupted", "exhausted", "stalled", "waiting_login", "error", "waiting"}, state) ||
+		state == "running" && run.ResumeOrdered(record, now())
+	if !resumes || !record.Truthy("worktree") {
+		return ""
+	}
+	needed := []string{"repo", "worktree", "branch", "base", "base_sha", "rounds"}
+	if record.Truthy("scratch") {
+		needed = []string{"worktree", "rounds"}
+	}
+	for _, key := range needed {
+		if rounds, _ := record.Int(key); !record.Truthy(key) && !(key == "rounds" && record.Has(key) && rounds == 0 && run.ReviewOff(record)) {
+			if box.Check() != nil || config.Check() != nil {
+				return ""
+			}
+			return key
+		}
+	}
+	return ""
 }
 
 // goesOn is whether Go's resume takes up a run it reached and did not refuse, record being the

@@ -92,8 +92,9 @@ func viewRun(record *run.Object, now time.Time) (runView, bool) {
 		return view, true
 	}
 	view := runView{going: run.Going(record, now), live: awaitingLive(record, now)}
-	// Other parked recovery still needs Python's reader; a parked error, exhausted run or merge wait is rung 3's (runParked).
-	if !view.going && state != "error" && state != "exhausted" && run.NeedsRecovery(record) {
+	// Other parked recovery still needs Python's reader; a parked error, exhausted run or merge wait
+	// is rung 3's (runParked), and a death the tick carries on is the dead loops row's.
+	if !view.going && state != "error" && state != "exhausted" && !run.Carried(record) && run.NeedsRecovery(record) {
 		return runView{}, false
 	}
 	stage := map[string]int{"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}[record.Str("step")]

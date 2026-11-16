@@ -116,7 +116,8 @@ func TestAPointGoCannotPickUpFromIsPythons(t *testing.T) {
 func TestReopenRecordsTheDeathAndHandsTheRecordToANewDriver(t *testing.T) {
 	l := rig(t, time.Minute)
 	if err := run.Change(l.dir, func(record *run.Object) error {
-		run.SetAll(record, "state", "running", "pid", 999999, "handed_back", true, "error", "old", "reported", true)
+		// a worktree to go on in, as Python's reap records only a death the tick carries on
+		run.SetAll(record, "state", "running", "pid", 999999, "handed_back", true, "error", "old", "reported", true, "worktree", l.workspace)
 		return nil
 	}); err != nil {
 		t.Fatal(err)

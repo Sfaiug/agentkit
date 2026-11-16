@@ -1,7 +1,5 @@
 package run
 
-import "os"
-
 // Member is whether a record holds a place in its landing line, Python's land.member, the one
 // answer the line, what a red waits on, the lander's wake and the record's line_since read: it
 // waits there, or it is a green delivery that has not ended, is on its way
@@ -34,19 +32,7 @@ func delivering(record *Object) bool {
 	case "exhausted":
 		return ExhaustedWait(record) != ""
 	case "interrupted":
-		return record.Truthy("deaths") && TickResumes(record)
+		return Carried(record)
 	}
 	return false
-}
-
-// TickResumes is whether the tick carries a dead loop on itself, Python's
-// transitions.tick_resumes: one it has not given up on, with its worktree still there.
-func TickResumes(record *Object) bool {
-	if deaths := record.List("deaths"); len(deaths) > 0 {
-		if last, _ := deaths[len(deaths)-1].(*Object); last != nil && last.Truthy("parked") {
-			return false
-		}
-	}
-	info, err := os.Stat(record.Str("worktree"))
-	return record.Truthy("worktree") && err == nil && info.IsDir()
 }
