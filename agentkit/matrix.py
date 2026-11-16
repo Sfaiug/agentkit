@@ -472,9 +472,9 @@ def live(cfg, now=None):
     requests its seat wrote (the row's `own_orchestrator`), how many and the share merged in
     round 1.  Of the runs it finished a review of, by its harness and model id, whatever became
     of them since, how many and the share it let through in round 1 (`history.reviewed_runs`).
-    {label: {role: {"runs", "round_1"} or None}}: a label per effort the model's runs recorded
-    (`acme @ max`, the strongest first), the bare name for runs that recorded none and for a
-    model that ran nothing."""
+    {(name, effort): {role: {"runs", "round_1"} or None}}: a key per effort the model's runs
+    recorded, the strongest first, effort None for runs that recorded none and for a model that
+    ran nothing."""
     from . import history     # here, not at the top: the boards and the table need no database
     now = time.time() if now is None else now
     rows = [row for row in history.ended_runs(0, now) if row.get("final_state") in record.JUDGED]
@@ -493,7 +493,7 @@ def live(cfg, now=None):
         for effort, reviewed in history.reviewed_runs(entry["harness"], entry["model"]).items():
             counts.setdefault(effort or None, {})["review"] = reviewed
         for effort in sorted(counts, key=lambda word: (word is None, -effort_rank(word))) or [None]:
-            found[f"{name} @ {effort}" if effort else name] = {
+            found[name, effort] = {
                 role: share(*counts.get(effort, {}).get(role, (0, 0))) for role in quality.ROLES}
     return found
 
@@ -510,14 +510,11 @@ def live_cell(found):
 
 def live_lines(own, cfg):
     """The second table: each configured model's own numbers per role, `55% of 320`, its row
-    named as every screen names a model and its effort (`config.model_name`): `Nova 7.1 max`
-    for `live`'s `nova @ max`."""
-    def said(label):
-        name, _, effort = label.partition(" @ ")
-        return " ".join(filter(None, (config.model_name(cfg, name), effort)))
+    named as every screen names a model and its effort (`config.model_said`): `Nova 7.1 max`
+    for `live`'s `("nova", "max")`."""
     lines_of = [LIVE_HEADERS] + [
-        (said(label), *(live_cell(found[role]) for role in quality.ROLES))
-        for label, found in own.items()]
+        (config.model_said(cfg, name, effort), *(live_cell(found[role]) for role in quality.ROLES))
+        for (name, effort), found in own.items()]
     widths = [max(terminal.cells(line[i]) for line in lines_of) for i in range(len(LIVE_HEADERS))]
     head, *lines = [" ".join(terminal.pad(text, w) for text, w in zip(line, widths)).rstrip()
                     for line in lines_of]
@@ -666,7 +663,9 @@ def main(argv):
             "others": [{**drawn(row, said), "why": why, "by": by and {
                 key: by[key] for key in ("name", "effort")}}
                 for row in said["others"] for why, by in [said["whys"][id(row)]]]}
-            for role, said in found.items()}, "live": own,
+            for role, said in found.items()},
+            "live": {f"{name} @ {effort}" if effort else name: roles
+                     for (name, effort), roles in own.items()},
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
                            for name, efforts in shares.items()}},

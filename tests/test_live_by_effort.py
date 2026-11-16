@@ -129,25 +129,29 @@ class LiveByEffort(Sandbox):
         ended("t5", executor="astra", reviews=[("opus", "max")])
         ended("p1", executor=None, own_orchestrator="fable", own_orchestrator_effort="high")
         ended("p2", executor=None, own_orchestrator="astra")  # before the writer's effort was kept
+        ended("t6", executor="fable", effort="none")
         own = matrix.live(self.cfg, now=10000)
-        self.assertEqual([label for label in own if label.split(" @ ")[0] == "opus"],
-                         ["opus @ max", "opus @ high", "opus"])   # the strongest first, none last
-        self.assertEqual(own["opus @ max"], {"orchestrate": None,
-                                             "execute": {"runs": 2, "round_1": 50},
-                                             "review": {"runs": 1, "round_1": 100}})
-        self.assertEqual(own["opus @ high"]["execute"], {"runs": 1, "round_1": 100})
-        self.assertEqual(own["opus"]["execute"], {"runs": 1, "round_1": 100})
-        self.assertEqual(own["fable @ high"]["orchestrate"], {"runs": 1, "round_1": 100})
-        self.assertNotIn("fable", own)
-        self.assertEqual(own["astra"], {"orchestrate": {"runs": 1, "round_1": 100},
-                                        "execute": {"runs": 1, "round_1": 100}, "review": None})
-        self.assertEqual(own["gemini"], {"orchestrate": None, "execute": None, "review": None})
+        self.assertEqual([effort for name, effort in own if name == "opus"],
+                         ["max", "high", None])   # the strongest first, none last
+        self.assertEqual(own["opus", "max"], {"orchestrate": None,
+                                              "execute": {"runs": 2, "round_1": 50},
+                                              "review": {"runs": 1, "round_1": 100}})
+        self.assertEqual(own["opus", "high"]["execute"], {"runs": 1, "round_1": 100})
+        self.assertEqual(own["opus", None]["execute"], {"runs": 1, "round_1": 100})
+        self.assertEqual(own["fable", "high"]["orchestrate"], {"runs": 1, "round_1": 100})
+        self.assertEqual(own["fable", "none"]["execute"], {"runs": 1, "round_1": 100})
+        self.assertNotIn(("fable", None), own)
+        self.assertEqual(own["astra", None], {"orchestrate": {"runs": 1, "round_1": 100},
+                                              "execute": {"runs": 1, "round_1": 100},
+                                              "review": None})
+        self.assertEqual(own["gemini", None], {"orchestrate": None, "execute": None, "review": None})
         lines = [terminal.plain(line) for line in matrix.live_lines(own, self.cfg)]
         text = "\n".join(lines)
         self.assertTrue(all(terminal.cells(line) <= 100 for line in lines))
         # a row is named as every screen names a model and its effort, never by its config entry
         self.assertRegex(text, r"\nOpus 5\.5 max +- +50% of 2 +100% of 1\n")
         self.assertRegex(text, r"\nOpus 5\.5 +- +100% of 1 +-\n")
+        self.assertRegex(text, r"\nFable 5\.1 +- +100% of 1 +-\n")    # `none` is no effort said
         self.assertNotIn(" @ ", text)
         out = io.StringIO()
         with redirect_stdout(out), patch.object(config, "load", return_value=self.cfg):
