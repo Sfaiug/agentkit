@@ -46,7 +46,8 @@ func moving(s terminal.Screen, seats []Seat, clock *motion.Clock) []Seat {
 // planBar is a seat's progress in room cells, its count included (terminal.plan_bar): a smooth line
 // of how much of its plan is done in its word's colour, then `done of total`, both as far as the line
 // has moved (moving; motion.growing, motion.counting), then ` · 2 tasks` while it has tasks in flight,
-// as the count stays the plan's; with no plan the same line, nothing done, and `no plan yet`.  Never
+// as the count stays the plan's, all muted; with no plan the same line, nothing done, and `no plan
+// yet`.  Never
 // under smallest cells of line, the count alone where no cell of it fits, without its tasks where they
 // do not fit either.
 func planBar(s terminal.Screen, seat Seat, room, smallest int) string {
@@ -63,9 +64,10 @@ func planBar(s terminal.Screen, seat Seat, room, smallest int) string {
 	size := max(smallest, room-terminal.Cells(count+going)-1)
 	if size < 1 {
 		if terminal.Cells(count+going) <= room {
-			return count + going
+			return s.Styled(count+going, "muted")
 		}
-		return count
+		return s.Styled(count, "muted")
 	}
-	return s.GlidingLine(seat.from, float64(seat.Done)/float64(max(seat.Total, 1)), seat.moved, seat.lit, size, seat.Word) + " " + shown + going
+	return s.GlidingLine(seat.from, float64(seat.Done)/float64(max(seat.Total, 1)), seat.moved, seat.lit, size, seat.Word) + " " +
+		s.Styled(shown+going, "muted")
 }

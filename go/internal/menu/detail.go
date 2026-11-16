@@ -33,7 +33,7 @@ func detail(s terminal.Screen, seat Seat, room int, clock *motion.Clock) []strin
 	if terminal.Cells(who) > room-least {
 		who = terminal.CutSpaced(who, room-least)
 	}
-	line := s.Styled(who, "dim")
+	line := s.Styled(who, "muted")
 	left := room - terminal.Cells(who) - 3
 	if len(seat.Tasks) > 0 && left >= least-3 {
 		line += "   " + squares(s, seat.Tasks, left, clock)

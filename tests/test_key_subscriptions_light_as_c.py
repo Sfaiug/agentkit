@@ -112,12 +112,12 @@ class SubscriptionsLightAsC(unittest.TestCase):
 
     def test_the_page_comes_up_its_name_writing_itself_out(self):
         # the page's first frame writes it top down: its header, then under its rows `add`
-        out = self.written(lambda out: ADD in out, self.since)
+        out = SGR.sub("", self.written(lambda out: ADD in out, self.since))
         opened = [found[1] for found in HEADER.finditer(out, 0, out.index(ADD))][-1]
         self.assertNotEqual(opened, NAME)
         self.assertTrue(NAME.startswith(opened), opened)
-        self.written(lambda out: re.search(f"{re.escape(ADD)}.*agentkit{NAME} ", out, re.S),
-                     self.since)        # and then all of it
+        self.written(lambda out: re.search(f"{re.escape(ADD)}.*agentkit{NAME} ", SGR.sub("", out),
+                                           re.S), self.since)        # and then all of it
 
     def test_add_a_subscription_is_bright_only_while_highlighted(self):
         def add(screen):              # its line as the terminal holds it, attributes and all

@@ -70,11 +70,11 @@ class Wash(Sandbox):
         rest = self.screen()
         for name, model in (("acme-plan", "opus"), ("acme-docs", "astra")):
             # its reset brightens the highlighted row again, so the end of it is the row's
-            self.assertIn(terminal.styled(self.shown(model), "dim")[:-1], self.row(rest, name))
+            self.assertIn(terminal.styled(self.shown(model), "muted")[:-1], self.row(rest, name))
         lit = self.screen((5, 3))                   # Claude, first on the grid
         self.assertIn(terminal.styled("Claude", CLAUDE), lit[2])
         self.assertIn(terminal.styled(self.shown("opus"), CLAUDE)[:-1], self.row(lit, "acme-plan"))
-        self.assertIn(terminal.styled(self.shown("astra"), "dim")[:-1], self.row(lit, "acme-docs"))
+        self.assertIn(terminal.styled(self.shown("astra"), "muted")[:-1], self.row(lit, "acme-docs"))
 
     def test_coming_onto_it_starts_the_wash_on_its_name_meter_and_models(self):
         clock = motion.Clock()
@@ -177,7 +177,7 @@ class Wash(Sandbox):
         line, free = divmod(len(menu.usage_rows(self.cfg)), 3)     # three to a line at 120
         self.assertTrue(free, "the grid's last line has no free slot")
         lines = self.screen((3 + free * (menu.COLUMN + 2) + 1, 3 + line))
-        self.assertIn(terminal.styled(self.shown("opus"), "dim")[:-1], self.row(lines, "acme-plan"))
+        self.assertIn(terminal.styled(self.shown("opus"), "muted")[:-1], self.row(lines, "acme-plan"))
 
 
 if __name__ == "__main__":

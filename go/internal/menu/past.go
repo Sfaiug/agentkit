@@ -81,8 +81,13 @@ func DrawPast(s terminal.Screen, past []PastSeat, h Highlight, now time.Time, co
 		var block []row
 		if fold {
 			block = append(block, row{strings.TrimRight(head, " "), each.Name})
-			tail := strings.TrimSpace(base(each.Checkout) + "  " + bar + "  " + when)
-			for _, line := range terminal.Wrap(tail, max(1, width-4)) {
+			var tail []string // each part whole and in its colour, as Python's past_body packs them
+			for _, part := range []string{strings.TrimSpace(cell(s, base(each.Checkout), project, "dim")), bar, when} {
+				if part != "" {
+					tail = append(tail, part)
+				}
+			}
+			for _, line := range packed(tail, "  ", max(1, width-4)) {
 				block = append(block, row{"    " + line, each.Name})
 			}
 		} else {

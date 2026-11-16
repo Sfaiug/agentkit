@@ -1,7 +1,7 @@
 """A model's effort on `c` reads as a cell a level before its word, and its highest shimmers.
 
 Before each effort word stands a cell for every level that model offers, full up to its effort
-and the rest thin and dim (`━━━──` for high of five, the bar's line, the owner's pick of 10 Nov
+and the rest thin in the border's colour (`━━━──` for high of five, the bar's line, the owner's pick of 10 Nov
 2026), the words in one column; a model with one effort is its word alone.  A step lights each cell it
 fills and dims each it empties, in turn from the level before it, on the menu's animation clock,
 and a step onto the model's highest level sends one light through the word, once.  Without
@@ -114,7 +114,7 @@ class EffortCells(unittest.TestCase):
         lines = screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))
         number, word, first = places(lines, "opus")
         # a click on its second cell, down from xhigh: its fourth cell, then its third, stay
-        # full but dim and then stand thin and dim
+        # full but dim and then stand thin in the border's colour
         cells = moved(screen, f"\x1b[<0;{first + 1};{number}M\x1b[<0;{first + 1};{number}m"
                       .encode())
         self.assertEqual(screen.effort("opus"), "medium")
@@ -176,13 +176,13 @@ class EffortCells(unittest.TestCase):
                 patch.object(terminal, "utf8", return_value=True):
             fill, until = motion.filling(True, 10.0)
             self.assertEqual(until, 10.15)
-            self.assertEqual(fill(9.9), terminal.styled("─", "dim"))      # its turn to come
+            self.assertEqual(fill(9.9), terminal.styled("─", "border"))   # its turn to come
             self.assertIn(LIT, fill(10.0))
             self.assertEqual(terminal.ANSI.sub("", fill(10.0)), "━")
             self.assertEqual(fill(10.15), "━")
             empty, _ = motion.filling(False, 10.0)
             self.assertEqual(empty(10.0), terminal.styled("━", "dim"))
-            self.assertEqual(empty(10.15), terminal.styled("─", "dim"))
+            self.assertEqual(empty(10.15), terminal.styled("─", "border"))
             shimmer, until = motion.shimmering("max", 10.0)
             self.assertEqual(until, 10.6)
             for t, lit in ((0.1, [0]), (0.3, [1]), (0.5, [2]), (0.65, [])):

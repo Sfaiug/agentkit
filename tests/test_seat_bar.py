@@ -8,6 +8,7 @@ run records and rename pointers, `orch.tmux_out` patched; no tmux seat is ever s
 
 import json
 import os
+import re
 import unittest
 from unittest.mock import patch
 
@@ -74,12 +75,12 @@ class SeatBar(Sandbox):
              "tasks": [{"name": f"task-{n}.md", "state": state} for n, state in enumerate(states)]}))
 
     def drawn(self, seat):
-        """(word, the row's last column, the whole row, the status bar's line one)."""
+        """(word, the row's last column, the whole row, the status bar's line one as it reads)."""
         info = menu.v5o_seat_info(self.cfg, 1, seat, menu.run_records(), {}, {}, NOW)
         watch.announce_state(seat, cfg=self.cfg)
         row = "\n".join(terminal.plain(line) for line in menu.v5o_seat_blocks([info], 100)[0])
         last = menu._last_text(info, menu.v5o_column_widths([info], 100)["sent"])
-        return info["word"], last, row, self.options[statusbar.TOP]
+        return info["word"], last, row, re.sub(r"#\[[^\]]*\]", "", self.options[statusbar.TOP])
 
     def test_a_renamed_seats_plan_under_its_old_name_draws_its_bar(self):
         seat = self.seat("fix-api", was="api-fix")

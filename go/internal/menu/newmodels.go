@@ -39,9 +39,7 @@ func (d *Draft) PickerLines(s terminal.Screen, clock string) []string {
 	} else {
 		label = min(label, max(1, room-2-3*(2+roleWidth)))
 	}
-	title := terminal.Cut("agentkit · new session", max(1, room-len(clock)-1))
-	lines := []string{title + strings.Repeat(" ", max(1, room-terminal.Cells(title)-len(clock))) + clock,
-		s.Styled(strings.Repeat("─", room), "dim"), ""}
+	lines := []string{panelHeader(s, "new session", clock, room), s.Styled(strings.Repeat("─", room), "border"), ""}
 	heads := []string{"orch", "builds", "reviews"}
 	if !folded {
 		head := strings.Repeat(" ", 2+label)

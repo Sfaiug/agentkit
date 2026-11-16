@@ -27,6 +27,7 @@ from fixtures.akterm import SERVER, Terminal
 NAME = " · config · models"
 NOTE = "takes it in or out of the config"      # under the rows of `Models` alone
 HEADER = re.compile(r"agentkit([^\x1b\n]*?) +\d\d:\d\d")    # each header written, its name
+SGR = re.compile(r"\x1b\[[\d;]*m")     # a header's name and clock in their own colour
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -76,12 +77,13 @@ class CPagesComeUp(unittest.TestCase):
     def test_models_comes_up_its_name_writing_itself_out(self):
         self.term.keys("Enter")
         # the page's first frame writes it top down: its header, then under its rows its note
-        out = self.written(NOTE)
+        out = SGR.sub("", self.written(NOTE))
         opened = [found[1] for found in HEADER.finditer(out, 0, out.index(NOTE))][-1]
         self.assertNotEqual(opened, NAME)
         self.assertTrue(NAME.startswith(opened), opened)
         self.at(self.now + 10)
-        self.written(f"{NOTE}.*agentkit{NAME} ")      # and then all of it
+        styles = f"(?:{SGR.pattern})*"
+        self.written(f"{NOTE}.*agentkit{styles}{NAME}{styles} ")      # and then all of it
 
     def test_space_on_audits_on_is_written_half_way_before_the_new_mark(self):
         self.opened("config_audit")

@@ -336,7 +336,7 @@ func configBody(s terminal.Screen, view ConfigView) []matrixRow {
 			if number == 0 {
 				name = option.Name
 			}
-			line := "  " + s.TableRow([]string{name, part}, []int{optionWidth, valueWidth}, nil)
+			line := "  " + s.TableRow([]string{name, part}, []int{optionWidth, valueWidth}, []string{"", "muted"})
 			if option.Value == "" {
 				line = "  " + terminal.Cut(name, room-2)
 			}

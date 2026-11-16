@@ -126,7 +126,7 @@ func barLine(screen terminal.Screen, word string, done, total, room int) (string
 	}
 	size := room - len(count) - 1
 	if size < 1 {
-		return count, len(count)
+		return barPaint(count, "muted"), len(count)
 	}
 	full, half, empty := "━", "╸", "─"
 	share := float64(done) / float64(max(total, 1))
@@ -141,9 +141,9 @@ func barLine(screen terminal.Screen, word string, done, total, room int) (string
 		line = "#[fg=#" + terminal.RGB(word) + "]" + line
 	}
 	if ends < size {
-		line += "#[fg=#" + terminal.RGB("dim") + "]" + strings.Repeat(empty, size-ends)
+		line += "#[fg=#" + terminal.RGB("border") + "]" + strings.Repeat(empty, size-ends)
 	}
-	return line + "#[default] " + count, size + 1 + len(count)
+	return line + "#[default] " + barPaint(count, "muted"), size + 1 + len(count)
 }
 
 // barSelection is the seat's model and crew, each named at the effort it runs that role at
@@ -196,9 +196,9 @@ func (seat Seat) publish(state string, models map[string]config.Model, changed b
 func (seat Seat) barOptions(screen terminal.Screen, model string, builds, reviews []string, done, total int) [][3]string {
 	head := " " + barChip(screen, seat.Word) + "   #[bold]" + tmuxText(seat.Name) + "#[nobold]"
 	if model != "" {
-		head += "   " + barPaint(model, "dim")
+		head += "   " + barPaint(model, "muted")
 	}
-	why := barPaint(terminal.Crew(model, builds, reviews), "dim")
+	why := barPaint(terminal.Crew(model, builds, reviews), "muted")
 	if seat.Word == "needs you" && !seat.question {
 		why = tmuxText(terminal.Plain(seat.reason))
 	}

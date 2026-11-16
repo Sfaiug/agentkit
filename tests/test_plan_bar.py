@@ -1,7 +1,7 @@
 """A seat's progress is a smooth line of how much of its plan is done, and its count.
 
-The done share is `━` in the word's colour, a half cell `╸` where it ends inside one, then a dim
-`─` for the rest and `done of total`; on a terminal and on a seat's bar alike every cell of the
+The done share is `━` in the word's colour, a half cell `╸` where it ends inside one, then `─` in
+the border's for the rest and `done of total`, muted; on a terminal and on a seat's bar alike every cell of the
 line is the word's colour, as no colour outside the owner's themes rests on the screen
 (12 Nov 2026).  It says nothing of the tasks in flight, which
 the line under a highlighted row has, and no screen says when the work will finish.  The rows
@@ -21,11 +21,13 @@ from agentkit import config, history, menu, terminal
 from agentkit import record
 
 NOW = 1_800_000_000
-WORKING, AMBER, DIM = (terminal.colour(word, tmux=True) for word in ("working", "needs you", "dim"))
+WORKING, AMBER, BORDER, MUTED = (terminal.colour(word, tmux=True)
+                                 for word in ("working", "needs you", "border", "muted"))
 
 
 def cells(bar):
-    """A tmux-drawn line, a cell at a time: (glyph, ink), and what follows it."""
+    """A tmux-drawn line, a cell at a time: (glyph, ink), its count's last, and what follows
+    it."""
     found = []
     for ink, text in re.findall(r"#\[fg=#(\w+)\]([^#]*)", bar):
         found += [(char, ink) for char in text]
@@ -42,11 +44,12 @@ class PlanBar(Sandbox):
 
     def test_the_done_share_is_a_line_in_the_words_colour_then_its_count(self):
         drawn, after = cells(menu.last_column("working", 3, 8, 30, tmux=True))
-        self.assertEqual(after, " 3 of 8")
+        drawn, count = drawn[:-len("3 of 8")], drawn[-len("3 of 8"):]
+        self.assertEqual((count, after), ([(char, MUTED) for char in "3 of 8"], ""))
         self.assertEqual(len(drawn), 30 - len(" 3 of 8"))
         # 23 cells, three eighths of them done: eight and a half
         self.assertEqual("".join(char for char, _ in drawn), "━" * 8 + "╸" + "─" * 14)
-        self.assertEqual({ink for char, ink in drawn if char == "─"}, {DIM})
+        self.assertEqual({ink for char, ink in drawn if char == "─"}, {BORDER})
 
     def test_a_seat_s_bar_draws_the_line_its_row_draws(self):
         # cell for cell the row's inks in the black theme, each the word's own colour, whichever

@@ -3527,9 +3527,9 @@ ASTRA=$(HOME="$OVH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit imp
 [ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = 2 ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = default ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV1#[nobold]   #[fg=#868d97]$FABLE xhigh#[default]" ] || OVERLAY=1
+  = " #[bold]$OV1#[nobold]   #[fg=#acb4bd]$FABLE xhigh#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV2" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV2#[nobold]   #[fg=#868d97]$ASTRA xhigh#[default]" ] || OVERLAY=1
+  = " #[bold]$OV2#[nobold]   #[fg=#acb4bd]$ASTRA xhigh#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_key 2>/dev/null)" \
   = "Ctrl-b m#[fg=#868d97]  menu #[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v set-titles-string 2>/dev/null)" = "$OV1" ] || OVERLAY=1

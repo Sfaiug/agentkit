@@ -30,7 +30,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import warm
 
 WARM = REPO / "agentkit" / "warm.py"
-KEYS = b" leave"   # the end of the key line: the menu is drawn
+KEYS = b"leave"   # the key line's last word, in its own colour: the menu is drawn
 # `python warm.py <argv>` with no WAIT, on either end of the handshake: a host that descheduled
 # a healthy server or popup past it would send the popup cold, the path `Cold` is about.  warm.py
 # is its first argument, so a popup still warm has it in its command line.

@@ -87,9 +87,9 @@ class PageComesUp(Sandbox):
 
     def test_the_name_writes_itself_out_after_agentkit(self):
         header = terminal.header_line("past sessions", "19:01")
-        self.assertEqual(motion.titled(header, 0).split(), ["agentkit", "19:01"])
+        self.assertEqual(terminal.plain(motion.titled(header, 0)).split(), ["agentkit", "19:01"])
         half = motion.titled(header, 0.5)
-        self.assertTrue(half.startswith("agentkit · past "), half)
+        self.assertTrue(terminal.plain(half, True).startswith("agentkit · past "), half)
         self.assertNotIn("sessions", half)
         self.assertEqual(terminal.cells(half), terminal.cells(header))
         self.assertEqual(motion.titled(header, 1), header)
@@ -160,7 +160,7 @@ class PageComesUp(Sandbox):
                            ("subscriptions", [*adds, Key("enter"), Key("esc")])):
             with self.subTest(name):
                 output, clock = self.read(pages[name], keys)
-                back = output.rsplit("\033[H", 1)[-1]
+                back = terminal.ANSI.sub("", output.rsplit("\033[H", 1)[-1])
                 self.assertTrue(back.startswith(f"agentkit · config · {name}"),
                                 repr(back[:120]))
                 self.assertIsNone(clock.rising)
@@ -202,7 +202,7 @@ class PageComesUp(Sandbox):
                 patch.object(menu, "teardown", return_value=[sys.executable, "-c", ""]), \
                 redirect_stdout(output):
             menu.show_past({"fixture": True}, seats, keyboard=Mock())
-        back = output.getvalue().rsplit("\033[H", 1)[-1]
+        back = terminal.ANSI.sub("", output.getvalue().rsplit("\033[H", 1)[-1])
         self.assertTrue(back.startswith("agentkit · past sessions"), repr(back[:120]))
         clock, = self.made
         self.assertIsNone(clock.rising)

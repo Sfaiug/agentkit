@@ -14,7 +14,8 @@ import (
 
 // A style is a word's glyph, its ASCII stand-in, its role of the theme, its eight-colour tone and
 // its emphasis.  `dim` is a note beside a row and `FAIL` a verdict, no state; `idle` is drawn
-// as dim is.
+// as dim is; `muted`, `border` and `info` are the roles of text no state's colour is
+// (docs/cli-design.md, Colour), at eight colours plain, faint as a note and cyan.
 type style struct{ glyph, ascii, colour, tone, emphasis string }
 
 var styles = map[string]style{
@@ -26,6 +27,9 @@ var styles = map[string]style{
 	"idle":         {"○", "o", "dim", "37", "2"},
 	"dim":          {"·", ".", "dim", "37", "2"},
 	"quiet":        {"", "", "dim", "37", ""},
+	"muted":        {"", "", "muted", "39", ""},
+	"border":       {"", "", "border", "2", ""},
+	"info":         {"", "", "info", "36", ""},
 }
 
 // kinds are the roles a screen asks Styled for, each the word whose colour it is.

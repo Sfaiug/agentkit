@@ -7,6 +7,7 @@ Offline: a temporary HOME, a fake plan and run records, `orch.tmux_out` patched.
 """
 
 import os
+import re
 import unittest
 from unittest.mock import patch
 
@@ -68,7 +69,8 @@ class RowCountsTasksGoing(Sandbox):
         self.assertEqual(len(self.info()["tasks"]), 2)       # the squares under it, as many
         # the seat's own bar leaves its tasks to the squares it draws
         watch.announce_state(self.seat, cfg=self.cfg)
-        self.assertRegex(self.options[statusbar.TOP], r" 3 of 8(?! · )")
+        bar = re.sub(r"#\[[^\]]*\]", "", self.options[statusbar.TOP])      # as it reads
+        self.assertRegex(bar, r" 3 of 8(?! · )")
         self.going("20261111-0901-two", state="fail")
         self.assertRegex(self.row()[1], r"● working [━╸]+─+ 3 of 8 · 1 task$")
         self.going("20261111-0900-one", state="fail")

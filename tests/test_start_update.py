@@ -118,6 +118,8 @@ INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", 
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES", "PYTHONPATH",
              "AK_MENU_CURSOR")
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+# the header as the menu writes it, the screen's name muted after `agentkit`
+UPDATING = f"agentkit(?:{ANSI.pattern})* · updating"
 
 
 def running(pid):
@@ -292,7 +294,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
                                       ("worktree", 1, b"\x1b[A", "tidy-docs"),
                                       ("install", 2, b"\x1b[B", "web-portal")):
             self.wait_for(lambda: (self.root / f"{step}.started").exists())
-            screen.when("agentkit · updating")
+            screen.when(UPDATING)
             # the rule whole: a read can end part way through the draw that holds it
             screen.when("━" * (30 * done) + f"(?:{ANSI.pattern})*" + "─" * (90 - 30 * done))
             screen.key(key, f"<draw old {seat}>")
@@ -314,7 +316,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         self.wait_for(lambda: (self.root / "install.started").exists())
         screen.key(b"\x1b[B", "<draw old tidy-docs>")
         os.write(screen.master, b"n")
-        screen.when(r"tab(\x1b\[[0-9;]*m)* models")     # the new row's key line, styled
+        screen.when(r"tab(\x1b\[[0-9;]*m)* (\x1b\[[0-9;]*m)*models")   # the new row's key line
         os.write(screen.master, b"acme-draft")
         screen.when("acme-draft")
         self.release("install")
@@ -331,7 +333,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
     def test_esc_leaves_at_once_and_the_detached_install_finishes_once(self):
         self.release("ls-remote")
         screen = self.opened()
-        screen.when("agentkit · updating")
+        screen.when(UPDATING)
         self.wait_for(lambda: (self.root / "fetch.started").exists())
         screen.leave()
         self.assertTrue(running(self.updaters()[0]))
@@ -346,7 +348,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         failed = self.root / "fetch.fail"
         failed.touch()
         screen = self.opened()
-        screen.when("agentkit · updating")
+        screen.when(UPDATING)
         screen.leave()
         self.release("fetch")
         self.wait_for(lambda: not running(self.updaters()[0]))
@@ -390,7 +392,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
     def test_a_killed_updater_clears_progress_after_its_notice(self):
         self.release("ls-remote")
         screen = self.opened()
-        screen.when("agentkit · updating")
+        screen.when(UPDATING)
         self.wait_for(lambda: (self.root / "fetch.started").exists())
         os.killpg(self.updaters()[0], signal.SIGKILL)    # this test's detached updater only
         screen.when("agentkit update exited -9")
@@ -398,7 +400,7 @@ while [ -e "$HOME/ssh.hold" ]; do sleep 0.01; done
         os.write(screen.master, b"\r")
         screen.when("<draw old fix-api>", after)
         screen.key(b"\x1b[B", "<draw old tidy-docs>")
-        self.assertNotIn("agentkit · updating", screen.text().encode()[after:].decode())
+        self.assertNotRegex(screen.text().encode()[after:].decode(), UPDATING)
         self.assertEqual((self.git(self.clone, "rev-parse", "HEAD"), self.installs()), (self.first, 0))
         screen.leave()
 

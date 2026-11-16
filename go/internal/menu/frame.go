@@ -237,7 +237,7 @@ func Draw(view View, width, height int) Frame {
 
 	var out []string
 	if !compact {
-		out = append(out, headerLine(view.Clock, layout), s.Styled(strings.Repeat("─", layout), "dim"))
+		out = append(out, panelHeader(s, "", view.Clock, layout), s.Styled(strings.Repeat("─", layout), "border"))
 	}
 	if grid {
 		per := usageColumns(layout)
@@ -331,13 +331,7 @@ func grouped(seats []Seat) []project {
 // base is a checkout's last path element.
 func base(path string) string { return path[strings.LastIndexByte(path, '/')+1:] }
 
-// headerLine is `agentkit` at the left and the clock at the right; the title gives way, never the
-// clock.
-func headerLine(clock string, room int) string {
-	return panelHeader("", clock, room)
-}
-
-// keyLine is the key line: each key dim, its word plain, wrapped to the layout; first, drawn as it
+// keyLine is the key line: each key dim, its word muted, wrapped to the layout; first, drawn as it
 // is, the item in front of them.  A key pointing right stands after its word, on the side it
 // points to (`better →`), as Python's terminal.key_parts has it.
 func keyLine(s terminal.Screen, text string, width int, first string) []string {
@@ -349,13 +343,13 @@ func keyLine(s terminal.Screen, text string, width int, first string) []string {
 	for _, phrase := range strings.Split(text, "   ") {
 		phrase = strings.TrimSpace(phrase)
 		if at := strings.LastIndexByte(phrase, ' '); at > 0 && (phrase[at+1:] == "→" || phrase[at+1:] == ">") {
-			pieces = append(pieces, strings.TrimSpace(phrase[:at])+" "+s.Styled(phrase[at+1:], "dim"))
+			pieces = append(pieces, s.Styled(strings.TrimSpace(phrase[:at]), "muted")+" "+s.Styled(phrase[at+1:], "dim"))
 			continue
 		}
 		key, word, _ := strings.Cut(phrase, " ")
 		piece := s.Styled(key, "dim")
 		if word = strings.TrimSpace(word); word != "" {
-			piece += " " + word
+			piece += " " + s.Styled(word, "muted")
 		}
 		pieces = append(pieces, piece)
 	}
@@ -485,7 +479,7 @@ func (seat Seat) orchestrator(room int) string {
 func head(s terminal.Screen, seat Seat, w widths) string {
 	number := terminal.Cut(strconv.Itoa(seat.Number), w.num)
 	number = "  " + strings.Repeat(" ", max(0, w.num-terminal.Cells(number))) + s.Styled(number, "dim")
-	rest := []string{terminal.Pad(seat.Name, w.name), cell(s, seat.orchestrator(w.orch), w.orch, "dim")}
+	rest := []string{terminal.Pad(seat.Name, w.name), cell(s, seat.orchestrator(w.orch), w.orch, "muted")}
 	if w.count > 0 {
 		text := terminal.Cut(s.StateText(seat.Word), w.count)
 		rest = append(rest, state(s, seat, text)+strings.Repeat(" ", w.count-terminal.Cells(text)))
@@ -702,7 +696,7 @@ func meterLines(s terminal.Screen, cells []Cell, width, per, lit int, took func(
 				if fill := cmp.Or(ink, rest); fill != "" {
 					bar = s.Styled(bar, fill)
 				}
-				text += bar + s.Styled(empty, "dim") + "  " + each.Said
+				text += bar + s.Styled(empty, "border") + "  " + each.Said
 			}
 			parts = append(parts, text+strings.Repeat(" ", max(0, room-terminal.Cells(text))))
 		}

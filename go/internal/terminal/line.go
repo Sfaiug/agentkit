@@ -74,7 +74,7 @@ func (s Screen) ShareParts(share float64, size int) (string, string) {
 	return strings.Repeat(full, halves/2) + strings.Repeat(half, halves%2), strings.Repeat(empty, size-(halves+1)/2)
 }
 
-// ShareLine is the bar (ShareParts) its full part in word's colour, the rest dim.
+// ShareLine is the bar (ShareParts) its full part in word's colour, the rest in the border's.
 func (s Screen) ShareLine(share float64, size int, word string) string {
 	return s.GlidingLine(share, share, 1, false, size, word)
 }
@@ -106,12 +106,12 @@ func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word
 	if s.depth <= 8 {
 		line.WriteString(s.Styled(strings.Join(cells, ""), word))
 	}
-	return line.String() + s.Styled(strings.Repeat(empty, size-head), "dim")
+	return line.String() + s.Styled(strings.Repeat(empty, size-head), "border")
 }
 
 // EffortCells is an effort's level before its word: the bar (ShareParts) a cell for each of the
-// count efforts its model offers, full up to its filled-th and the rest dim, `━━━──` for high of
-// five.  One effort is no level to show: no cell.
+// count efforts its model offers, full up to its filled-th and the rest in the border's, `━━━──`
+// for high of five.  One effort is no level to show: no cell.
 func (s Screen) EffortCells(count, filled int) []string {
 	if count < 2 {
 		return nil
@@ -119,7 +119,7 @@ func (s Screen) EffortCells(count, filled int) []string {
 	full, rest := s.ShareParts(float64(filled)/float64(count), count)
 	cells := strings.Split(full, "")
 	for _, cell := range strings.Split(rest, "") {
-		cells = append(cells, s.Styled(cell, "dim"))
+		cells = append(cells, s.Styled(cell, "border"))
 	}
 	return cells
 }

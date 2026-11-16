@@ -156,8 +156,8 @@ class OpenLine(unittest.TestCase):
         lines = self.coloured.splitlines()
         at = next(n for n, line in enumerate(lines) if "fix-api" in COLOURS.sub("", line))
         working = next(look[1:] for look in looks(lines[at]) if look[0] == "●")
+        dim = next(look[1:] for look in looks(lines[at]) if look[0].isdigit())    # its number's
         under = looks(lines[at + 1])
-        dim = next(look[1:] for look in under if look[0] == "s")        # the crew's own look
         self.assertNotEqual(working, dim)
         tasks = groups(under)
         self.assertEqual(["".join(cell[0] for cell in task) for task in tasks],

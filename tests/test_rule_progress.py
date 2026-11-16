@@ -401,7 +401,7 @@ class RuleProgress(unittest.TestCase):
         after = len(text)
         fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 40, 0, 0))
         os.kill(screen.proc.pid, signal.SIGWINCH)      # the test's own child
-        screen.when(r"\x1b\[Hagentkit · config · acme", after)
+        screen.when(r"\x1b\[Hagentkit(?:\x1b\[[0-9;]*m)* · config · acme", after)
         drawn = screen.text().rindex("\x1b[H")
         screen.when(r"[^─]─{40}\x1b", drawn)          # the rule 40 wide, once it arrives
         screen.when(GLIDE.pattern, drawn)

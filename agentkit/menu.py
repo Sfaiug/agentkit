@@ -996,7 +996,7 @@ def line_at(line):
 
     Its coloured spans distinguish it from completion prose holding the same glyphs.
     """
-    count = rf"(?= (?:\d+ of \d+|{terminal.NO_PLAN}))"
+    count = rf"(?= (?:\033\[[\d;]+m)?(?:\d+ of \d+|{terminal.NO_PLAN}))"
     match = re.search(r"(?:\033\[[\d;]+m[━╸=─-]+\033\[0m)+" + count, line)
     if match:
         start = len(terminal.cell_texts(line[:match.start()]))
@@ -1070,7 +1070,7 @@ def seat_crew(cfg, selection):
 def crew(info, tmux=False, room=None):
     """`opus max orchestrates   astra high builds   opus xhigh builds, reviews`: the seat's
     orchestrator, then each model that builds or reviews its work, named once at each effort it
-    runs at (`seat_crew`), in the order it first comes, what it does there after it, all dim, as
+    runs at (`seat_crew`), in the order it first comes, what it does there after it, all muted, as
     the row's orchestrator is; words every font draws, under any locale (the owner's pick of 10
     Nov 2026).  Nothing where nobody is beside the orchestrator.  Cut to `room` cells where
     given; `tmux` draws it as tmux text."""
@@ -1081,7 +1081,7 @@ def crew(info, tmux=False, room=None):
     text = "   ".join(f"{terminal.plain(model)} " + ", ".join(word for word, those in roles
                                                            if model in those)
                        for model in dict.fromkeys((orchestrator, *builds, *reviews)))
-    return _paint(text if room is None else terminal.cut(text, room, spaced=True), "dim", tmux)
+    return _paint(text if room is None else terminal.cut(text, room, spaced=True), "muted", tmux)
 
 
 def silent_for_run(run_dir, state, now=None):
@@ -1648,7 +1648,7 @@ def _orchestrator(info, room):
     return said if terminal.cells(said) <= room else info.get("model", said)
 
 
-def _head(info, widths, tone="dim"):
+def _head(info, widths, tone="muted"):
     """A seat row's fixed columns -- number, name, orchestrator in `tone`, state -- in `widths`.
     Where even their narrowest do not fit, the number keeps its place behind the indent the
     highlight's `›` takes. A zero state width puts that column below the row instead."""
@@ -2011,7 +2011,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             washes[number] = colour(cfg, provider), [
                 *((grid + line, column, text, rest, False)
                   for line, column, text, rest in spans.get(number, ())),
-                *((row, model_at, model, "dim", bright) for row, model, bright, on in models
+                *((row, model_at, model, "muted", bright) for row, model, bright, on in models
                   if number in on)]
             moves.append((("sub", number), number == pointed, None, False))
         if pointed:
@@ -2828,7 +2828,7 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, column
                 fill = ink or warn and "amber"
                 took.append((at[0], at[1] + label_room + 2, full, ending[number - 1] and "amber"))
                 text += ((terminal.styled(full, fill) if fill else full)
-                         + terminal.styled(rest, "dim") + "  " + said)
+                         + terminal.styled(rest, "border") + "  " + said)
             cells.append(text + " " * max(0, room - terminal.cells(text)))
             if spans is not None:
                 spans[number] = took
@@ -2885,8 +2885,9 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     # a cap its provider names is one note with the reset time, or with why there is no week to
     # reset: it gives way only with it
     first = (0, " · ".join(filter(None, (resets_note(week, now) if week else why, *named))))
+    hand = in_hand(prov)
     notes = [first] if week is None else [
-        (-1, usage.credits_note(prov)), first, (1, in_hand(prov)),
+        (-1, usage.credits_note(prov)), first, (1, hand),
         *((3, note) for note in claimed),
         session_note(prov, now) or (0, ""), (1, fault(prov)), (1, usage.as_of(prov, now))]
     login = (login_notes(rows[number - 1:number], now) if ending is None
@@ -2900,7 +2901,8 @@ def usage_detail(cfg, number, width=None, now=None, rows=None, ending=None):
     label = terminal.cut(label, room - (held if held <= room else 0))
     room -= terminal.cells(label)
     return (terminal.styled(label, colour(cfg, name)) + "  " + terminal.styled(" · ", "dim")
-            .join(terminal.styled(part, "amber") if part == login else _note_styled(part)
+            .join(terminal.styled(part, "amber") if part == login else terminal.styled(
+                part, "info") if part == hand else _note_styled(part)
                   for part in fitting(notes, room)))
 
 
@@ -4032,7 +4034,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
         # the value wraps at a word under itself, never cut
         for number, part in enumerate(terminal.wrap(value, room - 2 - wide - 2) or [""]):
             line = terminal.table_row([row if number == 0 else "", part],
-                                      [wide, room - 2 - wide - 2], indent="  ") if value else (
+                                      [wide, room - 2 - wide - 2], indent="  ",
+                                      kinds=(None, "muted")) if value else (
                 "  " + terminal.cut(row, room - 2))
             places[len(lines)] = (("row", row), [])
             lines.append(terminal.highlight(line, number == 0) if at == ("row", row) else line)
@@ -5107,17 +5110,17 @@ def config_subscriptions(cfg, keyboard):
                 continue
             held = in_hand(prov)
             beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
-            line += terminal.styled(f" · {held}", "dim") if beside else ""
+            line += terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
             # what Enter acts on is its act, lit on its line, never the row
             body.append(terminal.highlight(line, band=False))
             acts = dict(subscription_acts(cfg, keyboard, number, remove=True))
             on = on if on in acts else None
             email, plan = logins.whose(name, account)
             plan = harness_plugin(logins.harness(cfg, name)).plan_name(plan)
-            told = " · ".join(filter(None, (ending[number - 1] or email, plan,
-                                            not beside and held)))
-            for shown, cells in opened_line(told, "amber" if ending[number - 1] else "dim",
-                                            list(acts), on, width - 4):
+            kind = "amber" if ending[number - 1] else "dim"
+            told = [(ending[number - 1] or email, kind), (plan, kind),
+                    (not beside and held, "info")]
+            for shown, cells in opened_line(told, kind, list(acts), on, width - 4):
                 places[len(body)] = (("sub", number), cells)
                 moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
                 body.append(shown)
@@ -5160,12 +5163,24 @@ def config_subscriptions(cfg, keyboard):
 
 
 def opened_line(told, kind, texts, on, room):
-    """The line a pointed row of `Subscriptions` opens: `told` in `kind`, then `texts` three
-    spaces apart, the one that is `on` lit with a cell before and after it (terminal.selected,
-    bracketed with no colour), wrapped in `room` cells, never cut; each line with its texts'
-    places, (first, last, index), from 1."""
+    """The line a pointed row of `Subscriptions` opens: `told`'s parts, (text, kind) each, ` · `
+    apart in `kind`, then `texts` three spaces apart, the one that is `on` lit with a cell before
+    and after it (terminal.selected, bracketed with no colour), wrapped in `room` cells, never cut;
+    each line with its texts' places, (first, last, index), from 1."""
     room = max(1, room)
-    pieces = [(terminal.styled(part, kind), None) for part in terminal.wrap(told, room) if part]
+    said = []
+    for text, ink in told:
+        said += [(" · ", kind)] * bool(said and text) + [(text, ink)] * bool(text)
+    # wrapping keeps every other character in order: each in its part's colour, a space in the
+    # colour before it
+    inks, pieces = iter([ink for text, ink in said for char in text if not char.isspace()]), []
+    for part in terminal.wrap("".join(text for text, _ in said), room):
+        runs = [[kind, ""]]
+        for char in part:
+            ink = runs[-1][0] if char.isspace() else next(inks, kind)
+            runs += [[ink, ""]] * (runs[-1][0] != ink)
+            runs[-1][1] += char
+        pieces.append(("".join(terminal.styled(text, ink) for ink, text in runs), None))
     for index, text in enumerate(texts):
         pieces.append((f"[{text}]" if text == on and not terminal.colour_depth() else text,
                        index))

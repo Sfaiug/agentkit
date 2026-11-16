@@ -13,7 +13,7 @@ func Panel(s terminal.Screen, title, clock string, body []string, keys string) [
 	if s.ASCII() {
 		rule = "-"
 	}
-	lines := []string{panelHeader(title, clock, s.LayoutWidth()), s.Styled(strings.Repeat(rule, s.LayoutWidth()), "dim")}
+	lines := []string{panelHeader(s, title, clock, s.LayoutWidth()), s.Styled(strings.Repeat(rule, s.LayoutWidth()), "border")}
 	lines = append(append(lines, body...), "")
 	if keys == "" {
 		return lines
@@ -24,9 +24,9 @@ func Panel(s terminal.Screen, title, clock string, body []string, keys string) [
 // panelHeader is `agentkit`, the screen name after it and the clock at the right.  The title gives
 // way, never the clock: a name too wide sheds its first parts, where you came from, then what is
 // left is cut, to leave the clock and one space whole.
-func panelHeader(name, clock string, room int) string {
+func panelHeader(s terminal.Screen, name, clock string, room int) string {
 	if room <= terminal.Cells(clock) {
-		return terminal.Cut(clock, room)
+		return s.Styled(terminal.Cut(clock, room), "muted")
 	}
 	parts := []string{"agentkit"}
 	if name != "" {
@@ -35,6 +35,16 @@ func panelHeader(name, clock string, room int) string {
 	for len(parts) > 2 && terminal.Cells(strings.Join(parts, " · ")) > room-terminal.Cells(clock)-1 {
 		parts = append(parts[:1], parts[2:]...)
 	}
-	title := terminal.Cut(strings.Join(parts, " · "), room-terminal.Cells(clock)-1)
-	return title + strings.Repeat(" ", room-terminal.Cells(title)-terminal.Cells(clock)) + clock
+	return titled(s, terminal.Cut(strings.Join(parts, " · "), room-terminal.Cells(clock)-1), clock, room)
+}
+
+// titled is a header room cells wide: title at the left, `agentkit` as it is and the screen's name
+// after it muted, and the clock muted at the right.
+func titled(s terminal.Screen, title, clock string, room int) string {
+	head, name := title, ""
+	if rest, whole := strings.CutPrefix(title, "agentkit"); whole {
+		head, name = "agentkit", rest
+	}
+	return head + s.Styled(name, "muted") + strings.Repeat(" ", room-terminal.Cells(title)-terminal.Cells(clock)) +
+		s.Styled(clock, "muted")
 }

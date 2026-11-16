@@ -145,24 +145,19 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 		}
 		held := each.Held
 		if held != "" && terminal.Cells(terminal.Plain(line)+" · "+held) <= width {
-			line += s.Styled(" · "+held, "dim")
+			line += s.Styled(" · ", "dim") + s.Styled(held, "info")
 			held = ""
 		}
 		put(s.Highlight(line, true), pageSpot{row: i})
 		if acts = each.Acts(true); !slices.Contains(acts, on) {
 			on = ""
 		}
-		var told []string
-		for _, part := range []string{cmp.Or(each.Ends, each.Email), each.Plan, held} {
-			if part != "" {
-				told = append(told, part)
-			}
-		}
 		kind := "dim"
 		if each.Ends != "" {
 			kind = "amber"
 		}
-		for _, opened := range openedLines(s, strings.Join(told, " · "), kind, acts, on, width-4) {
+		told := [][2]string{{cmp.Or(each.Ends, each.Email), kind}, {each.Plan, kind}, {held, "info"}}
+		for _, opened := range openedLines(s, told, kind, acts, on, width-4) {
 			put(s.Fade(opened.text, 1-opening), pageSpot{i, opened.acts})
 		}
 	}
@@ -220,17 +215,47 @@ type pageLine struct {
 	acts [][3]int
 }
 
-// openedLines is the line a pointed row opens: told in kind, then each act three spaces apart, the
-// one on lit, wrapped in room cells and never cut; each line with its acts' cells (menu.opened_line).
-func openedLines(s terminal.Screen, told, kind string, acts []string, on string, room int) []pageLine {
+// openedLines is the line a pointed row opens: told's parts, {text, kind} each, ` · ` apart in kind,
+// then each act three spaces apart, the one on lit, wrapped in room cells and never cut; each line
+// with its acts' cells (menu.opened_line).
+func openedLines(s terminal.Screen, told [][2]string, kind string, acts []string, on string, room int) []pageLine {
 	type piece struct {
 		text string
 		act  int
 	}
+	joined, inks := "", []string(nil)
+	for _, part := range told {
+		if part[0] == "" {
+			continue
+		}
+		if joined != "" {
+			joined, inks = joined+" · ", append(inks, kind)
+		}
+		joined += part[0]
+		for range strings.ReplaceAll(part[0], " ", "") {
+			inks = append(inks, part[1])
+		}
+	}
+	// wrapping keeps every other character in order: each in its part's colour, a space in the
+	// colour before it
 	var pieces []piece
-	for _, part := range terminal.Wrap(told, room) {
-		if part != "" {
-			pieces = append(pieces, piece{s.Styled(part, kind), -1})
+	for _, part := range terminal.Wrap(joined, room) {
+		line, ink, run := "", kind, ""
+		for _, r := range part {
+			now := ink
+			if r != ' ' {
+				now = kind
+				if len(inks) > 0 {
+					now, inks = inks[0], inks[1:]
+				}
+			}
+			if now != ink && run != "" {
+				line, run = line+s.Styled(run, ink), ""
+			}
+			ink, run = now, run+string(r)
+		}
+		if run != "" {
+			pieces = append(pieces, piece{line + s.Styled(run, ink), -1})
 		}
 	}
 	for i, act := range acts {

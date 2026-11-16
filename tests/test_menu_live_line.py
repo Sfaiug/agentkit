@@ -93,7 +93,7 @@ class MenuLiveLine(Sandbox):
             infos = [menu.v5o_seat_info(self.cfg, n, seat, [], {}, None, NOW)
                      for n, seat in enumerate(self.seats, 1)]
             row = menu.v5o_seat_blocks(infos, 100)[0][0]
-        self.assertIn(terminal.styled("Fable 5.1", "dim"), row)
+        self.assertIn(terminal.styled("Fable 5.1", "muted"), row)
 
     def test_d_a_project_heading_highlighted_opens_nothing(self):
         # a project with switches has a heading the highlight can rest on; it is no seat
