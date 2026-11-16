@@ -740,20 +740,30 @@ def _record(value):
     return value if isinstance(value, dict) else {}
 
 
-def _onto(old, new, now, spent=None):
-    """`new`, a writer's reading, over `old`, the record the file holds: with `old`'s mark.
+def _onto(old, new, now):
+    """`new`, a writer's reading, over `old`, the record the file holds: with `old`'s mark, and
+    the later of the two's last reset.
 
     A mark is made by the refusal that makes it (`mark_exhausted`) and by nothing else, so any
     mark on another writer's reading is the file's from when that reading began, and is not
     written back.  Each mark the file holds stays while it is in force against what is written
-    (`_in_force`): its deadline, or a fresh window with room, ends it as it ends every mark.
-    A credit spent at `spent` lifts one too, when it was made then or before -- a refusal of
-    the week the credit replaced, which the meters the spend hands back say has room again; a
-    mark made since refused the week it opened, and stays.
+    (`_in_force`): its deadline, or a fresh window with room, ends it as it ends every mark,
+    and so does the record's last reset (`_lifts`).  A reading knows nothing of a reset spent
+    while it was asked, so the file's stays: without it, a refusal made before the credit and
+    written after that reading would park its models to its deadline.
     """
-    marks = [mark for mark in _marks(old)
-             if spent is None or (_number(mark.get("exhausted_at")) or 0) > spent]
-    return _with(new, _in_force(new, marks, now))
+    spent = max(_number(_record(each).get("reset_spent_at")) or 0 for each in (old, new))
+    record = {**new, "reset_spent_at": spent} if spent else new
+    return _with(record, _in_force(record, [mark for mark in _marks(old)
+                                            if not _lifts(record, mark)], now))
+
+
+def _lifts(record, mark):
+    """Whether the reset last spent on `record` lifts the refusal `mark`: one made then or
+    before refused the week that credit replaced, which the meters it handed back say has room
+    again; one made since refused the week it opened, and stays."""
+    spent = _number(record.get("reset_spent_at"))
+    return spent is not None and (_number(mark.get("exhausted_at")) or 0) <= spent
 
 
 def _store(cfg, providers, now, fetched_at=None, counted=None):
@@ -793,7 +803,7 @@ def _store(cfg, providers, now, fetched_at=None, counted=None):
     return _write(change, fetched_at)
 
 
-def _patch(provider, prov, account=None, *, mark=None, spent=None):
+def _patch(provider, prov, account=None, *, mark=None):
     """Put one freshly read provider -- or account of one -- into the cache as it stands now,
     leaving the others and their age alone, and return the record as written.
 
@@ -801,18 +811,17 @@ def _patch(provider, prov, account=None, *, mark=None, spent=None):
     provider: reading one must not stamp the others, which were not read, as newly measured.
     `mark` is a refusal's change instead of a reading: those fields go onto the record the
     file holds, or onto `prov` where it holds none, beside the refusals in force there --
-    unless a credit that record carries was spent at or after the mark was made, which refused
-    the week it replaced and which that credit has lifted.  `spent` is a credit's (`_onto`).
+    unless that record's last reset lifts it (`_lifts`), however late the refusal is written.
     """
     def change(providers, now):
         old = _record(providers.get(provider))
         theirs = _record(old.get("accounts"))
         mine = old if account is None else _record(theirs.get(account))
-        if mark and (_number((mine or prov).get("reset_spent_at")) or 0) >= mark["exhausted_at"]:
-            return mine or prov
         base = mine or prov
+        if mark and _lifts(base, mark):
+            return base
         record = (_with(base, [mark, *_in_force(base, _marks(base), now)]) if mark
-                  else _onto(mine, prov, now, spent))
+                  else _onto(mine, prov, now))
         providers[provider] = (record if account is None
                                else {**old, "accounts": {**theirs, account: record}})
         return record
@@ -1135,7 +1144,7 @@ def replenish(cfg, provider, account=None, kind=None):
     fresh["reset_spent_at"] = spent_at
     # Every mark made before the credit went was a refusal of the week it replaced, one a
     # worker made while this read was under way included: writing this record lifts them all.
-    fresh = _patch(provider, fresh, account, spent=spent_at)
+    fresh = _patch(provider, fresh, account)
     if account is not None:
         fresh = {**fresh, "accounts": {**_record(prov.get("accounts")), account: fresh},
                  "account": account}
