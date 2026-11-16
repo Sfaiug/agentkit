@@ -1,17 +1,23 @@
-"""One highlight: what Enter or a click acts on stands on the theme's selection.
+"""One highlight: what Enter or a click acts on stands on the theme's selection, all of it and
+nothing else.
 
 The owner (10 Nov 2026): every screen feels and is operated the same way; each theme (12 Nov)
 has a colour for what is lit, `selection`.  A seat's row, the keys' or the pointer's, is on it
 from its `›` to the layout's last column, bold behind the `›` as before, and no other row is;
 where the terminal draws fewer than 256 colours the row has its `›` alone.  A cell -- a mark on
-`c` as wide as its column, set or not, an act on a subscription's line or a list's answer with
-a cell before and after it, an act bracketed with no colour -- is on it over its whole width,
-the same from the keys and the pointer, and its row has no band of its own; nothing on `c` or
-Subscriptions is reversed.  Black-box: the program `AK_BIN` names runs in a person's terminal
-that sets no background
+`c` as wide as its column, set or not, a subscription's meter as wide as its cell, an act on a
+subscription's line or a list's answer with a cell before and after it, an act bracketed with
+no colour -- is on it over its whole width, the same from the keys and the pointer, and its row
+has no band of its own; nothing on `c` or Subscriptions is reversed.  Of a mark on `c` under the
+pointer, the owner (10 Nov): "it looks and feels like you can press it, but you cant": every
+cell so drawn takes the click, all of it, its padding too, and what no
+click acts on -- a model's name on `c`, the arrows' words on the key line -- is not lit, the
+pointer there as on blank space; a key of the key line is lit as its text with a cell before and
+after.  Black-box: the program `AK_BIN` names runs in a person's terminal that sets no background
 (tests/fixtures/akterm.py), over seats (tests/fixtures/akseat.py) and faked harnesses
 (tests/fixtures/fakeadapter.py), each cell judged by how it looks once the screen rests
-(tests/fixtures/aklooks.py); the pointer's moves are typed as the SGR reports a terminal sends.
+(tests/fixtures/aklooks.py); the pointer's moves and clicks are typed as the SGR reports a
+terminal sends.
 This test fails against `/bin/false`.
 """
 
@@ -60,6 +66,10 @@ def starts(shown, text, row=None):
 
 def point(col, row):
     return f"\x1b[<35;{col};{row}M"
+
+
+def click(col, row):
+    return f"\x1b[<0;{col};{row}M\x1b[<0;{col};{row}m"
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -157,6 +167,72 @@ class OneHighlight(unittest.TestCase):
         shown = self.calm(lambda shown: starts(shown, "› Fable 5.1", fable))
         self.assertEqual(lit_rows(shown), keyed)
         self.assertEqual((shown[fable - 1], shown[astra - 1]), (first[fable - 1], first[astra - 1]))
+
+    def test_on_c_a_click_on_a_lit_marks_first_or_last_cell_sets_that_mark(self):
+        first = self.config()
+        (_, fable), (_, astra) = self.row(first, "Fable 5.1"), self.row(first, "6 Astra")
+        orch = next(column for column, char in enumerate(plain(first[fable - 1]), 1)
+                    if char in MARKS)
+        # Astra's orchestrator mark by the first cell lit under the pointer, then Fable's by
+        # the last: blanks either side of the mark, set or not, as `c` marks new seats'
+        for row, edge in ((astra, 0), (fable, -1)):
+            self.term.type(point(orch, row))
+            shown = self.calm(lambda shown: orch in lit_rows(shown).get(row, []))
+            self.assertEqual(plain(shown[row - 1])[orch - 1], "○")
+            column = lit_rows(shown)[row][edge]
+            self.assertEqual(plain(shown[row - 1])[column - 1], " ")
+            self.term.type(click(column, row))
+            self.calm(lambda shown: plain(shown[row - 1])[orch - 1] == "●")
+
+    def test_on_c_a_models_name_and_the_arrows_words_take_no_light_and_no_click(self):
+        shown = self.config()
+        saved = (self.home.path / ".agentkit" / "config.toml").read_bytes()
+        keys = next(row for row, line in enumerate(shown, 1) if "esc back" in plain(line))
+        back = self.row(shown, "esc back")
+        for name, (col, row) in (("a model's name", self.row(shown, "6 Astra")),
+                                 ("the arrows' words", self.row(shown, "↑↓←→ move"))):
+            with self.subTest(name):
+                self.term.type(point(col + 2, row))
+                before = self.calm(lambda shown: not starts(shown, "›"))
+                self.assertEqual(lit_rows(before), {})
+                # read after the click: the pointer on `esc back`, lit there alone
+                self.term.type(click(col + 2, row) + point(*back))
+                shown = self.calm(lambda shown: list(lit_rows(shown)) == [keys])
+                self.assertEqual((self.home.path / ".agentkit" / "config.toml").read_bytes(),
+                                 saved)
+                self.term.type(point(col + 2, row))     # back where it clicked: as before it
+                after = self.calm(lambda shown: not lit_rows(shown))
+                self.assertEqual(after[1:], before[1:])     # under the header's clock
+        # `esc back` is lit with a cell before and after it, and a click there goes back
+        self.assertEqual(lit_rows(shown)[keys], list(range(back[0] - 1,
+                                                           back[0] + len("esc back") + 1)))
+        self.term.type(click(*back))
+        self.rest(lambda shown: any(MAIN_KEYS in plain(line) for line in shown))
+
+    def test_a_click_on_either_end_of_a_lit_meter_lists_its_acts_as_enter_does(self):
+        # ChatGPT's meter, holding a reset, on the ak screen and then on `c`: lit under the
+        # pointer over its whole cell, blanks past its last word too, and a click on its first
+        # or last lit cell lists its acts, `ACT` among them, as Enter on it does
+        self.main(COLORTERM="truecolor")
+        for screen, keys in (("the ak screen", MAIN_KEYS), ("c", "esc back")):
+            with self.subTest(screen):
+                if screen == "c":
+                    self.term.keys("c")
+
+                def back(shown):        # the screen, no list over it
+                    return (any(keys in plain(line) for line in shown)
+                            and not any(ACT in plain(line) for line in shown))
+                col, row = self.row(self.rest(back), "ChatGPT")
+                for edge in (0, -1):
+                    self.term.type(point(col + 1, row))
+                    shown = self.rest(lambda shown: col in lit_rows(shown).get(row, []))
+                    lit = lit_rows(shown)[row]
+                    self.assertEqual(lit, list(range(col, lit[-1] + 1)))
+                    self.assertEqual(plain(shown[row - 1])[lit[-1] - 1], " ")
+                    self.term.type(click(lit[edge], row))
+                    self.rest(lambda shown: any(ACT in plain(line) for line in shown))
+                    self.term.keys("Escape")
+                    self.rest(back)
 
     def chatgpt(self):
         """Subscriptions from `c`, the keys on ChatGPT's line's first act, `ACT`."""

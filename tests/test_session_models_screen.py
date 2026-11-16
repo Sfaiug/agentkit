@@ -86,7 +86,7 @@ class SessionModels(Sandbox):
         self.assertEqual(self.rows(lines)["Opus 5.5"], "●■■")
         self.assertEqual(self.rows(lines)["Fable 5.1"], "○□□")
         cells = next(cells for row, cells in places.values() if row == ("model", "opus"))
-        self.assertEqual([cell[2] for cell in cells], [-1, 0, 3, 1, 4, 2, 5])
+        self.assertEqual([cell[2] for cell in cells], [0, 3, 1, 4, 2, 5])   # no label: marks
         selected = self.selected("old")
         self.assertEqual(menu.session_mark(self.cfg, "old", selected, "opus", 1, {}), "")
         record = config.load_session(self.cfg, "old")
