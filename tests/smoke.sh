@@ -457,7 +457,7 @@ with tempfile.TemporaryDirectory(prefix=".ak-test-usage-fresh-", dir=config.REPO
     # A failed free read keeps the previous allowance, with the failure recorded beside it.
     meters["claude"] = []
     tick()
-    assert lines()[1].endswith("—  no shared week") and "57% left" in lines()[6], lines()
+    assert lines()[1].endswith("—  no shared week") and "57% left" in lines()[2], lines()
     assert "returned no meters" in json.loads(cache.read_text())["providers"]["anthropic"]["probe_error"]
     assert paid.call_count == 1
 

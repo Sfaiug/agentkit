@@ -134,8 +134,8 @@ class UsageStaysOnTop(Sandbox):
                                     "credits": 62469.67}
         self.assertRegex(self.draw(30, 9, keys=LONG_KEYS)[0][0],
                          r"^  \S+… 62,469 credits left · …$")
-        self.cfg["providers"]["acme_subscription_provider"] = dict(self.cfg["providers"]["openai"],
-                                                                   colour="#ff0000")
+        self.cfg["providers"] = {"acme_subscription_provider": dict(self.cfg["providers"]["openai"]),
+                                 **self.cfg["providers"]}
         self.meters["acme_subscription_provider"] = {
             "meters": [{"name": "weekly", "used": 17, "window_secs": WEEK}]}
         self.assertRegex(self.draw(30, 9, keys=LONG_KEYS)[0][0],

@@ -3,8 +3,7 @@
 For a working seat the line says who builds and who reviews and draws each task in flight as its
 squares (`menu.detail`), indented under the name and lit as the row is, never a task's name; no
 other row grows, and the height kept for it means no page overflows or turns as the highlight
-moves.  The orchestrator column draws each model in its company's colour.  Offline: fake seats
-and run records, the real renderer.
+moves.  Offline: fake seats and run records, the real renderer.
 """
 
 from contextlib import redirect_stdout

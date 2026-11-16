@@ -35,7 +35,7 @@ func Addables(fresh string) ([]Addable, error) {
 	}
 	var makers []string
 	for _, provider := range shipped {
-		company, _ := harness.Company(provider)
+		company := harness.Company(provider)
 		makers = append(makers, cmp.Or(harness.Maker(provider), company))
 	}
 	choices := byLabel(shipped, makers)

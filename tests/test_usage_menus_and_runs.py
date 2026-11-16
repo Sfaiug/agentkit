@@ -141,7 +141,7 @@ class UsageLeft(Sandbox):
                 patch.dict(os.environ, {"TERM": "xterm-256color"}, clear=True), \
                 patch("curses.setupterm"), patch("curses.tigetnum", return_value=8):
             lines = menu.usage_lines(self.cfg, 100)
-            # grey at rest, eight colours or more: the empty cells dim and no company's colour
+            # eight colours or more: the empty cells dim and no other colour
             self.assertIn("━━\033[2m────────\033[0m", lines[0])
             self.assertNotIn("\033[31m", "\n".join(lines))
             plain = [terminal.plain(line) for line in lines]
@@ -187,8 +187,8 @@ class UsageLeft(Sandbox):
         self.providers["openai"]["meters"].append(self.meter("other-week", 80))
         self.providers["界" * 80] = {"meters": [self.meter("weekly", -10)]}
         self.cache()
-        # the unknown provider sorts by the accent, a blue, and ChatGPT's white comes after
-        self.assertEqual([left for _, _, left, _ in menu.usage_cells(self.cfg)], [100, 20])
+        # in the order config.toml names them, the unknown provider after ChatGPT
+        self.assertEqual([left for _, _, left, _ in menu.usage_cells(self.cfg)], [20, 100])
         for width in (40, 100):
             lines = menu.usage_lines(self.cfg, width)
             self.assertTrue(all(terminal.cells(line) <= width for line in lines))

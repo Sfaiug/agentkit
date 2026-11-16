@@ -43,7 +43,6 @@ STATE_STYLES = {
     "border": ("", "", "border", "2", ""),
     "info": ("", "", "info", "36", ""),
 }
-GREY = 0.15        # saturation under which a colour is a grey rather than a hue
 # The kinds a screen asks `styled` for by what they mean, and the word whose colour each is.
 KINDS = {"accent": "working", "ok": "done", "amber": "needs you", "attention": "needs you",
          "good": "done", "spent": "out of usage"}
@@ -165,22 +164,6 @@ def ink(rgb, ground="38"):
     48 the background's."""
     return (f"{ground};2;" + ";".join(map(str, bytes.fromhex(rgb))) if colour_depth() == 24
             else f"{ground};5;{xterm_colour(rgb)}")
-
-
-def light_grey(rgb):
-    """Is this a light grey, the one kind of colour a light background cannot draw as it is?"""
-    r, g, b = (int(rgb[i:i + 2], 16) for i in (0, 2, 4))
-    top = max(r, g, b)
-    return top > 127 and (top - min(r, g, b)) / top < GREY
-
-
-def on_background(kind):
-    """A caller's own colour -- `#RRGGBB`, or a kind as `styled` reads it -- as it reads here: on
-    a light background a light grey is drawn as its mirror tone, so a white company reads black;
-    a hue or a dark grey reads on both."""
-    if theme() == WHITE and kind.startswith("#") and light_grey(kind[1:]):
-        return "#" + "".join(f"{255 - int(kind[i:i + 2], 16):02x}" for i in (1, 3, 5))
-    return kind
 
 
 def basic_colour(rgb):
@@ -434,8 +417,8 @@ def styled(text, kind):
     if kind == "bold":
         code = "1"
     else:
-        # `#RRGGBB` is a colour as it reads here -- a provider's (`on_background`), a fade's --
-        # and takes the nearest the terminal has, as a state's colour does
+        # `#RRGGBB` is a fade's colour (`faded`), and takes the nearest the terminal has, as a
+        # state's colour does
         own = kind.startswith("#") and kind[1:]
         tone, emphasis = (basic_colour(own), "") if own else STATE_STYLES[word][3:]
         rgb = own or colour(word)

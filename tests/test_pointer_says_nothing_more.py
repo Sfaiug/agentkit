@@ -105,7 +105,7 @@ class MainMenu(unittest.TestCase):
         row = next(number for number, line in enumerate(lines, 1) if line.startswith("  Claude"))
         under = next(number for number in range(row, len(lines)) if not lines[number])
         child.send(move(5, row))
-        # its name in its colour, then when its week resets, on the line under the grid; the
+        # its name, then when its week resets, on the line under the grid; the
         # keys stay where they are
         child.until(lambda text: re.fullmatch(r"  Claude  resets \w{3} \d\d:\d\d",
                                               texts(played(text))[under]), "its line")

@@ -5,7 +5,6 @@
 version = 1
 name = "Codex"
 family = "GPT"
-colour = "#FFFFFF"
 
 [check]
 model = "gpt-5.6-luna"

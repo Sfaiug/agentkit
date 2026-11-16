@@ -20,8 +20,9 @@ then `────────────────────────�
 
 ## Width and rhythm
 
-The layout is at most 120 columns wide, and seat content at most 100. A project's name is
-bold and flush left, with one blank line between projects and its seats two spaces under it.
+The layout is at most 120 columns wide, and seat content at most 100. A project's, harness's or
+company's name is bold and flush left over its seats, models or subscriptions, two spaces in; a
+blank line parts projects.
 
 Rows are tables. Their columns are fixed, sized once per draw and split by two-space gutters,
 never ` · `: number, name, model, state, and a last column that takes the rest.
@@ -96,8 +97,7 @@ the background; lit, the text.
 
 `themes.ROLES` (Go: `terminal/themes.go`) holds both themes; `NO_COLOR` colours nothing.
 
-A company's colour, its provider's `colour` in config.toml else `menu.COLOURS`, colours its
-name on `c` and under the usage grid; a harness's, from its manifest, its name over its models.
+Colour says where a thing stands and never who.
 
 ## Motion
 

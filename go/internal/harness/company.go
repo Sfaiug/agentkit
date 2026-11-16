@@ -24,18 +24,15 @@ func SubscriptionName(provider, account string) (string, error) {
 // ProviderName is a provider's name on every screen, Python's config.provider_name: its own `name`,
 // else its Company's.
 func ProviderName(provider string) (string, error) {
-	own, _, err := config.ProviderLook(provider)
-	company, _ := Company(provider)
-	return cmp.Or(own, company), err
+	own, err := config.ProviderName(provider)
+	return cmp.Or(own, Company(provider)), err
 }
 
-// Company is a provider's own name and colour on every screen and page, Python's
-// config.NAMES.get(provider, provider.title()) and menu.COLOURS: a provider shipped with no name is
-// its key capitalised, and one with no colour "", which a provider's own `name` and `colour` keys
-// override anyway.
-func Company(provider string) (name, colour string) {
-	return cmp.Or(map[string]string{"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok", "google": "Gemini", "mimo": "MiMo"}[provider], capitalised(provider)),
-		map[string]string{"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3", "google": "#203B9B", "mimo": "#FB8046"}[provider]
+// Company is a provider's own name on every screen and page, Python's
+// config.NAMES.get(provider, provider.title()): a provider shipped with no name is its key
+// capitalised, which a provider's own `name` key overrides anyway.
+func Company(provider string) string {
+	return cmp.Or(map[string]string{"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok", "google": "Gemini", "mimo": "MiMo"}[provider], capitalised(provider))
 }
 
 // capitalised is a provider's key capitalised as Python's str.title does.

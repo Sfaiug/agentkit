@@ -122,7 +122,7 @@ RULES = [
      "home": ("adapters/", "agentkit/harness/", "config.default.toml",
               "go/internal/config/default.toml", "go/internal/config/adapters/",
               "go/internal/harness/", "hooks/opencode-seat/", "go/hooks/opencode-seat/"),
-     "max": 177},
+     "max": 175},
     # What a refusal from a provider looks like is the harness's to say (adapters/*.toml,
     # its plugin): a copy in the loop or the watcher is a second classifier to keep in step.
     # Every provider word counts, in code or comment, but none of ak's own names: the
@@ -256,16 +256,15 @@ RULES = [
      "home": ("agentkit/orch.py",),
      "max": 0},
     # ak draws only in the owner's two themes (12 Nov 2026), one table in each build, a file of
-    # its own, so the next theme is a column of that table.  Left, a task of its own: a
-    # company's colour (menu.COLOURS, Go's harness.Company) and each manifest's `colour`, in
-    # both builds.  A git file mode and the zeros padding a fraction of a second are six digits
-    # in quotes, no colour.
+    # its own, so the next theme is a column of that table, and no name is drawn in a colour of
+    # its own.  A git file mode and the zeros padding a fraction of a second are six digits in
+    # quotes, no colour.
     {"name": "colours",
      "flags": (),
      "pattern": r"#[0-9a-fA-F]{6}\b|[\"'`][0-9a-fA-F]{6}[\"'`]",
      "names": r'"100(644|755)"|"0{6}"\)\[:6\]',
      "home": ("agentkit/themes.py", "go/internal/terminal/themes.go"),
-     "max": 15},
+     "max": 0},
     # A character has one shape in every terminal only where the terminal draws it itself (Box
     # Drawing and Block Elements) or every font it opens with carries it: SF Mono, Menlo,
     # JetBrains Mono, Cascadia Mono and DejaVu Sans Mono hold Windows-1252, `−≈≤≥` and

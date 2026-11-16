@@ -42,9 +42,9 @@ func (f Frame) Meter(key terminal.Key) int {
 }
 
 // usageDetail is what the line under the grid says of a cell while the pointer is on it
-// (menu.usage_detail): its label in its company's colour, then, joined with ` · `, a login that ends
-// soon in amber and `click to log in again`, and its reading's notes, as many as fit in width; the
-// label gives way past the notes but before the login.
+// (menu.usage_detail): its label, then, joined with ` · `, a login that ends soon in amber and
+// `click to log in again`, and its reading's notes, as many as fit in width; the label gives way
+// past the notes but before the login.
 func usageDetail(s terminal.Screen, cell Cell, width int) string {
 	notes := cell.Notes
 	if cell.Ends != "" {
@@ -69,7 +69,7 @@ func usageDetail(s terminal.Screen, cell Cell, width int) string {
 		}
 		parts = append(parts, note)
 	}
-	return s.Styled(label, cell.Colour) + "  " + strings.Join(parts, s.Styled(" · ", "dim"))
+	return label + "  " + strings.Join(parts, s.Styled(" · ", "dim"))
 }
 
 // fitting is the notes that fit in room cells, offered lowest rank first and drawn in their own

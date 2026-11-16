@@ -84,7 +84,7 @@ func (f SubscriptionsFrame) Hit(mouse terminal.Mouse) (row, act int, ok bool) {
 }
 
 // SubscriptionsPage is `config · subscriptions` (menu.config_subscriptions): each subscription under
-// its company, named in its colour, with the main screen's meter, then `+ add a subscription`, bright
+// its company, named bold, with the main screen's meter, then `+ add a subscription`, bright
 // only while highlighted.  The pointed row says the resets it holds beside its meter where there is
 // room, and opens a line under it: whose login it is and its plan, or when it ends while that is soon,
 // in amber, the resets where none fit beside the meter, then its acts, the one On lit and named on the
@@ -110,7 +110,7 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 	var acts []string
 	for i, each := range view.Cells {
 		if i == 0 || view.Cells[i-1].Provider != each.Provider {
-			put(s.Styled(each.Company, each.Colour), pageSpot{row: -1})
+			put(s.Bold(each.Company), pageSpot{row: -1})
 		}
 		line := "  " + each.Label
 		if len(meters) > 0 {

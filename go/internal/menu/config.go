@@ -289,8 +289,7 @@ func configBody(s terminal.Screen, view ConfigView) []matrixRow {
 	for i, name := range c.Names {
 		if entry := c.Models[name]; entry.Harness != harness {
 			harness = entry.Harness
-			head, colour := config.HarnessLook(harness)
-			put(s.Styled(head, colour), -1, nil)
+			put(s.Bold(config.HarnessName(harness)), -1, nil)
 		}
 		line := "  " + terminal.Pad(config.ModelName(name, c.Models), label)
 		cells := []matrixCell{{3, 2 + label, -1}}
