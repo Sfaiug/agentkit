@@ -168,8 +168,9 @@ def _costs(rated, lineup, cfg, logins, shares):
     `logins`' weeks over what each holds ({provider: [(price, listed dollars)]}), as any of them
     may pay for the next task; one with none takes the mean of the others'.  Each row keeps its
     `board_cost`, the `runs` its measured cost is the mean of (0 for none), `cost_rule` says
-    which rule priced it, and `points` the points of a week it takes: of the provider whose runs
-    measured it, else of its own where one of its logins' weeks holds some, else None."""
+    which rule priced it, `provider` the one it is priced on, whose runs measured it, else its
+    own, None on its board price alone, and `points` the points of a week of that provider it
+    takes, None where none of its logins' weeks holds some."""
     # ak's own runs price a role and never rate it: asked on 5 Nov 2026 what their runs should
     # decide, the owner answered "Costs only", as quality comes from the boards.
     from . import usage
@@ -196,7 +197,8 @@ def _costs(rated, lineup, cfg, logins, shares):
                         (entry["provider"], *roles[word]))
     for each in rated.values():
         for row in each:
-            row.update(board_cost=row["cost"], cost_rule="board", runs=0, points=None)
+            row.update(board_cost=row["cost"], cost_rule="board", runs=0, points=None,
+                       provider=None)
     if not measured:
         return "board_dollars"
     # every provider your runs measured, though no row the boards rate is its measured model
@@ -233,7 +235,7 @@ def _costs(rated, lineup, cfg, logins, shares):
             if mine:
                 provider, points, runs, _ = mine[0]
                 row.update(cost=cost(provider, points), cost_rule="measured", runs=runs,
-                           points=points)
+                           points=points, provider=provider)
                 continue
             provider = providers.get(row["release"]) or config.company(cfg, row.get("maker"))
             own = [one for one in pool if one[1] == provider]
@@ -247,7 +249,8 @@ def _costs(rated, lineup, cfg, logins, shares):
             # Without board dollars or a measured conversion, no same-unit estimate exists.
             priced, points = (None if one is None or row["board_cost"] is None
                               else row["board_cost"] * one for one in factors)
-            row.update(cost_rule="provider" if own else "global", cost=priced, points=points)
+            row.update(cost_rule="provider" if own else "global", cost=priced, points=points,
+                       provider=provider)
     return "share" if mean is None else "money"
 
 

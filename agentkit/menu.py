@@ -3656,14 +3656,45 @@ def flowed(parts, room, hang=0):
     return lines
 
 
-def models_why(found, role, row, unit):
+def plans_checked(cfg, provider):
+    """(plan, checks) of each plan of `provider`'s logins as the usage cache holds them
+    (usage.held), as a screen names it, and the days of its week usage.plan_checks checked, in
+    its logins' order: one plan once, as each of its logins is checked on the same week, and a
+    login whose plan is not known naming none."""
+    held = usage.held(cfg)
+    if provider not in held:
+        return []
+    plans = {}
+    for account, checks in usage.plan_checks(cfg, {provider: held[provider]},
+                                             time.time())[provider].items():
+        plan = logins.whose(provider, account)[1]
+        if plan:
+            plans.setdefault(harness_plugin(logins.harness(cfg, provider)).plan_name(plan),
+                             checks)
+    return list(plans.items())
+
+
+def week_checked(plan, checks):
+    """How far off `plan`'s week foretold its meter on the days `checks` (usage.plan_checks): the
+    points it foretold for them against those the meter rose, as a share of what it rose."""
+    if not checks:
+        return f"{plan}'s week: no day checked yet"
+    rose, foretold = (sum(check[key] for check in checks) for key in ("rose", "predicted"))
+    off = 100 * (foretold - rose) / rose
+    return (f"{plan}'s week, checked on {len(checks)} day{'s' * (len(checks) != 1)}: it "
+            f"foretold {foretold:.0f} points where its meter rose {rose:.0f}, {abs(off):.0f}% "
+            f"{'high' if off >= 0 else 'low'}")
+
+
+def models_why(found, role, row, unit, weeks):
     """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
     2026: a label column, each value going on at its words in its own (flowed), an other's lines
     after its first two cells further in, so each other's first line stands out.  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
-    best choice it is; its cost in `unit`, said as UNITS says it, and where that comes from
-    (SOURCES); the rule that makes the choices; and why each of its `others` is none (WHYS), in
-    their order.  Only a model's name is cut."""
+    best choice it is; its cost in `unit`, said as UNITS says it, where that comes from
+    (SOURCES) and how far off each of `weeks` foretold (week_checked); the rule that makes the
+    choices; and why each of its `others` is none (WHYS), in their order.  Only a model's name
+    is cut."""
     room = terminal.layout_width() - 2
     width = terminal.cells("choices")       # the design's label column: its widest label
     values = room - width - 2
@@ -3692,8 +3723,9 @@ def models_why(found, role, row, unit):
                          [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
                           f"{named(top, values)}"]]},
             {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,
-                       SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])]
-                      if row["cost"] is not None else ["no cost"]]},
+                       SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])],
+                      *([week_checked(*week)] for week in weeks)]
+                     if row["cost"] is not None else [["no cost"]]},
             {"choices": [[f"the best, then cheaper ones {points(matrix.APART)} apart, none more "
                           f"than {number(matrix.WINDOW)} below, {number(matrix.PLACES)} at most"]],
              "others": [[why(one)] for one in found["others"]]}]
@@ -3797,8 +3829,9 @@ def models_screen(cfg, session, selected, providers):
             role = here[1]
             row = used[role][2] or next(iter(answer[role]["choices"]), None)
             key, why, page = None, ("why",), 0    # every line one row: ↑/↓ turn its pages
+            weeks = row and plans_checked(cfg, row["provider"])
             while row and key != "back":
-                lines = models_why(answer[role], role, row, unit)
+                lines = models_why(answer[role], role, row, unit, weeks)
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
                                              [why], why, page, "", "esc back")
