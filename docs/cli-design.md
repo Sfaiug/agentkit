@@ -107,6 +107,9 @@ Something moves only while it is worked on, once when it changes, or under the p
   tasks' squares and ak's spinner, `▖▘▝▗`.
 - **When something changes:** a seat that turns `needs you` pulses, one that turns `done`
   settles, a mark fills or empties through a dim `■`, and a refused change nudges its mark.
+  A theme chosen comes down its screen in 0.35 s, a row at a time: the rows above the line are
+  in the new theme and those from it down still in the old, every row whole in one, so every
+  row reads at every frame.
 
 Every animation runs on one clock, `motion.Clock`. A key ends an animation on its last frame.
 Nothing moves off a terminal or under `NO_COLOR`.
