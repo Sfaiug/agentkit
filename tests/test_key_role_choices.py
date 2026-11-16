@@ -7,7 +7,8 @@ choice, best first, `beaten` by a choice, else a row of the front, as good and n
 front, `far below`, by null, more than 10 points under the best; else `close` to the nearest
 choice, less than a point from it; else `no room`, by null, a point or more under every choice,
 as the costliest five leave it.  Qualities exactly 10 or 1 apart are so, whatever a rating's
-roundoff, and a row a millionth of a point better still ranks above.  A row no configured model
+roundoff, and a row a millionth of a point better still ranks above; a row between two choices
+is close to the nearer, however little nearer.  A row no configured model
 runs is no choice (tests/test_key_models_choices_are_yours.py).
 
 Black-box: AK_BIN in a temporary HOME, the boards held as just asked with invented releases of
@@ -131,6 +132,18 @@ class RoleChoices(unittest.TestCase):
                     self.assertEqual([(row["release"], row["effort"], row["why"],
                                        row["by"] and row["by"]["name"])
                                       for row in found[role]["others"]], others)
+
+    def test_a_row_between_two_choices_is_close_to_the_nearer_by_a_hair(self):
+        # 0.8000001 points over the cheap choice and 0.7999999 under the best
+        found = answer([(f"acme-{name}-1", f"Acme {name.title()} 1", "high", share, n + 1)
+                        for n, (name, share) in enumerate(
+                            (("cheap", .884), ("mid", .892000001), ("best", .90)))])
+        for role in ROLES:
+            with self.subTest(role=role):
+                self.assertEqual([(row["name"], row["why"], row["by"]["name"])
+                                  for row in found[role]["others"]],
+                                 [("Acme Mid 1", "close", "Acme Best 1")])
+
 
 
 if __name__ == "__main__":

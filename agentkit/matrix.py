@@ -380,7 +380,9 @@ def _why(row, choices, front):
                               if one["quality"] >= row["quality"] and one["cost"] <= row["cost"])
     if _above(front[-1], row) > WINDOW:
         return "far below", None
-    near = min(choices, key=lambda one: abs(_above(one, row)))
+    # the nearer by the qualities as they are: rounded (`_above`), two choices a hair unlike in
+    # distance tie, and the cheaper would be named for the nearer
+    near = min(choices, key=lambda one: abs(one["quality"] - row["quality"]))
     return ("close", near) if abs(_above(near, row)) < APART else ("no room", None)
 
 
