@@ -169,10 +169,11 @@ LOOK_EVERY = 0.25        # ... the wait between two looks after the first: a wor
                          # the last look cost spent a hundredth of a thread on any host, a third of
                          # what a screen over sixty gone seats may spend on a quiet one
                          # (tests/test_key_gone_seats_cost_an_open_screen_little.py)
-# A menu starts over once a read it asked for is owed STUCK times its slowest recent read, OWED at
-# the least (`Live.stuck`).  A read slower than any lately raises that wait as it lands; as reads
-# quicken it halves every SLOW_HALF seconds: a host where reads take 20 s waits minutes, a quick
-# one OWED.  The slowest crosses the restart (SLOWEST), so one stuck again waits as long.
+# A menu starts over once a read it asked for is owed STUCK times the slowest a read lately took
+# from its ask to landing, OWED at the least (`Live.stuck`).  A read slower than any lately
+# raises that wait as it lands; as reads quicken it halves every SLOW_HALF seconds: a host where
+# reads take 20 s waits minutes, a quick one OWED.  The slowest crosses the restart (SLOWEST), so
+# one stuck again waits as long.
 STUCK = 10
 OWED = 3 * TICK
 SLOW_HALF = 300
@@ -435,7 +436,8 @@ class Live:
             if not self.watching.is_set():
                 return
             leaves = self.leaves
-        began = CLOCK()
+        # timed as the wait is (`stuck`): from the ask it answers, its records' stats and all
+        began = CLOCK() if self.owed is None else self.owed
         found, records, groups = rows(self.cfg, self.kept)
         with self.reading:
             if self.leaves != leaves:
