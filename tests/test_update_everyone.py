@@ -116,7 +116,7 @@ class Everyone(unittest.TestCase):
         self.assertNotIn("cannot revert", text)
         selfmove.assert_called_once_with()
 
-    def test_client_with_no_harness_still_moves_its_checkout(self):
+    def test_with_no_harness_installed_the_checkout_still_moves(self):
         out = io.StringIO()
         with patch.object(update, "harnesses", return_value=PLAN), \
                 patch.object(update, "version", return_value=""), \
