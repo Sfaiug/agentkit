@@ -2,8 +2,9 @@
 saves the config it holds whole, so it would take out what the other wrote, a model
 `watch.follow_model` just added.  A page `c` opens reads the file again on no tick, so a key
 there is read over a changed file however long the other took: Space on `Done check`'s `On`
-leaves the added model and the setting in config.toml as they were and says the key was not
-taken; Space again, the file unchanged since, turns it off, the model kept.
+leaves the added model and the setting in config.toml as they were, and brings the owner back
+to `c`, which says the key was not taken; the page opened again, Space turns it off, the model
+kept.
 
 Black-box: the program `AK_BIN` names, in a terminal of its own (tests/fixtures/akterm.py), its
 harnesses the fakes of tests/fixtures/fakeadapter.py; the other process is this test, which
@@ -50,10 +51,12 @@ class CSavesNothingOverAChangedConfig(unittest.TestCase):
                   and "● on" in screen)
         self.add()
         term.keys("Space")
-        term.wait(REFUSED)
+        term.wait(lambda screen: REFUSED in screen and "› Done check" in screen)
         cfg = akconfig.read(self.home)
         self.assertEqual(cfg["models"]["acme"]["model"], "claude-acme-1")
         self.assertNotIn("done_check", cfg)
+        term.keys("Enter")
+        term.wait(lambda screen: "config · done check" in screen and "› On" in screen)
         term.keys("Space")
         term.wait("○ off")
         cfg = akconfig.read(self.home)

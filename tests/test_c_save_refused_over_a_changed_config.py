@@ -36,8 +36,17 @@ class SaveRefusedOverAChangedConfig(Sandbox):
                                     (usage, "collect", lambda *_a, **_kw: usage.Readings({}))):
             self.stack.enter_context(patch.object(target, name, side_effect=value))
 
+    def keyed(self, *reads):
+        """`c` opened over no seat, each of `reads` answering a read of a key in turn, then Esc;
+        what it drew, as it draws, in `drawn`."""
+        self.drawn, reads = io.StringIO(), iter((*reads, lambda: Key("esc")))
+        with patch.object(terminal, "read_key", side_effect=lambda *_a, **_kw: next(reads)()), \
+                redirect_stdout(self.drawn):
+            menu.show_config(False, Keyboard(), None)
+        return terminal.plain(self.drawn.getvalue())
+
     def test_a_space_over_a_config_changed_since_writes_nothing(self):
-        drawn, seen = io.StringIO(), {}
+        seen = {}
         orchestrator = config.load()["defaults"]["orchestrator"]
         self.assertNotEqual(orchestrator, "fable")      # the Space would move it
 
@@ -46,12 +55,9 @@ class SaveRefusedOverAChangedConfig(Sandbox):
             return Key("space")     # on the first model's orchestrator mark: fable's
 
         def refused():              # what the Space left, before the next is read
-            seen["refused"] = config.load(), terminal.plain(drawn.getvalue())
+            seen["refused"] = config.load(), terminal.plain(self.drawn.getvalue())
             return Key("space")
-        reads = iter((added, refused, lambda: Key("esc")))
-        with patch.object(terminal, "read_key", side_effect=lambda *_a, **_kw: next(reads)()), \
-                redirect_stdout(drawn):
-            menu.show_config(False, Keyboard(), None)
+        self.keyed(added, refused)
 
         cfg, screen = seen["refused"]
         self.assertEqual(cfg["models"][seen["added"]]["model"], ADDED["model"])
@@ -61,6 +67,21 @@ class SaveRefusedOverAChangedConfig(Sandbox):
         self.assertEqual(cfg["defaults"]["orchestrator"], "fable")
         self.assertEqual(cfg["models"][seen["added"]]["model"], ADDED["model"])
 
+    def test_no_space_writes_over_a_changed_config_that_will_not_load(self):
+        path = config.HOME / config.CONFIG_NAME
+        broken = "companies = 3\n" + path.read_text()      # a hand edit load refuses
+
+        def edited():               # after `c` drew
+            new = path.with_name("config.toml.new")
+            new.write_text(broken)
+            new.replace(path)
+            return Key("space")
+
+        def again():                # `c` tried the file again, and it still will not load
+            self.assertEqual(path.read_text(), broken)
+            return Key("space")
+        self.assertIn(menu.CHANGED, self.keyed(edited, again))
+        self.assertEqual(path.read_text(), broken)
 
 if __name__ == "__main__":
     unittest.main()

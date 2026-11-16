@@ -248,6 +248,12 @@ _held = None, None
 CHANGED = "config.toml changed since this screen read it: that key was not taken"
 
 
+class Changed(Exception):
+    """A save refused over a config.toml changed since `c` read it (_saved).  It takes the owner
+    back to `c` from any page it was made on, whose state was made of the config `c` held, and
+    `c` reads the file again and says CHANGED."""
+
+
 class Live:
     """The main screen's usage probe and its reads, off the thread that draws, and their way of
     asking for a draw.
@@ -4159,8 +4165,7 @@ def _saved(cfg, table, before, defaults=None):
     why.  The config `c` holds (_held) is written only over the file `c` last read or saved,
     under the config lock so no write lands between: over one another process changed since,
     whose change a whole write would take out, nothing is written, `table` goes back as it
-    does for a save that fails, `cfg` becomes that file's (configured), and the key was not
-    taken (CHANGED)."""
+    does for a save that fails, and Changed is raised."""
     global _held
     mine = _held[0] is cfg
     try:
@@ -4168,12 +4173,7 @@ def _saved(cfg, table, before, defaults=None):
             if mine and config_mark() != _held[1]:
                 table.clear()
                 table.update(before)
-                fresh, mark = configured(cfg, _held[1])
-                if fresh is not cfg:
-                    cfg.clear()
-                    cfg.update(fresh)
-                _held = cfg, mark
-                return CHANGED
+                raise Changed
             config.save(cfg, defaults)
             if mine:
                 _held = cfg, config_mark()
@@ -4438,7 +4438,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     `cfg` follows config.toml, whoever saves it (configured), and `selected` `session`'s record
     over it, both read again before each draw -- every second while waiting for a key -- on this
     thread so a read cannot land over a save; the highlight and column stay where they are while
-    their row is.  The born row's screen keeps the row's config, its seat's to be made of.
+    their row is.  The born row's screen keeps the row's config, its seat's to be made of.  A
+    key whose save is refused over a file changed since (_saved) brings the owner back here from
+    the page it was on, and says so under the rows (CHANGED).
     Its role marks are that seat's models: Space or a
     click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
@@ -4484,9 +4486,11 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     if not born:      # config.toml's mark as `cfg` was read at: unknown, the caller's read may
         _held = cfg, None     # be long gone, so the first pass reads it again
     while True:
-        if not born:
-            _held = configured(*_held)
-            cfg = _held[0]
+        if not born:        # a file that will not load is tried each pass, and saved over by
+            now, mark = configured(cfg, _held[1])       # no key until it does (_saved)
+            if now is not cfg:
+                cfg = now
+                _held = cfg, mark
         if session and selected is not None:
             seat_read(cfg, session, selected)
         if not session and not born and selected is not None:   # a page or a save that took a
@@ -4547,71 +4551,74 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             return 3 + len(over) + len(shown)
         if act == "back" or born and act == "enter" and here[0] == "model":   # a meter opens
             return act == "enter" if born else cfg
-        if act == "a" and fresh:
-            clock.forget()            # the card: the matrix back from it replays nothing
-            refused = apply_defaults(cfg, around)
-            continue
-        if act == "r" and advice:     # a record that will not read has nobody to take it
-            clock.forget()            # another screen: the matrix back from it replays nothing
-            models_screen(cfg, session, selected, providers)
-            continue
-        if act == "enter" and opens:
-            clock.forget()            # another screen: the matrix back from it replays nothing
-        if here == ("row", CONFIG_ROWS[0]):
-            if act == "enter":
-                models_page(cfg, keyboard)
-        elif here[0] == "usage":
-            if act == "enter":
-                note = meter_acts(cfg, keyboard, here[1],
-                                  f"config · {usage_rows(cfg)[here[1] - 1][1]}")
-        elif here == ("row", CONFIG_ROWS[1]):
-            if act == "enter":
-                config_subscriptions(cfg, keyboard)
-        elif here == THEME:
-            if act in ("left", "right"):
-                column = 1 if act == "right" else 0
-            elif act in ("space", "enter"):     # kept, and drawn in from the next frame on
-                before = copy.deepcopy(cfg)
-                cfg["theme"] = list(themes.NAMES)[column]
-                note = _saved(cfg, cfg, before)
-        elif here[0] == "row":
-            if act == "enter":
-                if here == AUDIT:
-                    config_audit(cfg)
-                elif here == DONE_CHECK:
-                    config_done_check(cfg)
-                elif here == MACHINES:
-                    config_machines(cfg)
-                elif here == LIMITS:
-                    config_limits(cfg)
-                else:
-                    config_discord()
-        elif column < 0:          # a click on its label: the highlight on its first mark
-            column = config_columns(selected, here[1])[0]
-        elif act in ("left", "right"):
-            at = columns.index(column) + (1 if act == "right" else -1)
-            column = columns[min(max(at, 0), len(columns) - 1)]
-        elif act == "space" and column < 3:
-            note = (session_mark(cfg, session, selected, here[1], column, providers, around)
-                    if session else born_mark(cfg, selected, here[1], column, providers) if born
-                    else defaults_mark(cfg, selected, here[1], column))
-            if note:
-                clock.touch(("mark", here[1], column))    # refused: the mark shakes
-        elif act == "space" or isinstance(act, int):     # a role's effort
-            # a click on one of its cells takes that level, and one on its word steps it on; the
-            # row's other efforts stay as they are shown
-            role, key = list(config.ROLE_EFFORTS.items())[column - 3]
-            entry = config.at_efforts(cfg, selected)["models"][here[1]]
-            hold = [list(config.ROLE_EFFORTS.values())[number - 3] for number in
-                    config_columns(selected, here[1]) if number >= 3 and number != column]
-            lead = next((last - first + 1 for row, cells in places.values() if row == here
-                         for first, last, at in cells if at == column), 0) - terminal.cells(
-                entry.get(key, entry.get("effort", "?")))
-            note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, hold=hold,
-                                  around=around, providers=providers)
-                    if isinstance(act, int) and act < lead
-                    else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=seat,
-                                       hold=hold, around=around, providers=providers))
+        try:
+            if act == "a" and fresh:
+                clock.forget()            # the card: the matrix back from it replays nothing
+                refused = apply_defaults(cfg, around)
+                continue
+            if act == "r" and advice:     # a record that will not read has nobody to take it
+                clock.forget()            # another screen: the matrix back from it replays nothing
+                models_screen(cfg, session, selected, providers)
+                continue
+            if act == "enter" and opens:
+                clock.forget()            # another screen: the matrix back from it replays nothing
+            if here == ("row", CONFIG_ROWS[0]):
+                if act == "enter":
+                    models_page(cfg, keyboard)
+            elif here[0] == "usage":
+                if act == "enter":
+                    note = meter_acts(cfg, keyboard, here[1],
+                                      f"config · {usage_rows(cfg)[here[1] - 1][1]}")
+            elif here == ("row", CONFIG_ROWS[1]):
+                if act == "enter":
+                    config_subscriptions(cfg, keyboard)
+            elif here == THEME:
+                if act in ("left", "right"):
+                    column = 1 if act == "right" else 0
+                elif act in ("space", "enter"):     # kept, and drawn in from the next frame on
+                    before = copy.deepcopy(cfg)
+                    cfg["theme"] = list(themes.NAMES)[column]
+                    note = _saved(cfg, cfg, before)
+            elif here[0] == "row":
+                if act == "enter":
+                    if here == AUDIT:
+                        config_audit(cfg)
+                    elif here == DONE_CHECK:
+                        config_done_check(cfg)
+                    elif here == MACHINES:
+                        config_machines(cfg)
+                    elif here == LIMITS:
+                        config_limits(cfg)
+                    else:
+                        config_discord()
+            elif column < 0:          # a click on its label: the highlight on its first mark
+                column = config_columns(selected, here[1])[0]
+            elif act in ("left", "right"):
+                at = columns.index(column) + (1 if act == "right" else -1)
+                column = columns[min(max(at, 0), len(columns) - 1)]
+            elif act == "space" and column < 3:
+                note = (session_mark(cfg, session, selected, here[1], column, providers, around)
+                        if session else born_mark(cfg, selected, here[1], column, providers) if born
+                        else defaults_mark(cfg, selected, here[1], column))
+                if note:
+                    clock.touch(("mark", here[1], column))    # refused: the mark shakes
+            elif act == "space" or isinstance(act, int):     # a role's effort
+                # a click on one of its cells takes that level, and one on its word steps it on; the
+                # row's other efforts stay as they are shown
+                role, key = list(config.ROLE_EFFORTS.items())[column - 3]
+                entry = config.at_efforts(cfg, selected)["models"][here[1]]
+                hold = [list(config.ROLE_EFFORTS.values())[number - 3] for number in
+                        config_columns(selected, here[1]) if number >= 3 and number != column]
+                lead = next((last - first + 1 for row, cells in places.values() if row == here
+                             for first, last, at in cells if at == column), 0) - terminal.cells(
+                    entry.get(key, entry.get("effort", "?")))
+                note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, hold=hold,
+                                      around=around, providers=providers)
+                        if isinstance(act, int) and act < lead
+                        else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=seat,
+                                           hold=hold, around=around, providers=providers))
+        except Changed:     # the page it was made on closed; the next pass reads the file
+            note = CHANGED
 
 
 def _runs(cfg, harness, model, effort=None):
@@ -5769,8 +5776,13 @@ def config_done_check(cfg):
 
 
 def machines_value():
-    """`Machines`' count and the tick's cloud spending, with no probe or Google call."""
-    count, cloud = len(machines.known()), google_cloud.summary(count=False)
+    """`Machines`' count and the tick's cloud spending, with no probe or Google call; both read
+    config.toml as it is now, so one that will not read is shown as the error that says why,
+    `c` drawn over it while it goes on with the config it read last."""
+    try:
+        count, cloud = len(machines.known()), google_cloud.summary(count=False)
+    except config.Error as exc:
+        return str(exc)
     return f"{count} machine{'' if count == 1 else 's'} · Google Cloud {cloud}"
 
 
