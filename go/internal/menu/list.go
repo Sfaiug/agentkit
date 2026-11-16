@@ -37,7 +37,7 @@ func (l List) Frame(s terminal.Screen, h Highlight) Frame {
 		}
 		line = "  " + line
 		if choice == frame.cursor && !h.Hidden {
-			line = s.Highlight(line, true)
+			line = s.Band(s.Highlight(line, true), s.LayoutWidth())
 		}
 		body, frame.spots = append(body, line), append(frame.spots, choice)
 	}

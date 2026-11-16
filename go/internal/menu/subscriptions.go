@@ -169,7 +169,7 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 	put("", pageSpot{row: -1})
 	add := "  + add a subscription"
 	if !view.Away && view.At == len(view.Cells) {
-		add = s.Highlight(add, true)
+		add = s.Band(s.Highlight(add, true), width)
 	}
 	put(add, pageSpot{row: len(view.Cells)})
 

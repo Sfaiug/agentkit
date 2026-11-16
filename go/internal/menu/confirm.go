@@ -62,7 +62,7 @@ func (f Frame) Confirm(s terminal.Screen, name, question, meaning, action string
 	for _, each := range body {
 		line := each.line
 		if each.seat == h.Cursor && !h.Hidden {
-			line = s.Highlight(line, true)
+			line = s.Band(s.Highlight(line, true), min(f.width, 120))
 		}
 		shown.Lines = append(shown.Lines, line)
 		shown.spots = append(shown.spots, each.seat)

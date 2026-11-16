@@ -127,12 +127,12 @@ func DrawPast(s terminal.Screen, past []PastSeat, h Highlight, now time.Time, co
 		line := each.line
 		lit := !h.Hidden && each.seat != "" && each.seat == f.cursor
 		if lit {
-			line = s.Highlight(line, i == 0 || body[i-1].seat != each.seat)
+			line = s.Band(s.Highlight(line, i == 0 || body[i-1].seat != each.seat), min(columns, 120))
 		}
 		f.Lines, f.spots = append(f.Lines, line), append(f.spots, each.seat)
 		if lit && (i+1 == len(body) || body[i+1].seat != each.seat) {
 			for _, line := range keepDetail(details[each.seat], opens[each.seat], width-len(indent)) {
-				f.Lines = append(f.Lines, s.Highlight(indent+line, false))
+				f.Lines = append(f.Lines, s.Band(s.Highlight(indent+line, false), min(columns, 120)))
 				f.spots = append(f.spots, each.seat)
 			}
 		}

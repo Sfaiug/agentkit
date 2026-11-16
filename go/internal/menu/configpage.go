@@ -221,8 +221,15 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 		for _, p := range parts {
 			whole = append(whole, strings.Fields(p.text)...)
 		}
-		if slices.ContainsFunc(parts, func(p part) bool { return p.by != 0 }) {
+		celled := slices.ContainsFunc(parts, func(p part) bool { return p.by != 0 })
+		if celled {
 			whole = []string{strings.Join(whole, " ")}
+		}
+		highlight := func(line string, mark bool) string {
+			if line = s.Highlight(line, mark); !celled { // the keys on its arrows, not the row
+				line = s.Band(line, room)
+			}
+			return line
 		}
 		// against the room the label leaves, which a label wider than the page leaves none of
 		folded := entry.choice < 0 && slices.ContainsFunc(whole, func(word string) bool { return terminal.Cells(word) > room-terminal.Cells(lead) })
@@ -232,7 +239,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 				line = "  " + s.Styled(terminal.Cut(row.Label, room-2), row.Colour)
 			}
 			if entry == lit {
-				line = s.Highlight(line, true)
+				line = highlight(line, true)
 			}
 			body, lines = append(body, line), append(lines, entry)
 			lead, left = "    ", max(1, room-4)
@@ -262,7 +269,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			}
 			line := strings.TrimRight(lead+strings.Join(pieces, " "), " ")
 			if entry == lit {
-				line = s.Highlight(line, number == 0 && !folded)
+				line = highlight(line, number == 0 && !folded)
 			}
 			if entry.choice >= 0 {
 				line = s.Fade(line, 1-opening) // the list comes up under its row

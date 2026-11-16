@@ -160,7 +160,7 @@ func companiesBody(s terminal.Screen, shown []matrix.Company, on map[string]bool
 	}
 	add := "  + add a company"
 	if at == len(shown) {
-		add = s.Highlight(add, true)
+		add = s.Band(s.Highlight(add, true), room)
 	}
 	return append(body, matrixRow{line: add, row: len(shown)})
 }

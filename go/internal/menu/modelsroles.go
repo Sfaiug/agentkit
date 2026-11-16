@@ -194,7 +194,7 @@ func roleLines(s terminal.Screen, view ModelsView, at int) []matrixRow {
 		for n, line := range own {
 			line = strings.TrimRight(line, " ")
 			if i == at {
-				line = s.Highlight(line, n == 0)
+				line = s.Band(s.Highlight(line, n == 0), room)
 			}
 			lines = append(lines, matrixRow{line: line, row: i})
 		}
