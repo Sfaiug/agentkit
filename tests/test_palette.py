@@ -51,7 +51,9 @@ class Palette(unittest.TestCase):
         self.addCleanup(os.close, self.master)
         for target, name, value in ((terminal, "_RGB", False), (terminal, "THEME", terminal.BLACK),
                                     (terminal, "_KEYED", b""), (sys, "stdin", stdin),
-                                    (sys, "stdout", stdout)):
+                                    (sys, "stdout", stdout),
+                                    # no config.toml names a theme: the terminal's answer decides
+                                    (terminal, "chosen", lambda: None)):
             patcher = patch.object(target, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
