@@ -8,11 +8,11 @@ package loop
 // reaches back blameReach commits at most, none older than keepEvidence, the tip last, red twice
 // already.  A red the clock or the host made fails on every commit, and the pass, and so the line,
 // waits for each step: the oldest red ends the walk at one step where halving takes six, at the
-// price of one more for a commit's red.  Each step checks its
-// commit as the probe checked the tip: those tests alone first, then the piece where they name no
-// red.  Exits decide, never names: a step whose piece failed each of two goes or more is red, one
-// that passes is green, and a go that failed beside one that passed is a flake, which ends the walk
-// without blame, as does a step that proves nothing.  Red at the oldest commit blames nobody.
+// price of one more for a commit's red.  Each step checks its commit as the probe checked the tip:
+// those tests alone first, then the piece where they name no red.  Exits decide, never names: a
+// step whose piece failed each of two goes or more is red, one that passes is green, and a go that
+// failed beside one that passed is a flake, which ends the walk without blame, as does a step that
+// proves nothing.  Red at the oldest commit blames nobody.
 
 import (
 	"cmp"
