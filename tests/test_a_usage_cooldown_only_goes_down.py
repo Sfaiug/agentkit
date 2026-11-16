@@ -6,8 +6,10 @@ down.  Muse's adapter keeps its own answer for `muse_usage.CACHE_TTL` on top, he
 This holds the cooldowns alone.  When the ask after a cooldown comes is its caller's (the tick,
 an open menu), and what else ak reads (pull requests, releases, logins) is not measured here.
 
-The owner, 12 Nov 2026: "Are we checking as often as possible, or not?"  Offline: the manifests
-as shipped, Python's and Go's copies.
+The owner, 12 Nov 2026: "Are we checking as often as possible, or not?"  Shown the rows below,
+Muse's ten minutes and a login's plan asked hourly (`logins.ASK_EVERY`), the owner left all four
+as they are on 16 Nov 2026: a faster read costs money, a CPU or an hour's refusal.  Offline: the
+manifests as shipped, Python's and Go's copies.
 """
 
 import sys
