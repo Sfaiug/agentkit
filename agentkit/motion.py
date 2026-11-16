@@ -368,7 +368,8 @@ class Clock:
         self.last = None    # when the last frame was made
         self.seen = None    # key -> what the last draw showed, and since when and in place of
                             # what when that was news; None when no draw is to be compared with
-        self.touched = {}   # key -> since when it is news that changed nothing (`touch`)
+        self.touched = {}   # key -> since when it is news that changed nothing (`touch`), None
+                            # till a draw shows it
         self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
         self.page = page    # ... or, a page opening, all under its header and rule (`titled`)
         self.opened = None  # ... from its first frame
@@ -385,7 +386,8 @@ class Clock:
 
         At first and after `forget` -- a resize, another screen -- every value is taken as it
         is, and so is one no draw before showed: only a change seen while the menu is up moves.
-        A key touched is news since then, what it showed before being what it shows.
+        A key touched is news from the first draw that shows it, what it showed before being
+        what it shows.
         """
         now, seen, self.seen = moment(), self.seen or {}, {}
         for key, value in values.items():
@@ -394,13 +396,17 @@ class Clock:
                               else (value, now, was[0]))
         news = {key: (since, before) for key, (_, since, before) in self.seen.items()
                 if since is not None}
-        news.update((key, (since, values[key])) for key, since in self.touched.items()
-                    if key in values)
+        for key in self.touched.keys() & values.keys():
+            if self.touched[key] is None:
+                self.touched[key] = now
+            news[key] = self.touched[key], values[key]
         return news
 
     def touch(self, key):
-        """News at `key` from now that changed nothing: a mark whose change was refused."""
-        self.touched[key] = moment()
+        """News at `key` that changed nothing -- a mark whose change was refused, the row `n`
+        makes -- from the first draw that shows it: however long that draw takes, it moves from
+        its first frame, as a page's rows do."""
+        self.touched[key] = None
 
     def settle(self):
         """A key: whatever moves ends on its last frame, a screen coming up too, the next draw
