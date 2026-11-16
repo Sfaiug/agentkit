@@ -669,6 +669,9 @@ def update_agentkit(progress=None, pull=True):
             say("update: agentkit: moves once the harness upgrade running now ends")
             return 0
         pending = config.STATE / PENDING
+        if config.server_alias() and pending.exists() and not versions.kept():
+            # before a move on from it, whose tidy would remove the version to put back
+            versions.relink(directory)
         if pull and versions.kept() and not config.server_alias():
             # no move starts before the last is final (versions.final); an owed install still
             # runs.  A client has no keeper to put back one whose install.sh keeps failing, so
@@ -731,7 +734,7 @@ def update_agentkit(progress=None, pull=True):
                 return proc.returncode
         ak, kept = str(directory / "bin" / "ak"), versions.kept()
         # the role install.sh left: it makes a Mac its Linux machine's client
-        if config.server_alias() and (kept or versions.relink(directory)):
+        if kept and config.server_alias():
             for argv in ([ak, "--help"], [ak, "--dry-run"]):
                 code = versions.run(argv, **PINS)[0]
                 if code:
