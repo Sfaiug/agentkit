@@ -19,6 +19,7 @@ from fixtures.akterm import Terminal
 INTERNAL = "internal:  orch  worker  hand-in  watch  update  macbridge  attach  doctor  move  standby"
 DIM = "\x1b[2m"
 RESET = "\x1b[0m"
+COLOURED = "\x1b[39m"   # the terminal ends a line in a colour alone by ending the colour alone
 GREY = "\x1b[38;2;134;141;151m"      # the black theme's dim, #868d97
 GREY_256 = "\x1b[38;5;245m"          # ... and the nearest of xterm's 256 to it
 
@@ -40,10 +41,10 @@ class OnATerminal(unittest.TestCase):
         return [line for line in term.screen(colours=True).splitlines() if "\x1b" in line]
 
     def test_true_colour_draws_the_internal_line_in_the_palette_grey(self):
-        self.assertEqual(self.styled_lines(COLORTERM="truecolor"), [GREY + INTERNAL + RESET])
+        self.assertEqual(self.styled_lines(COLORTERM="truecolor"), [GREY + INTERNAL + COLOURED])
 
     def test_256_colours_draw_it_in_the_nearest_grey_they_have(self):
-        self.assertEqual(self.styled_lines(COLORTERM=""), [GREY_256 + INTERNAL + RESET])
+        self.assertEqual(self.styled_lines(COLORTERM=""), [GREY_256 + INTERNAL + COLOURED])
 
     def test_eight_colours_draw_it_plain_dim(self):
         self.assertEqual(self.styled_lines(TERM="xterm", COLORTERM=""), [DIM + INTERNAL + RESET])
