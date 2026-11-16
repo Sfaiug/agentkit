@@ -13,8 +13,8 @@ from test_a_red_is_narrowed_by_its_failed_tests import NAMED, NarrowFixture, on
 from agentkit import worker
 
 # Affect only a tests-alone check after the deepest stack confirmed t_tax red: halfway, and on
-# the target's tip with the second member alone.
-HALFWAY = '[ -n "$AK_RAN" ] && [ -f member-2.txt ] && [ ! -f member-4.txt ]'
+# the target's tip with the second member alone: only such a check is given AK_NOT_THERE.
+HALFWAY = '[ -n "$AK_NOT_THERE" ] && [ -f member-2.txt ] && [ ! -f member-4.txt ]'
 
 
 class RedNarrowedBothWays(NarrowFixture, unittest.TestCase):
@@ -62,14 +62,14 @@ class RedNarrowedBothWays(NarrowFixture, unittest.TestCase):
     def test_a_run_killed_after_naming_its_failure_gets_a_whole_check(self):
         boxed = worker.boxed
 
-        def killed(*args, only=None, ran=None, failed=None, **kw):
+        def killed(*args, only=None, ran=None, failed=None, absent=None, **kw):
             cwd = Path(kw["cwd"])
-            if (ran is not None and (cwd / "member-2.txt").exists()
+            if (absent is not None and (cwd / "member-2.txt").exists()
                     and not (cwd / "member-4.txt").exists()):
                 ran.extend(only)
                 failed.extend(only)
                 return 137, "", True
-            return boxed(*args, only=only, ran=ran, failed=failed, **kw)
+            return boxed(*args, only=only, ran=ran, failed=failed, absent=absent, **kw)
 
         with patch.object(worker, "boxed", side_effect=killed):
             self.inconclusive(NAMED)

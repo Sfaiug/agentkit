@@ -289,10 +289,13 @@ def first_failure(dw_log):
     rounds, and a suite ends on its tally -- `acceptance: FAILED (see ...)` -- which says that
     something failed and never what.  This is the first line the failing command started
     with FAIL, FAILED, ERROR or `not ok`, else the last line it printed, else the command
-    alone; a gate no command failed says what the loop said about it instead.
+    alone; for one stopped at the limit, the loop's line saying what stopped it, less the
+    command it repeats; a gate no command failed says what the loop said about it instead.
+    Cut at 200 characters, the command gives way first: the log holds both whole.
     """
-    failing, named, last, note = None, None, None, None
-    for record in (dw_log or "").split("\n\n"):
+    failing, stopped, named, last, note = None, False, None, None, None
+    records = (dw_log or "").split("\n\n")
+    for record in records:
         if record.startswith("flaky: "):
             continue
         match = re.match(r"\$ ([^\n]*)\n\[([^\]\n]*)\]", record)
@@ -300,7 +303,7 @@ def first_failure(dw_log):
             if failing is not None:
                 break       # the next command's record: the first failing one said all it had
             if match.group(2) != "exit 0":
-                failing = match.group(1)
+                failing, stopped = match.group(1), match.group(2) == "killed at the limit"
             record = record[match.end():]
         for line in (line.strip() for line in record.splitlines()):
             if LOOP_NOTE.match(line):
@@ -308,9 +311,19 @@ def first_failure(dw_log):
             elif failing is not None and line:
                 named = named or (line if FAILURE_LINE.match(line) else None)
                 last = line
-    said = named or last or note or ""
-    line = f"`{failing}` \u2014 {said}" if failing and said else f"`{failing}`" if failing else said
-    return line if len(line) <= 200 else line[:199] + "\u2026"
+    # A stop ends the list: `gate.run_done_when`'s line on it is the log's last record of its
+    # kind, after all the stopped command printed, whatever that looked like.
+    stop = next((record for record in map(str.strip, reversed(records))
+                 if record.startswith("done-when: stopped after ")), "") if stopped else ""
+    said = (stop.removeprefix("done-when: ").replace(f": {failing} (", " (", 1)
+            .removesuffix(", and the commands after it, if any, were not run.")
+            if stop else named or last or note or "")
+    if failing:
+        tail = f" \u2014 {said}" if said else ""
+        room = max(40, 198 - len(tail))     # enough of the command to tell which it is
+        shown = failing if len(failing) <= room else failing[:room - 1] + "\u2026"
+        said = f"`{shown}`{tail}"
+    return said if len(said) <= 200 else said[:199] + "\u2026"
 
 
 def changed_test_paths(lp, head="HEAD", named=True):

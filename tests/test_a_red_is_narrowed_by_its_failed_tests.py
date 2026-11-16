@@ -6,7 +6,8 @@ target's tip with it alone too; the tests run alone on the top rebuilt without i
 in the same pass.  An inconclusive step gets its whole check, as without them.  No stack below
 the first holding a red test's file runs it; a test named by no file runs there, and a suite
 naming it not there passes it, unless the run moved its checkout, and a probe on a suite helper
-passes it only on names the helper handed back.
+passes it only on names the helper handed back.  A probe silence stopped before it ended them
+is red in them, as one failing them is.
 
 Offline: real Git and checks, the suite a shell runner that runs only those asked for and
 names each it runs and each that fails, sandbox records, fake processes and wakes; a helper's
@@ -230,6 +231,12 @@ class AProbePassesOnlyOnWhatItsHelperHandsBack(test_lander.LanderFixture, unitte
         red = 'echo t_tax >> "$AK_RAN"; echo t_tax >> "$AK_FAILED"; ' + GONE + "exit 1"
         self.assertIs(self.probe(red, ("t_tax", "test_new.sh")), False)
         self.assertIsNone(self.probe(red, ("t_tax", "test_new.sh"), unread=("failed",)))
+
+    def test_a_probe_silence_stopped_before_its_tests_ended_is_red(self):
+        self.state["silence_minutes"] = 0.02
+        for here in (False, True):
+            with self.subTest(here=here):
+                self.assertIs(self.probe("exec sleep 60", here=here), False)
 
     def test_a_test_not_there_on_a_clone_its_piece_moved_proves_nothing(self):
         self.assertIsNone(self.probe(f"git checkout -q --detach {self.base}; {GONE}exit 1"))

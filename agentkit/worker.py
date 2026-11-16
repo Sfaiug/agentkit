@@ -667,10 +667,11 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, used=None, times=None, only=None, f
     `cpu`, a list, gets the CPU seconds the command's processes needed, where the box says, and
     the seconds the box ran, a pair; `used`, a dict, what the command used (`box.reaped`),
     where the box says.
-    `failed`, a list, gets the tests a command that ran to its end named as failed, one per
-    line in the file `AK_FAILED` names, `ran` those it named as run, in `AK_RAN`'s, `flaky`
-    those it named as failing, then passing on a re-run, in `AK_FLAKY`'s, and `absent` those it
-    named as not there, in `AK_NOT_THERE`'s; `only`, test names, go one per line into the file
+    `failed`, a list, gets the tests the command named as failed, one per line in the file
+    `AK_FAILED` names, `ran` those it named as run, in `AK_RAN`'s, `flaky` those it named as
+    failing, then passing on a re-run, in `AK_FLAKY`'s, and `absent` those it named as not
+    there, in `AK_NOT_THERE`'s, as it went: a killed one's too, as what it had begun and not
+    ended is what hung (`gate.unfinished`); `only`, test names, go one per line into the file
     `AK_ONLY` names, for a command that runs just those, and `times`, the test-times record a
     suite cuts its shares from, into the file `AK_TIMES` names: a variable holds no more than
     131,072 bytes."""
@@ -709,7 +710,7 @@ def boxed(cmd, limit, *, env, cwd, cpu=None, used=None, times=None, only=None, f
                         text += message
         # Read outside the box, a link could reach a file the box masked, a credential.
         for path, into in named.values():
-            if not killed and path.is_file() and not path.is_symlink():
+            if path.is_file() and not path.is_symlink():
                 into.extend(dict.fromkeys(line.strip() for line in path.read_text(
                     errors="replace").splitlines() if line.strip()))
     return code, text, killed

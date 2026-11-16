@@ -866,9 +866,10 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None, over=()):
     """What the checks found red, from the exits the runner saw (`marks`, and `pieces` by
     command and share): the first failing `command`, its first confirmed red `piece`'s share
     (`k/N`), or its first red piece where none is confirmed, and
-    the `tests` that piece named that failed again alone (`confirmed`), if any.  The piece is
-    "" where the command ran whole or a piece was killed at the limit, which stops its siblings
-    with it, and the suite whole where no command failed and yet the checks did not pass (the
+    the `tests` that piece named that failed, or hung, again alone (`confirmed`), if any.  The
+    piece is "" where the command ran whole or a piece was killed confirming none -- at the
+    limit, which stops its siblings with it, or for silence -- and the suite whole where no
+    command failed and yet the checks did not pass (the
     checkout changed under them, the suite's own doing as far as the lander can tell); {}
     where the checks passed or no exits were reported.  A piece out of memory
     (`gate.OUT_OF_MEMORY`) is red only where no other is, and then `short`: the host's red,
@@ -896,7 +897,8 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None, over=()):
         if not reds and any(code != 0 for code in codes.values()):
             landed += [test for tests in named.values() for test in tests]
             continue
-        piece = "" if None in codes.values() or not reds else reds[0]
+        piece = "" if not reds or any(code is None and not named.get(share)
+                                      for share, code in codes.items()) else reds[0]
         if piece and codes[piece] == gate.OUT_OF_MEMORY:
             return {"command": cmd, "piece": piece, "short": True}
         tests = own[piece] if piece else None
@@ -1119,8 +1121,10 @@ def _probe(directory, state, scratch, tree, command, tests, cost, here=False):
     helper's piece of `cost` (CPUs, MiB) runs them (`gate.pinned`), on a helper or `here` in a
     box as the single step runs them: True where each was named as run (`AK_RAN`) or as not
     there (`gate.passes_what_it_holds`), False where the run failed naming one of them both as
-    run and as failed (`AK_FAILED`), and None where it proved neither -- no helper took it, it
-    hung, the helper lost it, had no room or handed back no names, a test was not named as run.
+    run and as failed (`AK_FAILED`), or silence stopped it before it ended one of them
+    (`gate.unfinished`), and None where it proved neither -- no helper took it, it was stopped
+    otherwise, the helper lost it, had no room or handed back no names, a test was not named as
+    run.
     It takes no turn, leaves its `checks` row and records nothing else, no flaky sighting
     either: a red only a probe shows is no evidence (`_check_tests` decides)."""
     from . import gate, helper, history, run, worker
@@ -1134,6 +1138,7 @@ def _probe(directory, state, scratch, tree, command, tests, cost, here=False):
     log_path = directory / f"lander-{tree}-probe.log"
     silence = 60 * state.get("silence_minutes", record.SILENCE_MINUTES)
     named = {"ran": [], "failed": [], "absent": []}     # what a run here names
+    stops = []
     try:
         with log_path.open("wb") as output, history.check(
                 (directory, None, "landing", head), command, asked, away and away.alias) as ended:
@@ -1141,6 +1146,7 @@ def _probe(directory, state, scratch, tree, command, tests, cost, here=False):
             # waits for it.
             how = {"cwd": str(scratch), "activity": log_path, "output": output,
                    "silence": gate.quiet_window(command, scratch, None, silence) or silence,
+                   "on_timeout": lambda why, _pid: stops.append(why),
                    "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL}
             limit = 3600 * state.get("ceiling_hours", record.CEILING_HOURS)
             code, _, killed = (
@@ -1149,6 +1155,8 @@ def _probe(directory, state, scratch, tree, command, tests, cost, here=False):
                 worker.boxed(["bash", "-c", there], limit, used=ended, times=times, only=tests,
                              env={**gate.suite_env(), "AK_SHARD": "1/1"}, **named, **how))
             ended["exit"] = None if killed else code
+        if stops == ["silence"] and gate.unfinished(tests, log_path, named["failed"]):
+            return False
         if killed or code < 0 or away and code in (*helper.GONE, helper.FULL):
             return None
         ran, failed, absent = ([helper.failed(away, "1/1", which)
