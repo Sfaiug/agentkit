@@ -40,11 +40,11 @@ class WatcherOutlivesARoundThatRaises(Sandbox):
         live = self.live()
         stepping, raised = getattr(live, step), []
 
-        def once(*args):
+        def once(*args, **kw):
             if not raised:
                 raised.append(step)
                 raise subprocess.TimeoutExpired(["git", "status"], 5)
-            return stepping(*args)
+            return stepping(*args, **kw)
 
         with patch.object(live, step, side_effect=once):
             live.ask()
@@ -86,7 +86,7 @@ class WatcherOutlivesARoundThatRaises(Sandbox):
                 return False
             return wait
 
-        def raising(*_args):
+        def raising(*_args, **_kw):
             began.append(clock[0])
             if asking:
                 live.ask()          # the main loop's, every TICK

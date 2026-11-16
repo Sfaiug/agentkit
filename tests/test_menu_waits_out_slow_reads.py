@@ -1,12 +1,14 @@
 """A menu waits out reads that are merely slow before it starts over (`Live.stuck`): a read is
-timed from the ask it answers, the watcher's record checks before it included, and STUCK times
-the slowest lately is waited, in the menu started again too.  On the clock `menu.CLOCK` reads,
-injected; tests/test_key_a_menu_whose_reads_stopped_starts_over.py starts one over from outside.
+timed from its round's start or the ask it answers, the watcher's record checks before it
+included, the first read's too, and STUCK times the slowest lately is waited, in the menu
+started again too.  On the clock `menu.CLOCK` reads, injected;
+tests/test_key_a_menu_whose_reads_stopped_starts_over.py starts one over from outside.
 """
 
 import os
 from pathlib import Path
 import sys
+import threading
 from unittest.mock import patch
 import unittest
 
@@ -29,17 +31,17 @@ class SlowReads(Sandbox):
         live.last = [[], None]
         return live
 
-    def test_a_round_is_timed_from_its_ask_its_record_checks_and_all(self):
+    def test_each_read_is_timed_with_its_record_checks_the_first_too(self):
         live, rounds, said = self.live(), [], []
 
         def wait(_timeout):
             live.done.set() if len(rounds) == 3 else live.ask()
             return True
 
-        def recorded():               # 40 s of stats before each read; the third asked about
+        def recorded():               # 40 s of stats before each read; all but the first asked
             rounds.append(self.now)
             self.now += 31
-            if len(rounds) == 3:
+            if len(rounds) > 1:
                 said.append(live.stuck())
             self.now += 9
             return [self.now]
@@ -48,12 +50,14 @@ class SlowReads(Sandbox):
             self.now += 1
             return [], [], GROUPS
 
+        live.watcher = threading.current_thread()     # its rounds run here, after the first
         with patch.object(live.asked, "wait", side_effect=wait), \
                 patch.object(live, "recorded", side_effect=recorded), \
                 patch.object(live, "configure"), patch.object(menu, "rows", side_effect=rows):
+            live.watch(live.last)
             live._watch()
         self.assertEqual(rounds, [0, 41, 82])
-        self.assertEqual(said, [""])
+        self.assertEqual(said, ["", ""])
 
     def test_a_twenty_second_read_is_waited_out_two_hundred_seconds_after_a_restart_too(self):
         live = self.live()

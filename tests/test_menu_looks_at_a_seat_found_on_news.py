@@ -174,7 +174,7 @@ class MenuLooksAtASeatFoundOnNews(Sandbox):
                 release.wait(30)
             return [], [], 0, {}
 
-        def read(look=False):
+        def read(look=False, **_kw):
             reading(look)
             if threading.current_thread() is live.watcher:
                 discovered.set()
