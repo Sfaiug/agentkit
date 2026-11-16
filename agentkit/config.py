@@ -13,6 +13,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 from pathlib import Path
@@ -420,16 +421,25 @@ def rename_policy(data):
     return data
 
 
+_locking = threading.local()      # whether this thread holds the config lock (_config_lock)
+
+
 @contextmanager
 def _config_lock():
-    """One writer at a time of the config file that reads it again first.  It locks the
-    directory, which survives replacing the file and which no collector removes, as it would a
-    lock file of its own."""
+    """One writer at a time of the config file, held by each (save) and around a read the write
+    follows.  It locks the directory, which survives replacing the file and which no collector
+    removes, as it would a lock file of its own.  Its holder takes it again for nothing, as save
+    under add_model: a second lock of the directory would wait on the first."""
+    if getattr(_locking, "held", False):
+        yield
+        return
     directory = os.open(HOME, os.O_RDONLY)
     try:
         fcntl.flock(directory, fcntl.LOCK_EX)
+        _locking.held = True
         yield
     finally:
+        _locking.held = False
         os.close(directory)
 
 
@@ -1203,7 +1213,8 @@ def save(cfg, defaults=None):
     the file has it, whatever `cfg` holds, since a menu open for hours holds an older one: a
     model `cfg` no longer has passed over (passed_over).  Every seat first holds the efforts
     the entries load gives it, the shipped default's for a file with none (keep_efforts), so
-    none moves with them.
+    none moves with them.  All of it under the config lock, so no other write lands between
+    the file read and the file written, nor on the same temp file.
     """
     if "turns_on_machines" in cfg:
         from . import google_cloud, machines
@@ -1215,25 +1226,26 @@ def save(cfg, defaults=None):
         del cfg["turns_on_machines"]
     _work_in(cfg)
     path = HOME / CONFIG_NAME
-    if defaults is None:
+    ensure_dirs()       # the lock is the directory's
+    with _config_lock():
+        if defaults is None:
+            try:
+                defaults = (_read_toml(path) or {}).get("defaults")
+            except Error:
+                defaults = None       # nothing readable to keep: `cfg`'s are written
+            if isinstance(defaults, dict):
+                defaults = passed_over(defaults, cfg)
+        text = dump(rename_policy(cfg if defaults is None else {**cfg, "defaults": defaults}))
         try:
-            defaults = (_read_toml(path) or {}).get("defaults")
+            before = load()
         except Error:
-            defaults = None       # nothing readable to keep: `cfg`'s are written
-        if isinstance(defaults, dict):
-            defaults = passed_over(defaults, cfg)
-    text = dump(rename_policy(cfg if defaults is None else {**cfg, "defaults": defaults}))
-    try:
-        before = load()
-    except Error:
-        before = None       # no entries readable: no seat had efforts off them to keep
-    for name in session_records() if before else ():
-        keep_efforts(before, name)
-    ensure_dirs()
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(text)
-    os.chmod(tmp, 0o600)
-    tmp.replace(path)
+            before = None       # no entries readable: no seat had efforts off them to keep
+        for name in session_records() if before else ():
+            keep_efforts(before, name)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(text)
+        os.chmod(tmp, 0o600)
+        tmp.replace(path)
 
 
 def model(cfg, name):
@@ -1683,24 +1695,20 @@ def discard_session(name, created):
             path.unlink(missing_ok=True)
 
 
-def remember_defaults(record, models=None):
+def remember_defaults(record):
     """[defaults] as `record` has them: what the next `n` starts from, and the one write of
-    them (save), the `[models.*]` tables as `models` has them in the same write where given.
-    The file is read again first, so nothing else changed in it since is written back over, and
-    one holding them already is not written; a failed write keeps it as it was and says why,
-    else ""."""
+    them (save).  The file is read again first, under the config lock, so nothing else changed
+    in it since is written back over, and one holding them already is not written; a failed
+    write keeps it as it was and says why, else ""."""
     defaults = {key: record[key] for key in _DEFAULTS_ORDER if key in record}
 
     def meant(table):     # reviewers it leaves out are its workers
         return {"reviewers": table.get("workers"), **table} if isinstance(table, dict) else None
     try:
-        if models is None and meant((_read_toml(HOME / CONFIG_NAME) or {}).get(
-                "defaults")) == meant(defaults):
-            return ""
-        cfg = load()
-        if models is not None:
-            cfg["models"] = models
-        save(cfg, defaults)
+        with _config_lock():
+            if meant((_read_toml(HOME / CONFIG_NAME) or {}).get("defaults")) == meant(defaults):
+                return ""
+            save(load(), defaults)
     except (Error, OSError) as exc:
         return str(exc)     # a seat is made all the same
     return ""

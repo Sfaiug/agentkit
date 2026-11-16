@@ -241,6 +241,13 @@ def configured(cfg, mark):
     return cfg, now
 
 
+# The config `c` holds and config.toml's mark as `c` last read or saved it (configured): that
+# config is written only over that file (_saved)
+_held = None, None
+# What `c` says of a key whose save it refused, config.toml changed since it read it
+CHANGED = "config.toml changed since this screen read it: that key was not taken"
+
+
 class Live:
     """The main screen's usage probe and its reads, off the thread that draws, and their way of
     asking for a draw.
@@ -4146,11 +4153,30 @@ def _effort_moves(levels, effort, kind, bright, word, cells):
     return start
 
 
-def _saved(cfg, table, before):
-    """config.save; "" when it held.  One that fails puts `table` back as `before`, so the
-    screen, and the menu after it, go on with what the file holds, and says why."""
+def _saved(cfg, table, before, defaults=None):
+    """config.save, `defaults` with it; "" when it held.  One that fails puts `table` back as
+    `before`, so the screen, and the menu after it, go on with what the file holds, and says
+    why.  The config `c` holds (_held) is written only over the file `c` last read or saved,
+    under the config lock so no write lands between: over one another process changed since,
+    whose change a whole write would take out, nothing is written, `table` goes back as it
+    does for a save that fails, `cfg` becomes that file's (configured), and the key was not
+    taken (CHANGED)."""
+    global _held
+    mine = _held[0] is cfg
     try:
-        config.save(cfg)
+        with config._config_lock():
+            if mine and config_mark() != _held[1]:
+                table.clear()
+                table.update(before)
+                fresh, mark = configured(cfg, _held[1])
+                if fresh is not cfg:
+                    cfg.clear()
+                    cfg.update(fresh)
+                _held = cfg, mark
+                return CHANGED
+            config.save(cfg, defaults)
+            if mine:
+                _held = cfg, config_mark()
     except (config.Error, OSError) as exc:
         table.clear()
         table.update(before)
@@ -4453,12 +4479,14 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     seat = (session, selected) if session or born else None     # whose efforts a step changes
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
     refused = {}      # what the last `a` said (apply_defaults), fitted under the rows each draw
-    # config.toml's mark as `cfg` was read at: unknown, the caller's read may be long gone, so
-    # the first pass reads it again; and the subscriptions the meters were last drawn from
-    read, subs = None, []
+    subs = []         # the subscriptions the meters were last drawn from
+    global _held
+    if not born:      # config.toml's mark as `cfg` was read at: unknown, the caller's read may
+        _held = cfg, None     # be long gone, so the first pass reads it again
     while True:
         if not born:
-            cfg, read = configured(cfg, read)
+            _held = configured(*_held)
+            cfg = _held[0]
         if session and selected is not None:
             seat_read(cfg, session, selected)
         if not session and not born and selected is not None:   # a page or a save that took a
@@ -5628,8 +5656,8 @@ def setting(cfg, page, table, read):
     key `read` cannot take on its own is dropped, so the first change mends a table nothing
     reads, and one that is not a table keeps nothing; why `read` takes none, or ""; and
     `write(key, value)`, which sets `key` to `value`, or takes it out for None, beside the keys
-    kept and saves it, `cfg` with it, once `read` takes it, else writes nothing and returns
-    why, else ""."""
+    kept and saves it, `cfg` with it (_saved), once `read` takes it, else writes nothing and
+    returns why, else ""."""
     held, kept = cfg.get(table), {}
     for key, value in held.items() if isinstance(held, dict) else ():
         try:
@@ -5644,11 +5672,11 @@ def setting(cfg, page, table, read):
             del changed[key]
         try:
             read({**cfg, table: changed})
-            config.save({**cfg, table: changed})
-        except (config.Error, OSError) as exc:
+        except config.Error as exc:
             return f"{page}: {exc}"
+        before = copy.deepcopy(cfg)
         cfg[table] = changed
-        return ""
+        return _saved(cfg, cfg, before)
     try:
         return read(cfg), "", write
     except config.Error as exc:
@@ -6133,7 +6161,7 @@ def for_selected(cfg, scope):
 
 def defaults_mark(cfg, selected, model, column):
     """Act on one of new seats' marks, `selected` being [defaults]: saved at once
-    (config.remember_defaults) and into `cfg` and `selected`, no open seat changing.  What to
+    (defaults_saved) and into `cfg` and `selected`, no open seat changing.  What to
     say under the rows, or ""."""
     # a new seat's crew is read as it is made (orch.default_crew), so no meter refuses one now
     changed, note = orch.role_mark(cfg, selected, model, column, {})
@@ -6143,18 +6171,14 @@ def defaults_mark(cfg, selected, model, column):
 
 
 def defaults_saved(cfg, selected, changed, before):
-    """New seats' role groups as `changed` has them, saved at once (config.remember_defaults),
-    with the models `cfg` changed from `before` in the same write, and then into `cfg` and
-    `selected`; a save that fails puts `cfg` back as `before`, leaves the file and `selected`
-    alone and says why.  What to say under the rows, or ""."""
-    note = config.remember_defaults(changed, cfg["models"] if cfg != before else None)
-    if note:
-        cfg.clear()
-        cfg.update(before)
-        return f"config: {note}"
-    cfg["defaults"] = copy.deepcopy(changed)
-    selected.update(changed)
-    return ""
+    """New seats' role groups as `changed` has them, saved at once with the models `cfg`
+    changed from `before` (_saved), and then into `cfg` and `selected`; a save not taken leaves
+    `selected` alone and says why.  What to say under the rows, or ""."""
+    note = _saved(cfg, cfg, before, changed)
+    if not note:
+        cfg["defaults"] = copy.deepcopy(changed)
+        selected.update(changed)
+    return note
 
 
 def apply_defaults(cfg, around):
