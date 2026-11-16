@@ -3806,10 +3806,11 @@ def models_screen(cfg, session, selected, providers):
                           for role, (name, effort) in kept.items()}}
         said = models_said(cfg, answer, used, unit)
         body, places = models_body(said, unit, None if terminal.away() else here[1])
-        # the heading stays over the role lines where a page too short for every role follows
-        # the highlight (matrix_page): its numbers never stand unnamed
-        over, body = body[:min(places)], body[min(places):]
-        places = {line - len(over): place for line, place in places.items()}
+        # the heading, the line that is no role's, wherever a role with no numbers leaves it,
+        # stays over the role lines where a page too short for every role follows the highlight
+        # (matrix_page): its numbers never stand unnamed
+        over = [line for number, line in enumerate(body) if number not in places]
+        body, places = [body[number] for number in places], dict(enumerate(places.values()))
         cheaper, better = ("←", "→") if terminal.utf8() else ("<", ">")
         keys = terminal.keys(f"{cheaper} cheaper", f"better {better}", "p models", "u unit",
                              "esc back", enter="why", move=("role",))

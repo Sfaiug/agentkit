@@ -6,7 +6,7 @@ shaded cells and never over a dearer bar, its why led by `░`;
 `━` under the name of the row the role uses.  ↑↓ draw another role's bars; `ak models` prints
 every role's in turn under its role lines, and on 40 cells, its costs $100 and more, all five
 with every line on the screen.  On a page too short for every role's line the heading stays
-over the roles it shows.
+over the roles it shows, under a role with no numbers too.
 
 Black-box: `AK_BIN` in a terminal of 40 rows (tests/fixtures/akterm.py) and as `ak models`, a
 fake harness running three of the releases, each for a role of [defaults], the boards held as
@@ -176,6 +176,27 @@ class ModelsBars(unittest.TestCase):
         self.assertEqual([line.split()[:2] for line in shown[2:7]],
                          [["quality", "$"], ["executor", "100.0"], ["Acme", "Top"],
                           ["›", "reviewer"], ["Acme", "Base"]], shown)
+
+    def test_the_heading_stays_over_them_under_a_role_with_no_numbers_too(self):
+        """The orchestrator's row on no board, so the heading stands under its lines, and the
+        reviewer's name on two lines, so the page showing it starts past the heading."""
+        rows = [(release, "Acme Long Reviewer Model Name 1.0 Pro" if release == "acme-base-1"
+                 else name, *rest) for release, name, *rest in ROWS]
+        home = Home()
+        self.addCleanup(home.close)
+        held(home, rows)
+        hold(home, [(release, name, "high", quality / 100 - 0.1, cost)
+                    for release, name, quality, cost in rows if release != "acme-step-1"])
+        term = Terminal(home, size=(40, 12), env=ENV)
+        term.wait("esc leave")
+        term.keys("c")
+        term.wait("r recommended")
+        term.keys("r")
+        term.wait(lambda screen: "not on the boards" in screen and "100.0" in screen)
+        term.keys("Down", "Down")
+        term.wait(lambda screen: [line.split()[:2] for line in screen.split("\n")[2:7]] == [
+            ["quality", "$"], ["Acme", "Top"], ["›", "reviewer"], ["Acme", "Long"],
+            ["Pro", "high"]])
 
     def test_ak_models_prints_every_roles_bars_in_turn_under_its_role_lines(self):
         done = self.home.ak("models", env={**ENV, "COLUMNS": "100"})
