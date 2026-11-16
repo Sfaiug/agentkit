@@ -159,7 +159,8 @@ class RoleEditOnTheRecord(unittest.TestCase):
                 record = self.record()
                 self.assertEqual({key: record[key] for key in saved},
                                  {**saved, field: [*saved[field], "step"]})
-                term.wait(lambda screen: marks(screen) == shown)
+                # the rows judged: Fresh's has one where `c` follows the config, and none where not
+                term.wait(lambda screen: {name: marks(screen).get(name) for name in shown} == shown)
 
 
 if __name__ == "__main__":

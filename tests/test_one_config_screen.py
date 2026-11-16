@@ -356,17 +356,21 @@ class OneConfigScreen(unittest.TestCase):
         menu.press(b"k", lambda lines: any("esc leave" in line for line in lines)
                    and "ACME" in highlighted(lines))
         menu.press(b"c", title("config"))
-        # another process creates a seat while `c` is open, and writes what it was given
+        # another process creates a seat while `c` is open, and writes what it was given: `c`
+        # draws it, Opus reviewing alone
+        mark = len(menu.text())
         menu.config.write_text(menu.config.read_text().replace(
             'orchestrator = "opus"\nworkers = ["opus", "astra"]',
             'orchestrator = "astra"\nworkers = ["fable"]\nreviewers = ["opus"]'))
         elsewhere = {"orchestrator": "astra", "workers": ["fable"], "reviewers": ["opus"]}
         self.assertEqual(menu.defaults(), elsewhere)
-        menu.press(DOWN + RIGHT + SPACE,                  # an effort saved
-                   lambda lines: " max " in model(lines, "opus"))
-        self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["opus"]["effort"],
-                         "max")
-        self.assertEqual(menu.defaults(), elsewhere)      # kept, whatever `c` read before
+        menu.screen(lambda lines: title("config")(lines)
+                    and marks(model(lines, "opus")) == "○□■", after=mark)
+        menu.press(DOWN + RIGHT * 3 + SPACE,              # its review effort saved
+                   lambda lines: model(lines, "opus").endswith(" max"))
+        self.assertEqual(tomllib.loads(menu.config.read_text())["models"]["opus"]
+                         ["review_effort"], "max")
+        self.assertEqual(menu.defaults(), elsewhere)      # kept
         menu.press(ESC)
         lines = menu.models()                 # a heading's new seat: the last creation's crew
         rows = roles(lines)
