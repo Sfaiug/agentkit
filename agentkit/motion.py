@@ -376,7 +376,8 @@ class Clock:
         self.rising = None  # ... the lines drawn, top down, while they come up
         self.grows = None   # each line the screen's first draw has -> when it grows in from
         self.up = None      # the last draw's screen, top down, and the theme it is in (`rise`)
-        self.turning = None # ... and, while another comes down it, since when and its rows
+        # ... and, while another theme comes down it, since when and its rows painted in the old
+        self.turning = None
 
     def look(self, values):
         """Which of `values` -- key -> what a draw shows for it -- are news, each key -> (since
