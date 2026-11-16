@@ -25,7 +25,8 @@ SUFFIXES = {".css", ".scss", ".sass", ".less",
 
 def changes(repo, target, heads):
     """Those of `heads` whose change against `target` is of looks alone, where `target` declares
-    both `health:` and `deployed:`; none elsewhere, nor where git cannot say."""
+    both `health:` and `deployed:`; none elsewhere, `heads` then never read, nor where git
+    cannot say."""
     if not all(gitcall.declared_at(repo, target, key) for key in ("health", "deployed")):
         return set()
     alone = set()

@@ -730,9 +730,13 @@ def check_line(turn, log=lambda _: None):
                 ready = {saved["review"]["head_sha"]: member for member, saved in members[index:]
                          if saved.get("state") == "waiting" and not record.process_active(saved)
                          and (saved.get("review") or {}).get("verdict") == "PASS"
-                         and not {"land", "fix"} & saved["waiting_on"].keys()
-                         and not _member_commit(repo, saved, saved["review"]["head_sha"])[0]}
-                looks = {ready[head] for head in looks_alone.changes(repo, tip, ready)}
+                         and not {"land", "fix"} & saved["waiting_on"].keys()}
+                # a head from a clone of its own is fetched as it is asked about: only on a
+                # target that lets any change of looks alone through
+                states = dict(members)
+                looks = {ready[head] for head in looks_alone.changes(repo, tip, (
+                    head for head, member in ready.items()
+                    if not _member_commit(repo, states[member], head)[0]))}
                 members[index:] = sorted(members[index:], key=lambda member: (
                     not green_delivery(member[1]["waiting_on"]), member[0] not in looks))
                 directory, state = members[index]
