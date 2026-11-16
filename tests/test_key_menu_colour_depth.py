@@ -73,7 +73,7 @@ class ColourDepth(unittest.TestCase):
         self.assertIn(KEYS, rows)
 
     def test_no_color_leaves_the_help_without_a_mark_of_style(self):
-        for env, internal in (({"COLORTERM": "truecolor"}, {"2", "38;2;134;141;151"}),
+        for env, internal in (({"COLORTERM": "truecolor"}, {"38;2;134;141;151"}),
                               ({"NO_COLOR": "1", "COLORTERM": "truecolor"}, set())):
             with self.subTest(env=env):
                 term = Terminal(self.home, "--help", size=(100, 50), env=env)

@@ -6,14 +6,13 @@ code and tests.
 
 ## Frame
 
-Every screen, painted in its theme, has the same frame, a notice's (`note`) too. The header is
-one line: `agentkit` and the screen's name left, the clock right. Under it: one `border` rule,
+Every screen has the same frame, a notice's (`note`) too. The header is one line: `agentkit` and
+the screen's name left, the clock right. Under it: one `border` rule,
 the rows, one blank line, and the key line, always last. On the main screen and on `c`, the
 usage sits under the header.
 The rule is ak's one progress indicator. It fills while ak updates itself, and the rainbow
-glides along it while a screen loads. Ctrl-b m's popup's rounded border is
-the border colour. Helpers: `terminal.header_line`,
-`terminal.rule_line`, `terminal.key_line`, `terminal.layout_width`.
+glides along it while a screen loads. Ctrl-b m's popup's border is rounded. Helpers:
+`terminal.header_line`, `terminal.rule_line`, `terminal.key_line`, `terminal.layout_width`.
 
 Example: `agentkit                                                              14:02`
 then `────────────────────────────────────────────────────────────────────────`.
@@ -89,11 +88,11 @@ Example: `↑↓←→ move   ␣ mark   a add a company   esc back`.
 
 ## Colour
 
-Screens ask for roles, never RGB: `working` is accent, `needs you` warning, `done` success,
-`FAIL` and `out of usage` error, `idle` and `waiting` dim; a seat's bar surface, its chip
-on-accent on its state's. Names and numbers are `text`, what tells of its neighbour `muted`, what
-the eye skips `dim`, lines `border`, ak's own word `info`; a highlight keeps them. A fade nears
-the background; lit, the text; moving, the rainbow (`themes.RAINBOW`).
+Screens ask for roles, never RGB, each drawn as its colour alone: `working` is accent,
+`needs you` warning, `done` success, `FAIL` and `out of usage` error, `idle` and `waiting` dim; a
+seat's bar surface, its chip on-accent on its state's. Names and numbers are `text`, what tells of
+its neighbour `muted`, what the eye skips `dim`, lines `border`, ak's own word `info`; a highlight
+keeps them. A fade nears the background; lit, the text; moving, the rainbow (`themes.RAINBOW`).
 
 `themes.ROLES` (Go: `terminal/themes.go`) holds both themes; `NO_COLOR` colours nothing.
 
