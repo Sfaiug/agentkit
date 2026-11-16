@@ -29,7 +29,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, suite_times, transitions, turns, update, versions
+from . import (config, gitcall, looks_alone, prompts, record, suite_times, transitions, turns,
+               update, versions)
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -378,6 +379,7 @@ def paused(red):
 def _scratch(repo, commit, opened):
     """A scratch checkout of `commit`, removed when `opened` closes, or None with why not."""
     from . import run
+    config.WT.mkdir(parents=True, exist_ok=True)
     scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
     opened.callback(os.close, os.open(scratch, os.O_RDONLY))
     code, out = gitcall.add_worktree(repo, scratch, "--detach", commit, mark=SCRATCH_MARK)
@@ -699,6 +701,7 @@ def check_line(turn, log=lambda _: None):
         # Checks may return after their first group; no saved red waits for that walk to reach it.
         wake = waking.enter_context(_waking(turn, log))
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
+        looks = set()   # the members of looks alone (`looks_alone`): first place, own verdicts
         members = copy.deepcopy(line(turn))     # its own: it writes its answers into them
         for index, (directory, state) in enumerate(members):
             with record.recovery_lock(directory):
@@ -722,6 +725,16 @@ def check_line(turn, log=lambda _: None):
                 run.fetch(repo, "origin", "--prune", check=True)
                 tip = run.git(repo, "rev-parse", f"{upstream}^{{commit}}")
                 target = tip, run.git(repo, "rev-parse", f"{tip}^{{tree}}")
+                # Changes of looks alone go behind the deliveries, ahead of every member
+                # waiting for its verdict: each gets its own (`_looks`) before any suite starts.
+                ready = {saved["review"]["head_sha"]: member for member, saved in members[index:]
+                         if saved.get("state") == "waiting" and not record.process_active(saved)
+                         and (saved.get("review") or {}).get("verdict") == "PASS"
+                         and not {"land", "fix"} & saved["waiting_on"].keys()}
+                looks = {ready[head] for head in looks_alone.changes(repo, tip, ready)}
+                members[index:] = sorted(members[index:], key=lambda member: (
+                    not green_delivery(member[1]["waiting_on"]), member[0] not in looks))
+                directory, state = members[index]
             tip, target_tree = target
             root, red = _red(turn, target_tree)
             name = over = None
@@ -762,8 +775,14 @@ def check_line(turn, log=lambda _: None):
                     continue
             verdict = {key: state["waiting_on"][key] for key in ("land", "fix")
                        if key in state["waiting_on"]}
+            if directory in looks and not name:
+                verdict = _looks(directory, state, repo, tip, prefix, log)
             checked = not verdict
             if checked:
+                if any(saved["waiting_on"].get("looks") for _, saved in prefix):
+                    # no suite stands on one before it is on the target, whose tip answers for
+                    # its red: its delivery starts the next pass (`deliver.land_from_line`)
+                    return
                 if (state.get("review") or {}).get("verdict") != "PASS":
                     continue
                 candidates = [(directory, state)]
@@ -1232,6 +1251,37 @@ def _check_tree(directory, state, scratch, tree, checks, log, suite, over=()):
         "line": prompts.first_failure(text), "log": str(log_path), **red}, "parts": parts}
 
 
+def _looks(directory, state, repo, tip, prefix, log):
+    """The verdict of its own a change of looks alone (`looks_alone`) gets at a pass's start,
+    before any suite, so no whole run is under way when it lands: stacked on the target's `tip`
+    and the deliveries ahead of it, `prefix`, as they land, its task's `# once` commands run,
+    never a suite, then `land` with `looks`, or a red of its own after them; {} where anything
+    else stands in its way, and the pass checks it as any."""
+    from . import roundloop, run
+    upstream = _upstream(state)
+    with ExitStack() as opened:
+        top = tip
+        for member, saved in [*prefix, (directory, state)]:
+            scratch, text = _stack_member(repo, saved, top, upstream, opened)
+            if text:
+                return {}
+            top, tree = (run.git(scratch, "rev-parse", ref) for ref in ("HEAD", "HEAD^{tree}"))
+            if member != directory and tree != saved["waiting_on"]["land"]:
+                return {}
+        if _pr_moved(state, {}) or roundloop.rules_check(
+                SimpleNamespace(wt=scratch, base_sha=tip, scratch=False)):
+            return {}
+        whole = {gitcall.declared_suite(scratch, ref=tip), gitcall.declared(scratch, "tests")}
+        checks = [cmd for cmd in _landing_checks(directory, state, scratch, tip)
+                  if cmd not in whole]
+        answer = (_check_tree(directory, state, scratch, tree, checks, log, None) if checks
+                  else {"land": tree})
+    answer.pop("parts", None)
+    return answer and {**answer, "after": {member.name: saved["waiting_on"]["land"]
+                                           for member, saved in prefix},
+                       **({"looks": True} if "land" in answer else {})}
+
+
 def _waits_for_company(turn, stacks, checks, suite, log):
     """Whether `checks`, the whole check of the last of `stacks` on those before it, wait, the
     pass then ending with none started: where they run a suite, the target's `suite` or a
@@ -1277,7 +1327,6 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, held, p
             return {}
     directory, state = members[0]
     upstream = _upstream(state)
-    config.WT.mkdir(parents=True, exist_ok=True)
     pending, verdicts = list(members), {}
     heads = {}      # each PR's head on GitHub, read once a pass
     tip_green = set(tip_green or ())   # the pieces the target's tip passed on this pass, the
