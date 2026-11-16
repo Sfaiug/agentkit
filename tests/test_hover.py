@@ -38,7 +38,7 @@ from test_menu_keys import Menu
 from fixtures.sandbox import Sandbox
 
 ESC, RIGHT, DOWN = b"\x1b", b"\x1b[C", b"\x1b[B"
-Cell = namedtuple("Cell", "char lit reverse")
+Cell = namedtuple("Cell", "char lit reverse fore")
 
 
 def for_line(lines):
@@ -58,8 +58,9 @@ def move(col, row):
 
 
 def played(text, rows=40):
-    """The screen `text` leaves: {row: [Cell]}, rows from 1; `lit` where a background is set."""
-    grid, row, col, back, reverse, saved = {}, 1, 1, False, False, (1, 1)
+    """The screen `text` leaves: {row: [Cell]}, rows from 1; `lit` where a background is set,
+    `fore` the foreground's colour where one is."""
+    grid, row, col, back, reverse, fore, saved = {}, 1, 1, False, False, None, (1, 1)
     for token in re.findall(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b[78]|.", text, re.S):
         if token in ("\x1b7", "\x1b8"):              # the cursor kept, and back where it was
             saved, (row, col) = ((row, col), (row, col)) if token == "\x1b7" else (saved, saved)
@@ -74,8 +75,8 @@ def played(text, rows=40):
                 col = 1
             else:
                 line = grid.setdefault(row, [])
-                line += [Cell(" ", False, False)] * (col - 1 - len(line))
-                line[col - 1:col] = [Cell(token, back, reverse)]
+                line += [Cell(" ", False, False, None)] * (col - 1 - len(line))
+                line[col - 1:col] = [Cell(token, back, reverse, fore)]
                 col += 1
             continue
         params, final = token[2:-1], token[-1]
@@ -92,11 +93,13 @@ def played(text, rows=40):
             while codes:
                 code = codes.pop(0)
                 if code in (38, 48):
+                    size = 2 if codes[0] == 5 else 4        # 5;n or 2;r;g;b
+                    colour, codes = tuple(codes[:size]), codes[size:]
                     back = back if code == 38 else True
-                    codes = codes[1:] if codes[0] == 5 else codes[3:]
-                    codes.pop(0)
+                    fore = colour if code == 38 else fore
                 else:
                     back = back and code not in (0, 49)
+                    fore = fore if code not in (0, 39) else None
                     reverse = code == 7 or reverse and code not in (0, 27)
     return grid
 
@@ -342,19 +345,23 @@ class Screens(Sandbox):
         mark = len(screen.text())
         screen.press(move(word, row))
 
-        def shown(text):
-            """What each frame since the move wrote on the word, whole."""
-            return re.findall(rf"\x1b\[{row};{word}H(.*?)(?=\x1b\[\d+;\d+H|\x1b\[\?2026l)",
-                              text[mark:], re.S)
-        # each letter shone, the light's head on it (motion.passing), then the word settled: one
-        # look each, however often the screen's redraw (menu.STIR) writes the word as it is
+        def whole(text):
+            """`text` through its last whole update: no draw read half written."""
+            return text[:text.rfind("\x1b[?2026l")]
+
+        def look(text):
+            """The word as the screen shows it, each letter in its colour, whatever wrote it:
+            the light's frame, or the screen's redraw (menu.STIR) writing its row."""
+            return [(cell.char, cell.fore) for cell in played(whole(text))[row][word - 1:word + 2]]
+        # each letter shone, the light's head on it (motion.passing), then the word settled
         places = len("max") + len(RAINBOW) - 1
-        for looks, moment in enumerate((0, 1.5 * motion.SWEEP / places,
-                                        2.5 * motion.SWEEP / places, motion.SWEEP), 1):
+        looks = [look(screen.text())]           # the head on the first, since the click
+        for moment in (1.5 * motion.SWEEP / places, 2.5 * motion.SWEEP / places, motion.SWEEP):
             clock.with_name("clock.new").write_text(repr(moment))
             clock.with_name("clock.new").replace(clock)     # never read half written
-            screen.until(lambda text: len({*shown(text)}) == looks, f"look {looks} on the word")
-        text = screen.text()
+            looks.append(screen.until(lambda text: (new := look(text)) not in looks and new,
+                                      f"look {len(looks) + 1} on the word"))
+        text = whole(screen.text())
         updates = list(re.finditer(r"\x1b\[(\d+);(\d+)H", text[mark:]))
         frames = 0
         for number, update in enumerate(updates):
