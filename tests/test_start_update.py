@@ -116,7 +116,7 @@ sys.exit(code)
 '''
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES", "PYTHONPATH",
-             "AK_MENU_CURSOR")
+             "AK_MENU_CURSOR", "AK_MENU_METER")
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 # the header as the menu writes it, the screen's name muted after `agentkit`
 UPDATING = f"agentkit(?:{ANSI.pattern})* · updating"

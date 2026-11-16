@@ -119,8 +119,7 @@ class Highlight(Menu):
         self.shows(term, ON_BETA)
         term.keys("Up")
         self.shows(term, ["› acme", OPUS, "  beta", "  fix-api"])
-        # k on the first row stays there, or ↓ would not land on beta
-        term.keys("k", "Down")
+        term.keys("Down")
         self.shows(term, ON_BETA)
         term.type(WHEEL_DOWN)
         self.shows(term, ["  acme", "  beta", "› fix-api",

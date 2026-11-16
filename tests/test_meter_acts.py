@@ -52,10 +52,14 @@ class MeterActs(Sandbox):
         return drawn
 
     def test_a_meter_on_c_lists_what_it_does_and_never_removes(self):
+        # Gemini's holds no reset and its harness cannot sign in afresh: its meter lists nothing,
+        # and opens its row on Subscriptions, Esc coming back
+        gemini = self.rows.index("Gemini") + 1
         self.keyed(lambda: menu.config_matrix(self.cfg, None, "abc1234"),
-                   [*(("enter", ("usage", number)) for number in range(1, len(self.rows) + 1)),
+                   [*(act for number in range(1, len(self.rows) + 1)
+                      for act in [("enter", ("usage", number))]
+                      + [("back", None)] * (number == gemini)),
                     ("back", None)])
-        # Gemini's holds no reset and its harness cannot sign in afresh: its meter lists nothing
         self.assertEqual(self.offered, [["→ log in again", "→ spend a reset"] if row == "Claude"
                                         else ["→ log in again"]
                                         for row in self.rows if row != "Gemini"])

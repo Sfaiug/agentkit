@@ -235,17 +235,28 @@ def configured(cfg, mark):
     return cfg, now
 
 
-# The config `c` holds and config.toml's mark as `c` last read or saved it (configured): that
-# config is written only over that file (_saved)
+# The config `c` or Subscriptions holds and config.toml's mark as it last read or saved it
+# (holding): that config is written only over that file (_saved)
 _held = None, None
-# What `c` says of a key whose save it refused, config.toml changed since it read it
+# What a screen says of a key whose save it refused, config.toml changed since it read it
 CHANGED = "config.toml changed since this screen read it: that key was not taken"
 
 
 class Changed(Exception):
-    """A save refused over a config.toml changed since `c` read it (_saved).  It takes the owner
-    back to `c` from any page it was made on, whose state was made of the config `c` held, and
-    `c` reads the file again and says CHANGED."""
+    """A save refused over a config.toml changed since it was read (_saved).  It closes the page
+    it was made on, whose state was made of the config held, and the screen back says
+    CHANGED."""
+
+
+def holding(cfg):
+    """`cfg`, or config.toml read again where it changed since the read `_held` keeps
+    (configured), a read that loaded held in its place; one that did not leaves every save
+    refused (_saved) until the file loads."""
+    global _held
+    now, mark = configured(cfg, _held[1])
+    if now is not cfg:
+        _held = now, mark
+    return now
 
 
 class Live:
@@ -1741,16 +1752,17 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     `drawn` is handed in only while the menu has the keyboard: then the seat named `cursor`
     -- or the first one, when there is no such seat any more -- is highlighted, the page up is
     the one it is on, the screen is written over in place instead of cleared, and `drawn` is
-    filled with what a key, a click or the pointer is read against: `order`, the seats' names
-    top to bottom, with the checkout of a project naming its feature switches where its heading
-    is; `cursor`, the one highlighted; `spots`, the seat or heading on each screen row and the
-    key line's items (`terminal.under`), the one under the pointer lit; `words`, each seat's
-    word.  A seat's state word, any other project's heading and a subscription of the usage
-    grid are cells that only explain (`terminal.Spot`), and nothing says what any of them is on
-    the key line; a subscription under the pointer is lit (`usage_lines`) and the blank line
-    under the grid says the rest of it (`usage_detail`).  The highlighted seat's line opens
-    under it only while the owner points at it (`pointing`: the pointer on it, or ↑/↓ moved
-    there since the pointer last was), and closes once the pointer is on no row
+    filled with what a key, a click or the pointer is read against: `order`, the grid's meters,
+    ("usage", number) each, then the seats' names top to bottom, with the checkout of a project
+    naming its feature switches where its heading is; `cursor`, the one highlighted; `spots`,
+    the meter, seat or heading on each screen row and the key line's items (`terminal.under`),
+    the one under the pointer lit; `words`, each seat's word.  A seat's state word and any other
+    project's heading are cells that only explain (`terminal.Spot`), and nothing says what any
+    of them is on the key line; the meter the pointer or the highlight is on is lit
+    (`usage_lines`) and the blank line under the grid says the rest of it (`usage_detail`).  The
+    highlighted seat's line opens under it only while the owner points at it (`pointing`: the
+    pointer on it, or ↑/↓ moved there since the pointer last was), and closes once the pointer
+    is on no row
     (`terminal.away`) or the row moves from under it (`terminal.pointer`), and stays closed
     until the pointer or ↑/↓ moves onto a row (`drawn["pointing"]`).
 
@@ -1784,9 +1796,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     order = [name for project in ordered for name in
              ([project["checkout"]] if "switches" in project else [])
              + [info["name"] for info in project["seats"]]]
-    if cursor not in order:
-        cursor = next((name for name in order if isinstance(name, str)),
-                      order[0] if order else None)      # a seat before any heading
     if past_offered(found):
         keys = keys.replace("c config", "p past   c config", 1)
     asking, card = ask or (None, ())
@@ -1898,6 +1907,13 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     opens = max(0, opens - max(0, (need if compact or not paged else least) - room))
     paged = paged and len(flat) > _room(meters, False, compact)
     room = max(1, _room(meters, paged, compact))
+    # the grid's meters are rows the keys reach too, over the seats
+    reach = ([("usage", number) for number in range(1, len(rows) + 1)]
+             if meters and meters is meters_full else [])
+    if cursor not in order and cursor not in reach:
+        cursor = next((name for name in order if isinstance(name, str)),
+                      order[0] if order else None)      # a seat before any heading
+    order = reach + order
     trimmed = seat_blocks if longest <= max(1, room - 1) else _seat_blocks(room - 1)
     pages = (project_pages(list(zip(headings, trimmed)), room + opens,
                            opens={name: min(len(lines), opens) for name, lines in said.items()})
@@ -1920,7 +1936,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         out += [terminal.header_line("updating" if updating is not None else "",
                                      time.strftime("%H:%M"), width),
                 terminal.rule_line(width, updating or 0)]
-    grid = len(out) + 1 if meters and meters is meters_full else None     # its first row
+    grid = len(out) + 1 if reach else None     # its first row
     out += meters
     if not compact:
         out += [standing, ""]       # the line under the usage, then one blank above the projects
@@ -1949,11 +1965,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         body = body[:at] + [(line, None) for line in asked] + body[at:]
     else:
         at = 0
-    # the subscription the pointer is on, of those on the grid; a question under a row has the
-    # keys and the rows, and nothing is explained while it asks
+    # the meter the pointer, else the highlight, is on; a question under a row has the keys and
+    # the rows, and nothing is explained while it asks
     usage_spots = meter_spots(layout, len(rows), grid) if grid else {}
-    spot = terminal.Spot() if asked else terminal.pointer_spot(usage_spots)
-    pointed = spot.cell and spot.cell[1]
+    on = None if asked or terminal.away() else terminal.pointer_spot(usage_spots).what or cursor
+    pointed = on[1] if on in reach else None
     seats = {info["name"]: info for info in infos}
     breaths = []    # what breathes while a model works: (cell, character, highlighted)
     bars = {}       # each progress line's screen row and slice of terminal.cell_texts
@@ -2000,7 +2016,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     spots.update(usage_spots)
     spots.update(terminal.key_spots(key_lines, keys_top + 1))
     if grid and pointed:
-        # the one the pointer is on lit, and under the grid what its cell has no room for
+        # the one the pointer or the highlight is on lit, and under the grid what its cell has
+        # no room for
         out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, lit=pointed, rows=rows,
                                                            ending=ending)
         out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows,
@@ -2671,6 +2688,21 @@ def usage_rows(cfg):
     return rows
 
 
+def subscription(row):
+    """A usage row's subscription (usage_rows): its provider and account, the usual login one
+    whether config.toml lists it as `default` or lists no account."""
+    return row[0], row[3] or config.DEFAULT_ACCOUNT
+
+
+def followed(meter, was, rows):
+    """`meter`, ("usage", number) of usage rows `was` (usage_rows), on `rows`: its
+    subscription's, wherever it went; None where it went, or where `was` has no such row (a
+    restart's, over a config.toml changed meanwhile)."""
+    mine = subscription(was[meter[1] - 1]) if meter[1] <= len(was) else None
+    return next((("usage", number) for number, row in enumerate(rows, 1)
+                 if subscription(row) == mine), None)
+
+
 def usage_summary(cfg, width, most=None, rows=None):
     """The usage block folded, for a screen too short for it and a few rows under it: each
     subscription's label and what it has left -- `17%`, a spent week's credits where they fit,
@@ -2802,14 +2834,14 @@ def login_notes(rows, now=None):
     return notes
 
 
-def meter_spots(width, count, first, rows=False):
+def meter_spots(width, count, first):
     """Where each of `count` subscriptions' meters sits on the grid `usage_lines` draws `width`
-    wide from line `first`: {line: (None, [(first, last, ("usage", number))])}, `number` from
-    1, the columns counted from 1 as the terminal counts; with `rows`, as on `c`, each meter a
-    row of its own (terminal.under), its cell after it again."""
+    wide from line `first`: {line: (None, [(first, last, ("usage", number), ("usage", number))])},
+    `number` from 1, the columns counted from 1 as the terminal counts, each meter a row of its
+    own (terminal.under), on the ak screen and `c` alike."""
     columns = usage_columns(width)
     return {first + line: (None, [(3 + n * (COLUMN + 2), 2 + n * (COLUMN + 2) + COLUMN,
-                                   *(("usage", line * columns + n + 1),) * (1 + rows))
+                                   *(("usage", line * columns + n + 1),) * 2)
                                   for n in range(min(columns, count - line * columns))])
             for line in range(-(-count // columns))}
 
@@ -4294,7 +4326,7 @@ def config_meters(cfg, at=None, rows=None):
     if not meters:
         return [], {}
     detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
-    return [*meters, detail], meter_spots(width, len(rows), 0, rows=True)
+    return [*meters, detail], meter_spots(width, len(rows), 0)
 
 
 def meters_led(meters, body, places, under, keys, moves=()):
@@ -4465,7 +4497,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     one marks it, kept in config.toml as `theme = "white"`, every screen in it from its next
     frame and this one at once (terminal.theme).  ↑ past the first model, and the pointer, reach
     the meters over the page: one is lit as the main screen lights it, and Enter or a click
-    opens what it offers (meter_acts); on `Discord` its two
+    opens what it offers, or its row on `Subscriptions` (meter_acts); on `Discord` its two
     secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
     under the rows, dim, on every page.
     On a screen too short for every row the part the highlight is on is shown, and what the
@@ -4485,21 +4517,16 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     if not born:      # config.toml's mark as `cfg` was read at: unknown, the caller's read may
         _held = cfg, None     # be long gone, so the first pass reads it again
     while True:
-        if not born:        # a file that will not load is tried each pass, and saved over by
-            now, mark = configured(cfg, _held[1])       # no key until it does (_saved)
-            if now is not cfg:
-                cfg = now
-                _held = cfg, mark
+        if not born:        # a file that will not load is tried each pass (holding)
+            cfg = holding(cfg)
         if session and selected is not None:
             seat_read(cfg, session, selected)
         if not session and not born and selected is not None:   # a page or a save that took a
             selected.clear()                                     # model out moved them, and a
             selected.update(copy.deepcopy(cfg["defaults"]))      # role they dropped goes
         drawn, subs = subs, usage_rows(cfg)
-        if here and here[0] == "usage":     # a meter's row is its subscription's, wherever it went
-            mine = drawn[here[1] - 1][::3]      # its provider and account
-            here = next((("usage", number) for number, sub in enumerate(subs, 1)
-                         if sub[::3] == mine), None)
+        if here and here[0] == "usage":
+            here = followed(here, drawn, subs)
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
         over, meters = config_meters(cfg, lit, subs)
@@ -4511,12 +4538,10 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         if here[0] == "model" and column not in columns:      # no effort here: onto its mark
             column = column - 3 if column - 3 in columns else columns[0]
         opens = here[0] in ("row", "usage") and here != THEME   # else changed in place
-        # a meter that offers nothing opens no list (meter_acts)
-        shut = here[0] == "usage" and not subscription_acts(cfg, keyboard, here[1])
         keys = terminal.keys(*([ADVICE_KEY] if advice else []),
                              *([APPLY_KEY] if fresh else []), "esc back",
                              space=None if opens else "mark" if column < 3 else "step",
-                             enter=None if shut else "open" if opens else "start" if born else None)
+                             enter="open" if opens else "start" if born else None)
         moves = []
         body, places = config_body(cfg, None if terminal.away() else here, column,
                                    selected, providers, moves, scope, under)
@@ -4567,7 +4592,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                       f"config · {usage_rows(cfg)[here[1] - 1][1]}")
             elif here == ("row", CONFIG_ROWS[1]):
                 if act == "enter":
-                    config_subscriptions(cfg, keyboard)
+                    note = config_subscriptions(cfg, keyboard)
             elif here == THEME:
                 if act in ("left", "right"):
                     column = 1 if act == "right" else 0
@@ -5132,15 +5157,15 @@ def subscription_acts(cfg, keyboard, number, remove=False):
 
 
 def meter_acts(cfg, keyboard, number, screen):
-    """Enter or a click on subscription `number`'s meter, on the ak screen or `c` alike: what it
-    offers (subscription_acts, nothing removed from here), picked from a list under its name,
-    `screen` the title it is drawn under, the highlight on `log in again` where it is offered
-    and otherwise on nothing, so a reset is spent only by a move or a click there.  One that
-    offers nothing opens no list and leaves the pointer where it is, its detail line under it:
-    the list and each act let the pointer go themselves.  What to say under the screen, or ""."""
+    """Enter or a click on subscription `number`'s meter, on the ak screen, `c` and a new seat's
+    models alike: what it offers (subscription_acts, nothing removed from here), picked from a
+    list under its name, `screen` the title it is drawn under, the highlight on `log in again`
+    where it is offered and otherwise on nothing, so a reset is spent only by a move or a click
+    there.  One that offers nothing opens its row on Subscriptions (config_subscriptions).  What
+    to say under the screen, or ""."""
     acts = dict(subscription_acts(cfg, keyboard, number))
     if not acts:
-        return ""
+        return config_subscriptions(cfg, keyboard, subscription(usage_rows(cfg)[number - 1]))
 
     def listed(lit):  # the screen the list is drawn on, drawn again after a key or a resize
         terminal.frame(screen, [""] * len(acts),
@@ -5152,26 +5177,47 @@ def meter_acts(cfg, keyboard, number, screen):
 
 # The owner chose this layout on 26 Oct 2026, so the details stay calm until pointed at.
 @terminal.clicks_its_own
-def config_subscriptions(cfg, keyboard):
+def config_subscriptions(cfg, keyboard, whose=None):
     """`Subscriptions` on `c`: each subscription under its company (COMPANIES), named bold as `c`
     names a harness, as the main screen draws it (usage_lines), then `+ add a subscription`
-    (config_add_provider).  The row the keys or the pointer are on says its resets in hand beside
-    its meter where there is room, and opens a line: whose login it is and its plan (logins.whose;
-    one ending as login_notes says it, amber), resets with no room beside its meter, then its acts
-    (subscription_acts), ←/→ or the pointer moving, Enter or a click running one, the key line
-    naming it.  One an act adds is asked whose it is (logins.renewed), then pointed at.  It comes
-    up as `c` does as it opens, and the pointed row's line comes up under it as the line under the
-    menu's highlighted row does; back from what an act or an add drew, it is drawn as it is.  The
-    act lit (`on`) is kept by what it is, so one going from under it lights nothing in its place,
-    and is at rest while the pointer lights its row's own cell, the label, meter and share."""
-    here, opened, on, top, said = ("sub", 1), None, None, 0, ""
+    (config_add_provider), opened on `whose`'s row, its subscription as (provider, account), as
+    its meter opens it (meter_acts), else on the first.  The row the keys or the pointer are on
+    says its resets in hand beside its meter where there is room, and opens a line: whose login
+    it is and its plan (logins.whose; one ending as login_notes says it, amber), resets with no
+    room beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter
+    or a click running one, the key line naming it.  One an act adds is asked whose it is
+    (logins.renewed), then pointed at.  It comes up as `c` does as it opens, and the pointed
+    row's line comes up under it as the line under the menu's highlighted row does; back from
+    what an act or an add drew, it is drawn as it is.  The act lit (`on`) is kept by what it is,
+    so one going from under it lights nothing in its place, and is at rest while the pointer
+    lights its row's own cell, the label, meter and share.
+
+    Whichever screen opens it, it is made of config.toml read as it opens, `cfg` where that will
+    not load, held as `c` holds it (holding), so a save over the file changed since writes nothing
+    and closes the page; what was held before is held again after.  What to say under the
+    screen back: CHANGED, or ""."""
+    global _held
+    outer, _held = _held, (cfg, None)     # `cfg`'s read is the caller's, maybe long gone
+    try:
+        return _subscriptions(holding(cfg), keyboard, whose)
+    except Changed:
+        return CHANGED
+    finally:
+        _held = outer
+
+
+def _subscriptions(cfg, keyboard, whose):
+    """config_subscriptions' page over `cfg`, read until Esc."""
+    here = ("sub", next((number for number, sub in enumerate(usage_rows(cfg), 1)
+                         if subscription(sub) == whose), 1))
+    opened, on, top, said = None, None, 0, ""
     clock = motion.Clock(page=True)
     while True:
         subs, width = usage_rows(cfg), terminal.layout_width()
         ids = [*(("sub", number) for number in range(1, len(subs) + 1)), ("row", "add")]
         here = here if here in ids else ids[-1]      # its row removed: onto the last
         # a subscription's line, whichever row it is on now, opens lit as SUBSCRIPTION_ACTS says
-        whose = subs[here[1] - 1][::3] if here[0] == "sub" else None     # (name, account)
+        whose = subscription(subs[here[1] - 1]) if here[0] == "sub" else None
         if whose != opened:
             opened, on = whose, act_text(SUBSCRIPTION_ACTS[0])
         at = None if terminal.away() else here
@@ -5230,7 +5276,7 @@ def config_subscriptions(cfg, keyboard):
             continue                  # a resize or the pointer: drawn again
         said = ""
         if act == "back":
-            return
+            return ""
         if act in ("left", "right") and acts:
             texts, step = list(acts), 1 if act == "right" else -1
             on = texts[min(max(texts.index(on) + step, 0), len(texts) - 1) if on in acts else 0]
@@ -6720,7 +6766,8 @@ def pressed(key, drawn, found):
     """What one `terminal.Key` asks of the main screen, in the line menu's own words.
 
     Enter is the highlighted seat's number, and a click on any line of a seat is that seat's;
-    on a project's heading either is that project's checkout, whose switches it opens.
+    on a project's heading either is that project's checkout, whose switches it opens, and on a
+    meter that meter, ("usage", number).
     A click on the key line is the key of the item under it, `⏎ open` being Enter; Esc, a click
     on `esc leave` and a keyboard that is gone are ESC, which leaves; a character is itself;
     anything else is "", which asks for nothing.  `drawn` is the layout on the screen when the
@@ -6730,7 +6777,7 @@ def pressed(key, drawn, found):
     numbers = {session["name"]: str(number) for number, session in enumerate(found, 1)}
 
     def opens(name):
-        return name if isinstance(name, Path) else numbers.get(name, "")
+        return name if isinstance(name, (Path, tuple)) else numbers.get(name, "")
     if key.name == "click":
         spot = terminal.under(key, drawn["spots"])
         if spot.what is not None:
@@ -6786,11 +6833,14 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
     key acts the moment it is pressed.  One seat row is highlighted; ↑/↓, k/j and the wheel
     move it and the page up follows it; Enter opens it.  A click on a row opens that seat and
     a click on the key line does what its key does, each once the button is up; the pointer
-    on a row moves the highlight there, and on a key-line item lights it (`draw`).  A digit
+    on a row moves the highlight there, and on a key-line item lights it (`draw`).  ↑ past the
+    first seat, or from under the grid with none, reaches the meters, and Enter or a click on
+    one opens what it offers (meter_acts), the highlight on it back from there.  A digit
     waits half a second for a second one, a resize or not, and a key read while it waits is
     kept for after, with the screen it was read on.  The highlight is the seat's name, so it
-    stays on its seat whatever comes or goes above it.  A key that does nothing here is let
-    go without a word, `i` among them, and every key that does something gives the terminal back
+    stays on its seat whatever comes or goes above it, and a meter's its subscription's.  A key
+    that does nothing here is let go without a word, `i` among them, and every key that does
+    something gives the terminal back
     before it does it -- but `c`, `n` and `x`'s question, which are read with the keys on
     the screen the menu has: `x`, in a popup only, closes its own seat at once when done and
     otherwise asks `Keep` or `Stop` under that seat's row, Enter or a click answering and Esc keeping it; `p` opens the past
@@ -6807,6 +6857,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
     cursor = os.environ.pop("AK_MENU_CURSOR", "") or own
     if cursor and cursor.startswith("/"):
         cursor = Path(cursor)
+    meter = os.environ.pop("AK_MENU_METER", "")   # a meter's number: a seat may be named anything
+    if meter:
+        cursor = ("usage", int(meter))
     page, ahead, look, updating, updated = 0, None, False, None, False
     pointing = False                      # the highlight is where the owner points (`draw`)
     updates = []                         # this loop's inbox, independent of the usage/read worker
@@ -6825,7 +6878,9 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
         framed = False                    # the last wait read no key: its frame is still up
         while True:
             live.configure()              # what `c` here saved, drawn at once
-            cfg = live.cfg
+            was, cfg = cfg, live.cfg
+            if isinstance(cursor, tuple):
+                cursor = followed(cursor, usage_rows(was), usage_rows(cfg))
             if back:
                 live.back()               # drawn as the last read left it, read behind it
                 back = False
@@ -6855,8 +6910,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 live.close()
                 keyboard.give(held=True)
                 sys.stdout.flush()
+                meter = cursor[1] if isinstance(cursor, tuple) else ""
                 os.execve(sys.executable, [sys.executable, *sys.argv],
-                          {**os.environ, **handing, "AK_MENU_CURSOR": str(cursor or "")})
+                          {**os.environ, **handing, "AK_MENU_METER": str(meter),
+                           "AK_MENU_CURSOR": "" if meter else str(cursor or "")})
             found, groups = last          # after any notice: what changed under it is drawn as is
             past = past_offered(found)
             # `x` is only the popup's, for its own seat while that has a row: no screen stops
@@ -6923,8 +6980,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                     look = False          # the highlight moves over what is in hand
                     continue
                 if terminal.step(key):
-                    if order:
-                        at = order.index(cursor) + terminal.step(key)
+                    if key.name.startswith("wheel"):  # a swipe stops at the seats' end, or the
+                        order = [name for name in order        # meters': a key goes on past
+                                 if isinstance(name, tuple) == isinstance(cursor, tuple)]
+                    if order:     # with no seat highlighted, from under the meters
+                        at = (order.index(cursor) if cursor in order
+                              else len(order)) + terminal.step(key)
                         cursor = order[min(max(at, 0), len(order) - 1)]
                     look, pointing = False, True   # the highlight moves over what is in hand
                     continue
@@ -6936,21 +6997,18 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                     look, pointing = False, False
                     continue
                 clock.forget()            # whatever the key opens, the menu back replays nothing
-                spot = (terminal.under(key, shown["spots"]) if key.name == "click"
-                        else terminal.Spot())
-                cell = spot.cell
-                if isinstance(cell, tuple) and cell[0] == "usage":
-                    pointing = False          # and opens no line
-                    # what its act says -- a spend refused among it -- in a notice: this screen
-                    # has no line under it for one
-                    note = meter_acts(cfg, keyboard, cell[1], usage_rows(cfg)[cell[1] - 1][1])
-                    if note:
-                        pause(note)
-                    continue
                 typed, key = key, pressed(key, shown, found)
                 if isinstance(key, Path):
                     cursor = key              # the heading, highlighted when he is back
                     show_features(key, dry_run)    # read with the keys, on the screen the menu has
+                    continue
+                if isinstance(key, tuple):
+                    cursor = key              # the meter, highlighted again back from it
+                    # what its act says -- a spend refused among it -- in a notice: this screen
+                    # has no line under it for one
+                    note = meter_acts(cfg, keyboard, key[1], usage_rows(cfg)[key[1] - 1][1])
+                    if note:
+                        pause(note)
                     continue
                 key = key.lower()
                 if (typed.name == "char" and len(key) == 1 and "1" <= key <= "9"

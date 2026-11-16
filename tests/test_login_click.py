@@ -1,8 +1,9 @@
 """A click on a meter lists what it offers, as Enter on it over `c` does (test_meter_acts.py),
-and `→ log in again` on an amber one hands the terminal to that login's `login again`, the ak
-screen back as soon as it ends, the meter grey once the login it made stands; Esc on the list
-signs nothing in.  `menu.loop` in-process, its keys and picks scripted, with a fake Claude adapter
-whose `login again` makes a login 30 days out, or fails where $FAKE/fail exists.
+one offering nothing opening its row on Subscriptions instead, and `→ log in again` on an amber
+one hands the terminal to that login's `login again`, the ak screen back as soon as it ends, the
+meter grey once the login it made stands; Esc on the list signs nothing in.  `menu.loop`
+in-process, its keys and picks scripted, with a fake Claude adapter whose `login again` makes a
+login 30 days out, or fails where $FAKE/fail exists.
 """
 
 from contextlib import redirect_stdout
@@ -61,12 +62,12 @@ class LoginClick(Sandbox):
         cell = ("usage", number(self.cfg, label))
         return next(terminal.Key("click", col=(first + last) // 2, row=row)
                     for row, (_, places, *_) in drawn["spots"].items()
-                    for first, last, at in places if at == cell)
+                    for first, last, at, *_ in places if at == cell)
 
     def signed_in(self):
         """The meters amber on the last screen drawn, and the login kept, as the owner clicks
-        the grey meter, which lists nothing, then the amber one and picks `→ log in again`,
-        then Esc."""
+        the grey meter, which opens its row on Subscriptions, and goes back from there, then
+        clicks the amber one and picks `→ log in again`, then Esc."""
         draws, amber, offered = [], [], []
         real = menu.draw
 
@@ -76,11 +77,16 @@ class LoginClick(Sandbox):
                 menu.login_notes(menu.usage_rows(args[0])), 1) if note])
             return real(*args, **kwargs)
         script = iter([lambda: self.click(draws[-1], "ChatGPT"),   # grey: no login ends soon
+                       lambda: terminal.Key("esc"),                # back from its row
                        lambda: self.click(draws[-1], "Claude"),    # amber: it ends in 2 days
                        lambda: terminal.Key("esc")])
         picks = iter(["→ log in again"])
+
+        def key(*_a, **_kw):          # the ak screen's, and Subscriptions'
+            return next(script)()
         with patch.object(menu, "draw", side_effect=draw), \
-                patch.object(menu, "moving", side_effect=lambda *a, **k: next(script)()), \
+                patch.object(menu, "moving", side_effect=key), \
+                patch.object(terminal, "read_key", side_effect=key), \
                 patch.object(terminal, "choose", side_effect=lambda choices, **_kw:
                              offered.append(choices) or next(picks)), \
                 redirect_stdout(io.StringIO()):
