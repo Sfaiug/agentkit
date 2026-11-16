@@ -101,16 +101,16 @@ Colour says where a thing stands and never who.
 
 ## Motion
 
-Something moves only while worked on, once when it changes, or under the pointer:
+Something moves only while worked on, once when it changes, or under the pointer: work breathes,
+news pulses, settles or nudges, a theme comes down. Each kind takes one time (`motion.py`):
 
-- **While work runs:** a working seat's `●` breathes, as do its progress line's tip, its
-  tasks' squares and ak's spinner, `▖▘▝▗`.
-- **When something changes:** a seat turning `needs you` pulses, one turning `done` settles, a
-  mark fills or empties through a dim `■`, a refused change nudges its mark, and a chosen theme
-  comes down row by row.
+- **Coming up:** a row's line, a page, a popup.
+- **Filling:** a mark, an effort's cell, a task's square.
+- **A light passing:** a done line, an effort's top word.
+- **A light going round,** a breath: a line with no plan, a waiting rule.
 
-Every animation runs on one clock, `motion.Clock`; a key ends it on its last frame.
-Nothing moves off a terminal or under `NO_COLOR`.
+`motion.Clock` runs every animation; a key ends it on its last frame. Nothing moves off a
+terminal or under `NO_COLOR`.
 
 ## Other listings
 

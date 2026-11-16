@@ -167,14 +167,14 @@ class PageComesUp(Sandbox):
 
     def test_a_list_a_cs_page_opens_comes_up_under_its_row(self):
         """Weekly audit's `Orchestrator`, on screen row 4, opened once the page is up: each
-        choice under it fades in in OPEN seconds from the draw, and nothing else moves."""
+        choice under it fades in in FADE seconds from the draw, and nothing else moves."""
         frames = []
 
         def drawn():              # the key after Enter, read once the list is drawn
             clock, began, lines = self.made[0], self.time.now, terminal.on_screen()
             for at in (0.5, 1):
-                self.time.now = began + at * motion.OPEN
-                amount = 1 - motion.eased((self.time.now - began) / motion.OPEN)
+                self.time.now = began + at * motion.FADE
+                amount = 1 - motion.eased((self.time.now - began) / motion.FADE)
                 frames.append((amount, rows(clock.frame()), lines))
             return Key("esc")
         self.read(lambda: menu.config_audit(self.cfg), [Key("down"), Key("enter"), drawn], step=1)

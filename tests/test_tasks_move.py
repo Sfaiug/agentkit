@@ -2,7 +2,7 @@
 
 The owner's design (14 Oct 2026): on the line the highlighted row opens, each task in flight is
 three squares (build, review, land).  One that reaches its next stage fills that square through
-its half (`□`, a dim `■`, `■`) over 150 ms; one that ended is gone from the line (their word of
+its half (`□`, a dim `■`, `■`) over 100 ms; one that ended is gone from the line (their word of
 19 Oct 2026).  A task first seen, or one that did not change, stands still.  Offline: a
 temporary HOME, fake seats and runs, the motion clock read, no terminal.
 """
@@ -80,7 +80,7 @@ class TasksMove(Sandbox):
         moved = {(row, column) for row, column in self.clock.cells}
         after = [run("g1", state="running", step="reviewer"),
                  run("g2", state="fail", step="reviewer", finished_at=9500)]
-        with patch.object(motion, "STEP", 60):     # long enough to read its half by the clock
+        with patch.object(motion, "FILL", 60):     # long enough to read its half by the clock
             lines = self.draw(after)
             now = time.monotonic()
         (row, first), = self.groups(lines)    # g1 alone: g2 ended

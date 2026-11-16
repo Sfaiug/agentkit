@@ -56,7 +56,9 @@ def played(waits):
     return frames
 
 
-class Lights(Menu):
+class Screens(Menu):
+    """The screens `Menu` drives, `c`'s catalog, build, meters and seat faked, each played."""
+
     def setUp(self):
         super().setUp()
 
@@ -85,6 +87,17 @@ class Lights(Menu):
         frames = played(waits)
         return frames, frames[at:]
 
+    def cells(self, screen, beside, run="[━╸─]+"):
+        """The cells of the first `run` on the row of `screen` that holds `beside`, a glyph each."""
+        for row in sorted({row for row, _ in screen}):
+            columns = sorted(column for at, column in screen if at == row)
+            text = "".join(screen[row, column][0] for column in columns)
+            if beside in text:
+                return [(row, columns[n]) for n in range(*re.search(run, text).span())]
+        self.fail(f"no row holds {beside!r}")
+
+
+class Lights(Screens):
     def terminals(self, check):
         """`check(rainbow)` on each terminal, a subtest, from the clock's 1000th second."""
         for theme, rainbow in RAINBOWS.items():
@@ -95,15 +108,6 @@ class Lights(Menu):
     def at(self, frames, moment):
         """The frame nearest `moment`."""
         return min(frames, key=lambda frame: abs(frame[0] - moment))
-
-    def cells(self, screen, beside, run="[━╸─]+"):
-        """The cells of the first `run` on the row of `screen` that holds `beside`, a glyph each."""
-        for row in sorted({row for row, _ in screen}):
-            columns = sorted(column for at, column in screen if at == row)
-            text = "".join(screen[row, column][0] for column in columns)
-            if beside in text:
-                return [(row, columns[n]) for n in range(*re.search(run, text).span())]
-        self.fail(f"no row holds {beside!r}")
 
     def assert_light(self, frames, moment, cells, rainbow):
         """At `moment` the light on `cells`: six neighbours, or as many as they are, each its own
@@ -124,9 +128,9 @@ class Lights(Menu):
     def test_a_working_line_with_no_plan_holds_the_rainbow_half_a_round_on(self):
         def check(rainbow):
             self.words, self.tasks = {"fix-api": "working"}, {}
-            frames, _ = self.frames([], after=motion.ROUND)
-            # the light's place is the clock's, round from each ROUND seconds
-            self.assert_light(frames, 1000 + motion.ROUND / 2,
+            frames, _ = self.frames([], after=motion.BREATH)
+            # the light's place is the clock's, round from each BREATH seconds
+            self.assert_light(frames, 1000 + motion.BREATH / 2,
                               self.cells(frames[-1][2], " fix-api "), rainbow)
         self.terminals(check)
 
@@ -169,8 +173,8 @@ class Lights(Menu):
             def waits():
                 with self.assertRaises(menu.Back):
                     menu.waited(held.wait, "config · models", lambda: ["  acme"])
-            frames, _ = self.frames([], motion.WAIT + motion.LAP, waits)
-            self.assert_light(frames, 1000 + motion.WAIT + motion.LAP / 2,
+            frames, _ = self.frames([], motion.WAIT + motion.BREATH, waits)
+            self.assert_light(frames, 1000 + motion.WAIT + motion.BREATH / 2,
                               self.cells(frames[-1][2], "─" * 60), rainbow)
         self.terminals(check)
 
@@ -187,7 +191,7 @@ class Lights(Menu):
     def test_an_effort_stepped_to_its_highest_sends_the_rainbow_through_its_word(self):
         def check(rainbow):
             frames, moved, word = self.stepped("max")
-            self.assert_light(moved, moved[0][0] + motion.SHIMMER / 2, word, rainbow)
+            self.assert_light(moved, moved[0][0] + motion.SWEEP / 2, word, rainbow)
             self.assertEqual([frames[-1][1][cell] for cell in word],
                              [moved[0][2][cell] for cell in word])
         self.terminals(check)
@@ -195,7 +199,7 @@ class Lights(Menu):
     def test_the_light_through_a_word_of_wide_letters_is_six_of_its_cells(self):
         def check(rainbow):
             _, moved, word = self.stepped("最高努力")
-            half = self.at(moved, moved[0][0] + motion.SHIMMER / 2)[1]
+            half = self.at(moved, moved[0][0] + motion.SWEEP / 2)[1]
             self.assertEqual(sum(terminal.cells(half[cell][0]) for cell in word
                                  if half[cell][1] in rainbow), 6)
         self.terminals(check)

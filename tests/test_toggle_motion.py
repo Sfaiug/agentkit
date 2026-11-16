@@ -2,7 +2,7 @@
 
 On the `c` screen, the `n` screen and a project's feature switches a mark goes `□`, its full
 shape in the colour its open one has, `■` -- under the keys, on the selection as it is -- over
-two frames, 80 ms, and back the same way, saved at the key; one ak refuses nudges
+two frames, 100 ms, and back the same way, saved at the key; one ak refuses nudges
 a cell left, right, left and back over 240 ms, the reason under the rows and nothing saved.
 All of it is on the menu's one clock, beside the rule gliding while a project's
 switches are asked, and the cell a click lit stays lit through it; a key during it ends it on
@@ -153,7 +153,7 @@ class Frames(unittest.TestCase):
         (at, until), = [clock.cells[cell]]
         return at, until - since, since
 
-    def test_a_mark_fills_and_empties_over_two_frames_in_80_ms(self):
+    def test_a_mark_fills_and_empties_over_two_frames_in_100_ms(self):
         for before, after, kind, half in (
                 ("□", "■", "accent", terminal.toggle("■", 4, "dim")),
                 ("■", "□", "dim", terminal.toggle("■", 4, "dim")),
@@ -162,7 +162,7 @@ class Frames(unittest.TestCase):
             with self.subTest(before=before, after=after, kind=kind):
                 at, lasts, since = self.animation(motion.toggled(after, 4, kind, False, 10),
                                                   before, (5, 10))
-                self.assertAlmostEqual(lasts, 0.08)
+                self.assertAlmostEqual(lasts, 0.1)
                 # the frame the draw writes, and the one a frame later, each its whole column
                 self.assertEqual([at(since + t) for t in (0, motion.FRAME)],
                                  [half, terminal.toggle(after, 4, kind)])
