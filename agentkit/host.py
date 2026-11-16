@@ -536,37 +536,99 @@ def _building(runs):
     return [scope for scope, weight in weights.items() if weight != CPU_WEIGHT_MAX]
 
 
-def kept_cpu(slice_dir, delay=0.1):
-    """The slice's live CPU use this process cannot take for itself, or None where it takes none.
+def _yielding():
+    """The cgroups that yield the CPU to this process, or None where it takes none from them.
 
     The kernel shares a parent's CPU among its busy children by weight, so a cgroup at the
-    top weight gets nearly all the live use of its lower-weighted siblings; the rest of the
-    slice's use stays -- siblings at its own weight share alike, its own use is its own and
-    nothing outside its parent yields.  The slice and those siblings are read in one sample
-    window, so a burst between two readings cannot erase use another holds.  None at any lower
-    own weight, or where the cgroups cannot be read.  Beside injected readings it reads only an
-    injected cgroup tree: like `host_readings`, an injected snapshot avoids the real machine.
+    top weight gets nearly all the CPU its lower-weighted siblings would use; siblings at its
+    own weight share alike, and nothing outside its parent yields.  None at any lower own
+    weight, or where the cgroups cannot be read.
     """
-    if os.environ.get("AK_HOST_READINGS") and not os.environ.get("AK_CGROUP_ROOT"):
-        return None
     own = process_cgroup()
-    if not own or slice_dir is None:
+    if not own:
         return None
     path = cgroup_path(own)
-    weight = _cpu_weight(path)
-    if weight is None or weight < CPU_WEIGHT_MAX:
+    if _cpu_weight(path) != CPU_WEIGHT_MAX:
         return None
     try:
         siblings = [sibling for sibling in path.parent.iterdir()
                     if sibling.name != path.name and sibling.is_dir()]
     except OSError:
         return None
-    lower = [sibling for sibling in siblings
-             if (other := _cpu_weight(sibling)) is not None and other < weight]
+    return [sibling for sibling in siblings
+            if (weight := _cpu_weight(sibling)) is not None and weight < CPU_WEIGHT_MAX]
+
+
+def kept_cpu(slice_dir, delay=0.1):
+    """The slice's live CPU use this process cannot take for itself, or None where it takes none.
+
+    Its own use is its own, and what the siblings that yield to it use is its for the taking
+    (`_yielding`); the rest of the slice's use stays.  The slice and those siblings are read in
+    one sample window, so a burst between two readings cannot erase use another holds.  Beside
+    injected readings it reads only an injected cgroup tree: like `host_readings`, an injected
+    snapshot avoids the real machine.
+    """
+    if os.environ.get("AK_HOST_READINGS") and not os.environ.get("AK_CGROUP_ROOT"):
+        return None
+    lower = _yielding() if slice_dir is not None else None
+    if lower is None:
+        return None
     rates = _cpu_rates([Path(slice_dir), *lower], delay)
     if Path(slice_dir) not in rates:
         return None
     return max(0.0, rates[Path(slice_dir)] - sum(rates.get(sibling, 0.0) for sibling in lower))
+
+
+def cpu_room():
+    """The host's cores less the threads that want one now, or None where it shows no such count.
+
+    The threads on a CPU or ready for one on the whole host (`/proc/stat`'s `procs_running`),
+    but those of the scopes that yield to this process (`_yielding`), the mean of five looks
+    over a second: work waiting for a core costs more CPU, and fails more, the more threads
+    wait, while CPU used never passes the cores.  None below the top CPU weight, where this
+    process yields itself.  Injected readings give the threads as `cpu_wanted`, with no look.
+    """
+    readings = _injected()
+    if readings is not None:
+        wanted = _reading(readings, "cpu_wanted")
+        return None if wanted is None else (_reading(readings, "cpus", "nproc") or 1) - wanted
+    yielding = _yielding()
+    if yielding is None:
+        return None
+    wanted = []
+    for look in range(5):
+        if look:
+            time.sleep(0.25)
+        running = _procs_running()
+        if running is None:
+            return None
+        wanted.append(max(0, running - sum(map(_ready, yielding))))
+    return cpu_count() - sum(wanted) / len(wanted)
+
+
+def _procs_running():
+    try:
+        for line in (PROC / "stat").read_text().splitlines():
+            if line.startswith("procs_running "):
+                return int(line.split()[1])
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def _ready(cgroup):
+    """The threads of `cgroup` and every one under it on a CPU or ready for one."""
+    ready = 0
+    for directory, _, _ in os.walk(cgroup):
+        try:
+            threads = (Path(directory) / "cgroup.threads").read_text().split()
+        except OSError:
+            continue
+        for thread in threads:
+            # /proc/<id>/task holds the threads of that id's group, so <id>'s own entry is there
+            stat = proc_stat(thread, PROC / thread / "task")
+            ready += stat is not None and stat.state == "R"
+    return ready
 
 
 def _slice_memory(cgroup):
