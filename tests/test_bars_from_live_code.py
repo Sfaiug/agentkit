@@ -1,10 +1,11 @@
 """Every seat's bar is drawn by the live install as it is now, and an open menu starts again on
-new code, its highlight on the seat or meter it was on: ak from another checkout than
+new code, its highlight on the seat or subscription it was on: ak from another checkout than
 ~/agentkit, or a process older than the install, writes no bar, where a worktree's menu wrote
 its own design over the live one's and every bar flipped between the two (the owner's report of
 19 Oct 2026).  Offline: a temporary HOME, tmux faked.
 """
 
+import copy
 import io
 from contextlib import redirect_stdout
 from unittest.mock import patch
@@ -117,9 +118,9 @@ class BarsFromLiveCode(Sandbox):
         def restart(_program, _argv, env):
             handed.update(env)
             raise SystemExit
-        def opened(env, *keys):          # the highlight of the last draw before the keys ran out
+        def opened(cfg, env, *keys):     # the highlight of the last draw before the keys ran out
             with patch.object(menu, "Live", **{"return_value.heard.return_value": [],
-                                               "return_value.cfg": self.cfg}), \
+                                               "return_value.cfg": cfg}), \
                     patch.object(menu, "moving", side_effect=[*keys, terminal.Key("esc")]), \
                     patch.object(terminal, "Keyboard", Keyboard), \
                     patch.object(terminal, "sense", lambda: None), \
@@ -128,14 +129,20 @@ class BarsFromLiveCode(Sandbox):
                     patch.object(menu, "draw", wraps=menu.draw) as draw, \
                     redirect_stdout(io.StringIO()):
                 try:
-                    menu.loop(self.cfg, dry_run=True)
+                    menu.loop(cfg, dry_run=True)
                 except SystemExit:
                     pass
-            return draw.call_args.args[5]["cursor"]
-        left = opened({}, terminal.Key("up"), None)     # ↑ off the first row onto the last meter
-        self.assertEqual(left[0], "usage")
-        back = {name: handed[name] for name in ("AK_MENU_CURSOR", "AK_MENU_METER")}
-        self.assertEqual(opened(back), left)
+            meter = draw.call_args.args[5]["cursor"]
+            return menu.subscription(menu.usage_rows(cfg)[meter[1] - 1])
+        # ↑ off the first row onto the last meter, whose number another process's new
+        # subscription, read only by the new code, gives to the one before it
+        left = opened(self.cfg, {}, terminal.Key("up"), None)
+        moved = copy.deepcopy(self.cfg)
+        moved["providers"]["anthropic"]["accounts"] = ["default", "tide"]
+        self.assertEqual(opened(moved, {"AK_MENU_CURSOR": handed["AK_MENU_CURSOR"]}), left)
+        # as an open menu on the code before hands it on, its meter's number
+        last = str(len(menu.usage_rows(self.cfg)))
+        self.assertEqual(opened(self.cfg, {"AK_MENU_CURSOR": "", "AK_MENU_METER": last}), left)
 
 
 if __name__ == "__main__":
