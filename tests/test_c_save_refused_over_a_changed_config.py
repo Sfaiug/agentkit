@@ -91,11 +91,10 @@ class SaveRefusedOverAChangedConfig(Sandbox):
         def remove():               # another process's save, then Enter on `− remove`
             added.append(config.add_model(config.load(), dict(ADDED), "Acme 1"))
             return Key("enter")
-        # the ak screen's first meter, which offers nothing: its row on Subscriptions
-        label = menu.usage_rows(self.cfg)[0][1]
+        # the ak screen's first meter: its row on Subscriptions
         with patch.object(terminal, "confirm", return_value=True):
             self.keyed(lambda: Key("right"), remove, opens=lambda: said.append(
-                menu.meter_acts(self.cfg, Keyboard(), 1, label)))
+                menu.config_subscriptions(self.cfg, Keyboard(), 1)))
         self.assertEqual(said, [menu.CHANGED])
         cfg = config.load()
         self.assertEqual(cfg["models"][added[0]]["model"], ADDED["model"])

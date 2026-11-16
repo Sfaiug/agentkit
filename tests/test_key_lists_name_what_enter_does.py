@@ -1,8 +1,7 @@
-"""The lists a meter and `+ add a subscription` open name what Enter does on each choice.
+"""The lists `+ add a subscription` opens name what Enter does on each choice.
 
 The owner (27 Oct 2026): "everywhere enter is for like opening, new page and stuff like that,
-and space should be select / unselect".  A meter's list on the ak screen names the highlighted
-act, `⏎ log in again` or `⏎ spend a reset`; `+ add a subscription`'s first list says `⏎ add` on a
+and space should be select / unselect".  `+ add a subscription`'s first list says `⏎ add` on a
 provider and `⏎ open` on a harness that lists providers; in the list that harness opens Enter is
 `⏎ log in` on a provider not logged in to, `⏎ open` on a model and `⏎ add` on an effort, and
 Space there opens nothing.  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py),
@@ -52,16 +51,11 @@ class ListsNameWhatEnterDoes(unittest.TestCase):
         now = time.time()
         week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}]}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
-            "anthropic": week, "openai": {**week, "resets": 1}}})
-        # a login ending tomorrow, so `log in again` is offered whichever rule offers it
-        self.home.write(".agentkit/state/logins.json", {"openai": {"default": {
-            "email": "owner@acme.test", "ends": now + 86400, "plan": "plus",
-            "checked_at": now}}})
+            "anthropic": week, "openai": week}})
         self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
-        self.main = self.term.wait(lambda screen: MAIN_KEYS in lines(screen)
-                                   and "ChatGPT" in screen)
+        self.term.wait(lambda screen: MAIN_KEYS in lines(screen) and "ChatGPT" in screen)
 
     def on(self, row, enter):
         """The screen once the highlight is on the line that starts `row` and the key line
@@ -69,15 +63,6 @@ class ListsNameWhatEnterDoes(unittest.TestCase):
         return self.term.wait(lambda screen: any(line.startswith(f"› {row}")
                                                  for line in lines(screen))
                               and key_line(screen) == KEYS.format(enter))
-
-    def test_a_meter_s_list_names_the_highlighted_act(self):
-        shown = lines(self.main)
-        row = next(n for n, line in enumerate(shown) if "ChatGPT" in line)
-        column = shown[row].index("ChatGPT") + 3
-        self.term.type(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m")
-        self.on("→ log in again", "log in again")
-        self.term.keys("Down")
-        self.on("→ spend a reset", "spend a reset")
 
     def test_add_a_subscription_names_add_open_and_log_in(self):
         self.term.keys("c")

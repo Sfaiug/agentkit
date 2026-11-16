@@ -1811,10 +1811,11 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     the one under the pointer lit; `words`, each seat's word.  A seat's state word and any other
     project's heading are cells that only explain (`terminal.Spot`), and nothing says what any
     of them is on the key line; the meter the pointer or the highlight is on is lit over its
-    whole cell (`usage_lines`), Enter or a click anywhere on it opening it (`meter_acts`), and
-    the blank line under the grid says the rest of it (`usage_detail`).  The highlighted seat's
-    line opens under it only while the owner points at it (`pointing`: the pointer on it, or
-    ↑/↓ moved there since the pointer last was), and closes once the pointer is on no row
+    whole cell (`usage_lines`), Enter or a click anywhere on it opening its row on
+    `Subscriptions` (`config_subscriptions`), and the blank line under the grid says the rest
+    of it (`usage_detail`).  The highlighted seat's line opens under it only while the owner
+    points at it (`pointing`: the pointer on it, or ↑/↓ moved there since the pointer last
+    was), and closes once the pointer is on no row
     (`terminal.away`) or the row moves from under it (`terminal.pointer`), and stays closed
     until the pointer or ↑/↓ moves onto a row (`drawn["pointing"]`).
 
@@ -3066,11 +3067,11 @@ LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6
                                   (*range(0, 1001, 100), "no limit")),
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
                                       (*range(0, 201, 25), "no limit"))}
-# What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
-# its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
+# What a subscription offers on its row of `Subscriptions`, each where it applies
+# (subscription_acts), and without UTF-8.
 # The second is one act for each kind of reset it can spend now, named after it (`spend a
 # Fable reset`), as the owner reads what a press spends before pressing.
-# Its list or line opens lit on the first, where offered, and on nothing else: `spend a reset`
+# Its line opens lit on the first, where offered, and on nothing else: `spend a reset`
 # spends at once (config_spend_reset), so Enter lands on it only after a move or a click there.
 SUBSCRIPTION_ACTS = (("→ log in again", "log in again"), ("→ spend a {}reset", "spend a {}reset"),
                      ("− remove", "- remove"))
@@ -4644,7 +4645,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     one marks it, kept in config.toml as `theme = "white"`, every screen in it from its next
     frame and this one at once (terminal.theme).  ↑ past the first model, and the pointer, reach
     the meters over the page: one is lit as the main screen lights it, and Enter or a click
-    opens what it offers, or its row on `Subscriptions` (meter_acts); on `Discord` its two
+    opens its row on `Subscriptions` (config_subscriptions); on `Discord` its two
     secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
     under the rows, dim, on every page.
     On a screen too short for every row the part the highlight is on is shown, and what the
@@ -4735,8 +4736,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                     models_page(cfg, keyboard)
             elif here[0] == "usage":
                 if act == "enter":
-                    note = meter_acts(cfg, keyboard, here[1],
-                                      f"config · {usage_rows(cfg)[here[1] - 1][1]}")
+                    note = config_subscriptions(cfg, keyboard, here[1])
             elif here == ("row", CONFIG_ROWS[1]):
                 if act == "enter":
                     note = config_subscriptions(cfg, keyboard)
@@ -5255,7 +5255,7 @@ def _signed_out(harness, provider, account, label):
 
 @terminal.clicks_its_own
 def config_spend_reset(cfg, picked, kind=None):
-    """`→ spend a reset` on a meter or a subscription's row: one usage-limit reset spent,
+    """`→ spend a reset` on a subscription's row: one usage-limit reset spent,
     by hand, on `picked`, its subscription as (provider, account, label), of `kind` where its
     reading names kinds.  usage.replenish spends it where it still holds one and reads the
     meters back into the cache, so its meter shows the week that came back; Esc while it is
@@ -5280,12 +5280,12 @@ def config_spend_reset(cfg, picked, kind=None):
                                     in_hand(prov))))
 
 
-def subscription_acts(cfg, keyboard, number, remove=False):
+def subscription_acts(cfg, keyboard, number):
     """What subscription `number`, from 1 in usage_rows' order, offers, as (text, act) each, an
     act what to say under the screen or "": `log in again` while its own login ends soon or has
     ended (login_notes), where its harness signs it in afresh (sign_in, config.signs_in_again),
     `spend a reset` while it holds one (config_spend_reset) -- where its reading names kinds,
-    `spend a Fable reset` for each it can spend now, in its order -- and with `remove`, `remove`
+    `spend a Fable reset` for each it can spend now, in its order -- and `remove`
     (config_remove_provider).  A login the tick finds logged out with no end recorded is told
     by its alert alone: that record is its harness's, which can carry several subscriptions."""
     rows = usage_rows(cfg)[number - 1:number]
@@ -5301,36 +5301,18 @@ def subscription_acts(cfg, keyboard, number, remove=False):
          and harness and config.signs_in_again(harness, account)),
         *((SUBSCRIPTION_ACTS[1], kind, lambda kind=kind: config_spend_reset(cfg, picked, kind),
            True) for kind in spends),
-        (SUBSCRIPTION_ACTS[2], None, lambda: config_remove_provider(cfg, picked), remove))
+        (SUBSCRIPTION_ACTS[2], None, lambda: config_remove_provider(cfg, picked), True))
         if offers]
-
-
-def meter_acts(cfg, keyboard, number, screen):
-    """Enter or a click on subscription `number`'s meter, on the ak screen, `c` and a new seat's
-    models alike: what it offers (subscription_acts, nothing removed from here), picked from a
-    list under its name, `screen` the title it is drawn under, the highlight on `log in again`
-    where it is offered and otherwise on nothing, so a reset is spent only by a move or a click
-    there.  One that offers nothing opens its row on Subscriptions (config_subscriptions).  What
-    to say under the screen, or ""."""
-    acts = dict(subscription_acts(cfg, keyboard, number))
-    if not acts:
-        return config_subscriptions(cfg, keyboard, subscription(usage_rows(cfg)[number - 1]))
-
-    def listed(lit):  # the screen the list is drawn on, drawn again after a key or a resize
-        terminal.frame(screen, [""] * len(acts),
-                       terminal.keys("esc back", enter=lit and act_word(lit)))
-        return 3
-    chosen = terminal.choose(list(acts), default=act_text(SUBSCRIPTION_ACTS[0]), around=listed)
-    return "" if chosen is None else acts[chosen]()
 
 
 # The owner chose this layout on 26 Oct 2026, so the details stay calm until pointed at.
 @terminal.clicks_its_own
-def config_subscriptions(cfg, keyboard, whose=None):
+def config_subscriptions(cfg, keyboard, number=None):
     """`Subscriptions` on `c`: each subscription under its company (COMPANIES), named bold as `c`
     names a harness, as the main screen draws it (usage_lines), then `+ add a subscription`
-    (config_add_provider), opened on `whose`'s row, its subscription as (provider, account), as
-    its meter opens it (meter_acts), else on the first.  The row the keys or the pointer are on
+    (config_add_provider), opened on the row of subscription `number`, from 1 in `cfg`'s
+    usage_rows order, as Enter or a click on its meter opens it, on the ak screen, `c` and a
+    new seat's models alike, else on the first.  The row the keys or the pointer are on
     says its resets in hand beside its meter where there is room, and opens a line: whose login
     it is and its plan (logins.whose; one ending as login_notes says it, amber), resets with no
     room beside its meter, then its acts (subscription_acts), ←/→ or the pointer moving, Enter
@@ -5346,6 +5328,8 @@ def config_subscriptions(cfg, keyboard, whose=None):
     and closes the page; what was held before is held again after.  What to say under the
     screen back: CHANGED, or ""."""
     global _held
+    # found by company and account, so a subscription added meanwhile moves it to no other's row
+    whose = number and subscription(usage_rows(cfg)[number - 1])
     outer, _held = _held, (cfg, NOT_READ)
     try:
         return _subscriptions(holding(cfg), keyboard, whose)
@@ -5395,7 +5379,7 @@ def _subscriptions(cfg, keyboard, whose):
             line += terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
             # what Enter acts on is its act, lit on its line, never the row
             body.append(terminal.highlight(line, band=False))
-            acts = dict(subscription_acts(cfg, keyboard, number, remove=True))
+            acts = dict(subscription_acts(cfg, keyboard, number))
             on = on if on in acts else None
             email, plan = logins.whose(name, account)
             plan = harness_plugin(logins.harness(cfg, name)).plan_name(plan)
@@ -6987,12 +6971,12 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
     a click on the key line does what its key does, each once the button is up; the pointer
     on a row moves the highlight there, and on a key-line item lights it (`draw`).  ↑ past the
     first seat, or from under the grid with none, reaches the meters, and Enter or a click on
-    one opens what it offers (meter_acts), the highlight on it back from there.  A digit
-    waits half a second for a second one, a resize or not, and a key read while it waits is
-    kept for after, with the screen it was read on.  The highlight is the seat's name, so it
-    stays on its seat whatever comes or goes above it, and a meter's its subscription's.  A key
-    that does nothing here is let go without a word, `i` among them, and every key that does
-    something gives the terminal back
+    one opens its row on `Subscriptions` (config_subscriptions), the highlight on it back from
+    there.  A digit waits half a second for a second one, a resize or not, and a key read while
+    it waits is kept for after, with the screen it was read on.  The highlight is the seat's
+    name, so it stays on its seat whatever comes or goes above it, and a meter's its
+    subscription's.  A key that does nothing here is let go without a word, `i` among them, and
+    every key that does something gives the terminal back
     before it does it -- but `c`, `n` and `x`'s question, which are read with the keys on
     the screen the menu has: `x`, in a popup only, closes its own seat at once when done and
     otherwise asks `Keep` or `Stop` under that seat's row, Enter or a click answering and Esc keeping it; `p` opens the past
@@ -7159,9 +7143,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                     continue
                 if isinstance(key, tuple):
                     cursor = key              # the meter, highlighted again back from it
-                    # what its act says -- a spend refused among it -- in a notice: this screen
-                    # has no line under it for one
-                    note = meter_acts(cfg, keyboard, key[1], usage_rows(cfg)[key[1] - 1][1])
+                    # a save it refused, in a notice: this screen has no line under it for one
+                    note = config_subscriptions(cfg, keyboard, key[1])
                     if note:
                         pause(note)
                     continue
