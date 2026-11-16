@@ -3429,19 +3429,21 @@ def price_take(cfg, session, selected, providers, answer, role):
         note]))
 
 
-def figures(value):
-    """`value`, above 0, to two significant figures: `1,200`, `40`, `4.5`."""
-    value = float(f"{value:.2g}")
-    return f"{value:,.{max(0, 1 - math.floor(math.log10(value)))}f}"
+def figures(value, many=2):
+    """`value`, above 0, to `many` significant figures: `1,200`, `40`, `4.5`; to one, `0.004`."""
+    value = float(f"{value:.{many}g}")
+    return f"{value:,.{max(0, many - 1 - math.floor(math.log10(value)))}f}"
 
 
 def cost_said(found, row, unit):
     """`row`'s cost in its role's answer `found` counted in `unit` (UNITS): `$0.60`, `2.00%`, in
     whole units from 100 on, where cents tell no two rows apart, so five bars' costs side by
-    side fit 40 cells (models_bars), or `50` a week; `≈` before one no runs measured -- the
-    owner, 3 Nov 2026: a cost on screen must never look more certain than it is.  `-` where it
-    has none in `unit`: dollars, where no run's provider has a price (matrix._costs's `share`),
-    and a week, where it has no `points` of one (matrix._costs)."""
+    side fit 40 cells (models_bars), and under half a cent to its first figure, `$0.004`, where
+    two decimals would say a model that costs something is free; or `50` a week.  `≈` before
+    one no runs measured -- the owner, 3 Nov 2026: a cost on screen must never look more
+    certain than it is.  `-` where it has none in `unit`: dollars, where no run's provider has
+    a price (matrix._costs's `share`), and a week, where it has no `points` of one
+    (matrix._costs)."""
     points = row["points"]
     value = {"$ a task": None if found["cost_unit"] == "share" else row["cost"],
              "% of a week": points, "a week": 100 / points if points else None}[unit]
@@ -3450,7 +3452,8 @@ def cost_said(found, row, unit):
     about = "" if row["cost_rule"] == "measured" else "≈" if terminal.utf8() else "~"
     if unit == "a week":
         return about + figures(value)
-    cost = f"{value:.{2 if round(value, 2) < 100 else 0}f}"
+    cost = (figures(value, 1) if 0 < value < .005 else
+            f"{value:.{2 if round(value, 2) < 100 else 0}f}")
     return about + (f"{cost}%" if unit == "% of a week" else f"${cost}")
 
 
