@@ -469,7 +469,7 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
         log(f"{upstream} at {tip[:12]} fails {how}: the target's own red, repaired")
         _repair(turn, directory, state, tree, red, log)
         # A red that named no test blames nobody: on an earlier commit a piece's number holds
-        # other tests, and six whole suites are not worth a history row.
+        # other tests, and a walk of whole suites is not worth a history row.
         if again:
             _excuse(turn, red["tests"], suite)
             _blame_tip(directory, state, scratch, tip, suite, piece, again, log)
@@ -501,8 +501,12 @@ def _excuse(turn, tests, command):
 
 
 def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
-    """Find the first red first-parent commit within KEEP and 64 commits (six steps), by just
-    the `tests` of `suite`'s `piece` that failed again alone on the tip.
+    """Find the first red first-parent commit within KEEP and 64 commits, by just the `tests`
+    of `suite`'s `piece` that failed again alone on the tip: the oldest first, then halving.
+
+    A red the clock or the host made (a fixture's date passed) fails on every commit, and the
+    pass, and so the line, waits for each check: the oldest red ends the walk at one check
+    where halving takes six, at the price of one more for a commit's red.
 
     The tip already failed twice. Start its repair before walking; no blame waits on a
     repair's outcome, and no repair waits on these checks. A commit that does not hold the
@@ -515,7 +519,7 @@ def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
                           f"--since=@{int(time.time() - KEEP)} +0000", tip).splitlines()[::-1]
         low, high = -1, len(commits) - 1
         while high - low > 1:
-            mid = (low + high) // 2
+            mid = (low + high) // 2 if low >= 0 else 0
             sha = commits[mid]
             _put_back(scratch, sha)
             exits, flaky, absent = [], [], []
