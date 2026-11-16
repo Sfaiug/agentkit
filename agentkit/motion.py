@@ -13,7 +13,8 @@ through its word, a mark set fills and one cleared empties, one whose change was
 a popup's content fades in once, as it opens, and a page's under its
 header as it opens, its name writing itself out in the header, and a theme chosen comes down
 the screen it is chosen on, a row at a time; the rule under a screen's
-header glides while its content is fetched, a spinner turning beside what ak waits on -- and
+header glides while its content is fetched, a spinner turning beside what ak waits on;
+the highlight fades where it left (`Clock.light`) -- and
 every motion runs on this same clock, every light that travels in the theme's rainbow (`lit`)
 (docs/cli-design.md, Motion).  A screen says which cells animate and how when it draws
 (`Clock.start`), asking first which of its values are news
@@ -53,6 +54,7 @@ WAIT = 0.15         # seconds a screen's content is fetched for before its rule 
 SPIN = 2 * FRAME    # seconds each of the spinner's glyphs shows beside what ak waits on
 SPINNER = "▖▘▝▗"     # quadrants, which a terminal draws itself, and `|/-\` without UTF-8
 THEMED = 0.35       # seconds a theme chosen takes to come down the screen, its top row to its last
+LEAVES = 0.2        # ... the highlight takes to fade into the background where it left
 
 
 def breath(now):
@@ -379,6 +381,9 @@ class Clock:
         self.up = None      # the last draw's screen, top down, and the theme it is in (`rise`)
         # ... and, while another theme comes down it, since when and its rows painted in the old
         self.turning = None
+        self.lights = {}    # what the last draw lit (terminal.lights)
+        self.size = None    # ... and the terminal's size it was drawn at
+        self.leaving = {}   # ... and what of it the highlight left: since when it fades, its cells
 
     def look(self, values):
         """Which of `values` -- key -> what a draw shows for it -- are news, each key -> (since
@@ -420,7 +425,7 @@ class Clock:
         showing it still, and only what the key itself changes is news."""
         self.seen = self.seen and {key: (value, None, None)
                                    for key, (value, _, _) in self.seen.items()}
-        self.touched, self.turning = {}, None
+        self.touched, self.turning, self.leaving = {}, None, {}
         self.opened = None if self.opened is None else -math.inf
 
     def drawn(self, moves, row):
@@ -469,11 +474,31 @@ class Clock:
         if self.up and self.up[1] != theme and moves:
             self.turning = now, terminal.rows(*self.up)
             self.opened = -math.inf     # what was coming up is up: the theme comes down over it
+        self.light(now, moves)
         self.up = lines, theme
         opened = now if self.opened is None else self.opened    # not yet: by this draw's frame
         if (self.fade or self.page) and moves and now < opened + FADE:
             self.rising = lines
         return self.rising is not None or self.turning is not None
+
+    def light(self, now, moves):
+        """Where a draw at `now` no longer has the highlight (terminal.lights), on what is still
+        there, it fades from the selection into the background in LEAVES seconds: at rest on a
+        screen up first or at another size, and where colour cannot move."""
+        was, self.lights, leaving, self.leaving = self.lights, terminal.lights(), self.leaving, {}
+        size, self.size = self.size, (terminal.width(), terminal.height())
+        if self.up is None or not moves or size != self.size:
+            return
+        for what in (was.keys() | leaving.keys()) - self.lights.keys():
+            since, spans = leaving.get(what) or (now, was[what])
+            still = [span for span in spans if terminal.held(*span[:2]) == what]
+            if still:
+                self.leaving[what] = since, still
+
+    def rest(self):
+        """A key: where the highlight left fading, its last frame to write before anything else."""
+        self.leaving = {what: (-math.inf, spans) for what, (_, spans) in self.leaving.items()}
+        return self.frame() if self.leaving else ""
 
     def clear(self):
         """Nothing animates and nothing is shown: a draw has written every cell over."""
@@ -482,12 +507,12 @@ class Clock:
     def forget(self):
         """Nothing seen: the next draw's values are drawn as they are, no news in them, and a
         screen that has opened is up (`rise`)."""
-        self.seen, self.touched, self.up, self.turning = None, {}, None, None
+        self.seen, self.touched, self.up, self.turning, self.leaving = None, {}, None, None, {}
         self.opened = None if self.opened is None else -math.inf
 
     def wait(self):
         """Seconds until the next frame is due, or None while nothing animates."""
-        if not self.cells and not self.rising and not self.turning:
+        if not self.cells and not self.rising and not self.turning and not self.leaving:
             return None
         return 0 if self.last is None else max(0, self.last + FRAME - time.monotonic())
 
@@ -519,6 +544,29 @@ class Clock:
                           for row, line in enumerate(self.rising, 1))
             # every cell that moves written over them again, and once they are up, as drawn
             self.shown, self.rising = {}, self.rising if amount > 0 else None
+        screen, fading = terminal.on_screen(), {}     # row -> where the highlight fades on it
+        for what, (since, spans) in list(self.leaving.items()):
+            x = (now - since) / LEAVES
+            rgb = terminal.faded("selection", eased(x))[1:]
+            for row, left, right in spans:
+                if row >= below or row > len(screen):
+                    continue
+                text = terminal.columns(screen[row - 1], left, right)
+                if x < 1:
+                    fading.setdefault(row, []).append((left, right, rgb))
+                    text = terminal.backed(text, rgb, 1, right - left + 1)
+                elif terminal.cells(text) <= right - left:
+                    text += "\033[K"        # past the line's end, cleared as its draw left it
+                if self.shown.get((row, left, right)) != text:
+                    self.shown[row, left, right] = text
+                    out += f"\033[{row};{left}H{terminal.fade(text, amount if row >= first else 0)}"
+                    # what moves inside it written again over it
+                    for cell in [cell for cell, was in self.shown.items() if len(cell) == 2
+                                 and cell[0] == row and cell[1] <= right
+                                 and cell[1] + terminal.cells(was) > left]:
+                        del self.shown[cell]
+            if x >= 1:
+                del self.leaving[what]      # its last frame is out, as drawn
         # what spans more than its cell -- a whole row's glow -- first, and what moves inside
         # it written again over it in the same frame, on its background and with its effect
         drawn = sorted(((cell, text, terminal.cells(text), until)
@@ -534,6 +582,10 @@ class Clock:
             if row < below and self.shown.get((row, column)) != text:
                 self.shown[row, column] = text
                 lit = terminal.pointed(row, column, text)
+                for left, right, rgb in fading.get(row, ()):
+                    if left < column + width and right >= column:
+                        lit = terminal.backed(lit, rgb, max(left, column) - column + 1,
+                                              min(right, column + width - 1) - column + 1)
                 out += f"\033[{row};{column}H{terminal.fade(lit, amount if row >= first else 0)}"
                 for inside in [cell for cell in self.shown if cell[0] == row
                                and column < cell[1] < column + width]:

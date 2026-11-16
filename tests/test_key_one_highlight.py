@@ -312,6 +312,26 @@ class OneHighlight(unittest.TestCase):
             col, row = self.row(shown, answer)
             self.assertEqual(lit_rows(shown), {row: list(range(col - 1, col + len(answer) + 1))})
 
+    def test_the_row_down_left_fades_into_the_background(self):
+        # (the owner, 12 Nov 2026: "glowing effect ... when selection things") in 0.2 s of ak's
+        # clock, `AK_MOTION_CLOCK`: a file of seconds that stands still till the test moves it
+        clock, new = self.home.root / "clock", self.home.root / "new"
+        new.write_text("1000")
+        new.replace(clock)
+        shown = self.main(COLORTERM="truecolor", AK_MOTION_CLOCK=str(clock))
+        acme = self.row(shown, "1  acme")[1]
+        band, backs = lit_rows(shown)[acme], []
+        for moment in ("1010", "1010.1", "1010.15", "1010.2"):
+            new.write_text(moment)
+            new.replace(clock)
+            if not backs:
+                self.term.keys("Down")      # at 1010, as the clock stands: acme still lit
+            shown = self.rest(lambda shown: starts(shown, "› 2  beta"))
+            backs += [{ground(shown[acme - 1][column - 1][1]) for column in band}]
+        self.assertEqual((backs[0], backs[-1]), ({SELECTION}, {BLACK}))
+        sums = [sum(map(int, back.split(";")[2:])) for (back,) in backs]
+        self.assertEqual(sums, sorted(set(sums), reverse=True))
+
     def test_in_sixteen_colours_a_seat_has_its_mark_alone(self):
         self.assertEqual(grounds(self.main(TERM="xterm-16color")), {None})
 

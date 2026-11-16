@@ -221,13 +221,14 @@ class Screens(Sandbox):
         # its label takes no click, so the pointer there is as on blank space
         screens = self.matrix(move(*label), ESC)
         self.assertEqual((highlighted(screens[1]), marked(screens[1], "lit")), ([], {}))
-        # on a mark the cell lights, as the keys light it: one highlight, not two
-        last = self.matrix(move(*mark) + ESC)[-1]
+        # on a mark the cell lights, as the keys light it: one highlight, not two, once the one
+        # it left has faded
+        last = self.matrix(move(*mark), ESC)[-1]
         self.assertOneHighlight(last, "6 Astra")
         self.assertEqual(marked(last, "lit"), {mark[1]: "○"})
         self.assertEqual(marked(last, "reverse"), {})
         # a key takes it from there: the next cell is the keys', lit the same
-        last = self.matrix(move(*mark) + RIGHT + ESC)[-1]
+        last = self.matrix(move(*mark), RIGHT, ESC)[-1]
         self.assertOneHighlight(last, "6 Astra")
         self.assertEqual(marked(last, "lit"), {mark[1]: "□"})
         self.assertEqual(marked(last, "reverse"), {})
@@ -397,7 +398,7 @@ class Screens(Sandbox):
             self.assertOneHighlight(first, "Dark mode")
             row = at(first, "Beta search")[1]
             everyone = (at(first, "everyone")[0] + 3, row)
-            last = run(lambda: menu.show_features(checkout), move(*everyone) + ESC)[1][-1]
+            last = run(lambda: menu.show_features(checkout), move(*everyone), ESC)[1][-1]
         self.assertOneHighlight(last, "Beta search")
         self.assertEqual(marked(last, "lit"), {row: "○"})
         self.assertEqual(marked(last, "reverse"), {})
@@ -413,17 +414,17 @@ class Screens(Sandbox):
         self.assertEqual(marked(last, "lit"), {arrow[1]: "◂"})
 
     def test_the_new_session_screen_lights_a_model_and_its_mark(self):
-        def picking(keys):
+        def picking(*keys):
             return run(lambda: menu.config_matrix(self.cfg, None, "abc1234",
                                                   selected=dict(self.selected), providers={},
-                                                  born=True), keys)
+                                                  born=True), *keys)
 
         answer, screens = picking(ESC)
         self.assertFalse(answer)
         self.assertOneHighlight(screens[0], "Fable 5.1")      # the first model, as on `c`
         row = at(screens[0], "6 Astra")[1]
         review = (texts(screens[0])[row - 1].index("■", at(screens[0], "review")[0]) + 1, row)
-        last = picking(move(*review) + ESC)[1][-1]
+        last = picking(move(*review), ESC)[1][-1]
         self.assertEqual(len(highlighted(last)), 1)
         self.assertEqual(at(last, highlighted(last)[0])[1], row)
         self.assertEqual(marked(last, "lit"), {row: "■"})

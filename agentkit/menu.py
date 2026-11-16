@@ -7118,6 +7118,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                     cursor, pointing = spot.what or cursor, spot.what is not None
                     look = False          # the highlight moves over what is in hand
                     continue
+                terminal.over(clock.rest())     # a key ends the fade before it on its last frame
                 if terminal.step(key):
                     if key.name.startswith("wheel"):  # a swipe stops at the seats' end, or the
                         order = [name for name in order        # meters': a key goes on past

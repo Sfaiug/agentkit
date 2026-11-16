@@ -62,13 +62,14 @@ with closing(terminal.Keyboard()) as keyboard:
     menu.show_config(False, keyboard, session)
 print("<left>", flush=True)
 """
-# Run before every child's own code: each page as drawn from its first frame, so the frame read
-# after a key is the page it drew, not the menu's next idle redraw (test_page_comes_up.py's).
+# Run before every child's own code: each page as drawn from its first frame, nothing fading, so
+# the frame read after a key is the page it drew, not the menu's next idle redraw or a fade.
 FADELESS = """
 import os, sys
 sys.path.insert(0, os.environ["MATRIX_REPO"])
 from agentkit import motion
 motion.FADE = 0
+motion.Clock.light = lambda clock, now, moves: None
 """
 HAIKU = """
 [models.haiku]
