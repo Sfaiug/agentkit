@@ -114,9 +114,10 @@ class ModelsWhyChecked(unittest.TestCase):
         term.keys("r")
         term.wait(" 94.8 ")        # the executor's quality: the answer priced, its row there
         term.keys(*keys, "Enter")
-        # drawn whole once its own key line, the last, stands under its heading
-        shown = lines(term.wait(lambda screen: "\n  why " in screen and lines(
-            screen.rstrip())[-1] == "  esc back").rstrip())
+        # drawn whole once its own key line, the last, stands under its heading, and its plans'
+        # weeks with it: the page is drawn at once without them, again once they are computed
+        shown = lines(term.wait(lambda screen: "\n  why " in screen and "'s week" in screen
+                                and lines(screen.rstrip())[-1] == "  esc back").rstrip())
         block = shown[next(n for n, line in enumerate(shown) if line.startswith("  cost ")):]
         return block[:block.index("")]
 

@@ -3737,7 +3737,8 @@ def models_screen(cfg, session, selected, providers):
     of 5 Nov 2026, the last row a role was shown using that is no choice staying one of its bars
     and steps; each answer made (opening, the boards landing, `p`) takes the best up to each
     price that holds (price_take), saying so under the rows.  ⏎ or a click opens the why
-    (models_why) of the row the role uses, else of its first choice.  `p` lists companies
+    (models_why) of the row the role uses, else of its first choice, at once, drawn again with
+    its plans' weeks (plans_checked) once they land off the drawing thread.  `p` lists companies
     (company_list), and `u` counts every cost in the next unit (next_unit), the screen opening
     in the last one (models_unit)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
@@ -3819,12 +3820,18 @@ def models_screen(cfg, session, selected, providers):
             role = here[1]
             row = used[role][2] or next(iter(answer[role]["choices"]), None)
             key, why, page = None, ("why",), 0    # every line one row: ↑/↓ turn its pages
-            weeks = row and plans_checked(cfg, row["provider"])
+            # its plans' weeks take seconds to read: the page is drawn without them till they land
+            weeks = []
+            checking = row and Fetch(lambda name=row["provider"]: plans_checked(cfg, name))
             while row and key != "back":
+                if checking and not checking.is_alive():
+                    weeks, checking = checking.answer(), None
                 lines = models_why(answer[role], role, row, unit, weeks)
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
-                                             [why], why, page, "", "esc back")
+                                             [why], why, page, "", "esc back",
+                                             began=checking and checking.began,
+                                             going=checking and checking.is_alive)
 
 
 ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens
