@@ -341,15 +341,19 @@ class Screens(Sandbox):
         screen.click(word + 4, row, lambda lines: lines[row - 1][word - 1:].startswith("max "))
         mark = len(screen.text())
         screen.press(move(word, row))
-        # the light's head on the word's second letter, on its third (motion.passing), then past
-        # it: a frame each, its first letter's drawn with the pointer's light
+
+        def shown(text):
+            """What each frame since the move wrote on the word, whole."""
+            return re.findall(rf"\x1b\[{row};{word}H(.*?)(?=\x1b\[\d+;\d+H|\x1b\[\?2026l)",
+                              text[mark:], re.S)
+        # each letter shone, the light's head on it (motion.passing), then the word settled: one
+        # look each, however often the screen's redraw (menu.STIR) writes the word as it is
         places = len("max") + len(RAINBOW) - 1
-        for moment in (1.5 * motion.SWEEP / places, 2.5 * motion.SWEEP / places, motion.SWEEP):
-            written = len(screen.text())
+        for looks, moment in enumerate((0, 1.5 * motion.SWEEP / places,
+                                        2.5 * motion.SWEEP / places, motion.SWEEP), 1):
             clock.with_name("clock.new").write_text(repr(moment))
             clock.with_name("clock.new").replace(clock)     # never read half written
-            screen.until(lambda text: re.search(rf"\x1b\[{row};{word}H.*?\x1b\[\?2026l",
-                                                text[written:], re.S), "its next frame")
+            screen.until(lambda text: len({*shown(text)}) == looks, f"look {looks} on the word")
         text = screen.text()
         updates = list(re.finditer(r"\x1b\[(\d+);(\d+)H", text[mark:]))
         frames = 0
@@ -362,7 +366,6 @@ class Screens(Sandbox):
                 grid = played(text[:end])
                 self.assertEqual(marked(grid, "lit"), {row: "━━━━━   max"})
                 self.assertEqual(marked(grid, "reverse"), {})
-        self.assertEqual(frames, 4)       # each letter shone, then the word settled
         self.assertEqual(marked(played(text), "lit"), {row: "━━━━━   max"})
         self.assertEqual(marked(played(text), "reverse"), {})
         screen.leave()
