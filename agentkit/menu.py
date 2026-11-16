@@ -5262,7 +5262,7 @@ def config_subscriptions(cfg, keyboard):
             kind = "amber" if ending[number - 1] else "dim"
             told = [(ending[number - 1] or email, kind), (plan, kind),
                     (not beside and held, "info")]
-            for shown, cells in opened_line(told, kind, list(acts), on, width - 4):
+            for shown, cells in opened_line(told, list(acts), on, width - 4):
                 places[len(body)] = (("sub", number), cells)
                 moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
                 body.append(shown)
@@ -5304,22 +5304,23 @@ def config_subscriptions(cfg, keyboard):
                 here = ("sub", added[0])
 
 
-def opened_line(told, kind, texts, on, room):
+def opened_line(told, texts, on, room):
     """The line a pointed row of `Subscriptions` opens: `told`'s parts, (text, kind) each, ` · `
-    apart in `kind`, then `texts` three spaces apart, the one that is `on` lit with a cell before
-    and after it (terminal.selected, bracketed with no colour), wrapped in `room` cells, never cut;
-    each line with its texts' places, (first, last, index), from 1."""
+    apart in dim whatever their kind, as the eye skips it, then `texts` three spaces apart, the one
+    that is `on` lit with a cell before and after it (terminal.selected, bracketed with no colour),
+    wrapped in `room` cells, never cut; each line with its texts' places, (first, last, index),
+    from 1."""
     room = max(1, room)
     said = []
     for text, ink in told:
-        said += [(" · ", kind)] * bool(said and text) + [(text, ink)] * bool(text)
+        said += [(" · ", "dim")] * bool(said and text) + [(text, ink)] * bool(text)
     # wrapping keeps every other character in order: each in its part's colour, a space in the
     # colour before it
     inks, pieces = iter([ink for text, ink in said for char in text if not char.isspace()]), []
     for part in terminal.wrap("".join(text for text, _ in said), room):
-        runs = [[kind, ""]]
+        runs = [["dim", ""]]
         for char in part:
-            ink = runs[-1][0] if char.isspace() else next(inks, kind)
+            ink = runs[-1][0] if char.isspace() else next(inks, "dim")
             runs += [[ink, ""]] * (runs[-1][0] != ink)
             runs[-1][1] += char
         pieces.append(("".join(terminal.styled(text, ink) for ink, text in runs), None))
