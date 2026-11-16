@@ -11,8 +11,9 @@ waits; so does one of a timed test alone, and one beside a timed file whose path
 Black-box, as that key and with its fixtures: the program `AK_BIN` names, on a busy host where a
 whole suite waits for company, checks a landing line through tests/fixtures/akline.py, whose
 suite here runs `tests/*`, or the paths `AK_ONLY` lists, logging each with the tree it ran on;
-the run that delivers is scripted by fakeadapter.py, its reviewer held until the target moves, and
-merged by fakegh.py's GitHub.  The time record is written as a landing keeps it.
+the run that delivers is scripted by fakeadapter.py and merged by fakegh.py's GitHub, and a parked
+member, which no round ran, shows where the lander ran its test.  The time record is written as a
+landing keeps it.
 """
 
 import json
@@ -85,22 +86,11 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
         home = line.home
         GitHub(home).grant(line.rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
-        fakes = fakeadapter.install(home, claude={**fakeadapter.WORK, "write": EDITED,
-                                                  "commit": "restyle"}, codex="pass")
-        release = fakes["codex"].dir / "release"
-        fakes["codex"].behave({**fakeadapter.PASS,
-                               "sh": f"until [ -f '{release}' ]; do sleep 0.1; done"})
-        task = taskfile.write(home, line.rig.path, "Restyle the site",
-                              done_when=("test -f site.css",))
-        running = home.spawn("run", str(task))
-        deadline = time.monotonic() + 300
-        while not fakes["codex"].n:
-            self.assertLess(time.monotonic(), deadline, "the run never reached its review")
-            time.sleep(0.2)
-        # the target moves after the round's checks: what it lands as is no tree they saw
-        line.rig.commit({"news.md": "x\n"}, "news")
-        release.touch()
-        self.assertEqual(running.wait(timeout=300), 0)
+        fakeadapter.install(home, claude={**fakeadapter.WORK, "write": EDITED,
+                                          "commit": "restyle"}, codex="pass")
+        done = home.ak("run", str(taskfile.write(home, line.rig.path, "Restyle the site",
+                                                 done_when=("test -f site.css",))), timeout=300)
+        self.assertEqual(done.code, 0, done.out + done.err)
         run_dir, = (path for path in taskfile.runs(home) if path.name.endswith("-restyle-the-site"))
         self.assertTrue(record(run_dir).get("merged"), record(run_dir))
         self.assertEqual(line.whole(), 0, line.runs())
@@ -115,7 +105,7 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
         line.rig.commit({"news.md": "x\n"}, "news")
         self.land(line)
         self.assertEqual(self.checked(line), (0, [False]), line.runs())
-        self.assertEqual([test for test, _ in self.ran(line)], [TEST])
+        self.assertEqual({test for test, _ in self.ran(line)}, {TEST})
 
     def waits(self, files):
         """A member whose branch adds `files` waits, while one behind it that brings its test
@@ -125,6 +115,8 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
         self.join(line, EDITED)
         self.land(line)
         self.assertEqual(self.checked(line), (0, [False, True]), line.runs())
+        # no round ran here: the lander ran it, on the tree it gave the member to land
+        self.assertEqual(self.ran(line), [(TEST, line.verdict(2)["land"])])
 
     def test_one_that_adds_a_test_waits(self):
         self.waits({**STYLE, "tests/new_test.sh": "true\n"})
