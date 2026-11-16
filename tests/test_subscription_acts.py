@@ -1,14 +1,9 @@
-"""A meter offers the same on the ak screen and on `c`, and only `Subscriptions` removes.
-
-The owner (20 Oct 2026): "Pressing on the usage meters inside the config and on the menu has a
-different effect, should always be the same one. I dont want removing to be able this way, just
-actions such as spendign a reset, or claude relogin".  Enter on a meter over `c` lists what a
-click on one on the ak screen lists (tests/test_login_click.py), `→ log in again` while its login
-ends soon (here every one's does) and `→ spend a reset` while one is in hand, never `− remove`,
-which is under each subscription's row on `Subscriptions`.  `log in again` only where its harness
-signs in afresh: Antigravity's usual login cannot (`[auth] again = false`).  In-process, in a
-temporary HOME: `c`'s key reader faked and every list let go, so nothing is signed in, spent or
-removed.
+"""A subscription's acts have one home: its line on `Subscriptions`, which Enter on its meter
+over `c` opens on its row, as a click on one on the ak screen does (tests/test_login_click.py).
+The line offers `→ log in again` while its login ends soon (here every one's does) and its harness
+signs in afresh -- Antigravity's usual login cannot (`[auth] again = false`) -- `→ spend a reset`
+while one is in hand, and `− remove`.  In-process, in a temporary HOME: the screens' key reader
+faked and every list let go, so nothing is signed in, spent or removed but where a test says.
 """
 
 from contextlib import redirect_stdout
@@ -24,7 +19,7 @@ from agentkit import config, menu, terminal
 WEEK = {"name": "weekly", "resets_at": 10000 + 3 * 86400, "window_secs": 604800, "used": 50}
 
 
-class MeterActs(Sandbox):
+class SubscriptionActs(Sandbox):
     def setUp(self):
         super().setUp()
         (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000, "providers": {
@@ -51,18 +46,16 @@ class MeterActs(Sandbox):
             screen()
         return drawn
 
-    def test_a_meter_on_c_lists_what_it_does_and_never_removes(self):
-        # Gemini's holds no reset and its harness cannot sign in afresh: its meter lists nothing,
-        # and opens its row on Subscriptions, Esc coming back
-        gemini = self.rows.index("Gemini") + 1
-        self.keyed(lambda: menu.config_matrix(self.cfg, None, "abc1234"),
-                   [*(act for number in range(1, len(self.rows) + 1)
-                      for act in [("enter", ("usage", number))]
-                      + [("back", None)] * (number == gemini)),
-                    ("back", None)])
-        self.assertEqual(self.offered, [["→ log in again", "→ spend a reset"] if row == "Claude"
-                                        else ["→ log in again"]
-                                        for row in self.rows if row != "Gemini"])
+    def test_enter_on_a_meter_on_c_opens_its_row_on_subscriptions(self):
+        drawn = self.keyed(lambda: menu.config_matrix(self.cfg, None, "abc1234"),
+                           [*(act for number in range(1, len(self.rows) + 1)
+                              for act in [("enter", ("usage", number)), ("back", None)]),
+                            ("back", None)])
+        # the row each page opened on, of the pages drawn
+        self.assertEqual([re.split(r"\s{2,}", line[2:])[0] for lines in drawn
+                          if "  + add a subscription" in lines
+                          for line in lines if line.startswith("› ")], self.rows)
+        self.assertEqual(self.offered, [])         # its row, no list of its own
 
     def test_subscriptions_lists_every_subscription_with_its_removal_under_it(self):
         chatgpt, gemini = self.rows.index("ChatGPT") + 1, self.rows.index("Gemini") + 1

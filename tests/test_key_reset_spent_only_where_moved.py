@@ -1,12 +1,13 @@
-"""A usage-limit reset is spent only by a key or a click on `→ spend a reset` itself: a meter's
-list and a line on `c` → Subscriptions open lit only on `→ log in again`, and the light stays on
-the act it is on, by what it is, nothing lit once that act is gone.  Antigravity's usual login
-offers no `log in again` (`[auth] again = false`): holding a reset, its line and its meter's list
-open with nothing lit, and Enter spends nothing.  ChatGPT's line, its login ending in two days and
-lit on `→ spend a reset`, loses it when its reading comes back with none in hand, and Enter then
-does nothing.  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over usage
-and logins in a temporary HOME, harnesses faked (tests/fixtures/fakeadapter.py), each logging a
-reset spent, NO_COLOR, so the lit act is bracketed.  This test fails against `/bin/false`.
+"""A usage-limit reset is spent only by a key or a click on `→ spend a reset` itself: a line on
+`c` → Subscriptions, as `c` or a meter opens it, opens lit only on `→ log in again`, and the
+light stays on the act it is on, by what it is, nothing lit once that act is gone.
+Antigravity's usual login offers no `log in again` (`[auth] again = false`): holding a reset,
+its line opens with nothing lit, and Enter spends nothing.  ChatGPT's line, its login ending
+in two days and lit on `→ spend a reset`, loses it when its reading comes back with none in
+hand, and Enter then does nothing.  Black-box: `AK_BIN`'s menu in a terminal
+(tests/fixtures/akterm.py) over usage and logins in a temporary HOME, harnesses faked
+(tests/fixtures/fakeadapter.py), each logging a reset spent, NO_COLOR, so the lit act is
+bracketed.  This test fails against `/bin/false`.
 """
 
 import json
@@ -57,8 +58,8 @@ class ResetSpentOnlyWhereMoved(unittest.TestCase):
         self.term = Terminal(self.home, size=(120, 40), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
-        self.main = self.term.wait(lambda screen: MAIN_KEYS in lines(screen)
-                                   and "Gemini" in screen and "ChatGPT" in screen)
+        self.term.wait(lambda screen: MAIN_KEYS in lines(screen)
+                       and "Gemini" in screen and "ChatGPT" in screen)
 
     def chatgpt(self, *acts):
         """ChatGPT's line on Subscriptions, its login ending in two days, with `acts`."""
@@ -83,18 +84,6 @@ class ResetSpentOnlyWhereMoved(unittest.TestCase):
         self.term.keys("Enter", "Right")
         self.term.wait(lambda screen: GEMINI.format("[→ spend a reset]", "− remove")
                        in lines(screen) and LIT.format("spend a reset") in lines(screen))
-        self.assertEqual(self.spent(), [])
-
-    def test_a_meter_with_no_log_in_again_opens_its_list_with_nothing_lit(self):
-        shown = lines(self.main)
-        row = next(number for number, line in enumerate(shown) if "Gemini" in line)
-        column = shown[row].index("Gemini") + 3
-        self.term.type(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m")
-        self.term.wait(lambda screen: "  → spend a reset" in lines(screen)
-                       and UNLIT in lines(screen))
-        self.term.keys("Enter", "Down")
-        self.term.wait(lambda screen: "› → spend a reset" in lines(screen)
-                       and LIT.format("spend a reset") in lines(screen))
         self.assertEqual(self.spent(), [])
 
     def test_the_act_lit_gone_from_under_the_light_leaves_nothing_lit(self):

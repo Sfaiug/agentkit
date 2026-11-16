@@ -1,9 +1,8 @@
-"""A click on a meter lists what it offers, as Enter on it over `c` does (test_meter_acts.py),
-one offering nothing opening its row on Subscriptions instead, and `→ log in again` on an amber
-one hands the terminal to that login's `login again`, the ak screen back as soon as it ends, the
-meter grey once the login it made stands; Esc on the list signs nothing in.  `menu.loop`
-in-process, its keys and picks scripted, with a fake Claude adapter whose `login again` makes a
-login 30 days out, or fails where $FAKE/fail exists.
+"""A click on a meter on the ak screen opens its row on Subscriptions, lit on `→ log in again`
+where its login ends soon and on nothing else, and Enter there hands the terminal to that
+login's `login again`, the ak screen back from the page with the meter grey once the login it
+made stands.  `menu.loop` in-process, its keys scripted, with a fake Claude adapter whose
+`login again` makes a login 30 days out, or fails where $FAKE/fail exists.
 """
 
 from contextlib import redirect_stdout
@@ -66,35 +65,48 @@ class LoginClick(Sandbox):
 
     def signed_in(self):
         """The meters amber on the last screen drawn, and the login kept, as the owner clicks
-        the grey meter, which opens its row on Subscriptions, and goes back from there, then
-        clicks the amber one and picks `→ log in again`, then Esc."""
-        draws, amber, offered = [], [], []
-        real = menu.draw
+        the grey meter and goes back from its row, then clicks the amber one and presses Enter
+        on its row, then goes back and leaves."""
+        draws, amber, opened = [], [], []
+        real, page = menu.draw, menu.matrix_key
 
         def draw(*args, **kwargs):
             draws.append(args[5])         # what the screen drew, read back as the loop does
             amber.append([number for number, note in enumerate(
                 menu.login_notes(menu.usage_rows(args[0])), 1) if note])
             return real(*args, **kwargs)
+
+        def matrix_key(title, body, places, rows, here, top, said, keys, **kwargs):
+            # the row it is on, the acts on its line and what Enter does
+            acts = [act.strip(" []") for line in body
+                    for act in terminal.plain(line, spaced=True).split("   ")
+                    if act.strip(" [")[:1] in ("→", "−")]
+            opened.append((title, here, acts, keys))
+            return page(title, body, places, rows, here, top, said, keys, **kwargs)
         script = iter([lambda: self.click(draws[-1], "ChatGPT"),   # grey: no login ends soon
                        lambda: terminal.Key("esc"),                # back from its row
                        lambda: self.click(draws[-1], "Claude"),    # amber: it ends in 2 days
+                       lambda: terminal.Key("enter"), lambda: terminal.Key("esc"),
                        lambda: terminal.Key("esc")])
-        picks = iter(["→ log in again"])
 
         def key(*_a, **_kw):          # the ak screen's, and Subscriptions'
             return next(script)()
         with patch.object(menu, "draw", side_effect=draw), \
+                patch.object(menu, "matrix_key", side_effect=matrix_key), \
                 patch.object(menu, "moving", side_effect=key), \
                 patch.object(terminal, "read_key", side_effect=key), \
-                patch.object(terminal, "choose", side_effect=lambda choices, **_kw:
-                             offered.append(choices) or next(picks)), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(menu.loop(self.cfg, dry_run=True), 0)
-        self.assertEqual(offered, [["→ log in again", "→ spend a reset"]])
+        page = "config · subscriptions"
+        self.assertEqual(opened[:2], [
+            (page, ("sub", number(self.cfg, "ChatGPT")), ["− remove"],
+             terminal.keys("esc back", enter=None)),
+            (page, ("sub", number(self.cfg, "Claude")),
+             ["→ log in again", "→ spend a reset", "− remove"],
+             terminal.keys("esc back", enter="log in again"))])
         calls = self.fake / "calls"
         self.assertEqual(calls.read_text() if calls.exists() else "", "again default\n")
-        self.assertEqual(len(draws), 3)   # the screen came back by itself before Esc left it
+        self.assertEqual(len(draws), 3)   # the ak screen, and back from each row it opened
         return amber[-1], logins.read()["anthropic"]["default"]
 
     def test_a_click_on_the_amber_meter_comes_back_with_it_grey(self):
