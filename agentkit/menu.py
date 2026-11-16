@@ -57,9 +57,9 @@ when the last probe errored though the meter it read still stands, and `as of HH
 that reading is older than half an hour, with the weekday when it is not from today.
 A probe the endpoint would not answer says nothing at all: its reading stands as it was,
 and past half an hour its age says the rest.
-The bar's filled cells are the company's own colour (`COLOURS`, or the provider's `colour`
-key) until little is left: amber from 20% left, red from 5% (`fill`); the rows run red
-through violet by the hue of that colour, the near-greys last.  `—` is drawn
+The bar's filled cells are in the text's colour, amber while its login ends soon; the rows run
+red through violet by the hue of their company's own colour (`COLOURS`, or the provider's
+`colour` key), the near-greys last.  `—` is drawn
 only when there is no shared week to draw -- no reading at all, or nothing but one model's
 private cap -- and the words after it say why.  Everything else `ak usage` knows -- week
 elapsed, headroom, budget, outlook -- stays in `ak usage`.
@@ -1019,7 +1019,7 @@ def line_at(line):
 def tips(line):
     """Plain-text offsets of the rendered progress tip and moving task-stage squares.
 
-    Read their working-colour spans before highlighting or provider colouring: draft glyphs
+    Read their working-colour spans before highlighting: draft glyphs
     are plain, and waiting squares are dim. At 256 colours several bar
     cells can share the tip's colour, so only the last one breathes.
     """
@@ -1235,8 +1235,6 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
             "tasks": own_tasks(own, now),
             "count": word, "orchestrator": shown, "worker": shown,
             "model": config.model_name(cfg, orchestrator),
-            "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
-                        selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
             "unsent": found.get("unsent"), "bar": bar,
             "word": word, "since": found["since"], "repo": session.get("repo")}
 
@@ -1661,15 +1659,15 @@ def _orchestrator(info, room):
     return said if terminal.cells(said) <= room else info.get("model", said)
 
 
-def _head(info, widths, tone="muted"):
-    """A seat row's fixed columns -- number, name, orchestrator in `tone`, state -- in `widths`.
+def _head(info, widths):
+    """A seat row's fixed columns -- number, name, orchestrator, state -- in `widths`.
     Where even their narrowest do not fit, the number keeps its place behind the indent the
     highlight's `›` takes. A zero state width puts that column below the row instead."""
     number = "  " + _styled_cell(info["number"], widths["num"], "dim", right=True)
     orchestrator = _orchestrator(info, widths["orch"])
     rest = [born_name(info["born"], widths["name"]) if "born" in info else
             terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
-            _styled_cell(orchestrator, widths["orch"], tone)]
+            _styled_cell(orchestrator, widths["orch"], "muted")]
     if widths["count"]:
         rest.append(_styled_cell(terminal.state_text(info["count"]), widths["count"],
                                   terminal.state_colour(info["count"])))
@@ -1751,7 +1749,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     key line's items (`terminal.under`), the one under the pointer lit; `words`, each seat's
     word.  A seat's state word, any other project's heading and a subscription of the usage
     grid are cells that only explain (`terminal.Spot`), and nothing says what any of them is on
-    the key line; a subscription under the pointer is drawn in its colour and the blank line
+    the key line; a subscription under the pointer is lit (`usage_lines`) and the blank line
     under the grid says the rest of it (`usage_detail`).  The highlighted seat's line opens
     under it only while the owner points at it (`pointing`: the pointer on it, or ↑/↓ moved
     there since the pointer last was), and closes once the pointer is on no row
@@ -1959,8 +1957,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     spot = terminal.Spot() if asked else terminal.pointer_spot(usage_spots)
     pointed = spot.cell and spot.cell[1]
     seats = {info["name"]: info for info in infos}
-    model_at = 3 + widths["num"] + 2 + widths["name"] + 2     # the orchestrator column, from 1
-    models = []     # each seat row's (screen row, model, highlighted, the subscriptions it runs on)
     breaths = []    # what breathes while a model works: (cell, character, highlighted)
     bars = {}       # each progress line's screen row and slice of terminal.cell_texts
     for line, name in body:
@@ -1972,17 +1968,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             for tip in tips(line):
                 breaths.append(((len(out) + 1, terminal.cells(text[:tip]) + 1), text[tip], lit))
         seat = seats.get(name) if name != above else None
-        # as its block keeps it, with no trailing space (`v5o_seat_blocks`)
-        head = seat and seat.get("runs_on") and _head(seat, widths).rstrip()
-        if head and line.startswith(head):
-            provider, account = seat["runs_on"]
-            coloured = _head(seat, widths, colour(cfg, provider)).rstrip()
-            on = [number for number, (each, _, _, own) in enumerate(rows, 1)
-                  if each == provider and own in (None, account)]
-            line = coloured + line[len(head):] if pointed in on else line
-            if coloured != head:     # its model is drawn in its column, where a colour shows
-                said = _orchestrator(seat, widths["orch"])
-                models.append((len(out) + 1, terminal.cut(said, widths["orch"]), lit, on))
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at, band=not at)
                    if lit else line)
@@ -2016,22 +2001,12 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
              for number, (_, name) in enumerate(body, 1) if name}
     spots.update(usage_spots)
     spots.update(terminal.key_spots(key_lines, keys_top + 1))
-    washes, spans = {}, {}     # each subscription's colour and the cells that take it
-    if grid:
-        # the one the pointer is on in its colour, as every seat's model that runs on it is, and
-        # what its cell has no room for on the blank line under the grid
+    if grid and pointed:
+        # the one the pointer is on lit, and under the grid what its cell has no room for
         out[grid - 1:grid - 1 + len(meters)] = usage_lines(cfg, layout, lit=pointed, rows=rows,
-                                                           spans=spans, ending=ending)
-        for number, (provider, *_) in enumerate(rows, 1):
-            washes[number] = colour(cfg, provider), [
-                *((grid + line, column, text, rest, False)
-                  for line, column, text, rest in spans.get(number, ())),
-                *((row, model_at, model, "muted", bright) for row, model, bright, on in models
-                  if number in on)]
-            moves.append((("sub", number), number == pointed, None, False))
-        if pointed:
-            out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows,
-                                                              ending=ending)
+                                                           ending=ending)
+        out[grid + len(meters) - 1] = "  " + usage_detail(cfg, pointed, layout, rows=rows,
+                                                          ending=ending)
     out = terminal.lit(out, spots)
     moved, rising = "", False
     if clock is not None:
@@ -2084,11 +2059,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
                     motion.fading(out[row - 1], motion.OPEN if key[0] == "opened" else motion.TURN)(
                         clock, row, since, None)
-            elif key[0] == "sub":     # the pointer came onto it, or left it
-                ink, cells = washes[key[1]]
-                for row, column, text, rest, bright in cells:
-                    clock.start([(row, column)], *motion.colouring(text, since, ink, shown, rest,
-                                                                   bright))
             elif shown in ("needs you", "done"):
                 # its row glows in its word's colour and fades, and a line just done is crossed
                 # by one light
@@ -2796,19 +2766,17 @@ def usage_columns(width):
     return max(1, min(3, width // (COLUMN + 2)))
 
 
-def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, columns=None):
+def usage_lines(cfg, width, lit=None, rows=None, ending=None, columns=None):
     """The cached weekly allowances as a grid, without probing adapters or spending a reset:
     each subscription (`usage_cells`), as many to a line as `usage_columns` fits, by its label,
     a meter -- the bar (terminal.share_parts), full for what is left -- and what its cell says.
-    At rest no company's colour is drawn; `lit`, from 1, the one the pointer is on, has its
-    label and what its meter has left in its provider's (`colour`), and one whose login ends
-    soon (`login_notes`) has that amber the rest of the time.  The rest is said under the grid
-    (`usage_detail`).  What each cell says is whole: the labels give way to the longest, and a width with no room for
-    a label beside it has no grid (`[]`), the screen saying the readings (`usage_summary`).
-    `spans`, where handed in, gets each one's cells that take its colour: {number: [(line,
-    column, text, what it is drawn in at rest)]}, the line from 0 and the column from 1;
-    `ending`, `login_notes` of `rows` where the caller has read them already; `columns`, as
-    many to a line as `Subscriptions` draws, one."""
+    No company's colour is drawn; one whose login ends soon (`login_notes`) has what is left in
+    amber, and `lit`, from 1, the one the pointer or the highlight is on, is on the selection
+    over its whole cell, as any cell is lit (terminal.selected), every colour in it kept.  The
+    rest is said under the grid (`usage_detail`).  What each cell says is whole: the labels give
+    way to the longest, and a width with no room for a label beside it has no grid (`[]`), the
+    screen saying the readings (`usage_summary`).  `ending`, `login_notes` of `rows` where the
+    caller has read them already; `columns`, as many to a line as `Subscriptions` draws, one."""
     rows = usage_rows(cfg) if rows is None else rows
     found = [(*cell[:3], terminal.plain(cell[3])) for cell in usage_cells(cfg, rows=rows)]
     if not found:
@@ -2826,28 +2794,23 @@ def usage_lines(cfg, width, lit=None, rows=None, spans=None, ending=None, column
     lines = []
     for start in range(0, len(found), columns):
         cells = []
-        for number, (name, label, left, said) in enumerate(found[start:start + columns],
-                                                           start + 1):
-            ink = colour(cfg, name) if number == lit else None
-            warn = ending[number - 1] and not ink    # under the pointer its line says when
+        for number, (_, label, left, said) in enumerate(found[start:start + columns], start + 1):
+            warn = ending[number - 1]
             shown = terminal.cut(terminal.plain(label), label_room)
-            at = (start // columns, 3 + (number - 1) % columns * (COLUMN + 2))
-            took = [(*at, shown, None)]
-            text = ((terminal.styled(shown, ink) if ink else shown)
-                    + " " * (label_room - terminal.cells(shown) + 2))
+            text = shown + " " * (label_room - terminal.cells(shown) + 2)
             if not left:     # no meter: `empty until`, or why there is none, or the credits
                 text += (terminal.styled(said, "amber") if warn
                          else terminal.styled(said, "dim") if left is None else said)
             else:
                 full, rest = terminal.share_parts(left / 100, meter)
-                fill = ink or warn and "amber"
-                took.append((at[0], at[1] + label_room + 2, full, ending[number - 1] and "amber"))
-                text += ((terminal.styled(full, fill) if fill else full)
+                text += ((terminal.styled(full, "amber") if warn else full)
                          + terminal.styled(rest, "border") + "  " + said)
             cells.append(text + " " * max(0, room - terminal.cells(text)))
-            if spans is not None:
-                spans[number] = took
-        lines.append(("  " + "  ".join(cells)).rstrip())
+        line = ("  " + "  ".join(cells)).rstrip()
+        if lit and start < lit <= start + columns:
+            first = 3 + (lit - 1 - start) * (room + 2)
+            line = terminal.selected(line, first, first + room - 1)
+        lines.append(line)
     return lines
 
 
@@ -4017,8 +3980,8 @@ def config_columns(selected, name):
                  if selected and number < 3 or number >= 3 and texts[number - 3] in "●■")
 
 
-def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, subs=(),
-                lit=None, scope=None, rows=CONFIG_ROWS):
+def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=None, scope=None,
+                rows=CONFIG_ROWS):
     """The `c` screen's lines, and where its rows sit on them: {line: (row, cells)}.
 
     Every offered model once, under its harness's name (model_heading), a line each: label,
@@ -4029,9 +3992,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     `selected`, only the three efforts.  `moves`, a list, is handed each mark's line, key,
     glyph and how it moves once flipped or refused (motion.toggled), and each effort's line,
     key, word and how its cells move once a step changed it (_effort_moves), for the clock.
-    A model `providers` read as spent is dim.  A model whose provider runs the subscription
-    `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
-    clock washes in and out as `lit` comes and goes (motion.washing).  Then `Models`,
+    A model `providers` read as spent is dim.  Then `Models`,
     `Subscriptions`, `Discord`, `Done check`, `Machines` and `Limits` with
     their values, and `Theme` with each theme's name after a mark, the one in force
     (terminal.theme) marked, a cell each, the keys' one in `column`, unless `rows` is empty (a
@@ -4093,18 +4054,10 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     for harness in dict.fromkeys(models[name]["harness"] for name in names):
         lines.append(model_heading(harness))
         for name in (name for name in names if models[name]["harness"] == harness):
-            provider = models[name]["provider"]
             texts = orch.role_texts(selected, name, marks) if selected else ()
             note = orch.spent_note(cfg, name, providers) if providers else ""
             shown = model_label(cfg, name, label)
-            on = [number for number, (each, *_) in enumerate(subs, 1) if each == provider]
-            ink = colour(cfg, provider)
-            kind = ink if lit in on else "dim" if note else None
-            # one wash a label, so a step between its provider's subscriptions keeps it lit
-            if moves is not None and on:
-                moves.append((len(lines), ("subs", provider), lit in on, motion.washing(
-                    [(3, shown, "dim" if note else None)], ink, at == ("model", name))))
-            line = "  " + (terminal.styled(shown, kind) if kind else shown) + " " * (
+            line = "  " + (terminal.styled(shown, "dim") if note else shown) + " " * (
                 label - terminal.cells(shown))
             cells, first, parts = [(3, 2 + terminal.cells(shown), -1)], left + 1, []
             for number in CONFIG_ORDER if selected else CONFIG_ORDER[1::2]:
@@ -4343,15 +4296,15 @@ def _offered(harness, *screen, provider=None, cfg=None):
             if provider is None or model["id"].partition("/")[0] in (provider, model["id"])]
 
 
-def config_meters(cfg, at=None, rows=None, spans=None):
+def config_meters(cfg, at=None, rows=None):
     """The lines over the `c` screen's page, on every page, and where its meters are on them
     (meter_spots): each subscription's meter as the main screen draws it (`usage_lines`, of
-    `rows` where read already, `spans` handed on), and under them a line that, while `at`, from
-    1, has the highlight, says what its cell has no room for (`usage_detail`), its meter lit as
-    the pointer lights it there; none without a grid."""
+    `rows` where read already), and under them a line that, while `at`, from 1, has the
+    highlight, says what its cell has no room for (`usage_detail`), its meter lit as the pointer
+    lights it there; none without a grid."""
     rows, width = usage_rows(cfg) if rows is None else rows, terminal.layout_width()
     ending = login_notes(rows)
-    meters = usage_lines(cfg, width, lit=at, rows=rows, spans=spans, ending=ending)
+    meters = usage_lines(cfg, width, lit=at, rows=rows, ending=ending)
     if not meters:
         return [], {}
     detail = "  " + usage_detail(cfg, at, width, rows=rows, ending=ending) if at else ""
@@ -4525,8 +4478,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     onto the theme in force, ← and → move them between the two, and Space, Enter or a click on
     one marks it, kept in config.toml as `theme = "white"`, every screen in it from its next
     frame and this one at once (terminal.theme).  ↑ past the first model, and the pointer, reach
-    the meters over the page: one is lit as the main screen lights it, its colour washing in
-    over it and the labels of the models on it and out as it goes, and Enter or a click
+    the meters over the page: one is lit as the main screen lights it, and Enter or a click
     opens what it offers (meter_acts); on `Discord` its two
     secrets are typed on the same keys (config_discord).  agentkit's build, `version`, is read
     under the rows, dim, on every page.
@@ -4557,14 +4509,14 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
         if not session and not born and selected is not None:   # a page or a save that took a
             selected.clear()                                     # model out moved them, and a
             selected.update(copy.deepcopy(cfg["defaults"]))      # role they dropped goes
-        drawn, subs, spans = subs, usage_rows(cfg), {}
+        drawn, subs = subs, usage_rows(cfg)
         if here and here[0] == "usage":     # a meter's row is its subscription's, wherever it went
             mine = drawn[here[1] - 1][::3]      # its provider and account
             here = next((("usage", number) for number, sub in enumerate(subs, 1)
                          if sub[::3] == mine), None)
         # the meter the highlight or the pointer is on, lit as the main screen lights one
         lit = here[1] if here and here[0] == "usage" and not terminal.away() else None
-        over, meters = config_meters(cfg, lit, subs, spans)
+        over, meters = config_meters(cfg, lit, subs)
         models = [*(("model", name) for name in config_models(cfg)),
                   *(("row", row) for row in under)]
         rows = [cell for _, cells in meters.values() for *_, cell in cells] + models
@@ -4579,12 +4531,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                              *([APPLY_KEY] if fresh else []), "esc back",
                              space=None if opens else "mark" if column < 3 else "step",
                              enter=None if shut else "open" if opens else "start" if born else None)
-        # each meter's cells, on the lines over the page counted back from it, washing in and out
-        moves = [(line - len(over), ("sub", number), number == lit,
-                  motion.washing([(column, text, rest)], colour(cfg, subs[number - 1][0])))
-                 for number, took in spans.items() for line, column, text, rest in took]
+        moves = []
         body, places = config_body(cfg, None if terminal.away() else here, column,
-                                   selected, providers, moves, subs, lit, scope, under)
+                                   selected, providers, moves, scope, under)
         # agentkit's build, read under the page so every page shows it, and what was said under it
         told = said_once("\n".join(filter(None, (f"Version {version or '?'}", note or standing))),
                          refused, page_room((), keys, over) - len(body))
@@ -5225,11 +5174,10 @@ def config_subscriptions(cfg, keyboard):
     one ending as login_notes says it, amber), resets with no room beside its meter, then its acts
     (subscription_acts), ←/→ or the pointer moving, Enter or a click running one, the key line
     naming it.  One an act adds is asked whose it is (logins.renewed), then pointed at.  It comes
-    up as `c` does as it opens, the pointed row's label and meter wash into its company's colour
-    and drain as `c`'s meters do (motion.washing), and its line comes up under it as the line under
-    the menu's highlighted row does; back from what an act or an add drew, it is drawn as it is.
-    The act lit (`on`) is kept by what it is, so one going from under it lights nothing in its
-    place."""
+    up as `c` does as it opens, and the pointed row's line comes up under it as the line under the
+    menu's highlighted row does; back from what an act or an add drew, it is drawn as it is.  The
+    act lit (`on`) is kept by what it is, so one going from under it lights nothing in its place,
+    and is at rest while the pointer lights its row's own cell, the label, meter and share."""
     here, opened, on, top, said = ("sub", 1), None, None, 0, ""
     clock = motion.Clock(page=True)
     while True:
@@ -5242,19 +5190,19 @@ def config_subscriptions(cfg, keyboard):
             opened, on = whose, act_text(SUBSCRIPTION_ACTS[0])
         at = None if terminal.away() else here
         lit = at[1] if at and at[0] == "sub" else None
-        ending, spans = login_notes(subs), {}
-        drawn = usage_lines(cfg, width, lit=lit, rows=subs, spans=spans, ending=ending,
-                            columns=1) or ["  " + label for _, label, _, _ in subs]
+        ending = login_notes(subs)
+        meters = usage_lines(cfg, width, rows=subs, ending=ending, columns=1)
+        drawn = meters or ["  " + label for _, label, _, _ in subs]
+        # its whole cell, a cell of its row, the pointer lights as any cell (-1, no act)
+        own = [(3, 2 + min(COLUMN, width - 2), -1)] if meters else []
+        owned = terminal.pointer_spot().cell == -1      # the pointer on one, as last drawn
         body, places, acts, moves = [], {}, {}, []
         for number, ((name, _, prov, account), line) in enumerate(zip(subs, drawn), 1):
             if number == 1 or subs[number - 2][0] != name:
                 company = (COMPANIES[name].split(" / ")[0] if name in COMPANIES
                            else config.provider_name(cfg, name))
                 body.append(terminal.styled(company, colour(cfg, name)))
-            places[len(body)] = (("sub", number), [])
-            # its label and meter's cells washing in and out as `c`'s do, on the page's clock
-            moves.append((len(body), ("sub", number), number == lit, motion.washing(
-                [cell[1:] for cell in spans.get(number, [])], colour(cfg, name), number == lit)))
+            places[len(body)] = (("sub", number), own)
             if number != lit:
                 body.append(line)
                 continue
@@ -5270,7 +5218,8 @@ def config_subscriptions(cfg, keyboard):
             kind = "amber" if ending[number - 1] else "dim"
             told = [(ending[number - 1] or email, kind), (plan, kind),
                     (not beside and held, "info")]
-            for shown, cells in opened_line(told, list(acts), on, width - 4):
+            # the pointer on its own cell lights that, so its act is at rest: one thing lit
+            for shown, cells in opened_line(told, list(acts), None if owned else on, width - 4):
                 places[len(body)] = (("sub", number), cells)
                 moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
                 body.append(shown)
@@ -5286,7 +5235,9 @@ def config_subscriptions(cfg, keyboard):
         act, moved, clicked, top = matrix_key("config · subscriptions", body, places, ids, here,
                                               top, said, keys, timeout=TICK, marks=0,
                                               clock=clock, moves=moves)
-        if clicked is not None:
+        if clicked == -1:             # a subscription's own cell, lit by the pointer: no act
+            clicked = None
+        elif clicked is not None:
             on = list(acts)[clicked]
         here = moved
         if act is None:

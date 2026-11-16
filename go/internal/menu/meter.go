@@ -12,9 +12,20 @@ import (
 // and last drawn column (terminal.Drawn), and its place in the cells (menu.meter_spots).
 type meterSpot struct{ row, first, last, cell int }
 
-// meterAt is the cell the pointer is on, -1 for none.
-func (f Frame) meterAt(mouse terminal.Mouse) int {
-	for _, spot := range f.meters {
+// meterSpots is where each of a grid's n cells sits, per to a line, its first line on screen row
+// top (menu.meter_spots).
+func meterSpots(meters []string, n, per, top int) []meterSpot {
+	var spots []meterSpot
+	for at := range n {
+		first, last := terminal.Drawn(meters[at/per], 3+at%per*(cellSize+2), 2+at%per*(cellSize+2)+cellSize)
+		spots = append(spots, meterSpot{top + at/per, first, last, at})
+	}
+	return spots
+}
+
+// meterAt is the cell of spots the pointer is on, -1 for none.
+func meterAt(spots []meterSpot, mouse terminal.Mouse) int {
+	for _, spot := range spots {
 		if mouse.Row == spot.row && mouse.Column >= spot.first && mouse.Column <= spot.last {
 			return spot.cell
 		}
@@ -25,7 +36,7 @@ func (f Frame) meterAt(mouse terminal.Mouse) int {
 // Meter is the cell a click on its meter opens, its place in the cells; -1 for any other key.
 func (f Frame) Meter(key terminal.Key) int {
 	if clicked(key) {
-		return f.meterAt(key.Mouse)
+		return meterAt(f.meters, key.Mouse)
 	}
 	return -1
 }

@@ -47,7 +47,9 @@ func (view ConfigView) Marks() bool {
 }
 
 type ConfigView struct {
-	Matrix                      *matrix.Configuration
+	Matrix *matrix.Configuration
+	// Row is a model's place in Matrix.Names, then an option's; a meter's over them counts up to -1
+	// from -len(Cells), the first, as Python's rows have each meter before the models
 	Row, Column, Top            int
 	Scope, Clock, Version, Note string
 	Fresh                       bool
@@ -91,8 +93,24 @@ func (f MatrixFrame) Hit(mouse terminal.Mouse) (row, column int, ok bool) {
 	}
 }
 
+// A ConfigMatrix is a draw of `c`: its matrix's frame, and the meters shown over it or paged with
+// it, each a row of its own.
+type ConfigMatrix struct {
+	MatrixFrame
+	First  int // the first row the keys reach: the first meter's, while there is a grid
+	meters []meterSpot
+}
+
+// Hit is the matrix's, and on a meter its row, column -1.
+func (f ConfigMatrix) Hit(mouse terminal.Mouse) (row, column int, ok bool) {
+	if at := meterAt(f.meters, mouse); at >= 0 {
+		return f.First + at, -1, true
+	}
+	return f.MatrixFrame.Hit(mouse)
+}
+
 // ConfigFrame pages the matrix under the usage and above its version and key line.
-func ConfigFrame(s terminal.Screen, view ConfigView) MatrixFrame {
+func ConfigFrame(s terminal.Screen, view ConfigView) ConfigMatrix {
 	keys := "↑↓←→ move   "
 	if s.ASCII() {
 		keys = "arrows move   "
@@ -100,6 +118,10 @@ func ConfigFrame(s terminal.Screen, view ConfigView) MatrixFrame {
 	switch {
 	case view.Marks():
 		keys += "␣ mark   "
+	case view.Row < 0: // a meter that offers nothing opens no list (menu.meter_acts)
+		if len(view.Cells[len(view.Cells)+view.Row].Acts(false)) > 0 {
+			keys += "⏎ open   "
+		}
 	case view.Row >= len(view.Matrix.Names):
 		keys += "⏎ open   "
 	case view.Column < 3:
@@ -117,14 +139,24 @@ func ConfigFrame(s terminal.Screen, view ConfigView) MatrixFrame {
 	keys += "esc back"
 	lit := view
 	if view.Away {
-		lit.Row = -1
+		lit.Row = -1 // a meter's, and configBody lights none
 	}
 	body := configBody(s, lit)
-	over := usageLines(s, view.Cells, s.LayoutWidth())
-	if len(over) == 0 {
-		over = usageSummary(view.Cells, s.LayoutWidth(), -1)
+	width := s.LayoutWidth()
+	per, pointed := usageColumns(width), -1
+	if view.Row < 0 && !view.Away {
+		pointed = len(view.Cells) + view.Row
 	}
-	over = append(over, "")
+	// the meter the highlight or the pointer is on lit as the main screen lights one, and what its
+	// cell has no room for on the line under the grid
+	grid := meterLines(s, view.Cells, width, per, pointed)
+	over, detail := grid, ""
+	if len(grid) == 0 {
+		over = usageSummary(view.Cells, width, -1)
+	} else if pointed >= 0 {
+		detail = "  " + usageDetail(s, view.Cells[pointed], width)
+	}
+	over = append(over, detail)
 	under := []string{"", "  " + s.Styled("Version "+view.Version, "dim")}
 	for _, said := range strings.Split(view.Note, "\n") { // each its own line, as `a`'s refusals
 		for _, line := range terminal.Wrap(said, s.LayoutWidth()-2) {
@@ -141,12 +173,16 @@ func ConfigFrame(s terminal.Screen, view ConfigView) MatrixFrame {
 	}
 	first, last := -1, -1
 	for i, line := range body {
-		if line.row == view.Row {
+		if line.row == view.Row && view.Row >= 0 {
 			if first < 0 {
 				first = i
 			}
 			last = i
 		}
+	}
+	if view.Row < 0 && over == nil && len(grid) > 0 { // a meter's line of the grid, paged with the rest
+		first = (len(view.Cells) + view.Row) / per
+		last = first
 	}
 	if last-first+1 > room {
 		for i, line := range body {
@@ -167,7 +203,20 @@ func ConfigFrame(s terminal.Screen, view ConfigView) MatrixFrame {
 		spots = append(spots, row)
 	}
 	lines = append(lines, under...)
-	return MatrixFrame{Panel(s, "config", view.Clock, lines, keys), top, spots}
+	frame := ConfigMatrix{MatrixFrame: MatrixFrame{Panel(s, "config", view.Clock, lines, keys), top, spots}}
+	if len(grid) > 0 {
+		frame.First = -len(view.Cells)
+		row := 3 // the screen row of the grid's first line, under Panel's two
+		if over == nil {
+			row -= top
+		}
+		for _, spot := range meterSpots(grid, len(view.Cells), per, row) {
+			if spot.row >= 3 && spot.row <= len(spots) { // on the page, not paged past
+				frame.meters = append(frame.meters, spot)
+			}
+		}
+	}
+	return frame
 }
 
 // configBody sizes every role once per draw. Bars give way before words; on a phone

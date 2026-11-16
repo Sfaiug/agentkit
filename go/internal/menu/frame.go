@@ -1,7 +1,6 @@
 package menu
 
 import (
-	"cmp"
 	"math"
 	"slices"
 	"strconv"
@@ -241,14 +240,10 @@ func Draw(view View, width, height int) Frame {
 	}
 	if grid {
 		per := usageColumns(layout)
-		for at := range view.Cells {
-			n := at % per
-			first, last := terminal.Drawn(meters[at/per], 3+n*(cellSize+2), 2+n*(cellSize+2)+cellSize)
-			frame.meters = append(frame.meters, meterSpot{len(out) + 1 + at/per, first, last, at})
-		}
-		// the one the pointer is on in its colour, and what its cell has no room for under the grid
-		if pointed := frame.meterAt(view.Highlight.Pointer); pointed >= 0 {
-			meters = meterLines(s, view.Cells, layout, per, pointed, nil)
+		frame.meters = meterSpots(meters, len(view.Cells), per, len(out)+1)
+		// the one the pointer is on lit, and what its cell has no room for under the grid
+		if pointed := meterAt(frame.meters, view.Highlight.Pointer); pointed >= 0 {
+			meters = meterLines(s, view.Cells, layout, per, pointed)
 			standing = "  " + usageDetail(s, view.Cells[pointed], layout)
 		}
 	}
@@ -629,22 +624,18 @@ func projectPages(projects []pageProject, room int, apart bool, opens map[string
 // is whole: the labels give way to the longest, and a width with no room for a label beside it has
 // no grid.
 func usageLines(s terminal.Screen, cells []Cell, width int) []string {
-	return meterLines(s, cells, width, usageColumns(width), -1, nil)
+	return meterLines(s, cells, width, usageColumns(width), -1)
 }
 
 // usageColumns is how many cells a line of the grid holds in width: one to three, two apart.
 func usageColumns(width int) int { return max(1, min(3, width/(cellSize+2))) }
 
-// meterLines is usageLines per cell to a line, cell lit (from 0; -1 for none) with its label and
-// what its meter has left in its company's colour and its login's amber left to the line under it,
-// and took, where given, handed each cell's text that takes that colour: its cell, its column from
-// 1, the text and what it is drawn in at rest, "" for plain.
-func meterLines(s terminal.Screen, cells []Cell, width, per, lit int, took func(cell, column int, text, rest string)) []string {
+// meterLines is usageLines per cell to a line, no cell in its company's colour: what a meter has
+// left is amber while its login ends soon.  Cell lit (from 0; -1 for none) is on the selection over
+// its whole cell, as the pointer lights any, every colour in it kept (menu.usage_lines).
+func meterLines(s terminal.Screen, cells []Cell, width, per, lit int) []string {
 	if len(cells) == 0 {
 		return nil
-	}
-	if took == nil {
-		took = func(int, int, string, string) {}
 	}
 	room := min(cellSize, width-2)
 	saidRoom, labelWide := 0, 0
@@ -667,23 +658,12 @@ func meterLines(s terminal.Screen, cells []Cell, width, per, lit int, took func(
 	var lines []string
 	for start := 0; start < len(cells); start += per {
 		var parts []string
-		for n, each := range cells[start:min(start+per, len(cells))] {
-			ink, rest, column := "", "", 3+n*(cellSize+2)
-			if start+n == lit {
-				ink = each.Colour
-			}
-			if each.Ends != "" {
-				rest = "amber"
-			}
+		for _, each := range cells[start:min(start+per, len(cells))] {
 			shown := terminal.Cut(each.Label, labelRoom)
-			took(start+n, column, shown, "")
 			text := shown + strings.Repeat(" ", labelRoom-terminal.Cells(shown)+2)
-			if ink != "" {
-				text = s.Styled(shown, ink) + text[len(shown):]
-			}
 			if each.Left <= 0 {
 				switch {
-				case each.Ends != "" && ink == "":
+				case each.Ends != "":
 					text += s.Styled(each.Said, "amber")
 				case each.Left < 0:
 					text += s.Styled(each.Said, "dim")
@@ -692,15 +672,19 @@ func meterLines(s terminal.Screen, cells []Cell, width, per, lit int, took func(
 				}
 			} else {
 				bar, empty := s.ShareParts(float64(each.Left)/100, meter)
-				took(start+n, column+labelRoom+2, bar, rest)
-				if fill := cmp.Or(ink, rest); fill != "" {
-					bar = s.Styled(bar, fill)
+				if each.Ends != "" {
+					bar = s.Styled(bar, "amber")
 				}
 				text += bar + s.Styled(empty, "border") + "  " + each.Said
 			}
 			parts = append(parts, text+strings.Repeat(" ", max(0, room-terminal.Cells(text))))
 		}
-		lines = append(lines, strings.TrimRight("  "+strings.Join(parts, "  "), " "))
+		line := strings.TrimRight("  "+strings.Join(parts, "  "), " ")
+		if lit >= start && lit < start+per {
+			first := 3 + (lit-start)*(room+2)
+			line = s.Selected(line, first, first+room-1)
+		}
+		lines = append(lines, line)
 	}
 	return lines
 }

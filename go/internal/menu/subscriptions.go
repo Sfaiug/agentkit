@@ -43,6 +43,7 @@ type Subscriptions struct {
 	At          int    // the row the keys are on: a subscription's place in Cells, or len(Cells) for `+ add`
 	Away        bool   // the pointer is off every row, which lights none
 	On          string // the act lit on the pointed row's line, by its word; "" for none
+	Own         bool   // the pointer is on At's own cell, lit as any cell is, On kept but at rest
 	Top         int
 	Clock, Note string
 	Motion      *motion.Clock // nil, all still
@@ -52,7 +53,6 @@ type Subscriptions struct {
 // rows and the pointed row's acts.
 type SubscriptionsFrame struct {
 	Lines []string
-	Over  []terminal.Span
 	Top   int
 	On    string
 	Acts  []string // the pointed subscription's, none while none is
@@ -65,7 +65,11 @@ type pageSpot struct {
 	acts [][3]int
 }
 
-// Hit is the row under the pointer and the act there, -1 for none; false off every row.
+// Own is Hit's act on a subscription's own cell: its label, meter and share.
+const Own = -2
+
+// Hit is the row under the pointer and the act there, -1 for none, Own on its cell; false off every
+// row.
 func (f SubscriptionsFrame) Hit(mouse terminal.Mouse) (row, act int, ok bool) {
 	if mouse.Row <= 0 || mouse.Row > len(f.spots) || f.spots[mouse.Row-1].row < 0 {
 		return 0, -1, false
@@ -84,10 +88,8 @@ func (f SubscriptionsFrame) Hit(mouse terminal.Mouse) (row, act int, ok bool) {
 // only while highlighted.  The pointed row says the resets it holds beside its meter where there is
 // room, and opens a line under it: whose login it is and its plan, or when it ends while that is soon,
 // in amber, the resets where none fit beside the meter, then its acts, the one On lit and named on the
-// key line.  On the clock the page
-// comes up out of the background as it opens, its name writing itself out in its header; the pointed
-// row's label and filled meter wash into its company's colour and drain as it leaves, written at their
-// cells alone; and the line it opens comes up under it.
+// key line.  On the clock the page comes up out of the background as it opens, its name writing itself
+// out in its header; and the line it opens comes up under it.
 func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame {
 	width, lit, clock, on := s.LayoutWidth(), view.At, view.Motion, view.On
 	if view.Away || lit >= len(view.Cells) {
@@ -99,37 +101,13 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 	put := func(text string, spot pageSpot) {
 		texts, body = append(texts, strings.TrimRight(text, " ")), append(body, spot)
 	}
-	type took struct {
-		cell, column int
-		text         string
+	own := -1
+	if view.Own {
+		own = lit
 	}
-	var moving []took
-	meters := meterLines(s, view.Cells, width, 1, lit, func(cell, column int, text, rest string) {
-		if clock == nil {
-			return // nothing moves
-		}
-		each, ink := view.Cells[cell], rest
-		wash := motion.Drain
-		if cell == lit {
-			ink, wash = each.Colour, motion.Wash
-		}
-		now := text
-		if ink != "" {
-			now = s.Styled(text, ink)
-		}
-		if _, moved := clock.Moved("wash "+each.Provider+" "+each.Account, cell == lit, wash); moved < 1 {
-			if cell != lit {
-				moved = 1 - moved
-			}
-			now = s.Washed(text, each.Colour, rest, moved)
-		}
-		if cell == lit {
-			now = s.Highlight(now, false)
-		}
-		moving = append(moving, took{cell, column, now})
-	})
+	meters := meterLines(s, view.Cells, width, 1, own)
+	cells := meterSpots(meters, len(meters), 1, 0)
 	var acts []string
-	at := map[int]int{} // each subscription's line
 	for i, each := range view.Cells {
 		if i == 0 || view.Cells[i-1].Provider != each.Provider {
 			put(s.Styled(each.Company, each.Colour), pageSpot{row: -1})
@@ -138,9 +116,12 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 		if len(meters) > 0 {
 			line = meters[i]
 		}
-		at[i] = len(body)
+		spot := pageSpot{row: i}
+		if len(meters) > 0 {
+			spot.acts = [][3]int{{cells[i].first, cells[i].last, Own}}
+		}
 		if i != lit {
-			put(line, pageSpot{row: i})
+			put(line, spot)
 			continue
 		}
 		held := each.Held
@@ -148,7 +129,7 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 			line += s.Styled(" · ", "dim") + s.Styled(held, "info")
 			held = ""
 		}
-		put(s.Highlight(line, true), pageSpot{row: i})
+		put(s.Highlight(line, true), spot)
 		if acts = each.Acts(true); !slices.Contains(acts, on) {
 			on = ""
 		}
@@ -157,7 +138,11 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 			kind = "amber"
 		}
 		told := [][2]string{{cmp.Or(each.Ends, each.Email), kind}, {each.Plan, kind}, {held, "info"}}
-		for _, opened := range openedLines(s, told, acts, on, width-4) {
+		shown := on
+		if view.Own { // the pointer lights its own cell, so the act is at rest: one thing lit
+			shown = ""
+		}
+		for _, opened := range openedLines(s, told, acts, shown, width-4) {
 			put(s.Fade(opened.text, 1-opening), pageSpot{i, opened.acts})
 		}
 	}
@@ -199,13 +184,7 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 	frame.spots[0].row, frame.spots[1].row = -1, -1
 	frame.spots = append(frame.spots, body[top:shown]...)
 	frame.Lines = Panel(s, "config · subscriptions", view.Clock, append(slices.Clone(texts[top:shown]), under...), keys)
-	risen := clock.Risen()
-	frame.Lines = comeUp(s, frame.Lines, "config · subscriptions", risen)
-	for _, each := range moving {
-		if line := at[each.cell]; line >= top && line < shown {
-			frame.Over = append(frame.Over, terminal.Span{Row: 3 + line - top, Column: each.column, Text: s.Fade(each.text, 1-risen)})
-		}
-	}
+	frame.Lines = comeUp(s, frame.Lines, "config · subscriptions", clock.Risen())
 	return frame
 }
 

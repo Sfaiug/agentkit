@@ -58,7 +58,7 @@ func menuSubscriptionsOn(keyboard *terminal.Keyboard, painter *terminal.Painter,
 		}
 		drawn := menu.SubscriptionsPage(screen, view)
 		view.Top, view.On = drawn.Top, drawn.On
-		painter.Write(drawn.Lines, screen, drawn.Over...)
+		painter.Write(drawn.Lines, screen)
 		if next, due := clock.Next(); due {
 			wakeAt(now().Add(next))
 		} else {
@@ -70,7 +70,7 @@ func menuSubscriptionsOn(keyboard *terminal.Keyboard, painter *terminal.Painter,
 		}
 		if key.Name != "wake" && key.Name != "again" && key.Name != "pointer" {
 			clock.Finish() // a key, not the pointer, ends what moves on its last frame
-			view.Note, view.Away = "", false
+			view.Note, view.Away, view.Own = "", false, false
 		}
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
@@ -94,9 +94,9 @@ func menuSubscriptionsOn(keyboard *terminal.Keyboard, painter *terminal.Painter,
 		case key.Name == "pointer":
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
-				view.At, view.Away = max(0, min(len(cells), view.At+mouse.Notches)), false
+				view.At, view.Away, view.Own = max(0, min(len(cells), view.At+mouse.Notches)), false, false
 			} else if row, act, hit := drawn.Hit(mouse); hit {
-				view.At, view.Away = row, false
+				view.At, view.Away, view.Own = row, false, act == menu.Own
 				if act >= 0 {
 					view.On = drawn.Acts[act]
 				}
@@ -104,7 +104,7 @@ func menuSubscriptionsOn(keyboard *terminal.Keyboard, painter *terminal.Painter,
 					key.Name = "enter"
 				}
 			} else {
-				view.Away = true
+				view.Away, view.Own = true, false
 			}
 		}
 		if key.Name != "enter" || view.At < len(cells) && !slices.Contains(drawn.Acts, view.On) {

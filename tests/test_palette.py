@@ -158,7 +158,7 @@ class Palette(unittest.TestCase):
 
 
 class Bars(Sandbox):
-    def test_meters_are_grey_at_rest_and_the_one_pointed_at_in_its_companys_colour(self):
+    def test_meters_are_in_the_text_at_rest_and_the_one_pointed_at_on_the_selection(self):
         week = {"name": "weekly", "resets_at": 10000 + 3 * 86400, "window_secs": 604800}
         (config.STATE / "usage.json").write_text(json.dumps({"fetched_at": 10000, "providers": {
             "anthropic": {"meters": [{**week, "used": 50}]},
@@ -171,11 +171,10 @@ class Bars(Sandbox):
                 # 50% left is five cells of ten, 15% one and a half, 3% a half, none in a colour
                 for left in ("━━━━━", "━╸", "╸"):
                     self.assertIn(left + terminal.styled("─" * (10 - len(left)), "border"), rest)
-                lit = "\n".join(menu.usage_lines(self.cfg, 120, lit=1))
-                self.assertIn(terminal.styled("Claude", "#D97757"), lit)
-                self.assertIn(terminal.styled("━" * 5, "#D97757") +
-                              terminal.styled("─" * 5, "border"), lit)
-                self.assertNotIn(terminal.styled("Claude", "#D97757"), rest)
+                # the one pointed at is lit as any cell is, every colour in it kept
+                lines = menu.usage_lines(self.cfg, 120)
+                self.assertEqual(menu.usage_lines(self.cfg, 120, lit=1), [terminal.selected(
+                    lines[0], 3, 2 + menu.COLUMN), *lines[1:]])
 
     def test_a_light_grey_of_the_callers_reads_as_its_mirror_on_a_light_background(self):
         owns = {"acme": "#FFFFFF", "acme-grey": "#C8C8C0", "acme-dark": "#303030", "anthropic": None}

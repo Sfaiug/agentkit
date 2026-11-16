@@ -1,16 +1,12 @@
 package terminal
 
 import (
-	"cmp"
 	"fmt"
 	"math"
 	"regexp"
 	"strconv"
 	"strings"
 )
-
-// edge is how lit the edge of a subscription's colour washing in is: that far toward the foreground.
-const edge = 0.4
 
 var sgr = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
 
@@ -70,46 +66,4 @@ func (s Screen) Fade(text string, amount float64) string {
 		at = code[1]
 	}
 	return out.String() + text[at:] + "\x1b[0m"
-}
-
-// Washed is text drawn in rest ("" plain) with a company's colour washed into it from the left,
-// washed (0 to 1) of the way across, a light riding its edge: a subscription's label and meter as
-// the pointer comes onto it, or with washed falling, leaves it.  Each letter is written whole from
-// its first cell, so a letter two cells wide keeps both and a combining mark its letter.
-func (s Screen) Washed(text, colour, rest string, washed float64) string {
-	start, end, lift := s.faded(cmp.Or(rest, "dim"), -1), s.faded(colour, 0), s.faded("dim", -1)
-	if rest != "" {
-		start = s.faded(rest, 0)
-	}
-	front, taken := washed*float64(Cells(text)+2), 0
-	var out strings.Builder
-	for _, letter := range text {
-		taken += cell(letter)
-		// each letter by the last cell it takes, from 0: a combining mark has its letter's
-		p := min(1, max(0, front+1-float64(taken)))
-		kind := rest
-		switch {
-		case p >= 1:
-			kind = colour
-		case p > 0:
-			kind = mix(mix(start, end, p), lift, edge*math.Sin(math.Pi*p))
-		}
-		if kind == "" {
-			out.WriteRune(letter)
-		} else {
-			out.WriteString(s.Styled(string(letter), kind))
-		}
-	}
-	return out.String()
-}
-
-// mix is two `#RRGGBB` colours, amount (0 to 1) of the way from the one to the other.
-func mix(one, other string, amount float64) string {
-	out := "#"
-	for i := 1; i < 7; i += 2 {
-		a, _ := strconv.ParseUint(one[i:i+2], 16, 8)
-		b, _ := strconv.ParseUint(other[i:i+2], 16, 8)
-		out += fmt.Sprintf("%02x", int(math.RoundToEven(float64(a)*(1-amount)+float64(b)*amount)))
-	}
-	return out
 }
