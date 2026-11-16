@@ -108,6 +108,16 @@ class SubscriptionsPage(unittest.TestCase):
                                       and UNLIT in lines(shown)))
         self.assertIn("› ChatGPT    ━━━━━━━━━━  100% left · 1 reset in hand", chatgpt)
         self.assertIn("    owner@acme.test · plus   → spend a reset   − remove", chatgpt)
+        # its row, gutters counted, too wide for the reset beside it: the reset goes under it,
+        # never past the edge, where the terminal would wrap it and push every row below down
+        self.term.resize(50, 40)
+        narrow = body(self.term.wait(lambda shown: "› ChatGPT    ━━━━━━━━━━  100% left"
+                                     in lines(shown)))
+        self.assertEqual(narrow[4:7], ["› ChatGPT    ━━━━━━━━━━  100% left",
+                                       "    owner@acme.test · plus · 1 reset in hand",
+                                       "    → spend a reset   − remove"])
+        self.term.resize(100, 40)
+        self.term.wait(lambda shown: "100% left · 1 reset in hand" in shown)
         self.term.keys("Right")
         self.term.wait(lambda screen: "[→ spend a reset]" in screen
                        and PAGE_KEYS.format("spend a reset") in lines(screen))

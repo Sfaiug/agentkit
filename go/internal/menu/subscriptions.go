@@ -144,7 +144,7 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 			continue
 		}
 		held := each.Held
-		if held != "" && terminal.Cells(terminal.Plain(line)+" · "+held) <= width {
+		if held != "" && terminal.Cells(line+" · "+held) <= width {
 			line += s.Styled(" · ", "dim") + s.Styled(held, "info")
 			held = ""
 		}

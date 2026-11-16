@@ -5233,7 +5233,7 @@ def config_subscriptions(cfg, keyboard):
                 body.append(line)
                 continue
             held = in_hand(prov)
-            beside = held and terminal.cells(f"{terminal.plain(line)} · {held}") <= width
+            beside = held and terminal.cells(f"{line} · {held}") <= width
             line += terminal.styled(" · ", "dim") + terminal.styled(held, "info") if beside else ""
             # what Enter acts on is its act, lit on its line, never the row
             body.append(terminal.highlight(line, band=False))
