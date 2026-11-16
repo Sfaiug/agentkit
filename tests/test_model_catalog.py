@@ -1,6 +1,8 @@
 """ak knows Artificial Analysis's current models, and what replaced each older one.
 
-Each of the board's rows keeps its record's identity beside its numbers; `catalog.current` gives
+Each of the board's rows keeps its record's identity beside its numbers, among them the score
+and cost a task of each evaluation of the index off a record as the site gives them since 15 Nov
+2026: the score a field of the record, the cost weighted in the index.  `catalog.current` gives
 the releases none of whose rows is deprecated, strongest first, each with its efforts, the
 default one and each one's numbers.  A series, one maker's releases of one release name, whose
 deprecated releases name a successor takes its current variants along.  A reading an older
@@ -43,17 +45,30 @@ RECORDS = [
 
 
 def page(records):
-    """A page of the board's site: each record, its index's evaluations listed, in the data the
-    page hands its scripts."""
+    """A page of the board's site: each record, FrontierCode 2.0's score and its cost a task
+    weighted in the index among its numbers, in the data the page hands its scripts."""
     data = json.dumps({"models": [
         {"id": f"{n:08x}-0000-4000-8000-000000000000", "slug": slug, "name": name,
          "intelligenceIndex": index, "deprecated": deprecated, "effort": {"level": index},
-         "intelligenceIndexEvaluations": [{"slug": "acme-bench", "score": index}],
+         "frontierCode20": index and index / 100,
+         "intelligenceIndexCostPerTask": {"evaluations": [
+             {"slug": "frontiercode-2-0", "weightedCostPerTask": index and index / 10}]},
          "release": {"slug": release, "name": release_name, "deprecatedTo": replaced_by},
          "creator": {"id": "00000000-0000-4000-8000-0000000000ac", "name": maker}}
         for n, (slug, name, release, release_name, maker, deprecated, replaced_by, index)
         in enumerate(records)]}, separators=(",", ":"))
     return f"<script>self.__next_f.push([1,{json.dumps(data)}])</script>".encode()
+
+
+def aa(index):
+    """A row's numbers off `page`'s record of `index`: among them FrontierCode 2.0's score as its
+    field holds it and its cost a task as its weighted cost over its weight in the index."""
+    evaluation = "aa.intelligenceIndexEvaluations.frontiercode-2-0"
+    return {"aa.intelligenceIndex": index, "aa.effort.level": index,
+            "aa.frontierCode20": index / 100,
+            "aa.intelligenceIndexCostPerTask.evaluations.frontiercode-2-0.weightedCostPerTask":
+                index / 10,
+            f"{evaluation}.score": index / 100, f"{evaluation}.costPerTask": index / 10 / 0.15}
 
 
 class Catalog(Sandbox):
@@ -75,9 +90,7 @@ class Catalog(Sandbox):
     def test_each_row_keeps_its_record_s_identity_beside_its_numbers(self):
         rows = {row["slug"]: row for row in boards.collect(now=10000)[catalog.BOARD]["rows"]}
         self.assertEqual(rows["acme-6"], {
-            "model": "Acme 6", "effort": "max", "values": {"aa.intelligenceIndex": 40,
-                                                       "aa.effort.level": 40,
-                                                       "aa.intelligenceIndexEvaluations.acme-bench.score": 40},
+            "model": "Acme 6", "effort": "max", "values": aa(40),
             "slug": "acme-6", "release": {"slug": "acme-6", "name": "Acme 6",
                                           "deprecatedTo": "acme-6-5"},
             "maker": "Acme", "deprecated": True})
@@ -85,8 +98,6 @@ class Catalog(Sandbox):
 
     def test_the_current_releases_strongest_first_each_with_its_efforts(self):
         held = boards.collect(now=10000)
-        aa = lambda index: {"aa.intelligenceIndex": index, "aa.effort.level": index,
-                            "aa.intelligenceIndexEvaluations.acme-bench.score": index}
         self.assertEqual(catalog.current(held), [
             {"slug": "beta-3", "name": "Beta 3", "maker": "Beta",
              "efforts": [{"effort": "none", "slug": "beta-3", "default": True, "values": aa(30)},
