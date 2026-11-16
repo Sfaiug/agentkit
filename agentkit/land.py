@@ -397,7 +397,7 @@ def _clear_left():
 
 
 def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piece, log, green,
-               tests=None, over=()):
+               tests=None, over=(), behind=False):
     """Run the red `piece` of `suite` ("" for the suite whole) on `scratch`, the target's tip
     alone, for the member in `directory`: True when it passes there, so the red is the
     member's own, the piece then in `green`, what the tip passed on this pass.  Where
@@ -406,8 +406,12 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
     and the piece need not run.  Failing there again, named as run and as failed by a run that
     ended in a failing exit on the pinned tip (`gate.run_suite(confirmed=)`), they are a red that
     repeats, which no step of the retry ladder would clear: the target's own, repaired at once,
-    and the piece need not run either.  Anything else proves nothing -- a test the member added
-    is not on the tip -- so the whole piece then decides.
+    and the piece need not run either.  A probe that neither passes nor confirms one of them
+    (the tests are not on the tip, as a test the member added is not; its runner named nothing)
+    proves nothing, so the whole piece then decides, but for a member `behind` green stacks
+    (`blame`): the red stays the member's own and no whole piece runs on the tip, as the member
+    alone on the tip did fail them, nothing says the tip does, and a piece on the tip for every
+    member blamed for its own new test would cost each pass minutes.
     Red there is the target's: the entry under `tree` counts the probe and holds the line
     (`paused`) until the retry ladder's next step, and red through the whole ladder starts the
     target's one repair (`_repair`); a repeat of named tests keeps them in the entry, with those
@@ -426,6 +430,8 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
                 f"piece AK_SHARD={piece}, run alone: the red is the member's own")
             return True
         _put_back(scratch, tip)
+        if behind and not again:
+            return True
     if not again:       # a repeat needs no piece to say the tip is red
         # a pinned piece confirms none of the tests it failed: only those say a red is `over`'s
         piece = "" if over else piece
@@ -1462,9 +1468,19 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, held, p
                 checkout, whose check has answered: red there, the red is its own, and that
                 check's verdict goes out as one against the bare tip does, its fix at once
                 (blamed for a name one test refuses anywhere, a member waited two hours for the
-                24 runs ahead of it to land, 14 Nov 2026).  Otherwise the red may need a run
-                ahead, and its verdict names them (`after`)."""
-                nonlocal pending, rebuild
+                24 runs ahead of it to land, 14 Nov 2026).  A red of the suite, but for a
+                repair's, first answers on the bare tip (`_probe_tip`): the green stacks ahead
+                say the tip passed those tests only when they were checked, and a test the clock
+                turned red there was each member's in turn (seven fixers over a fixture's date
+                in an hour, 16 Nov 2026).  Only the tests that probe confirms as failed again
+                (`again`) are the target's (`target_red`), nobody's, and its repair starts.  A
+                probe that neither passes nor confirms one of them (the tests are not on the
+                tip, as a test the member added is not; its runner named nothing) leaves the red
+                its own and runs no whole piece on the tip: the member alone on the tip did fail
+                them, nothing says the tip does, and a piece on the tip for every member blamed
+                for its own new test would cost each pass minutes.  Otherwise the red may need a
+                run ahead, and its verdict names them (`after`)."""
+                nonlocal pending, rebuild, target_red
                 member, saved, scratch = stacks[index][:3]
                 fix, after, there = answer["fix"], ahead(index), {}
                 if member not in verdicts:
@@ -1477,6 +1493,13 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, held, p
                                                  fix["command"], fix["piece"], fix["tests"], log,
                                                  () if not over or member.name == over["run"]
                                                  else tuple(over["tests"]))
+                    if "fix" in there and fix["command"] == suite and not saved.get("repair"):
+                        _put_back(scratch, tip)
+                        if not _probe_tip(turn, member, saved, scratch, tip, upstream, target_tree,
+                                          suite, fix["piece"], log, tip_green,
+                                          there["fix"]["tests"], behind=True):
+                            target_red = True
+                            return
                     if "fix" in there:
                         log(f"{' '.join(fix['tests'])} fail on {upstream} at {tip[:12]} with "
                             f"{member.name} alone: its fix starts now")
