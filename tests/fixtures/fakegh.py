@@ -8,19 +8,22 @@ viewer is `login`.
 `pr create` opens a PR, numbered from 1 in its repository, and writes `refs/pull/<n>/head`
 into the origin; `open_pr` opens one as somebody else.  `pr merge` merges it there as its
 author (`--squash`, `--merge` or `--rebase`), refusing a head other than
-`--match-head-commit`, a draft or a conflict; `--delete-branch` deletes its branch.  `pr
-view`, `pr list` and `pr comment` answer from the same state, a body handed in by file kept
-as its text; `--json` takes gh's field names and `-q` a path such as `.data.login`, then
-`| tojson` if asked.  Anything else is refused, naming the call.
+`--match-head-commit`, a draft or a conflict; `--delete-branch` then deletes its branch as gh
+2.46 does, exiting 1 on a merge made if that delete fails other than HTTP 422.  `pr view`,
+`pr list` and `pr comment` answer from the same state, a body handed in by file kept as its
+text; `--json` takes gh's field names and `-q` a path such as `.data.login`, then `| tojson`
+if asked.  Anything else is refused, naming the call.
 
 `repo view` gives the viewer ADMIN on its own repositories and READ on others unless `grant`
 says, and `repo fork` makes its fork beside them.  `require` has a branch's ruleset require
 checks, `check` adds a check run to a commit, and `pr merge` refuses a required check that
 has not passed.  `auth status` and `api` answer too: user, graphql's protection and
 merge-body queries, search/issues, and under repos/<slug>/: the open pulls, a PR as the REST
-API has it and its reviews, branch rules, and a commit's check runs and statuses.  `reply`
-scripts an answer ahead of all of it, or after GitHub `acted` on the call: LOGGED_OUT and
-OFFLINE are what gh says when it cannot reach GitHub.
+API has it and its reviews, branch rules, a commit's check runs and statuses, and a branch's
+delete, HTTP 422 for one already gone or 500 for any once `fail_branch_deletes`; after
+`delete_on_merge` a merge deletes its head branch itself, as a repository can be set to.
+`reply` scripts an answer ahead of all of it, or after GitHub `acted` on the call: LOGGED_OUT
+and OFFLINE are what gh says when it cannot reach GitHub.
 
 The state is `<root>/github.json`; every call is logged where `home.calls("gh")` reads it, and
 with when it came where `asked` does.
@@ -47,6 +50,7 @@ import shlex
 import subprocess
 import sys
 import time
+from urllib.parse import quote, unquote
 
 LOGGED_OUT = ("To get started with GitHub CLI, please run:  gh auth login\nAlternatively, "
               "populate the GH_TOKEN environment variable with a GitHub API authentication "
@@ -76,8 +80,7 @@ class GitHub:
     def prs(self):
         """Every PR, oldest first: gh's fields for it, its `repo`, its `head` as
         `<slug>:<branch>`, and once merged its `merge`: the `method`, the `commit` made, the
-        `head` merged, the `match` and `body` it was given, and whether its branch was
-        `deleted`."""
+        `head` merged, and the `match` and `body` it was given."""
         return json.loads(self.file.read_text())["prs"]
 
     def asked(self):
@@ -132,6 +135,16 @@ class GitHub:
         with _locked(self.file) as state:
             state["replies"].append({"prefix": prefix, "out": out, "err": err, "code": code,
                                      "times": times, "acted": acted})
+
+    def fail_branch_deletes(self):
+        """GitHub answers every branch delete HTTP 500 from now on, gh's merge included."""
+        with _locked(self.file) as state:
+            state["fail_deletes"] = True
+
+    def delete_on_merge(self):
+        """GitHub deletes a merged PR's head branch itself, so gh's own delete hears HTTP 422."""
+        with _locked(self.file) as state:
+            state["delete_on_merge"] = True
 
     def restore(self):
         """Forget every `reply`: GitHub answers for itself again."""
@@ -307,13 +320,28 @@ def _merge(state, pr, opts):
         tip = _git(_bare(slug), "commit-tree", tree, *(f"-p{parent}" for parent in parents),
                    "-m", message, env=who)
     _git(_bare(slug), "update-ref", f"refs/heads/{base}", tip, base_sha)
-    # gh deletes a head branch only in the PR's own repository, never in a fork
-    deleted = bool(opts.get("--delete-branch")) and pr["head"].startswith(slug + ":")
-    if deleted:
-        _git(_bare(slug), "update-ref", "-d", f"refs/heads/{pr['headRefName']}")
     pr.update(state="MERGED", mergeCommit={"oid": tip}, merge={
-        "method": method, "commit": tip, "head": sha, "match": match, "body": body,
-        "deleted": deleted})
+        "method": method, "commit": tip, "head": sha, "match": match, "body": body})
+    # a head branch is deleted only in the PR's own repository, never in a fork
+    branch, own = pr["headRefName"], pr["head"].startswith(slug + ":")
+    if own and state.get("delete_on_merge"):
+        _git(_bare(slug), "update-ref", "-d", f"refs/heads/{branch}")
+    if own and opts.get("--delete-branch"):
+        failed = _delete_branch(state, slug, branch)
+        if failed and failed[0] != 422:
+            raise Refused(f"failed to delete remote branch {branch}: HTTP {failed[0]}: {failed[1]} "
+                          f"(https://api.github.com/repos/{slug}/git/refs/heads/"
+                          f"{quote(branch, safe='')})")
+
+
+def _delete_branch(state, slug, branch):
+    """GitHub deleting a branch: None, else the HTTP status and message it refuses with."""
+    if state.get("fail_deletes"):
+        return 500, "Server Error"
+    if not _tip(slug, branch):
+        return 422, "Reference does not exist"
+    _git(_bare(slug), "update-ref", "-d", f"refs/heads/{branch}")
+    return None
 
 
 def _default_body(pr, commits, method):
@@ -387,6 +415,11 @@ def _api(state, opts, endpoint):
         names = state["required"].get(f"{slug}:{rest.removeprefix('rules/branches/')}")
         return [{"type": "required_status_checks", "parameters": {"required_status_checks": [
             {"context": name} for name in names]}}] if names else []
+    if (ref := re.fullmatch(r"git/refs/heads/(.+)", rest)) and method == "DELETE":
+        failed = _delete_branch(state, slug, unquote(ref[1]))
+        if failed:
+            raise Refused(f"gh: {failed[1]} (HTTP {failed[0]})")
+        return None
     if (commit := re.fullmatch(r"commits/([^/]+)/(check-runs|statuses)", rest)):
         runs = state["checks"].get(commit[1], [])
         return {"total_count": len(runs), "check_runs": runs} if commit[2] == "check-runs" else []
@@ -400,7 +433,8 @@ def _answer(state, argv, cwd):
     if verb == "auth status":
         return "", f"github.com\n  ✓ Logged in to github.com account {state['login']}\n"
     if pos[:1] == ["api"]:
-        return _jq(_api(state, opts, pos[1]), _one(opts, "-q", "--jq")), ""
+        answer = _api(state, opts, pos[1])      # None: GitHub's 204, which gh prints nothing of
+        return ("" if answer is None else _jq(answer, _one(opts, "-q", "--jq"))), ""
     if verb == "repo view":
         slug = pos[2] if len(pos) > 2 else _repo(opts, cwd)
         if not _bare(slug).is_dir():

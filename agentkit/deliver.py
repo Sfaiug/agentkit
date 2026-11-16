@@ -567,32 +567,71 @@ NOT_MERGEABLE = re.compile(r"Pull Request is not mergeable", re.I)
 # --- the merge pipeline: PASS -> origin -> a PR -> its checks -> merged -----
 
 
-def merged(lp, url, method):
-    """Record the PR as merged, with what proving it live stands on; True, for the merge step
-    to return."""
+def merged(lp, url, method, current=None):
+    """Record the PR as merged, with what proving it live stands on, then delete its head
+    branch; True, for the merge step to return.
+
+    `current` is the merged PR as GitHub described it to the check that found the merge done.
+    Without it, this run's own merge call made the merge: GitHub is asked for the PR, and the
+    PR told how to revert it.  Every call after the merge is tried `once`: a failure is
+    logged, never waited out or retried, as the merge stands whatever they answer."""
     from . import watch  # here, not at the top: it reaches run
     lp.state.update(merged=True, **watch.merge_record(lp.wt, lp.state.get("delivery_sha")))
     lp.write()
-    lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
+    lp.log(f"--- merge: merged {url} with --{method}")
+    why = ""
+    if current is None:
+        try:
+            api, owner, repo, number = pr_parts(url)
+            current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}", once=True)
+        except config.Error as exc:     # a stopped gh too
+            why = str(exc)
+        say_how_to_revert(lp, url, method, current, why)
+    delete_head(lp, url, current, why)
     return True
 
 
-def say_how_to_revert(lp, url, method):
+def delete_head(lp, url, current, why):
+    """Delete the head branch of the merged PR `current` (else `why` not) where `gh pr merge
+    --delete-branch` would: in the PR's own repository, never a fork's.  ak's own call, not
+    that flag: gh exits 1 on a merge that went through whenever its delete fails, and then
+    nothing says the merge call made the merge.  A branch already gone, as GitHub's own
+    delete on merge leaves it, is no failure; a failed delete leaves the branch."""
+    try:
+        # gh exits 0 on a PR it only queued to merge, which deleting its head would close
+        if not isinstance(current, dict) or not current.get("merged"):
+            raise config.Error(why or "GitHub does not call it merged")
+        head, base = current.get("head") or {}, current.get("base") or {}
+        source = head.get("repo") or {}
+        if not source.get("full_name") or source["full_name"] != (base.get("repo") or {}).get("full_name"):
+            return
+        api, owner, repo, _ = pr_parts(url)
+        rc, out = gitcall.gh(lp.run_dir, *api, "-X", "DELETE",
+                             f"repos/{owner}/{repo}/git/refs/heads/{quote(head['ref'], safe='')}",
+                             once=True)
+        if rc != 0:
+            # whether it is gone is git's answer, never the words of GitHub's refusal
+            read, tip, _ = remote_tip(lp.run_dir, source["clone_url"], f"refs/heads/{head['ref']}")
+            if read != 0 or tip:
+                raise config.Error(out[-400:] or "gh timed out")
+    except config.Error as exc:     # a stopped gh or git too
+        lp.log(f"WARN could not delete the head branch of {url}: {exc}")
+
+
+def say_how_to_revert(lp, url, method, current, why):
     """Append `## How to revert` to the description of the PR this run's own merge call just
-    merged: the command undoing the one commit that merge made on the target.  Only that call
-    knows how the PR landed, so a merge found done any other way gets none, nor does a rebase,
-    which lands a commit per commit.  A reviewed PR keeps its author's description, never the
-    one `pr_body` writes, so `## Final check` goes ahead of it there.  Each call is tried
-    `once`: a failure is logged, never waited out or retried, as the merge stands whatever
-    they answer."""
+    merged, `current` as GitHub describes it now (else `why` not): the command undoing the one
+    commit that merge made on the target.  Only that call knows how the PR landed, so a merge
+    found done any other way gets none, nor does a rebase, which lands a commit per commit.  A
+    reviewed PR keeps its author's description, never the one `pr_body` writes, so `## Final
+    check` goes ahead of it there."""
     if method == "rebase":
         return
     try:
-        api, owner, repo, number = pr_parts(url)
-        current, why = gh_json(lp.run_dir, *api, f"repos/{owner}/{repo}/pulls/{number}", once=True)
         sha = isinstance(current, dict) and current.get("merged") and current.get("merge_commit_sha")
         if not sha:
             raise config.Error(why or "GitHub does not call it merged")
+        api, owner, repo, number = pr_parts(url)
         revert = f"git revert {'-m 1 ' if method == 'merge' else ''}{sha}"
         checked = (f"\n\n## Final check\n\n{handback.final_check_line(lp.state, lp.cmds)}"
                    if lp.state.get("review_pr") else "")
@@ -616,11 +655,9 @@ def merged_anyway(lp, url, upstream, rc, out, current=None):
     """Did GitHub merge this delivery whatever `gh pr merge` answered (`rc`, `out`)?  Records it
     when it did, logging that answer, so whether GitHub, gh or ak failed the call shows.
 
-    A 5xx or a stopped call may have merged it, and `--delete-branch` exits non-zero on a
-    merge that went through when the repository deleted the head branch first (`Reference
-    does not exist`).  Only `merged` says so -- mergeability is never the outcome -- and only
-    a merge of the delivery into its target is this run's work: a head another writer
-    replaced, or a PR retargeted and merged elsewhere, is not.
+    A 5xx or a stopped call may have merged it.  Only `merged` says so -- mergeability is
+    never the outcome -- and only a merge of the delivery into its target is this run's work:
+    a head another writer replaced, or a PR retargeted and merged elsewhere, is not.
     """
     if current is None:
         try:
@@ -633,7 +670,7 @@ def merged_anyway(lp, url, upstream, rc, out, current=None):
         return False
     answered = "stopped" if rc is None else f"exited {rc}"     # a stop's words are its output
     lp.log(f"WARN gh pr merge {answered}, yet GitHub merged the PR: {out[-400:]}")
-    return merged(lp, url, lp.state["merge_method"])
+    return merged(lp, url, lp.state["merge_method"], current)
 
 
 def do_merge(lp, url, upstream):
@@ -669,7 +706,7 @@ def do_merge(lp, url, upstream):
                     if not roundloop.integrated(lp.wt, upstream):
                         return rejoin_line(lp, upstream, "the PR's target moved")
                 body = [] if method == "rebase" else merge_body(lp, lp.state["delivery_sha"], url)
-                rc, out = gitcall.gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method], "--delete-branch",
+                rc, out = gitcall.gh(lp.run_dir, "pr", "merge", url, MERGE_METHODS[method],
                              "--match-head-commit", lp.state["delivery_sha"], *body)
             if rc == 0 or gitcall.stopped(rc, out):
                 break
@@ -728,9 +765,7 @@ def do_merge(lp, url, upstream):
                 # uses the remaining retries to re-check before authorizing a merge.
                 ready = current.get("mergeable") is True
         if rc == 0:
-            merged(lp, url, method)
-            say_how_to_revert(lp, url, method)
-            return True
+            return merged(lp, url, method)
         if lost:
             # the last attempt's 5xx may have merged too, and no re-check followed it
             if merged_anyway(lp, url, upstream, rc, out):
@@ -1179,13 +1214,19 @@ def pr_head(cwd, url):
     if current.get("state") == "open":
         head = current["head"]
         ref, source = f"refs/heads/{head.get('ref')}", (head.get("repo") or {}).get("clone_url")
-        rc, out = (gitcall.git_out(cwd, "ls-remote", "--", source, ref) if source
-                   else (1, "GitHub names no head repository"))
-        head["sha"] = next((line.split("\t")[0] for line in out.splitlines() if rc == 0
-                            and line.endswith(f"\t{ref}")), None)
+        _, head["sha"], out = (remote_tip(cwd, source, ref) if source
+                               else (1, None, "GitHub names no head repository"))
         if not head["sha"]:
             raise config.Error(f"cannot read the PR head from git: {out[-400:] or f'no {ref}'}")
     return current
+
+
+def remote_tip(cwd, source, ref):
+    """(git's exit code, the commit `ref` names in the repository at `source` or None, git's
+    output).  Only `ref` itself counts: ls-remote also lists every ref whose name ends in it."""
+    rc, out = gitcall.git_out(cwd, "ls-remote", "--", source, ref)
+    return rc, next((line.split("\t")[0] for line in out.splitlines() if rc == 0
+                     and line.endswith(f"\t{ref}")), None), out
 
 
 def push_pr_branch(lp, remote, lease):

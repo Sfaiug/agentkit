@@ -325,10 +325,6 @@ def in_progress(wt, *hows):
 def gh(cwd, *args, timeout=None, once=False):
     """(exit code, output); the code is None when the command ran out of time.
 
-    The PR commands are handed the PR's own URL and run from the run directory rather than the
-    worktree: outside a checkout `gh pr merge --delete-branch` has no local branch to switch
-    away from, and deleting the branch out from under the run's own worktree is not what it means.
-
     A run's call that fails while GitHub's own count says its API allowance is spent waits
     for the reset and asks again, for as long as GitHub says spent, so a checks wait, merge,
     PR read or review post finishes late instead of failing.  Said once per reset.  `once` is

@@ -115,9 +115,8 @@ class MergeRetry(unittest.TestCase):
         reviewed = self.failed["delivery_sha"]
         self.assertEqual(reviewed, self.failed["review"]["head_sha"])
         merge = self.gh.pr(1)["merge"]
-        self.assertEqual({key: merge[key] for key in ("method", "head", "match", "deleted")},
-                         {"method": "squash", "head": reviewed, "match": reviewed,
-                          "deleted": True})
+        self.assertEqual({key: merge[key] for key in ("method", "head", "match")},
+                         {"method": "squash", "head": reviewed, "match": reviewed})
         self.assertEqual(self.rig.branches(), ["main"])
         self.assertEqual(self.rig.head(), merge["commit"])
         self.assertIn("retry.txt", self.rig.files())
