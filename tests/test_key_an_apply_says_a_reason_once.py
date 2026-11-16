@@ -11,7 +11,7 @@ and against an ak that says the six's reason six times.
 
 Each draw fits what was said to the terminal as it is: the names leading a reason to its width,
 and the reasons to the lines its rows leave, the last saying how many more there are, before
-which even ak's version gives way.
+which even ak's version gives way, and then that count.
 """
 
 import sys
@@ -137,11 +137,11 @@ class AnApplySaysAReasonOnce(unittest.TestCase):
         self.assertEqual(other, f"  {OTHER}: {OTHER_WHY}", shorter)
         self.assertEqual(matrix(shorter), matrix(before))
         self.assertEqual(key_line(shorter), KEYS)
-        self.term.resize(100, 26)       # the rows leave one line: the count takes the version's
-        shortest = self.term.wait(lambda screen: "  2 more reasons" in lines(screen))
-        self.assertEqual(said(shortest), ["  2 more reasons"])
+        self.term.resize(100, 26)       # the rows leave one line: the first reason takes it
+        first = [f"  {OTHER}: {OTHER_WHY}"]
+        shortest = self.term.wait(lambda screen: key_line(screen) == KEYS
+                                  and said(screen) == first)
         self.assertEqual(matrix(shortest), matrix(before))
-        self.assertEqual(key_line(shortest), KEYS)
 
 
 if __name__ == "__main__":
