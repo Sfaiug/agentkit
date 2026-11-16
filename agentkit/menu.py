@@ -3371,16 +3371,19 @@ class _Unjudged(Exception):
 
 
 def price_take(cfg, session, selected, providers, answer, role):
-    """Where seat `session`'s executor or reviewer `role` keeps a price that holds (price_held),
+    """Where `role` of seat `session`, else of new seats, keeps a price that holds (price_held),
     the best of its choices in `answer` (matrix.answer) costing no more than its limit, the best
     for none, once that is not the row it uses, the owner's design of 5 Nov 2026: taken as ← and
     → take it (take_choice), its entry then naming the model and effort the role uses, its
-    limit and unit as they were, in one write of the record under its lock (roles_saved), only
-    while that still holds the model, effort and entry judged here; else nothing is written,
-    said or read again, the screen as stale as it is while another window saves.  A seat's
-    orchestrator stays, as moving it moves the seat's own session: only ← or → does.  What to
-    say under the rows: the take, or why it was refused; else ""."""
-    if session is None or role == "orchestrate":
+    limit and unit as they were.  A seat's in one write of the record under its lock
+    (roles_saved), only while that still holds the model, effort and entry judged here; else
+    nothing is written, said or read again, the screen as stale as it is while another window
+    saves.  A seat's orchestrator stays, as moving it moves the seat's own session: only ← or →
+    does.  New seats' take into [defaults], their orchestrator's too, as no session moves with
+    it, no open seat changing; the entry is then moved in whole (price_path), one that cannot be
+    written saying why, the take standing and the role keeping no price.  What to say under the
+    rows: the take, and why its entry was not written, or why it was refused; else ""."""
+    if session is not None and role == "orchestrate":
         return ""
     used, found = matrix.uses(cfg, selected, answer)[role], answer[role]
     price = price_held(session, role, used, found)
@@ -3389,29 +3392,41 @@ def price_take(cfg, session, selected, providers, answer, role):
     if best is None or best is used[2]:
         return ""
     model, field = matrix.runner(cfg, best), PRICE_FIELDS[role]
-    step = (model, config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]], best["effort"])
-    judged = []     # a record gone or renamed since is never judged: change_session finds none
+    if session is None:
+        note = take_choice(cfg, None, selected, providers, role, model, best["effort"], None)
+        if note:
+            return note
+        name, effort, _ = matrix.uses(cfg, selected, answer)[role]
+        try:
+            _moved_in(price_path(role), json.dumps({**price, "model": name, "effort": effort}))
+        except OSError as exc:
+            note = f"state: {exc}"
+    else:
+        step = (model, config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]], best["effort"])
+        judged = []     # a record gone or renamed since is never judged: change_session finds none
 
-    def taken(record, now):
-        judged.append(record)
-        if matrix.uses(now, record, answer)[role][:2] != used[:2] or record.get(field) != price:
-            raise _Unjudged
-        changed, why = orch.role_groups(now, record, providers, **{TAKEN[role]: [model]})
-        if why:             # the model may have left the config: nothing to step
-            return record, why
-        changed = {**changed, "efforts": _stepped(now, changed, [step])}
-        name, effort, _ = matrix.uses(now, changed, answer)[role]
-        return {**changed, field: {**price, "model": name, "effort": effort}}, ""
-    try:
-        note = roles_saved(cfg, session, selected, taken)
-    except _Unjudged:
-        return ""
-    if not judged:
-        return ""
-    if note:
-        return note
+        def taken(record, now):
+            judged.append(record)
+            if matrix.uses(now, record, answer)[role][:2] != used[:2] or record.get(field) != price:
+                raise _Unjudged
+            changed, why = orch.role_groups(now, record, providers, **{TAKEN[role]: [model]})
+            if why:             # the model may have left the config: nothing to step
+                return record, why
+            changed = {**changed, "efforts": _stepped(now, changed, [step])}
+            name, effort, _ = matrix.uses(now, changed, answer)[role]
+            return {**changed, field: {**price, "model": name, "effort": effort}}, ""
+        try:
+            note = roles_saved(cfg, session, selected, taken)
+        except _Unjudged:
+            return ""
+        if not judged:
+            return ""
+        if note:
+            return note
     _, effort, _ = matrix.uses(cfg, selected, answer)[role]
-    return f"{matrix.CONFIG_ROLES[role]} took {best['name']} {effort}, {price_said(price, role)}"
+    return "\n".join(filter(None, [
+        f"{matrix.CONFIG_ROLES[role]} took {best['name']} {effort}, {price_said(price, role)}",
+        note]))
 
 
 def figures(value):
