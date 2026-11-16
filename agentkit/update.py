@@ -731,13 +731,13 @@ def update_agentkit(progress=None, pull=True):
                 return proc.returncode
         ak, kept = str(directory / "bin" / "ak"), versions.kept()
         # the role install.sh left: it makes a Mac its Linux machine's client
-        if kept and config.server_alias():
+        if config.server_alias() and (kept or versions.relink(directory)):
             for argv in ([ak, "--help"], [ak, "--dry-run"]):
                 code = versions.run(argv, **PINS)[0]
                 if code:
                     back.put_back(f": its {shlex.join(argv)} exited {code}")
                     return 1
-            # final, the link gone first: one cut off before the mark goes owes an install alone
+            # final, the link gone first: the next move keeps a link it finds as its way back
             versions.keep_link().unlink(missing_ok=True)
         elif kept:
             # while the install is still owed, so no tick ending meanwhile makes the move final
