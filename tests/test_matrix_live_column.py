@@ -75,18 +75,18 @@ class LiveColumn(Sandbox):
 
     def test_each_model_s_own_numbers_per_role_with_their_count(self):
         own = matrix.live(self.cfg, now=10000)
-        self.assertEqual(own["opus"], {"orchestrate": None,
-                                       "execute": {"runs": 5, "round_1": 40},
-                                       "review": {"runs": 3, "round_1": 67}})
+        self.assertEqual(own["opus", None], {"orchestrate": None,
+                                             "execute": {"runs": 5, "round_1": 40},
+                                             "review": {"runs": 3, "round_1": 67}})
         # astra reviewed the judged runs, the run that errored after its pass, the one found not
         # needed and the one still going, never the stopped one or the one without a round
-        self.assertEqual(own["astra"], {"orchestrate": None,
-                                        "execute": {"runs": 2, "round_1": 50},
-                                        "review": {"runs": 10, "round_1": 50}})
-        self.assertEqual(own["fable"], {"orchestrate": {"runs": 3, "round_1": 33},
-                                        "execute": None, "review": None})
-        self.assertIn("gemini", own)       # every configured model, with nothing where it ran nothing
-        self.assertEqual(own["gemini"], {"orchestrate": None, "execute": None, "review": None})
+        self.assertEqual(own["astra", None], {"orchestrate": None,
+                                              "execute": {"runs": 2, "round_1": 50},
+                                              "review": {"runs": 10, "round_1": 50}})
+        self.assertEqual(own["fable", None], {"orchestrate": {"runs": 3, "round_1": 33},
+                                              "execute": None, "review": None})
+        self.assertIn(("gemini", None), own)    # every configured model, with nothing where it ran nothing
+        self.assertEqual(own["gemini", None], {"orchestrate": None, "execute": None, "review": None})
 
     def test_the_command_shows_them_under_the_answer_and_json_carries_them(self):
         out = io.StringIO()

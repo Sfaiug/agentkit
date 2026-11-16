@@ -1345,8 +1345,13 @@ def model_entry(harness, model, label, **fields):
 def model_at(cfg, record, name, role):
     """How every screen names model `name` in `role` for the seat `record`: `Opus 5.5 max`, its
     full name (model_name), then the effort the seat runs it at in that role over the config's
-    (at_efforts), or its name alone where that is no effort or `none`."""
-    effort = worker_effort(at_efforts(cfg, record), name, role)
+    (at_efforts), as model_said says them."""
+    return model_said(cfg, name, worker_effort(at_efforts(cfg, record), name, role))
+
+
+def model_said(cfg, name, effort):
+    """`Opus 5.5 max`: model `name`'s full name (model_name), then `effort`, or its name alone
+    where that is no effort or `none`."""
     return model_name(cfg, name) + (f" {effort}" if effort and effort != "none" else "")
 
 
