@@ -12,11 +12,14 @@ files newer than others, as any pass over a live home does within its own minute
 that ends well evens it out.
 
 Before the pass it keeps this machine's own job, which makes the pass again every three minutes,
-as the home's tick runs, and a pass that ends well stamps when it began, and from which home, then
-why ak here stayed where it was, if it did.  That stamp is all a pass keeps: one that fails,
-however it fails, writes nothing, so `ak standby`, which reads the copy's age from the stamp, shows
-passes failing as an age that goes on growing.  A pass's exit is its copy's alone: the copy is what
-a takeover needs first.
+as the home's tick runs, after the keeper of a move of ak here, as the tick's line runs it
+(`back`).  A pass that ends well stamps when it began, and from which home, then why ak here
+stayed where it was, if it did, and at its end does with the last move here what the end of a
+tick does on a home (`versions.final`): a pass of the version that move put live makes it final.
+That is all a pass keeps: one that fails, however it fails, writes nothing and makes nothing
+final, for it cannot tell a silent home from code that is broken, and `ak standby`, which reads
+the copy's age from the stamp, shows passes failing as an age that goes on growing.  A pass's
+exit is its copy's alone: the copy is what a takeover needs first.
 """
 
 import fcntl
@@ -26,6 +29,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 from . import command_help, config, machine_turn, move, pair_clock, terminal, update, versions
 
@@ -69,9 +73,14 @@ def _keep_job(alias):
     """Keep the crontab's one line ending in TAG: the pass from `alias` every three minutes, on
     the PATH this one runs on, its output kept nowhere.  The other lines stay byte for byte.
     Whether it is kept."""
-    path, ak, alias = map(_cron_word, (os.pathsep.join(os.get_exec_path()),
-                                       config.REPO / "bin/ak", alias))
-    job = f"*/3 * * * * export PATH={path}; {ak} standby {alias} >/dev/null 2>&1 ".encode()
+    path, keeper, ak, alias = map(_cron_word, (os.pathsep.join(os.get_exec_path()),
+                                               config.TMP / versions.KEEP,
+                                               config.REPO / "bin/ak", alias))
+    # As the tick's line (install.sh), the keeper first: the version a move replaced decides
+    # whether the move stays, from outside the new one, which may be what cannot pass; whatever
+    # the keeper does, the pass runs.
+    job = (f"*/3 * * * * export PATH={path}; [ -x {keeper} ] && {keeper} back --when-broken"
+           f" >/dev/null 2>&1; {ak} standby {alias} >/dev/null 2>&1 ").encode()
     table = subprocess.run(["crontab", "-l"], stdin=subprocess.DEVNULL, capture_output=True)
     # Every crontab exits 1 both for an account with no table yet and for a table it could not
     # read, which writing would replace: only its words tell them apart, `no crontab for USER` in
@@ -188,4 +197,5 @@ def main(argv):
         _stamp(own, began.line(), alias)
         if why := update.follow(alias)[1]:
             _stamp(own, began.line(), alias, why)
+        versions.final(time.time())
     return 0
