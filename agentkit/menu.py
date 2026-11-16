@@ -121,6 +121,7 @@ key uses.
 import colorsys
 import copy
 import datetime
+import decimal
 import errno
 import hashlib
 import heapq
@@ -3306,6 +3307,38 @@ def keep_price(cfg, session, selected, answer, role, before):
     return ""
 
 
+def price_held(session, role, used, found):
+    """The price `role` of seat `session`, else of new seats, keeps (keep_price) where it holds,
+    else None, judged at each read, the owner's design of 5 Nov 2026: while the role uses the
+    model and effort it names, as `used` (matrix.uses) reads them, and, one with a limit, while
+    the role's answer `found` (matrix.answer) counts costs in its `cost_unit`.  One that will
+    not read holds none."""
+    try:
+        entry = json.loads(price_path(role).read_text()) if session is None else (
+            config.session_record(config.resolve_session(session)) or {}).get(PRICE_FIELDS[role])
+    except (config.Error, OSError, ValueError):
+        return None
+    if not isinstance(entry, dict) or (entry.get("model"), entry.get("effort")) != used[:2]:
+        return None
+    limit = entry.get("limit", "")
+    held = limit is None or type(limit) in (int, float) and decimal.Decimal(
+        repr(limit)).is_finite() and entry.get("cost_unit") == found["cost_unit"]
+    return entry if held else None
+
+
+def price_said(price, role):
+    """What `role` keeps where it holds `price` (price_held): its limit in the unit it was kept
+    in, whatever `u` counts in, to two decimals or every figure it has where it has more,
+    `keeps the best up to $0.30 a build`; `keeps the best, whatever it costs` with none."""
+    if price["limit"] is None:
+        return "keeps the best, whatever it costs"
+    exact = decimal.Decimal(repr(price["limit"]))
+    cost = f"{exact:.{max(2, -exact.as_tuple().exponent)}f}"
+    share = price["cost_unit"] == "share"
+    return "keeps the best up to " + UNITS["% of a week" if share else "$ a task"].format(
+        cost=f"{cost}%" if share else f"${cost}", run=RUN[role])
+
+
 def figures(value):
     """`value`, above 0, to two significant figures: `1,200`, `40`, `4.5`."""
     value = float(f"{value:.2g}")
@@ -3428,9 +3461,10 @@ def columned(text, room, after=" -."):
     return [piece for line in lines for piece in columned(line.rstrip(), room, after[1:])]
 
 
-def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True):
+def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True, price=None):
     """`role`'s answer `found` (matrix.answer) drawn as bars under the role lines, the owner's
-    design of 5 Nov 2026: under a heading counting them, its choices, then `kept`, a row the role
+    design of 5 Nov 2026: under a heading counting them and ending with the `price` the role
+    keeps where one holds (price_held, price_said), its choices, then `kept`, a row the role
     used, where it is no choice, `whys` holding it (matrix._choices), one more where the choices
     leave no place (the owner, 12 Nov 2026), then as many of its `others`, best first, as fill
     matrix.PLACES; side by side, cheapest on the left, on a tie the worse, each as tall
@@ -3470,7 +3504,8 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True)
     lead = max(0, min(2, width - sum(widths) - gap * (len(rows) - 1)))
     lines = ["", *("  " + line for line in packed([
         matrix.CONFIG_ROLES[role], f"{COUNTS[len(choices)]} choice{'s' * (len(choices) != 1)}",
-        *([f"{COUNTS[len(shaded)]} more shaded"] if shaded else [])], " · ", width - 2))]
+        *([f"{COUNTS[len(shaded)]} more shaded"] if shaded else []),
+        *([price_said(price, role)] if price else [])], " · ", width - 2))]
     unders = [[[quality], columned(name, wide) + [mark * size] * (marked and row is used),
                [effort], [line for text in whys for line in columned(text, wide)]]
               for (row, _), (_, quality, effort), (name, *whys), wide
@@ -3605,11 +3640,11 @@ def models_screen(cfg, session, selected, providers):
     (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
     bottom (matrix_key).  ↑/↓ move the highlight, and ← and → take the next cheaper or better
     choice for its role at once (next_choice, take_choice), keeping the price it stopped at
-    (keep_price), the owner's design of 5 Nov 2026, the last row a role was shown using that is
-    no choice staying one of its bars and steps; ⏎ or a click opens the why (models_why) of the
-    row the role uses, else of its first choice.  `p` lists companies (company_list), and `u`
-    counts every cost in the next unit (next_unit), the screen opening in the last one
-    (models_unit)."""
+    (keep_price), which its bars' heading says while it holds (price_held), the owner's design
+    of 5 Nov 2026, the last row a role was shown using that is no choice staying one of its bars
+    and steps; ⏎ or a click opens the why (models_why) of the row the role uses, else of its
+    first choice.  `p` lists companies (company_list), and `u` counts every cost in the next
+    unit (next_unit), the screen opening in the last one (models_unit)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -3641,13 +3676,14 @@ def models_screen(cfg, session, selected, providers):
         keys = terminal.keys(f"{cheaper} cheaper", f"better {better}", "p models", "u unit",
                              "esc back", enter="why", move=("role",))
         read = ["", *models_read(compared, total, held.get("fetched_at"))]
+        price = price_held(session, here[1], used[here[1]], answer[here[1]])
         # where one-cell bars leave too little room these give way whole, in turn: the comparing
         # line, the `━` (the accent and the role's line still name the row in use), the whys
         for under, marked, why in ((read, True, True), ([], True, True), ([], False, True),
                                    ([], False, False)):
             room = page_room([*under, *note_lines(note)], keys) - len(body)
             bars = models_bars(answer[here[1]], here[1], used[here[1]][2], own[here[1]][2], unit,
-                               room, marked, why)
+                               room, marked, why, price)
             if len(bars) <= room:
                 break
         act, here, _, top = matrix_key(title, body + bars, places, rows, here, top, note, keys,
