@@ -189,6 +189,9 @@ class EffortCells(unittest.TestCase):
             # in at its first letter and out after its last, as many lit as it is on
             for t, lit in ((0, [0]), (0.1, [0, 1]), (0.3, [0, 1, 2]), (0.5, [2]), (0.65, [])):
                 self.assertEqual(shone(shimmer(10.0 + t)), lit)
+            # a combining mark on its letter's cell, lit with it
+            mark = motion.shimmering("ma\u0301x", 10.0)[0]
+            self.assertEqual([shone(mark(10.0 + t)) for t in (0.4, 0.5)], [[1, 2, 3], [3]])
 
     def test_the_cells_count_the_catalog_last_listed_whoever_asked(self):
         # a harness of the test's own, whose listing says its one model runs at no effort

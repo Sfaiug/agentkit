@@ -302,6 +302,12 @@ class NewsMotion(Menu):
                    for when in (10, 10 + motion.GLIDE / 2, until)]
         self.assertEqual(lengths, [6, 4, 2])
 
+    def test_a_highlighted_line_keeps_its_bold_under_the_light(self):
+        self.stack.enter_context(patch.object(terminal, "colour_depth", return_value=24))
+        line = terminal.cell_texts(terminal.bright(terminal.styled("━" * 12, "working")))
+        frames, _ = motion.growing(line, 10, motion.GLIDE, 6, "working")
+        self.assertTrue(all("\033[1m" in frame(10 + motion.GLIDE / 2) for frame in frames[:9]))
+
     def test_a_shrinking_line_keeps_its_half_cell_at_the_head(self):
         self.stack.enter_context(patch.object(terminal, "colour_depth", return_value=24))
         line = terminal.cell_texts(terminal.plan_bar(1, 3, room=15).split(

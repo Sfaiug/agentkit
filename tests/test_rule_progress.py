@@ -182,8 +182,8 @@ keyboard.give()
 # What a worker's own run leaves in the environment; nothing here may act on that run.
 INHERITED = ("AGENTKIT_RUN", "AK_PARENT_RUN", "AK_RUN_LOG", "AGENTKIT_JOB_DIR", "AK_RUN_ROLE",
              "AGENTKIT_SESSION", "TMUX", "NO_COLOR", "COLUMNS", "LINES")
-# a light's cell on the rule's row: its `─` in a colour not the border's (black's, 3a3f46)
-GLIDE = re.compile(r"\x1b\[2;\d+H\x1b\[(?!38;2;58;63;70m)[0-9;]*m─")
+# a light's cell on the rule's row: its `─` last coloured not the border's (black's, 3a3f46)
+GLIDE = re.compile(r"\x1b\[2;\d+H(?:\x1b\[[0-9;]*m)*\x1b\[(?!38;2;58;63;70m)[0-9;]*m─")
 # A whole update with a row in it: a clock's cell has none.
 DRAW = re.compile(r"(?s)\x1b\[\?2026h(?:(?!\x1b\[\?2026l).)*?\x1b\[K.*?\x1b\[\?2026l")
 HUNG = 120      # seconds with no answer: a child importing cold on a loaded host takes tens of them

@@ -72,14 +72,16 @@ def eased(x):
     return (1 - math.cos(math.pi * min(1, max(0, x)))) / 2
 
 
-def lit(text, behind, bright=False):
+def lit(text, behind):
     """`text`, a cell as it shows, its head-most cell `behind` cells back from the head of a light
-    that travels: its glyph in the rainbow's colour that far down it where the light covers every
-    cell the glyph takes, `bright` on the highlighted row; else None."""
-    if not 0 <= behind <= len(RAINBOW) - terminal.cells(terminal.plain(text)):
+    that travels: as it shows, bold on the highlighted row, but in the rainbow's colour that far
+    down it, where the light covers every cell its glyph takes, one at least (a mark's is its
+    letter's); else None."""
+    glyph = terminal.plain(text)
+    if not 0 <= behind <= len(RAINBOW) - max(1, terminal.cells(glyph)):
         return None
-    shown = terminal.styled(terminal.plain(text), "#" + terminal.colour(RAINBOW[behind]))
-    return terminal.bright(shown) if bright else shown
+    drawn = re.match(f"(?:{terminal.ANSI.pattern})*", text).group()
+    return drawn + terminal.styled(glyph, "#" + terminal.colour(RAINBOW[behind]))
 
 
 def tinted(glyph, word, amount, bright=False):
@@ -118,7 +120,7 @@ def filling(up, began, bright=False):
     """One of an effort's cells (terminal.effort_cells) that a step filled -- `up` -- or emptied,
     its turn at `began`: as it was until then, for the first half of RISE seconds a filled one
     lit and an emptied one still full but dim, and then as the draw wrote it; and when it is
-    still.  `bright` on the highlighted row."""
+    still."""
     full, empty = terminal.effort_cells(2, 1)        # each as a draw writes it
     shown = terminal.plain(full)
     middle = terminal.styled(shown, terminal.faded("working", -BRIGHTER) if up else "dim")
@@ -246,16 +248,15 @@ def growing(cells, began, took=GROW, start=0, light=None):
     return [cell(n, text) for n, text in enumerate(cells)], began + took
 
 
-def circling(cells, bright=False):
+def circling(cells):
     """A working seat's line with no plan yet, `cells` each of its cells as the draw wrote it: a
     light (`lit`) goes along it left to right in ROUND seconds, in at the left and
     out at the right, and round again, its place the clock's alone, so every such line moves in one
-    phase; an animation for each cell, for as long as it is drawn.  `bright` on the highlighted
-    row."""
+    phase; an animation for each cell, for as long as it is drawn."""
     def cell(n, text):
         def at(now):
             head = int(now % ROUND / ROUND * (len(cells) + len(RAINBOW)))
-            return lit(text, head - n, bright) or text
+            return lit(text, head - n) or text
         return at
     return [cell(n, text) for n, text in enumerate(cells)], None
 
@@ -302,14 +303,14 @@ def nudging(text, began, bright=False):
     return at, began + SHAKE
 
 
-def sweeping(cells, began, bright=False):
+def sweeping(cells, began):
     """A line just done, `cells` each of its cells as the draw wrote it, from `began`: one light
     (`lit`) crosses it left to right in SWEEP seconds, and each cell is then as
     drawn; an animation for each cell, and when it is still."""
     def cell(n, text):
         def at(now):
             head = int((len(cells) + len(RAINBOW)) * (now - began) / SWEEP)
-            return lit(text, head - n, bright) or text
+            return lit(text, head - n) or text
         return at
     return [cell(n, text) for n, text in enumerate(cells)], began + SWEEP
 
