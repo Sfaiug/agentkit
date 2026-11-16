@@ -18,13 +18,14 @@ import (
 )
 
 // hook carries out what a hook stub under go/hooks hands over, `ak hook <stem>`, or its file
-// and the harness's process that ran it, which is otherwise this one's parent, and a seat's
-// status line, `ak hook status`: the event's JSON on stdin.  A hook that fails loudly is a
-// harness that stops, so it reads all its stdin, prints nothing but its harness's answer on out
-// and exits 0, whatever it was handed and whatever fails; only a decision it leaves to Python
-// exits 3.
+// and the harness's process that ran it, which is otherwise this one's parent, a seat's status
+// line, `ak hook status <harness>`: the event's JSON on stdin, and what a render hands in off its
+// harness's path, `ak hook meters`.  A hook that fails loudly is a harness that stops, so it reads
+// all its stdin, prints nothing but its harness's answer on out and exits 0, whatever it was
+// handed and whatever fails; only a decision it leaves to Python exits 3.
 func hook(args []string, out io.Writer) (code int) {
 	defer func() { recover() }()
+	began := float64(time.Now().UnixNano()) / 1e9 // a render's moment, before anything is read
 	stem, caller := "", os.Getppid()
 	if len(args) > 0 {
 		stem = strings.TrimSuffix(filepath.Base(args[0]), ".sh")
@@ -35,13 +36,15 @@ func hook(args []string, out io.Writer) (code int) {
 	handover.Runs(strings.TrimSpace("hook " + stem))
 	payload, err := io.ReadAll(os.Stdin)
 	switch {
+	case stem == "meters" && len(args) > 4:
+		return meters(args[1], args[2], args[3], args[4], args[5:])
 	case len(args) == 0 || len(args) > 2:
 	case stem == "seat-state":
 		return seatState(payload, caller, out)
 	case stem == "orchestrator-stop" && err == nil:
 		return orchestratorStop(payload, out)
 	case stem == "status" && err == nil:
-		return status(payload, out)
+		return status(payload, append(args[1:], "")[0], began, out)
 	}
 	return 0
 }
