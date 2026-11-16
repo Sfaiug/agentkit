@@ -3,12 +3,12 @@ choice at once, a row no configured model runs being none, and past either end c
 the owner's design of 5 Nov 2026.  Over a seat its executor becomes that model at the choice's
 effort in its record; its orchestrator asks first, as the move restarts it, `Keep` leaving the
 record as it was and `Restart` moving it, on a terminal too short for every line the role lines
-paged around the question, under the header and over the key line.  On `· new seats`
-[defaults] takes the orchestrator at once.  The key line says `← cheaper` and `better →`, `r`
-takes nothing, and a save that fails changes nothing and says why.
+paged around the question, under the header and their numbers' heading and over the key line.
+On `· new seats` [defaults] takes the orchestrator at once.  The key line says `← cheaper` and
+`better →`, `r` takes nothing, and a save that fails changes nothing and says why.
 
-Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40, and one 40 by 16
-(tests/fixtures/akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own,
+Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40, and 40 by 16 and by
+15 (tests/fixtures/akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own,
 its harness a fake running three of four invented releases, the boards held as just asked
 (tests/test_key_role_choices.py); judged by the screen, the seats' records, config.toml and
 the launches the harness is asked for.  Fails against /bin/false.
@@ -166,6 +166,18 @@ class ArrowsTake(unittest.TestCase):
                 time.sleep(1)       # a restart, were one under way, would have begun
                 self.assertEqual((self.path(SEAT).read_bytes(), self.launches()),
                                  (before, launched))
+
+    def test_the_heading_stays_over_the_one_role_line_the_question_leaves(self):
+        self.fresh()
+        self.ended(SEAT)
+        term = self.models(40, SEAT)
+        term.resize(40, 15)             # under the question, room for the heading and one line
+        term.wait("› orchestrator")
+        term.keys("Right")
+        shown = lines(term.wait(lambda screen: asked(screen, SEAT)
+                                and "  × Restart" in lines(screen)))
+        at = next(number for number, line in enumerate(shown) if line.startswith("› orchestrator"))
+        self.assertEqual(shown[at - 1].split()[:1], ["quality"], "\n".join(shown))
 
     def test_restart_moves_a_seat_onto_the_choice_at_its_effort(self):
         self.fresh()
