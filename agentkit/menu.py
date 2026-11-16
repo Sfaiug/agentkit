@@ -3341,14 +3341,62 @@ def price_held(session, role, used, found):
 def price_said(price, role):
     """What `role` keeps where it holds `price` (price_held): its limit in the unit it was kept
     in, whatever `u` counts in, to two decimals or every figure it has where it has more,
-    `keeps the best up to $0.30 a build`; `keeps the best, whatever it costs` with none."""
+    `the best up to $0.30 a build`; `the best, whatever it costs` with none."""
     if price["limit"] is None:
-        return "keeps the best, whatever it costs"
+        return "the best, whatever it costs"
     exact = decimal.Decimal(repr(price["limit"]))
     cost = f"{exact:.{max(2, -exact.as_tuple().exponent)}f}"
     share = price["cost_unit"] == "share"
-    return "keeps the best up to " + UNITS["% of a week" if share else "$ a task"].format(
+    return "the best up to " + UNITS["% of a week" if share else "$ a task"].format(
         cost=f"{cost}%" if share else f"${cost}", run=RUN[role])
+
+
+class _Unjudged(Exception):
+    """A seat's record no longer holds what a take was judged on (price_take)."""
+
+
+def price_take(cfg, session, selected, providers, answer, role):
+    """Where seat `session`'s executor or reviewer `role` keeps a price that holds (price_held),
+    the best of its choices in `answer` (matrix.answer) costing no more than its limit, the best
+    for none, once that is not the row it uses, the owner's design of 5 Nov 2026: taken as ← and
+    → take it (take_choice), its entry then naming the model and effort the role uses, its
+    limit and unit as they were, in one write of the record under its lock (roles_saved), only
+    while that still holds the model, effort and entry judged here; else nothing is written,
+    said or read again, the screen as stale as it is while another window saves.  A seat's
+    orchestrator stays, as moving it moves the seat's own session: only ← or → does.  What to
+    say under the rows: the take, or why it was refused; else ""."""
+    if session is None or role == "orchestrate":
+        return ""
+    used, found = matrix.uses(cfg, selected, answer)[role], answer[role]
+    price = price_held(session, role, used, found)
+    best = next((row for row in reversed(found["choices"]) if price and (
+        price["limit"] is None or row["cost"] <= price["limit"])), None)
+    if best is None or best is used[2]:
+        return ""
+    model, field = matrix.runner(cfg, best), PRICE_FIELDS[role]
+    step = (model, config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]], best["effort"])
+    judged = []     # a record gone or renamed since is never judged: change_session finds none
+
+    def taken(record, now):
+        judged.append(record)
+        if matrix.uses(now, record, answer)[role][:2] != used[:2] or record.get(field) != price:
+            raise _Unjudged
+        changed, why = orch.role_groups(now, record, providers, **{TAKEN[role]: [model]})
+        if why:             # the model may have left the config: nothing to step
+            return record, why
+        changed = {**changed, "efforts": _stepped(now, changed, [step])}
+        name, effort, _ = matrix.uses(now, changed, answer)[role]
+        return {**changed, field: {**price, "model": name, "effort": effort}}, ""
+    try:
+        note = roles_saved(cfg, session, selected, taken)
+    except _Unjudged:
+        return ""
+    if not judged:
+        return ""
+    if note:
+        return note
+    _, effort, _ = matrix.uses(cfg, selected, answer)[role]
+    return f"{matrix.CONFIG_ROLES[role]} took {best['name']} {effort}, {price_said(price, role)}"
 
 
 def figures(value):
@@ -3517,7 +3565,7 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
     lines = ["", *("  " + line for line in packed([
         matrix.CONFIG_ROLES[role], f"{COUNTS[len(choices)]} choice{'s' * (len(choices) != 1)}",
         *([f"{COUNTS[len(shaded)]} more shaded"] if shaded else []),
-        *([price_said(price, role)] if price else [])], " · ", width - 2))]
+        *([f"keeps {price_said(price, role)}"] if price else [])], " · ", width - 2))]
     unders = [[[quality], columned(name, wide) + [mark * size] * (marked and row is used),
                [effort], [line for text in whys for line in columned(text, wide)]]
               for (row, _), (_, quality, effort), (name, *whys), wide
@@ -3657,9 +3705,11 @@ def models_screen(cfg, session, selected, providers):
     choice for its role at once (next_choice, take_choice), keeping the price it stopped at
     (keep_price), which its bars' heading says while it holds (price_held), the owner's design
     of 5 Nov 2026, the last row a role was shown using that is no choice staying one of its bars
-    and steps; ⏎ or a click opens the why (models_why) of the row the role uses, else of its
-    first choice.  `p` lists companies (company_list), and `u` counts every cost in the next
-    unit (next_unit), the screen opening in the last one (models_unit)."""
+    and steps; each answer made (opening, the boards landing, `p`) takes the best up to each
+    price that holds (price_take), saying so under the rows.  ⏎ or a click opens the why
+    (models_why) of the row the role uses, else of its first choice.  `p` lists companies
+    (company_list), and `u` counts every cost in the next unit (next_unit), the screen opening
+    in the last one (models_unit)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, kept, unit = ("row", "orchestrate"), 0, "", {}, models_unit()
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -3676,6 +3726,8 @@ def models_screen(cfg, session, selected, providers):
         if answer is None:
             compared, total = matrix.compared(cfg), len(matrix.ours(cfg))
             answer = matrix.answer(held.get("lineup") or [], compared, cfg=cfg)
+            note = "\n".join(filter(None, [note, *(price_take(
+                cfg, session, selected, providers, answer, role) for role in answer)]))
         # a take changes what each role uses, never the answer, which takes seconds to price
         used = matrix.uses(cfg, selected, answer)
         kept.update({role: one[:2] for role, one in used.items()
