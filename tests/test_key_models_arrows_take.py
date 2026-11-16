@@ -1,11 +1,11 @@
 """← and → on `r recommended` on `c` move the highlighted role to its next cheaper or next better
-choice at once, a row no configured model runs being none, and past either end change nothing,
-the owner's design of 5 Nov 2026.  Over a seat its executor becomes that model at the choice's
-effort in its record; its orchestrator asks first, as the move restarts it, `Keep` leaving the
-record as it was and `Restart` moving it, on a terminal too short for every line the role lines
-paged around the question, under the header and their numbers' heading and over the key line.
-On `· new seats` [defaults] takes the orchestrator at once.  The key line says `← cheaper` and
-`better →`, `r` takes nothing, and a save that fails changes nothing and says why.
+choice at once, a row listed nowhere a model of yours runs being none, and past either end change
+nothing, the owner's design of 5 Nov 2026.  Over a seat its executor becomes that model at the
+choice's effort in its record; its orchestrator asks first, as the move restarts it, `Keep`
+leaving the record as it was and `Restart` moving it, on a terminal too short for every line the
+role lines paged around the question, under the header and their numbers' heading and over the
+key line.  On `· new seats` [defaults] takes the orchestrator at once.  The key line says
+`← cheaper` and `better →`, `r` takes nothing, and a save that fails changes nothing and says why.
 
 Black-box: the program `AK_BIN` names in a terminal of 100 cells and of 40, and 40 by 16, 15 and
 13 (tests/fixtures/akterm.py), over a seat (tests/fixtures/akseat.py) or in a window of its own,

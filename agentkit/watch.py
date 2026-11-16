@@ -1783,8 +1783,11 @@ def follow_model(cfg, name, asked=None):
     if not ran or since and not (ran[2] or 0) > max(since):
         return
     kept = record["orchestrator"]
-    runs = (sorted(config.running(cfg, entry["harness"], ran[0]), key=lambda each: each != kept)
-            or _taken_in(cfg, entry, ran, asked))
+    try:
+        runs = (sorted(config.running(cfg, entry["harness"], ran[0]),
+                       key=lambda each: each != kept) or _taken_in(cfg, entry, ran, asked))
+    except (config.Error, OSError):     # an add that failed: the record stays
+        return
     if not runs:
         return
     models = config.at_efforts(cfg, record)["models"]
@@ -1811,8 +1814,8 @@ def _taken_in(cfg, left, ran, asked):
     harness's login says.  [] for an id that names no provider, or another a look meets or its
     harness lists with no mode or not at all; a model neither its listing as held nor its
     `[catalog]` table names, nor, for a pass, its listing as the pass asked it (config.catalog),
-    once at most into `asked`, as an id recorded for an error or a fallback; or an add that
-    fails."""
+    once at most into `asked`, as an id recorded for an error or a fallback.  Error or OSError
+    where the add fails, for its caller to say or pass over."""
     harness, provider, row = left["harness"], left["provider"], None
     if harness in config.provider_hosts():
         provider, named_one, _ = ran[0].partition("/")
@@ -1840,10 +1843,7 @@ def _taken_in(cfg, left, ran, asked):
     entry = config.model_entry(harness, ran[0], label, provider=provider,
                                effort=ran[1] if ran[1] in levels else levels[-1],
                                **{key: left[key] for key in ("mode",) if key in left and not row})
-    try:
-        return [config.add_model(cfg, entry, label, row)]
-    except (config.Error, OSError):
-        return []
+    return [config.add_model(cfg, entry, label, row)]
 
 
 def _asked(asked, key, ask):

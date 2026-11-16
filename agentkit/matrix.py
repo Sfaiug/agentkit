@@ -261,8 +261,8 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     each better than every cheaper one, a row of yours than every cheaper one of yours, as one
     no harness of yours runs is no reason to leave it out; `take`: the same rule over yours;
     and `choices`, `others` and `whys` over those with a cost (`_choices`), the choices being
-    rows a model of `cfg` runs (`runner`).  Keep the pick and take visible even if rows outside
-    their eligible pool beat them.  Every role's costs are in one unit (`_costs`), off
+    rows a take can take (`takes`).  Keep the pick and take visible even if rows outside their
+    eligible pool beat them.  Every role's costs are in one unit (`_costs`), off
     `task_usage`, (logins, shares) as `spend.roles` measures them.  `limits`: each choice's
     price (`_limits`)."""
     measures = task_usage if task_usage is not None else _task_usage(cfg) if cfg else ({}, {})
@@ -280,7 +280,7 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
         front = sorted((row for n, row in enumerate(priced) if row is pick or row is take or all(
             cheaper["quality"] < row["quality"] for cheaper in priced[:n]
             if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
-        choices, others, whys = _choices(priced, {id(row) for row in priced if runner(cfg, row)})
+        choices, others, whys = _choices(priced, {id(row) for row in priced if takes(cfg, row)})
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
                      "front": front, "take": take, "choices": choices, "others": others,
                      "whys": whys, "limits": _limits(choices, priced)}
@@ -312,6 +312,28 @@ def runner(cfg, row):
         in row["yours"]), None)
 
 
+def takes(cfg, row):
+    """What a take of `row` takes, the one rule of the rows `answer` chooses among: the
+    configured model running it (`runner`); else, the owner's word of 5 Nov 2026, "Let the
+    question of the model exists from my choices be my concern", the model a take sets up
+    (menu.set_up) beside one of yours, as a seat's harness running a model no entry runs adds
+    one beside the entry it leaves (watch._taken_in): the first of its `yours` on a harness a
+    configured model runs on, on the provider its id names (`<provider>/<model>`) where that
+    harness runs any provider it logs in to (config.provider_hosts), {"harness", "model"} with
+    the first such model's `provider`, and its `mode` where it has one.  None for neither."""
+    name = runner(cfg, row)
+    if name or not row["yours"]:
+        return name
+    hosts, offered = config.provider_hosts(), [cfg["models"][one] for one in config.offered(cfg)]
+    for one in row["yours"]:
+        named = one["model"].partition("/")[0] if one["harness"] in hosts else None
+        beside = next((entry for entry in offered if entry["harness"] == one["harness"]
+                       and named in (None, entry["provider"])), None)
+        if beside:
+            return {**one, **{key: beside[key] for key in ("provider", "mode") if key in beside}}
+    return None
+
+
 # The models screen's choices, the owner, 5 Nov 2026: none further below the best than WINDOW
 # points, each APART above the one before, PLACES of them at most.
 WINDOW, APART, PLACES = 10, 1, 5
@@ -326,12 +348,12 @@ def _above(row, other):
 
 def _choices(priced, runs):
     """Of `priced`, cheapest first and an equal cost better first, (`choices`, `others`, `whys`),
-    `runs` holding the ids of the rows a configured model runs (`runner`): `choices` are theirs
-    (`_chosen`), so a better row nobody runs moves none.  `others`: of each release with no
+    `runs` holding the ids of the rows a take can take (`takes`): `choices` are theirs
+    (`_chosen`), so a better row none can take moves none.  `others`: of each release with no
     choice its best row, a cheaper one on a tie, best first.  `whys`: by its id, each row no
     choice's (`_why`), which a role using it draws too (menu.models_bars), kept beside the rows
-    as what is compared never changes a row; one no configured model runs has the why it would
-    have were it run, the same rule over them and it."""
+    as what is compared never changes a row; one no take can take has the why it would have
+    were it takeable, the same rule over them and it."""
     def chosen(row=None):     # the rule over the rows `runs` holds and `row`
         return _chosen([one for one in priced if id(one) in runs or one is row])
     choices, front = chosen()
@@ -368,7 +390,7 @@ def _chosen(priced):
 
 def _why(row, choices, front):
     """(`why`, `by`) of `row` beside `choices` and `front` (`_chosen`): `not set up`, by None,
-    among the choices, as a row no configured model runs is where it would be one (`_choices`);
+    among the choices, as a row no take can take is where it would be one (`_choices`);
     off the front, `beaten` by the cheapest choice, else row of the front, as good and no
     dearer; on it, `far below`, by None, more than `WINDOW` under the best; else `close` to the
     nearest choice, less than `APART` from it; else `no room`, by None: `APART` or more under

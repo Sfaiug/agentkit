@@ -48,6 +48,9 @@ FIVE = [*TWO, ("acme-mid-5", "Acme Mid 5", "low", 60, .70, .725, 46, 0.6),
         ("acme-mid-5", "Acme Mid 5", "xhigh", 68, .75, .7875, 49, 2.5),
         ("acme-mid-5", "Acme Mid 5", "max", 69, .79, .7765, 49, 8.0),
         ("fern-1", "Fern 1", "high", 60, .68, .7175, 43, 0.4)]
+# what Claude lists of each model it runs
+CLAUDE = {"acme-mid-5": "acme-mid-5\tAcme Mid 5\tlow medium high xhigh max\n",
+          "acme-max-5": "acme-max-5\tAcme Max 5\thigh max\n"}
 MODELS = {"crux": {"harness": "codex", "model": "crux-2", "effort": "low"},
           "mid": {"harness": "claude", "model": "acme-mid-5"},
           "max": {"harness": "claude", "model": "acme-max-5", "review_effort": "max"}}
@@ -64,8 +67,10 @@ MAX_HIGH_BUILDS = [
     "           board dollar",
     "",
     CHOICES,
-    "  others   Elm 1 high, 98.0 for ≈$6.00: would be a choice, but no model of yours runs it",
-    "           Dune 1 high, 96.0 for ≈$4.00: would be a choice, but no model of yours runs it",
+    "  others   Elm 1 high, 98.0 for ≈$6.00: would be a choice, but it is listed nowhere a model of yours",
+    "             runs",
+    "           Dune 1 high, 96.0 for ≈$4.00: would be a choice, but it is listed nowhere a model of",
+    "             yours runs",
     "           Bolt 3 medium, 88.0 for ≈$3.00: beaten by Acme Mid 5 high, 94.0 for $1.50",
     "           Crux 2 low, 80.0 for ≈$1.00: 20.0 below the best"]
 MAX_MAX_REVIEWS = [
@@ -79,8 +84,10 @@ MAX_MAX_REVIEWS = [
     "           a board dollar",
     "",
     CHOICES,
-    "  others   Elm 1 high, 97.6 for ≈$6.00: would be a choice, but no model of yours runs it",
-    "           Dune 1 high, 95.4 for ≈$4.00: would be a choice, but no model of yours runs it",
+    "  others   Elm 1 high, 97.6 for ≈$6.00: would be a choice, but it is listed nowhere a model of yours",
+    "             runs",
+    "           Dune 1 high, 95.4 for ≈$4.00: would be a choice, but it is listed nowhere a model of",
+    "             yours runs",
     "           Bolt 3 medium, 86.2 for ≈$3.00: beaten by Acme Mid 5 high, 93.4 for $1.50",
     "           Crux 2 low, 82.4 for ≈$1.00: 17.6 below the best"]
 MID_BUILDS = [
@@ -94,7 +101,8 @@ MID_BUILDS = [
     "  cost     $1.50 a build   from 2 of your builds",
     "",
     CHOICES,
-    "  others   Acme Max 5 max, 100.0 for ≈$20.00: would be a choice, but no model of yours runs it",
+    "  others   Acme Max 5 max, 100.0 for ≈$20.00: would be a choice, but it is listed nowhere a model of",
+    "             yours runs",
     "           Holm 1 high, 94.5 for ≈$2.00: within a point of Acme Mid 5 high, 94.0 for $1.50",
     "           Fern 1 high, 89.5 for ≈$0.40: the five places go to better choices",
     "           Bolt 3 medium, 88.0 for ≈$3.00: beaten by Acme Mid 5 low, 91.0 for ≈$0.60",
@@ -110,9 +118,11 @@ CRUX_REVIEWS = [
     "           a board dollar at list prices, at its own plan's rate",
     "",
     CHOICES,
-    "  others   Acme Max 5 max, 100.0 for ≈$20.00: would be a choice, but no model of yours runs it",
+    "  others   Acme Max 5 max, 100.0 for ≈$20.00: would be a choice, but it is listed nowhere a model of",
+    "             yours runs",
     "           Holm 1 high, 92.8 for ≈$2.00: beaten by Acme Mid 5 high, 93.4 for $1.50",
-    "           Fern 1 high, 89.0 for ≈$0.40: would be a choice, but no model of yours runs it",
+    "           Fern 1 high, 89.0 for ≈$0.40: would be a choice, but it is listed nowhere a model of",
+    "             yours runs",
     "           Bolt 3 medium, 86.2 for ≈$3.00: beaten by Acme Mid 5 low, 91.2 for ≈$0.60",
     "           Crux 2 low, 82.4 for ≈$1.00: beaten by Acme Mid 5 low, 91.2 for ≈$0.60"]
 CRUX_BUILDS_40 = [
@@ -173,9 +183,7 @@ class ModelsWhy(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        fakes = fakeadapter.install(home, claude="pass", codex="pass")
-        fakes["claude"].answer("models", "acme-mid-5\tAcme Mid 5\tlow medium high xhigh max\n"
-                                         "acme-max-5\tAcme Max 5\thigh max\n")
+        cls.fakes = fakes = fakeadapter.install(home, claude="pass", codex="pass")
         fakes["codex"].answer("models", "bolt-3\tBolt 3\tlow medium high\ncrux-2\tCrux 2\tlow\n")
         home.write(".agentkit/state/usage.json", {"providers": {provider: {"meters": [
             {"name": "weekly", "used": 40, "window_secs": 604800, "resets_at": NOW + 86400}]}
@@ -187,9 +195,12 @@ class ModelsWhy(unittest.TestCase):
     def write(self, rows, workers, reviewers=None, runs=False, priced=True, models=MODELS):
         """The boards holding `rows` (boards); of `models`, Crux 2 at low orchestrates new seats,
         `workers` build them and `reviewers` review, every plan $1300 a month, so a week of it
-        $300 and a point of that $3; with `runs`, two finished builds of Acme Mid 5 high and a
-        review by it, costing what its board does."""
+        $300 and a point of that $3, Claude listing those of them it runs, so Acme Max 5 is no
+        choice where `models` leave it out; with `runs`, two finished builds of Acme Mid 5 high
+        and a review by it, costing what its board does."""
         self.home.write(".agentkit/state/boards.json", boards(rows, priced))
+        self.fakes["claude"].answer("models", "".join(
+            CLAUDE[entry["model"]] for entry in models.values() if entry["harness"] == "claude"))
         self.releases = len({row[0] for row in rows})
         # no answer an earlier case drew, so the screen counts its models once these are read
         (self.home.path / ".agentkit/state/matrix.json").unlink(missing_ok=True)
