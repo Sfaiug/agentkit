@@ -159,10 +159,22 @@ class SuiteTakesFreedTurns(unittest.TestCase):
         # One piece of 1 GB fits where four of the first suite's do: the check's hold gives its
         # second suite one place on one turn, and its third four on four again.  The slice's
         # free room alone bounds them, the rest of it in use: the one turn kept between suites
-        # runs no piece, and counts as room.
+        # runs no piece, and counts as room.  The slice holds what the hold's busy turns'
+        # pieces do, as a host's would: a piece waiting for a turn finds no room beside them.
         costly = f"{SUITE} costly"
-        with patch.dict(os.environ, {"AK_HOST_READINGS": json.dumps(
-                {**ROOM, "slice_memory_high_mb": 8000, "slice_memory_used_mb": 6300})}):
+        holds, made = [], gate._GateHold.__init__
+
+        def kept(hold, *args, **kw):
+            made(hold, *args, **kw)
+            holds.append(hold)
+
+        def readings():
+            busy = sum((len(hold.slots) - len(hold.idle)) * hold.cost[1]
+                       for hold in list(holds) if hold.cost)
+            return {**ROOM, "slice_memory_high_mb": 8000, "slice_memory_used_mb": 6300 + busy}
+
+        with patch.object(gate._GateHold, "__init__", kept), \
+                patch.object(host, "_injected", readings):
             ok, text = self.suite("acme", [SUITE, costly, SUITE], {costly: 1000})
         self.assertTrue(ok, text)
         self.assertEqual([shard.partition("/")[2] for _, shard in self.shards],

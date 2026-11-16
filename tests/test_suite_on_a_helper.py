@@ -23,12 +23,12 @@ from agentkit import config, gate, helper, history, worker
 class Turn:
     def __init__(self, count):
         self.slots = [None] * count
-        self.pieces, self.waited, self.released = count, False, False
+        self.pieces, self.uneven, self.released = count, False, False
 
     def suite(self, cost):
         pass
 
-    def take(self, stopped):
+    def take(self, stopped, **_kw):
         return True
 
     def give(self, slot):
@@ -197,7 +197,7 @@ class SuiteOnAHelper(unittest.TestCase):
         self.stack.enter_context(patch.object(gate, "GATE_POLL", 0.01))
         self.addCleanup(returned.set)    # the helper answers only once the suite has returned
         with patch.object(helper, "start", side_effect=start), \
-                patch.object(Turn, "take", lambda _hold, _stopped: asked.wait(10)):
+                patch.object(Turn, "take", lambda _hold, _stopped, **_kw: asked.wait(10)):
             code, text, killed, _ = self.check(places=2)
         self.assertEqual((code, killed, answered.is_set()), (0, False, False), text)
 

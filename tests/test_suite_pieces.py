@@ -417,6 +417,27 @@ class SuitePieces(unittest.TestCase):
                 patch.object(hold.lock, "wait", lambda _: self.fail("waited beside no piece")):
             self.assertIsNotNone(hold.take(lambda: False))
 
+    def test_of_the_turns_freed_a_hold_keeps_one_for_each_piece_waiting_for_one(self):
+        turns = [(self.root / f"turn-{index}").open("a") for index in range(4)]
+        for turn in turns:
+            self.addCleanup(turn.close)
+            fcntl.flock(turn, fcntl.LOCK_EX)
+        hold = gate._GateHold(ExitStack(), turns[:1], more=lambda *_: (turns[1:], 4),
+                              cost=(0.8, 410))
+        running = hold.take(lambda: False)
+        with patch.object(host, "cpu_room", return_value=None):
+            taken = hold.take(lambda: False, wanted=lambda: 1)    # one piece waits: three free
+
+        def held(turn):
+            with open(turn.name, "a") as other:
+                try:
+                    fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    return True
+                return False
+        self.assertEqual(sorted(hold.slots, key=turns.index), [running, taken])
+        self.assertEqual([turn for turn in turns if held(turn)], [running, taken])
+
     def test_isolated_cgroup_cost_is_saved_and_sizes_later_pieces(self):
         state = record.read_state(self.run_dir)
         record.save_state(self.run_dir, {**state, "scope": "acme"})

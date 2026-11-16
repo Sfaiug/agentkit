@@ -10,9 +10,9 @@ against gitrig.py's origin, fakegh.py's GitHub and fakeadapter.py's harnesses, a
 the repository's suite once, in its line's check as it lands.  The kernel is the test's.  ak
 reads its cgroups under AK_CGROUP_ROOT, its own named by AK_CGROUP_FILE and holding only the
 line's checker, which starts as ~/.local/bin/ak in a scope of its own, and the host has 4100
-MiB free (AK_HOST_READINGS), so a suite not yet measured, planned at ak's first 410 MiB a
-piece, runs in 10.  Each piece tells the test when it starts and ends, and the test moves that
-cgroup's memory as a kernel does: a piece needs 600 MiB, RAM stops at the cap, what is over
+MiB, all of it free (AK_HOST_READINGS), so a suite not yet measured, planned at ak's first 410
+MiB a piece, runs in 10.  Each piece tells the test when it starts and ends, and the test moves
+that cgroup's memory as a kernel does: a piece needs 600 MiB, RAM stops at the cap, what is over
 it goes to swap up to the swap cap, and past both the cgroup runs out.
 """
 
@@ -34,7 +34,7 @@ from fixtures.gitrig import Rig
 
 MB = 1024 ** 2
 BASE, NEED, UNCAPPED = 100, 600, 1 << 20    # MiB
-READINGS = {"cpus": 64, "free_mb": 4100, "mem_total_mb": 16384, "slice_cpu_pressure": 0}
+READINGS = {"cpus": 64, "free_mb": 4100, "mem_total_mb": 4100, "slice_cpu_pressure": 0}
 IN_CLOSE_NOWRITE, IN_Q_OVERFLOW = 0x10, 0x4000    # inotify(7)
 LIBC = ctypes.CDLL(None, use_errno=True)
 SUITE = """import os, socket, time

@@ -143,7 +143,7 @@ class SilenceLimitFollowsItsPace(unittest.TestCase):
 
         hold = SimpleNamespace(slots=[1, 2], pieces=2, alone=lambda: None, shed=lambda: None,
                                suite=lambda cost: None,
-                               take=lambda stopped: True, give=lambda slot: None)
+                               take=lambda stopped, **_kw: True, give=lambda slot: None)
         with patch.object(gate._GATE_HELD, "away", SimpleNamespace(alias="acme-mac", count=1, most=1),
                           create=True), \
                 patch.object(gate._GATE_HELD, "hold", None, create=True), \
