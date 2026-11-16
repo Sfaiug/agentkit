@@ -157,7 +157,7 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 			kind = "amber"
 		}
 		told := [][2]string{{cmp.Or(each.Ends, each.Email), kind}, {each.Plan, kind}, {held, "info"}}
-		for _, opened := range openedLines(s, told, kind, acts, on, width-4) {
+		for _, opened := range openedLines(s, told, acts, on, width-4) {
 			put(s.Fade(opened.text, 1-opening), pageSpot{i, opened.acts})
 		}
 	}
@@ -215,10 +215,10 @@ type pageLine struct {
 	acts [][3]int
 }
 
-// openedLines is the line a pointed row opens: told's parts, {text, kind} each, ` · ` apart in kind,
-// then each act three spaces apart, the one on lit, wrapped in room cells and never cut; each line
-// with its acts' cells (menu.opened_line).
-func openedLines(s terminal.Screen, told [][2]string, kind string, acts []string, on string, room int) []pageLine {
+// openedLines is the line a pointed row opens: told's parts, {text, kind} each, ` · ` apart in dim
+// whatever their kind, as the eye skips it, then each act three spaces apart, the one on lit,
+// wrapped in room cells and never cut; each line with its acts' cells (menu.opened_line).
+func openedLines(s terminal.Screen, told [][2]string, acts []string, on string, room int) []pageLine {
 	type piece struct {
 		text string
 		act  int
@@ -229,7 +229,7 @@ func openedLines(s terminal.Screen, told [][2]string, kind string, acts []string
 			continue
 		}
 		if joined != "" {
-			joined, inks = joined+" · ", append(inks, kind)
+			joined, inks = joined+" · ", append(inks, "dim")
 		}
 		joined += part[0]
 		// counted as Wrap keeps it: Plain, so any space character is a space
@@ -241,11 +241,11 @@ func openedLines(s terminal.Screen, told [][2]string, kind string, acts []string
 	// colour before it
 	var pieces []piece
 	for _, part := range terminal.Wrap(joined, room) {
-		line, ink, run := "", kind, ""
+		line, ink, run := "", "dim", ""
 		for _, r := range part {
 			now := ink
 			if r != ' ' {
-				now = kind
+				now = "dim"
 				if len(inks) > 0 {
 					now, inks = inks[0], inks[1:]
 				}

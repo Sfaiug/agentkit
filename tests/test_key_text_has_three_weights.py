@@ -4,7 +4,7 @@ The owner (12 Nov 2026): "look at every place where things are visual to the end
 ak, and see through to apply the following two themes."  A name or a number is in `text`; what
 says more about the thing beside it -- the header's name and clock, a key's word, a seat's model
 and its count, a row's value on `c` -- in `muted`; what the eye passes over -- a row's number, a
-key -- in `dim`; a line that is not text -- the rule, a bar's empty part -- in `border`; and what
+key, a ` · ` -- in `dim`; a line that is not text -- the rule, a bar's empty part -- in `border`; and what
 ak says of its own accord, `1 reset in hand`, in `info` (docs/cli-design.md, Colour).
 Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour
 (tests/fixtures/akterm.py) over a working seat with a plan (tests/fixtures/akseat.py) and a
@@ -180,6 +180,22 @@ class TextHasThreeWeights(unittest.TestCase):
         menu.resize(40, 50)
         self.rest(menu, lambda text: any("owner@acme.test" in line and "1 reset" in line
                                          for line in text.split("\n")), OPENED + 40, under)
+
+        # a login ending soon turns its parts amber, never the ` · `s between them
+        logins = self.home.path / ".agentkit/state/logins.json"
+        self.addCleanup(logins.write_text, logins.read_text())
+        self.home.write(".agentkit/state/logins.json", {"anthropic": {"default": {
+            "email": "owner@acme.test", "plan": "max 20x", "ends": int(time.time()) + 86400,
+            "checked_at": time.time()}}})
+
+        def ending(rows):
+            texts = [plain(line) for line in rows]
+            opened = rows[first(texts, "› Claude") + 1:first(texts, "+ add a subscription")]
+            dots = [shown for line in opened for char, shown in line if char == "·"]
+            self.assertTrue(dots, "no ` · ` under the row")
+            for shown in dots:
+                self.assert_in(theme, "dim", shown, "a ` · ` beside a login ending soon")
+        self.rest(menu, "login owner@acme.test", OPENED + 45, ending)
 
         # and a closed seat's count on `p`, in as little room
         menu.keys("Escape")
