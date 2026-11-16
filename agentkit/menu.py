@@ -517,19 +517,23 @@ class Live:
                 return
             if not self.watching.is_set():
                 continue                 # away since the wait: what it would read, nobody draws
-            now = self.recorded()
-            self.configure()
-            if now == self.seen and not self.asked.is_set():
-                continue
-            self.asked.clear()
-            look = self.looking
-            if look:
-                self.looking = False     # a look asked for since is this one: it starts after
-            self.seen = now
             try:
+                now = self.recorded()
+                self.configure()
+                if now == self.seen and not self.asked.is_set():
+                    continue
+                self.asked.clear()
+                look = self.looking
+                if look:
+                    self.looking = False     # a look asked for since is this one: it starts after
+                self.seen = now
                 self.read(look)
-            except (config.Error, OSError, ValueError, TypeError, KeyError):
-                pass    # what cannot be read now stays drawn as it was last read
+            except Exception:
+                # This thread is the only one reading the menu's rows, so a round that raises is
+                # dropped, not let end it, and what it could not read stays drawn as last read; a
+                # full STIR, asked or not, so one that always raises never spins.
+                self.done.wait(STIR)
+                continue
             self._wake()
 
     def _wake(self):
