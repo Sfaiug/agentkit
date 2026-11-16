@@ -66,7 +66,7 @@ func TurnAccount(name, dir string) (string, bool, error) {
 		if err != nil { // no adapter to ask says nothing, as Python's worker.auth_ok
 			return false
 		}
-		answered, yes := auth(adapter, model.Provider, account)
+		answered, yes := auth([]string{adapter}, model.Provider, account)
 		return answered && !yes
 	}
 	for _, account := range order {

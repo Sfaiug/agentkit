@@ -16,7 +16,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
 
@@ -60,7 +59,7 @@ func gently(src source) *run.Object {
 // probe is that provider's reading as its adapter's `usage` verb answers it now, Python's
 // usage._probe.
 func probe(src source, now float64) *run.Object {
-	adapter, err := src.adapter, src.broken
+	err := src.broken
 	if src.Via == "" {
 		err = fmt.Errorf("~/.agentkit/config.toml: [providers.%s] has no model", src.Name)
 	}
@@ -68,14 +67,14 @@ func probe(src source, now float64) *run.Object {
 		return fields("provider", src.Name, "meters", []any{}, "error", "unknown: "+err.Error(), "pace", nil,
 			"resets", nil, "exhausted", false, "probed_at", now)
 	}
-	name := filepath.Base(adapter)
+	name := src.Harness + ".sh" // as Python names the script, which ak adapter answers for
 	limit := probeCap
 	if src.facts.Capture {
 		limit = captureCap
 	}
-	data, said := answer(adapter, name, src, limit)
+	data, said := answer(name, src, limit)
 	out := fields("provider", src.Name, "harness", src.Harness, "via", src.Via, "meters", []any{}, "error", data.Get("error"),
-		"pace", nil, "resets", src.resets(), "exhausted", false, "probed_at", now)
+		"pace", nil, "resets", src.resets(data), "exhausted", false, "probed_at", now)
 	var credits any = "unlimited"
 	if data.Get("credits") != credits {
 		credits = nil
@@ -124,7 +123,7 @@ func probe(src source, now float64) *run.Object {
 	if said && len(meters) == 0 && !refused(text(data.Get("error"))) {
 		// only the harness's own `auth` says whether the login is what failed, never the error
 		var loggedIn any
-		if answered, yes := auth(adapter, src.Name, src.account); answered {
+		if answered, yes := auth(src.adapter, src.Name, src.account); answered {
 			loggedIn = yes
 		}
 		out.Set("logged_in", loggedIn)
@@ -133,27 +132,27 @@ func probe(src source, now float64) *run.Object {
 }
 
 // resets is what the source's login still holds of the resets the owner spends, Python's
-// usage._resets: 0 unasked where its manifest says the harness counts none, nil where its adapter
-// cannot say.  It is read beside the meters and kept with them, and nothing ak does spends one; it
-// ranks nothing.
-func (src source) resets() any {
+// usage._resets: 0 unasked where its manifest says the harness counts none; the count its `usage`
+// answer, said, gives where it gives one, as an endpoint may take one request an ask; else what
+// `reset-status` counts, nil where its adapter cannot say.  It is read beside the meters and kept
+// with them, and nothing ak does spends one; it ranks nothing.
+func (src source) resets(said *run.Object) any {
 	if !src.facts.Reset {
 		return 0.0
+	}
+	if count, ok := number(object(said).Get("resets")); ok {
+		return max(0, count)
 	}
 	if src.broken != nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), probeCap)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, src.adapter, "reset-status")
-	cmd.Env = append(os.Environ(), config.AccountEnv(src.account), "AGENTKIT_PROVIDER="+src.Name)
-	cmd.WaitDelay = time.Second
-	host.AdapterCall(cmd)
-	said, err := cmd.Output()
+	counted, err := src.ask(ctx, "reset-status").Output()
 	if err != nil {
 		return nil
 	}
-	value, _ := run.Decode(said)
+	value, _ := run.Decode(counted)
 	answer, _ := value.(*run.Object)
 	if answer == nil {
 		return nil
@@ -168,16 +167,13 @@ func (src source) resets() any {
 // answer is the JSON object the adapter's `usage` printed for the source's login, or one saying why
 // there is none, and whether it is the adapter's own answer, whose error the `auth` question may be
 // asked about.
-func answer(adapter, name string, src source, limit time.Duration) (*run.Object, bool) {
+func answer(name string, src source, limit time.Duration) (*run.Object, bool) {
 	failed := func(why string) (*run.Object, bool) {
 		return fields("meters", []any{}, "error", "unknown: "+name+" usage "+why), false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, adapter, "usage")
-	cmd.Env = append(os.Environ(), config.AccountEnv(src.account), "AGENTKIT_PROVIDER="+src.Name)
-	cmd.WaitDelay = time.Second
-	host.AdapterCall(cmd)
+	cmd := src.ask(ctx, "usage")
 	out, err := cmd.Output()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return failed(fmt.Sprintf("timed out after %ds", int(limit.Seconds())))

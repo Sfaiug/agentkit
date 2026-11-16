@@ -30,13 +30,12 @@ type Readings struct {
 	now       float64
 }
 
-// A source is a provider as the read asks it: its table, its harness's `[usage]` facts, the
-// adapter script that answers for it or why none can, and the account of it asked, "" for its one
-// login.
+// A source is a provider as the read asks it: its table, its harness's `[usage]` facts, the words
+// that ask its adapter a verb or why none can, and the account of it asked, "" for its one login.
 type source struct {
 	config.Subscription
 	facts   config.UsageFacts
-	adapter string
+	adapter []string
 	broken  error
 	account string
 }
@@ -101,13 +100,14 @@ func listed(refresh bool) ([]source, error) {
 			return nil, err
 		}
 		adapter, err := config.Adapter(src.Harness)
+		words := []string{adapter}
 		if errors.Is(err, config.ErrNoAdapterDir) && refresh {
-			adapter, err = config.ShippedAdapter(src.Harness)
+			words, err = shipped(src.Harness)
 		}
 		if errors.Is(err, config.ErrNoAdapterDir) {
 			return nil, ErrPython
 		}
-		sources[at].facts, sources[at].adapter, sources[at].broken = facts, adapter, err
+		sources[at].facts, sources[at].adapter, sources[at].broken = facts, words, err
 	}
 	return sources, nil
 }

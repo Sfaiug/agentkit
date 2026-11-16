@@ -10,8 +10,8 @@ import (
 )
 
 // An Answer is a harness's login read for its adapter's `auth`: whether a turn, or the seat, can
-// sign in on it, the one line saying so, and whether it lapsed where only a turn of the harness
-// renews it.
+// sign in on it, the one line saying so, and whether it lapsed, or is near enough its end to
+// renew, where only a turn of the harness renews it.
 type Answer struct {
 	Yes, Lapsed bool
 	Line        string
