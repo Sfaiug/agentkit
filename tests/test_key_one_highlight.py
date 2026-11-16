@@ -4,11 +4,11 @@ The owner (10 Nov 2026): every screen feels and is operated the same way; each t
 has a colour for what is lit, `selection`.  A seat's row, the keys' or the pointer's, is on it
 from its `›` to the layout's last column, bold behind the `›` as before, and no other row is;
 where the terminal draws fewer than 256 colours the row has its `›` alone.  A cell -- a mark on
-`c` as wide as its column, set or not, an act on a subscription's line with a cell before and
-after it, bracketed with no colour -- is on it over its whole width, the same from the keys and
-the pointer, and its row has no band of its own; nothing on `c` or Subscriptions is reversed.
-Black-box: the
-program `AK_BIN` names runs in a person's terminal that sets no background
+`c` as wide as its column, set or not, an act on a subscription's line or a list's answer with
+a cell before and after it, an act bracketed with no colour -- is on it over its whole width,
+the same from the keys and the pointer, and its row has no band of its own; nothing on `c` or
+Subscriptions is reversed.  Black-box: the program `AK_BIN` names runs in a person's terminal
+that sets no background
 (tests/fixtures/akterm.py), over seats (tests/fixtures/akseat.py) and faked harnesses
 (tests/fixtures/fakeadapter.py), each cell judged by how it looks once the screen rests
 (tests/fixtures/aklooks.py); the pointer's moves are typed as the SGR reports a terminal sends.
@@ -220,6 +220,21 @@ class OneHighlight(unittest.TestCase):
         self.assertEqual(lines[row - 1:row + 2], ["    [→ spend a", "    reset]", f"    {REMOVE}"])
         term.type(point(8, row + 2))
         term.wait(f"    [{REMOVE}]")
+
+    def test_a_lists_answer_is_lit_over_its_text_and_a_cell_each_side(self):
+        # the stop card, asked in acme's popup: each answer a cell, its row no band
+        self.term = Terminal(self.home, "attach", "--overlay", size=(WIDTH, 40),
+                             env={"AGENTKIT_SESSION": "acme", "COLORTERM": "truecolor"})
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
+                        "sleep 86400", server=SERVER)
+        self.rest(lambda shown: any("x stop" in plain(line) for line in shown))
+        self.term.keys("x")
+        for answer, key in (("✓ Keep", None), ("× Stop", "Down")):
+            if key:
+                self.term.keys(key)
+            shown = self.calm(lambda shown: any(f"› {answer}" in plain(line) for line in shown))
+            col, row = self.row(shown, answer)
+            self.assertEqual(lit_rows(shown), {row: list(range(col - 1, col + len(answer) + 1))})
 
     def test_in_sixteen_colours_a_seat_has_its_mark_alone(self):
         self.assertEqual(grounds(self.main(TERM="xterm-16color")), {None})
