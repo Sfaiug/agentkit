@@ -47,6 +47,9 @@ const authGrace = 60 * time.Second // a turn over this fast that streamed nothin
 // turn's end stopped is a line in errOut.  A model off in the model list runs none (Refused).
 func Turn(name, role, body, workspace, out, session string, given Given, errOut io.Writer) (int, string, error) {
 	model, err := config.ModelNamed(name)
+	if given.Model != nil {
+		model, err = *given.Model, nil
+	}
 	if err == nil {
 		err = Refused(name)
 	}

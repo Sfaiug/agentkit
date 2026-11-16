@@ -25,8 +25,11 @@ func rule(name string) string {
 
 // opening is the opening of a turn of that role in workspace, before its task, as the turn was
 // given it: a review's rules carry the real-users rule where the workspace's AGENTS.md says
-// `users: real` at the target the work lands on (UsersDeclared).
+// `users: real` at the target the work lands on (UsersDeclared).  A bare turn has none.
 func opening(role, workspace string, given Given) string {
+	if given.Bare {
+		return ""
+	}
 	prompt := strings.ReplaceAll(rule(role), "{workspace}", workspace)
 	if UsersDeclared(workspace, given.UsersAt) == "real" {
 		gate := rule("gate")

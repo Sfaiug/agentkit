@@ -304,11 +304,8 @@ func (c *call) harnessWords(t *try) (bool, error) {
 }
 
 // said is what the harness itself said in the attempt, on a clean exit only its failure events.
-// `[stall] terminal` is one kind, a string, not a list of words.
 func (c *call) said(t *try) string {
-	stall, _ := config.Section(c.model.Harness, "stall")
-	terminal, _ := stall["terminal"].(string)
-	return harnessSaid(t.out, t.text, terminal, t.code == 0)
+	return harnessSaidOf(t.out, t.text, c.model.Harness, t.code == 0)
 }
 
 // signalled is a worker dead by signal, neither on the provider nor on the task: it resumes once, at

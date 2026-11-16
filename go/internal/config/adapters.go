@@ -214,13 +214,18 @@ func ManifestPaths(names []string, env map[string]string, cwd string) []string {
 // Unswitched is each file and folder a harness reads on its own, with no switch its adapter can
 // turn, as Python's config.unswitched_files: `[instructions] unswitched` resolved for env as
 // ManifestPaths does, a relative one under cwd, where the harness runs, and, where env names no
-// account, for its HOME alone too, where an adapter drops an account's home a seat handed down.
+// account, for its HOME alone too, where an adapter drops an account's home a seat handed down,
+// each once.
 func Unswitched(harness string, env map[string]string, cwd string) []string {
 	names, _ := Words(harness, "instructions", "unswitched")
 	names = slices.DeleteFunc(names, func(name string) bool { return !strings.Contains("~$", name[:min(len(name), 1)]) })
 	paths := ManifestPaths(names, env, cwd)
 	if env["AGENTKIT_ACCOUNT"] == "" {
-		paths = append(paths, ManifestPaths(names, map[string]string{"HOME": env["HOME"]}, cwd)...)
+		for _, path := range ManifestPaths(names, map[string]string{"HOME": env["HOME"]}, cwd) {
+			if !slices.Contains(paths, path) {
+				paths = append(paths, path)
+			}
+		}
 	}
 	return paths
 }

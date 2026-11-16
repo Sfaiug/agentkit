@@ -26,18 +26,14 @@ const (
 // outranks the others, unless an outage word stands beside it; otherwise the kinds of word are tried
 // strongest first.
 func Ending(name, said string, ran bool) (TurnEnding, string) {
-	heard := func(key string, common []string) []string {
-		words, _ := config.Words(name, "stall", key)
-		return slices.DeleteFunc(slices.Concat(words, common), func(word string) bool { return !says(said, word) })
-	}
-	if lost := heard("lost", nil); len(lost) > 0 {
+	if lost := heard(name, "lost", said, nil); len(lost) > 0 {
 		return Lost, lost[0]
 	}
 	kinds := make([][]string, len(adapters.Failures))
 	for rank, kind := range adapters.Failures {
-		kinds[rank] = heard(kind.Key, kind.Words)
+		kinds[rank] = heard(name, kind.Key, said, kind.Words)
 	}
-	if faults := heard("faults", adapters.Faults); !ran && len(kinds[len(kinds)-1]) == 0 && len(faults) > 0 {
+	if faults := heard(name, "faults", said, adapters.Faults); !ran && len(kinds[len(kinds)-1]) == 0 && len(faults) > 0 {
 		return Fault, faults[0]
 	}
 	for rank, words := range kinds {
@@ -46,4 +42,11 @@ func Ending(name, said string, ran bool) (TurnEnding, string) {
 		}
 	}
 	return Unsaid, ""
+}
+
+// heard is each of that harness's `[stall] key` words its own output says, its manifest's before
+// common, those every harness's failures use, as Python's Harness._heard reads them.
+func heard(name, key, said string, common []string) []string {
+	words, _ := config.Words(name, "stall", key)
+	return slices.DeleteFunc(slices.Concat(words, common), func(word string) bool { return !says(said, word) })
 }
