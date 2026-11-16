@@ -142,9 +142,15 @@ class Warm(unittest.TestCase):
         looker = self.warm()
         self.stop()
         forks, forked = self.forks(looker)
-        self.assertTrue(forks, "the looker's fork looked")
         self.assertEqual({what for event, what in forked if event == "open"} & self.resting, set())
-        self.assertNotIn(("os.scandir", str(self.runs)), forked, "the runs are listed once")
+        # The first fork judged the Stop, on every run read again as a cold judgement reads them
+        # (tests/test_key_a_turn_s_end_is_judged_warm.py), and only then started the look.
+        judged = next(pid for pid, parent, *_ in self.read() if parent == looker)
+        looks = forks - {judged}
+        self.assertTrue(looks, "the looker's fork looked")
+        self.assertNotIn(("os.scandir", str(self.runs)), {
+            (event, what) for pid, _, event, what in self.read() if pid in looks},
+            "the runs are listed once")
         self.assertEqual(self.cold(), set(), "nothing looked cold")
 
     def test_with_no_looker_up_the_turn_s_end_is_looked_at_cold(self):

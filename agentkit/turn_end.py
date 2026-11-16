@@ -3,8 +3,8 @@ and whether its question prompt goes up.
 
 `judge` hides how: the turn's latch and block counter, the transcript in each harness's shape,
 the question asked or left in prose, and the Stop written down for the seat's row.
-hooks/orchestrator-stop.sh runs it on every Stop and PreToolUse an orchestrator seat's harness
-hands it and prints its answer.
+hooks/orchestrator-stop.sh has it run on every Stop and PreToolUse an orchestrator seat's
+harness hands it, by the warm looker where one takes it (`looker.take`), and prints its answer.
 
 An orchestrator turn ends in exactly one of three ways -- an unanswered question through the
 harness's question prompt or `ak notify needs`, a run or live job it is waiting on, including
