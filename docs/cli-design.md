@@ -115,5 +115,4 @@ Nothing moves off a terminal or under `NO_COLOR`.
 ## Other listings
 
 `ak run status`, `ak orch list`, `ak usage` and `ak --help` print once, unframed: fixed columns,
-the screens' names, states and colours. Their colours are the theme's that config.toml names, black's
-where it names none: a listing paints no background and asks the terminal nothing.
+the screens' names, states and colours.
