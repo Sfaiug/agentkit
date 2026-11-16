@@ -16,9 +16,10 @@ this host has are upgraded, and by `ak update` none while a session is working; 
 upgrades one that is behind its latest release in the background, sessions or not (see
 `keep_current`), and no two upgrades ever run at once.  Agentkit itself moves after the
 harnesses either way, and the three-minute tick moves it on its own, in both cases only to a
-commit whose `tests/live.sh` has no regression where it has one (`live_target`), and never while
-a harness upgrade runs: its gates test one agentkit commit from start to end.  The tick starts a
-check only once the logins it lends will outlast it (`_waits_for_login`), `ak update` at once.
+commit whose `tests/live.sh` has no regression where it has one (`live_target`), on a client only
+to its home's (`follow`), and never while a harness upgrade runs: its gates test one agentkit
+commit from start to end.  The tick starts a check only once the logins it lends will outlast it
+(`_waits_for_login`), `ak update` at once.
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
@@ -47,7 +48,8 @@ PINS = {"DISABLE_AUTOUPDATER": "1", "MUSE_NO_AUTO_UPDATE": "1", "MUSE_LAUNCHER_I
 STEP_CAP = 30 * 60          # an upgrade that is not done in half an hour is not going to be
 LIVE_CAP = 2 * 60 * 60      # the gate makes real model calls and waits out two retry backoffs
 E2E_CAP = 90 * 60           # a fresh account, three harness installs and one real merged run
-FETCH_CAP = 60              # the tick's look at origin; one not back by then is offline
+FETCH_CAP = 60              # the tick's look at origin, a client's at its home: one not back
+                            # by then is offline
 START_WAIT = 2              # the detached start-up check's deadline for origin
 UPDATE_TAIL = 10            # how many of a failed start-up update's last lines the menu shows
 ASK_EVERY = 60 * 60         # how often the tick asks a harness's latest release, at most
@@ -58,6 +60,7 @@ MOVING = "agentkit-update.lock"  # under config.TMP: held by each move of ~/agen
 PUT_BACK = "put-back"  # under config.TMP: the last put-back's `handed`, as a live check's (back.py)
 PENDING = "agentkit-install-pending"  # under config.STATE: ~/agentkit's install.sh owed
 FAILED = "refs/release/failed/"  # in ak's repository: a commit put back (back.py)
+UNSETTLED = 3  # a home's answer to `follow` while its last move of ak is not final
 SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began, ended]
 SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
 LIVE = "live-checks"          # under config.STATE: one directory per check, `<commit>-<started>`
@@ -610,11 +613,17 @@ def startup():
         except OSError:
             pass            # the update still belongs to the checkout after its menu has gone
 
+    def progress(done, total):
+        send(progress=done / total)
+
     said, failed, moved = io.StringIO(), 0, False
     with redirect_stdout(said), redirect_stderr(said):
         try:
-            if agentkit_dir().resolve() == config.REPO and not left_as_is() and behind():
-                failed = update_agentkit(lambda done, total: send(progress=done / total))
+            # a client goes where its home's ak is, whatever origin's main is at
+            alias = config.server_alias()
+            if (agentkit_dir().resolve() == config.REPO and not left_as_is()
+                    and (alias or behind())):
+                failed = follow(alias, progress)[0] if alias else update_agentkit(progress)
                 moved = code_moved()   # even if install.sh then failed
         except Exception as exc:    # detached: the notice is the only way to hear a failure
             say(f"update: {exc!r}")
@@ -737,6 +746,56 @@ def update_agentkit(progress=None, pull=True):
         return 0
 
 
+def follow(alias, progress=None):
+    """Move ~/agentkit, on a client of `alias`, to the commit ~/agentkit is at on that home, as
+    every move of ak goes (`update_agentkit`), once the home's move there is final
+    (`versions.final`), its install.sh run again while it is owed: (exit code, "") once ~/agentkit
+    is that commit, its install.sh passed, else (exit code, why not).  The home ran the commit's
+    live checks already, so every move of a client goes here, a standby's pass included."""
+    # The home's own paths, which its shell resolves under its HOME: a Mac's under /Users follows
+    # a Linux home's under /home.  The home is no client, so its keep link is where
+    # `versions.keep_link` names it there.  A move links before it swaps, and a put-back swaps
+    # before it unlinks: a HEAD the same on both sides of no link is final.
+    def there(path):
+        return '"$HOME"/' + shlex.quote(str(path.relative_to(Path.home())))
+    head = f"git -C {there(agentkit_dir())} rev-parse --verify HEAD"
+    script = (f"head=$({head}) || exit\n"
+              f"[ ! -L {there(config.TMP / versions.KEEP)} ] || exit {UNSETTLED}\n"
+              f'[ "$({head})" = "$head" ] || exit {UNSETTLED}\n'
+              'echo "$head"')
+    try:
+        asked = subprocess.run(["ssh", alias, shlex.join(["sh", "-c", script])],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                               stderr=subprocess.DEVNULL, text=True, timeout=FETCH_CAP)
+        code, commit = asked.returncode, asked.stdout.strip()
+    except subprocess.TimeoutExpired:
+        code = 255
+    if code == 255:     # ssh's own failure
+        return 0, "it did not answer"
+    if code == UNSETTLED:
+        return 0, "its last move of ak is not final yet"
+    if code:
+        return 0, "it has no install of ak"
+    owed = config.STATE / PENDING
+    if _git("rev-parse", "HEAD")[1] != commit:
+        # forward only, as `versions.switch` goes, asked here: a move to a commit HEAD has
+        # would still run install.sh
+        ancestor = _git("merge-base", "--is-ancestor", commit, "HEAD")[0]
+        if not ancestor:
+            return 0, "this machine is ahead of it"
+        if commit in _failed():
+            return 0, f"{commit[:12]} is marked failed here"
+        if ancestor != 1:   # git's fatal, for a commit not here: from ak's remote, as the home's
+            _git("fetch", "--quiet", "origin", "main", timeout=FETCH_CAP)
+    elif not owed.exists():
+        return 0, ""
+    code = update_agentkit(progress, pull=commit)
+    if _git("rev-parse", "HEAD")[1] == commit and not owed.exists():
+        return code, ""
+    return code, (f"{commit[:12]} is marked failed here" if commit in _failed()
+                  else f"{commit[:12]} could not be had")
+
+
 def self_unavailable():
     """Why agentkit itself cannot move now, or an empty string when it can.
 
@@ -752,12 +811,19 @@ def update_self():
     """Fast-forward agentkit itself; the exit code.
 
     No checkout where one belongs is a skipped line rather than a failure: the harness
-    result already reported stands either way.
+    result already reported stands either way.  A client follows its home (`follow`), and a
+    line says why where it stays, no failure either.
     """
     why = self_unavailable()
     if why:
         print(f"update: agentkit: skipped: {why}")
         return 0
+    alias = config.server_alias()
+    if alias:
+        code, why = follow(alias)
+        if why and not code:    # a move that failed said why already
+            say(f"update: agentkit: does not follow {alias} yet: {why}")
+        return code
     code, lines = update_once("update")
     for line in lines:
         say(line)
