@@ -232,7 +232,8 @@ func openedLines(s terminal.Screen, told [][2]string, kind string, acts []string
 			joined, inks = joined+" · ", append(inks, kind)
 		}
 		joined += part[0]
-		for range strings.ReplaceAll(part[0], " ", "") {
+		// counted as Wrap keeps it: Plain, so any space character is a space
+		for range strings.ReplaceAll(terminal.Plain(part[0]), " ", "") {
 			inks = append(inks, part[1])
 		}
 	}
