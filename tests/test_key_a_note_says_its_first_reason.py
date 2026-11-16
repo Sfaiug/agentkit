@@ -1,12 +1,14 @@
-"""A note under `c`'s rows with no room for its first reason says that reason cut to the lines
-the rows leave, never only a count of what it does not show.
+"""A note under `c`'s rows with no room for its first reason names fewer seats until the reason
+fits the lines the rows leave, and cuts it to them only where no fewer names fit, never saying
+only a count of what it does not show.
 
 Black-box: `AK_BIN`, in a person's terminal (tests/fixtures/akterm.py) over seats as ak leaves
 them (tests/fixtures/akseat.py), their harnesses fakes (tests/fixtures/fakeadapter.py), as
 tests/test_key_an_apply_says_a_reason_once.py drives `a` on `c`: six seats on 6 Astra gone from
 tmux, whose move to Fable 5.1 the fake Claude Code's `auth` refuses on Claude I, their names and
-that reason two lines long, on a 100x25 terminal.  Fails against `/bin/false`, and against an ak
-that says "1 more reason" and nothing of the reason.
+that reason two lines long, on a 100x25 terminal; then six whose first name alone fills the
+line.  Fails against `/bin/false`, against an ak that says "1 more reason" and nothing of the
+reason, and against one that cuts off what was refused where fewer names would have fitted it.
 """
 
 import sys
@@ -22,8 +24,8 @@ from fixtures.akterm import SERVER, Terminal
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   a apply to all sessions   esc back"
 NO_LOGIN = "token expired; run claude, type /login and sign in again to open a seat here"
 SIX = [f"acme-fix-{number}" for number in range(1, 7)]
-# every name and the reason they lead, two lines long on 100 columns
-REASON = f"{', '.join(SIX)}: Fable 5.1: Claude I is signed out"
+LONG = [f"acme-fix-{'the-long-errand-' * 4}{number}" for number in range(1, 7)]
+WHY = "Fable 5.1: Claude I is signed out"
 OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 
@@ -58,11 +60,12 @@ class ANoteSaysItsFirstReason(unittest.TestCase):
                                    "astra": "codex"},
                        workers=["fable"], reviewers=["fable"],
                        providers={"anthropic": {"accounts": ["default", "acme-ii"]}})
-        for name in SIX:
+
+    def applied(self, names):
+        """The one line the rows leave the note once `a` held seats `names`, every row still up."""
+        for name in names:
             Seat(self.home, name, model="astra", alive=False,
                  record={"workers": ["astra"], "reviewers": ["astra"]})
-
-    def test_a_reason_longer_than_the_lines_left_is_cut_to_them(self):
         term = Terminal(self.home, size=(100, 25), env={"NO_COLOR": "1", **OFFLINE})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -72,16 +75,22 @@ class ANoteSaysItsFirstReason(unittest.TestCase):
         term.keys("a")
         term.wait(lambda screen: "  × Apply" in lines(screen))
         term.keys("Down", "Enter")
-        # the rows leave the note one line: the reason's start, every name leading it, cut there
         after = term.wait(lambda screen: key_line(screen) == KEYS
-                          and blocks(screen)[-2].startswith(f"  {', '.join(SIX)}: Fable"))
-        note = blocks(after)[-2].split("\n")
-        self.assertEqual(len(note), 1, after)
-        self.assertTrue(note[0].endswith("…"), after)
-        self.assertTrue(f"  {REASON}".startswith(note[0][:-1]), after)
+                          and blocks(screen)[-2].startswith(f"  {names[0]}"))
         self.assertEqual(matrix(after), matrix(before))
         # every row stays on screen, down to the last
         self.assertTrue(matrix(after)[-1].split("\n")[-1].startswith("  Theme "), after)
+        note = blocks(after)[-2].split("\n")
+        self.assertEqual(len(note), 1, after)
+        return note[0]
+
+    def test_a_reason_taller_than_the_lines_left_names_fewer_seats(self):
+        self.assertEqual(self.applied(SIX), f"  {', '.join(SIX[:4])} and 2 more: {WHY}")
+
+    def test_a_reason_no_fewer_names_fit_is_cut_to_the_lines_left(self):
+        note = self.applied(LONG)
+        self.assertTrue(note.endswith("…"), note)
+        self.assertTrue(f"  {LONG[0]} and 5 more: {WHY}".startswith(note[:-1]), note)
 
 
 if __name__ == "__main__":
