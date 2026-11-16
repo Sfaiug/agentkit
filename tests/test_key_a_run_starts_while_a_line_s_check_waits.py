@@ -59,10 +59,10 @@ class ARunStartsWhileALineSCheckWaits(unittest.TestCase):
         for rig in self.rigs.values():
             GitHub(home).grant(rig.slug, "WRITE")
 
-    def start(self, name):
+    def start(self, name, *flags):
         task = taskfile.write(self.home, self.rigs[name].path, f"Add retry to {name}",
                               name=f"{name}-{len(taskfile.runs(self.home))}")
-        done = self.home.ak("run", str(task), "--bg")
+        done = self.home.ak("run", str(task), "--bg", *flags)
         self.assertEqual(done.code, 0, done.out + done.err)
 
     def until(self, check, what):
@@ -89,7 +89,9 @@ class ARunStartsWhileALineSCheckWaits(unittest.TestCase):
         self.start("bolts")
         self.until(lambda: sorted(self.order()) == ["anvils", "bolts"],
                    "two lines' checks to hold both turns")
-        self.start("cogs")
+        # `--first`: on a host with no room for its suite, its check would otherwise wait for
+        # company rather than for a turn (test_key_the_suite_runs_once_for_a_batch)
+        self.start("cogs", "--first")
         self.until(lambda: self.lines_waiting() == 1, "the third line's check to wait")
         built = self.executor.n
         self.start("anvils")
