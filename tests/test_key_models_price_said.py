@@ -138,11 +138,12 @@ class PriceSaid(unittest.TestCase):
 
     def test_a_limit_says_every_figure_and_one_in_another_unit_or_none_says_nothing_more(self):
         for seat in (SEAT, None):
-            for unit, said in (("board_dollars", "keeps the best up to $0.305 a build"),
+            for unit, said in (("board_dollars", "keeps the best up to $0.105 a build"),
                                ("money", "")):
                 with self.subTest(seat=seat, unit=unit):
                     self.fresh()
-                    self.keep(seat, "executor", {"limit": 0.305, "cost_unit": unit,
+                    # under every choice's cost, so a seat's executor takes none
+                    self.keep(seat, "executor", {"limit": 0.105, "cost_unit": unit,
                                                  "model": "step", "effort": "high"})
                     term = self.models(seat)
                     term.keys("Down")
