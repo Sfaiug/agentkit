@@ -1550,12 +1550,17 @@ def _cleared(line):
         else f"{line}\033[K"
 
 
-def placed(row, line, theme=None):
-    """`line` written over the screen's `row`, its tail cleared, in `theme` where one is given,
-    whichever is in force as it goes out (`_Screen`): a row of the screen as it was before a
-    theme was chosen on it (`motion.Clock.rise`)."""
-    text = f"\033[{row};1H{_cleared(line)}"
-    return text if theme is None else _painted(text, theme)
+def rows(lines, theme=None):
+    """`lines`, a screen top down, as each row it reaches is written whole over what is up, its
+    tail cleared: blank under the lines, and the padding under them too, which a row past the
+    last is moved onto, as the padding over them goes with the first (`_Screen`); in `theme`
+    where one is given, whichever is in force as they go out.  What a theme chosen comes down
+    (`motion.Clock.rise`)."""
+    size, out = height() + _PAD, []
+    for row, line in enumerate([*lines, *[""] * size][:size], 1):
+        text = f"\033[{row};1H{_cleared(line)}"
+        out.append(text if theme is None else _painted(text, theme))
+    return out
 
 
 def unbroken(text):

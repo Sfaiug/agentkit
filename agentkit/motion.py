@@ -454,9 +454,7 @@ class Clock:
         """
         now, theme, moves = moment(), terminal.theme(), terminal.colour_depth() > 8
         if self.up and self.up[1] != theme and moves:
-            size = terminal.height()
-            self.turning = now, [terminal.placed(row, line, self.up[1])
-                                 for row, line in enumerate((self.up[0] + [""] * size)[:size], 1)]
+            self.turning = now, terminal.rows(*self.up)
             self.opened = -math.inf     # what was coming up is up: the theme comes down over it
         self.up = lines, theme
         opened = now if self.opened is None else self.opened    # not yet: by this draw's frame
@@ -491,9 +489,8 @@ class Clock:
         if self.turning:
             since, rows = self.turning
             below = 1 + max(1, round(len(rows) * eased((now - since) / THEMED)))
-            out = "".join(terminal.placed(row, line) if row < below else rows[row - 1]
-                          for row, line in enumerate((terminal.on_screen() + [""] * len(rows))
-                                                     [:len(rows)], 1))
+            out = "".join(new if row < below else old for row, (new, old) in
+                          enumerate(zip(terminal.rows(terminal.on_screen()), rows), 1))
             self.shown, self.turning = {}, self.turning if below <= len(rows) else None
         if self.rising:
             # from its first frame, not from the draw making it: however long that draw took,

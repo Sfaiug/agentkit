@@ -6,7 +6,8 @@ effect, rainbow effect, for progress and animations when selection things."  Mix
 from one theme to the other would pass through a grey half way that is both a row's text and its
 background; instead the rows above a line are in the new theme and those from it down are the
 screen as it was, in the old, the line reaching the last row 0.35 s on.  A key ends it on its
-last frame.
+last frame.  In a popup padded inside its border the padding is the screen's too: that over the
+rows comes down with the first, that under them with the last.
 
 Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour that sets no
 background (tests/fixtures/akterm.py) over one working seat (tests/fixtures/akseat.py), each row
@@ -40,7 +41,10 @@ def themes(rows):
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-class ThemeComesDownTheScreen(unittest.TestCase):
+class OnTheme(unittest.TestCase):
+    """`c` open on what ARGS and ENV start, black, its highlight on `Theme`."""
+    ARGS, ENV = (), {}
+
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
@@ -52,8 +56,8 @@ class ThemeComesDownTheScreen(unittest.TestCase):
         self.home.write(CONFIG, self.config)        # no theme named: black, as the terminal is
         self.clock = self.home.root / "clock"
         self.at(1000)
-        self.menu = menu = Terminal(self.home, size=SIZE, env={
-            "COLORTERM": "truecolor", "AK_MOTION_CLOCK": str(self.clock)})
+        self.menu = menu = Terminal(self.home, *self.ARGS, size=SIZE, env={
+            "COLORTERM": "truecolor", "AK_MOTION_CLOCK": str(self.clock), **self.ENV})
         self.addCleanup(self.home.tmux, "kill-session", "-t", menu.pane, server=SERVER)
         menu.wait("esc leave", 60)
         menu.keys("c")
@@ -72,9 +76,9 @@ class ThemeComesDownTheScreen(unittest.TestCase):
         new.replace(self.clock)
 
     def pointed(self, screen=None):
-        """The highlighted row."""
-        return next((line for line in (screen or self.menu.screen()).split("\n")
-                     if line.startswith("› ")), "")
+        """The highlighted row, from its first cell inside any padding."""
+        return next((line.lstrip() for line in (screen or self.menu.screen()).split("\n")
+                     if line.lstrip().startswith("› ")), "")
 
     def shows(self, wanted):
         """The screen's looks once each row is whole in the theme `wanted` names for it; on
@@ -95,6 +99,8 @@ class ThemeComesDownTheScreen(unittest.TestCase):
     def named(self):
         return tomllib.loads((self.home.path / CONFIG).read_text()).get("theme")
 
+
+class ThemeComesDownTheScreen(OnTheme):
     def test_white_comes_down_over_black_and_black_back_over_white(self):
         self.menu.keys("Right", "Space")            # white, chosen at 1001
         self.shows([WHITE] + [BLACK] * (SIZE[1] - 1))
@@ -120,6 +126,16 @@ class ThemeComesDownTheScreen(unittest.TestCase):
         self.shows([WHITE] * HALF + [BLACK] * (SIZE[1] - HALF))
         self.menu.keys("Up")                        # the clock still half way
         self.shows([WHITE] * SIZE[1])
+
+
+class ThemeComesDownAPaddedPopup(OnTheme):
+    ARGS, ENV = ("attach", "--overlay"), {"AGENTKIT_SESSION": "acme", "AGENTKIT_PADDING": "1"}
+
+    def test_its_padding_comes_down_with_its_rows(self):
+        self.menu.keys("Right", "Space")
+        self.shows([WHITE] * 2 + [BLACK] * (SIZE[1] - 2))     # the padding over the first row
+        self.at(1001.35)
+        self.shows([WHITE] * SIZE[1])                       # ... and under the last
 
 
 if __name__ == "__main__":
