@@ -162,8 +162,8 @@ func indexOf(releases []*boards.Release) map[string][]hit {
 	return index
 }
 
-// lineup is a row per current release and effort, with its values as the catalog joins them and
-// `yours`: each model of offers that found matches to this release alone, as {"harness", "model"},
+// lineup is a row per current release and effort, `name` as ak says it (config.Spoken) and
+// `board_name` as the board does, with its values as the catalog joins them and `yours`: each model of offers that found matches to this release alone, as {"harness", "model"},
 // at each effort it lists and at a row naming no effort, which is the model however it is run, or
 // at the release's default where it lists none but `none`.
 func lineup(held *run.Object, harnesses []any, offers map[string][]listing.Model) []any {
@@ -197,10 +197,12 @@ func lineup(held *run.Object, harnesses []any, offers map[string][]listing.Model
 	}
 	rows := []any{}
 	for _, release := range releases {
+		name, _ := release.Name.(string)
 		for _, effort := range release.Efforts {
 			row := run.NewObject()
 			row.Set("release", release.Slug)
-			row.Set("name", release.Name)
+			row.Set("name", config.Spoken(name))
+			row.Set("board_name", release.Name)
 			row.Set("maker", release.Maker)
 			if effort.Word == "" {
 				row.Set("effort", nil)
@@ -315,7 +317,12 @@ func rowsOf(lineup []any) []quality.Row {
 		if values == nil {
 			values = run.NewObject()
 		}
-		rows = append(rows, quality.Row{Release: row.Str("release"), Name: row.Str("name"),
+		// a lineup an earlier build stored has only its `name`, the board's
+		board := row.Str("name")
+		if row.Has("board_name") {
+			board = row.Str("board_name")
+		}
+		rows = append(rows, quality.Row{Release: row.Str("release"), Name: row.Str("name"), BoardName: board,
 			Effort: row.Str("effort"), Maker: row.Str("maker"), Values: values, Yours: row.Truthy("yours"), Runners: runners(row)})
 	}
 	return rows

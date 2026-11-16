@@ -146,12 +146,13 @@ func worth(kind string, best, value float64) float64 {
 	return 100 * ln10 / 400 * t / float64((1+t)*(1+t))
 }
 
-// A Row is one release at one effort: Effort "" where it names none, Values its numbers by column.
+// A Row is one release at one effort: Name as ak says it (config.Spoken), BoardName as the
+// board does, Effort "" where it names none, Values its numbers by column.
 type Row struct {
-	Release, Name, Effort, Maker string
-	Values                       *run.Object
-	Yours                        bool
-	Runners                      [][2]string // harness and model pairs the lineup found for this row
+	Release, Name, BoardName, Effort, Maker string
+	Values                                  *run.Object
+	Yours                                   bool
+	Runners                                 [][2]string // harness and model pairs the lineup found for this row
 }
 
 // A Measure is how a row got its score on one column: How "measured", "carried" (from the effort

@@ -80,7 +80,8 @@ func measure(rows []quality.Row, measured *Measures, names []string, models map[
 		makers: map[string]string{"": ""}, prices: map[string]*float64{}, rates: map[string]float64{}} // no maker names no provider
 	shares := measured.Shares
 	lineup := map[[2]string]quality.Row{}
-	var releases []*boards.Release // the lineup's, each under the name its last row gives it
+	// the lineup's, each under the name the board spells, as lineup matched it, of its last row
+	var releases []*boards.Release
 	named := map[string]*boards.Release{}
 	for _, row := range rows {
 		lineup[[2]string{row.Release, row.Effort}] = row
@@ -88,7 +89,7 @@ func measure(rows []quality.Row, measured *Measures, names []string, models map[
 			named[row.Release] = &boards.Release{Slug: row.Release}
 			releases = append(releases, named[row.Release])
 		}
-		named[row.Release].Name = row.Name
+		named[row.Release].Name = row.BoardName
 		if _, held := c.makers[row.Maker]; !held {
 			if c.makers[row.Maker], err = config.Company(row.Maker); err != nil {
 				return nil, err
