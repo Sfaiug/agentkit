@@ -26,7 +26,7 @@ from . import gitcall, history, suite_times
 WINDOW = 14 * 86400
 
 
-def now():
+def _now():
     """The time WINDOW ends at.  An answer key names its clock in `AK_ROUND_CLOCK`, a file of Unix
     seconds; unset, the real clock."""
     clock = os.environ.get("AK_ROUND_CLOCK")
@@ -47,7 +47,7 @@ def chosen(lp):
     changed = set(suite_times.origins(lp.wt, lp.base_sha))
     tests = sorted({file for file in (test.partition("::")[0] for test in times)
                     if os.path.normpath(file) in changed})
-    reds, piece, _ = history.test_audit(Path(lp.state["repo"]).name, now() - WINDOW)
+    reds, piece, _ = history.test_audit(Path(lp.state["repo"]).name, _now() - WINDOW)
     held = land.red_tests(deliver.turn_path(lp, lp.upstream), gitcall.git(
         lp.wt, "rev-parse", f"{lp.state.get('target_sha') or lp.upstream}^{{tree}}"))
     # One piece of the suite, a ceiling as WINDOW is: a suite cut finer runs fewer.
