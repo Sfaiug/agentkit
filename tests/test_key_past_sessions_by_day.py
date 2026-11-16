@@ -24,7 +24,9 @@ def at(days, hour, minute=0):
 
 
 SEATS = {"fix-api": at(0, 10), "fix-web": at(1, 9), "add-docs": at(3, 15, 30),
-         "old-search": at(10, 8)}
+         # a week ago by the date, under a week by the clock: the sweep behind the menu's first
+         # frame forgets a seat its owner stopped a week ago (config.SESSION_STALE)
+         "old-search": at(7, 23)}
 SHOWN = ("10:00", "09:00", time.strftime("%a 15:30", time.localtime(SEATS["add-docs"])),
          time.strftime("%-d %b", time.localtime(SEATS["old-search"])))
 
