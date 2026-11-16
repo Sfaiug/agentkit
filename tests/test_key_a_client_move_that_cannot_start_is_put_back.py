@@ -37,7 +37,7 @@ UNINSTALLED = """[update]
 version = ["acme-harness", "--version"]
 upgrade = ["acme-harness", "upgrade"]
 """
-KEPT = ".agentkit/tmp/keep/ak"     # where a home keeps the version a move replaced
+KEPT = ".agentkit/tmp/keep/ak"     # where a move keeps the version it replaced till final
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to build a machine here")
