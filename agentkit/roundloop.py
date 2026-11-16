@@ -21,7 +21,7 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from . import (beside_review, change_rules, config, gitcall, hand_in, handback, history, prompts, record as run_record,
-               staffing, suite_times, task as taskfile, transitions, turns, worker)
+               round_tests, staffing, suite_times, task as taskfile, transitions, turns, worker)
 
 
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
@@ -181,15 +181,16 @@ def settled_gate(lp):
         return None
     if "[killed at the limit]" in text or "[not run:" in text:
         return None
-    passed, total = prompts.done_when_counts(text, lp.every)
-    if lp.every and total != len(lp.every):
+    cmds = round_checks(lp, lp.every)
+    passed, total = prompts.done_when_counts(text, cmds)
+    if cmds and total != len(cmds):
         return None
     pinned = re.match(r"Commit: (\S+)\nTree: (\S+)\n", text)
     if pinned:
         lp.validation = {"head_sha": pinned.group(1), "tree_sha": pinned.group(2)}
     elif not lp.scratch:
         return None
-    ok = (passed == len(lp.every)) if lp.every else passed == total
+    ok = (passed == len(cmds)) if cmds else passed == total
     return ok and not files_scope(lp) and not rules_check(lp), text
 
 
@@ -309,6 +310,13 @@ def needs_base_proof(lp):
     (`regression_fails_before`), a repair's that it is proven at landing, and a scratch run's
     record that it has no base."""
     return lp.state.get("base_proof") == "owed"
+
+
+def round_checks(lp, cmds):
+    """The commands a round's checks run, as their log records them: the task's `cmds`, then the
+    target's `tests:` line where it runs the tests the change edits (`round_tests`)."""
+    named = round_tests.chosen(lp)
+    return [*cmds, named[0]] if named else cmds
 
 
 def own_checks(lp):
@@ -452,8 +460,9 @@ def regression_fails_before(lp):
 def verify_work(lp, cmds=None):
     """Pin done-when to a commit before running commands, including leftover executor edits.
 
-    Runs `cmds`, or the run's per-round commands when none are given. Checks deferred
-    to landing run through `final_check`.
+    Runs `cmds`, or the run's per-round commands when none are given, then the target's `tests:`
+    line on the tests the change edits (`round_tests`). Checks deferred to landing run through
+    `final_check`.
     """
     from . import gate  # here, not at the top: it reaches run
     if cmds is None:
@@ -477,6 +486,14 @@ def verify_work(lp, cmds=None):
     ok, text = check(cmds, lp.wt, lp.round_dir / "donewhen.log", lp.artifacts,
                      lp.done_when_limit, lp.log, silence=lp.turn_limit, run_dir=lp.run_dir,
                      checked=(lp.run_dir, lp.rnd, "done-when", head))
+    if named := round_tests.chosen(lp):
+        # One more check, on no suite turn: the line given just those tests (`AK_ONLY`), red by
+        # its exit, a pass that does not name each one as run among them (`gate.unnamed`).
+        passed, more = gate.run_done_when(
+            [named[0]], lp.wt, lp.round_dir / "donewhen.log", lp.artifacts, lp.done_when_limit,
+            lp.log, silence=lp.turn_limit, run_dir=lp.run_dir, shard="1/1", only=named[1],
+            checked=(lp.run_dir, lp.rnd, "done-when", head))
+        ok, text = ok and passed, f"{text}\n\n{more}"
     if not lp.scratch and not lp.state.get("review_pr") and (
             not clean or gitcall.commit_identity(lp.wt) != lp.validation or
             gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
@@ -1262,7 +1279,9 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     validation = getattr(lp, "validation", identity if lp.state.get("review_pr") else {})
     # A hand-built stand-in for the loop (as in test_v4c) carries no commands; the real
     # Loop always does, and only then are markers attributed to their commands.
-    passed, total = prompts.done_when_counts(dw_log, getattr(lp, "cmds", None))
+    cmds = getattr(lp, "cmds", None)
+    passed, total = prompts.done_when_counts(
+        dw_log, None if cmds is None else round_checks(lp, cmds))
     if lp.scratch:
         heading = f"## Done-when output (run by the loop; {passed} of {total} commands exited 0)"
     else:
