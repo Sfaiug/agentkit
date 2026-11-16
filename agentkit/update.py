@@ -648,9 +648,9 @@ def update_agentkit(progress=None, pull=True):
     Once install.sh passed, a move not final yet is put back (`back.put_back`) where the new
     version's `ak doctor` fails and the kept one's passes on this home: it is the new program
     that reads the home wrongly, and its next tick would act on that reading.  A fault both
-    show is the home's.  A client runs no tick, so its move is final once the program it put live
-    starts, up to the ssh it would run, and put back where it does not: the next `ak` typed there
-    is that program.
+    show is the home's.  A client's move is put back where the program it put live does not start,
+    up to the ssh it would run: the next `ak` typed there is that program.  Where no keeper runs
+    (`versions.keeper`), its start is what makes the move final; on a standby, its next pass.
     """
     from . import back   # here, before the move: after it, ~/agentkit holds the new version's code
     config.ensure_dirs()
@@ -672,10 +672,10 @@ def update_agentkit(progress=None, pull=True):
         if config.server_alias() and pending.exists() and not versions.kept():
             # before a move on from it, whose tidy would remove the version to put back
             versions.relink(directory)
-        if pull and versions.kept() and not config.server_alias():
+        if pull and versions.kept() and versions.keeper():
             # no move starts before the last is final (versions.final); an owed install still
-            # runs.  A client has no keeper to put back one whose install.sh keeps failing, so
-            # it moves on with its home, a fix to that install.sh included
+            # runs.  A client with no keeper to put back one whose install.sh keeps failing moves
+            # on with its home, a fix to that install.sh included
             say("update: agentkit: moves once a tick of the version live now completes")
             if not pending.exists():
                 return 0
@@ -740,8 +740,9 @@ def update_agentkit(progress=None, pull=True):
                 if code:
                     back.put_back(f": its {shlex.join(argv)} exited {code}")
                     return 1
-            # final, the link gone first: the next move keeps a link it finds as its way back
-            versions.keep_link().unlink(missing_ok=True)
+            if not versions.keeper():
+                # final, the link gone first: the next move keeps a link it finds as its way back
+                versions.keep_link().unlink(missing_ok=True)
         elif kept:
             # while the install is still owed, so no tick ending meanwhile makes the move final
             doctor = versions.run([ak, "doctor"], **PINS)[0]
@@ -793,6 +794,9 @@ def follow(alias, progress=None):
             return 0, "this machine is ahead of it"
         if commit in _failed():
             return 0, f"{commit[:12]} is marked failed here"
+        # no move starts before the last is final (update_agentkit), whose why this is
+        if versions.kept() and versions.keeper() and not owed.exists():
+            return 0, "the last move of ak here is not final yet"
         if ancestor != 1:   # git's fatal, for a commit not here: from ak's remote, as the home's
             _git("fetch", "--quiet", "origin", "main", timeout=FETCH_CAP)
     elif not owed.exists():

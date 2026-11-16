@@ -12,10 +12,11 @@ finds changed or added in a version swapped out keeps it there all the same.  Ea
 record in the repository is locked: a `git worktree prune` that could not see ~/agentkit would
 take it, and without it no git works there and nothing moves it again.
 
-A move is final only once a tick of the version it put live completes with its install.sh passed
-(`final`), on a client, which runs no tick, once that version starts after it
-(`update.update_agentkit`): until then the version it replaced is kept (`kept`), for the way back
-(`back`) to run from, and on a home nothing else moves.
+A move is final only once a tick of the version it put live completes with its install.sh passed,
+or on a standby a pass of it ends well (`final`), on any other client, which runs neither, once
+that version starts after it (`update.update_agentkit`): until then the version it replaced is
+kept (`kept`), for the way back (`back`) to run from, and where a keeper puts it back (`keeper`)
+nothing else moves.
 
 A clone at ~/agentkit is adopted at its first move, once it is main as origin left it
 (`update.left_as_is`): its repository goes to `REPOSITORY`, a link left in its place, and each
@@ -99,6 +100,15 @@ def keep_link():
     return config.TMP / KEEP
 
 
+def keeper():
+    """Whether a keeper puts back here a move nothing made final, the cron line running it
+    (`back --when-broken`): on a home before each tick, and on a standby before each pass, either
+    of which makes the move final.  No other client runs one, nor either: there the move makes
+    itself final once the program it put live starts (`update.update_agentkit`)."""
+    from . import standby     # here, not at the top: it imports this module
+    return not config.server_alias() or (config.TMP / standby.FOLDER).is_dir()
+
+
 def kept():
     """The version the last move replaced, while that move is not final: the folder of the bin/ak
     `keep_link` names, else None."""
@@ -125,12 +135,12 @@ def relink(live):
 
 
 def final(ended, completed=True):
-    """A tick's end at `ended`.  Only a tick that began from the folder at ~/agentkit now proves
-    that version runs, and one that `completed` makes the move that put it live final, once no
-    install.sh is owed (`update.PENDING`): a version that never installs is put back.  One that
-    began in the version the move replaced, the tick that made it among them, sets the link's
-    time to its end however it ends: no tick of the version live runs while it holds the tick
-    lock, so `back` counts its hour from there."""
+    """A tick's end at `ended`, or a standby's pass's.  Only a tick that began from the folder at
+    ~/agentkit now proves that version runs, and one that `completed` makes the move that put it
+    live final, once no install.sh is owed (`update.PENDING`): a version that never installs is
+    put back.  One that began in the version the move replaced, the tick that made it among them,
+    sets the link's time to its end however it ends: no tick of the version live runs while it
+    holds the tick lock, so `back` counts its hour from there."""
     from . import update     # here, not at the top: it imports this module
     link = keep_link()
     if not (config.BEGAN and os.path.lexists(link)):

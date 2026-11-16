@@ -1,15 +1,15 @@
 """`ak back [--when-broken]`: the last move of ~/agentkit put back, by the version it replaced.
 
 A move links that version's bin/ak at `versions.keep_link` until the move is final (`versions`),
-and while the link is there a home's cron line runs it with --when-broken before each tick, which
-puts the move back once `WAIT` has passed from the link's time: the move gives it, and the tick
-that made the move sets it to its own end.  `ak back` puts it back at once, and so does the move
-itself where the version it put live reads the home as broken and the one it replaced does not,
-or on a client, which runs no tick, where the program it put live does not start
-(`update.update_agentkit`).  The commit put back first gets a ref under `update.FAILED`, so no
-move goes to it again; once it is back the owner is paged, and on a home a seat is handed it to
-fix (`update.put_back_hand_back`), whose merge every move then waits for.  Every later step reads
-and runs from the version put back at ~/agentkit.
+and while the link is there the cron line runs it with --when-broken before each tick on a home,
+or each pass on a standby, which puts the move back once `WAIT` has passed from the link's time:
+the move gives it, and the tick or pass that made the move sets it to its own end.  `ak back`
+puts it back at once, and so does the move itself where the version it put live reads the home
+as broken and the one it replaced does not, or on a client where the program it put live does
+not start (`update.update_agentkit`).  The commit put back first gets a ref under
+`update.FAILED`, so no move goes to it again; once it is back the owner is paged, and on a home a
+seat is handed it to fix (`update.put_back_hand_back`), whose merge every move then waits for.
+Every later step reads and runs from the version put back at ~/agentkit.
 """
 
 import fcntl
@@ -38,9 +38,10 @@ def main(argv):
             return 1
         if not argv:
             return put_back(" by hand")
-        within = terminal.format_age(WAIT)
+        within, alias = terminal.format_age(WAIT), config.server_alias()
         return put_back(f": its install.sh has not passed within {within}"
                         if (config.STATE / update.PENDING).exists()
+                        else f": no pass of it copied {alias} within {within}" if alias
                         else f": no tick of it completed within {within}", WAIT)
 
 

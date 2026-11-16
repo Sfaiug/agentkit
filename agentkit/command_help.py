@@ -240,10 +240,11 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                 "is at one of those kept or left out, at a folder between it and ak's folder, or at a\n"
                 "folder between HOME and a harness's login or conversations; one while a pass is under way\n"
                 "copies nothing.  After the copy, move ak here forward to the commit ak is at on that home,\n"
-                "once its move there is final, and run its install.sh again while it is owed.  Without\n"
-                "ALIAS, show the home this machine copies and the copy's age, from when the last pass that\n"
-                "ended well began, and why ak here does not follow that home yet: exit 1 if none from that\n"
-                "home has.",
+                "once its move there is final, and run its install.sh again while it is owed.  A move here\n"
+                "is final once a pass of it ends well: the job puts back one that none has within an hour,\n"
+                "and no pass goes to that commit again.  Without ALIAS, show the home this machine copies\n"
+                "and the copy's age, from when the last pass that ended well began, and why ak here does\n"
+                "not follow that home yet: exit 1 if none from that home has.",
                 "ak standby acme-mini"),
 }
 
