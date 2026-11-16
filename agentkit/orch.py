@@ -52,7 +52,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, terminal, transitions, update, usage, versions
+from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, suite_times, terminal, transitions, update, usage, versions
 from . import record as run_record
 from .harness import LAUNCH_KEYS, LAUNCHER, claims, entries, load as harness_plugin
 
@@ -4066,6 +4066,16 @@ def cmd_project(argv):
         if files:
             for part in terminal.wrap(f"changing: {', '.join(sorted(files))}", room):
                 print(f"    {part}")
+    if suite_times.unreported(repo):
+        # `~` holds each space of the line a runner prints, so wrapping at any width neither
+        # closes up nor breaks at the two ak reads
+        for part in terminal.wrap(
+                "this project's suite reports no tests to ak, so a landing cannot retry or narrow "
+                "a red by the tests that failed, the suite is cut into pieces by count instead "
+                "of by time, and a round runs none of the change's tests: its runner must print "
+                "`PASS~~<file>~(<seconds>s)` for each file that passes and take ak's files "
+                "AK_ONLY, AK_RAN, AK_FAILED and AK_NOT_THERE", terminal.layout_width()):
+            print(part.replace("~", " "))
     return 0
 
 

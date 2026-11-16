@@ -696,6 +696,20 @@ def test_audit(repo):
     return reds, median(piece[0] for piece in pieces) if pieces else None, days
 
 
+def landing_checks(repo):
+    """`(run, tree, command, exit)` of each landing check under a finished run of the repository
+    named `repo`: a run going may be between a red and its re-run, and its suite's times are kept
+    only as its whole list ends (`gate.run_done_when`)."""
+    try:
+        with contextlib.closing(_connect(readonly=True)) as connection:
+            return connection.execute(
+                "SELECT checks.run_id, checks.tree, checks.command, checks.exit FROM checks "
+                "JOIN runs USING (run_id) WHERE runs.repo=? AND runs.finished_at IS NOT NULL "
+                "AND checks.kind='landing'", (repo,)).fetchall()
+    except (OSError, sqlite3.Error):
+        return []
+
+
 @contextlib.contextmanager
 def conflicts(run_id, how, target, tip, *, log=None):
     """One row per file handed to a conflict fixer; its outcome ends with the fixer rounds.
