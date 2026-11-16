@@ -1,7 +1,8 @@
 """Machines for a standby's keys (tests/fixtures/twohomes.py): two on the one the test runs on,
-alike, each with a host name, a home at the other's path, a /tmp, fakes, variables and a cgroup
-root of its own, and each reaching the other by ssh as the key and the tick reach it; a third
-where a key names one; and one a key holds made the other's client, silent or hanging."""
+alike, each with a host name, a home at the other's path, a /tmp, fakes, variables, a cgroup
+root and an ak install of its own, and each reaching the other by ssh as the key and the tick
+reach it; a third where a key names one; one a key holds made the other's client, silent or
+hanging; and their installs' one origin, which a fetch reaches from either, the other silent."""
 
 import os
 import sys
@@ -9,7 +10,9 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, boxable
+from fixtures import akconfig
+from fixtures.akbin import boxable
+from fixtures.akinstall import ORIGIN
 from fixtures.twohomes import Machines
 
 REFUSED = "systemctl: not scripted in this test\n"
@@ -32,6 +35,8 @@ class TwoHomes(unittest.TestCase):
             done = machine.run("ssh", "-o", "BatchMode=yes", "-T", other.name, "hostname")
             self.assertEqual((done.code, done.out), (0, f"{other.name}\n"))
             self.assertEqual(machine.run("ssh", "acme-nas", "hostname").code, 255)
+            # git's fetch of the origin, and nothing else, reaches it
+            self.assertEqual(machine.run("ssh", "git@github.com", "hostname").code, 255)
 
     def test_a_command_of_any_length_reaches_the_other_whole(self):
         for machine, other in self.pairs:
@@ -67,7 +72,8 @@ class TwoHomes(unittest.TestCase):
         machine's tick, in the program's place, and over ssh from `other`."""
         machine.fake("acme-line", f"#!/bin/sh\n{line}\n")
         ways = (machine.run("acme-line"),
-                machine.tick(box=("--ro-bind", machine.at / "bin" / "acme-line", AK)),
+                machine.tick(box=("--ro-bind", machine.at / "bin" / "acme-line",
+                                  machine.program)),
                 other.run("ssh", machine.name, "acme-line"))
         return [done.out for done in ways]
 
@@ -144,6 +150,36 @@ class TwoHomes(unittest.TestCase):
         vm.answer()
         done = mini.run("ssh", vm.name, "hostname")
         self.assertEqual((done.code, done.out), (0, "acme-vm\n"), done.err)
+
+    def test_each_has_an_install_on_main_of_the_one_origin_that_is_no_machine(self):
+        for machine in self.machines:
+            install = machine.install
+            self.assertEqual(install.git("rev-parse", "--abbrev-ref", "HEAD"), "main")
+            self.assertEqual(install.git("remote", "get-url", "origin"), ORIGIN)
+            self.assertEqual(install.head(), install.origin())
+            for each in self.machines:
+                self.assertNotEqual(each.run("ls", install.bare).code, 0)
+
+    def test_a_fetch_on_either_brings_the_next_commit_and_moves_no_install(self):
+        with Machines("acme-mini", "acme-vm") as (mini, vm):
+            start, tip = mini.install.head(), vm.install.advance()
+            for machine in (mini, vm):
+                machine.install.git("fetch", "-q", "origin")
+                self.assertEqual(machine.install.git("rev-parse", "origin/main"), tip)
+                self.assertEqual((machine.install.head(), machine.install.installs()), (start, 0))
+            vm.silence()
+            tip = mini.install.advance()
+            mini.install.git("fetch", "-q", "origin")
+            self.assertEqual(mini.install.git("rev-parse", "origin/main"), tip)
+
+    def test_a_tick_moves_the_install_it_runs_from_alone(self):
+        with Machines("acme-mini", "acme-vm") as (mini, vm):
+            akconfig.write(mini, ["opus"])
+            start, tip = vm.install.head(), mini.install.advance()
+            done = mini.tick()
+            self.assertEqual(done.code, 0, done.out + done.err)
+            self.assertEqual((mini.install.head(), mini.install.installs()), (tip, 1))
+            self.assertEqual((vm.install.head(), vm.install.installs()), (start, 0))
 
     def test_a_third_machine_a_key_names_reaches_both_and_is_reached_by_both(self):
         with Machines("acme-mini", "acme-vm", "acme-laptop") as (*pair, laptop):

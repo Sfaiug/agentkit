@@ -91,7 +91,7 @@ class Runner(unittest.TestCase):
         slow.write_text("#!/bin/sh\nsetsid sh -c 'sleep 65; touch \"$HOME/ended\"' "
                         "</dev/null >/dev/null 2>&1 &\n")
         slow.chmod(0o755)
-        with patch("fixtures.akbin.AK", str(slow)):
+        with patch.object(self.home, "program", str(slow)):
             done = self.home.tick()
         self.assertEqual(done.code, 0, done.err)
         self.assertTrue((self.home.path / "ended").exists())

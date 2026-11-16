@@ -1,7 +1,10 @@
 """Machines alike, on the one a test runs on, for a standby's keys: each an akbin `Home` whose
 host name, as `hostname` and `socket.gethostname()` give it, is its name, whose root, HOME
 included, is at the one path every machine's is at, with a /tmp of its own, and whose `ssh`
-reaches every machine by its name and fails as ssh does, 255, for any other.
+reaches every machine by its name and fails as ssh does, 255, for any other.  Each has ak's
+install (tests/fixtures/akinstall.py), `install`, and runs its ak: ~/agentkit, a clone of one bare
+origin, which all machines share and no machine is, so it answers while any is off; that `ssh`
+serves git's fetch of it too.
 
     from fixtures.twohomes import Machines
     with Machines("acme-mini", "acme-vm") as (mini, vm):
@@ -31,12 +34,14 @@ import select
 import shlex
 import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
 from pathlib import Path
 
-from .akbin import _FILES, AK, REPO, Home, _binds, _end, _strays, _wait_gone
+from .akbin import _FILES, AK, REPO, SYSTEM, Home, _binds, _end, _strays, _wait_gone
+from .akinstall import FETCH, Install, make
 from .installer import CRONTAB
 
 # ssh [-o OPTION | -FLAG]... NAME [COMMAND]...: NAME and COMMAND, a line however long, to the
@@ -58,9 +63,9 @@ with socket.socket(socket.AF_UNIX) as asked:
 
 
 class Machine(Home):
-    """A machine, `name`, with its root at `at`."""
+    """A machine, `name`, with its root at `at` and its install a clone of `origin`'s."""
 
-    def __init__(self, name, at):
+    def __init__(self, name, at, origin):
         super().__init__(at=at)
         self.name = name
         self.down = None    # how ssh to it fails: "silent", or "hang"
@@ -70,6 +75,11 @@ class Machine(Home):
         # machine, and what a key freezes or empties there is none of the host's
         (self.root / "cgroups").mkdir()
         self.env["AK_CGROUP_ROOT"] = str(self.at / "cgroups")
+        # Python's bytecode beside it too: the ak it runs leaves its home's tree as it was
+        self.env["PYTHONPYCACHEPREFIX"] = str(self.at / "pycache")
+        self.install = Install(self, origin)
+        self.program = self.install.ak     # ak moves an install only when it runs from it
+        # over the install's: a machine's one ssh reaches the origin and the machines alike
         self.fake("ssh", f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -I -c "
                          f'{shlex.quote(SSH)} {shlex.quote(str(self.sshd))} "$@"\n')
         self.fake("crontab", CRONTAB.format(table=shlex.quote(str(self.at / "crontab"))))
@@ -138,11 +148,13 @@ class Machine(Home):
 
 
 class Machines(tuple):
-    """Machines of these names, each with its sshd; `close` ends them all."""
+    """Machines of these names, each with its sshd and its install of their one origin; `close`
+    ends them all."""
 
     def __new__(cls, *names):
         at = Path(tempfile.mkdtemp(prefix="akbin-")).resolve()
-        machines = super().__new__(cls, [Machine(name, at) for name in names])
+        origin = make(at)     # beside the machines' roots, in no machine
+        machines = super().__new__(cls, [Machine(name, at, origin) for name in names])
         machines.sshds = []
         for machine in machines:
             listener = socket.create_server(str(machine.sshd), family=socket.AF_UNIX)
@@ -178,8 +190,9 @@ def _sshd(listener, machines):
 
 
 def _session(peer, machines):
-    """Run what an ssh asks on the machine it names, with its input and outputs, and answer its
-    exit; an ssh gone before it ends ends it, as sshd does."""
+    """Run what an ssh asks on the machine it names, or git's fetch of the origin on this side,
+    with its input and outputs, and answer its exit; an ssh gone before it ends ends it, as sshd
+    does."""
     with peer:
         asked, fds, _, _ = socket.recv_fds(peer, 1 << 16, 3)
         proc = hung = None
@@ -191,7 +204,12 @@ def _session(peer, machines):
                 asked += more
             name, command = json.loads(asked)
             machine = next((machine for machine in machines if machine.name == name), None)
-            if machine is None:
+            if (name, command) == FETCH:
+                proc = subprocess.Popen(["git-upload-pack", machines[0].install.bare],
+                                        stdin=fds[0], stdout=fds[1], stderr=fds[2],
+                                        env={"PATH": os.pathsep.join(SYSTEM)},
+                                        start_new_session=True)
+            elif machine is None:
                 os.write(fds[2], f"ssh: Could not resolve hostname {name}: "
                                  "Name or service not known\n".encode())
             elif machine.down == "hang":
