@@ -110,9 +110,10 @@ def kept():
 
 def relink(live):
     """The version the move to `live`'s commit replaced, linked at `keep_link` where a client's
-    move linked none, as before clients kept one: else its install.sh failing left the retry
-    nothing to put back to.  `switch` names the folder it checks a commit out in for that commit,
-    and the exchange leaves the version replaced there.  None where no such folder is left."""
+    move linked none, as before clients kept one: else its install.sh failing left the retry, or
+    a move on from it, nothing to put back to, and that move's `tidy` removed it.  `switch` names
+    the folder it checks a commit out in for that commit, and the exchange leaves the version
+    replaced there.  None where no such folder is left."""
     code, head = git(live, "rev-parse", "HEAD")
     for path in [] if code else sorted((config.HOME / VERSIONS).glob(f"{head[:12]}.*")):
         found = git(path, "rev-parse", "HEAD")
