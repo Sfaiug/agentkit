@@ -52,7 +52,7 @@ python3 "$REPO/tests/test_after.py"
 
 
 # Every test file runs, but "tests of code that is not shipped run only for changes that touch
-# that code" (suite_shares.go_left_out). [15 Nov]
+# that code" (suite_shares.go_left_out, python_left_out). [15 Nov]
 class SuiteRunsEveryFile(unittest.TestCase):
     def checkout(self, files, smoke="#!/usr/bin/env bash\n"):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-every-file-", dir=REPO)

@@ -11,9 +11,13 @@ import sys
 import tempfile
 import time
 
-from suite_shares import SMOKE, STATIC_CHECKS, go_left_out, listed, name_failed, smoke_share
+from suite_shares import (SMOKE, STATIC_CHECKS, go_left_out, listed, name_failed, python_left_out,
+                          smoke_share)
 
 only = listed()
+# A whole run leaves out the tests its change cannot alter: of Go's (go_left_out), and where it is
+# Go's alone, of Python's (python_left_out).
+left = go_left_out(".") | python_left_out(".") if only is None else set()
 if only is not None:
     # A listed smoke.sh runs whole: it would otherwise run only this share.
     os.environ["AK_SHARD"] = "1/1"
@@ -27,12 +31,13 @@ os.environ["AK_SMOKE_FAILED"] = blocks.name
 
 
 def part(*command):
-    """`command`, whose last word is its test's ID, or one that runs nothing when AK_ONLY lists
-    tests and neither that one nor a block of it; a listed one is named as run, a block by
-    smoke.sh itself (suite_shares.smoke_source)."""
+    """`command`, whose last word is its test's ID, or one that runs nothing when the run leaves
+    that test out (`left`) or AK_ONLY lists tests and neither that one nor a block of it; a
+    listed one is named as run, a block by smoke.sh itself (suite_shares.smoke_source)."""
     if only is not None and command[-1] in only:
         name_failed([command[-1]], "AK_RAN")
-    return (command if only is None or any(test.split("#")[0] == command[-1] for test in only)
+    return (command if command[-1] not in left and (
+                only is None or any(test.split("#")[0] == command[-1] for test in only))
             else (sys.executable, "-c", ""))
 
 
@@ -44,10 +49,9 @@ def status(code):
 
 # A red static check ends the share in seconds, not after its whole run and the re-run alone.
 # All of them run, so one landing names every one that fails, but Go's build where the change
-# can alter no claim of Go's (go_left_out).
-left = go_left_out(".") if only is None else set()
+# can alter no claim of Go's.
 codes = {check: subprocess.call(part(sys.executable, check), stderr=subprocess.STDOUT)
-         for check in (f"tests/{name}.py" for name in STATIC_CHECKS) if check not in left}
+         for check in (f"tests/{name}.py" for name in STATIC_CHECKS)}
 if failed := [check for check, code in codes.items() if code]:
     name_failed(failed)
     sys.exit(status(codes[failed[0]]))
@@ -86,7 +90,7 @@ if smoke:
     started = ran.read_text().splitlines() if ran.exists() else []
     name_failed(dict.fromkeys(Path(blocks.name).read_text().splitlines())
                 or [test for test in started if test.startswith(f"{SMOKE}#")]
-                or (smoke_share(Path(SMOKE)) if only is None else []) or [SMOKE])
+                or (smoke_share(Path(SMOKE), left) if only is None else []) or [SMOKE])
 if contract.returncode:
     name_failed(["tests/gate_contract.py"])
 sys.exit(status(code or smoke or contract.returncode))
