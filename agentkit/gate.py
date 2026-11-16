@@ -1175,15 +1175,19 @@ def places(piece_cpus, piece_mem_mb):
 
 def fits_whole(command, cwd):
     """Whether the host has room now, beside the turns held here, for every piece of the suite
-    `command` at once, as `derived_heavy_limit` reads it at the cost its turn is admitted at
-    (`_acquire_gate_turn`): a suite in pieces takes each turn the host frees (`_GateHold.take`),
-    so as many as the slice's cores and memory fit with nothing running; one not cut into
-    pieces is one.  Where neither resource answers it has, as the derived limit fails open."""
-    pieces = names_shard(command)
-    cost = suite_cost(command, cwd, None)[1:] if pieces else (HEAVY_CPUS, HEAVY_MEM_MB)
+    `command` at once, as `derived_heavy_limit` reads it at a piece's measured cost under the
+    check's own memory limits: a suite in pieces takes each turn the host frees
+    (`_GateHold.take`), so as many as fit with nothing using the cores or memory, work outside
+    the runs and in the check's own cgroup included, and its hard caps' room as it is; one not
+    cut into pieces is one.  Where neither resource answers it has, as the derived limit fails
+    open."""
+    cost = suite_cost(command, cwd, None)[1:]
     readings, others = _run_readings(), _heavy_held()
-    room = _more(readings, len(others), *cost, pieces, others)
-    every = _more(readings, 0, *cost, pieces, (), whole=True) if pieces else 1
+    room = _more(readings, len(others), *cost, True, others)
+    idle = {**readings, "load": 0, "slice_cpu_used": 0, "outside_cpu_used": 0,
+            "slice_memory_used_mb": 0, "free_mb": readings.get("mem_total_mb"),
+            "unit_limits": None, "unit_memory_current_mb": 0}
+    every = _more(idle, 0, *cost, True, ()) if names_shard(command) else 1
     return room is None or room >= max(1, every or 0)
 
 
@@ -1195,10 +1199,9 @@ def _room_readings():
     return readings if kept is None else {**readings, "slice_cpu_used": kept}
 
 
-def _more(readings, running, job_cpus, job_mem_mb, unit, others, whole=False):
-    """How many more jobs fit beside `running`, as `derived_heavy_limit` weighs them, with
-    `whole` as if all the slice's cores and memory were free; None where neither resource
-    answers."""
+def _more(readings, running, job_cpus, job_mem_mb, unit, others):
+    """How many more jobs fit beside `running`, as `derived_heavy_limit` weighs them; None where
+    neither resource answers."""
     cpu_quota = host._reading(readings, "slice_cpu_quota")
     cpus = host._reading(readings, "cpus", "nproc")
     used = host._reading(readings, "slice_cpu_used")
@@ -1234,8 +1237,6 @@ def _more(readings, running, job_cpus, job_mem_mb, unit, others, whole=False):
         room = host._reading(readings, "unit_memory_max_headroom_mb")
         if room is not None:
             mem_free = min(mem_free, room) if mem_free is not None else room
-    if whole:
-        cpu_free, mem_free = cpu_whole, mem_whole
     candidates = []
     if cpu_free is not None:
         candidates.append(_fits(cpu_free, job_cpus))

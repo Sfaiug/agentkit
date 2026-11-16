@@ -1,6 +1,7 @@
 """On a busy host a lander starts no whole run of a suite before its line has waited: without
-room for all its pieces at once, though some fit, a pass starts none until the line's
-longest-ready member without a verdict has been in line two hours, then checks everyone ready
+room for all its pieces at once, though some fit or what takes the rest runs outside ak's
+runs, a pass starts none until the line's longest-ready member without a verdict has been in
+line two hours, then checks everyone ready
 together, so one whole run covers two hours of changes; a member the pass would not check, its
 own process still running, opens no wait however long it has been in line.  With room for all
 its pieces nothing waits, nor does a line holding a run launched `--first`, nor a project with no
@@ -87,6 +88,12 @@ class TheSuiteRunsOnceForABatch(unittest.TestCase):
         self.join()
         self.land(IDLE)
         self.assertEqual(self.checked(), (1, [True]), self.line.runs())
+
+    def test_cores_busy_outside_aks_runs_leave_no_room_for_all_its_pieces(self):
+        self.join()
+        self.land({**IDLE, "load": 3, "slice_cpu_quota": 4, "slice_cpu_used": 0,
+                   "outside_cpu_used": 3})
+        self.assertEqual(self.checked(), (0, [False]), self.line.runs())
 
     def test_a_member_launched_first_is_checked_at_once_on_a_busy_host(self):
         self.join(first=True)
