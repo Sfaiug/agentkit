@@ -5,7 +5,8 @@ in its column, on 40 cells and on 100, and its effort, and under a shaded one, s
 shaded cells and never over a dearer bar, its why led by `░`;
 `━` under the name of the row the role uses.  ↑↓ draw another role's bars; `ak models` prints
 every role's in turn under its role lines, and on 40 cells, its costs $100 and more, all five
-with every line on the screen.
+with every line on the screen.  On a page too short for every role's line the heading stays
+over the roles it shows.
 
 Black-box: `AK_BIN` in a terminal of 40 rows (tests/fixtures/akterm.py) and as `ak models`, a
 fake harness running three of the releases, each for a role of [defaults], the boards held as
@@ -160,6 +161,21 @@ class ModelsBars(unittest.TestCase):
                           ("Up", "orchestrator")):
             term.keys(key)
             term.wait(lambda screen: drawn(screen, word) == want(word))
+
+    def test_a_page_too_short_for_every_role_keeps_the_heading_over_the_roles_it_shows(self):
+        term = Terminal(self.home, size=(40, 12), env=ENV)
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
+                        server=SERVER)
+        term.wait("esc leave")
+        term.keys("c")
+        term.wait("r recommended")
+        term.keys("r")
+        term.wait("› orchestrator")
+        term.keys("Down", "Down")
+        shown = term.wait("› reviewer").split("\n")
+        self.assertEqual([line.split()[:2] for line in shown[2:7]],
+                         [["quality", "$"], ["executor", "100.0"], ["Acme", "Top"],
+                          ["›", "reviewer"], ["Acme", "Base"]], shown)
 
     def test_ak_models_prints_every_roles_bars_in_turn_under_its_role_lines(self):
         done = self.home.ak("models", env={**ENV, "COLUMNS": "100"})

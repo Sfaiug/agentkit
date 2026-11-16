@@ -3806,6 +3806,10 @@ def models_screen(cfg, session, selected, providers):
                           for role, (name, effort) in kept.items()}}
         said = models_said(cfg, answer, used, unit)
         body, places = models_body(said, unit, None if terminal.away() else here[1])
+        # the heading stays over the role lines where a page too short for every role follows
+        # the highlight (matrix_page): its numbers never stand unnamed
+        over, body = body[:min(places)], body[min(places):]
+        places = {line - len(over): place for line, place in places.items()}
         cheaper, better = ("←", "→") if terminal.utf8() else ("<", ">")
         keys = terminal.keys(f"{cheaper} cheaper", f"better {better}", "p models", "u unit",
                              "esc back", enter="why", move=("role",))
@@ -3815,13 +3819,13 @@ def models_screen(cfg, session, selected, providers):
         # line, the `━` (the accent and the role's line still name the row in use), the whys
         for under, marked, why in ((read, True, True), ([], True, True), ([], False, True),
                                    ([], False, False)):
-            room = page_room([*under, *note_lines(note)], keys) - len(body)
+            room = page_room([*under, *note_lines(note)], keys, over) - len(body)
             bars = models_bars(answer[here[1]], here[1], used[here[1]][2], own[here[1]][2], unit,
                                room, marked, why, price)
             if len(bars) <= room:
                 break
         act, here, _, top = matrix_key(title, body + bars, places, rows, here, top, note, keys,
-                                       marks=0, under=under,
+                                       marks=0, under=under, over=over,
                                        clock=clock, began=fetch and fetch.began,
                                        going=fetch and fetch.is_alive)
         if act is None:
