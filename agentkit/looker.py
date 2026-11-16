@@ -1,13 +1,13 @@
 """A seat's event heard and looked at by a process already warm: who runs hooks/seat-state.sh's
-and watch.start_look's look, and writes the fact of every event but a prompt and a Stop, which
-its hook writes itself.
+and watch.start_look's look, and hears every event but a Stop, which its hook writes itself.
 
 A fresh Python spends seconds on its imports and on reading every run before it writes or looks
 (`watch.hook_look`).  `serve`, forked by the warm server and leaving with it, has both done, at the
 server's priority, and reads the runs again at each wake as the menu does (`menu.run_records`).
 `ask`, Python without agentkit, hands it the look over a socket in STATE, and it forks a child
-per call to hear the event (`record`) and look on the runs as read.  Anything amiss goes cold:
-with no looker, one older than the install or one silent for `warm.WAIT`, `ask` does both itself.
+per call to hear the event (`record`, a prompt's `prompted`) and look on the runs as read.
+Anything amiss goes cold: with no looker, one older than the install or one silent for
+`warm.WAIT`, `ask` does both itself.
 Never lost nor run twice: a child acts once the client says go, and the client, once it has, never
 acts itself.
 """
@@ -16,16 +16,18 @@ import os
 import sys
 
 
-def ask(repo, seat, answered="", event="", *kind):
-    """Look at that seat, the owner's words on stdin: the looker's, else this process's own,
-    returning once the look ends.  With the event's `kind`, and its words after a NUL on stdin,
-    the event is heard there first (`record`) and this returns once its fact is down, the look
-    going on behind.  In a session of its own: a harness ending the hook group ends none of it."""
+def ask(repo, seat, owner="", event="", *kind):
+    """Look at that seat, the words said on stdin, the owner's where `owner` is "true": the
+    looker's, else this process's own, returning once the look ends.  With the event's `kind`,
+    and its own words after a NUL on stdin -- a prompt's caller after its kind, and its payload
+    after its words (`prompted`) --, the event is heard there first and this returns once its
+    fact is down, having printed what hearing it said, the look going on behind.  In a session
+    of its own: a harness ending the hook group ends none of it."""
     import _socket
     from warm import WAIT, place     # beside this file: run as a script, it imports no agentkit
     if os.getpgrp() != os.getpid():     # where it may, as a group leader may not
         os.setsid()
-    said, *text = sys.stdin.read().split("\0", 1)
+    said, *text = sys.stdin.read().split("\0")
     fact = (*kind, *text)
     state, name = place(repo)
     here = None
@@ -35,16 +37,20 @@ def ask(repo, seat, answered="", event="", *kind):
         conn = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
         conn.settimeout(WAIT)
         conn.connect(name + ".look")   # beside the server's socket, lock and log
-        # with the pane it is heard in and the adapters that say what it means (`_take`)
-        data = b"\0".join(map(os.fsencode, (seat, answered, event, said, *(
-            os.environ.get(var, "") for var in ("TMUX", "TMUX_PANE", "AGENTKIT_ADAPTER_DIR")),
-            *fact)))
+        # in the environment it is heard in, as a cold hearing is: its pane, the adapters that
+        # say what it means, where its harness keeps its conversations (`_take`)
+        data = b"\0".join([*map(os.fsencode, (seat, owner, event, said)), b"%d" % len(fact),
+                           *map(os.fsencode, fact),
+                           *(key + b"=" + value for key, value in os.environb.items())])
         conn.sendall(len(data).to_bytes(4, "big") + data)     # NUL is in none of them
         if conn.recv(1) == b"R":
             conn.sendall(b"G")     # the look is the child's from here: nothing goes cold after
             try:
                 conn.settimeout(None)
-                conn.recv(1)       # the child lets go once its fact is down, or as its look ends
+                # what the child says is the hook's output, until it lets go: once its fact is
+                # down, or as its look ends
+                while told := conn.recv(1 << 16):
+                    sys.stdout.buffer.write(told)
             except OSError:
                 pass
             return
@@ -54,24 +60,59 @@ def ask(repo, seat, answered="", event="", *kind):
         os.fchdir(here)
     sys.path[0] = repo
     from agentkit import looker
-    looker.take(seat, answered, event, said, fact, _behind)
+    looker.take(seat, owner, event, said, fact, sys.stdout.buffer.write, _behind)
 
 
 def _behind():
-    """The hook goes on as this process leaves, its fact down: the look is a child's."""
+    """The hook goes on as this process leaves, its fact down and what it said with it: the look
+    is a child's, holding none of the hook's output."""
+    sys.stdout.flush()
+    os.dup2(os.open(os.devnull, os.O_WRONLY), 1)
     if os.fork():
         os._exit(0)
 
 
-def take(seat, answered, event, said, fact, go, records=None):
-    """That event as hooks/seat-state.sh hears it: one handed over with its `fact`, its kind and
-    words, is heard first (`record`), the owner's word on a card answering at that moment, and
-    `go()` lets the hook go on; then the look."""
+def take(seat, owner, event, said, fact, say, go, records=None):
+    """That event as hooks/seat-state.sh hears it: one handed over with its `fact` is heard first
+    -- a prompt by `prompted`, which `say`s the hook's output, any other by `record` --, the
+    owner's word answering at that moment, and `go()` lets the hook go on; then the look."""
+    answered = ""
     if fact:
-        at = record(seat, event, *fact)
-        answered = at if said else ""
+        mine = owner == "true"
+        at = (prompted(seat, said if mine else None, *fact, say, records)
+              if event == "UserPromptSubmit" else record(seat, event, *fact))
+        answered = at if mine else ""
         go()
     look(seat, answered, event, said, records)
+
+
+def prompted(seat, said, kind, pid, text, payload, say, records=None):
+    """A prompt as hooks/seat-state.sh hears it, `said` the owner's words or None: its moment
+    (`config.heard_at`) starts the turn hooks/orchestrator-stop.sh judges its end against, before
+    anything may fail or run late; the seat goes on in the conversation its hook's caller `pid`
+    went to (`Harness.follow`), and the prompt's news, read on `records`, is `say`d
+    (`orch.prompt_news`); only then does its fact take the place of the question that news read.
+    A failure following or reading the news says nothing and stops neither."""
+    import contextlib
+    import json
+    from . import config
+    at = config.heard_at(seat)
+    # under the name its harness was launched with, which the stop hook reads it by
+    config.write_latch(config.stop_path(seat), {"session": seat, "turn": at, "blocks": 0})
+    with contextlib.suppress(Exception):
+        from . import orch
+        payload = json.loads(payload)
+        if pid:
+            with contextlib.suppress(Exception):    # the seat stays put, and its news still goes
+                orch.seat_plugin(config.session_records().get(config.resolve_session(seat), {})
+                                 ).follow(seat, payload, int(pid))
+        news = orch.prompt_news(seat, payload.get("session_id"), said, records)
+        if news:
+            say(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                   "additionalContext": news}}).encode() + b"\n")
+    config.record_hook_fact(config.resolve_session(seat), {
+        "session": seat, "event": "UserPromptSubmit", "kind": kind, "text": text, "at": at})
+    return at
 
 
 def record(seat, event, kind, text):
@@ -174,25 +215,31 @@ def _take(conn, records):
     try:
         conn.settimeout(warm.WAIT)
         asked = conn.makefile("rb")
-        seat, answered, event, said, tmux, pane, adapters, *fact = map(
-            os.fsdecode, asked.read(int.from_bytes(asked.read(4), "big")).split(b"\0"))
+        fields = asked.read(int.from_bytes(asked.read(4), "big")).split(b"\0")
+        seat, owner, event, said = map(os.fsdecode, fields[:4])
+        count = int(fields[4])
+        fact = [*map(os.fsdecode, fields[5:5 + count])]
+        environ = {key: value for key, _, value in
+                   (item.partition(b"=") for item in fields[5 + count:]) if key}
         if update.outdated():
             raise OSError("outdated")       # installed over while the looker read: not its look
-        if adapters != os.environ.get(config.ADAPTER_DIR_ENV, ""):
+        adapters = os.fsencode(config.ADAPTER_DIR_ENV)
+        if environ.get(adapters, b"") != os.environb.get(adapters, b""):
             raise OSError("other adapters")     # what an event means is the hook's adapters' to say
         conn.sendall(b"R")
         conn.settimeout(None)   # its go or its end: one given up on as it said go would be lost
         if asked.read(1) != b"G":
             raise OSError("not taken")
-    except (OSError, ValueError):
+    except (OSError, ValueError, IndexError):
         os._exit(1)            # the client goes cold
-    os.environ.update(TMUX=tmux, TMUX_PANE=pane)
+    os.environb.clear()
+    os.environb.update(environ)
 
     def go():               # the client goes on
         asked.close()
         conn.close()
     try:
-        take(seat, answered, event, said, fact, go, records)
+        take(seat, owner, event, said, fact, conn.sendall, go, records)
     except BaseException:
         sys.excepthook(*sys.exc_info())     # into the server's log, as a cold look's to nowhere
     os._exit(0)                # Python's teardown would go over all the looker holds, for nothing

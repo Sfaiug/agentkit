@@ -26,18 +26,24 @@ class PromptTurn(unittest.TestCase):
             scripts = root / "bin"
             scripts.mkdir()
             python = scripts / "python3"
+            # the process that hears the prompt reads its context through a reader that fails
             python.write_text('''#!/bin/bash
-if [[ $1 = -c && $2 = *"orch.prompt_news"* ]]; then
-  "$TEST_PYTHON" - <<'PY'
-import json, os
+if [[ $1 = */agentkit/looker.py ]]; then
+  exec "$TEST_PYTHON" -c 'import json, os, runpy, sys
 from pathlib import Path
-root = Path(os.environ["HOME"])
-state = root / ".agentkit/state"
-seen = {name: json.loads((state / name).read_text())
-        for name in ("stop-acme.json", "hook-acme.json") if (state / name).exists()}
-(root / "before-context.json").write_text(json.dumps(seen))
-PY
-  exit 42
+look = sys.argv.pop(1)
+sys.path.insert(0, str(Path(look).resolve().parents[1]))
+from agentkit import orch
+
+def news(*_args):
+    root = Path(os.environ["HOME"])
+    state = root / ".agentkit/state"
+    seen = {name: json.loads((state / name).read_text())
+            for name in ("stop-acme.json", "hook-acme.json") if (state / name).exists()}
+    (root / "before-context.json").write_text(json.dumps(seen))
+    raise RuntimeError("no context")
+orch.prompt_news = news
+runpy.run_path(look, run_name="__main__")' "$@"
 fi
 exec "$TEST_PYTHON" "$@"
 ''')

@@ -2436,8 +2436,16 @@ def runs_moved_path():
 
 
 def stop_path(name):
-    """Where hooks/seat-state.sh leaves this turn's start for the stop hook's rule."""
+    """Where a prompt leaves this turn's start (`looker.prompted`) for the stop hook's rule."""
     return seat_file("stop", name)
+
+
+def write_latch(latch, record):
+    """The turn's latch rewritten whole in one replace, so a reader never sees half of it,
+    through a file of this process's own, so two writers never take each other's."""
+    tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(record) + "\n")
+    tmp.replace(latch)
 
 
 def title_path(name):

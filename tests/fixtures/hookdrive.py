@@ -103,12 +103,13 @@ class Hooks:
             _drained(end)
         return _fired(runs)
 
-    def prompt(self, text, seat):
+    def prompt(self, text, seat, *, env=None, **payload):
         """The owner submits `text` in a Claude Code seat of tests/fixtures/akseat.py: Claude
         writes it into the seat's conversation, under ~/.claude/projects, and fires
-        UserPromptSubmit in the seat's pane."""
+        UserPromptSubmit in the seat's pane, `payload` beside its words."""
         self._written(seat, text)
-        return self.fire("UserPromptSubmit", {"prompt": text}, seat=seat.name, pane=seat)
+        return self.fire("UserPromptSubmit", {"prompt": text, **payload}, seat=seat.name,
+                         pane=seat, env=env)
 
     def interrupt(self, seat):
         """The owner presses Esc in a Claude Code seat of tests/fixtures/akseat.py: Claude writes

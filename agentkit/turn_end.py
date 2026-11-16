@@ -206,13 +206,6 @@ def trails_question(said):
     return (said or "").rstrip().rstrip("*_`'\"’”»)]}").endswith("?")
 
 
-def latched(latch, record):
-    """The turn's latch rewritten whole in one replace, so a reader never sees half of it."""
-    tmp = latch.with_name(f"{latch.name}.tmp.{os.getpid()}")
-    tmp.write_text(json.dumps(record) + "\n")
-    tmp.replace(latch)
-
-
 def told(seat, turn):
     """`ak notify needs` asked for this seat during the turn, and it stands: one taken back
     (`ak notify settled`) asks nobody."""
@@ -289,12 +282,12 @@ def held(launched, payload, records=None):
     if ends and not delivery:
         live = not asked and not record.get("live_back") and live_unrecorded(launched)
         if live:
-            latched(latch, {**record, "live_back": True})
+            config.write_latch(latch, {**record, "live_back": True})
             return live
         if (asked or record.get("asked_back") or not trails_question(last_message(payload))
                 or question_refused(seat)):
             return ""
-        latched(latch, {**record, "asked_back": True})
+        config.write_latch(latch, {**record, "asked_back": True})
         return ASK
     blocks = record.get("blocks")
     blocks = blocks + 1 if isinstance(blocks, int) and not isinstance(blocks, bool) else 1
@@ -302,7 +295,7 @@ def held(launched, payload, records=None):
         if not ends and not undecided:
             asked_owner(seat, last_message(payload))
         return ""    # the third stop stands: the owner is paged with what the seat is stuck on
-    latched(latch, {**record, "session": launched, "turn": turn, "blocks": blocks})
+    config.write_latch(latch, {**record, "session": launched, "turn": turn, "blocks": blocks})
     return delivery or (parked_reason(undecided) if undecided else config.name_owed(seat) or REASON)
 
 

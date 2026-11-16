@@ -1711,8 +1711,10 @@ def hand_back(state, run_dir, log, cfg=None, busy=None, records=None):
     return False
 
 
-def riding(session):
-    """The deferred run notices a prompt starting a turn in `session` carries, told as it does.
+def riding(session, records=None):
+    """The deferred run notices a prompt starting a turn in `session` carries, told as it does,
+    found in `records` where the caller has a census (the warm looker's), each read again under
+    its lock before it is told.
 
     A hand-back waits for a quiet prompt, but a seat can start its next turn first -- the
     owner's message, or another ending typed -- and find the run ended by itself; the line
@@ -1726,9 +1728,11 @@ def riding(session):
     and its checkout goes with the sweep, never here.
     """
     lines = []
-    for run_dir in run_record.run_dirs():
+    # with no census, each record read in its own try: a malformed run is skipped, not all
+    for run_dir, state in (records if records is not None
+                           else ((run_dir, None) for run_dir in run_record.run_dirs())):
         try:
-            state = run_record.read_state(run_dir)
+            state = state or run_record.read_state(run_dir)
             if (not state or transitions.launched_session(state) != session
                     or not (state.get("handback_pending")
                             or state.get("live_at") and not state.get("live_notified"))):
@@ -1737,16 +1741,16 @@ def riding(session):
                 said = held and run_record.read_state(run_dir)
                 if not said or not same_attempt(state, said):
                     continue
-                if waits(said) and not merge_waits_for_live(said):
+                if waits(said) and not merge_waits_for_live(said, records):
                     # Routine context keeps each notice's time; only a wake joins them.
-                    live = carries_live(said) and ends_wait(said)
+                    live = carries_live(said, records) and ends_wait(said, records)
                     line = handback_line(said, run_dir, live=live)
                     if mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
                                      handback_pending=None, handback_note=None,
                                      handback_wait_reason=None, notification_pending=None,
                                      **({"live_notified": time.time()} if live else {})):
                         lines.append((said.get("finished_at") or 0, line))
-                if live_owed(said) and not said.get("live_typed"):
+                if live_owed(said, records) and not said.get("live_typed"):
                     line = live_line(said, run_dir)
                     if mark_delivery(run_dir, said, live_notified=time.time()):
                         lines.append((said["live_at"], line))

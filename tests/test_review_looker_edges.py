@@ -209,7 +209,8 @@ class LookerLifecycle(unittest.TestCase):
         try:
             self.assertEqual(os.read(reached_r, 1), b"r")
             (config.STATE / "installed-at").write_text(str(time.time()))
-            data = b"acme-api\0\0UserPromptSubmit\0go\0/fake/acme,1,0\0%7\0"
+            data = b"\0".join((b"acme-api", b"", b"UserPromptSubmit", b"go", b"0",
+                               b"TMUX=/fake/acme,1,0", b"TMUX_PANE=%7"))
             conn.sendall(len(data).to_bytes(4, "big") + data)
             os.write(gate_w, b"g")
             try:
@@ -230,8 +231,9 @@ class LookerLifecycle(unittest.TestCase):
         def ready(adapters):
             conn = self.connect()
             try:
-                data = b"\0".join((b"acme-api", b"", b"Notification", b"", b"/fake/acme,1,0", b"%7",
-                                   adapters.encode(), b"permission_prompt", b""))
+                data = b"\0".join((b"acme-api", b"", b"Notification", b"", b"2",
+                                   b"permission_prompt", b"", b"TMUX=/fake/acme,1,0",
+                                   b"TMUX_PANE=%7", f"{config.ADAPTER_DIR_ENV}={adapters}".encode()))
                 conn.sendall(len(data).to_bytes(4, "big") + data)
                 try:
                     return conn.recv(1)

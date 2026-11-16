@@ -80,12 +80,21 @@ class AnswerCarriesQuestion(Sandbox):
         # Resolve immediately after the hook writes its lifecycle fact: a look has already
         # answered by the time the old hook would have read its prompt context.
         python.write_text('''#!/bin/bash
-"$TEST_PYTHON" "$@"
-result=$?
-if [[ $result = 0 && $1 = -c && $2 = *config.record_hook_fact* ]]; then
-  "$TEST_PYTHON" -c 'from agentkit import notify; import os; notify.answered(os.environ["AGENTKIT_SESSION"], float(os.environ["ANSWERED_AT"]))'
+if [[ $1 = */agentkit/looker.py ]]; then
+  exec "$TEST_PYTHON" -c 'import os, runpy, sys
+from pathlib import Path
+look = sys.argv.pop(1)
+sys.path.insert(0, str(Path(look).resolve().parents[1]))
+from agentkit import config, notify
+write = config.record_hook_fact
+
+def written(*args, **kw):
+    write(*args, **kw)
+    notify.answered(os.environ["AGENTKIT_SESSION"], float(os.environ["ANSWERED_AT"]))
+config.record_hook_fact = written
+runpy.run_path(look, run_name="__main__")' "$@"
 fi
-exit "$result"
+exec "$TEST_PYTHON" "$@"
 ''')
         python.chmod(0o755)
         context = self.hook(environ={"PATH": f"{scripts}:{os.environ['PATH']}",
