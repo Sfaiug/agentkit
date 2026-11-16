@@ -1,6 +1,7 @@
 """`ak models` names each row of ak's own numbers as every screen names that model at its effort:
 a run recorded at effort `none` is the model's name alone, and a configured name holding ` @ `
-is a name, never a model and an effort: in `--json` too, where its own @ is doubled.
+is a name, never a model and an effort, nor a row of the model's runs at that effort: in
+`--json` too, where its own @ is doubled.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, the
 judged runs written into the Home's history.db; judged by the output and exit code.  Fails
@@ -46,7 +47,7 @@ class OwnRunsNamed(unittest.TestCase):
         self.assertEqual([" ".join(line.split()) for line in done.out.splitlines()[-2:]],
                          ["Haiku 4.5 - 100% of 1 -", "Haiku 4.5 - - -"])
 
-    def test_json_keeps_a_run_at_an_effort_apart_from_a_name_holding_it(self):
+    def test_a_run_at_an_effort_stays_apart_from_a_name_holding_it(self):
         with Home() as home:
             fakeadapter.install(home, claude="pass")
             akconfig.write(home, {"haiku": {**HAIKU, "effort": "max"}, "haiku @ max": HAIKU})
@@ -54,7 +55,10 @@ class OwnRunsNamed(unittest.TestCase):
             ran(home, {"executor_effort": "max"},
                 {"run_id": "acme-unrecorded", "executor": "haiku @ max", "executor_effort": None})
             done = home.ak("models", "--json", env=ENV)
-        self.assertEqual(done.code, 0, done.err)
+            shown = home.ak("models", env={**ENV, "COLUMNS": "100"})
+        self.assertEqual((done.code, shown.code), (0, 0), done.err + shown.err)
+        self.assertEqual([" ".join(line.split()) for line in shown.out.splitlines()[-2:]],
+                         ["Haiku 4.5 max - 100% of 1 -", "Haiku 4.5 - 100% of 1 -"])
         live = json.loads(done.out)["live"]
         self.assertEqual({key: roles["execute"] for key, roles in live.items()},
                          {"haiku @ max": {"runs": 1, "round_1": 100},
