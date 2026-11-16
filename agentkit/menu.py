@@ -2751,11 +2751,32 @@ def subscription(row):
 
 def followed(meter, was, rows):
     """`meter`, ("usage", number) of usage rows `was` (usage_rows), on `rows`: its
-    subscription's, wherever it went; None where it went, or where `was` has no such row (a
-    restart's, over a config.toml changed meanwhile)."""
-    mine = subscription(was[meter[1] - 1]) if meter[1] <= len(was) else None
+    subscription's, wherever it went; None where it went, or where `was` has no such row."""
+    return metered(subscription(was[meter[1] - 1]) if meter[1] <= len(was) else None, rows)
+
+
+def metered(mine, rows):
+    """The meter, ("usage", number), of subscription `mine` (`subscription`) on usage rows
+    `rows`; None where they have none."""
     return next((("usage", number) for number, row in enumerate(rows, 1)
                  if subscription(row) == mine), None)
+
+
+def restored(handed, meter, cfg):
+    """The highlight `loop`'s restart hands new code: in JSON, as a seat may be named anything,
+    a meter as its subscription, so it is that one's on `cfg` -- another process may change
+    config.toml before new code reads it -- or None.  Code from before handed a bare name, a
+    seat's, and a meter as its number, `meter`."""
+    if meter:
+        return "usage", int(meter)
+    try:
+        cursor = json.loads(handed)
+    except ValueError:
+        cursor = handed
+    if isinstance(cursor, list):
+        return metered(tuple(cursor), usage_rows(cfg))
+    cursor = cursor if isinstance(cursor, str) else handed    # a bare `123`, read as a number
+    return Path(cursor) if cursor.startswith("/") else cursor
 
 
 def usage_summary(cfg, width, most=None, rows=None):
@@ -6985,12 +7006,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
     """
     own = config.current_session() if overlay else None     # the seat the popup is over
     restarted = "AK_MENU_CURSOR" in os.environ    # by the exec below: the same screen, on new code
-    cursor = os.environ.pop("AK_MENU_CURSOR", "") or own
-    if cursor and cursor.startswith("/"):
-        cursor = Path(cursor)
-    meter = os.environ.pop("AK_MENU_METER", "")   # a meter's number: a seat may be named anything
-    if meter:
-        cursor = ("usage", int(meter))
+    cursor = restored(os.environ.pop("AK_MENU_CURSOR", ""), os.environ.pop("AK_MENU_METER", ""),
+                      cfg) or own
     page, ahead, look, updating, updated = 0, None, False, None, False
     pointing = False                      # the highlight is where the owner points (`draw`)
     updates = []                         # this loop's inbox, independent of the usage/read worker
@@ -7046,10 +7063,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 live.close()
                 keyboard.give(held=True)
                 sys.stdout.flush()
-                meter = cursor[1] if isinstance(cursor, tuple) else ""
-                os.execve(sys.executable, [sys.executable, *sys.argv],
-                          {**os.environ, **handing, "AK_MENU_METER": str(meter),
-                           "AK_MENU_CURSOR": "" if meter else str(cursor or "")})
+                here = (subscription(usage_rows(cfg)[cursor[1] - 1]) if isinstance(cursor, tuple)
+                        else cursor)      # as `restored` reads it
+                os.execve(sys.executable, [sys.executable, *sys.argv], {
+                    **os.environ, **handing, "AK_MENU_CURSOR": json.dumps(here or "", default=str)})
             found, groups = last          # after any notice: what changed under it is drawn as is
             past = past_offered(found)
             # `x` is only the popup's, for its own seat while that has a row: no screen stops

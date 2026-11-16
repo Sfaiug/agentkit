@@ -6,13 +6,17 @@ row found by its company and account in config.toml as the page reads it, so a s
 another process added meanwhile moves no highlight onto another's row, its usual login the same
 whether listed as `default` or not, and a config.toml removed meanwhile is read as ak's shipped
 one; Esc comes back to the screen it was opened from, the highlight on that meter.  With no seat
-the meters are the screen's rows: the pointer off them lights none.
+the meters are the screen's rows: the pointer off them lights none.  A menu started again on new
+code comes up on the subscription it left, whatever row a save the old program never read gave
+it, new code waiting on its way to the terminal for the lock held meanwhile
+(test_key_a_restart_keeps_the_last_frame_up.py).
 Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over Claude's and ChatGPT's
 subscriptions in a temporary HOME (TZ=UTC), neither holding a reset nor ending soon, with no
 seat, their harnesses faked (tests/fixtures/fakeadapter.py), NO_COLOR.  This test fails
 against `/bin/false`.
 """
 
+import fcntl
 import re
 import sys
 from pathlib import Path
@@ -49,6 +53,16 @@ def opened(label, line):
                 and any(row.startswith(f"› {label} ") and below == line
                         for row, below in zip(drawn, drawn[1:])))
     return shown
+
+
+def environs():
+    """Each process's environment as its program started with it: an exec's, once it has."""
+    for proc in Path("/proc").iterdir():
+        try:
+            yield dict(item.partition(b"=")[::2]
+                       for item in (proc / "environ").read_bytes().split(b"\0"))
+        except OSError:
+            continue
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -131,6 +145,24 @@ class AMeterOpensItsSubscription(unittest.TestCase):
         self.term.keys("Enter")
         screen = self.term.wait(opened("ChatGPT", "    shoal@acme.test   − remove"))
         self.assertIn("  Grok ", screen)        # a shipped subscription this HOME's file left out
+
+    def test_new_code_comes_up_on_the_meter_left_whatever_row_a_save_meanwhile_gave_it(self):
+        started = time.time()                   # the menu started before this
+        self.on_chatgpt()
+        lock = (self.home.path / ".agentkit/state/watch.lock").open("a")
+        self.addCleanup(lock.close)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        while time.time() < int(started) + 1:   # an install, stamped as install.sh stamps
+            time.sleep(0.05)
+        self.home.write(".agentkit/state/installed-at", f"{int(time.time())}\n")
+        home, deadline = str(self.home.path).encode(), time.monotonic() + 60
+        while not any(env.get(b"HOME") == home and b"AK_MENU_CURSOR" in env for env in environs()):
+            self.assertLess(time.monotonic(), deadline, "never started again")
+            time.sleep(0.05)
+        self.second_login("anthropic")          # a row over ChatGPT's
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        self.term.wait(lambda screen: MAIN_KEYS in lines(screen) and "Claude II" in screen
+                       and lit(screen) == "ChatGPT")
 
     def test_the_pointer_off_every_meter_lights_none(self):
         self.on_chatgpt()                       # the keys' highlight, put out as off a seat's row
