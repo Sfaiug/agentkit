@@ -9,10 +9,9 @@ A refusal recorded before marks named a meter's scope parks every model its name
 Caps of one name and two scopes are two meters: a refusal of Fable's ends on Fable's alone, a
 turn's ask of Opus's is none of Fable's while its ask of Fable's is, a probe's ask of Opus's
 outlives a turn reading Fable's, and a turn reading Fable's leaves Opus's as it was, as it does
-a cap whose name is Fable's name and scope.  A refusal recorded before `exhausted_by` named a
-scope resolves its cap from `exhausted_meters` where that carries one, and recovers from `100%`
-where another scope overwrote its starting level; one naming no scope anywhere ends on its name's
-fresh window.
+a cap whose name is Fable's name and scope.  A refusal recorded before marks named the cap that
+showed it by scope ends on its name's fresh window where one cap of the reading has that name,
+and beside two at its deadline alone, whatever `exhausted_meters` names.
 A reset the owner spends lifts a refusal made before it, however late that is written, a probe's
 reading written in between included; one made after the reset stays.  A reset of one cap
 (`Fable`) lifts only a refusal that can have come from that cap, whatever it reads back: one
@@ -291,61 +290,29 @@ class RefusalsJoin(unittest.TestCase):
             week("weekly_scoped", 10, scope="Fable", resets_at=NOW + WEEK)], now=self.now)
         self.assertEqual(self.parked(), ([], False))
 
-    def inherited_fable_mark(self, opus=30):
+    def inherited_fable_mark(self):
         """A mark in the format written before `exhausted_by` carried a scope: `exhausted_meters`
         names Fable's cap, while `exhausted_used` holds Opus's overwritten level."""
         prov = self.fable_refused_beside_opus()
         mark = usage._marks(prov)[0]
         mark["exhausted_by"] = "weekly_scoped"
         mark["exhausted_meters"] = [["weekly_scoped", "Fable"]]
-        mark["exhausted_used"] = {"weekly_all": 60, "weekly_scoped": opus}
+        mark["exhausted_used"] = {"weekly_all": 60, "weekly_scoped": 30}
         mark["exhausted_ends"] = {"weekly_all": NOW + 3 * 86400,
                                   "weekly_scoped": NOW + 3 * 86400}
         return prov, mark
 
-    def test_an_inherited_mark_ignores_another_scope_s_reset_or_fall_and_jitter(self):
-        prov, mark = self.inherited_fable_mark()
-        prov["meters"][1]["used"] = 99
-        prov["meters"][2]["resets_at"] += 86400
-        self.assertEqual(usage._in_force(prov, [mark], NOW), [mark])
-        prov, mark = self.inherited_fable_mark()
-        prov["meters"][1]["used"] = 99
-        prov["meters"][2]["used"] = 10
-        prov["probed_meters"] = {"weekly_scoped": NOW + 1}
-        self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [mark])
-        prov["meters"][1]["used"] = 90
-        prov.pop("probed_meters")
-        self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [mark])
-
-    def test_an_inherited_mark_ends_on_its_recorded_cap_s_asked_fall_or_reset(self):
-        for opus in (30, 95):
-            prov, mark = self.inherited_fable_mark(opus=opus)
-            prov["meters"][1]["used"] = 90
-            prov["probed_meters"] = {"weekly_scoped": NOW + 1}
-            self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [])
-        prov, mark = self.inherited_fable_mark()
-        prov["meters"] = [prov["meters"][0], {**prov["meters"][1], "used": 90}]
-        prov["probed_meters"] = {"weekly_scoped": NOW + 1}
-        self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [])
-        prov, mark = self.inherited_fable_mark()
-        prov["meters"][1]["used"] = 99
-        prov["meters"][1]["resets_at"] += 86400
-        self.assertEqual(usage._in_force(prov, [mark], NOW), [])
-
-    def test_an_unscoped_legacy_mark_waits_for_every_scope_of_its_name_to_clear(self):
-        prov, mark = self.inherited_fable_mark()
-        mark["exhausted_meters"] = ["weekly_scoped"]
-        prov["meters"][1]["used"] = 99
-        prov["meters"][2]["resets_at"] += 86400
-        self.assertEqual(usage._in_force(prov, [mark], NOW), [mark])
-        prov, mark = self.inherited_fable_mark()
-        mark["exhausted_meters"] = ["weekly_scoped"]
-        prov["probed_meters"] = {"weekly_scoped": NOW + 1}
-        self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [mark])
-        prov["meters"][1]["used"] = 99
-        self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [mark])
-        prov["meters"][1]["used"] = 90
-        self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [])
+    def test_a_name_keyed_refusal_beside_two_caps_of_its_name_ends_at_its_deadline(self):
+        reset, fall = {"used": 0, "resets_at": NOW + 4 * 86400}, {"used": 10}
+        for recorded in ([["weekly_scoped", "Fable"]], ["weekly_scoped"]):
+            for fable, opus in ((reset, {}), ({}, reset), (fall, {}), ({}, fall), (fall, fall)):
+                prov, mark = self.inherited_fable_mark()
+                mark["exhausted_meters"] = recorded
+                prov["meters"][1].update(fable)
+                prov["meters"][2].update(opus)
+                prov["probed_meters"] = {"weekly_scoped": NOW + 1}
+                self.assertEqual(usage._in_force(prov, [mark], NOW + 1), [mark])
+                self.assertEqual(usage._in_force(prov, [mark], mark["exhausted_until"] + 1), [])
 
     def test_a_reset_lifts_a_refusal_made_before_it_written_after_a_probe(self):
         self.refused_while("fable", self.spends_a_reset, self.probed)
