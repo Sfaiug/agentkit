@@ -3,23 +3,25 @@ a run recorded at effort `none` is the model's name alone, and a configured name
 is a name, never a model and an effort.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up, one
-judged run written into the Home's history; judged by the output and exit code.  Fails against
-/bin/false.
+judged run written into the Home's history.db; judged by the output and exit code.  Fails
+against /bin/false.
 """
 
+import sqlite3
 import sys
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, boards
-from agentkit import config, history
 
 HAIKU = {"harness": "claude", "model": "claude-haiku-4-5", "effort": "none"}
+# a run haiku executed at effort none, merged in round 1
+RUN = {"run_id": "acme-none", "repo": "acme", "executor": "haiku", "executor_effort": "none",
+       "final_state": "pass", "verdict": "PASS", "rounds_used": 1, "changed_lines": 1,
+       "started_at": 1, "finished_at": 2}
 
 
 class OwnRunsNamed(unittest.TestCase):
@@ -28,12 +30,12 @@ class OwnRunsNamed(unittest.TestCase):
             fakeadapter.install(home, claude="pass")
             akconfig.write(home, {"haiku": HAIKU, "haiku @ custom": HAIKU})
             home.write(".agentkit/state/boards.json", boards())
-            with patch.object(config, "HOME", home.path / ".agentkit"), \
-                    patch.object(config, "RUNS", home.path / ".agentkit/runs"):
-                history.start_run("acme-none", repo="acme", executor="haiku", started_at=1)
-                history.update_run("acme-none", executor_effort="none")
-                history.finish_run("acme-none", final_state="pass", verdict="PASS", rounds_used=1,
-                                   finished_at=2, changed_lines=1)
+            connection = sqlite3.connect(home.path / ".agentkit/history.db")
+            with connection:
+                connection.execute(f"CREATE TABLE runs ({', '.join(RUN)})")
+                connection.execute(f"INSERT INTO runs VALUES ({', '.join('?' * len(RUN))})",
+                                   tuple(RUN.values()))
+            connection.close()
             done = home.ak("models", env={**ENV, "COLUMNS": "100"})
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual([" ".join(line.split()) for line in done.out.splitlines()[-2:]],
