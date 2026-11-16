@@ -797,6 +797,7 @@ def host_readings(source=None, cgroup_file=None, cgroup_root=None, *, slice_dir=
                 "load": load, "cpus": cpu_count(), "unit_limits": limits,
                 "unit_memory_max_headroom_mb": min((cap - used for used, cap, *_ in caps),
                                                    default=None),
+                "unit_memory_max_mb": min((cap for _, cap, *_ in caps), default=None),
                 "slice_cpu_pressure": _slice_pressure(cpu_dir, "cpu"),
                 "slice_memory_pressure": _slice_pressure(slice_dir, "memory"),
                 "slice_cpu_stat": _slice_cpu_stat(cpu_dir)}

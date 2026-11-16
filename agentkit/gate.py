@@ -1176,19 +1176,25 @@ def places(piece_cpus, piece_mem_mb):
 def fits_whole(command, cwd):
     """Whether the host has room now, beside the turns held here, for every piece of the suite
     `command` at once, as `derived_heavy_limit` reads it at a piece's measured cost under the
-    check's own memory limits: a suite in pieces takes each turn the host frees
-    (`_GateHold.take`), so as many as fit with nothing using the cores or memory, work outside
-    the runs and in the check's own cgroup included, and its hard caps' room as it is; one not
-    cut into pieces is one.  Where neither resource answers it has, as the derived limit fails
-    open."""
-    cost = suite_cost(command, cwd, None)[1:]
+    check's own memory limits.  A suite in pieces takes each turn the host frees
+    (`_GateHold.take`), so it has as many as fit with nothing using the host: in its cores and
+    the slice's, its memory and the slice's, and the check's soft and hard memory limits (the
+    room left under the hard ones where only that is read); one not cut into pieces is one.
+    Where neither resource answers it has, as the derived limit fails open."""
+    cpus, mem_mb = suite_cost(command, cwd, None)[1:]
     readings, others = _run_readings(), _heavy_held()
-    room = _more(readings, len(others), *cost, True, others)
-    idle = {**readings, "load": 0, "slice_cpu_used": 0, "outside_cpu_used": 0,
-            "slice_memory_used_mb": 0, "free_mb": readings.get("mem_total_mb"),
-            "unit_limits": None, "unit_memory_current_mb": 0}
-    every = _more(idle, 0, *cost, True, ()) if names_shard(command) else 1
-    return room is None or room >= max(1, every or 0)
+    room = _more(readings, len(others), cpus, mem_mb, True, others)
+    every = 1
+    if names_shard(command):
+        limits = (host._slice_or_unit_memory(readings), host._unit_memory(readings))
+        wholes = [(host._reading(readings, "cpus", "nproc"), cpus),
+                  (host._reading(readings, "slice_cpu_quota"), cpus),
+                  (host._reading(readings, "mem_total_mb"), mem_mb),
+                  (host._reading(readings, "unit_memory_max_mb", "unit_memory_max_headroom_mb"),
+                   mem_mb),
+                  *((limit[1], mem_mb) for limit in limits if limit)]
+        every = min((_fits(whole, cost) for whole, cost in wholes if whole is not None), default=1)
+    return room is None or room >= max(1, every)
 
 
 def _room_readings():
