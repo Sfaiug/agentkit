@@ -7,9 +7,10 @@ runs the bin/ak it put live with `--help` and then `--dry-run`, the client's sta
 it would run, and where either exits non-zero ~/agentkit goes back to the commit it left, that
 commit's install.sh runs, `ak update` exits non-zero with a last line naming both commits and the
 command, and no later update moves to the commit put back, as where that install.sh failed once
-and the next `ak update` ran it again, or where it was a home its install.sh made a client, as a
-Mac becomes its Linux machine's.  A program that starts goes live, nothing of the version it
-replaced kept; a home tries neither command.  Black-box, through
+and the next `ak update` ran it again, that move's keep link gone as a client's move before clients
+kept one left none, or where it was a home its install.sh made a client, as a Mac becomes its Linux
+machine's.  A program that starts goes live, nothing of the version it replaced kept; a home tries
+neither command.  Black-box, through
 tests/fixtures/twohomes.py: `acme-vm`'s install is the one moved, to the commit `acme-mini`'s is
 at, which has a bin/ak exiting 1 for one flag and running the program for every other verb, and an
 install.sh adding `moved` to HOME/installed, the one before `installed`.  `ak update` is the
@@ -91,6 +92,12 @@ class AClientMoveThatCannotStartIsPutBack(unittest.TestCase):
         done, before, after = self.update("--help", script=ONCE)
         self.assertNotEqual(done.code, 0, done.out + done.err)
         self.assertEqual(self.install.head(), after)    # live, its install.sh owed
+        self.assert_put_back(self.home.ak("update", timeout=300), before, after, "--help")
+
+    def test_a_retry_of_a_move_that_kept_no_link_still_puts_it_back(self):
+        done, before, after = self.update("--help", script=ONCE)
+        self.assertNotEqual(done.code, 0, done.out + done.err)
+        (self.home.path / KEPT).unlink()
         self.assert_put_back(self.home.ak("update", timeout=300), before, after, "--help")
 
     def test_a_home_its_install_makes_a_client_tries_both(self):
