@@ -880,12 +880,19 @@ def release_line(run_dir, log):
 
 
 def rejoin_line(lp, upstream, reason):
-    """A rejoining run keeps its place, repaired work included: checked again soon, it meets
-    the target it was fixed against, not one moved by every landing a lap at the back takes."""
+    """A rejoining run keeps its place, a first repair of a red check included: checked again
+    soon, it meets the target it was fixed against, not one moved by every landing a lap at the
+    back takes.  A moved target, a conflict and a wait for the lander keep it too.  Only the
+    repair of a second red or later in this landing rejoins at the back: the work has shown the
+    line it is not sound, and behind the others its next red costs nobody a whole check but
+    itself."""
     wait = lp.state["waiting_on"]
-    lp.log(f"rejoins the line: {reason}")
+    unsound = ("fix" in wait and landing_count(wait["fix"]) == "landing_reds"
+               and lp.state.get("landing_reds", 0) > 1)
+    lp.log(f"rejoins the line{' at the back' if unsound else ''}: {reason}")
     lp.state.update(state="waiting", error=reason, merge_failed=False, merge_note=reason,
-                    waiting_on={"line": turn_path(lp, upstream).name, "joined": wait["joined"]})
+                    waiting_on={"line": turn_path(lp, upstream).name,
+                                "joined": time.time() if unsound else wait["joined"]})
     lp.state.pop("recovery_pending", None)
     lp.write()
     return False
