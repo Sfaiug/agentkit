@@ -697,6 +697,7 @@ _WRITES = itertools.count()   # a temporary name of each writer's own; see `_wri
 EARLIER = "exhausted_earlier"     # the refusals in force beside the newest, each its own fields
 MARK = ("exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_used", "exhausted_by",
         "exhausted_meters", EARLIER)
+SCOPED = "scoped_resets"    # {scope: {"spent_at", "names"}}: the last reset of each one cap
 
 
 def _write(change, fetched_at=None):
@@ -742,7 +743,7 @@ def _record(value):
 
 def _onto(old, new, now):
     """`new`, a writer's reading, over `old`, the record the file holds: with `old`'s mark, and
-    the later of the two's last reset.
+    the later of the two's last resets (`_last_resets`).
 
     A mark is made by the refusal that makes it (`mark_exhausted`) and by nothing else, so any
     mark on another writer's reading is the file's from when that reading began, and is not
@@ -752,18 +753,47 @@ def _onto(old, new, now):
     while it was asked, so the file's stays: without it, a refusal made before the credit and
     written after that reading would park its models to its deadline.
     """
-    spent = max(_number(_record(each).get("reset_spent_at")) or 0 for each in (old, new))
-    record = {**new, "reset_spent_at": spent} if spent else new
+    record = {**new, **_last_resets(old, new)}
     return _with(record, _in_force(record, [mark for mark in _marks(old)
                                             if not _lifts(record, mark)], now))
 
 
+def _last_resets(*records):
+    """The latest reset `records` hold of the login (`reset_spent_at`) and of each scope
+    (`SCOPED`), as a record's fields: none where none was spent."""
+    def at(credit):
+        return _number(_record(credit).get("spent_at")) or 0
+
+    spent = max(_number(_record(each).get("reset_spent_at")) or 0 for each in records)
+    scoped = {}
+    for each in records:
+        for scope, credit in _record(_record(each).get(SCOPED)).items():
+            if at(credit) > at(scoped.get(scope)):
+                scoped[scope] = credit
+    return {**({"reset_spent_at": spent} if spent else {}), **({SCOPED: scoped} if scoped else {})}
+
+
 def _lifts(record, mark):
-    """Whether the reset last spent on `record` lifts the refusal `mark`: one made then or
-    before refused the week that credit replaced, which the meters it handed back say has room
-    again; one made since refused the week it opened, and stays."""
-    spent = _number(record.get("reset_spent_at"))
-    return spent is not None and (_number(mark.get("exhausted_at")) or 0) <= spent
+    """Whether a reset spent on `record` lifts the refusal `mark`: one made since refused
+    the window that credit opened, and stays; one made then or before refused what it replaced.
+
+    A credit of the login (`reset_spent_at`) refilled every cap of it, so lifts that refusal.
+    A credit of a scope (`SCOPED`) refilled that cap alone, so lifts it only where it can have
+    come from that cap: its meters (`exhausted_meters`) name none, a meter of that scope, or a
+    name that cap had when the credit was spent, as a mark made before marks named scopes does.
+    Nothing is read from the meters, as what a credit read back may be missing or partial: a
+    refusal it leaves ends as any refusal does (`_in_force`).
+    """
+    def before(credit_at):
+        return credit_at is not None and (_number(mark.get("exhausted_at")) or 0) <= credit_at
+
+    named = mark.get("exhausted_meters")
+    named = named if isinstance(named, list) else []
+    return before(_number(record.get("reset_spent_at"))) or any(
+        before(_number(credit.get("spent_at"))) and (not named or any(
+            r[1:] == [scope] if isinstance(r, list) else r in (credit.get("names") or [])
+            for r in named))
+        for scope, credit in _record(record.get(SCOPED)).items() if isinstance(credit, dict))
 
 
 def _store(cfg, providers, now, fetched_at=None, counted=None):
@@ -1111,7 +1141,7 @@ def replenish(cfg, provider, account=None, kind=None):
         return False, available
     spent_at = time.time()
     # The reading in hand is of the window the credit just replaced, so it goes, as a rolled
-    # window does (`_reread`), and a mark it carried is lifted (`_onto`).  What replaced
+    # window does (`_reread`), and a mark it carried may go (`_lifts`).  What replaced
     # it is what the spend itself read back: `reset` asks the meters once the credit has gone,
     # so that is a fresh reading and no second request, and what a refused probe wrote down
     # about the old one (`_kept`) goes with it.  That is every meter where it answers `meters`,
@@ -1141,9 +1171,17 @@ def replenish(cfg, provider, account=None, kind=None):
                  for held in prov.get("reset_kinds") or []]
     fresh.update(_reset_counts(left, kinds))
     fresh["notes"] = [*(prov.get("notes") or []), f"usage-limit reset applied ({left:.0f} left)"]
-    fresh["reset_spent_at"] = spent_at
-    # Every mark made before the credit went was a refusal of the week it replaced, one a
-    # worker made while this read was under way included: writing this record lifts them all.
+    # A kind that is the scope of a cap in this reading (`Fable`) refilled that cap alone; any
+    # other refilled the login.  Writing this record lifts each mark made before the credit
+    # went of what it refilled (`_lifts`), one a worker made while this read was under way
+    # included.
+    names = [m["name"] for m in prov.get("meters") or []
+             if kind and m.get("scope") == kind and isinstance(m.get("name"), str)]
+    if names:
+        fresh[SCOPED] = {**_record(fresh.get(SCOPED)),
+                         kind: {"spent_at": spent_at, "names": names}}
+    else:
+        fresh["reset_spent_at"] = spent_at
     fresh = _patch(provider, fresh, account)
     if account is not None:
         fresh = {**fresh, "accounts": {**_record(prov.get("accounts")), account: fresh},
