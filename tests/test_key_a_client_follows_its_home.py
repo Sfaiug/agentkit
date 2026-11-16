@@ -10,9 +10,7 @@ in the words `ak standby` uses.  A machine with a standby's job is a client like
 its pass copies the home's checks of tests/live.sh, one of the remote's main passed among them.
 The update opening `ak` starts asks the home, not the remote, so a remote out of reach holds
 nothing back.  Black-box, through tests/fixtures/twohomes.py: the machines' installs are clones
-of one origin, both at a commit holding the tests/live.sh `ak update` gates a harness upgrade
-with, and a key moves one with git itself; the harness configured is one no host has, so `ak
-update` goes straight to ~/agentkit.
+of one origin, both at one commit, and a key moves one with git itself.
 """
 
 from pathlib import Path
@@ -21,14 +19,9 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import akconfig
 from fixtures.akbin import boxable
 from fixtures.twohomes import Machines
 
-UNINSTALLED = """[update]
-version = ["acme-harness", "--version"]
-upgrade = ["acme-harness", "upgrade"]
-"""
 KEEP = ".agentkit/tmp/keep/ak"              # the home's link while its last move is not final
 LIVE = ".agentkit/state/live-checks"        # a machine's checks of tests/live.sh
 
@@ -37,21 +30,12 @@ LIVE = ".agentkit/state/live-checks"        # a machine's checks of tests/live.s
 class AClientFollowsItsHome(unittest.TestCase):
     def pair(self, homes=None):
         """`acme-vm`, a client of `acme-mini`, each HOME where `homes` puts it, both installs at
-        a commit holding a tests/live.sh, `first`."""
+        `first`."""
         machines = Machines("acme-mini", "acme-vm", homes=homes)
         self.addCleanup(machines.close)
         self.home, self.here = home, here = machines
         here.client_of(home)
-        live = home.install.seed / "tests" / "live.sh"
-        live.parent.mkdir()
-        live.write_text("#!/bin/sh\nexit 0\n")
-        self.first = home.install.advance()
-        for machine in machines:    # a standby's pass copies the home's config
-            (machine.root / "adapters").mkdir()
-            (machine.root / "adapters" / "acme.toml").write_text(UNINSTALLED)
-            machine.env["AGENTKIT_ADAPTER_DIR"] = str(machine.at / "adapters")
-            akconfig.write(machine, {"beta": "acme"})
-            self.pulled(machine, self.first)
+        self.first = home.install.head()
 
     def pulled(self, machine, commit):
         """`machine`'s clone moved with git to `commit` on origin's main; `commit`."""

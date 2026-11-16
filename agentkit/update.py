@@ -12,14 +12,14 @@ explicitly, with its snapshot retained. Ordinary launches and version checks rem
 
 A gate that cannot run on this host is a skipped line, never a refusal: the upgrade runs
 against the gates that are available, and the report says which ran.  Only the harnesses
-this host has are upgraded, and by `ak update` none while a session is working; the tick
-upgrades one that is behind its latest release in the background, sessions or not (see
-`keep_current`), and no two upgrades ever run at once.  Agentkit itself moves after the
-harnesses either way, and the three-minute tick moves it on its own, in both cases only to a
-commit whose `tests/live.sh` has no regression where it has one (`live_target`), on a client only
-to its home's (`follow`), and never while a harness upgrade runs: its gates test one agentkit
-commit from start to end.  The tick starts a check only once the logins it lends will outlast it
-(`_waits_for_login`), `ak update` at once.
+this host has are upgraded, none on a client, whose harnesses are its owner's own, and by
+`ak update` none while a session is working; the tick upgrades one that is behind its latest
+release in the background, sessions or not (see `keep_current`), and no two upgrades ever run
+at once.  Agentkit itself moves after the harnesses either way, and the three-minute tick moves
+it on its own, in both cases only to a commit whose `tests/live.sh` has no regression where it
+has one (`live_target`), on a client only to its home's (`follow`), and never while a harness
+upgrade runs: its gates test one agentkit commit from start to end.  The tick starts a check
+only once the logins it lends will outlast it (`_waits_for_login`), `ak update` at once.
 """
 
 from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
@@ -830,6 +830,15 @@ def update_self():
     return code
 
 
+def self_plan():
+    """What the dry run says of agentkit itself; 0."""
+    why = self_unavailable()
+    print(f"update: agentkit: skipped: {why}" if why else
+          f"update: agentkit {agentkit_version() or '?'}: "
+          f"would move forward (the next version swapped in + `install.sh`)")
+    return 0
+
+
 def update_once(where, **kw):
     """`update_agentkit`, and what it said, a failure only the first time: the exit code and lines.
 
@@ -1624,6 +1633,14 @@ def main(argv):
     if argv and not (dry_run and len(argv) == 1):
         raise config.Error(f"usage: ak update [--dry-run]  (got {argv[0]!r})")
     config.ensure_dirs()
+    alias = config.server_alias()
+    if alias:
+        # A client's seats and runs are its home's, and the gate needs the home's logins and
+        # shared browser: here it can only fail, putting each upgrade back, or leaving it where
+        # the updater installs only the latest release.  So no harness or gate is even read.
+        say(f"update: harnesses: skipped: this machine is {alias}'s client; "
+            "they are its owner's own")
+        return self_plan() if dry_run else update_self()
     live = live_gate()
     plan = harnesses()
     if not plan:
@@ -1660,18 +1677,12 @@ def main(argv):
             print(f"update: gate fresh: skipped: {fresh_why}")
         else:
             print(f"update: gate fresh: run (`bash {e2e}`)")
-        why = self_unavailable()
-        if why:
-            print(f"update: agentkit: skipped: {why}")
-        else:
-            print(f"update: agentkit {agentkit_version() or '?'}: "
-                  f"would move forward (the next version swapped in + `install.sh`)")
-        return 0
+        return self_plan()
 
     plan = [h for h in plan if h["name"] not in absent]
     before = {h["name"]: before[h["name"]] for h in plan}
-    # A client holds no harness: there is nothing to upgrade and nothing the gates could
-    # verify, but the checkout below them still moves.  Where the checkout cannot move either,
+    # With no harness here there is nothing to upgrade and nothing the gates could verify,
+    # but the checkout below them still moves.  Where the checkout cannot move either,
     # nothing at all happened: that stays the exit-1 it always was, in the same words, and the
     # gate is not run.
     if not plan:
