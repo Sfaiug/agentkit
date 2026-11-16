@@ -2,7 +2,7 @@
 tests first: each halfway step runs them alone, a pass, each named as run, moving the search
 deeper, and the stack right behind the deepest one they pass in is the member that turned them
 red.  A confirmed failure moves the search earlier.  It fixes, at once as they fail on the
-target's tip with it alone too; the tests run alone on the top rebuilt without it, and passing there, that top, checked whole, lands with every stack under it
+target's tip with it alone too and pass on its bare tip; the tests run alone on the top rebuilt without it, and passing there, that top, checked whole, lands with every stack under it
 in the same pass.  An inconclusive step gets its whole check, as without them.  No stack below
 the first holding a red test's file runs it; a test named by no file runs there, and a suite
 naming it not there passes it, unless the run moved its checkout, and a probe on a suite helper
@@ -107,7 +107,8 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4, 5, 6), None),       # the deepest, whole: red on t_tax
             (on(1, 2, 3), ["t_tax"]),           # halfway: they pass, deeper
             (on(1, 2, 3, 4), ["t_tax"]),        # confirmed red, behind their pass
-            (on(4), ["t_tax"]),                 # on the tip with it alone: red, its own
+            (on(4), ["t_tax"]),                 # on the tip with it alone: red
+            (on(), ["t_tax"]),                  # on the bare tip: green, so its own
             (on(1, 2, 3, 5, 6), ["t_tax"]),     # rebuilt: they pass, so whole checks go on
             (on(1, 2, 3, 5, 6), None)])         # rebuilt, whole
         self.assertEqual(fix["tests"], ["t_tax"])
@@ -119,7 +120,8 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
         self.assertEqual(checked, [
             (on(1, 2, 3, 4), None),             # the deepest, whole: red on test_new.sh
             (on(1, 2, 3), ["test_new.sh"]),     # the first holding it: confirmed red, blamed
-            (on(3), ["test_new.sh"]),           # on the tip with it alone: red, its own
+            (on(3), ["test_new.sh"]),           # on the tip with it alone: red
+            (on(), ["test_new.sh"]),            # on the bare tip: not there, so its own
             (on(1, 2, 4), ["test_new.sh"]),     # rebuilt: not there, proves nothing
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new.sh"])
@@ -131,7 +133,8 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4), None),             # the deepest, whole: red on test_new.sh
             (on(1, 2), ["test_new"]),           # not there: it passes, deeper
             (on(1, 2, 3), ["test_new"]),        # confirmed red, behind its pass
-            (on(3), ["test_new"]),              # on the tip with it alone: red, its own
+            (on(3), ["test_new"]),              # on the tip with it alone: red
+            (on(), ["test_new"]),               # on the bare tip: not there, so its own
             (on(1, 2, 4), ["test_new"]),        # rebuilt: not there, it passes
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new"])
@@ -149,6 +152,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3), None),                # on the stack itself: green
             (on(1, 2, 3, 4), ["t_tax"]),
             (on(4), ["t_tax"]),
+            (on(), ["t_tax"]),                  # on the bare tip: moved, not red again
             (on(1, 2, 3, 5, 6), ["t_tax"]),     # moved its checkout: proves nothing
             (on(1, 2, 3, 5, 6), None)])
         self.assertEqual(run.git(self.repo, "rev-parse", "kept"), kept)
@@ -164,6 +168,7 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2), None),                   # on the stack itself: green
             (on(1, 2, 3), ["test_new"]),
             (on(3), ["test_new"]),
+            (on(), ["test_new"]),
             (on(1, 2, 4), ["test_new"]),
             (on(1, 2, 4), None)])
 

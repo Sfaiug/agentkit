@@ -24,7 +24,8 @@ class RedNarrowedBothWays(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4), None),
             (on(1, 2), ["t_tax"]),              # red: move earlier without a whole check
             (on(1), ["t_tax"]),                # green: the second member turned it red
-            (on(2), ["t_tax"]),                # on the tip with it alone: red, its own
+            (on(2), ["t_tax"]),                # on the tip with it alone: red
+            (on(), ["t_tax"]),                 # on the bare tip: green, so its own
             (on(1, 3, 4), ["t_tax"]),           # rebuilt: green, so whole checks go on
             (on(1, 3, 4), None)])
         self.assertEqual(fix["tests"], ["t_tax"])
