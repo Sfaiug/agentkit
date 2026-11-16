@@ -71,31 +71,36 @@ def want(unit, counts=COUNTED):
     return unit, *counts[unit]
 
 
+def planned(home, price):
+    """`home` holding the boards, the harness and [defaults] of tests/test_key_models_bars.py, on
+    a plan of `price` a month making every Acme model, so each row is on its week, at a dollar a
+    million tokens; and its History, for the runs a case saves."""
+    fakeadapter.install(home, claude="pass")["claude"].answer("models", "".join(
+        f"{release}\t{name}\thigh\n" for release, name, *_ in ROWS
+        if release in CONFIGURED.values()))
+    akconfig.write(home, {name: {"harness": "claude", "model": release}
+                          for name, release in CONFIGURED.items()},
+                   orchestrator="step", workers=["top"], reviewers=["base"],
+                   providers={"anthropic": {"mode": "subscription", "price": price,
+                                            "maker": "Acme"}})
+    hold(home, [(release, name, "high", quality / 100 - 0.1, cost)
+                for release, name, quality, cost in ROWS])
+    held = json.loads((home.path / ".agentkit/state/boards.json").read_text())
+    for row in held["artificialanalysis.ai"]["rows"]:
+        row["values"].update({"aa.price1mInputTokens": 1, "aa.price1mOutputTokens": 1})
+    home.write(".agentkit/state/boards.json", held)
+    home.write(".agentkit/state/usage.json", {"providers": {"anthropic": {"meters": [
+        {"name": "weekly", "used": 40, "window_secs": 604800, "resets_at": NOW + 86400}]}}})
+    return History(home)
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ModelsUnitSwitch(unittest.TestCase):
     def home(self, runs=True, price=PRICE):
-        """A Home of the boards, the harness and [defaults] of tests/test_key_models_bars.py, on
-        a plan of `price` a month making every Acme model, so each row is on its week, at a dollar
-        a million tokens; its runs where `runs`."""
+        """A Home planned at `price`, its runs where `runs`."""
         home = Home()
         self.addCleanup(home.close)
-        fakeadapter.install(home, claude="pass")["claude"].answer("models", "".join(
-            f"{release}\t{name}\thigh\n" for release, name, *_ in ROWS
-            if release in CONFIGURED.values()))
-        akconfig.write(home, {name: {"harness": "claude", "model": release}
-                              for name, release in CONFIGURED.items()},
-                       orchestrator="step", workers=["top"], reviewers=["base"],
-                       providers={"anthropic": {"mode": "subscription", "price": price,
-                                                "maker": "Acme"}})
-        hold(home, [(release, name, "high", quality / 100 - 0.1, cost)
-                     for release, name, quality, cost in ROWS])
-        held = json.loads((home.path / ".agentkit/state/boards.json").read_text())
-        for row in held["artificialanalysis.ai"]["rows"]:
-            row["values"].update({"aa.price1mInputTokens": 1, "aa.price1mOutputTokens": 1})
-        home.write(".agentkit/state/boards.json", held)
-        home.write(".agentkit/state/usage.json", {"providers": {"anthropic": {"meters": [
-            {"name": "weekly", "used": 40, "window_secs": 604800, "resets_at": NOW + 86400}]}}})
-        history = History(home)
+        history = planned(home, price)
         if runs:
             # a listed week of $100 at a dollar a million tokens: a million tokens is a point
             history.week("anthropic", "default", "claude", "acme-top-1", 50e6, 50)
