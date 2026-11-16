@@ -1,17 +1,19 @@
 """`ak models` reads the two public boards once a day into `state/boards.json`.
 
-Artificial Analysis is read off a page of its site, Arena through its dataset's pages, each of its
-boards at its category; a board's row is one model at one effort, or at none where the board names no effort; within a day nothing
-is asked again, `--refresh` asks now, and a board that fails keeps its last rows with the error
-beside them.  An install upgraded from before 20 Oct 2026 reads them once out of
-`state/matrix.json`, where they were kept beside the matrix, whole.
+Artificial Analysis is read off its models list and each listed release's own page, Arena
+through its dataset's pages, each of its boards at its category; a board's row is one model at
+one effort, or at none where the board names no effort; within a day nothing is asked again,
+`--refresh` asks now, and a board that fails keeps its last rows with the error beside them.
+An install upgraded from before 20 Oct 2026 reads them once out of `state/matrix.json`, where
+they were kept beside the matrix, whole.
 
 Offline: the boards' answers are handed in as bytes, counted, and a throwaway HOME holds the
 cache, and measures on Arena's webdev board and its factuality board at its coding category
-beside `quality`'s, as a role reads no rating board of Arena's.
-Artificial Analysis's page hands its scripts the records split across two strings,
-Arena's dataset answers in pages of two, its rows grouped by category as Hugging Face serves them: overall first, then the others
-in their alphabetical order.
+beside `quality`'s, as a role reads no rating board of Arena's.  Artificial Analysis's list
+hands each release at its top effort and a release's page every record, each page handing its
+scripts the records split across two strings; Arena's dataset answers in pages of two, its rows
+grouped by category as Hugging Face serves them: overall first, then the others in their
+alphabetical order.
 """
 
 from concurrent.futures import ThreadPoolExecutor
@@ -32,13 +34,14 @@ sys.path.insert(0, str(REPO / "tests"))
 from fixtures.sandbox import Sandbox
 from agentkit import boards, config, matrix, quality
 
-# Artificial Analysis's records on its retired model's page
+# Artificial Analysis's records, each release's top effort first
 AA = [
     {"name": "Claude Opus 5.5 (max)", "intelligenceIndex": 58, "terminalBench40": 0.6,
      "price1mInputTokens": 4.0, "isReasoning": True, "omniscienceHallucinationRate": None,
      "briefcaseBreakdown": {"elo": 1800.0, "rubricPassRate": 0.6},    # flat, as the newest are
      "intelligenceIndexCostPerTask": {"cost": {"total": 5.98}}},
-    {"name": "Claude Opus 5.5 (xhigh)", "intelligenceIndex": 56},
+    {"name": "Claude Opus 5.5 (xhigh)", "intelligenceIndex": 56,
+     "effort": {"slug": "xhigh", "level": 50}},
     {"name": "Claude Haiku 4.5 (Non-reasoning)", "intelligenceIndex": 9.0,
      "intelligenceIndexEvaluations": [{"slug": "acme-bench", "score": 0.3}]},
     {"name": "Claude Sonnet 4.6 (Thinking)", "briefcaseBreakdown": {"overall": {"elo": 1500.0}}}]
@@ -54,13 +57,21 @@ ARENA = {"agent": [("Acme 9", "overall", 0.3, {"score_ci_lower": 0.25, "score_ci
                              ("Claude Opus 5.5 (Max)", "math", 1450.0)]}
 
 
+def slug(name):
+    return "-".join("".join(c if c.isalnum() else " " for c in name.lower()).split())
+
+
+def release(record):
+    """The slug of a record's release: its name up to its bracket."""
+    return slug(record["name"].split(" (")[0])
+
+
 def aa_page(records):
     """A page of Artificial Analysis's site: each record with an id, a slug off its name, its
     release and its maker, in the data the page hands its scripts, split across two strings."""
     data = json.dumps({"models": [
-        {"id": f"{n:08x}-0000-4000-8000-000000000000",
-         "slug": "-".join("".join(c if c.isalnum() else " " for c in record["name"].lower()).split()),
-         **record, "release": {"name": record["name"]},
+        {"id": f"{n:08x}-0000-4000-8000-000000000000", "slug": slug(record["name"]),
+         **record, "release": {"slug": release(record), "name": record["name"]},
          "creator": {"id": "00000000-0000-4000-8000-0000000000ac", "slug": "acme", "name": "Acme"}}
         for n, record in enumerate(records)]}, separators=(",", ":"))
     return "".join(f"<script>self.__next_f.push([1,{json.dumps(part)}])</script>"
@@ -79,7 +90,12 @@ class Boards:
         for part in self.down:
             if part in url:
                 raise OSError(f"{part} refused")
-        if url == boards.AA_PAGE:
+        if url == f"{boards.AA_SITE}/models":         # a release each, at its first record
+            listed = {}
+            for record in AA:
+                listed.setdefault(release(record), record)
+            return aa_page(listed.values())
+        if url.startswith(f"{boards.AA_SITE}/models/"):
             return aa_page(AA)
         if "huggingface" in url:
             if self.hold:
@@ -136,7 +152,8 @@ class ModelBoards(Sandbox):
         self.assertEqual(aa[("Claude Sonnet 4.6", None)],          # a bracket naming no effort
                          {"aa.briefcaseBreakdown.overall.elo": 1500.0})
         self.assertEqual([url for url, _ in self.boards.asked if "artificialanalysis" in url],
-                         [boards.AA_PAGE])
+                         [f"{boards.AA_SITE}/models{path}" for path in (
+                             "", "/claude-opus-5-5", "/claude-haiku-4-5", "/claude-sonnet-4-6")])
 
     def test_each_board_s_rows_are_a_model_at_an_effort_with_its_numbers(self):
         held = boards.collect(now=10000)
@@ -184,11 +201,11 @@ class ModelBoards(Sandbox):
             self.assertEqual(boards.collect(now=20000, refresh=True)["arena.ai"],
                              {**held["arena.ai"], "error": "arena.ai: text_factuality's coding "
                                                            "rows are not where its counts put them"})
-        # a page with no model's record on it is no answer: the site changed
+        # a list with no model's record on it is no answer: the site changed
         with patch.object(sys.modules[__name__], "AA", []):
             held = boards.collect(now=20000, refresh=True)
         self.assertEqual(held["artificialanalysis.ai"]["error"],
-                         f"no model's record on {boards.AA_PAGE}")
+                         f"no model's record on {boards.AA_SITE}/models")
         self.assertEqual(len(held["artificialanalysis.ai"]["rows"]), 4)
 
     def test_callers_at_once_share_one_collection(self):

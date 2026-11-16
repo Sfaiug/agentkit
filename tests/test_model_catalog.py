@@ -7,8 +7,9 @@ deprecated releases name a successor takes its current variants along.  A readin
 build stored, its rows carrying no identity, is asked again once by this build, and until
 then nothing is current.
 
-Offline: the board's page is handed in through `boards.fetch_bytes`, the other boards refuse,
-and a throwaway HOME holds the cache.  The models are invented.
+Offline: the board's pages, its list and each release's own each handing every record, are
+handed in through `boards.fetch_bytes`, the other boards refuse, and a throwaway HOME holds the
+cache.  The models are invented.
 """
 
 import json
@@ -46,7 +47,7 @@ def page(records):
     page hands its scripts."""
     data = json.dumps({"models": [
         {"id": f"{n:08x}-0000-4000-8000-000000000000", "slug": slug, "name": name,
-         "intelligenceIndex": index, "deprecated": deprecated,
+         "intelligenceIndex": index, "deprecated": deprecated, "effort": {"level": index},
          "intelligenceIndexEvaluations": [{"slug": "acme-bench", "score": index}],
          "release": {"slug": release, "name": release_name, "deprecatedTo": replaced_by},
          "creator": {"id": "00000000-0000-4000-8000-0000000000ac", "name": maker}}
@@ -63,17 +64,19 @@ class Catalog(Sandbox):
 
     def fetch(self, url, headers=None):
         self.asked.append(url)
-        if url != boards.AA_PAGE:
+        if not url.startswith(f"{boards.AA_SITE}/models"):
             raise OSError("refused")
         return page(RECORDS)
 
     def aa_asks(self):
-        return self.asked.count(boards.AA_PAGE)
+        """How often the board was read: each read asks its list once."""
+        return self.asked.count(f"{boards.AA_SITE}/models")
 
     def test_each_row_keeps_its_record_s_identity_beside_its_numbers(self):
         rows = {row["slug"]: row for row in boards.collect(now=10000)[catalog.BOARD]["rows"]}
         self.assertEqual(rows["acme-6"], {
             "model": "Acme 6", "effort": "max", "values": {"aa.intelligenceIndex": 40,
+                                                       "aa.effort.level": 40,
                                                        "aa.intelligenceIndexEvaluations.acme-bench.score": 40},
             "slug": "acme-6", "release": {"slug": "acme-6", "name": "Acme 6",
                                           "deprecatedTo": "acme-6-5"},
@@ -82,7 +85,7 @@ class Catalog(Sandbox):
 
     def test_the_current_releases_strongest_first_each_with_its_efforts(self):
         held = boards.collect(now=10000)
-        aa = lambda index: {"aa.intelligenceIndex": index,
+        aa = lambda index: {"aa.intelligenceIndex": index, "aa.effort.level": index,
                             "aa.intelligenceIndexEvaluations.acme-bench.score": index}
         self.assertEqual(catalog.current(held), [
             {"slug": "beta-3", "name": "Beta 3", "maker": "Beta",
