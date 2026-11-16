@@ -96,7 +96,7 @@ func narrowLine(turn, code, repo string, target *lineTarget, members []member, s
 			continue
 		}
 		if green(wait) {
-			withPrefix(prefix, func() bool { return publish(m.dir, m.record, wait, said) })
+			withPrefix(prefix, func() bool { return publish(m.dir, m.record, wait) })
 			prefix = append(prefix, m)
 			continue
 		}
@@ -120,7 +120,7 @@ func narrowLine(turn, code, repo string, target *lineTarget, members []member, s
 		}
 		break
 	}
-	pending = unmoved(prefix, pending, said)
+	pending = unmoved(prefix, pending)
 	below := -1
 	for len(pending) > 0 {
 		if !withCandidates(prefix, pending, func() bool { return true }) {
@@ -131,7 +131,7 @@ func narrowLine(turn, code, repo string, target *lineTarget, members []member, s
 			closeNarrowing(stacks)
 			return err
 		}
-		culprit, landed, err := narrowStacks(turn, code, target, prefix, stacks, below, said)
+		culprit, landed, err := narrowStacks(turn, code, target, prefix, stacks, below)
 		closeNarrowing(stacks)
 		if err != nil || culprit < 0 {
 			return err
@@ -170,7 +170,7 @@ func buildNarrowing(repo, tip, upstream string, prefix, pending []member, said i
 				checkout.close()
 			}
 			if err == nil && top == tip {
-				withCandidates(prefix, pending, func() bool { return publish(m.dir, m.record, failure, said) })
+				withCandidates(prefix, pending, func() bool { return publish(m.dir, m.record, failure) })
 			}
 			return stacks, err
 		}
@@ -180,7 +180,7 @@ func buildNarrowing(repo, tip, upstream string, prefix, pending []member, said i
 		if failure, err := place.rulesCheck(); err != nil || failure != "" {
 			checkout.close()
 			if err == nil && top == tip {
-				withCandidates(prefix, pending, func() bool { return publish(m.dir, m.record, l.fixed("lander.log", failure+"\n", false), said) })
+				withCandidates(prefix, pending, func() bool { return publish(m.dir, m.record, l.fixed("lander.log", failure+"\n", false)) })
 			}
 			return stacks[:len(stacks)-1], err
 		}
@@ -264,7 +264,7 @@ func (s *narrowingStack) checkTests(command, suite string, selection *checkSelec
 	return answer, err
 }
 
-func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks []*narrowingStack, below int, said io.Writer) (int, int, error) {
+func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks []*narrowingStack, below int) (int, int, error) {
 	suite := gitcall.Suite(stacks[0].checkout.path, target.tip)
 	limit := host.Pieces(0, 0)
 	if pinned, _ := config.MaxGates(); pinned > 0 {
@@ -315,7 +315,7 @@ func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks
 		answer.Set("after", after)
 		stack := stacks[index]
 		return valid(func() bool {
-			if !publish(stack.dir, stack.record, answer, said) {
+			if !publish(stack.dir, stack.record, answer) {
 				return false
 			}
 			stack.record, _ = run.Read(stack.dir)

@@ -31,11 +31,27 @@ func Working(dir string) bool {
 	return slices.ContainsFunc(host.Carrying(dir), live) || resuming(dir)
 }
 
-// resuming is whether a live `ak run resume` of the run is at work, as Python's watch.resumes
-// reads one under any ak's bin/, a Python interpreter running it naming it next: one writing the
-// run's log, or this checkout's, its bin/ak or this program.  Another's that does not only follows
-// the run from a terminal, and counted, it would keep the tick from resuming the loop it waits on.
+// resuming is whether a live `ak run resume` of the run is at work: one writing the run's log, or
+// this checkout's, its bin/ak or this program.  Another's that does not only follows the run from a
+// terminal, and counted, it would keep the tick from resuming the loop it waits on.
 func resuming(dir string) bool {
+	self, _, _ := config.Running()
+	return slices.ContainsFunc(Resumes(dir), func(resume Resume) bool {
+		return resume.Writes || resume.Ak == self || resume.Ak == filepath.Join(config.Repo(), "bin", "ak")
+	})
+}
+
+// A Resume is a live `ak run resume` of a run: the ak it runs, and whether it writes the run's log.
+type Resume struct {
+	Ak     string
+	Writes bool
+}
+
+// Resumes are the live `ak run resume` processes of the run at dir, Python's watch.resumes: under
+// any ak's bin/, a Python interpreter running it naming it next, as one enters its run's own
+// version.  One started in the background writes the log; a terminal's starts the run there, then
+// only follows it.
+func Resumes(dir string) (found []Resume) {
 	log, _ := os.Stat(filepath.Join(dir, "log.txt"))
 	entries, _ := os.ReadDir("/proc")
 	for _, entry := range entries {
@@ -54,14 +70,10 @@ func resuming(dir string) bool {
 		if id, _, ok := ResumeArgs(args[3:]); !ok || id != filepath.Base(dir) {
 			continue
 		}
-		if out, err := os.Stat("/proc/" + entry.Name() + "/fd/1"); err == nil && log != nil && os.SameFile(out, log) {
-			return true
-		}
-		if self, _, _ := config.Running(); args[0] == self || args[0] == filepath.Join(config.Repo(), "bin", "ak") {
-			return true
-		}
+		out, err := os.Stat("/proc/" + entry.Name() + "/fd/1")
+		found = append(found, Resume{Ak: args[0], Writes: err == nil && log != nil && os.SameFile(out, log)})
 	}
-	return false
+	return found
 }
 
 // live is whether the process runs, not one that has exited and not yet been reaped.
