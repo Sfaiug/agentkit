@@ -172,10 +172,10 @@ class ModelsBars(unittest.TestCase):
         term.keys("r")
         term.wait("› orchestrator")
         term.keys("Down", "Down")
-        shown = term.wait("› reviewer").split("\n")
-        self.assertEqual([line.split()[:2] for line in shown[2:7]],
-                         [["quality", "$"], ["executor", "100.0"], ["Acme", "Top"],
-                          ["›", "reviewer"], ["Acme", "Base"]], shown)
+        # waited for, as the first drawing has no numbers yet: the boards land after it
+        term.wait(lambda screen: [line.split()[:2] for line in screen.split("\n")[2:7]] == [
+            ["quality", "$"], ["executor", "100.0"], ["Acme", "Top"],
+            ["›", "reviewer"], ["Acme", "Base"]])
 
     def test_the_heading_stays_over_them_under_a_role_with_no_numbers_too(self):
         """The orchestrator's row on no board, so the heading stands under its lines, and the
