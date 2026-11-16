@@ -106,7 +106,8 @@ func modelsJSON(answer map[string]*quality.Said, names []string) *run.Object {
 		for _, role := range quality.Roles {
 			cells.Set(role, nil)
 		}
-		live.Set(name, cells)
+		// a name's own @ doubled, as Python's matrix.main keys it beside `name @ effort`
+		live.Set(strings.ReplaceAll(name, "@", "@@"), cells)
 	}
 	whole.Set("live", live)
 	return whole

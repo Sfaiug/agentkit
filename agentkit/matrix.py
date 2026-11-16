@@ -686,7 +686,9 @@ def main(argv):
                 key: by[key] for key in ("name", "effort")}}
                 for row in said["others"] for why, by in [said["whys"][id(row)]]]}
             for role, said in found.items()},
-            "live": {f"{name} @ {effort}" if effort else name: roles
+            # `name @ effort`, the name alone for no effort, a name's own @ doubled so that a
+            # model named `acme @ max` never takes the key of acme's runs at max
+            "live": {name.replace("@", "@@") + (f" @ {effort}" if effort else ""): roles
                      for (name, effort), roles in own.items()},
             "task_usage": {name: {effort: {role: share for role, (share, *_) in did.items()}
                                   for effort, did in efforts.items()}
