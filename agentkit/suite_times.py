@@ -12,7 +12,7 @@ import re
 import subprocess
 import tempfile
 
-from . import config, gitcall
+from . import config, gitcall, history
 
 PASSED = re.compile(r"PASS  (\S+) \((\d+(?:\.\d+)?)s\)$")
 LINE = 4096     # bytes read at a time: a check can print one line longer than memory holds
@@ -34,6 +34,32 @@ def handed(cwd):
         return _path(cwd).read_text()
     except OSError:
         return ""
+
+
+def unreported(repo):
+    """Whether a landing check of the suite the checkout `repo` declares ran whole to its end --
+    the command, or each of its pieces (`AK_SHARD=<share> <suite>`) under one run on one tree --
+    and the record holds no time of any test: its runner prints no `passed` line, so ak knows
+    none of its tests.  A plain row of a suite run in pieces ran one piece or some tests."""
+    from . import gate
+    suite = gitcall.declared(repo, "tests")
+    if not suite or read(handed(repo)):
+        return False
+    shares = {}
+    for run, tree, command, code in history.landing_checks(Path(repo).name):
+        # Only the runner's own ending counts: none from a check stopped, a busy suite
+        # (`gate.SUITE_BUSY`), the shell (126, 127), a signal (below 0, or 128 and up) or a
+        # helper that lost the piece (`helper.GONE`, `helper.FULL`).
+        if code not in range(126) or code == gate.SUITE_BUSY:
+            continue
+        share, _, rest = command.partition(" ")
+        if command == suite and not gate.names_shard(suite):
+            return True
+        if rest == suite and share.startswith("AK_SHARD="):
+            index, _, count = share.removeprefix("AK_SHARD=").partition("/")
+            shares.setdefault((run, tree, count), set()).add(index)
+    return any(len(found) == int(count) for (_, _, count), found in shares.items()
+               if count.isdigit())
 
 
 def read(text):
