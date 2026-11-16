@@ -4,9 +4,9 @@ The owner (10 Nov 2026), of the meters on the ak screen: "when hoverign here, it
 like you can press it, but you cant."  A meter with no act opens that page on its own row, the
 row found by its company and account in config.toml as the page reads it, so a subscription
 another process added meanwhile moves no highlight onto another's row, its usual login the same
-whether listed as `default` or not; Esc comes back to the screen it was opened from, the
-highlight on that meter.  With no seat the meters are the screen's rows: the pointer off them
-lights none.
+whether listed as `default` or not, and a config.toml removed meanwhile is read as ak's shipped
+one; Esc comes back to the screen it was opened from, the highlight on that meter.  With no seat
+the meters are the screen's rows: the pointer off them lights none.
 Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over Claude's and ChatGPT's
 subscriptions in a temporary HOME (TZ=UTC), neither holding a reset nor ending soon, with no
 seat, their harnesses faked (tests/fixtures/fakeadapter.py), NO_COLOR.  This test fails
@@ -124,6 +124,13 @@ class AMeterOpensItsSubscription(unittest.TestCase):
         self.term.keys("Escape")
         self.term.wait(lambda screen: MAIN_KEYS in lines(screen) and "ChatGPT II" in screen
                        and lit(screen) == "ChatGPT I")
+
+    def test_a_config_toml_removed_meanwhile_opens_the_shipped_subscriptions(self):
+        self.on_chatgpt()
+        self.config.unlink()                    # another process's, before the screen reads again
+        self.term.keys("Enter")
+        screen = self.term.wait(opened("ChatGPT", "    shoal@acme.test   − remove"))
+        self.assertIn("  Grok ", screen)        # a shipped subscription this HOME's file left out
 
     def test_the_pointer_off_every_meter_lights_none(self):
         self.on_chatgpt()                       # the keys' highlight, put out as off a seat's row

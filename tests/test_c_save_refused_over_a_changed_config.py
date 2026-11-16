@@ -2,7 +2,8 @@
 writes nothing: `c` saves the config it holds whole, so it would take out what the other wrote,
 a model `watch.follow_model` just added.  The screen goes on with the file's config and says
 the key was not taken; the same key again, the file unchanged since, is taken.  Subscriptions,
-opened from a meter as the ak screen opens it, holds the file it read as it opened as `c` does.
+opened from a meter as the ak screen opens it, holds the file it read as it opened as `c` does,
+a file gone since its caller read it read too: config.load's shipped defaults.
 
 Offline: a throwaway HOME, `c` opened over no seat with its keys fed in, the other save made
 in the read of the first Space, after `c` drew.
@@ -99,6 +100,21 @@ class SaveRefusedOverAChangedConfig(Sandbox):
         cfg = config.load()
         self.assertEqual(cfg["models"][added[0]]["model"], ADDED["model"])
         self.assertEqual(cfg["providers"].keys(), self.cfg["providers"].keys())
+
+    def test_subscriptions_reads_config_toml_gone_since_its_caller_read_it(self):
+        stale = config.load()
+        stale["providers"] = {name: stale["providers"][name] for name in ("anthropic", "openai")}
+        config.save(stale)
+        (config.HOME / config.CONFIG_NAME).unlink()     # another process, after the caller read
+        shown = []
+
+        def page(_title, _body, _places, rows, here, top, *_a, **_kw):
+            shown.append(len(rows) - 1)                 # its rows, `+ add` aside
+            return "back", here, None, top
+        with patch.object(menu, "matrix_key", side_effect=page):
+            menu.config_subscriptions(stale, Keyboard())
+        self.assertEqual(shown, [len(menu.usage_rows(config.load()))])
+        self.assertGreater(shown[0], len(menu.usage_rows(stale)))
 
 if __name__ == "__main__":
     unittest.main()
