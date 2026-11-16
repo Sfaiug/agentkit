@@ -40,6 +40,7 @@ FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees thi
 # day unused, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
 WAKE = 10           # a blamed run waits at most this long once no run it waits on is in line
+BATCH = 2 * 3600    # on a busy host a whole suite waits at most this long for company
 
 
 def _trees(turn, kind="trees"):
@@ -132,8 +133,11 @@ def _pass(turn):
     while it runs, then the last 20 that checked something.  While this process holds it, the
     pass's own: `fruitless`, how many passes before it in a row checked something and moved
     nobody, a pass whose process died mid-check one of them unless its record says it `moved`,
-    and `moved`, None until it checks members, then whether it wrote one a verdict.  A pass that
-    only waited counts for neither."""
+    and `moved`, None until it checks members, then whether it wrote one a verdict, and `waited`,
+    whether it ended holding a whole suite off for company (`_waits_for_company`).  A pass that
+    only waited counts for neither, and one that held a suite off neither, nor among the last
+    20: a busy host holds one off at every retry, and their time would set the pace `stuck`
+    reads."""
     with turn.with_suffix(".lander.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -143,7 +147,8 @@ def _pass(turn):
         kept = passes(turn)
         took = kept.get("took") or []
         held = SimpleNamespace(moved=None, fruitless=0 if kept.get("moved") else kept.get(
-            "fruitless", 0) + bool(kept.get("started") and not record.process_active(kept)))
+            "fruitless", 0) + bool(kept.get("started") and not record.process_active(kept)),
+            waited=False)
         counted = {"fruitless": held.fruitless} if held.fruitless else {}
         started = time.time()
         held.start = {"took": took, **counted, "started": started, **record.process_owner()}
@@ -152,9 +157,9 @@ def _pass(turn):
             yield held
         finally:
             spent = time.time() - started
-            fruitless = 0 if held.moved else held.fruitless + (
-                held.moved is False and spent >= CHECKED)
-            _keep_passes(turn, {"took": (took + [spent])[-20:] if spent >= CHECKED else took,
+            checked = spent >= CHECKED and not held.waited
+            fruitless = 0 if held.moved else held.fruitless + (held.moved is False and checked)
+            _keep_passes(turn, {"took": (took + [spent])[-20:] if checked else took,
                                 **({"fruitless": fruitless} if fruitless else {})})
 
 
@@ -849,7 +854,7 @@ def check_line(turn, log=lambda _: None):
                 log(f"{upstream} fails {' '.join(over['tests'])} of its own, which {over['run']} "
                     "repairs: this pass lands a stack red in nothing else over them, unproven")
             verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log, prefix=prefix,
-                                      ready=publish, tip_green=tip_green, over=over)
+                                      ready=publish, held=held, tip_green=tip_green, over=over)
                         if checked else {directory: verdict})
             if not verdicts:
                 return
@@ -1213,8 +1218,43 @@ def _check_tree(directory, state, scratch, tree, checks, log, suite, over=()):
         "line": prompts.first_failure(text), "log": str(log_path), **red}, "parts": parts}
 
 
-def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=(), tip_green=None,
-                   over=None):
+def _waits_for_company(turn, stacks, checks, suite, log):
+    """Whether `checks`, the whole check of the last of `stacks` on those before it, wait, the
+    pass then ending with none started: where they run a suite, the target's `suite` or a
+    `tests:` line one of `stacks` declares (`_landing_checks`), while the host has no idle
+    processor (its load at its processor count or over, by ak's own readings), the line holds
+    no member launched `--first`, no repair and no held install's fix (`update.first_place`,
+    admitted as `--first` is), and its longest-ready member without a verdict, one
+    `check_line` checks, has been in line under BATCH.  Lines ran their suites whole back to
+    back, 19 to 32 runs a day a project, each for the few members that joined during the last,
+    on a host loaded over twice its processors (13 to 16 Nov 2026): one run now covers two hours
+    of changes.  With an idle processor nothing waits, so a larger host ends the wait by itself.
+    Asked of the clock, the readings and the line as they are, whatever led the pass to the
+    run, and nothing kept: the callers that retry a pass ask again.  The test suites'
+    `AK_MAX_RUNS=0` lifts it, as every host gate."""
+    from . import host
+    if os.environ.get("AK_MAX_RUNS") == "0" or host.load_per_core() < 1:
+        return False
+    members = [state for _, state in line(turn)]
+    since = min((state["waiting_on"]["joined"] for state in members
+                 if state.get("state") == "waiting" and not record.process_active(state)
+                 and (state.get("review") or {}).get("verdict") == "PASS"
+                 and not {"land", "fix"} & state["waiting_on"].keys()), default=0)
+    if time.time() - since >= BATCH or any(
+            state.get("first") or state.get("repair") or update.first_place(state)
+            for state in members):
+        return False
+    suites = {suite, *(gitcall.declared_at(scratch, tree, "tests")
+                       for _, _, scratch, tree, *_ in stacks)}
+    if not suites & set(checks):
+        return False
+    log(f"no processor is idle: the suite runs whole for everyone in line by "
+        f"{time.strftime('%H:%M', time.localtime(since + BATCH))}")
+    return True
+
+
+def _check_members(turn, members, repo, tip, target_tree, log, *, ready, held, prefix=(),
+                   tip_green=None, over=None):
     from . import gate, roundloop, run
     if prefix:
         wait = prefix[-1][1]["waiting_on"]
@@ -1599,6 +1639,10 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, prefix=
                                 running[job] = index, None, narrowing
                             else:
                                 checks = commands(index) if batched else own
+                                if _waits_for_company(turn, stacks[:index + 1], checks, suite,
+                                                      log):
+                                    held.waited = short = True      # this pass ends
+                                    break
                                 running[pool.submit(_check_tree, member, saved, scratch, tree,
                                                     checks, log, suite, excused)] = (
                                     index, checks, None)
