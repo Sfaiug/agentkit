@@ -2073,15 +2073,17 @@ def screen_state(harness, pane):
         while at and chrome["tray"].fullmatch(lines[at - 1]):
             at -= 1
         raw_lines, lines = raw_lines[:at] + raw_lines[-1:], lines[:at] + lines[-1:]
-    # A rule right under a row drawn at the left edge is that row's frame, not a newer line:
-    # Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the newest line
-    # it hid every question, which then read as answered.  In a renamed session -- every seat --
-    # that rule carries the session's name, which the adapter's composer pattern knows.  A draft never sits there: its
-    # first row is prompt-marked and the rest are indented or inside a box's edge, so what is
-    # typed stays a draft.
+    # A rule right under a row drawn at the left edge, or one space in, is that row's frame, not a
+    # newer line: Claude Code 2.1.291 closes AskUserQuestion's footer with one, and read as the
+    # newest line it hid every question, which then read as answered; 2.1.325 closes a tool's
+    # permission prompt with one, its hint one space in, when a background agent asks after the
+    # turn's Stop (a seat read working for 16 hours, 15 Nov 2026).  In a renamed session -- every
+    # seat -- that rule carries the session's name, which the adapter's composer pattern knows.
+    # A draft never sits there: its first row is prompt-marked and the rest are indented farther,
+    # under that mark, or inside a box's edge, so what is typed stays a draft.
     newest = lines[-1]
     if chrome["ruled"] and len(lines) > 1 and drawn_rule(newest):
-        above = strip_sgr(raw_lines[-2]).rstrip()
+        above = strip_sgr(raw_lines[-2]).rstrip().removeprefix(" ")
         if (above and not above[0].isspace() and above[0] not in "│┃║"
                 and not re.match(rf"[>{PROMPT}]", above) and not drawn_rule(above.strip())):
             newest = lines[-2]

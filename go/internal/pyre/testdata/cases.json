@@ -37,6 +37,7 @@
   "claude-multiline-draft-pane.txt",
   "claude-narrow-streaming-pane.txt",
   "claude-narrow-working-pane.txt",
+  "claude-permission-over-rule-pane.txt",
   "claude-permission-pane.txt",
   "claude-plan-mode-pane.txt",
   "claude-plan-pane.txt",
@@ -1735,6 +1736,15 @@
      "span": [
       0,
       2
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-permission-over-rule-pane.txt",
+     "row": 5,
+     "span": [
+      0,
+      74
      ],
      "groups": {}
     },
@@ -15079,6 +15089,15 @@
      "span": [
       40,
       69
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-permission-over-rule-pane.txt",
+     "row": 4,
+     "span": [
+      24,
+      77
      ],
      "groups": {}
     },
