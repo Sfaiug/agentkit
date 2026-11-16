@@ -3577,16 +3577,16 @@ def scored(column, one):
                                else "")
 
 
-def flowed(parts, room):
+def flowed(parts, room, hang=0):
     """`parts` three cells apart on lines of `room` cells, each going on at its words beside the
-    one before it and the rest under the first, a word too long for a line split
-    (terminal.wrap)."""
+    one before it and the rest under the first, `hang` cells further in, a word too long for a
+    line split (terminal.wrap)."""
     lines = [""]
     for part in parts:
         gap = "   " if lines[-1] else ""
-        for word in " ".join(terminal.wrap(part, room)).split():
+        for word in " ".join(terminal.wrap(part, room - hang)).split():
             if lines[-1] and terminal.cells(lines[-1] + gap + word) > room:
-                lines.append(word)
+                lines.append(" " * hang + word)
             else:
                 lines[-1] += gap + word
             gap = " "
@@ -3595,7 +3595,8 @@ def flowed(parts, room):
 
 def models_why(found, role, row, unit):
     """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
-    2026: a label column, each value going on at its words in its own (flowed).  Its quality,
+    2026: a label column, each value going on at its words in its own (flowed), an other's lines
+    after its first two cells further in, so each other's first line stands out.  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
     best choice it is; its cost in `unit`, said as UNITS says it, and where that comes from
     (SOURCES); the rule that makes the choices; and why each of its `others` is none (WHYS), in
@@ -3637,7 +3638,9 @@ def models_why(found, role, row, unit):
     for block in said:
         lines.append("")
         for label, parts in block.items():
-            for n, line in enumerate(line for part in parts for line in flowed(part, values)):
+            hang = 2 * (label == "others")
+            for n, line in enumerate(line for part in parts
+                                     for line in flowed(part, values, hang)):
                 lines.append(f"{terminal.pad(label if n == 0 else '', width)}  {line}")
     return ["  " + line if line else line for line in lines]
 
