@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import struct
 import subprocess
 import sys
@@ -473,17 +474,45 @@ class Matrix(unittest.TestCase):
         self.assertEqual((lines[number], lines[number + 2]), (orch, reviews))
         self.assertIn("Opus 5.5", highlighted(lines))
 
-    def test_a_click_on_theme_s_label_marks_the_theme_in_force_whichever_cell_was_keyed(self):
+    def test_the_keys_come_onto_the_theme_in_force_and_theme_s_label_takes_no_click(self):
         screen = Screen(self)
         screen.frame()
         screen.press(DOWN, lambda lines: lit(lines, "opus") == "●")
-        lines = screen.press(RIGHT, lambda lines: on_effort(lines, "opus"))   # a cell Theme lacks
+        screen.press(RIGHT, lambda lines: on_effort(lines, "opus"))     # a cell Theme lacks
+        lines = screen.press(DOWN * 20, lambda lines: any(line.startswith("› Theme")
+                                                          for line in lines))
+        self.assertIn("● black   ○ white", highlighted(lines))
+        self.assertEqual(lines.lit[1], "black")
+        # its label, as a model's name, takes no click: it marks nothing, and the next key goes
+        # on from the cell the keys were on
         number, line = next((number, line) for number, line in enumerate(lines, 1)
                             if "Theme" in line)
-        lines = screen.click(line.index("Theme") + 1, number,
-                             lambda lines: highlighted(lines).startswith("› Theme"))
-        self.assertIn("● black   ○ white", highlighted(lines))
-        self.assertEqual(screen.saved()["theme"], "black")
+        screen.click(line.index("Theme") + 1, number)
+        screen.press(RIGHT, lambda lines: lines.lit and lines.lit[1] == "white")
+        self.assertNotIn("theme", screen.saved())
+        screen.leave()
+
+    def test_a_models_name_at_a_pages_foot_its_marks_under_the_page_takes_no_click(self):
+        screen = Screen(self, rows=18, cols=20)
+        before = screen.frame()
+        number = before.index("  Opus 5.5") + 1
+        self.assertEqual(before[number], "", "Opus 5.5's name is not the page's last line")
+        after = screen.click(18, number)      # the blank after its name, as on no row
+        self.assertEqual(after[1:], before[1:])
+        screen.leave()
+
+    def test_a_resize_putting_a_models_name_under_the_still_pointer_puts_its_light_out(self):
+        screen = Screen(self, rows=12, cols=20)
+        lines = screen.frame()
+        self.assertTrue(lines[2].startswith("    orch"), lines)       # Fable's, the page's first
+        col = lines[2].index("○") + 1
+        self.assertIsNotNone(screen.press(f"\x1b[<35;{col};3M".encode()).lit)
+        mark = len(screen.text())
+        fcntl.ioctl(screen.slave, termios.TIOCSWINSZ, struct.pack("HHHH", 20, 20, 0, 0))
+        screen.proc.send_signal(signal.SIGWINCH)
+        # its name comes under the pointer, which is as on blank space: nothing lit, no `›`
+        screen.frame(lambda lines: lines[2] == "  Fable 5.1" and lines.lit is None
+                     and not any(line.startswith("›") for line in lines), after=mark)
         screen.leave()
 
     def test_theme_s_marks_fold_under_its_label_where_the_values_column_is_too_narrow(self):

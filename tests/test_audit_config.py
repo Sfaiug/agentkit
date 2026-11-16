@@ -122,8 +122,9 @@ class AuditSetting(unittest.TestCase):
         self.assertIn("›   ○ Fable 5.1", frames[-2])
         self.assertNotIn("○ Fable 5.1", "\n".join(frames[-1]))   # Esc closed it, on the page still
         self.assertEqual(self.path.read_text(), before)
-        # a click past On's line is on nothing: the list stays open, nothing written
-        frames = self.page("down", "enter", Key("click", col=30, row=3), "down")
+        # a click on the rule, over every row, is on nothing: the list stays open, nothing
+        # written (past On's text is On's, lit to the layout's last column as its band is)
+        frames = self.page("down", "enter", Key("click", col=30, row=2), "down")
         self.assertIn("›   ● Opus 5.5", frames[-3])
         self.assertIn("›   ○ 6 Astra", frames[-2])
         self.assertEqual(self.path.read_text(), before)
