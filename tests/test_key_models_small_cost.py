@@ -1,5 +1,5 @@
 """A cost above 0 that two decimals would say as `0.00` is said to its first figure that is not
-0, rounded there, `≈` before one no run measured as before any, every other cost as before: on
+0, rounded there, `≈` before it where no run measured it, every other cost as before: on
 `r recommended` on `c`, at 100 cells and at 40, a review that cost $0.004 reads `$0.004` on its
 bar and on its why, never `$0.00`, and after `u`, at 0.0013% of its plan's week, `0.001%`.
 
