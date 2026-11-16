@@ -1,7 +1,8 @@
 #!/bin/bash
 # The end-of-turn rule, where prose cannot enforce it: on every Stop of an orchestrator seat,
 # and before its harness draws a question prompt, this hands the harness the answer
-# `turn_end.judge` gives (agentkit/turn_end.py, where the rule is told and kept).
+# `turn_end.judge` gives (agentkit/turn_end.py, where the rule is told and kept), judged by the
+# warm looker, which has its imports done and the runs parsed, else here, cold (`looker.take`).
 #
 # A worker is silent here as it is everywhere: no $AGENTKIT_SESSION, or AK_RUN_ROLE=worker,
 # and this decides nothing and exits 0.
@@ -29,13 +30,8 @@ main() {
   # tool output ends in a payload no argument list and no environment would carry -- Linux
   # refuses a single one past 128 KB -- and a hook that cannot be handed the turn it is judging
   # would decide nothing at all, quietly.
-  /usr/bin/env python3 -c '
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
-from agentkit.turn_end import judge
-sys.stdout.write(judge(sys.argv[1], sys.stdin.read()))
-' "$seat" "${BASH_SOURCE[0]}" <<<"$payload"
+  printf '\0%s' "$payload" |
+    /usr/bin/env python3 "${BASH_SOURCE[0]%/*}/../agentkit/looker.py" "$seat" "" judge
 }
 
 main 2>/dev/null || true

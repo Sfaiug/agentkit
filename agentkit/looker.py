@@ -1,13 +1,15 @@
 """A seat's event heard and looked at by a process already warm: who runs hooks/seat-state.sh's
-and watch.start_look's look, and hears every event but a Stop, which its hook writes itself.
+and watch.start_look's look, hears every event but a Stop, which its hook writes itself, and
+judges the turn's end hooks/orchestrator-stop.sh hands over (`turn_end.judge`).
 
-A fresh Python spends seconds on its imports and on reading every run before it writes or looks
-(`watch.hook_look`).  `serve`, forked by the warm server and leaving with it, has both done, at the
-server's priority, and reads the runs again at each wake as the menu does (`menu.run_records`).
-`ask`, Python without agentkit, hands it the look over a socket in STATE, and it forks a child
-per call to hear the event (`record`, a prompt's `prompted`) and look on the runs as read.
-Anything amiss goes cold: with no looker, one older than the install or one silent for
-`warm.WAIT`, `ask` does both itself.
+A fresh Python spends seconds on its imports and on reading every run before it writes, looks or
+judges (`watch.hook_look`).  `serve`, forked by the warm server and leaving with it, has both
+done, at the server's priority, and reads the runs again at each wake as the menu does
+(`menu.run_records`).  `ask`, Python without agentkit, hands it the look over a socket in STATE,
+and it forks a child per call to hear the event (`record`, a prompt's `prompted`) and look on
+the runs as read, or to judge, on the runs read again through what the looker parsed.  Anything
+amiss goes cold: with no looker, one older than the install or one silent for `warm.WAIT`, `ask`
+does it all itself.
 Never lost nor run twice: a child acts once the client says go, and the client, once it has, never
 acts itself.
 """
@@ -21,8 +23,10 @@ def ask(repo, seat, owner="", event="", *kind):
     looker's, else this process's own, returning once the look ends.  With the event's `kind`,
     and its own words after a NUL on stdin -- a prompt's caller after its kind, and its payload
     after its words (`prompted`) --, the event is heard there first and this returns once its
-    fact is down, having printed what hearing it said, the look going on behind.  In a session
-    of its own: a harness ending the hook group ends none of it."""
+    fact is down, having printed what hearing it said, the look going on behind.  The event
+    `judge`, a turn's end's payload after the NUL, returns once judged, having printed the
+    answer (`turn_end.judge`).  In a session of its own: a harness ending the hook group ends
+    none of it."""
     import _socket
     from warm import WAIT, place     # beside this file: run as a script, it imports no agentkit
     if os.getpgrp() != os.getpid():     # where it may, as a group leader may not
@@ -75,7 +79,15 @@ def _behind():
 def take(seat, owner, event, said, fact, say, go, records=None):
     """That event as hooks/seat-state.sh hears it: one handed over with its `fact` is heard first
     -- a prompt by `prompted`, which `say`s the hook's output, any other by `record` --, the
-    owner's word answering at that moment, and `go()` lets the hook go on; then the look."""
+    owner's word answering at that moment, and `go()` lets the hook go on; then the look.
+    hooks/orchestrator-stop.sh's `judge` is judged instead, and its answer `say`d."""
+    if event == "judge":
+        # on every run read again, as cold, never on `records`: a run at rest the looker has not
+        # read since it changed can end a turn or hold it, and what the looker parsed makes the
+        # read a stat a run (`record.runs`)
+        from . import turn_end
+        say(turn_end.judge(seat, *fact).encode())
+        return
     answered = ""
     if fact:
         mine = owner == "true"
@@ -169,7 +181,8 @@ def serve():
     import select
     import signal
     import socket
-    from . import config, menu, update, warm
+    # turn_end too, what each fork judges with, imported once here
+    from . import config, menu, turn_end, update, warm  # noqa: F401
     server = os.getppid()
     records = menu.run_records(cache=False, rest_may_lag=True)   # no SQLite crosses a fork
     if os.getppid() != server or update.outdated():
