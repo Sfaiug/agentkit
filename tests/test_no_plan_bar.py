@@ -82,7 +82,7 @@ class NoPlanBar(Sandbox):
         first = line.index("─") + 1
         span = range(first, line.index(" no plan yet") + 1)
         dot = (number, line.index("●") + 1)
-        base = math.ceil((time.monotonic() + 60) / motion.ROUND) * motion.ROUND
+        base = math.ceil((time.monotonic() + 60) / motion.BREATH) * motion.BREATH
 
         def frame(at):
             with patch.object(motion.time, "monotonic", return_value=at):

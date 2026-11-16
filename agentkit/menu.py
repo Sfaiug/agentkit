@@ -2068,12 +2068,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 if shown[0] > before[0]:      # its open square is dim (`squares`)
                     filled = written[column - 1 + shown[0]]
                     clock.start([(row, column + shown[0])], *motion.halving(
-                        filled, terminal.styled(terminal.plain(filled), "dim"), since,
-                        motion.STEP, lit))
+                        filled, terminal.styled(terminal.plain(filled), "dim"), since, lit))
             elif key[0] in ("opened", "page"):    # what comes up out of the background
                 for row in (opened if key[0] == "opened" else range(top + 1, top + len(body) + 1)):
-                    motion.fading(out[row - 1], motion.OPEN if key[0] == "opened" else motion.TURN)(
-                        clock, row, since, None)
+                    motion.fading(out[row - 1])(clock, row, since, None)
             elif shown in ("needs you", "done"):
                 # its row glows in its word's colour and fades, and a line just done is crossed
                 # by one light
@@ -5280,7 +5278,7 @@ def _subscriptions(cfg, keyboard, whose):
             # the pointer on its own cell lights that, so its act is at rest: one thing lit
             for shown, cells in opened_line(told, list(acts), None if owned else on, width - 4):
                 places[len(body)] = (("sub", number), cells)
-                moves.append((len(body), ("opened",), lit, motion.fading(shown, motion.OPEN)))
+                moves.append((len(body), ("opened",), lit, motion.fading(shown)))
                 body.append(shown)
         # seen with no line too, so the pointer coming back onto a row is news
         moves.append((0, ("opened",), lit, lambda *_: None))
@@ -5485,7 +5483,7 @@ def config_page(name, page, move=True):
         moves = []
         body, places = page_body(drawn, None if terminal.away() else here, moves)
         # an open list comes up under its row as the line under the menu's highlighted row does
-        moves += [(line, ("opened",), opened[0], motion.fading(body[line], motion.OPEN))
+        moves += [(line, ("opened",), opened[0], motion.fading(body[line]))
                   for line, (row, _) in places.items() if len(row) == 3]
         # a click on what a mark's line draws acts as Space does (matrix_key's `marks`)
         places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else cells)
@@ -6670,9 +6668,9 @@ def past_body(past, at=None, room=None, said=None, now=None):
     told = opened.get(at, []) if lit and where else []
     shown = shown[:where] + [(terminal.highlight(indent + line, mark=False), at)
                              for line in told] + shown[where:]
-    moves = [(n, ("page",), page, motion.fading(line, motion.TURN))
+    moves = [(n, ("page",), page, motion.fading(line))
              for n, (line, _) in enumerate(shown)]
-    moves += [(n, ("opened",), at, motion.fading(shown[n][0], motion.OPEN))
+    moves += [(n, ("opened",), at, motion.fading(shown[n][0]))
               for n in range(where, where + len(told))]
     rowed = [n for n, (_, seat) in enumerate(shown) if seat and spans[seat]
              and (n == 0 or shown[n - 1][1] != seat)]

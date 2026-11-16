@@ -23,13 +23,26 @@ import time
 import unittest
 from unittest.mock import patch
 
-from test_config_matrix import DOWN, FULL, RIGHT, SPACE, UP, Screen, draws, on_effort, row
+from test_config_matrix import CHILD, DOWN, FULL, RIGHT, SPACE, UP, Screen, draws, on_effort, row
 from agentkit import config, menu, motion, terminal
 
 PLACE = re.compile(r"\x1b\[(\d+);(\d+)H")      # where a frame writes a cell
 CELL = re.compile(r"(\x1b\[[0-9;]*m)?([━─])")
 BAR = re.compile(r"(?:(?:\x1b\[[0-9;]*m)*[━─])+")
 LIT = "38;"     # a colour of its own: a dim cell's, or the light's on a letter
+# The child's motion on the test's clock (tests/fixtures/clock.py), on at once to each frame due
+CLOCKED = """
+import select
+from tests.fixtures.clock import Clock
+from agentkit import menu, terminal
+now, read_key = [1000.0], terminal.read_key
+clock = Clock(lambda seconds: now.__setitem__(0, now[0] + seconds))
+clock.monotonic = lambda: now[0]
+menu.time = motion.time = clock
+terminal.read_key = lambda timeout=None, wake=None: (
+    clock.sleep(timeout) if timeout is not None and timeout <= motion.FRAME and not terminal._KEYED
+    and not select.select([sys.stdin], [], [], 0)[0] else read_key(timeout, wake))
+""" + CHILD
 
 
 def drawn(screen):
@@ -110,7 +123,7 @@ class EffortCells(unittest.TestCase):
         screen.leave()
 
     def test_a_step_moves_the_cells_it_changes_in_turn_and_the_highest_shimmers_once(self):
-        screen = Screen(self)
+        screen = Screen(self, child=CLOCKED)
         lines = screen.press(DOWN + RIGHT, lambda lines: on_effort(lines, "opus"))
         number, word, first = places(lines, "opus")
         # a click on its second cell, down from xhigh: its fourth cell, then its third, stay
@@ -172,26 +185,28 @@ class EffortCells(unittest.TestCase):
         self.assertEqual(row(screen.frame(), "opus")[1].split()[-2:], ["━━━━━", "max"])
         screen.leave()
 
-    def test_a_cell_takes_about_150_ms_and_the_light_about_600(self):
+    def test_a_cell_takes_100_ms_and_the_light_450(self):
         with patch.object(terminal, "colour_depth", return_value=256), \
                 patch.object(terminal, "utf8", return_value=True):
             fill, until = motion.filling(True, 10.0)
-            self.assertEqual(until, 10.15)
+            self.assertEqual(until, 10.1)
             self.assertEqual(fill(9.9), terminal.styled("─", "border"))   # its turn to come
             self.assertIn(LIT, fill(10.0))
             self.assertEqual(terminal.ANSI.sub("", fill(10.0)), "━")
-            self.assertEqual(fill(10.15), "━")
+            self.assertEqual(fill(10.1), "━")
             empty, _ = motion.filling(False, 10.0)
             self.assertEqual(empty(10.0), terminal.styled("━", "dim"))
-            self.assertEqual(empty(10.15), terminal.styled("─", "border"))
+            self.assertEqual(empty(10.1), terminal.styled("─", "border"))
             shimmer, until = motion.shimmering("max", 10.0)
-            self.assertEqual(until, 10.6)
+            self.assertEqual(until, 10.45)
             # in at its first letter and out after its last, as many lit as it is on
-            for t, lit in ((0, [0]), (0.1, [0, 1]), (0.3, [0, 1, 2]), (0.5, [2]), (0.65, [])):
+            for t, lit in ((0, [0]), (0.1, [0, 1]), (0.3, [0, 1, 2]), (0.44, [2]), (0.45, [])):
                 self.assertEqual(shone(shimmer(10.0 + t)), lit)
             # a combining mark on its letter's cell, lit with it
             mark = motion.shimmering("ma\u0301x", 10.0)[0]
-            self.assertEqual([shone(mark(10.0 + t)) for t in (0.4, 0.5)], [[1, 2, 3], [3]])
+            self.assertEqual([shone(mark(10.0 + t)) for t in (0.35, 0.42)], [[1, 2, 3], [3]])
+            wide = motion.shimmering("最高努力", 10.0)[0]      # its last letter two cells wide
+            self.assertEqual([shone(wide(10.0 + t)) for t in (0.44, 0.45)], [[3], []])
 
     def test_the_cells_count_the_catalog_last_listed_whoever_asked(self):
         # a harness of the test's own, whose listing says its one model runs at no effort

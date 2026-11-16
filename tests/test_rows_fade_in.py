@@ -1,7 +1,7 @@
 """What the highlight opens, and the page it turns to, come up out of the background.
 
 The owner's design (14 Oct 2026): pointing at a row, or moving to it with ↑/↓, opens the line
-under it, which fades in over 120 ms; turning a page fades its rows in over 150 ms.  Nothing
+under it, and turning a page fades its rows in, each over 150 ms.  Nothing
 else moves for it, and the first draw draws them as they are.  Offline: a temporary HOME, fake
 seats, the motion clock read, no terminal.
 """
@@ -58,7 +58,7 @@ class FadeIn(Sandbox):
         # the line it opens, and no other, comes up out of the background
         self.assertEqual([cell for cell in self.clock.cells if cell[1] == 1], [(row, 1)])
         animation, until = self.clock.cells[row, 1]
-        began = until - motion.OPEN
+        began = until - motion.FADE
         first, last = animation(began), animation(until)
         self.assertNotEqual(first, last)
         self.assertEqual(terminal.plain(first), terminal.plain(last))
@@ -73,16 +73,16 @@ class FadeIn(Sandbox):
         faded = []
         for row in rows:
             animation, until = self.clock.cells[row, 1]
-            # it ends as drawn, and began TURN seconds before, faded into the background
+            # it ends as drawn, and began FADE seconds before, faded into the background
             self.assertEqual(terminal.plain(animation(until)), terminal.plain(lines[row - 1]))
-            faded.append(animation(until - motion.TURN) != animation(until))
+            faded.append(animation(until - motion.FADE) != animation(until))
         self.assertTrue(any(faded))
         self.assertTrue(any("acme" in lines[row - 1] for row in rows))
 
     def test_breathing_cells_share_their_rows_fade_and_keep_breathing_afterwards(self):
         for name in NAMES:
             config.plan_path(name).write_text("- [x] a\n- [ ] b\n")
-        for page, took in ((0, motion.OPEN), (1, motion.TURN)):
+        for page in (0, 1):
             for light in (False, True):
                 with self.subTest(page=page, light=light), \
                         patch.object(terminal, "THEME", terminal.WHITE if light else terminal.BLACK), \
@@ -103,12 +103,12 @@ class FadeIn(Sandbox):
                     if page:
                         self.assertIn("●", glyphs)
                         self.assertTrue(glyphs & {"━", "╸"}, glyphs)
-                    for elapsed in (0, took / 2, took, took + 0.1):
+                    for elapsed in (0, motion.FADE / 2, motion.FADE, motion.FADE + 0.1):
                         now.return_value = 11.0 + elapsed
                         self.clock.frame()
                         for cell, at in inside.items():
                             shown = self.clock.shown[cell]
-                            if elapsed >= took:     # as it breathes, written on its row's band
+                            if elapsed >= motion.FADE:  # as it breathes, on its row's band
                                 self.assertEqual(terminal.pointed(*cell, shown),
                                                  terminal.pointed(*cell, at(now.return_value)))
                                 self.assertIn(cell, self.clock.cells)
@@ -139,7 +139,7 @@ class FadeIn(Sandbox):
             builds = f"{config.model_at(self.cfg, None, 'astra', 'executor')} builds"
             row = next(n for n, line in enumerate(lines, 1) if builds in line)
             animation, until = self.clock.cells[row, 1]
-            self.assertAlmostEqual(until, 11.22)
+            self.assertAlmostEqual(until, 11.25)
             self.assertEqual(animation(11.1), terminal.fade(animation(until), 1))
             for (other, column), (_, end) in self.clock.cells.items():
                 if column == 1 and other != row:
@@ -147,7 +147,7 @@ class FadeIn(Sandbox):
             now.return_value = 11.15
             self.clock.frame()
             self.assertEqual([cell for cell in self.clock.cells if cell[1] == 1], [(row, 1)])
-            now.return_value = 11.22
+            now.return_value = 11.25
             self.clock.frame()
             self.assertNotIn((row, 1), self.clock.cells)
 

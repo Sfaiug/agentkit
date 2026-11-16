@@ -483,15 +483,18 @@ class Popup:
 
 
 class TheContent(unittest.TestCase):
-    def test_it_fades_in_from_the_background_over_about_120_ms_and_is_then_as_drawn(self):
+    def test_it_fades_in_from_the_background_over_about_150_ms_and_is_then_as_drawn(self):
         popup = Popup(self)
         up = popup.until(r"\x1b\[1;1Hagentkit", "the header as drawn")
         text = popup.text()[:up.start()]
         # a frame each FRAME of the clock, from the background until FADE has passed and it is
         # as drawn; a draw between two frames shows the one before
-        self.assertEqual([shown for shown, _ in itertools.groupby(header_tones(text))],
-                         [tone(n * motion.FRAME)
-                          for n in range(math.ceil(motion.FADE / motion.FRAME))])
+        shown = [shown for shown, _ in itertools.groupby(header_tones(text))]
+        tones = [tone(n * motion.FRAME) for n in range(math.ceil(motion.FADE / motion.FRAME))]
+        # a channel on a half rounds either way as the clock's sum rounds the frame's moment
+        self.assertEqual(len(shown), len(tones), shown)
+        self.assertTrue(all(abs(got - want) <= 1 for frame, expected in zip(shown, tones)
+                            for got, want in zip(frame, expected)), (shown, tones))
         self.assertNotIn("\x1b[Hagentkit", text)             # never first drawn as it is
 
     def test_a_key_pressed_while_it_fades_in_is_answered_within_100_ms(self):
