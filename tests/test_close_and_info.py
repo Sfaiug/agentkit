@@ -18,6 +18,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import struct
 import subprocess
@@ -451,8 +452,7 @@ class ClosedSeat(Sandbox):
 
     def test_every_seats_bar_offers_the_menu(self):
         def key(word, last=""):
-            return statusbar.lines("atoll", "fable", word, last)[2].replace(
-                "#[fg=#868d97]", "").replace("#[default]", "")
+            return re.sub(r"#\[[^\]]*\]", "", statusbar.lines("atoll", "fable", word, last)[2])
         for word in (None, "working", "needs you", "done"):
             self.assertEqual(key(word), "Ctrl-b m  menu ")
 

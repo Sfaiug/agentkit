@@ -60,8 +60,15 @@ func TestTheBarSaysWhatStatusbarSays(t *testing.T) {
 				t.Errorf("%s %s: %q", each.word, option, told[option])
 			}
 		}
-		if told[barKey] != "Ctrl-b m#[fg=#868d97]  menu #[default]" || told["set-titles-string"] != "acme · "+each.word {
+		if told[barKey] != "#[fg=#868d97]Ctrl-b m#[fg=#acb4bd]  menu #[default]" || told["set-titles-string"] != "acme · "+each.word {
 			t.Errorf("%s: key %q, title %q", each.word, told[barKey], told["set-titles-string"])
+		}
+		// on the theme's surface, and tmux's own selection and message line in the theme too
+		for option, want := range map[string]string{"status-style": "fg=#e2e8ef,bg=#111519",
+			"mode-style": "fg=#e2e8ef,bg=#08305d", "message-style": "fg=#e2e8ef,bg=#111519"} {
+			if told[option] != want {
+				t.Errorf("%s %s: %q", each.word, option, told[option])
+			}
 		}
 	}
 	seat := Seat{Name: "a#b%", Word: "idle"}

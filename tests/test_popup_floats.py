@@ -1,6 +1,6 @@
 """The menu inside a session floats over it.
 
-`Ctrl-b m`'s popup has a rounded border in the dim colour with ` agentkit ` set into its top edge
+`Ctrl-b m`'s popup has a rounded border in the border colour with ` agentkit ` set into its top edge
 and, but on a phone, a column and a row of padding inside it, a line typed into it included; it
 is handed its client's terminal features, so its menu asks tmux nothing before it draws, and its
 client's name, the window a seat picked in it opens in, which no tmux command hands on; the pane
@@ -45,6 +45,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, motion, orch, terminal, themes
 
 DIM = f"fg=#{terminal.colour('dim', tmux=True)}"
+BORDER = f"fg=#{terminal.colour('border', tmux=True)}"
 OWN = "fg=red,bg=blue,bold"         # a style a pane may have of its own
 STYLES = ("window-style", "window-active-style")   # the active pane draws in the second's colour
 # a pane's own styles: none, one or the other, both empty
@@ -330,14 +331,14 @@ class FakeTmux:
 
 
 class TheBinding(unittest.TestCase):
-    def test_it_asks_for_a_rounded_dim_border_the_title_and_padding_but_on_a_phone(self):
+    def test_it_asks_for_a_rounded_border_the_title_and_padding_but_on_a_phone(self):
         tmux = FakeTmux(self)
         tmux.press(small=True)
         tmux.press()
         phone, larger = (popup_flags(popup) for popup in tmux.popups())
         for flags in (phone, larger):
             self.assertEqual(flags["-b"], "rounded")
-            self.assertEqual(flags["-S"], DIM)
+            self.assertEqual(flags["-S"], BORDER)
             self.assertEqual(flags["-T"], " agentkit ")
             self.assertIs(flags["-E"], True)
             self.assertEqual((flags["-c"], flags["-t"]), (CLIENT, PANE))
@@ -349,13 +350,14 @@ class TheBinding(unittest.TestCase):
                                   [*features, f"{terminal.PAD_ENV}=1"]])
         self.assertNotIn("set-hook", "\n".join(tmux.lines))   # no other session is touched
 
-    def test_its_dim_is_the_theme_s_config_toml_names_as_the_key_is_pressed(self):
+    def test_its_colours_are_the_theme_s_config_toml_names_as_the_key_is_pressed(self):
         tmux = FakeTmux(self)       # the binding as written before the theme was chosen on `c`
         (tmux.root / ".agentkit" / "config.toml").write_text('theme = "white"\n')
         tmux.env["STANDIN_DIM"] = white = f"fg=#{themes.ROLES['dim'][themes.WHITE]}"
         seen = tmux.press()
         self.assertNotEqual(white, DIM)
-        self.assertEqual(popup_flags(tmux.popups()[0])["-S"], white)
+        self.assertEqual(popup_flags(tmux.popups()[0])["-S"],
+                         f"fg=#{themes.ROLES['border'][themes.WHITE]}")
         self.assertEqual(seen["styles"], dict.fromkeys(STYLES, white))
 
     def test_its_client_s_name_reaches_no_server_a_tmux_command_starts(self):

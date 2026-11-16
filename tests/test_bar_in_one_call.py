@@ -36,7 +36,7 @@ class BarInOneCall(Sandbox):
         self.assertTrue(all(command[:3] == ["set-option", "-t", "=acme:"]
                             for command in commands(bar[0]) if command[0] == "set-option"))
         self.assertEqual(options[-2:], ["set-titles-string", statusbar.TOLD])
-        for option in (*(option for option, _ in statusbar.LAYOUT), *statusbar.TOPS,
+        for option in (*(option for option, _ in statusbar.layout()), *statusbar.TOPS,
                        *statusbar.WHYS, statusbar.KEY):
             self.assertIn(option, options)
 

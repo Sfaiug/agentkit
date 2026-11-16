@@ -5,12 +5,47 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 )
+
+// release is the release a tmux names as it says its version.
+var release = regexp.MustCompile(`(\d+)\.(\d+)`)
+
+// float is what Ctrl-b m runs in the background on a tmux that floats a popup (floats), as
+// orch.FLOAT does and for the reasons it gives, on the same pane options and lock, so popups of
+// either ak over one pane keep and put back its styles together: p the pane it opens over, c its
+// client, w and h its size; the popup is bordered in the theme's border, and the pane draws in its
+// dim while the popup is up, then has exactly its own styles back once the last popup over it is
+// down.  Both colours are asked as the key is pressed (ColoursVerb), so they are the theme's
+// config.toml names then, whichever ak chose it.  Its words: tmux itself (real), the command that
+// says the colours, and the popup's command.
+const float = `tmux() { command %s "$@"; }; set -- $(%s); b="fg=#$1" m="fg=#$2"; ` +
+	`o() { tmux show-options -pqv -t "$p" "$1"; }; ` +
+	`h() { [ -n "$(tmux show-options -pq -t "$p" "$1")" ]; }; ` +
+	`l() { tmux wait-for "$1" "ak-float$p"; }; { l -L; n=$(o @ak_floats); ` +
+	`for s in window-style window-active-style; do ` +
+	`if [ -z "$n" ] && h $s; then tmux set-option -p -t "$p" @ak_was_$s "$(o $s)"; fi; ` +
+	`tmux set-option -p -t "$p" $s "$m"; done; ` +
+	`tmux set-option -p -t "$p" @ak_floats $((${n:-0} + 1)); l -U; } & d=$!; ` +
+	`tmux display-popup -E -b rounded -S "$b" -w "$w" -h "$h" -e "` + Client + `=$c" -c "$c" -t "$p" %s; ` +
+	`wait $d; l -L; n=$(o @ak_floats); ` +
+	`if [ "${n:-1}" -gt 1 ]; then tmux set-option -p -t "$p" @ak_floats $((n - 1)); ` +
+	`else for s in window-style window-active-style; do ` +
+	`if h @ak_was_$s; then tmux set-option -p -t "$p" $s "$(o @ak_was_$s)" \; ` +
+	`set-option -pu -t "$p" @ak_was_$s; else tmux set-option -pu -t "$p" $s; fi; done; ` +
+	`tmux set-option -pu -t "$p" @ak_floats; fi; l -U; true`
+
+// ColoursVerb is the unlisted command float asks its colours of, `ak colours <role>...`: each role's
+// colour in the theme in force, as Python's themes.py run bare says it.  A word outside every
+// command's own, it is never a seat's name.
+const ColoursVerb = "colours"
 
 // phone is a client too small for a popup of 80% by 70%, under sixty columns or twenty-five rows,
 // which would hold a key line and nothing to press it on (orch.SMALL_CLIENT).
@@ -65,8 +100,9 @@ func Reload() error {
 // phone scrolls a seat's output, 50000 lines of it, rather than sending arrow keys to the harness;
 // a harness that quits as it opens keeps its pane, as the file is read before the seat exists; and
 // Ctrl-b m is the menu of the program a seat runs (config.Live) over whatever is running, the
-// whole client on a phone, told the client it opened on (Client).  Its hooks are in force before
-// the seat exists too, so even a harness that ends as it starts meets them.
+// whole client on a phone, told the client it opened on (Client), floating on a tmux that floats it
+// (float).  Its hooks are in force before the seat exists too, so even a harness that ends as it
+// starts meets them.
 func again() (string, error) {
 	program, err := config.Live()
 	hooks, failed := Hooks()
@@ -76,9 +112,16 @@ func again() (string, error) {
 	// run-shell -C expands the client's name and size into the popup, read as the key is pressed:
 	// display-popup expands neither
 	size := func(small, large string) string { return "#{?" + phone + "," + small + "," + large + "}" }
-	popup := "display-popup -E -w " + size("100%", "80%") + " -h " + size("100%", "70%") + " " +
-		Word(Client+"=#{client_name} ") +
-		unformatted(Word(commandhelp.ShellJoin([]string{program, "attach", "--overlay"})))
+	overlay := commandhelp.ShellJoin([]string{program, "attach", "--overlay"})
+	bind := "run-shell -C " + Word("display-popup -E -w "+size("100%", "80%")+" -h "+size("100%", "70%")+" "+
+		Word(Client+"=#{client_name} ")+unformatted(Word(overlay)))
+	if floats() {
+		// run-shell expands the pane, the client and the size into the job as the key is pressed
+		bind = "run-shell -b " + Word("p='#{pane_id}' c='#{client_name}' w='"+size("100%", "80%")+"' h='"+
+			size("100%", "70%")+"'; "+unformatted(fmt.Sprintf(float, commandhelp.ShellJoin([]string{real()}),
+			commandhelp.ShellJoin([]string{program, ColoursVerb, "border", "dim"}),
+			commandhelp.ShellJoin([]string{overlay}))))
+	}
 	text := "set -g mouse on\n" +
 		"set -g history-limit 50000\n" +
 		"set -g remain-on-exit on\n"
@@ -86,7 +129,33 @@ func again() (string, error) {
 		text += "set -gq " + hook[0] + " " + Word(hook[1]) + "\n"
 	}
 	return text + "set -g allow-passthrough on\n" +
-		"bind-key m run-shell -C " + Word(popup) + "\n", nil
+		"bind-key m " + bind + "\n", nil
+}
+
+// floats is whether this tmux floats a popup, 3.3 or later (orch.FLOATS): an older one refuses
+// float's flags, and draws the plain popup.
+func floats() bool {
+	said, _ := run(Default, "-V")
+	found := release.FindStringSubmatch(said)
+	if found == nil {
+		return false
+	}
+	major, _ := strconv.Atoi(found[1])
+	minor, _ := strconv.Atoi(found[2])
+	return major > 3 || major == 3 && minor >= 3
+}
+
+// real is tmux itself, never the shim ~/.agentkit/bin holds for a seat's PATH (guard.real): float's
+// job runs in the server's environment, which may start with it, and every call through it would
+// stand between the key and the popup.
+func real() string {
+	shims := filepath.Join(config.Home(), "bin")
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if path, err := exec.LookPath(filepath.Join(dir, "tmux")); err == nil && filepath.Clean(dir) != shims {
+			return path
+		}
+	}
+	return "tmux"
 }
 
 // write lands text at path whole, as a server may be reading the one there: made in ak's scratch

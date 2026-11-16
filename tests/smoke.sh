@@ -3520,18 +3520,18 @@ PY
 FABLE=$(HOME="$OVH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' fable)
 ASTRA=$(HOME="$OVH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' astra)
 # the status bar, set on the sessions themselves and on nothing else: two lines, its text in
-# options the bar's formats draw -- the name and its orchestrator model and effort, dim, until the
+# options the bar's formats draw -- the name and its orchestrator model and effort, muted, until the
 # first classification, the one key at the right of line two, the name as the title.
 # The tick and every menu draw rewrite them through the one writer; a rename writes them at
 # once. What they come to on screen is asserted further down.
 [ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = 2 ] || OVERLAY=1
-[ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = default ] || OVERLAY=1
+[ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = "fg=#e2e8ef,bg=#111519" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_top 2>/dev/null)" \
   = " #[bold]$OV1#[nobold]   #[fg=#acb4bd]$FABLE xhigh#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV2" -v @ak_top 2>/dev/null)" \
   = " #[bold]$OV2#[nobold]   #[fg=#acb4bd]$ASTRA xhigh#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_key 2>/dev/null)" \
-  = "Ctrl-b m#[fg=#868d97]  menu #[default]" ] || OVERLAY=1
+  = "#[fg=#868d97]Ctrl-b m#[fg=#acb4bd]  menu #[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v set-titles-string 2>/dev/null)" = "$OV1" ] || OVERLAY=1
 # the binding and the three server options, out of agentkit's own file and into the server
 grep -q '^bind-key m if-shell -F .*display-popup -E -w 100% -h 100% .*attach --overlay.*display-popup -E -w 80% -h 70% .*attach --overlay' \
@@ -3744,9 +3744,9 @@ akp() { "${PENV[@]}" ak "$@"; }
 jq -e '.resumable == false and (has("conversation") | not)' \
   "$NH/.agentkit/state/session-nopin-seat.json" >/dev/null 2>&1 || NAME=1
 tm show-options -t nopin-seat -v @ak_key 2>/dev/null \
-  | grep -q '^Ctrl-b m#\[fg=#868d97\]  menu ' || NAME=1
+  | grep -q '^#\[fg=#868d97\]Ctrl-b m#\[fg=#acb4bd\]  menu ' || NAME=1
 tm show-options -t pair-one -v @ak_key 2>/dev/null \
-  | grep -q '^Ctrl-b m#\[fg=#868d97\]  menu ' || NAME=1    # every seat carries the one key
+  | grep -q '^#\[fg=#868d97\]Ctrl-b m#\[fg=#acb4bd\]  menu ' || NAME=1    # every seat carries the one key
 SLUGX=$(printf '%s' "$NNOPIN" | sed 's/[^A-Za-z0-9]/-/g')
 mkdir -p -- "$NH/.claude/projects/$SLUGX"
 printf '{"type":"mode"}\n' >"$NH/.claude/projects/$SLUGX/conv-later.jsonl"   # somebody else's
@@ -3785,7 +3785,7 @@ akp orch old-seat >"$WORK/name-old-open.log" 2>&1 || NAME=1
 grep -q "^orch: resuming old-seat on fable in $NOLD (no conversation recorded; it starts fresh)\$" \
   "$WORK/name-old-open.log" || NAME=1
 tm show-options -t old-seat -v @ak_key 2>/dev/null \
-  | grep -q '^Ctrl-b m#\[fg=#868d97\]  menu ' || NAME=1
+  | grep -q '^#\[fg=#868d97\]Ctrl-b m#\[fg=#acb4bd\]  menu ' || NAME=1
 grep -rqF conv-5555 "$NH/.agentkit/state" 2>/dev/null && NAME=1
 # (f5) and `stop` ends that seat once tmux has lost it too: what holds a name is the record,
 # so stopping takes the record and the names the seat was renamed from whether or not there is

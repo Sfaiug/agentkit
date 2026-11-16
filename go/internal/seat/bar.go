@@ -206,7 +206,11 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		why = "  " + why
 	}
 	target := "=" + seat.Name + ":"
-	own := [][3]string{{target, "set-titles", "on"}, {target, "status", "2"}, {target, "status-style", "default"},
+	// on the theme in force, and tmux's own styles in the seat too (statusbar.layout); the pane, where the
+	// harness draws, stays the terminal's
+	text, surface := "fg=#"+terminal.RGB("text"), ",bg=#"+terminal.RGB("surface")
+	own := [][3]string{{target, "set-titles", "on"}, {target, "status", "2"}, {target, "status-style", text + surface},
+		{target, "mode-style", text + ",bg=#" + terminal.RGB("selection")}, {target, "message-style", text + surface},
 		{target, "status-format[0]", barLineOne()}, {target, "status-format[1]", barLineTwo()}}
 	for i, option := range barTops {
 		top := head
@@ -220,7 +224,7 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 	}
 	// tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
 	title := strings.ReplaceAll(tmuxText(seat.Name+" · "+seat.Word), "%", "%%")
-	return append(own, [3]string{target, barKey, "Ctrl-b m#[fg=#" + terminal.RGB("dim") + "]  menu #[default]"},
+	return append(own, [3]string{target, barKey, "#[fg=#" + terminal.RGB("dim") + "]Ctrl-b m#[fg=#" + terminal.RGB("muted") + "]  menu #[default]"},
 		[3]string{target, "set-titles-string", title})
 }
 

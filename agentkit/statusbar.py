@@ -3,7 +3,7 @@
 The bar is the seat's row on the `ak` screen with the line under it always open.  Line one is
 its state as a chip -- its glyph and word on its colour in the text that reads on it, bold for
 `! needs you` (`chip`) -- then the seat's name in bold, then its model
-and orchestrator effort, dim, then its progress line, as its menu row draws it, as wide as `BARS`
+and orchestrator effort, muted, then its progress line, as its menu row draws it, as wide as `BARS`
 lets it be.  Its right end, while another seat on ak's own server needs you, says so in its yellow,
 `! 2 other seats need you`, a click away from the first of them; where it does not fit beside
 the left part the line narrows, then it folds to `! 2 need you`, and only then is the left part
@@ -13,11 +13,9 @@ is who builds and who reviews, and each task in flight as its squares
 (`whys`), with the one key at its right end, `Ctrl-b m  menu`, whatever the seat's word: the
 bar is in the seat, where `x` is a letter typed.  It never moves: the seat is where the owner reads and types.
 
-The bar draws on the terminal's own background and foreground and never tmux's green.  The
-`needs you` chip carries its own background, so it reads on any terminal; the rest is
-the terminal's foreground, ak's dim or a state's colour, which read on a dark one and a light
-one alike: tmux cannot say which a client is, and the tick that writes most bars has no
-terminal to ask.
+The bar is in the theme in force as it is drawn (`layout`), as a screen is, never tmux's green:
+its text on the theme's surface, a state's chip on its colour, so each write after `c` chooses
+another theme draws it in that one.  The pane, where the harness draws, stays the terminal's.
 
 The text is data: each write puts it in the session's own options (`@ak_top` at each bar
 width, `@ak_need` and `@ak_fold`, `@ak_why` and its folded versions, `@ak_key`), and
@@ -97,12 +95,21 @@ def _first_fitting(options, room):
 FORMATS = (_line_one(),
            "#[align=left]" + _first_fitting(WHYS, "#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}")
            + " #[align=right]#{" + KEY + "}")
-# What every write sets beside the text, so a seat dressed before this layout came has it too:
-# its two lines among them.  tmux resizes a pane only when the height changes, so a seat's
-# pane changes size once -- when it is dressed, or a seat dressed with one line at its first
-# write since -- and never later.
-LAYOUT = (("set-titles", "on"), ("status", "2"), ("status-style", "default"),
-          ("status-format[0]", FORMATS[0]), ("status-format[1]", FORMATS[1]))
+
+
+def layout():
+    """What every write sets beside the text, so a seat dressed before this layout came has it
+    too: its two lines among them, on the theme in force, and tmux's own styles in the seat in
+    it as well -- the selection and the position while scrolling back (its window's), its message
+    line (its session's).  tmux resizes a pane only when the height changes, so a seat's pane
+    changes size once -- when it is dressed, or a seat dressed with one line at its first write
+    since -- and never later."""
+    text, surface, selection = (terminal.colour(role, tmux=True)
+                                for role in ("text", "surface", "selection"))
+    return (("set-titles", "on"), ("status", "2"), ("status-style", f"fg=#{text},bg=#{surface}"),
+            ("mode-style", f"fg=#{text},bg=#{selection}"),
+            ("message-style", f"fg=#{text},bg=#{surface}"),
+            ("status-format[0]", FORMATS[0]), ("status-format[1]", FORMATS[1]))
 
 
 def chip(word):
@@ -121,16 +128,17 @@ def lines(name, model, word=None, last="", why=""):
     line its row opens under itself (`whys`).  Before its first word a seat's bar is its name and
     its model, and its title the name.
     """
-    top, dim = f" {chip(word)}   " if word else " ", terminal.colour("dim", tmux=True)
+    top = f" {chip(word)}   " if word else " "
+    muted, dim = (terminal.colour(role, tmux=True) for role in ("muted", "dim"))
     top += f"#[bold]{orch.tmux_text(name)}#[nobold]"
     if model:
-        top += f"   #[fg=#{terminal.colour('muted', tmux=True)}]{orch.tmux_text(model)}#[default]"
+        top += f"   #[fg=#{muted}]{orch.tmux_text(model)}#[default]"
     if last:
         top += f"   {last}"
     key, verb = HINT.split("  ", 1)
     title = f"{name} · {word}" if word else name
     # tmux reads a title as a time too, unlike the bar's options: its `%` doubles as well
-    return (top, f"  {why}" if why else "", f"{key}#[fg=#{dim}]  {verb} #[default]",
+    return (top, f"  {why}" if why else "", f"#[fg=#{dim}]{key}#[fg=#{muted}]  {verb} #[default]",
             orch.tmux_text(title).replace("%", "%%"))
 
 
@@ -366,5 +374,5 @@ def _write(name, model, word=None, lasts=None, cfg=None, versions=(), every=Fals
     # (`orch.tmux_set`).
     _tell(None if every else name,
           [(f"={name}:", option, value)
-           for option, value in (*LAYOUT, *zip(TOPS, tops), *zip(WHYS, whys_drawn), (KEY, key),
+           for option, value in (*layout(), *zip(TOPS, tops), *zip(WHYS, whys_drawn), (KEY, key),
                                  ("set-titles-string", title))])

@@ -18,8 +18,20 @@ import (
 	"agentkit/internal/install"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tick"
+	"agentkit/internal/tmux"
 	"agentkit/internal/update"
 )
+
+// colours says each role's colour in the theme in force, on one line: what Ctrl-b m's popup asks as
+// the key is pressed (tmux.ColoursVerb).
+func colours(roles []string, out io.Writer) int {
+	said := make([]string, len(roles))
+	for i, role := range roles {
+		said[i] = terminal.RGB(role)
+	}
+	fmt.Fprintln(out, strings.Join(said, " "))
+	return 0
+}
 
 func carry(args []string, out, errOut io.Writer) int {
 	command, rest, help := "attach", args, ""
@@ -47,6 +59,9 @@ func carry(args []string, out, errOut io.Writer) int {
 	}
 	if command == "seat-look" { // unlisted too
 		return seatLook(rest)
+	}
+	if command == tmux.ColoursVerb { // unlisted too
+		return colours(rest, out)
 	}
 	if command == "guard" && len(rest) >= 2 { // unlisted too
 		return guardCall(rest, out)

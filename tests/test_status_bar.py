@@ -108,7 +108,7 @@ class StatusBar(Sandbox):
 
     def test_line_two_ends_in_the_single_hint(self):
         top, why, key, _ = statusbar.lines("herdr", "fable", "working", "tasks x 2/5")
-        self.assertTrue(key.startswith("Ctrl-b m#["), key)
+        self.assertTrue(key.startswith("#[fg=#868d97]Ctrl-b m#["), key)
         for hint in ("Ctrl-b d", "back to menu", "menu here", "close the menu"):
             for half in (top, why, key):
                 self.assertNotIn(hint, half)
