@@ -15,7 +15,8 @@ import (
 )
 
 // TestMain lets this test binary be the command a launch's hooks run, `<ak> adapter <root> <harness>
-// hook`, which hands its event to HookEvent as ak's adapter verb does.
+// hook`, which hands its event to HookEvent as ak's adapter verb does, and the program a tick asks
+// a login's end of (logins.Ask), which runs that harness's own verb and never this suite again.
 func TestMain(m *testing.M) {
 	if len(os.Args) == 5 && os.Args[1] == "adapter" && os.Args[4] == "hook" {
 		payload, _ := io.ReadAll(os.Stdin)
@@ -23,6 +24,12 @@ func TestMain(m *testing.M) {
 		event, _ := read.(*run.Object)
 		HookEvent(os.Args[3], event, io.Discard, nil, nil)
 		os.Exit(0)
+	}
+	if len(os.Args) > 4 && os.Args[1] == "adapter" {
+		if own := Verb(os.Args[3], os.Args[4]); own != nil {
+			os.Exit(own(os.Args[5:], os.Stdout, os.Stderr))
+		}
+		os.Exit(2)
 	}
 	os.Exit(m.Run())
 }
