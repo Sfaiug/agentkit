@@ -24,20 +24,22 @@ checks. Python under agentkit/, tools/, bin/ and tests/ must parse with the gram
 3.11, the oldest ak supports, as `ast.parse`'s `feature_version` applies it (f-strings it still
 reads by the running interpreter's rules), and import only from the standard library or this
 repository, including files smoke.sh already ran. A file failing again is also named in the
-file AK_FAILED names, and one passing it in AK_FLAKY's; with AK_ONLY set only the files its
-file lists run, whatever the share, smoke.sh's among them, each named in the file AK_RAN names.
+file AK_FAILED names, and one passing it in AK_FLAKY's.  A whole run names each test in the file
+AK_RAN names as it starts it, so one that silence stops names what it had begun (gate.unfinished);
+with AK_ONLY set only the files its file lists run, whatever the share, smoke.sh's among them,
+each named there as the run ends.
 A file may name its failing parts, one per line, in the file FAILED_PARTS names (no AK_ name,
 as none reaches a file): it is then named `<file>::<part>`, one ID per part, and its re-run
 gives it just those parts as its arguments, as a run does for the `<file>::<part>` IDs AK_ONLY
 lists; a part it times as passed in the file PART_TIMES names is printed with its own seconds,
 once, as soon as that file holds it, while the run goes on.
-A part is named as run only where a run of its file named it failing or timed it, and a run
-failing with no part named fails each part it did not time: a file given a part it does not
+A listed part is named as run only where a run of its file named it failing or timed it, and a
+run failing with no part named fails each part it did not time: a file given a part it does not
 hold, as one only a later change adds, fails naming and timing none, and may name it in the file
 NOT_THERE names: it is then named `<file>::<part>` in the file AK_NOT_THERE names, and a narrowing
-step counts that tree as passing it.  The imports are a test of their own, IMPORTS, named as run
-and as failed like a file, in a whole run too; AK_ONLY set, they are checked only where it lists
-them.
+step counts that tree as passing it.  The imports are a test of their own, IMPORTS, named as run,
+as failed and as passed like a file, in a whole run too; AK_ONLY set, they are checked only where
+it lists them.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -314,12 +316,15 @@ def main(root, others=None):
     only = listed()
     imports = [IMPORTS] if only is None or IMPORTS in only else []
     name_failed(imports, "AK_RAN")
+    began = time.monotonic()
     errors = import_errors(root) if imports else []
     if errors:
         for error in errors:
             print(f"FAIL  {error}", flush=True)
         name_failed(imports)
         return 1
+    for test in imports:
+        print(suite_times.passed(test, time.monotonic() - began), flush=True)
     tests = root / "tests"
     # smoke.sh runs in the mode this caller's environment gives it; a file AK_ONLY lists runs
     # here even where smoke.sh would run it, as the list can leave smoke.sh out.
@@ -356,7 +361,7 @@ def main(root, others=None):
     env["PYTHONPYCACHEPREFIX"] = pycache.name
     pending = iter(todo)
     path, parts, _ = next(pending, (None,) * 3)
-    began, again, failed, flaky, jobs = time.monotonic(), [], [], [], 0
+    again, failed, flaky, jobs = [], [], [], 0
     ran = {str(path.relative_to(root)) for path, _, _ in todo}
     absent = set()      # the parts any run named as not there, as `<file>::<part>`
     with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
@@ -387,6 +392,8 @@ def main(root, others=None):
                 # submitting every file at once would bypass later pressure and memory changes.
                 if len(running) < (1 if total > 1 else pool_limit(host.host_readings(
                         slice_dir=orch.slice_cgroup, pressure_window=POLL, all_limits=True))):
+                    if only is None:
+                        name_failed(ids(path.relative_to(root), parts), "AK_RAN")
                     named, timed, gone = [], {}, []
                     job = pool.submit(run_file, root, path, env, parts=parts, failed=named,
                                       timed=timed, absent=gone)

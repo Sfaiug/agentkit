@@ -113,7 +113,7 @@ class EveryFilePool(unittest.TestCase):
             self.assertEqual(every_file.main(self.root), 0)
         self.assertCountEqual([name for name, _ in starts],
                               [f"test_acme_{n}.py" for n in range(count)])
-        self.assertEqual(out.getvalue().count("PASS  tests/"), count)
+        self.assertEqual(out.getvalue().count("PASS  tests/test_"), count)
         return [poll for _, poll in starts], out.getvalue()
 
     def test_pressure_and_memory_are_reread_before_each_start(self):
