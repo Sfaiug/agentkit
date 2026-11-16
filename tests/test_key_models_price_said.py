@@ -142,7 +142,7 @@ class PriceSaid(unittest.TestCase):
                                ("money", "")):
                 with self.subTest(seat=seat, unit=unit):
                     self.fresh()
-                    # under every choice's cost, so a seat's executor takes none
+                    # under every choice's cost, so its executor takes none
                     self.keep(seat, "executor", {"limit": 0.105, "cost_unit": unit,
                                                  "model": "step", "effort": "high"})
                     term = self.models(seat)
