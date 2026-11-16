@@ -100,21 +100,23 @@ def statements(nodes):
 
 
 def imports(root, path):
-    """The files, as paths from `root`, an import in its Python file `path` could load from
-    tests/, there or not: none where `path` is not there or not Python."""
+    """The files of tests/, as paths from `root`, an import in its Python file `path` could load,
+    there or not: none where `path` is not there or not Python."""
     try:
         tree = ast.parse(Path(root, path).read_bytes())
     except (OSError, SyntaxError, ValueError):
         return []
     found = []
     for node in statements(tree.body):
+        # an absolute import starts in tests/, a test file's own folder, or at the checkout's root
+        # where a test puts that on its path (`tests.fixtures.acme`)
         if isinstance(node, ast.Import):
-            base, names = "tests", [alias.name for alias in node.names]
+            bases, names = ("tests", ""), [alias.name for alias in node.names]
         elif isinstance(node, ast.ImportFrom):
             # a relative import starts in its file's package, one up for each further dot; what it
             # imports from a module may be a module of its own
-            base = os.path.normpath(os.path.join(path, *[os.pardir] * node.level)) \
-                if node.level else "tests"
+            bases = (os.path.normpath(os.path.join(path, *[os.pardir] * node.level)),) \
+                if node.level else ("tests", "")
             names = [".".join(filter(None, [node.module, name]))
                      for name in [None, *(alias.name for alias in node.names)]]
         else:
@@ -123,9 +125,9 @@ def imports(root, path):
         # whose child may be missing
         for parts in (name.split(".") for name in names if name):
             for end in range(1, len(parts) + 1):
-                module = os.path.join(base, *parts[:end])
-                found += [os.path.join(module, "__init__.py"), f"{module}.py"]
-    return found
+                for module in (os.path.join(base, *parts[:end]) for base in bases):
+                    found += [os.path.join(module, "__init__.py"), f"{module}.py"]
+    return [file for file in found if file.startswith("tests/")]
 
 
 def reached(edges, path):

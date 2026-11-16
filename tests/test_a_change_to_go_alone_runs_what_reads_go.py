@@ -37,7 +37,7 @@ FILES = {
     "go/keys.txt": "test_key_acme\n",
     "go/acme.go": "package acme\n",
     "agentkit/acme.py": "",
-    "tests/fixtures/acme.py": "",
+    "tests/fixtures/acme.py": 'TREE = "go/acme.go"\n',
     "tests/smoke.sh": SMOKE,
     # the real runner, on the checkout landing.py hands it
     "tests/every_file.py": "import subprocess, sys\nsys.exit(subprocess.call([sys.executable, "
@@ -46,12 +46,16 @@ FILES = {
                                              "test_go_keys", "test_key_acme")},
     "tests/test_acme_reads_go.py": NOTE + 'TREE = pathlib.Path(__file__).parents[1] / "go"\n',
     "tests/test_acme_imports_it.py": "import test_acme_reads_go\n" + NOTE,
+    # a reader as a module of the checkout's root
+    "tests/test_acme_imports_its_fixture.py": "import pathlib, sys\nsys.path.insert(0, str("
+                                              "pathlib.Path(__file__).resolve().parents[1]))\n"
+                                              "import tests.fixtures.acme\n" + NOTE,
     # Go's tree in prose only
     "tests/test_acme.py": '"""Judges what go/acme.go says."""\n# "go"\n' + NOTE,
 }
 ALL = {*(f"{name}.py" for name in STATIC_CHECKS), "test_go.py", "test_go_keys.py test_key_acme",
-       "test_acme_reads_go.py", "test_acme_imports_it.py", "test_acme.py", "test_key_acme.py",
-       "gate_contract.py", "smoke.sh#alpha", "smoke.sh#beta"}
+       "test_acme_reads_go.py", "test_acme_imports_it.py", "test_acme_imports_its_fixture.py",
+       "test_acme.py", "test_key_acme.py", "gate_contract.py", "smoke.sh#alpha", "smoke.sh#beta"}
 
 
 class AChangeToGoAloneRunsWhatReadsGo(unittest.TestCase):
