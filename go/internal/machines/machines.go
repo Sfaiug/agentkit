@@ -61,16 +61,8 @@ func Named(name string) Machine {
 }
 
 // known is every machine ak may use, this one first: config.toml's, then those ak rents that
-// serve; the ticks' record of them, empty where it cannot be read; and those rentals.
+// serve; the ticks' record of them; and those rentals.
 func known() ([]string, *run.Object, []googlecloud.Rental) {
-	record := run.NewObject()
-	if data, err := os.ReadFile(path()); err == nil {
-		if value, err := run.Decode(data); err == nil {
-			if read, ok := value.(*run.Object); ok {
-				record = read
-			}
-		}
-	}
 	names, rentals := append([]string{Here}, config.MachineNames()...), googlecloud.Serving()
 	for _, rental := range rentals {
 		names = append(names, rental.Name)
@@ -81,7 +73,19 @@ func known() ([]string, *run.Object, []googlecloud.Rental) {
 			unique = append(unique, name)
 		}
 	}
-	return unique, record, rentals
+	return unique, recorded(), rentals
+}
+
+// recorded is the ticks' record, empty where it cannot be read.
+func recorded() *run.Object {
+	if data, err := os.ReadFile(path()); err == nil {
+		if value, err := run.Decode(data); err == nil {
+			if read, ok := value.(*run.Object); ok {
+				return read
+			}
+		}
+	}
+	return run.NewObject()
 }
 
 func path() string { return filepath.Join(config.Home(), "state", "machines.json") }

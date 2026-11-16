@@ -40,15 +40,18 @@ func NewPainter(out io.Writer) *Painter { return &Painter{out: out} }
 func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	tall := len(lines) > screen.Height()
 	whole := !p.known || screen != p.of || tall || time.Since(p.whole) >= Tick
-	left := moved(p.over, over)
+	left, wrapped := moved(p.over, over), onto(p.up, p.of)
+	// a row a line wrapped onto is no row of its own: once it is one again, it is written
 	held := func(at int) bool {
-		return !whole && at < len(lines) && at < len(p.up) && lines[at] == p.up[at] && !left[at+1]
+		return !whole && at < len(lines) && at < len(p.up) && lines[at] == p.up[at] && !left[at+1] && !wrapped[at]
 	}
 	var frame strings.Builder
 	if tall {
 		frame.WriteString("\x1b[H")
-		for _, line := range lines {
-			frame.WriteString(cleared(line, screen) + "\n")
+		for at, under := range onto(lines, screen) {
+			if !under {
+				frame.WriteString(cleared(lines[at], screen) + "\n")
+			}
 		}
 		frame.WriteString("\x1b[J")
 	} else if rows := differing(lines, held, screen); whole || rows != "" || len(lines) < len(p.up) {

@@ -30,13 +30,18 @@ func Wait(ctx context.Context, path string) (*os.File, error) {
 	if ctx.Done() == nil {
 		return acquire(path, true)
 	}
+	try, stop, err := tries(path)
+	if err != nil {
+		return nil, err
+	}
 	for {
-		file, err := acquire(path, false)
+		file, err := try()
 		if !errors.Is(err, ErrHeld) {
 			return file, err
 		}
 		select {
 		case <-ctx.Done():
+			stop()
 			return nil, ctx.Err()
 		case <-time.After(poll):
 		}

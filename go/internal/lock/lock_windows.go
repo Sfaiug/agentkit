@@ -17,6 +17,12 @@ func acquire(path string, wait bool) (*os.File, error) {
 	return open(path, syscall.GENERIC_WRITE, syscall.OPEN_ALWAYS, wait)
 }
 
+// tries is Wait's: each try opens path anew, as acquire does without waiting, since here the open
+// is the lock; stop has nothing to close.
+func tries(path string) (try func() (*os.File, error), stop func(), err error) {
+	return func() (*os.File, error) { return acquire(path, false) }, func() {}, nil
+}
+
 // Shared is Wait: no Python ak shares a lock with Go's here.
 func Shared(path string) (*os.File, error) {
 	return acquire(path, true)

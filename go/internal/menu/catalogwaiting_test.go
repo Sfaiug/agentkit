@@ -32,3 +32,17 @@ func TestCatalogWaitKeepsItsFrameAndStaysStillWithoutColour(t *testing.T) {
 		}
 	}
 }
+
+func TestAClickOnEscBackIsWhereItIsDrawn(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	lines := CatalogWaiting(screenAt(t, "60"), "config · machines", "12:34", "asking acme-box", nil, &motion.Clock{})
+	row := len(lines)
+	for column, want := range map[int]bool{1: false, 3: true, 7: true, 10: true, 11: false} {
+		if got := WaitingBack(lines, terminal.Mouse{Column: column, Row: row}); got != want {
+			t.Errorf("column %d of %q is on esc back: %v, want %v", column, lines[row-1], got, want)
+		}
+	}
+	if WaitingBack(lines, terminal.Mouse{Column: 3, Row: row - 1}) {
+		t.Error("a row above the key line is on esc back")
+	}
+}

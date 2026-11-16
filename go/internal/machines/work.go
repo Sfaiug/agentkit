@@ -36,9 +36,18 @@ func (m Machine) Takes(work []string) []string {
 }
 
 // Save sets `key` of m's marks' table to `value`, its `work` or the cloud's `active` or
-// `max_month`, as config.SaveMachine writes it, each other machine's marks written as the old
-// turns_on_machines switch implied them where the file still holds it.
+// `max_month`, as config.SaveMachine writes it, with the marks implied.
 func (m Machine) Save(key string, value any, keep func() error) error {
+	implied, err := implied()
+	if err != nil {
+		return err
+	}
+	return config.SaveMachine(m.marks(), key, value, implied, keep)
+}
+
+// implied is each other machine's marks as the old turns_on_machines switch implied them, which a
+// save writes where the file still holds it: those ak rents share the cloud's.
+func implied() ([]config.Marks, error) {
 	var implied []config.Marks
 	for _, each := range append(Known(), Cloud) {
 		if each.Name == Here || each.Name != "" && each.Rented() {
@@ -46,11 +55,11 @@ func (m Machine) Save(key string, value any, keep func() error) error {
 		}
 		work, known := each.Work()
 		if !known {
-			return errors.New("config.toml's marks cannot be read")
+			return nil, errors.New("config.toml's marks cannot be read")
 		}
 		implied = append(implied, config.Marks{Machine: each.Name, Work: work})
 	}
-	return config.SaveMachine(m.marks(), key, value, implied, keep)
+	return implied, nil
 }
 
 // marks is the name of the table of m's marks, "" for the cloud's.

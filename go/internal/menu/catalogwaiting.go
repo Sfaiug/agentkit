@@ -21,3 +21,14 @@ func CatalogWaiting(s terminal.Screen, title, clock, doing string, cells []Cell,
 	lines[1] = moves.WaitingRule(s, s.LayoutWidth())
 	return lines
 }
+
+// WaitingBack is whether mouse is on `esc back`, the last of CatalogWaiting's lines, where it is
+// drawn (terminal.Under): a click there goes back, as Esc does (menu.waited).
+func WaitingBack(lines []string, mouse terminal.Mouse) bool {
+	if mouse.Row != len(lines) {
+		return false
+	}
+	last := lines[len(lines)-1]
+	at, on := terminal.Under(last, mouse.Column, [2]int{1, terminal.Cells(last)})
+	return on && at == 0
+}
