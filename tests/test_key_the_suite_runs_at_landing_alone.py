@@ -2,6 +2,9 @@
 
 Owner, 10 Nov 2026: no round runs a suite, on any project, and no project can opt in.  The
 `tests:` suite runs once, whole, at landing, and a red found there goes to the run's fixer.
+Owner, 16 Nov 2026, amending it: a round runs the `tests:` line too, handed just the tests its
+change edits that the project's time record times (tests/test_key_a_round_runs_its_changes_tests.py),
+never the whole suite.  This suite reports no time to ak, so its rounds run none of it.
 `AK_CHANGED` is a name ak neither sets nor reads: a line naming it, as this one does, runs at
 landing like any other, the variable unset.  A boxed check writes none of the test's files, so the suite notes
 each start, and what `AK_CHANGED` held, on the test's socket, as the reviewer notes each review.
