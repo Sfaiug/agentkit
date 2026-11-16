@@ -44,7 +44,7 @@ Words are plain and explain themselves.
 - **Subscriptions:** a subscription is named by its provider, with a roman numeral among
   several (`Claude II`), never by key or account (`config.account_label`).
 - **Ages:** ages read `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
-- **Tasks, runs and estimates:** no screen names a task or a run, and none says when work
+- **Tasks, runs and estimates:** no screen names a task or a run, nor says when work
   will finish.
 - **Progress:** every bar is a seat's progress line; a row's count ends in its tasks going:
   `━━━━╸──── 3 of 8 · 2 tasks` (owner, 11 Nov 2026; `terminal.plan_bar`,
@@ -62,13 +62,13 @@ itself (`tests/test_boundaries.py`).
 ## States
 
 Five words are the whole vocabulary for a seat (`terminal.STATES`): `● working`,
-`! needs you`, `✓ done`, `○ idle` and `○ out of usage`. `watch.session_state` decides which a seat is, and
-every screen reads that, its own bar included. A state never colours its row: the word
+`! needs you`, `✓ done`, `○ idle` and `○ out of usage`. `watch.session_state` decides which a seat is, for
+every screen, its own bar included. A state never colours its row: the word
 carries the colour (`terminal.state_text`, `terminal.state_colour`).
 
 ## Keys
 
-Every screen reads the same keys, one key at a time, with no Enter.
+Every screen reads the same keys, one at a time, with no Enter.
 
 - **Arrows, Space and Enter:** the arrows move the highlight, on selection: a row whole, a cell
   over its width, its row bold (`terminal.highlight`, `terminal.selected`). Space marks what it
@@ -101,17 +101,15 @@ name on `c` and under the usage grid; a harness's, from its manifest, its name o
 
 ## Motion
 
-Something moves only while it is worked on, once when it changes, or under the pointer:
+Something moves only while worked on, once when it changes, or under the pointer:
 
 - **While work runs:** a working seat's `●` breathes, as do its progress line's tip, its
   tasks' squares and ak's spinner, `▖▘▝▗`.
-- **When something changes:** a seat that turns `needs you` pulses, one that turns `done`
-  settles, a mark fills or empties through a dim `■`, and a refused change nudges its mark.
-  A theme chosen comes down its screen in 0.35 s, a row at a time: the rows above the line are
-  in the new theme and those from it down still in the old, every row whole in one, so every
-  row reads at every frame.
+- **When something changes:** a seat turning `needs you` pulses, one turning `done` settles, a
+  mark fills or empties through a dim `■`, a refused change nudges its mark, and a chosen theme
+  comes down row by row.
 
-Every animation runs on one clock, `motion.Clock`. A key ends an animation on its last frame.
+Every animation runs on one clock, `motion.Clock`; a key ends it on its last frame.
 Nothing moves off a terminal or under `NO_COLOR`.
 
 ## Other listings
