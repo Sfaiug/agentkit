@@ -1,5 +1,6 @@
-"""A project's three numbers come from one commit: a fetch moving the default branch between the
-reads of `config.policy` must not combine two commits' numbers into a pair neither declared."""
+"""A project's three numbers come from one read of its AGENTS.md on the default branch: one git
+started by `config.policy`, which every prompt of every seat asks, and so no fetch moving the
+branch between reads to combine two commits' numbers into a pair neither declared."""
 
 import os
 from pathlib import Path
@@ -24,25 +25,17 @@ def front(numbers):
 
 
 class OneCommit(unittest.TestCase):
-    def test_a_fetch_between_the_reads_mixes_nothing(self):
+    def test_the_numbers_cost_one_read(self):
         with Home() as home:
             akconfig.write(home, ["opus", "astra"], settings={"review_rounds": 5})
             rig = Rig(home, "widgets", files=front(FIRST))
             rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
-            tip = rig.commit(front(SECOND), "more lines", push=False)
-            reads, read = [], gitcall.declared_at
-
-            def fetch_after_the_first(checkout, ref, key, **kw):
-                value = read(checkout, ref, key, **kw)
-                reads.append(key)
-                if len(reads) == 1:
-                    rig.git("update-ref", "refs/remotes/origin/main", tip)
-                return value
-
+            rig.commit(front(SECOND), "more lines", push=False)     # not the default branch's
             with patch.object(config, "HOME", home.path / ".agentkit"), \
                     patch.dict(os.environ, home.env, clear=True), \
-                    patch.object(gitcall, "declared_at", side_effect=fetch_after_the_first):
+                    patch.object(gitcall, "git", wraps=gitcall.git) as git:
                 self.assertEqual(config.policy(rig.path), FIRST)
+            self.assertEqual(git.call_count, 1)
 
 
 if __name__ == "__main__":

@@ -492,14 +492,12 @@ def policy(checkout=None):
         return numbers
     from . import gitcall     # here, not at the top: gitcall imports this module
     try:
-        # one commit for all three: a fetch landing between reads would mix two commits' numbers
-        commit = gitcall.git(checkout, "rev-parse", "--verify", "--quiet", RULES_REF, check=False)
+        # one read for every number: each prompt of every seat asks (`orch.rulebook_due`), and
+        # no fetch can land between reads to mix two commits' numbers
+        text = gitcall.git(checkout, "show", f"{RULES_REF}:AGENTS.md", check=False)
     except Exception:
         return numbers
-    if not commit:
-        return numbers
-    declared = {key: gitcall.declared_at(checkout, commit, key)
-                for key in (*POLICY, *POLICY_RENAMES)}
+    declared = {key: gitcall.front_value(text, key) for key in (*POLICY, *POLICY_RENAMES)}
     return _policy_in(Path(checkout) / "AGENTS.md", {
         **numbers, **{key: int(value) if re.fullmatch("[0-9]+", value) else value
                       for key, value in declared.items() if value is not None}})
