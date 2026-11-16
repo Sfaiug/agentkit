@@ -314,7 +314,7 @@ def needs_base_proof(lp):
 
 def round_checks(lp, cmds):
     """The commands a round's checks run, as their log records them: the task's `cmds`, then the
-    target's `tests:` line where it runs the tests the change edits (`round_tests`)."""
+    target's `tests:` line where `round_tests` chooses tests of it."""
     named = round_tests.chosen(lp)
     return [*cmds, named[0]] if named else cmds
 
@@ -461,7 +461,7 @@ def verify_work(lp, cmds=None):
     """Pin done-when to a commit before running commands, including leftover executor edits.
 
     Runs `cmds`, or the run's per-round commands when none are given, then the target's `tests:`
-    line on the tests the change edits (`round_tests`). Checks deferred to landing run through
+    line on the tests `round_tests` chooses. Checks deferred to landing run through
     `final_check`.
     """
     from . import gate  # here, not at the top: it reaches run

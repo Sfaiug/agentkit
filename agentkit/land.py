@@ -71,6 +71,11 @@ def _red(turn, tree):
     return root, None if red is None or "as" in red else red
 
 
+def red_tests(turn, tree):
+    """The tests the line holds its target at `tree` red on by name (`_red`)."""
+    return (_red(turn, tree)[1] or {}).get("tests", [])
+
+
 @functools.cache
 def _code():
     """The ak commit this lander checks under: what another commit's lander saw holds only once

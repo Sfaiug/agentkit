@@ -25,11 +25,11 @@ import test_key_health_pass as health
 ONCE = "test -f api.txt"
 
 
-def started(home, run):
-    """The row `run`'s start left in the Home's history.db."""
+def started(home, *runs):
+    """The rows the starts of `runs` left in the Home's history.db."""
     with contextlib.closing(sqlite3.connect(home.path / ".agentkit" / "history.db")) as db:
         db.execute("CREATE TABLE runs (%s)" % ", ".join(map(" ".join, ORIGINAL)))
-        db.execute("INSERT INTO runs (run_id) VALUES (?)", (run,))
+        db.executemany("INSERT INTO runs (run_id) VALUES (?)", [(run,) for run in runs])
         db.commit()
 
 

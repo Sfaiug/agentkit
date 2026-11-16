@@ -1,4 +1,5 @@
-"""`time` as one module sees it, with only that module's own sleeps faked."""
+"""`time` as one module sees it, with only that module's own sleeps faked, or as a program a key
+runs reads it (`standing`)."""
 
 import time
 
@@ -18,3 +19,9 @@ class Clock:
 
     def __getattr__(self, name):
         return getattr(time, name)
+
+
+def standing(home, variable, at):
+    """Stand at `at` Unix seconds the clock of every program the Home `home` runs whose module
+    reads its time from the file `variable` names, as `AK_ROUND_CLOCK`."""
+    home.env[variable] = str(home.write(f"clocks/{variable}", str(at)))
