@@ -15,7 +15,7 @@ import time
 from types import SimpleNamespace
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -78,7 +78,7 @@ class Reader(unittest.TestCase):
 class Primed(Sandbox):
     def test_a_forked_menu_draws_the_last_read_first_and_reads_again_behind_it(self):
         reads = []
-        read = lambda _live, look=False: reads.append(
+        read = lambda _live, look=False, **_kw: reads.append(
             (look, threading.current_thread() is threading.main_thread()))
         with patch.object(warm, "_PRIMED", pickle.loads(pickle.dumps(READ))), \
                 patch.object(menu, "STIR", 0.01), patch.object(menu.Live, "read", read):
@@ -97,7 +97,7 @@ class Primed(Sandbox):
         again.watcher = object()                    # no thread: its read is this test's
         with patch.object(menu.Live, "read") as read_now:
             again.watch([])                         # the next menu's read is its own, at once
-        read_now.assert_called_once_with(look=True)
+        read_now.assert_called_once_with(look=True, began=ANY)
 
 
 if __name__ == "__main__":
