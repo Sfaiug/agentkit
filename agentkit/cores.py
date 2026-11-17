@@ -48,7 +48,12 @@ def tell(state, log):
                     ticks=host.cpu_ticks(scope))
         if "since" in last and (seen["told"] is None or now - seen["told"] >= AGAIN):
             seen["told"] = now
-            spent = {process: ticks - last["ticks"].get(process, 0)
+            # one absent from the last reading spent it all since only if it began since: one
+            # that moved into the scope brings what it spent elsewhere
+            began = ((time.clock_gettime(time.CLOCK_BOOTTIME) - (now - last["at"]))
+                     * os.sysconf("SC_CLK_TCK"))
+            spent = {process: ticks - last["ticks"].get(
+                         process, 0 if int(process.split(" ")[1]) >= began else ticks)
                      for process, ticks in seen["ticks"].items()}
             busiest = max(spent, key=spent.get, default="").split(" ")[0]
             _tell(front.seat_now(launched), busiest and host.command(busiest), now - seen["since"],
