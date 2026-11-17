@@ -28,9 +28,11 @@ def following(home):
     mark, found = f"HOME={home.path}".encode(), {}
     for entry in Path("/proc").glob("[0-9]*"):
         try:
+            # flags first: a fork's clears only once it has exec'd, so the cmdline read after is
+            # its own; read after, a follower's fork could show the cmdline it had before exec
+            flags = int((entry / "stat").read_bytes().rsplit(b")", 1)[1].split()[6])
             argv = (entry / "cmdline").read_bytes().split(b"\0")
             env = (entry / "environ").read_bytes().split(b"\0")
-            flags = int((entry / "stat").read_bytes().rsplit(b")", 1)[1].split()[6])
         except (OSError, IndexError, ValueError):     # gone meanwhile, or not ours to read
             continue
         if mark in env and not flags & FORKED:
