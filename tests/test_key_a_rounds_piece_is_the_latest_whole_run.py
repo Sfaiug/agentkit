@@ -1,14 +1,15 @@
 """The piece of the suite a round's red tests fit in is the median piece of the project's latest
-landing check that ran its suite whole: its pieces as first run, cut in more than one; not a
-piece run again, nor the tests of a narrowing, nor older suites cut finer, nor a round's.
+landing check that ran its suite whole: its pieces passing as first run, cut in more than one; not
+a piece run again, nor the tests of a narrowing, nor pieces that never ran, nor older suites cut
+finer, nor a round's.
 
 Black-box, as tests/test_key_a_round_runs_the_tests_that_fail_most_at_landing.py and on its
 fixtures, its clock injected: the program `AK_BIN` names runs three tasks in turn on a target whose
 `tests:` line is cut in pieces.  The first leaves ak's history.  Before the second the test writes
 the rows of earlier runs: landings red on three tests of 20 s each, many older pieces of 5 s, a
-whole landing run in two pieces of 40 and 50 s and after it a narrowing's pieces of seconds.
-Before the third, a later whole landing run in four pieces of 25 s.  Before each of those two it
-writes the time record.
+whole landing run in two pieces of 40 and 50 s and after it a narrowing's pieces of seconds and a
+landing whose pieces never ran.  Before the third, a later whole landing run in four pieces of
+25 s.  Before each of those two it writes the time record.
 """
 
 import os
@@ -35,11 +36,11 @@ REDS = {"./tests/first.sh": ("fix-a", "fix-b", "fix-c"), "./tests/second.sh": ("
 RUNS = ("fix-a", "fix-b", "fix-c", "fix-d", "fix-e")
 
 
-def whole(run, kind, seconds, ended):
+def whole(run, kind, seconds, ended, code=0):
     """The rows of `run`'s check of the suite in as many pieces as `seconds` holds, each as first
-    run, ending at `ended`."""
-    return [(run, kind, "tree", f"AK_SHARD={share}/{len(seconds)} {CUT}", ended - took, ended, 0)
-            for share, took in enumerate(seconds, 1)]
+    run, ending at `ended` with the exit `code`."""
+    return [(run, kind, "tree", f"AK_SHARD={share}/{len(seconds)} {CUT}", ended - took, ended, 0,
+             code) for share, took in enumerate(seconds, 1)]
 
 
 class ThreeRuns(unittest.TestCase):
@@ -74,7 +75,7 @@ class ThreeRuns(unittest.TestCase):
                 with sqlite3.connect(cls.home.path / ".agentkit/history.db") as connection:
                     connection.executemany(
                         "INSERT INTO checks (run_id, kind, tree, command, started_at, "
-                        "finished_at, rerun) VALUES (?, ?, ?, ?, ?, ?, ?)", rows())
+                        "finished_at, rerun, exit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows())
             task = taskfile.write(cls.home, cls.rig.path, f"Add {name}",
                                   done_when=(f"test -f {name}.txt",))
             cls.done[name] = cls.home.ak("run", str(task), timeout=300)
@@ -89,7 +90,8 @@ class ThreeRuns(unittest.TestCase):
     def long_pieces(cls):
         """The rows of earlier runs: their landings' reds, many short pieces a week older, of
         landings and of rounds, a whole landing run of long pieces and after it a narrowing:
-        one of its pieces run again and the tests it named on another tree."""
+        one of its pieces run again and the tests it named on another tree, and a landing whose
+        pieces the suite's own lock kept from running (75, busy)."""
         with sqlite3.connect(cls.home.path / ".agentkit/history.db") as connection:
             connection.executemany(
                 "INSERT INTO runs (run_id, repo, final_state, started_at, finished_at) "
@@ -101,9 +103,11 @@ class ThreeRuns(unittest.TestCase):
         return [*(row for run in RUNS[:3] for kind in ("landing", "done-when")
                   for row in whole(run, kind, [5] * 12, NOW - 8 * DAY)),
                 *whole("fix-d", "landing", [40, 50], NOW - 2 * DAY),
-                ("fix-d", "landing", "tree", f"AK_SHARD=2/2 {CUT}", NOW - DAY - 3, NOW - DAY, 1),
+                ("fix-d", "landing", "tree", f"AK_SHARD=2/2 {CUT}", NOW - DAY - 3, NOW - DAY,
+                 1, 0),
                 ("fix-e", "landing", "narrowed", f"AK_SHARD=1/2 {CUT}", NOW - DAY - 2, NOW - DAY,
-                 0)]
+                 0, 0),
+                *whole("fix-c", "landing", [0, 0], NOW - DAY, 75)]
 
     @classmethod
     def finer_pieces(cls):

@@ -30,7 +30,8 @@ class TestAudit(unittest.TestCase):
             connection.executescript("""
                 CREATE TABLE runs (run_id TEXT, repo TEXT);
                 CREATE TABLE checks (run_id TEXT, kind TEXT, tree TEXT, command TEXT,
-                                     started_at REAL, finished_at REAL, rerun INTEGER);
+                                     started_at REAL, finished_at REAL, rerun INTEGER,
+                                     exit INTEGER);
                 CREATE TABLE test_reds (run_id TEXT, round INTEGER, kind TEXT, tree TEXT,
                                         test TEXT, flaky INTEGER, at REAL);
             """)
@@ -38,11 +39,12 @@ class TestAudit(unittest.TestCase):
                                    [("fix-api", "widgets"), ("fix-web", "widgets"),
                                     ("fix-other", "widgets-linked")])
             connection.executemany(
-                "INSERT INTO checks VALUES (?, 'landing', 'tree', ?, ?, ?, 0)",
+                "INSERT INTO checks VALUES (?, 'landing', 'tree', ?, ?, ?, 0, 0)",
                 [("fix-api", f"AK_SHARD={i}/4 suite", AT, AT + seconds)
                  for i, seconds in enumerate((40, 60, 100, 120), 1)] +
                 [("fix-other", f"AK_SHARD={i}/2 suite", 0, 1) for i in (1, 2)] +
-                [("fix-api", "AK_SHARD=1/1 suite", AT, AT + 1),
+                [("fix-web", f"AK_SHARD={i}/2 suite", AT - DAY, AT - DAY + 1) for i in (1, 2)] +
+                [("fix-web", "AK_SHARD=1/1 suite", AT + DAY, AT + DAY + 1),
                  ("fix-api", "suite", AT, AT + 1),
                  ("fix-api", "AK_SHARD=1/1 suite", AT, None),
                  ("fix-api", "AK_SHARD=1/1 suite", AT, AT - 1)])
@@ -91,7 +93,7 @@ class TestAudit(unittest.TestCase):
 
     def test_first_line_names_repository_file_count_and_span_of_its_rows(self):
         first = self.report().splitlines()[0]
-        for word in ("widgets", "8 files", "4.0 days"):
+        for word in ("widgets", "8 files", "5.0 days"):
             self.assertIn(word, first)
 
     def test_a_subdirectory_uses_its_checkout_and_a_linked_checkout_keeps_its_own_name(self):
@@ -128,7 +130,7 @@ class TestAudit(unittest.TestCase):
                 out = self.report(columns=columns)
                 self.assertTrue(all(len(line) <= columns and line == line.rstrip()
                                     for line in out.splitlines()), out)
-                self.assertIn("widgets tests: 8 files, 4.0 days of rows", " ".join(out.split()))
+                self.assertIn("widgets tests: 8 files, 5.0 days of rows", " ".join(out.split()))
                 self.assertIn("tests/test_slow.py", out)
                 self.assertIn("224.0s", out)
 

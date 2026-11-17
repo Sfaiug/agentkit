@@ -673,12 +673,13 @@ def test_reds(checked, confirmed, flaky, known=()):
 
 def test_audit(repo, since=0):
     """Per-file outcomes, the median seconds of a piece of the latest landing check that ran the
-    suite whole, and the span in days of the rows read; `landings` counts the runs whose landing
-    check a test stopped from `since` on.  Whole is every one of its more than one pieces, each
-    as first run on one tree: a piece run again and a narrowing's tests take seconds, and the
-    pieces of every row retained, mostly a week older and cut finer, read a fifth of what a
-    landing's took (17 Nov 2026)."""
-    reds, checks = {}, {}
+    suite whole, and the span in days of retained repo rows; `landings` counts the runs whose
+    landing check a test stopped from `since` on.  Whole is every one of its more than one
+    pieces passing as first run on one tree: a piece run again and a narrowing's tests take
+    seconds, one killed, busy or the helper's refused never ran, and the pieces of every row
+    retained, mostly a week older and cut finer, read a fifth of what a landing's took
+    (17 Nov 2026)."""
+    reds, checks, moments = {}, {}, []
     try:
         with contextlib.closing(_connect(readonly=True)) as connection:
             connection.row_factory = sqlite3.Row
@@ -696,21 +697,23 @@ def test_audit(repo, since=0):
                     "FROM test_reds t JOIN runs r USING (run_id) WHERE r.repo=? GROUP BY test",
                     (since, repo))}
             if "checks" in tables:
-                for run, tree, command, started, finished in connection.execute(
-                        "SELECT c.run_id, c.tree, c.command, c.started_at, c.finished_at "
+                for run, tree, command, passed, started, finished in connection.execute(
+                        "SELECT c.run_id, c.tree, c.command, "
+                        "c.kind='landing' AND c.rerun=0 AND c.exit=0, c.started_at, c.finished_at "
                         "FROM checks c JOIN runs r USING (run_id) WHERE r.repo=? "
-                        "AND c.kind='landing' AND c.rerun=0 AND command GLOB 'AK_SHARD=*' "
-                        "AND c.finished_at>=c.started_at", (repo,)):
-                    share, _, suite = command.partition(" ")
-                    checks.setdefault((run, tree, suite, share.partition("/")[2]), []).append(
-                        (started, finished))
+                        "AND command GLOB 'AK_SHARD=*' AND c.finished_at>=c.started_at", (repo,)):
+                    moments += started, finished
+                    if passed:
+                        share, _, suite = command.partition(" ")
+                        checks.setdefault((run, tree, suite, share.partition("/")[2]), []).append(
+                            (started, finished))
     except (OSError, sqlite3.Error):
         pass
     # A first run holds each share of `AK_SHARD=k/N` once (`rerun`): N of them are all N
     pieces = max((ran for (*_, count), ran in checks.items() if count == str(len(ran)) != "1"),
                  key=lambda ran: max(finished for _, finished in ran), default=[])
-    moments = [at for row in reds.values() for at in (row["first"], row["last"])
-               if at is not None] + [at for piece in pieces for at in piece]
+    moments += [at for row in reds.values() for at in (row["first"], row["last"])
+                if at is not None]
     days = (max(moments) - min(moments)) / 86400 if moments else 0
     return reds, median(end - start for start, end in pieces) if pieces else None, days
 
