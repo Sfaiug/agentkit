@@ -12,10 +12,8 @@ landing whose pieces never ran.  Before the third, a later whole landing run in 
 25 s, red.  Before each of those two it writes the time record.
 """
 
-import os
 from pathlib import Path
 import shlex
-import socket
 import sqlite3
 import sys
 import unittest
@@ -25,6 +23,7 @@ from fixtures import akconfig, clock, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
+from fixtures.notes import Notes
 from test_key_a_round_runs_its_changes_tests import SUITE
 from test_key_a_round_runs_the_tests_that_fail_most_at_landing import CUT, DAY, NOW
 
@@ -49,19 +48,16 @@ class ThreeRuns(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         clock.standing(cls.home, "AK_ROUND_CLOCK", NOW)
-        said = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        cls.addClassCleanup(said.close)
-        said.bind(address := f"\0ak-round-piece-{os.getpid()}")
-        said.setblocking(False)
+        said = Notes()
         cls.rig = Rig(cls.home, "widgets", files={
             "AGENTS.md": f"---\nhealth: none\ntests: {CUT}\n---\n# widgets\n",
-            "suite.py": SUITE.format(said=address),
+            "suite.py": SUITE.format(said=said.address),
             **{f"tests/{name}.sh": "true\n" for name in ("first", "second", "third")}})
         cls.rig.git("config", "ak.repository", "0123456789ab")
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
         review = ("import socket; socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)"
-                  f".sendto(b'review', {address!r})")
+                  f".sendto(b'review', {said.address!r})")
         cls.fakes = fakeadapter.install(cls.home, claude=[
             {"write": {f"{name}.txt": "\n"}, "commit": name, "final": f"## Summary\n{name}",
              "hand_in": [["done"]]} for name in TASKS], codex={
@@ -79,12 +75,7 @@ class ThreeRuns(unittest.TestCase):
             task = taskfile.write(cls.home, cls.rig.path, f"Add {name}",
                                   done_when=(f"test -f {name}.txt",))
             cls.done[name] = cls.home.ak("run", str(task), timeout=300)
-            cls.notes[name] = []
-            while True:
-                try:
-                    cls.notes[name].append(said.recv(4096).decode())
-                except BlockingIOError:
-                    break
+            cls.notes[name] = said.since()
 
     @classmethod
     def long_pieces(cls):
