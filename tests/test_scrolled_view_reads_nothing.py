@@ -38,6 +38,14 @@ class ScrolledViewReadsNothing(unittest.TestCase):
         self.assertEqual((found["state"], found["authority"], found["hooked"]),
                          ("asking", "hook", "asking"))
 
+    def test_a_question_scrolled_up_says_it_waits_for_an_answer(self):
+        # 2.1.326 labels the pill over a question `Waiting for your answer`
+        name = "claude-question-waiting-scrolled-pane.txt"
+        self.assertEqual(watch.screen_state("claude", pane(name)), (None, "", ""))
+        found = classify(name)
+        self.assertEqual((found["state"], found["authority"], found["hooked"]),
+                         ("asking", "hook", "asking"))
+
     def test_scrolled_back_it_is_the_dialog_again(self):
         found = classify("claude-question-scrolled-back-pane.txt")
         self.assertEqual((found["state"], found["rule"]), ("asking", "Notification/permission_prompt"))

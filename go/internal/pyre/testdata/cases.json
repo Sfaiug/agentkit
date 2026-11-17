@@ -49,6 +49,7 @@
   "claude-question-ruled-footer-pane.txt",
   "claude-question-scrolled-back-pane.txt",
   "claude-question-scrolled-pane.txt",
+  "claude-question-waiting-scrolled-pane.txt",
   "claude-scrolled-draft-pane.txt",
   "claude-scrolled-line-and-owner-words-pane.txt",
   "claude-scrolled-line-pane.txt",
@@ -1821,6 +1822,15 @@
      "groups": {}
     },
     {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 44,
+     "span": [
+      11,
+      171
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "claude-session-limit-pane.txt",
      "row": 48,
      "span": [
@@ -2588,7 +2598,7 @@
   {
    "harness": "claude",
    "key": "away",
-   "pattern": "Jump to bottom \\(ctrl\\+End\\) ↓",
+   "pattern": "(?:Jump to bottom|Waiting for your answer|\\d+ new messages?) \\(ctrl\\+End\\) ↓",
    "flags": "",
    "matches": [
     {
@@ -2606,6 +2616,15 @@
      "span": [
       131,
       158
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 43,
+     "span": [
+      84,
+      120
      ],
      "groups": {}
     }
@@ -4708,6 +4727,384 @@
     {
      "fixture": "claude-question-scrolled-pane.txt",
      "row": 48,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 2,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 3,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 4,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 5,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 6,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 7,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 8,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 9,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 10,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 11,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 12,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 13,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 14,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 15,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 16,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 17,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 18,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 19,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 20,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 21,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 22,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 23,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 24,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 25,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 26,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 27,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 28,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 29,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 30,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 31,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 32,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 33,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 34,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 35,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 36,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 37,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 38,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 39,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 40,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 41,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 42,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 43,
      "span": [
       0,
       3
