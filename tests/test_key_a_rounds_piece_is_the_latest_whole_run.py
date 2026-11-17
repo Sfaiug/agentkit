@@ -1,7 +1,7 @@
 """The piece of the suite a round's red tests fit in is the median piece of the project's latest
-landing check that ran its suite whole: its pieces passing as first run, cut in more than one; not
-a piece run again, nor the tests of a narrowing, nor pieces that never ran, nor older suites cut
-finer, nor a round's.
+landing check that ran its suite whole: its pieces run to their end as first run, red or green,
+cut in more than one; not a piece run again, nor the tests of a narrowing, nor pieces that never
+ran, nor older suites cut finer, nor a round's.
 
 Black-box, as tests/test_key_a_round_runs_the_tests_that_fail_most_at_landing.py and on its
 fixtures, its clock injected: the program `AK_BIN` names runs three tasks in turn on a target whose
@@ -9,7 +9,7 @@ fixtures, its clock injected: the program `AK_BIN` names runs three tasks in tur
 the rows of earlier runs: landings red on three tests of 20 s each, many older pieces of 5 s, a
 whole landing run in two pieces of 40 and 50 s and after it a narrowing's pieces of seconds and a
 landing whose pieces never ran.  Before the third, a later whole landing run in four pieces of
-25 s.  Before each of those two it writes the time record.
+25 s, red.  Before each of those two it writes the time record.
 """
 
 import os
@@ -111,8 +111,8 @@ class ThreeRuns(unittest.TestCase):
 
     @classmethod
     def finer_pieces(cls):
-        """A later whole landing run, cut finer."""
-        return whole("fix-e", "landing", [25] * 4, NOW - DAY / 2)
+        """A later whole landing run, cut finer, its tests ending red."""
+        return whole("fix-e", "landing", [25] * 4, NOW - DAY / 2, 1)
 
     def test_each_run_merges(self):
         for name in TASKS:

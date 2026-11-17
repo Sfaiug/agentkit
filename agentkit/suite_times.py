@@ -47,10 +47,7 @@ def unreported(repo):
         return False
     shares = {}
     for run, tree, command, code in history.landing_checks(Path(repo).name):
-        # Only the runner's own ending counts: none from a check stopped, a busy suite
-        # (`gate.SUITE_BUSY`), the shell (126, 127), a signal (below 0, or 128 and up) or a
-        # helper that lost the piece (`helper.GONE`, `helper.FULL`).
-        if code not in range(126) or code == gate.SUITE_BUSY:
+        if not gate.ran_to_end(code):
             continue
         share, _, rest = command.partition(" ")
         if command == suite and not gate.names_shard(suite):
