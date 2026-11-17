@@ -32,6 +32,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.aklooks import SGR, looks, plain
 from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
+from fixtures.draws import draws
 
 SELECTION, BLACK = "48;2;8;48;93", "48;2;0;0;0"     # the black theme's selection, background
 WIDTH = 100                                         # the terminal's, and so the layout's
@@ -93,7 +94,8 @@ class OneHighlight(unittest.TestCase):
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
         return self.rest(lambda shown: any(MAIN_KEYS in plain(line) for line in shown)
-                         and starts(shown, "› 1  acme"))
+                         and any(plain(line).split()[:3] == ["›", "1", "acme"]
+                                 for line in shown))
 
     def rest(self, ready, bound=30):
         """The screen's looks once it has stood still for a second and `ready(looks)` holds of
@@ -331,6 +333,24 @@ class OneHighlight(unittest.TestCase):
         self.assertEqual((backs[0], backs[-1]), ({SELECTION}, {BLACK}))
         sums = [sum(map(int, back.split(";")[2:])) for (back,) in backs]
         self.assertEqual(sums, sorted(set(sums), reverse=True))
+
+    def test_the_row_the_pointer_leaves_while_a_number_waits_fades_too(self):
+        # ten seats: `1` waits half a second for a second digit, the menu up as ever; the
+        # fade's first frame, ak's clock standing, is read from the program's own bytes
+        # (`pipe-pane`), `9` ending the wait on no seat
+        for n in range(8):
+            Seat(self.home, f"crew-{n}", model="fable")
+        clock, raw = self.home.root / "clock", self.home.root / "raw"
+        clock.write_text("1000")
+        shown = self.main(COLORTERM="truecolor", AK_MOTION_CLOCK=str(clock))
+        acme, (number, beta) = self.row(shown, "1  acme")[1], self.row(shown, "2  beta")
+        piped = self.home.tmux("pipe-pane", "-O", "-t", self.term.pane, f"cat >>{raw}",
+                               server=SERVER)
+        self.assertEqual(piped.code, 0, piped.err)
+        self.term.type("1" + point(number + 3, beta) + "9")
+        self.assertNotIn(acme, lit_rows(self.rest(lambda shown: starts(shown, "›  2  beta"))))
+        lit = [lit_rows(looks(screen)).keys() for screen in draws(raw.read_text("utf-8"))]
+        self.assertTrue(any({acme, beta} <= rows for rows in lit), lit)
 
     def test_in_sixteen_colours_a_seat_has_its_mark_alone(self):
         self.assertEqual(grounds(self.main(TERM="xterm-16color")), {None})
