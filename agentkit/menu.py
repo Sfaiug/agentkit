@@ -3659,17 +3659,18 @@ def columned(text, room, after=" -."):
     return [piece for line in lines for piece in columned(line.rstrip(), room, after[1:])]
 
 
-def models_standing(found, kept, unit, why=True):
+def models_standing(found, kept, unit):
     """The bars of an answer `found` (matrix.answer) that stand at the screen's width, the
     owner's design of 5 Nov 2026, as (size, rows, labels, words, widths): its choices, solid,
     then shaded `kept`, a row the role used, where it is no choice, `whys` holding it
     (matrix._choices), one more where the choices leave no place (the owner, 12 Nov 2026), then
     as many of its `others`, best first, as fill matrix.PLACES.  `rows` (row, its glyph),
     cheapest first, on a tie the worse; each one's labels its cost in `unit`, quality and
-    effort, its words its name and, where `why`, its why led by its glyph, and its column as
-    wide as those and `size`, its words columned.  Where a word too wide for its column widens
-    it past the screen, fewer stand: the shaded ones go first, `kept` last, then the cheapest
-    choices, as matrix._chosen keeps the costliest."""
+    effort, its words its name and a shaded one's why led by its glyph, and its column as wide
+    as those and `size`, its words columned.  Where a word too wide for its column widens it
+    past the screen, fewer stand: the shaded ones go first, `kept` last, then the cheapest
+    choices, as matrix._chosen keeps the costliest.  A why counts drawn or not, so the same bars
+    stand at a width however tall the page, the why page's `shaded` among them."""
     width, choices, whys = terminal.layout_width(), found["choices"], found["whys"]
     solid, shade, _ = GLYPHS[terminal.utf8()]
     own = [kept] if id(kept) in whys else []
@@ -3681,8 +3682,7 @@ def models_standing(found, kept, unit, why=True):
         size = max(1, min(WIDE, (width - 2 * len(rows)) // max(1, len(rows))))
         labels = [(cost_said(found, row, unit), f"{row['quality']:.1f}", row["effort"] or "")
                   for row, _ in rows]
-        words = [[row["name"], *([f"{shade} {whys[id(row)][0]}"] if why and fill == shade
-                                 else [])]
+        words = [[row["name"], *([f"{shade} {whys[id(row)][0]}"] if fill == shade else [])]
                  for row, fill in rows]
         widths = [max(size, *map(terminal.cells, [*three, *(
             line for text in texts for line in columned(text, size))]))
@@ -3704,10 +3704,10 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
     not better.  On a narrow screen the two-cell gutters, then the indent, give way to the
     labels.  Given `room` lines, the dearest stands as tall as the rest leaves room for, TALL
     cells at most and one at least, else TALL; `marked` false leaves the `━` out, `why` false
-    the whys."""
+    the whys, their columns as wide."""
     utf8, width = terminal.utf8(), terminal.layout_width()
     solid, shade, mark = GLYPHS[utf8]
-    size, rows, labels, words, widths = models_standing(found, kept, unit, why)
+    size, rows, labels, words, widths = models_standing(found, kept, unit)
     shaded = sum(fill == shade for _, fill in rows)
     chosen = len(rows) - shaded
     gap = 2 if sum(widths) + 2 * len(rows) <= width else 1
@@ -3717,7 +3717,7 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
         *([f"{COUNTS[shaded]} more shaded"] if shaded else []),
         *([f"keeps {price_said(price, role)}"] if price else [])], " · ", width - 2))]
     unders = [[[quality], columned(name, wide) + [mark * size] * (marked and row is used),
-               [effort], [line for text in whys for line in columned(text, wide)]]
+               [effort], [line for text in whys if why for line in columned(text, wide)]]
               for (row, _), (_, quality, effort), (name, *whys), wide
               in zip(rows, labels, words, widths)]
     # the heading, the dearest's cost over it and what stands under the bars take their lines
@@ -3825,16 +3825,16 @@ def week_checked(plan, checks):
             f"{'high' if off >= 0 else 'low'}")
 
 
-def models_why(found, role, row, kept, unit, weeks, whys=True):
+def models_why(found, role, row, kept, unit, weeks):
     """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
     2026: a label column, each value going on at its words in its own (flowed), an other's lines
     after its first two cells further in, so each other's first line stands out.  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
     best choice it is; its cost in `unit`, said as UNITS says it, where that comes from
     (SOURCES) and how far off each of `weeks` foretold (week_checked); the rule that makes the
-    choices; and why each model is none (WHYS): under `shaded` each the bars draw shaded at this
-    width, given `kept` and `whys` as models_bars was (models_standing), in their order, under
-    `not shown` the rest of its `others`, in theirs.  Only a model's name is cut."""
+    choices; and why each model is none (WHYS): under `shaded` each the bars of `kept` draw
+    shaded at this width (models_standing), in their order, under `not shown` the rest of its
+    `others`, in theirs.  Only a model's name is cut."""
     room = terminal.layout_width() - 2
     width = terminal.cells("not shown")     # the design's label column: its widest label
     values = room - width - 2
@@ -3857,7 +3857,7 @@ def models_why(found, role, row, kept, unit, weeks, whys=True):
             places=number(matrix.PLACES))
     behind, cost = below(row), cost_said(found, row, unit)
     # the bars with a why are the shaded ones
-    bars = [one for one, _ in models_standing(found, kept, unit, whys)[1]]
+    bars = [one for one, _ in models_standing(found, kept, unit)[1]]
     drawn = {id(one) for one in bars}
     kinds = {"shaded": [[why(one)] for one in bars if id(one) in found["whys"]],
              "not shown": [[why(one)] for one in found["others"] if id(one) not in drawn]}
@@ -3949,11 +3949,11 @@ def models_screen(cfg, session, selected, providers):
         price = price_held(session, here[1], used[here[1]], answer[here[1]])
         # where one-cell bars leave too little room these give way whole, in turn: the comparing
         # line, the `━` (the accent and the role's line still name the row in use), the whys
-        for under, marked, whys in ((read, True, True), ([], True, True), ([], False, True),
-                                    ([], False, False)):
+        for under, marked, why in ((read, True, True), ([], True, True), ([], False, True),
+                                   ([], False, False)):
             room = page_room([*under, *note_lines(note)], keys, over) - len(body)
             bars = models_bars(answer[here[1]], here[1], used[here[1]][2], own[here[1]][2], unit,
-                               room, marked, whys, price)
+                               room, marked, why, price)
             if len(bars) <= room:
                 break
         act, here, _, top = matrix_key(title, body + bars, places, rows, here, top, note, keys,
@@ -3996,7 +3996,7 @@ def models_screen(cfg, session, selected, providers):
             while row and key != "back":
                 if checking and not checking.is_alive():
                     weeks, checking = checking.answer(), None
-                lines = models_why(answer[role], role, row, own[role][2], unit, weeks, whys)
+                lines = models_why(answer[role], role, row, own[role][2], unit, weeks)
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
                                              [why], why, page, "", "esc back", clock=opened,
