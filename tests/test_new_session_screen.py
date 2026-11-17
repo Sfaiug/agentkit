@@ -37,6 +37,7 @@ import json, os, sys
 sys.path.insert(0, os.environ["SCREEN_REPO"])
 from agentkit import config, menu, motion, orch
 motion.FADE = 0     # each page as drawn from its first frame: test_page_comes_up.py's
+motion.Clock.light = lambda clock, now, moves: None    # nothing fading: test_highlight_glows.py's
 
 def refused(*args, **kwargs):
     raise AssertionError("refused: nothing here launches")

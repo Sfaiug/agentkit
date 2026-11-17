@@ -1413,6 +1413,38 @@ def on_screen():
     return list(_PAINTED)
 
 
+def lights():
+    """What the screen up has lit (`on_screen`), each run of a row's cells on the theme's
+    selection by what it is (`held`), {what: [(row, first, last)]}, rows and columns from 1: the
+    one place every screen's highlight is read, so its clock moves it with no screen saying where
+    it is (`motion.Clock.light`)."""
+    back, found = ink(colour("selection"), "48"), {}
+    for row, line in enumerate(_PAINTED, 1):
+        at = 1
+        for on, run in groupby(_grounds(line), key=back.__eq__):
+            size = len(list(run))
+            if on:
+                found.setdefault(held(row, at), []).append((row, at, at + size - 1))
+            at += size
+    return found
+
+
+def held(row, column):
+    """What is at `column` of `row` on the screen up, as a click there reads it (`under`): its
+    spot's row and cell, or that place where it is on none."""
+    spot = under(Key("point", col=column, row=row), _SPOTS)
+    return spot[:2] if spot[:2] != (None, None) else (None, (row, column))
+
+
+def columns(line, first, last):
+    """Cells `first` to `last` of a drawn `line`, counted from 1, each in the styles it has."""
+    out, at = "", 1
+    for text in cell_texts(line):
+        out += text if first <= at <= last else ""
+        at += cells(text)
+    return out
+
+
 def pointed(row, column, text):
     """`text`, written from `column` of `row` over the screen up, each of its cells on the
     background the screen has there as last drawn (`lit`) where it is not on that already:

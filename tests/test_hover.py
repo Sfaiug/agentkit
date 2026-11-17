@@ -157,6 +157,8 @@ def run(screen, *keys, cols=100, rows=40, depth=256):
     The first of `keys` is on the pipe whole before the screen reads, the way one read finds a
     flood, and each after it once the screen has read all before it and drawn what they asked
     for; the pipe is closed behind the last, so a screen reading past them ends on its EOF.
+    Nothing fades where the highlight left (tests/test_highlight_glows.py's), so a key goes in
+    on the screen as drawn, not on a fade a slow host's frames still write.
     """
     read, write = os.pipe()
     os.write(write, keys[0])
@@ -179,6 +181,7 @@ def run(screen, *keys, cols=100, rows=40, depth=256):
                            _POINTED=terminal.Spot(), _MOVED=0.0, _NEXT=None, _HELD=None,
                            _AWAY=False, _ASKED=False), \
             patch.object(terminal, "colour_depth", return_value=depth), \
+            patch.object(motion.Clock, "light", lambda clock, now, moves: None), \
             patch.dict(os.environ, {"COLUMNS": str(cols), "LINES": str(rows),
                                     "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}):
         answer = screen()

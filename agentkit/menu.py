@@ -666,7 +666,8 @@ def wait_key(prompt, timeout=None, wake=None):
 def moving(clock, wake=None, timeout=TICK, going=None):
     """`wait_key` on the main screen, its digit wait and its stop question, and on a screen whose
     content is fetched: `timeout` seconds at most, and each of `clock`'s frames drawn while
-    something moves and no key is waiting.
+    something moves and no key is waiting.  A key but the pointer's writes the last frame of the
+    fade before it at once (`motion.Clock.rest`), whatever reads next.
 
     Only a wait that ran to its frame draws one.  One that ended before it, on news, returns
     None, its cells forgotten, for the caller to draw the screen again; so does one a resize
@@ -686,6 +687,8 @@ def moving(clock, wake=None, timeout=TICK, going=None):
             clock.clear()
             clock.forget()
             return None
+        if isinstance(key, terminal.Key) and key.name != "point":
+            terminal.over(clock.rest())
         if key is not None or due is None or time.monotonic() >= until:
             return key
         if going is not None and not going():
@@ -7015,6 +7018,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                 cursor = followed(cursor, usage_rows(was), usage_rows(cfg))
             if back:
                 live.back()               # drawn as the last read left it, read behind it
+                clock.forget()            # drawn anew: nothing it drew before fades or replays
                 back = False
             elif look:
                 live.ask(look=True)       # read and looked at again, off the draw
