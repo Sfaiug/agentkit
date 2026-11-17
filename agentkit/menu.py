@@ -3880,7 +3880,9 @@ def models_why(found, role, row, kept, unit, weeks):
             {"choices": [[f"the best, then cheaper ones {points(matrix.APART)} apart, none more "
                           f"than {number(matrix.WINDOW)} below, {number(matrix.PLACES)} at most"]],
              **kinds}]
-    lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}"]
+    # the name cut to share a line with `why` and its effort, the rest going on at its words:
+    # a narrow page leaves no name room beside the verb, and each line counts as one row
+    lines = terminal.wrap(f"why {named(row, room - 4)} {DOES[role]}", room)
     for block in said:
         lines.append("")
         for label, parts in block.items():
