@@ -1878,20 +1878,20 @@ def passes_what_it_holds(code, only, ran, failed, absent):
         code == 0 or code > 0 and len(there) < len(only) and not set(there) & set(failed))
 
 
-def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwargs):
+def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, known=(), **kwargs):
     """Run a suite and keep its named reds and flakes beside its check rows."""
     reds = {} if confirmed is not None or checked is not None else None
     flakes = [] if flaky is not None or checked is not None else None
     try:
         with _record(kwargs["cwd"]) as times:
             return _run_suite(command, limit, times=times, confirmed=reds, flaky=flakes,
-                              checked=checked, **kwargs)
+                              checked=checked, known=known, **kwargs)
     finally:
         if confirmed is not None:
             confirmed.update(reds)
         if flaky is not None:
             flaky.extend(flakes)
-        history.test_reds(checked, reds, flakes)
+        history.test_reds(checked, reds, flakes, known)
 
 
 def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, log=None,
@@ -2763,7 +2763,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             if flaky is not None:
                 flaky.extend(flakes)
             if not split(cmd):
-                history.test_reds(checked, reds, flakes)
+                history.test_reds(checked, reds, flakes, known)
             if killed:
                 spent, kept = cmd, out
                 break

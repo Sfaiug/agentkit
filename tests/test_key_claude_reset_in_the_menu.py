@@ -2,13 +2,13 @@
 
 The owner (10 Nov 2026): "See amount of resets and spend one inside the ak menu", with any
 provider.  A Claude login's kinds refill different things -- a weekly reset the week, a Fable
-reset only Fable's own cap -- so its meter offers one act for each kind it can spend now, named
+reset only Fable's own cap -- so its line offers one act for each kind it can spend now, named
 after it, and the one pressed is the kind its adapter is asked to spend (`reset Fable`); what
 that spend read back, every meter and the count by kind, is the reading after it.  A kind held
 but not spendable now is offered no act, and a spend refused leaves the reading as it was.
 Black-box: `AK_BIN`'s ak screen in a terminal (tests/fixtures/akterm.py) over a Claude
 subscription under the real adapters/claude.toml, its adapter a fake that logs every verb
-(tests/fixtures/fakeadapter.py), NO_COLOR, so the act lit is marked `›`.  This test fails
+(tests/fixtures/fakeadapter.py), NO_COLOR, so the act lit is bracketed.  This test fails
 against `/bin/false`.
 """
 
@@ -41,8 +41,10 @@ def under_grid(screen):
 
 
 def offered(screen):
-    """The spends a meter's list offers, as drawn, `›` on the one lit."""
-    return [line for line in lines(screen) if re.match(r"[ ›] → spend a", line)]
+    """The spends on the line under Claude's highlighted row, as drawn, the lit one bracketed."""
+    shown = lines(screen)
+    return [act.strip() for row, line in zip(shown, shown[1:]) if row.startswith("› Claude ")
+            for act in line.split("   ") if "spend a" in act]
 
 
 def answer(fable, left=3, fable_used=17):
@@ -89,21 +91,21 @@ class ClaudeResetInTheMenu(unittest.TestCase):
                 "  Claude  ") and "in hand" in screen and all(word in screen for word in also)))
 
     def listed(self):
-        """Claude's meter clicked: the screen once its list is drawn with nothing lit."""
+        """Claude's meter clicked: the screen once its row is drawn with nothing lit."""
         row, column = self.spot()
         self.term.type(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m")
         return self.term.wait(lambda screen: offered(screen) and UNLIT in lines(screen))
 
     def spend_fable(self):
-        """`spend a Fable reset` pressed on Claude's list: moved onto, then Enter."""
+        """`spend a Fable reset` pressed on Claude's line: moved onto, then Enter."""
         self.listed()
-        self.term.keys("Down", "Down")
-        self.term.wait(lambda screen: "› → spend a Fable reset" in lines(screen)
+        self.term.keys("Right", "Right")
+        self.term.wait(lambda screen: "[→ spend a Fable reset]" in offered(screen)
                        and LIT.format("spend a Fable reset") in lines(screen))
         self.term.keys("Enter")
 
     def noted(self, said):
-        """The notice the press ends in, saying `said`, put away with Esc."""
+        """What the press says under Subscriptions, `said`, then Esc back to the ak screen."""
         self.term.wait(lambda screen: said in screen and MAIN_KEYS not in lines(screen))
         self.term.keys("Escape")
         self.term.wait(lambda screen: MAIN_KEYS in lines(screen))
@@ -113,7 +115,7 @@ class ClaudeResetInTheMenu(unittest.TestCase):
         self.assertIn(" · Fable 83% left", line)
         self.assertTrue(line.endswith(" · 1 weekly, 3 Fable resets in hand"), line)
         self.assertEqual(offered(self.listed()),
-                         ["  → spend a weekly reset", "  → spend a Fable reset"])
+                         ["→ spend a weekly reset", "→ spend a Fable reset"])
         self.assertEqual(self.fake.calls("reset-status"), [])
         self.assertEqual(self.fake.calls("reset"), [])
 
@@ -134,7 +136,7 @@ class ClaudeResetInTheMenu(unittest.TestCase):
 
     def test_a_kind_it_cannot_spend_now_is_offered_no_act(self):
         self.assertTrue(self.open(fable=False).endswith(" · 1 weekly, 3 Fable resets in hand"))
-        self.assertEqual(offered(self.listed()), ["  → spend a weekly reset"])
+        self.assertEqual(offered(self.listed()), ["→ spend a weekly reset"])
 
     def test_a_spend_refused_spends_nothing_and_the_line_reads_as_before(self):
         before = self.open()

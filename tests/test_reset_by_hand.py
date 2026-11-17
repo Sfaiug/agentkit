@@ -1,8 +1,8 @@
 """The owner spends a usage-limit reset by hand, from its subscription's meter; offline.
 
 A subscription's line under the grid of `ak` says `1 reset in hand` (`2 resets in hand`) while it
-holds any, and nothing with none.  Its meter, on `ak` and over the page of `c` alike, then offers
-`→ spend a reset` after `→ log in again`, which its login ending soon offers, Enter on the list
+holds any, and nothing with none.  The row its meter opens, on `ak` and `c` alike, then offers
+`→ spend a reset` after `→ log in again`, which its login ending soon offers, Enter on its line
 never landing on the spend; it spends exactly one through `usage.replenish` -- the only caller of
 it in ak -- and the row shows the week that came back.  A fake Codex adapter answers every verb
 in a temporary HOME.
@@ -25,7 +25,7 @@ from agentkit import config, menu, terminal, usage  # noqa: E402
 from test_reset_never_automatic import calls  # noqa: E402
 
 WEEK = 604800
-AGAIN = "→ log in again"     # what a meter's list opens lit, where offered
+AGAIN, REMOVE = "[→ log in again]", "− remove"     # a line opens lit on the first, where offered
 
 
 # The owner spends one by hand, from its meter. [2 Oct, 20 Oct 2026]
@@ -39,6 +39,8 @@ class ResetByHand(unittest.TestCase):
             stack.enter_context(patch.object(config, name, root / name.lower()))
         stack.enter_context(patch.dict(os.environ, {"HOME": str(root), "NO_COLOR": "1",
                                                     "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
+        # room for a line's every act beside its login's end
+        stack.enter_context(patch.object(terminal, "layout_width", return_value=160))
         config.ensure_dirs()
         cfg = config.load()
         cfg["providers"] = {"openai": {**cfg["providers"]["openai"],
@@ -84,36 +86,43 @@ class ResetByHand(unittest.TestCase):
         return [terminal.plain(menu.usage_detail(self.cfg, number))
                 for number in range(1, len(menu.usage_cells(self.cfg)) + 1)]
 
-    def offered(self, number, picked=None):
-        """What subscription `number`'s meter lists and picks first, `picked` taken."""
-        asked = []
-        with patch.object(terminal, "choose", side_effect=lambda choices, default=None, **_kw:
-                          asked.append((choices, default)) or picked), \
-                patch.object(terminal, "frame"):
-            self.note = menu.meter_acts(self.cfg, None, number, "config · ChatGPT")
-        return asked
+    def offered(self, number, *keys):
+        """The acts on subscription `number`'s line as Subscriptions opens on it, as its meter
+        opens it, the lit one bracketed, `keys` (`right`, `enter`) then Esc read there; what
+        the page said last is `self.note`."""
+        drawn, keys = [], iter([*keys, "back"])
+
+        def matrix_key(_title, body, _places, _rows, here, top, said, *_a, **_kw):
+            row = next(at for at, line in enumerate(body) if line.startswith("›"))
+            drawn.append((terminal.plain(body[row + 1], spaced=True).strip().split("   ")[1:],
+                          said))
+            return next(keys), here, None, top
+        config.save(self.cfg)       # the page reads config.toml as it opens
+        with patch.object(menu, "matrix_key", side_effect=matrix_key):
+            menu.config_subscriptions(self.cfg, None, number)
+        self.note = drawn[-1][1]
+        return drawn[0][0]
 
     def test_a_usage_row_says_the_resets_its_subscription_holds(self):
         usage.collect(self.cfg, refresh=True)
         first, second = self.rows()
         self.assertRegex(first, r"^ChatGPT I login ends .* · resets .* · 2 resets in hand$")
         self.assertRegex(second, r"^ChatGPT II login ends .* · resets .* · 1 reset in hand$")
-        self.assertEqual(self.offered(1), [([AGAIN, "→ spend a reset"], AGAIN)])
+        self.assertEqual(self.offered(1), [AGAIN, "→ spend a reset", REMOVE])
         self.held.update({"": 0, "second": 0})
         (config.STATE / "usage.json").unlink()
         usage.collect(self.cfg, refresh=True)
         self.assertFalse(any("in hand" in row for row in self.rows()), self.rows())
-        self.assertEqual(self.offered(1), [([AGAIN], AGAIN)])
+        self.assertEqual(self.offered(1), [AGAIN, REMOVE])
         self.assertEqual(menu.in_hand({"resets": None}), "")
 
     def test_a_meter_spends_one_of_its_own_and_shows_the_week_back(self):
         usage.collect(self.cfg, refresh=True)
-        self.assertEqual(self.offered(2, "→ spend a reset"),
-                         [([AGAIN, "→ spend a reset"], AGAIN)])
+        self.assertEqual(self.offered(2, "right", "enter"), [AGAIN, "→ spend a reset", REMOVE])
         self.assertEqual(self.spent, ["second"])          # exactly one, of the meter picked
         self.assertEqual(self.note, "ChatGPT II · 100% left")
-        self.assertEqual(self.offered(2), [([AGAIN], AGAIN)])   # none left to spend
-        self.offered(1)                                   # Esc on the list spends nothing
+        self.assertEqual(self.offered(2), [AGAIN, REMOVE])     # none left to spend
+        self.offered(1)                                   # Esc on its line spends nothing
         self.assertEqual(self.spent, ["second"])
 
     def test_a_spend_of_a_kind_stands_as_its_own_answer_read_it(self):
@@ -123,8 +132,8 @@ class ResetByHand(unittest.TestCase):
                           {"kind": "Fable", "left": 1, "usable": True}]
         usage.collect(self.cfg, refresh=True)
         self.refusing = True
-        self.assertEqual(self.offered(1, "→ spend a Fable reset"),
-                         [([AGAIN, "→ spend a weekly reset", "→ spend a Fable reset"], AGAIN)])
+        self.assertEqual(self.offered(1, "right", "right", "enter"),
+                         [AGAIN, "→ spend a weekly reset", "→ spend a Fable reset", REMOVE])
         self.assertEqual(self.named, [["Fable"]])
         self.assertEqual(self.note, "ChatGPT I · 100% left · 1 weekly reset in hand")
         self.assertRegex(self.rows()[0], r" · 1 weekly reset in hand$")
@@ -132,16 +141,17 @@ class ResetByHand(unittest.TestCase):
     def test_a_meter_reads_its_week_back_by_its_name_as_written(self):
         self.cfg["providers"]["openai"]["name"] = "Acme  Plan"     # spaced as its owner typed it
         usage.collect(self.cfg, refresh=True)
-        self.offered(2, "→ spend a reset")
+        self.offered(2, "right", "enter")
         self.assertEqual(self.note, "Acme  Plan II · 100% left")
 
     def test_of_two_subscriptions_of_one_name_a_meter_spends_its_own(self):
         rows = [("openai", "ChatGPT", {}, None), ("acme", "ChatGPT", {"resets": 1}, None)]
         with patch.object(menu, "usage_rows", return_value=rows), \
                 patch.object(usage, "replenish", return_value=(False, 1)) as replenish:
-            self.assertEqual(self.offered(1), [([AGAIN], AGAIN)])   # not its own
-            self.offered(2, "→ spend a reset")
-        replenish.assert_called_once_with(self.cfg, "acme", account=None, kind=None)
+            self.assertEqual(self.offered(1), [AGAIN, REMOVE])     # not its own
+            self.offered(2, "right", "enter")
+        # with the config the page read
+        replenish.assert_called_once_with(config.load(), "acme", account=None, kind=None)
 
     def test_only_the_owners_act_spends_one(self):
         callers = [(path.name, inside) for path in sorted((REPO / "agentkit").rglob("*.py"))

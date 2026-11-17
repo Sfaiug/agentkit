@@ -649,12 +649,14 @@ def _started(connection, values):
     return cursor.lastrowid if cursor.rowcount else None
 
 
-def test_reds(checked, confirmed, flaky):
-    """Keep a suite's named outcomes with its check's identity; a run with no row keeps none."""
+def test_reds(checked, confirmed, flaky, known=()):
+    """Keep a suite's named outcomes with its check's identity; a run with no row keeps none,
+    and a check none of `known`, the target's own red it let fail (`land.red_part`): a landing's
+    reds are those it blamed on a change (`test_audit`'s `landings`)."""
     if checked is None:
         return
-    tests = [(test, 0) for names in confirmed.values() for test in names]
-    tests.extend((test, 1) for test in flaky)
+    tests = [(test, 0) for names in confirmed.values() for test in names if test not in known]
+    tests.extend((test, 1) for test in flaky if test not in known)
     if not tests:
         return
     run_dir, round_no, kind, tree = checked
@@ -666,8 +668,9 @@ def test_reds(checked, confirmed, flaky):
          for test, flake in dict.fromkeys(tests)]))
 
 
-def test_audit(repo):
-    """Per-file outcomes, median piece seconds and the span in days of retained repo rows."""
+def test_audit(repo, since=0):
+    """Per-file outcomes, median piece seconds and the span in days of retained repo rows;
+    `landings` counts the runs whose landing check a test stopped from `since` on."""
     reds, pieces = {}, []
     try:
         with contextlib.closing(_connect(readonly=True)) as connection:
@@ -679,10 +682,12 @@ def test_audit(repo):
                     "SELECT test, SUM(CASE WHEN flaky=1 THEN 1 ELSE 0 END) AS flakes, "
                     "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind IN "
                     "('done-when','rules','landing') THEN t.run_id END) AS catches, "
+                    "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind='landing' AND t.at>=? "
+                    "THEN t.run_id END) AS landings, "
                     "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind='tip' THEN t.run_id END) "
                     "AS main_red, MIN(at) AS first, MAX(at) AS last "
                     "FROM test_reds t JOIN runs r USING (run_id) WHERE r.repo=? GROUP BY test",
-                    (repo,))}
+                    (since, repo))}
             if "checks" in tables:
                 pieces = list(connection.execute(
                     "SELECT c.finished_at-c.started_at, c.started_at, c.finished_at "

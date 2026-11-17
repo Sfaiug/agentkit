@@ -235,11 +235,11 @@ class RoleMarks(Sandbox):
         meter = (["  Claude", ""], {0: (None, [(3, 25, ("usage", 1), ("usage", 1))])})
         keys = [terminal.Key("click", row=3, col=5), terminal.Key("esc")]
         with patch.object(menu, "config_meters", return_value=meter), \
-                patch.object(menu, "meter_acts", return_value="") as opened, \
+                patch.object(menu, "config_subscriptions", return_value="") as opened, \
                 patch.object(terminal, "read_key", side_effect=keys), \
                 redirect_stdout(io.StringIO()):
             self.assertFalse(menu.born_models(born, None))
-        opened.assert_called_once()
+        opened.assert_called_once_with(self.cfg, None, 1)
 
 
 class RoleMarksScreen(unittest.TestCase):

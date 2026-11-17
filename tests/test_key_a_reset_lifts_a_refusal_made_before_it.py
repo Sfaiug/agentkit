@@ -65,7 +65,7 @@ class ResetLiftsAnEarlierRefusal(unittest.TestCase):
                   and "in hand" in screen)
         term.type(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m")
         term.wait(lambda screen: offered(screen) and UNLIT in lines(screen))
-        term.keys("Down")
+        term.keys("Right")
         term.wait(lambda screen: LIT.format("spend a weekly reset") in lines(screen))
         term.keys("Enter")
         term.wait(lambda screen: "Claude · 100% left" in screen

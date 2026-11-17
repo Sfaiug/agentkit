@@ -83,7 +83,7 @@ class AResetOfOneCap(unittest.TestCase):
                   and "in hand" in screen)
         term.type(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m")
         listed = term.wait(lambda screen: offered(screen) and UNLIT in lines(screen))
-        term.keys(*["Down"] * (offered(listed).index(f"  → spend a {kind} reset") + 1))
+        term.keys(*["Right"] * (offered(listed).index(f"→ spend a {kind} reset") + 1))
         term.wait(lambda screen: LIT.format(f"spend a {kind} reset") in lines(screen))
         term.keys("Enter")
         term.wait(lambda screen: re.search(r"Claude · \d+% left", screen)

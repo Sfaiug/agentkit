@@ -15,7 +15,8 @@ import (
 // A style is a word's glyph, its ASCII stand-in, its role of the theme, its eight-colour tone and
 // its emphasis.  `dim` is a note beside a row and `FAIL` a verdict, no state; `idle` is drawn
 // as dim is; `muted`, `border` and `info` are the roles of text no state's colour is
-// (docs/cli-design.md, Colour), at eight colours plain, faint as a note and cyan.
+// (docs/cli-design.md, Colour), at eight colours plain, faint as a note and cyan.  A note is
+// its colour alone above eight colours: faint would draw it darker, a colour of neither theme.
 type style struct{ glyph, ascii, colour, tone, emphasis string }
 
 var styles = map[string]style{
@@ -25,7 +26,7 @@ var styles = map[string]style{
 	"out of usage": {"○", "o", "error", "31", ""},
 	"FAIL":         {"×", "x", "error", "31", ""},
 	"idle":         {"○", "o", "dim", "37", "2"},
-	"dim":          {"·", ".", "dim", "37", "2"},
+	"dim":          {"·", ".", "dim", "37", ""},
 	"quiet":        {"", "", "dim", "37", ""},
 	"muted":        {"", "", "muted", "39", ""},
 	"border":       {"", "", "border", "2", ""},

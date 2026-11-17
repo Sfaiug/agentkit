@@ -143,14 +143,14 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
         self.assertEqual(self.probes(line, a), [])
         self.assertIn(f"red before {b[:12]}", self.output)
 
-    def test_the_walk_stops_at_64_commits_in_six_steps(self):
+    def test_the_walk_stops_at_64_commits(self):
         line, (_, a, b, _) = self.line(padding=62)
         self.assertEqual(self.blame(line), {})
         self.assertEqual(self.probes(line, a), [])
         self.assertIn(f"red before {b[:12]}", self.output)
         with closing(sqlite3.connect(line.home.path / ".agentkit/history.db")) as db:
             count = db.execute("SELECT COUNT(DISTINCT tree) FROM checks WHERE kind='tip'").fetchone()[0]
-        self.assertEqual(count, 7)  # the red tip and six bisect steps
+        self.assertEqual(count, 2)  # the red tip and the window's oldest commit, red too
 
 
 if __name__ == "__main__":

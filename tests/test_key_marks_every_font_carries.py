@@ -3,9 +3,10 @@
 The owner (10 Nov 2026): "in any terminal, on any operating system, ak should always look the
 same."  A character no terminal font carries is borrowed from another font, at another size and
 width in each terminal, so a seat out of usage reads `○ out of usage`, told from `○ idle` by its
-colour and its words, and under the pointer offers nothing (12 Nov 2026); a meter's acts read
-`→ log in again`; a draft `¶ unsent`; the yes-or-no card `✓ Keep` and `× Stop`; `ak run status`
-under a run its review failed `× FAIL`; and none of those holds `◌`, `✗`, `↻`, `⇄` or `✎`.
+colour and its words, and under the pointer offers nothing (12 Nov 2026); a subscription's acts
+on Subscriptions read `→ log in again`; a draft `¶ unsent`; the yes-or-no card `✓ Keep` and
+`× Stop`; `ak run status` under a run its review failed `× FAIL`; and none of those holds `◌`,
+`✗`, `↻`, `⇄` or `✎`.
 Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over seats of
 tests/fixtures/akseat.py and usage, logins and runs written under HOME, harnesses faked
 (tests/fixtures/fakeadapter.py), NO_COLOR.  This test fails against `/bin/false`.
@@ -81,14 +82,16 @@ class MarksEveryFontCarries(unittest.TestCase):
         self.assertRegex(rows["acme-draft"], r"  ○ idle +¶ unsent$")
         self.none_gone(screen)
 
-    def test_a_meter_opened_offers_log_in_again(self):
+    def test_a_subscription_offers_log_in_again(self):
         term = self.terminal()
-        main = lines(term.wait(lambda screen: MAIN_KEYS in lines(screen) and "ChatGPT" in screen))
-        row = next(number for number, line in enumerate(main) if "ChatGPT" in line)
-        column = main[row].index("ChatGPT") + 3
-        term.type(f"\x1b[<0;{column};{row + 1}M\x1b[<0;{column};{row + 1}m")
-        screen = term.wait(lambda screen: "› → log in again" in lines(screen))
-        self.assertIn("  → spend a reset", lines(screen))
+        term.wait(lambda screen: MAIN_KEYS in lines(screen))
+        term.keys("c")
+        term.wait("› Fable 5.1")
+        term.keys("Down", "Down", "Down")        # past 6 Astra and `Models`
+        term.wait("› Subscriptions")
+        term.keys("Enter", "Down")              # onto ChatGPT's row, holding a reset
+        screen = term.wait(lambda screen: "› ChatGPT " in screen and "[→ log in again]" in screen
+                           and "→ spend a reset" in screen)
         self.none_gone(screen)
 
     def test_the_card_before_a_seat_is_stopped(self):

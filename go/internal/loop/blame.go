@@ -2,14 +2,17 @@ package loop
 
 // The blame walk, Python's land._blame_tip: once the target's own red, tests failing again alone
 // by name, has its repair, which waits on no blame, as no blame waits on the repair's outcome, the
-// first red commit of the target's first-parent line is found by halving, and the run that merged it
-// is blamed after its merge, once (history.BlameMerge).  A red that named no test blames nobody: on
-// an earlier commit a piece's number holds other tests.  It reaches back blameReach commits at most,
-// six steps, none older than keepEvidence, the tip last, red twice already.  Each step checks its
-// commit as the probe checked the tip: those tests alone first, then the piece where they name no
-// red.  Exits decide, never names: a step whose piece failed each of two goes or more is red, one
-// that passes is green, and a go that failed beside one that passed is a flake, which ends the walk
-// without blame, as does a step that proves nothing.  Red at the oldest commit blames nobody.
+// first red commit of the target's first-parent line is found, the oldest asked first, then by
+// halving, and the run that merged it is blamed after its merge, once (history.BlameMerge).  A red
+// that named no test blames nobody: on an earlier commit a piece's number holds other tests.  It
+// reaches back blameReach commits at most, none older than keepEvidence, the tip last, red twice
+// already.  A red the clock or the host made fails on every commit, and the pass, and so the line,
+// waits for each step: the oldest red ends the walk at one step where halving takes six, at the
+// price of one more for a commit's red.  Each step checks its commit as the probe checked the tip:
+// those tests alone first, then the piece where they name no red.  Exits decide, never names: a
+// step whose piece failed each of two goes or more is red, one that passes is green, and a go that
+// failed beside one that passed is a flake, which ends the walk without blame, as does a step that
+// proves nothing.  Red at the oldest commit blames nobody.
 
 import (
 	"cmp"
@@ -46,7 +49,10 @@ func (s *narrowingStack) blameTip(tip, suite, piece string, tests []string) (err
 	slices.Reverse(commits)
 	low, high := -1, len(commits)-1
 	for high-low > 1 {
-		mid := (low + high) / 2
+		mid := 0
+		if low >= 0 {
+			mid = (low + high) / 2
+		}
 		red, err := s.blameStep(commits[mid], suite, piece, tests)
 		if err != nil || red == nil {
 			return err

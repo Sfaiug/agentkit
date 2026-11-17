@@ -19,8 +19,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from . import (config, gitcall, handback, history, land as landing, prompts, record as run_record,
-               roundloop, task as taskfile, transitions, turns)
+from . import (config, gitcall, handback, history, land as landing, looks_alone, prompts,
+               record as run_record, roundloop, task as taskfile, transitions, turns)
 
 
 GITHUB_BODY_CAP = 60_000         # below GitHub's 65,536-character body limit, including UTF-8
@@ -47,7 +47,7 @@ def push(lp):
         # Rebase merges preserve the branch's messages, ignoring a merge commit body.
         # Change only the message: staged or untracked files cannot become checked code.
         old = gitcall.git(lp.wt, "show", "-s", "--format=%B", head)
-        message = re.sub(r"(?m)^Suite-Passed-Tree:.*\n?", "", old).rstrip()
+        message = re.sub(rf"(?m)^(Suite-Passed-Tree|{looks_alone.TRAILER}):.*\n?", "", old).rstrip()
         body = merge_body(lp, head)
         if body:
             message = add_suite_trailer(lp, message, body[-1])
@@ -476,14 +476,18 @@ def add_suite_trailer(lp, message, trailer):
 
 
 def merge_body(lp, head, url=None):
+    """`gh pr merge`'s body for `head`, ending in a trailer naming the rule that let its tree
+    through -- the suite passed it, or it is of looks alone (`land._looks`) -- or [] for none."""
     checked = lp.state.get("final_check") or {}
+    tree = checked.get("tree_sha")
     suite = gitcall.declared_suite(lp.wt, lp.target, ref=lp.state.get("target_sha"))
     # A tree landed over the target's own red tests (`land.red_part`) passed no whole suite.
-    if (suite and checked.get("suite") == suite and checked.get("outcome") == "passed"
-            and not checked.get("over") and checked.get("sha") == head and checked.get("tree_sha")
-            and checked.get("tested", checked["tree_sha"]) == checked["tree_sha"]
-            and checked["tree_sha"] == gitcall.git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
-        body = f"Suite-Passed-Tree: {checked['tree_sha']}"
+    rule = (looks_alone.TRAILER if checked.get("looks") else "Suite-Passed-Tree"
+            if suite and checked.get("suite") == suite and not checked.get("over")
+            and checked.get("tested", tree) == tree else None)
+    if (rule and checked.get("outcome") == "passed" and checked.get("sha") == head and tree
+            and tree == gitcall.git(lp.wt, "rev-parse", f"{head}^{{tree}}")):
+        body = f"{rule}: {tree}"
         if url:
             # An explicit body replaces GitHub's defaults, including co-author credit.
             parts = pr_parts(url)
@@ -946,7 +950,8 @@ def land_from_line(lp, upstream, deliver):
                                                landing.passed(turn, wait["land"]) or {}).get(
                                                    "tested", identity["tree_sha"]),
                                            "suite": gitcall.declared_suite(lp.wt, lp.target, ref=tip),
-                                           **({"over": wait["over"]} if "over" in wait else {})}
+                                           **{key: wait[key] for key in ("over", "looks")
+                                              if key in wait}}
                 lp.write()
                 result = deliver()
                 if "fix" in lp.state.get("waiting_on", {}):

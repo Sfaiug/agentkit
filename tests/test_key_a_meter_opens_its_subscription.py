@@ -1,19 +1,22 @@
-"""Enter or a click on a meter that offers nothing opens its row on `c` → Subscriptions.
+"""Enter or a click on a subscription's meter opens its row on `c` → Subscriptions.
 
 The owner (10 Nov 2026), of the meters on the ak screen: "when hoverign here, it looks and feels
-like you can press it, but you cant."  A meter with no act opens that page on its own row, the
-row found by its company and account in config.toml as the page reads it, so a subscription
-another process added meanwhile moves no highlight onto another's row, its usual login the same
-whether listed as `default` or not, and a config.toml removed meanwhile is read as ak's shipped
-one; Esc comes back to the screen it was opened from, the highlight on that meter.  With no seat
-the meters are the screen's rows: the pointer off them lights none.  A menu started again on new
-code comes up on the subscription it left, whatever row a save the old program never read gave
-it, new code waiting on its way to the terminal for the lock held meanwhile
+like you can press it, but you cant", and: "Make sure every screen feels and is operated in the
+same sort of way."  Every meter opens that page on its own row, the row found by its company
+and account in config.toml as the page reads it, so a subscription another process added
+meanwhile moves no highlight onto another's row, its usual login the same whether listed as
+`default` or not, and a config.toml removed meanwhile is read as ak's shipped one; Esc comes
+back to the screen it was opened from, the highlight on that meter.  Its acts are that row's,
+lit as the page lights them: `log in again` where its login ends within the week, Enter
+signing that one in, and nothing where it holds a reset, so Enter spends none.  With no seat
+the meters are the screen's rows: the pointer off them lights none.  A menu started again on
+new code comes up on the subscription it left, whatever row a save the old program never read
+gave it, new code waiting on its way to the terminal for the lock held meanwhile
 (test_key_a_restart_keeps_the_last_frame_up.py).
 Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py) over Claude's and ChatGPT's
-subscriptions in a temporary HOME (TZ=UTC), neither holding a reset nor ending soon, with no
-seat, their harnesses faked (tests/fixtures/fakeadapter.py), NO_COLOR.  This test fails
-against `/bin/false`.
+subscriptions in a temporary HOME (TZ=UTC), with no seat, their harnesses faked, each logging
+every verb (tests/fixtures/fakeadapter.py), NO_COLOR, so the lit act is bracketed.  This test
+fails against `/bin/false`.
 """
 
 import fcntl
@@ -27,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
-from test_key_log_in_again_only_when_needed import DAY, MAIN_KEYS, METER, PAGE, UNLIT, lines
+from test_key_log_in_again_only_when_needed import DAY, LIT, MAIN_KEYS, METER, PAGE, UNLIT, lines
 
 GRID = re.compile(METER.pattern + r"|  — ")     # a meter, or the dash of one with no reading
 
@@ -44,13 +47,14 @@ def lit(screen):
     return under_grid(screen)[2:].split("  ")[0]
 
 
-def opened(label, line):
-    """Whether a screen is Subscriptions with `label`'s row highlighted and `line` under it,
-    Enter naming nothing: `− remove` is lit only by a move."""
+def opened(label, line, keys=UNLIT):
+    """Whether a screen is Subscriptions with `label`'s row highlighted, the line under it
+    ending in `line`, and `keys` its key line: by default Enter naming nothing, as `− remove`
+    is lit only by a move."""
     def shown(screen):
         drawn = lines(screen)
-        return (drawn[0].startswith(PAGE) and UNLIT in drawn
-                and any(row.startswith(f"› {label} ") and below == line
+        return (drawn[0].startswith(PAGE) and keys in drawn
+                and any(row.startswith(f"› {label} ") and below.endswith(line)
                         for row, below in zip(drawn, drawn[1:])))
     return shown
 
@@ -67,26 +71,37 @@ def environs():
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AMeterOpensItsSubscription(unittest.TestCase):
-    def setUp(self):
-        """The ak screen over Claude and ChatGPT, neither login near its end."""
+    def open(self, ends=60 * DAY, resets=0):
+        """The ak screen over Claude, its login ending `ends` seconds from now, and ChatGPT,
+        holding `resets` resets, its login far from its end."""
         self.home = Home()
         self.addCleanup(self.home.close)
-        fakeadapter.install(self.home, claude="pass", codex="pass")
+        self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
         self.config = akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
         now = time.time()
         week = {"meters": [{"name": "weekly", "used": 40, "window_secs": 604800}]}
         self.home.write(".agentkit/state/usage.json", {"fetched_at": now, "providers": {
-            "anthropic": week, "openai": week}})
+            "anthropic": week, "openai": {**week, "resets": resets}}})
         self.home.write(".agentkit/state/logins.json", {provider: {"default": {
-            "email": f"{name}@acme.test", "ends": int(now + 60 * DAY), "plan": None,
-            "checked_at": now}} for provider, name in (("anthropic", "reef"),
-                                                       ("openai", "shoal"))})
+            "email": f"{name}@acme.test", "ends": int(now + until), "plan": None,
+            "checked_at": now}} for provider, name, until in (("anthropic", "reef", ends),
+                                                              ("openai", "shoal", 60 * DAY))})
         self.term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
-        self.term.wait(lambda screen: MAIN_KEYS in lines(screen) and "ChatGPT" in screen)
+        return lines(self.term.wait(lambda screen: MAIN_KEYS in lines(screen)
+                                    and "ChatGPT" in screen))
+
+    def click(self, label, shown):
+        """A click on `label`'s meter on the screen `shown`."""
+        row = next(number for number, line in enumerate(shown)
+                   if label in line and METER.search(line)) + 1
+        column = shown[row - 1].index(label) + 3
+        self.term.type(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m")
 
     def on_chatgpt(self):
+        """The ak screen opened, its keys' highlight on ChatGPT's meter."""
+        self.open()
         self.term.keys("Up")                  # with no seat, onto the grid's last meter
         self.term.wait(lambda screen: MAIN_KEYS in lines(screen) and lit(screen) == "ChatGPT")
 
@@ -98,17 +113,33 @@ class AMeterOpensItsSubscription(unittest.TestCase):
         self.term.wait(lambda screen: MAIN_KEYS in lines(screen) and lit(screen) == "ChatGPT")
 
     def test_a_click_on_a_meter_on_c_opens_its_row_and_esc_draws_c(self):
+        self.open()
         self.term.keys("c")
-        shown = lines(self.term.wait(lambda screen: "› Fable 5.1" in screen
-                                     and "esc back" in screen))
-        row = next(number for number, line in enumerate(shown)
-                   if "Claude" in line and METER.search(line)) + 1
-        column = shown[row - 1].index("Claude") + 3
-        self.term.type(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m")
+        self.click("Claude", lines(self.term.wait(lambda screen: "› Fable 5.1" in screen
+                                                  and "esc back" in screen)))
         self.term.wait(opened("Claude", "    reef@acme.test   − remove"))
         self.term.keys("Escape")
         self.term.wait(lambda screen: lines(screen)[0].rsplit(" ", 1)[0].strip()
                        == "agentkit · config" and lit(screen) == "Claude")
+
+    def test_a_login_ending_within_the_week_opens_lit_on_log_in_again_and_enter_signs_it_in(self):
+        self.click("Claude", self.open(ends=2 * DAY))
+        self.term.wait(opened("Claude", ")   [→ log in again]   − remove",
+                              LIT.format("log in again")))
+        self.term.keys("Enter")
+        self.term.wait(lambda _: self.fakes["claude"].calls("login"))
+        self.assertEqual([call["argv"] for call in self.fakes["claude"].calls("login")],
+                         [["again"]])
+        self.assertEqual(self.fakes["codex"].calls("login"), [])
+
+    def test_enter_on_the_row_a_meter_holding_a_reset_opens_spends_none(self):
+        self.click("ChatGPT", self.open(resets=1))
+        self.term.wait(opened("ChatGPT", "    shoal@acme.test   → spend a reset   − remove"))
+        self.term.keys("Enter", "Right")      # Enter on nothing lit, read before the move
+        self.term.wait(opened("ChatGPT", "    shoal@acme.test   [→ spend a reset]   − remove",
+                              LIT.format("spend a reset")))
+        self.assertEqual([call for fake in self.fakes.values() for call in fake.calls("reset")],
+                         [])
 
     def second_login(self, provider):
         """Another process's save: `provider`'s second login, its usual one now `default`."""
@@ -147,8 +178,8 @@ class AMeterOpensItsSubscription(unittest.TestCase):
         self.assertIn("  Grok ", screen)        # a shipped subscription this HOME's file left out
 
     def test_new_code_comes_up_on_the_meter_left_whatever_row_a_save_meanwhile_gave_it(self):
-        started = time.time()                   # the menu started before this
         self.on_chatgpt()
+        started = time.time()                   # the menu started before this
         lock = (self.home.path / ".agentkit/state/watch.lock").open("a")
         self.addCleanup(lock.close)
         fcntl.flock(lock, fcntl.LOCK_EX)
