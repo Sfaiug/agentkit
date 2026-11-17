@@ -5,14 +5,18 @@ It hides which they are.  First each file the change adds or edits (`suite_times
 the project's time record (`suite_times`) times, whole or in parts, handed whole as the record
 spells it; a test file the change adds has no time yet: the task's own check names it, and landing
 runs it.  Then those landing checks of the last WINDOW were red on, flakes aside
-(`history.test_audit`), the most runs stopped first, as many as their recorded times fit in one
-piece of the suite: the median a piece took, or the whole record for a suite that runs uncut.
-Left out are one the record times not, one whose file is gone, and one the target is red on now
-by its landing line's record (`land.red_tests`), which no round can fix; one it was red on and
-repaired runs again.  A project with no record runs none: only a runner that reports to ak keeps
-one, and nothing is declared.  The whole suite runs at landing alone (10 Nov 2026); on 3-16 Nov
-these cost 2.0-2.5% of it and would have caught 62-67% of the reds a landing blamed on a change,
-each of which ran its whole stack's suite again (16 Nov 2026).
+(`history.test_audit`), each as the name the record times it by: its own, else its file's, for a
+runner that reports a file's seconds and names the test that failed (`tests/a.py::test_b`).  A
+name stands once, by the most runs one red of it stopped, the most first, as many as their
+recorded times fit in one piece of the suite: the median a piece took, or the whole record for a
+suite that runs uncut.  A test taken by its own name whose file is taken too is not handed, as
+the file runs it; the piece a ceiling, its time goes to no other.  Left out are one the record
+times by neither name, one whose file is gone, and one the target is red on now by its landing
+line's record (`land.red_tests`), a file by a test of it, which no round can fix; one it was red
+on and repaired runs again.  A project with no record runs none: only a runner that reports to ak
+keeps one, and nothing is declared.  The whole suite runs at landing alone (10 Nov 2026); on 3-16
+Nov these cost 2.0-2.5% of it and would have caught 62-67% of the reds a landing blamed on a
+change, each of which ran its whole stack's suite again (16 Nov 2026).
 """
 
 import os
@@ -48,15 +52,23 @@ def chosen(lp):
     tests = sorted({file for file in (test.partition("::")[0] for test in times)
                     if os.path.normpath(file) in changed})
     reds, piece, _ = history.test_audit(Path(lp.state["repo"]).name, _now() - WINDOW)
-    held = land.red_tests(deliver.turn_path(lp, lp.upstream), gitcall.git(
+    held = {name for test in land.red_tests(deliver.turn_path(lp, lp.upstream), gitcall.git(
         lp.wt, "rev-parse", f"{lp.state.get('target_sha') or lp.upstream}^{{tree}}"))
+        for name in (test, test.partition("::")[0])}
     # One piece of the suite, a ceiling as WINDOW is: a suite cut finer runs fewer.  One the
     # target runs uncut, whatever it ran as before, or whose pieces nothing timed yet, the whole.
     left = piece if piece is not None and gate.names_shard(line) else sum(times.values())
-    for test, red in sorted(reds.items(), key=lambda item: (-item[1]["landings"], item[0])):
-        file = test.partition("::")[0]
-        if (red["landings"] and test in times and times[test] <= left and test not in held
-                and file not in tests and os.path.isfile(os.path.join(lp.wt, file))):
-            tests.append(test)
-            left -= times[test]
+    runs = {}
+    for test, red in reds.items():
+        name = test if test in times else test.partition("::")[0]
+        if red["landings"] and name in times:
+            runs[name] = max(runs.get(name, 0), red["landings"])
+    taken = []
+    for name, _ in sorted(runs.items(), key=lambda item: (-item[1], item[0])):
+        file = name.partition("::")[0]
+        if (times[name] <= left and name not in held and file not in tests
+                and os.path.isfile(os.path.join(lp.wt, file))):
+            taken.append(name)
+            left -= times[name]
+    tests += [name for name in taken if not ("::" in name and name.partition("::")[0] in taken)]
     return (line, tests) if tests else None
