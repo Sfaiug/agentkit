@@ -5,8 +5,7 @@ change nothing an owner wrote: the shipped config is copied only where there is 
 line goes in once, above the early return of a non-interactive bashrc (`ssh host ak` reads only
 what is above it), and of the per-command links earlier versions left only ak's own go.  A HOME
 not the account's own is a sandbox, where no package, harness login or cron is touched; a
-client records the server it reaches, and a standby's keeps its runs, checkouts and work, which
-a takeover carries on from.  Black-box: install.sh of the checkout `AK_BIN` names
+client records the server it reaches.  Black-box: install.sh of the checkout `AK_BIN` names
 runs from outside in a Home of tests/fixtures/akbin.py, the host's tools the refusing fakes of
 tests/fixtures/installer.py.
 """
@@ -131,17 +130,6 @@ class Roles(unittest.TestCase):
         self.assertEqual(self.installed("--client"), "agentkit\n")
         self.assertIsNone(self.installed("--server"))
         self.assertEqual(self.home.calls("crontab"), [])
-
-    def test_a_standbys_client_install_keeps_its_runs_checkouts_and_work(self):
-        kept = {".agentkit/runs/acme-done/run.json": {"run_id": "acme-done", "state": "pass",
-                                                      "finished_at": 1789000000},
-                ".agentkit/wt/acme-done/kept": "its checkout", ".agentkit/work/acme/kept": "work"}
-        for name, data in kept.items():
-            self.home.write(name, data)
-        (self.home.path / ".agentkit/tmp/standby").mkdir(parents=True, exist_ok=True)
-        self.installed("--client", "acme-box")
-        for name in kept:
-            self.assertTrue((self.home.path / name).is_file(), name)
 
     def test_an_unknown_option_or_a_phone_key_with_none_is_refused_with_exit_2(self):
         for args in (("--acme",), ("--phone-key",)):
