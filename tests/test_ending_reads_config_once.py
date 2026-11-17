@@ -1,5 +1,6 @@
 """An ending reads model policy once: a provider edited between two reads made `PASS merged`
-carry no PR, and a FAIL give a passing run's reason.
+carry no PR, and a FAIL give a passing run's reason.  Each of the three that tell an ending, in
+process; a seat's look, the one of them `ak` reaches alone, is tests/test_key_an_ending_reads_one_config.py.
 
 Offline: a temporary HOME (`Sandbox`); `config.load` returns the edited file after its first read.
 """
