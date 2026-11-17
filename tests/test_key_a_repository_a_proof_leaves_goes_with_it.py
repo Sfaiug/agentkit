@@ -90,6 +90,25 @@ class ABeforePathInsideAProofsRepositoryStays(unittest.TestCase):
             self.assertFalse((wt / "proof-clone").exists())
             self.assertIn("probe_checkout", state)
 
+    def test_a_file_a_proof_put_where_a_before_directory_was_goes(self):
+        proof = "test -f out/a.txt && rm -rf out && echo x > out && false"
+        review = {"final": "One defect.", "hand_in": [
+            ["finding", "existing.txt:1", "old defect", "it matters later", "--run", proof],
+            ["done"]]}
+        with Home() as home:
+            rig = Rig(home, "widgets", files={"existing.txt": "before\n"})
+            akconfig.write(home, ["opus", "astra"])
+            fakeadapter.install(home, claude=WORK, codex=review)
+            task = taskfile.write(
+                home, rig.path, "Add retry file",
+                done_when=("mkdir -p out && printf 'kept\\n' > out/a.txt && test -f retry.txt",))
+            done = home.ak("run", str(task), "--no-merge", timeout=300)
+            state = json.loads((taskfile.only_run(home) / "run.json").read_text())
+            wt = Path(state["worktree"])
+            self.assertEqual(done.code, 0, done.out + done.err)
+            self.assertFalse((wt / "out").exists())
+            self.assertNotIn("probe_checkout", state)
+
 
 if __name__ == "__main__":
     unittest.main()
