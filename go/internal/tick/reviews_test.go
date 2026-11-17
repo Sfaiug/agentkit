@@ -13,18 +13,21 @@ import (
 	"time"
 
 	"agentkit/internal/harness"
+	"agentkit/internal/loop"
 	"agentkit/internal/run"
 )
 
 // TestMain answers this test program started as `ak run`, as the tick starts its own program for
 // a review: each start's words kept in $HOME/launches, and run `review` printed as `--bg` prints it.
-// Started as a merge's live follower (livefollow.Merged), it ends at once: no test here follows a
-// merge to live, and the package run again would start more.  Started as `ak adapter`, as the tick
-// asks a login's end of its own program (logins.Ask) and its usage refresh a harness's own verbs, it
-// runs that harness's own verb, never this suite again, and refuses one the table lacks.  It holds
-// the step timer's clock still, so a step the host's load slows prints nothing a test reads.
+// Started as a merge's live follower (livefollow.Merged) or a resume's driver (loop.DriveFlag), it
+// ends at once writing nothing: no test here follows a merge to live, a driver outlives the test whose
+// home it would write into as that home is removed, and the package run again would start more.
+// Started as `ak adapter`, as the tick asks a login's end of its own program (logins.Ask) and its
+// usage refresh a harness's own verbs, it runs that harness's own verb, never this suite again, and
+// refuses one the table lacks.  It holds the step timer's clock still, so a step the host's load
+// slows prints nothing a test reads.
 func TestMain(m *testing.M) {
-	if len(os.Args) > 2 && os.Args[1] == "watch" && os.Args[2] == "--live" {
+	if len(os.Args) > 2 && (os.Args[1] == "watch" && os.Args[2] == "--live" || os.Args[1] == "run" && os.Args[2] == loop.DriveFlag) {
 		os.Exit(0)
 	}
 	if len(os.Args) > 1 && os.Args[1] == "run" {

@@ -169,6 +169,13 @@ func TestTheResumeRungStartsTheNewLoopOnAnOlderRecord(t *testing.T) {
 				stalls[0].(*run.Object).Str("action") != "resumed" {
 				t.Fatalf("old loop alive=%v, record:\n%s", run.ProcessActive(record), run.Line(after))
 			}
+			// the new loop outlives the test, so anything it wrote into the home would race the home's removal
+			for run.ProcessActive(after) {
+				time.Sleep(5 * time.Millisecond)
+			}
+			if wrote := launches(t); len(wrote) != 0 {
+				t.Fatalf("the new loop wrote into the home: %v", wrote)
+			}
 		})
 	}
 }
