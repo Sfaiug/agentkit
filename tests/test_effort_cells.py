@@ -119,8 +119,8 @@ class EffortCells(unittest.TestCase):
         self.assertEqual(row(lines, "haiku")[1].split(),
                          ["›", *FULL["haiku"].split(), "○", "■", "none", "■", "xhigh"])
         self.assertEqual([cell for cell in cells if cell[0] == row(lines, "haiku")[0]], [])
-        self.assertEqual(screen.record()["efforts"]["haiku"]["exec_effort"], "none")
         screen.leave()
+        self.assertEqual(screen.record()["efforts"]["haiku"]["exec_effort"], "none")
 
     def test_a_step_moves_the_cells_it_changes_in_turn_and_the_highest_shimmers_once(self):
         screen = Screen(self, child=CLOCKED)
@@ -130,7 +130,6 @@ class EffortCells(unittest.TestCase):
         # full but dim and then stand thin in the border's colour
         cells = moved(screen, f"\x1b[<0;{first + 1};{number}M\x1b[<0;{first + 1};{number}m"
                       .encode())
-        self.assertEqual(screen.effort("opus"), "medium")
         self.assertEqual({(at, column) for at, column, _, _ in cells},
                          {(number, first + 3), (number, first + 2)})
         self.assertEqual([column for _, column, text, _ in cells if text == "─"],
@@ -150,7 +149,6 @@ class EffortCells(unittest.TestCase):
         # the word, written whole from its first cell
         moved(screen, SPACE)
         cells = moved(screen, f"\x1b[<0;{word};{number}M\x1b[<0;{word};{number}m".encode())
-        self.assertEqual(screen.effort("opus"), "max")
         self.assertEqual({column for at, column, _, _ in cells if at == number},
                          {first + 4, word})
         words = [cell for cell in cells if cell[1] == word]
@@ -164,6 +162,7 @@ class EffortCells(unittest.TestCase):
             cells = moved(screen, keys)
             self.assertEqual([cell for cell in cells if cell[0] == number], [])
         screen.leave()
+        self.assertEqual(screen.effort("opus"), "max")      # the last held, once it has closed
 
     def test_without_utf8_a_full_cell_is_an_equals_sign_and_an_open_one_a_dash(self):
         screen = Screen(self, workers=list(FULL), env={"LANG": "C", "LC_ALL": ""})

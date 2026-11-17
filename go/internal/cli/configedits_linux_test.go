@@ -44,6 +44,9 @@ for edit in ("move", "effort"):
         term.keys("j" if edit == "move" else "Right")
         term.wait("[○]" if edit == "move" else "␣ step", bound=10)
         term.keys("Space")
+        if edit == "effort":    # held till the page closes, which hands the move over
+            term.wait("━━━━━   max", bound=10)
+            term.keys("Escape")
         assert term.exit_code() == 3
         after = (record.read_bytes(), config.read_bytes())
         assert after == before, (edit, before, after)

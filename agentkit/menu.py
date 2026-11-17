@@ -3280,13 +3280,14 @@ def efforts_saved(cfg, name, selected, steps):
     return ""
 
 
-def _stepped(cfg, record, steps, hold=()):
-    """Seat `record`'s efforts with each (model, key, effort) of `steps` set (_set_effort), `hold`
-    kept; a model it holds none for starts from its entry's."""
+def _stepped(cfg, record, steps):
+    """Seat `record`'s efforts with each (model, key, effort) of `steps` set (_set_effort), the
+    rest kept on an effort's own (orchestrating_at); one holding none starts from its entry's."""
     efforts = dict(record.get("efforts") or {})
     for model, key, effort in steps:
         efforts[model] = dict(efforts.get(model) or config.efforts_of(cfg["models"][model]))
-        _set_effort(efforts[model], key, effort, hold)
+        _set_effort(efforts[model], key, effort,
+                    config.ROLE_EFFORTS.values() if key == "effort" else ())
     return efforts
 
 
@@ -4384,42 +4385,69 @@ def _saved(cfg, table, before, defaults=None):
 
 
 def config_effort(cfg, name, step, wrap=False, role="orchestrator", to=None, seat=None,
-                  hold=(), around=None, providers=None):
+                  hold=()):
     """`name`'s effort in `role` (config.role_effort: a worker's is the effort while its own
     key is unset) one step along that model's own efforts (config.efforts), never past either
     end unless `wrap` takes it round to the other, or onto the `to`-th of them, and saved, a
-    `seat`'s (name, record) to its record (efforts_saved), else to the entry new seats take; one
+    `seat`'s (record, held) to what its page holds (held_over), else to new seats' entry; one
     set to an effort it does not take lands on its first, and a worker's stepped onto the
     effort itself is unset again (_follows), while the effort's own step moves no other key;
     `hold`'s keys stay at the efforts they stand at, one that followed the effort keeping it.
-    A seat's orchestrator effort is the one its harness runs, so its step moves the seat
-    instead, asking first where that restarts it (seat_effort).  A seat not made yet, named
-    None, holds its efforts in its record alone (the born row's, born_models).
     The efforts are read `now`, off the catalog already in hand (config.catalog_now): a listing
-    never stands between the key and its frame.  What to say under the matrix, or "", or None
-    for a restart not picked (seat_effort)."""
+    never stands between the key and its frame.  What to say under the matrix, or ""."""
+    if seat and seat[0] is None:    # no record to hold a step over (for_selected)
+        return "session: the seat's record will not read"
     entry, key = cfg["models"][name], config.ROLE_EFFORTS[role]
     try:
         levels = config.efforts(entry.get("harness"), entry.get("model"),
                                 lambda harness: config.catalog_now(harness, cfg))
     except config.Error as exc:
         return f"config: {exc}"
-    shown = config.at_efforts(cfg, seat[1])["models"][name] if seat else entry
+    shown = config.at_efforts(cfg, held_over(cfg, *seat))["models"][name] if seat else entry
     current = shown.get(key, shown.get("effort"))
     at = to if to is not None else levels.index(current) + step if current in levels else 0
     at = at % len(levels) if wrap else at
     if not 0 <= at < len(levels) or levels[at] == current:
         return ""
-    if seat and seat[0] is None:
-        seat[1]["efforts"] = _stepped(cfg, seat[1], [(name, key, levels[at])], hold)
-        return ""
-    if seat and key == "effort":
-        return seat_effort(cfg, *seat, name, levels[at], around, providers=providers)
     if seat:
-        return efforts_saved(cfg, *seat, [(name, key, levels[at])])
+        held = seat[1]
+        was = held.pop((name, key), (current,))[0]
+        if levels[at] != was:       # back where it began: the record's again, whatever it holds
+            held[name, key] = was, levels[at]
+        return ""
     before = dict(entry)
     _set_effort(entry, key, levels[at], hold)
     return _saved(cfg, entry, before)
+
+
+def held_over(cfg, record, held):
+    """Seat `record` as its page draws it, `held`, {(model, key): (the record's effort when that
+    cell was first stepped, the one held)}, over it (_stepped)."""
+    steps = _held_steps(cfg, held)
+    return {**record, "efforts": _stepped(cfg, record, steps)} if steps else record
+
+
+def _held_steps(cfg, held):
+    return [(model, key, now) for (model, key), (_, now) in held.items() if model in cfg["models"]]
+
+
+def apply_held(cfg, seat, held, around, providers=None):
+    """What a seat's page holds (held_over) applied once, then held no more, `seat` (name, record):
+    the effort of the orchestrator its record names now as one move, asked first where that
+    restarts it on `around`'s card (seat_effort), every other written at once (efforts_saved)."""
+    name, record = seat
+    steps = _held_steps(cfg, held) if name else []
+    if name is None:    # a seat not made yet takes what its page draws (born_models)
+        record.update(held_over(cfg, record, held))
+    elif steps:         # a model another window picked since keeps its pick: no effort moves it
+        seat_read(cfg, name, record)
+    lead = [step for step in steps if step[:2] == (record["orchestrator"], "effort")]
+    rest = [step for step in steps if step not in lead]
+    said = [efforts_saved(cfg, name, record, rest)] if rest else []
+    for model, _, effort in lead:
+        said.append(seat_effort(cfg, name, record, model, effort, around, providers=providers))
+    held.clear()
+    return "\n".join(filter(None, said))
 
 
 def seat_effort(cfg, name, selected, model, effort, around, providers=None):
@@ -4446,15 +4474,15 @@ def _set_effort(entry, key, effort, hold=()):
     followed, read off `entry` as it stands."""
     if "effort" in entry:
         entry.update(config.held_efforts(entry, hold))
-    entry[key] = effort or entry["effort"]
+    entry[key] = entry["effort"] if effort is None else effort
     _follows(entry, [key, *hold])
 
 
 def _follows(entry, keys):
     """Each of `keys`, a role's effort key (config.ROLE_EFFORTS), that sits on the effort
-    itself is unset: `same`, it follows the effort again; the effort is the one followed."""
+    itself, or on no word (a catalog's `""`), is unset: `same`, it follows the effort again."""
     for key in keys:
-        if key != "effort" and entry.get(key) == entry.get("effort"):
+        if key != "effort" and entry.get(key) in ("", entry.get("effort")):
             del entry[key]
 
 
@@ -4659,8 +4687,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     marked one (config_columns).  Space on an effort steps that role's alone up,
     from its highest round to its lowest, as a click on its
     word or the blank before it does, and a click on one of its cells takes that level: each
-    change is saved, to the seat's record where it is a seat's (config_effort) -- its
-    orchestrator's moving it, asked first where that restarts it (seat_effort) -- and drawn at
+    change is saved where it is new seats' (config_effort), a seat's page holding it till it
+    closes or a model is picked on it, which apply it first (apply_held), and drawn at
     once, each cell it fills lighting and each it empties dimming in turn, and a step onto
     the model's highest sends a light through its word (config_body, on the clock); nothing
     replays after another screen.
@@ -4686,6 +4714,7 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     title, scope, under, advice = ("new session", None, (), False) if born else (
         "config", session or NEW_SEATS, CONFIG_ROWS, bool(selected))
     seat = (session, selected) if session or born else None     # whose efforts a step changes
+    held = {}         # what it holds of them till it closes (held_over)
     here, column, top, clock = None, 0, 0, motion.Clock(page=True)
     refused = {}      # what the last `a` said (apply_defaults), fitted under the rows each draw
     subs = []         # the subscriptions the meters were last drawn from
@@ -4718,9 +4747,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                              *([APPLY_KEY] if fresh else []), "esc back",
                              space=None if opens else "mark" if column < 3 else "step",
                              enter="open" if opens else "start" if born else None)
-        moves = []
+        moves, as_drawn = [], held_over(cfg, selected, held)
         body, places = config_body(cfg, None if terminal.away() else here, column,
-                                   selected, providers, moves, scope, under)
+                                   as_drawn, providers, moves, scope, under)
         # agentkit's build, read under the page so every page shows it, and what was said under it
         told = said_once("\n".join(filter(None, (f"Version {version or '?'}", note or standing))),
                          refused, page_room((), keys, over) - len(body))
@@ -4741,13 +4770,16 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
 
         def around(card, keys):   # the matrix laid out at this draw's size, the question under it
             over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
-                cfg, here, column, selected, providers, scope=scope, rows=under), card, keys)
+                cfg, here, column, as_drawn, providers, scope=scope, rows=under), card, keys)
             first, room = matrix_page(body, places, here, top, card, keys, over, keyed=column)
             shown = body[first:first + room]
             terminal.frame(title, [*over, *shown, *card], keys)
             return 3 + len(over) + len(shown)
         if act == "back" or born and act == "enter" and here[0] == "model":   # a meter opens
-            return act == "enter" if born else cfg
+            # closing applies what the page holds; what that could not do keeps it open, said
+            if not (note := seat and apply_held(cfg, seat, held, around, providers)):
+                return act == "enter" if born else cfg
+            continue
         try:
             if act == "a" and fresh:
                 clock.forget()            # the card: the matrix back from it replays nothing
@@ -4791,9 +4823,13 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 at = columns.index(column) + (1 if act == "right" else -1)
                 column = columns[min(max(at, 0), len(columns) - 1)]
             elif act == "space" and column < 3:
-                note = (session_mark(cfg, session, selected, here[1], column, providers, around)
-                        if session else born_mark(cfg, selected, here[1], column, providers) if born
-                        else defaults_mark(cfg, selected, here[1], column))
+                # a pick applies what the page holds first, as closing does, what that could not
+                # do refusing it; it flips the marks as drawn, and the orchestrator's own picks none
+                note = (held and (column or here[1] != selected["orchestrator"])
+                        and apply_held(cfg, seat, held, around, providers)) or (
+                    session_mark(cfg, session, as_drawn, here[1], column, providers, around)
+                    if session else born_mark(cfg, selected, here[1], column, providers) if born
+                    else defaults_mark(cfg, selected, here[1], column))
                 if note:
                     clock.touch(("mark", here[1], column))    # refused: the mark shakes
             elif act == "space" or isinstance(act, int):     # a role's effort
@@ -4801,17 +4837,17 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 # before it, steps it on as Space does; the row's other efforts stay as they
                 # are shown
                 role, key = list(config.ROLE_EFFORTS.items())[column - 3]
-                entry = config.at_efforts(cfg, selected)["models"][here[1]]
+                entry = config.at_efforts(cfg, as_drawn)["models"][here[1]]
                 hold = [list(config.ROLE_EFFORTS.values())[number - 3] for number in
                         config_columns(selected, here[1]) if number >= 3 and number != column]
                 lead = next((last - first + 1 for row, cells in places.values() if row == here
                              for first, last, at in cells if at == column), 0) - terminal.cells(
                     entry.get(key, entry.get("effort", "?")))
-                note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=seat, hold=hold,
-                                      around=around, providers=providers)
+                page = seat and (selected, held)
+                note = (config_effort(cfg, here[1], 0, to=act, role=role, seat=page, hold=hold)
                         if isinstance(act, int) and act < min(lead, len(effort_levels(entry, cfg)))
-                        else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=seat,
-                                           hold=hold, around=around, providers=providers))
+                        else config_effort(cfg, here[1], 1, wrap=True, role=role, seat=page,
+                                           hold=hold))
         except Changed:     # the page it was made on closed; the next pass reads the file
             note = CHANGED
         except config.Error as exc:     # a page reading config.toml mid-edit closed, and why

@@ -86,9 +86,13 @@ class AMoveMidTurnStays(unittest.TestCase):
         term.keys("c")
         term.wait(lambda screen: "esc back" in screen and opus_effort(screen) == "xhigh")
         term.keys("Right", "Space")     # Opus's orchestrator effort, a step up
+        term.wait(lambda screen: opus_effort(screen) == "max")
+        term.keys("Escape")             # applied as the page closes
         self.assertEqual(self.seat.wait_lines(1), ["/effort max"])
         self.until(lambda: not self.live().get("owed_lines"), lambda: "its move is still owed")
         self.assertEqual(self.effort(), "max")
+        term.wait("esc leave")
+        term.keys("c")                  # open again, it follows the seat
 
         self.answered("xhigh")
         self.assertEqual(self.effort(), "max")

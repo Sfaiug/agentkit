@@ -95,6 +95,8 @@ class ConfigScreenEdits(unittest.TestCase):
         self.term.keys("Space")
         self.term.wait(lambda screen: "› 6 Astra     ○                   ■  ━━━━──  xhigh    ■  ━━━───  high"
                        in rows(screen))
+        self.term.keys("Escape")            # the page applies it as it closes
+        self.term.wait(lambda screen: f"› 1  {SEAT}" in screen and "esc leave" in screen)
         self.assertEqual(json.loads(self.record.read_text())["efforts"]["astra"],
                          {"effort": "high", "exec_effort": "xhigh"})
         self.assertEqual(tomllib.loads(self.config.read_text()), self.given)

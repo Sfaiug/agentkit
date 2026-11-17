@@ -1,4 +1,4 @@
-"""On a seat's `c`, a build effort step changes that seat's own efforts, in its record, and
+"""On a seat's `c`, a build effort step changes that seat's own efforts, in its record as it closes,
 nothing else: no other seat's record and not config.toml, whose entries are what new seats take.
 
 The owner (24 Oct 2026): inside a session, `c` edits only that session.  Black-box: the program
@@ -93,6 +93,8 @@ class SeatEfforts(unittest.TestCase):
         term.keys("Right", "Right", "Right", "Space")      # onto the build effort, and a step
         # the orchestrator's effort beside it stays where it was
         term.wait(lambda screen: opus_efforts(screen) == ["xhigh", "max"])
+        self.assertEqual(self.record("acme-fix")["efforts"], EFFORTS)    # held till it closes
+        term.keys("Escape")
         self.until(lambda: self.record("acme-fix")["efforts"]["opus"] == {
             "effort": "xhigh", "exec_effort": "max"},
                    "acme-fix's record never took the step")

@@ -57,10 +57,11 @@ class EffortBesideMark(unittest.TestCase):
 
     def test_space_steps_the_build_effort_and_a_click_takes_a_review_level(self):
         self.term.keys("Right", "Right", "Right", "Space")    # past orch's effort, build's mark
-        self.stepped_to(exec_effort="xhigh")
         line, row = opus(self.term.wait(lambda screen: "xhigh" in opus(screen)[0]))
         column = list(re.finditer("[━─]+", line))[2].start() + 5   # the review bar's fifth
         self.term.type(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m")
+        self.term.wait(lambda screen: opus(screen)[0].split()[-1] == "max")
+        self.term.keys("Escape")        # the page applies both as it closes
         self.stepped_to(exec_effort="xhigh", review_effort="max")
 
 
