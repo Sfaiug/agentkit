@@ -3546,6 +3546,17 @@ def due(date):
     return None
 
 
+def date_came(on, date):
+    """What ends an `ak wait until DATE` on `on`, in the seat's words."""
+    return f"{date}, the date you set for {on}, has come"
+
+
+def wake_line(over):
+    """The one line a seat hears when its wait is over: one line, whatever gh said over
+    several, as a newline typed is a key of its own."""
+    return f"{' '.join(str(over).split())}; your wait is over. Decide the next step."
+
+
 def wait_clock():
     """The time a wait's date is read against.  An answer key names its clock in `AK_WAIT_CLOCK`,
     a file of Unix seconds read anew each time, so it reaches whatever program the key runs and
@@ -3567,7 +3578,7 @@ def wait_fact(wait):
         # a record no date is read from ends at once: no seat stands on it for good
         if wait_clock() < (due(wait.get("until")) or 0):
             return False, "", None
-        return True, f"{wait.get('until')}, the date you set for {on}, has come", None
+        return True, date_came(on, wait.get("until")), None
     if wait.get("kind") == "job":
         from . import job as jobs
         job = jobs.read_job(config.JOBS / on)
@@ -3711,8 +3722,7 @@ def wait_over(cfg, log):
                     log(f"{name}: its own run's notice told it that {wait['over']}; its "
                         "wait is over")
                 continue
-        # one line, whatever gh said over several: a newline typed is a key of its own
-        line = f"{' '.join(str(wait['over']).split())}; your wait is over. Decide the next step."
+        line = wake_line(wait["over"])
         if closed:
             # a seat gone on its own hears it as a seat whose run ended does: reopened with the
             # line, once.  One the owner closed stays closed, one out of usage wakes by itself,
@@ -3770,6 +3780,10 @@ def wait_main(argv):
         if not on or due(date) is None:
             print('ak wait: ak wait until DATE "WHAT" takes DATE as YYYY-MM-DD or "YYYY-MM-DD '
                   'HH:MM", this host\'s time, and WHAT as what you wait on', file=sys.stderr)
+            return 1
+        # the line that wakes the seat holds WHAT: one no composer shows whole is never typed
+        if refusal := too_long(wake_line(date_came(on, date))):
+            print(f"ak wait: the line waking you would be too long: {refusal}", file=sys.stderr)
             return 1
         kind, shown = "until", f"{on} until {date}"
     else:

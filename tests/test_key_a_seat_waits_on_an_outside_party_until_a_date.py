@@ -27,6 +27,9 @@ TOMORROW = "2026-11-18"
 COMES = timegm((2026, 11, 18, 0, 0, 0))
 WHAT = "the store's review"
 SEAT = {"AGENTKIT_SESSION": "acme"}
+# words a Claude composer shows whole (800 characters), but not in the line that would wake the
+# seat on its date: that line is never typed
+LONG = (WHAT + " of the acme listing, ") * 20
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
@@ -83,12 +86,13 @@ class ASeatWaitsOnAnOutsidePartyUntilADate(unittest.TestCase):
         self.hooks.prompt(line, self.seat)
         self.assertIsNotNone(self.stop("The store has not answered yet."))
 
-    def test_a_past_date_or_no_words_is_refused_and_the_wait_before_stays(self):
+    def test_a_past_date_no_words_or_too_many_is_refused_and_the_wait_before_stays(self):
         for args in (("until", "2026-11-16", "the provider's answer"),
                      ("until", "2026-11-17 11:59", "the provider's answer"),
                      ("until", "2026-11-17", "the provider's answer"),
                      ("until", TOMORROW), ("until", TOMORROW, "  "),
-                     ("until", "next week", "the provider's answer")):
+                     ("until", "next week", "the provider's answer"),
+                     ("until", TOMORROW, LONG[:780])):
             with self.subTest(args=args):
                 done = self.home.ak("wait", *args, env=SEAT)
                 self.assertNotEqual(done.code, 0, done.out)
