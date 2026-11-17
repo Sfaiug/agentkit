@@ -3,7 +3,7 @@
 them where that is no choice, and under `not shown` the rest of its others, in their order; a
 kind with none has no label.  The bars on a narrow screen shade fewer, and so does the page: on
 100 cells the reviewer's bars shade two of its four others, on 26 none; a page too short for the
-bars' whys stands the same bars, so the page is of the width alone.
+bars' whys stands the same bars, so the page is of the width alone, opened by ⏎ or a click.
 
 Black-box, as tests/test_key_models_why.py, on its drawing: the program `AK_BIN` names in a
 terminal, its harnesses fakes listing invented models, the boards held as just asked and finished
@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX
 from test_key_models_answer import lines
 from test_key_models_bars import bars, drawn
+from test_key_pointer_only_on_what_is_drawn import click
 import test_key_models_why as drawing
 
 # The role's others, best first, each with its effort
@@ -73,28 +74,41 @@ class ModelsWhyShaded(unittest.TestCase):
         self.assertNotIn("shaded", page)
         self.assertEqual(page["not shown"], OTHERS)
 
-    def test_on_a_page_too_short_for_the_bars_whys_the_same_bars_stand_and_are_shaded(self):
-        # Crux 2 builds, its costs said in few cells: on 28 cells its others' whys, drawn or
-        # not, leave Bolt 3 no place
+    def short(self, height):
+        """`r` on `c` on 28 cells and `height` rows, Crux 2 building, its costs said in few cells:
+        its others' whys, drawn or not, leave Bolt 3 no place on its bars."""
         self.write(drawing.TWO, ["crux"], runs=True)
         unit = self.home.path / ".agentkit/state/models-unit"
         unit.write_text("a week")
         self.addCleanup(unit.unlink)
-        term = self.models(28, 26)
+        return self.models(28, height)
+
+    def whole(self, term):
+        """The kinds (kinds) of the why page `term` opens, the terminal grown to show it whole."""
+        term.wait("\n  why ")
+        term.resize(28, 120)
+        page = lines(term.wait(lambda screen: len(lines(screen.rstrip())) > 30 and lines(
+            screen.rstrip())[-1] == "  esc back").rstrip())
+        return kinds(page[page.index("  why Crux 2 low builds"):-2])
+
+    def test_on_a_page_too_short_for_the_bars_whys_the_same_bars_stand_and_are_shaded(self):
+        term = self.short(26)
         term.keys("Down")
         found = bars(term.wait(lambda screen: drawn(screen, "executor")), "executor")
         self.assertEqual([(f"{bar['name']} {bar['effort']}", bar["why"]) for bar in found
                           if bar["shaded"]],
                          [("Crux 2 low", None), ("Holm 1 high", None)])
         term.keys("Enter")
-        term.wait("\n  why ")
-        term.resize(28, 120)          # the page whole
-        page = lines(term.wait(lambda screen: len(lines(screen.rstrip())) > 26 and lines(
-            screen.rstrip())[-1] == "  esc back").rstrip())
-        page = kinds(page[page.index("  why Crux 2 low builds"):-2])
+        page = self.whole(term)
         self.assertEqual(page["shaded"], ["Crux 2 low", "Holm 1 high"])
         self.assertEqual(page["not shown"], ["Bolt 3 medium"])
 
+    def test_a_click_on_a_role_whose_bars_are_not_drawn_opens_the_same_why(self):
+        term = self.short(27)
+        term.type(click(5, 6))          # the executor's line, the orchestrator's bars drawn
+        page = self.whole(term)
+        self.assertEqual(page["shaded"], ["Crux 2 low", "Holm 1 high"])
+        self.assertEqual(page["not shown"], ["Bolt 3 medium"])
 
 if __name__ == "__main__":
     unittest.main()
