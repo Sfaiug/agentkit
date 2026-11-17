@@ -8,11 +8,11 @@ reverts a release whose health breaks (`watch.after_merge_revert`), does such a 
 tests it brings and its own quick checks, no whole suite (`land._looks`), its merge saying so with
 TRAILER.  What it breaks the next whole run finds as any red on the target.
 
-A test the change adds waits as before, timed or not: a round times one before its change is on
-the target.  A test is never a path of looks, whatever its suffix, so a change of tests alone,
-doctest pages among them, waits too, as the owner's yes was to changes of looks.  The record's word
-alone is not enough: a suite times a module whose doctests it runs, and tests written inside a
-source file, and those ship.  Unclear is not a test.
+A change that adds a test waits as before, even one a round timed before the change was on the
+target, and so does a change of tests alone, as the owner's yes was to changes of looks: a test is
+never a path of looks, whatever its suffix, a doctest page among them.  The record's word alone is
+not enough: a suite times a module whose doctests it runs, and tests written inside a source
+file, and those ship.  Unclear is not a test.
 
 Owner, 16 Nov 2026: "Yes, once auto-undo works" -- such a change waited a median 3.2 h in a line
 for a suite that reads almost none of it.  Of one project's month of changes 28 named looks alone
