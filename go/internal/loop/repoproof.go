@@ -24,7 +24,8 @@ var (
 )
 
 // resetCheckout discards tracked changes and only the paths created since the checkout was
-// recorded.
+// recorded, nested Git repositories (`<dir>/`) included (`-ff`), leaving alone one that now
+// collapses a `before` path inside it.
 func resetCheckout(g gitcall.Git, head string, before []string) error {
 	if _, err := g.Try("reset", "--quiet", "--hard", head); err != nil {
 		return err
@@ -33,9 +34,11 @@ func resetCheckout(g gitcall.Git, head string, before []string) error {
 	if err != nil {
 		return err
 	}
-	args := []string{"clean", "--quiet", "-fd", "--"}
+	args := []string{"clean", "--quiet", "-ffd", "--"}
 	for _, path := range dirty {
-		if !slices.Contains(before, path) {
+		if !slices.Contains(before, path) && !(strings.HasSuffix(path, "/") && slices.ContainsFunc(before, func(kept string) bool {
+			return strings.HasPrefix(kept, path)
+		})) {
 			args = append(args, ":(literal)"+path)
 		}
 	}
