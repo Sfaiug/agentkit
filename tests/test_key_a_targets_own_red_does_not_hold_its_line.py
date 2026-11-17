@@ -4,7 +4,9 @@ The target's tip fails t/widget.sh alone, by name, so the lander starts its repa
 While that is under way the members whose stack is red in nothing else land over it, no green
 evidence kept for their trees, and one red in t/acme.sh too gets a fix naming that test alone,
 widget.sh excused, as a fix given while the target was still green is once its red is found.
-The landings over it keep no red of widget.sh in history: that red is the tip's, kept there.
+The landings over it, whose first checks failed widget.sh before the tip's probe found it the
+target's, keep no red of it in history: that red is the tip's, kept there.  The member blamed
+for acme.sh keeps one row of it, written with its verdict.
 The repair, once its stack passes widget.sh, lands with the `Suite-Passed-Tree` trailer, and the
 target's new tip holds no red.  A red that named no test holds the line on the retry ladder.
 Black-box: the program `AK_BIN` names checks the line from outside through
@@ -78,9 +80,10 @@ class ATargetsOwnRedDoesNotHoldItsLine(unittest.TestCase):
             self.assertNotIn(verdict["land"], self.green(line)["trees"])
         fix = line.verdict(3)["fix"]
         self.assertEqual((fix["tests"], fix["excused"]), (["acme.sh"], ["widget.sh"]))
-        kept = read(line.home, "SELECT DISTINCT test FROM test_reds WHERE run_id='fix-3' "
-                               "AND kind='landing'")
-        self.assertEqual([row["test"] for row in kept], ["acme.sh"])
+        kept = read(line.home, "SELECT run_id, tree, test FROM test_reds WHERE kind='landing'")
+        self.assertEqual([(row["run_id"], row["test"]) for row in kept], [("fix-3", "acme.sh")])
+        checked = read(line.home, "SELECT tree FROM checks WHERE run_id='fix-3' AND kind='landing'")
+        self.assertIn(kept[0]["tree"], [row["tree"] for row in checked])
         # the two delivered (their resumes here refuse), the repair is checked as any member
         for member in line.members[:2]:
             (member / "run.json").write_text(json.dumps({**record(member), "state": "pass",

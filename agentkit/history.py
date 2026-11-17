@@ -651,8 +651,11 @@ def _started(connection, values):
 
 def test_reds(checked, confirmed, flaky, known=()):
     """Keep a suite's named outcomes with its check's identity; a run with no row keeps none,
-    and a check none of `known`, the target's own red it let fail (`land.red_part`): a landing's
-    reds are those it blamed on a change (`test_audit`'s `landings`)."""
+    and a check none of `known`, the target's own red it let fail (`land.red_part`).  A landing's
+    reds are those its verdict blames on a change (`test_audit`'s `landings`), kept once, as
+    that verdict is written (`land.check_line`): its checks keep their flakes alone
+    (`gate.run_done_when`'s `blamed`), as a check red before the pass finds the test the
+    target's own blames nobody, and no row is ever taken out again."""
     if checked is None:
         return
     tests = [(test, 0) for names in confirmed.values() for test in names if test not in known]

@@ -696,7 +696,7 @@ def check_line(turn, log=lambda _: None):
     can resume or stop during its check: only an unchanged, processless parked record gets
     the verdict.  The recovery lock covers that write and the wake, never the suite.
     """
-    from . import handback, roundloop, run
+    from . import handback, history, roundloop, run
     turn = Path(turn)
     _code()     # read as the pass starts: an update installed during a check is not this pass's
     with _pass(turn) as held, ExitStack() as waking:
@@ -885,6 +885,12 @@ def check_line(turn, log=lambda _: None):
                             current["waiting_on"] = {**current["waiting_on"], **answer}
                         # Later answers still compare against this pass's own writes.
                         snapshots[member]["waiting_on"] = dict(current["waiting_on"])
+                        # A landing's reds, once, as the verdict blaming them is written: a
+                        # check's red the pass then found the target's own blames nobody.
+                        fix = answer.get("fix") or {}
+                        history.test_reds((member, None, "landing", fix.get("commit")),
+                                          {fix.get("piece"): fix.get("tests") or
+                                           fix.get("failed", ())}, ())
                     sent.update(fresh)
                     if checked and not held.moved:
                         # kept at once: a pass killed after this moved the line all the same
@@ -914,7 +920,9 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None, over=()):
     """What the checks found red, from the exits the runner saw (`marks`, and `pieces` by
     command and share): the first failing `command`, its first confirmed red `piece`'s share
     (`k/N`), or its first red piece where none is confirmed, and
-    the `tests` that piece named that failed, or hung, again alone (`confirmed`), if any.  The
+    the `tests` that piece named that failed, or hung, again alone (`confirmed`), if any; a
+    command run whole runs none alone, and names as `failed` those its last go failed, for its
+    verdict to keep (`check_line`).  The
     piece is "" where the command ran whole or a piece was killed confirming none -- at the
     limit, which stops its siblings with it, or for silence -- and the suite whole where no
     command failed and yet the checks did not pass (the
@@ -960,7 +968,10 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None, over=()):
                 if codes[share] != gate.OUT_OF_MEMORY and still_open:
                     parts.append({"command": cmd, "piece": share, "tests": still_open})
                     asked.update(still_open)
-        return {"command": cmd, "piece": piece, **({"tests": tests} if tests else {}), **excused}
+        failed = [] if codes else [test for tests in named.values() for test in tests
+                                   if test not in over]
+        return {"command": cmd, "piece": piece, **({"tests": tests} if tests else {}),
+                **({"failed": failed} if failed else {}), **excused}
     if landed:
         return {"over": sorted(set(landed))}
     return {"command": suite, "piece": "", **excused} if suite else {}
@@ -969,12 +980,14 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok, parts=None, over=()):
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
            only=None, kind="landing", exits=None, flaky=None, absent=None, parts=None, over=()):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
-    `suite` standing for a red no command showed, `parts` getting its pieces that confirmed
-    tests where those cost less together than the commands took); with `shard` every command
-    runs as that one piece alone, on one turn, and with `only` just those tests, on none,
-    `absent` getting those not there where it passed the rest (`gate.passes_what_it_holds`).
+    with the `commit` checked, `suite` standing for a red no command showed, `parts` getting its
+    pieces that confirmed tests where those cost less together than the commands took); with
+    `shard` every command runs as that one piece alone, on one turn, and with `only` just those
+    tests, on none, `absent` getting those not there where it passed the rest
+    (`gate.passes_what_it_holds`).
     Each command, or piece of one, leaves its `kind` row in history under the member's run, on
-    the commit checked: `landing`, or `tip` for a probe of the target's. `exits` keeps each
+    the commit checked: `landing`, its reds kept by the verdict that blames them on a change
+    (`check_line`), or `tip` for a probe of the target's. `exits` keeps each
     piece's attempt exits and `flaky` the tests that failed, then passed; a moved checkout
     clears the exits and `absent`.  `over`, the target's own red tests, is `red_part`'s and
     `run_suite`'s `known`."""
@@ -1001,7 +1014,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
             flaky=flaky, checked=(directory, None, kind, identity["head_sha"]), exits=exits,
-            timings=timings, absent=absent, known=over)
+            timings=timings, absent=absent, known=over, blamed=kind == "landing")
         took = time.monotonic() - started
     if ok and suite and kind == "landing" and not shard and not only:
         if failure := suite_times.refusal(scratch, _upstream(state), suite, timings):
@@ -1035,7 +1048,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
         times = suite_times.read(suite_times.handed(scratch))
         if sum(times.get(test, 0) for part in parts for test in part["tests"]) > took:
             parts.clear()
-    return ok, text, red
+    return ok, text, red and {**red, "commit": identity["head_sha"]}
 
 
 def _upstream(state):
@@ -1439,7 +1452,8 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, ready, held, p
                 kept = red.get(tree, {})
                 if kept.get("checks") == list(checks) and kept.get("excused", []) == list(excused):
                     return {"fix": {key: kept[key] for key in (
-                        "line", "log", "command", "piece", "tests", "excused") if key in kept}}
+                        "line", "log", "command", "piece", "tests", "failed", "excused",
+                        "commit") if key in kept}}
 
             def green_answer(tree, tested):
                 return {"land": tree} if tree == tested else {"land": tree, "tested": tested}
