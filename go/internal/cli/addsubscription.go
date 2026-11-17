@@ -31,8 +31,8 @@ const addTitle = "config · add a subscription"
 // host opens its own list (menuAddThrough), Esc there coming back here, that host highlighted; a
 // provider the config lacks goes in as the shipped default has it, listing that account alone, with
 // the first model its new login lists (AddProvider); another subscription is listed among its
-// provider's `accounts`.  A harness whose program is nowhere to be found is installed first.  Esc
-// goes back with nothing done.  What to say under the page, or "".
+// provider's `accounts`.  A harness whose program is nowhere to be found is installed first.  Esc,
+// or a click on `esc back`, goes back with nothing done.  What to say under the page, or "".
 func menuAddSubscription(cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter) string {
 	// random, never `default` nor the next free name: a login once on disk under either would call
 	// the new subscription logged in, on an account nobody chose
@@ -52,6 +52,10 @@ func menuAddSubscription(cells []menu.Cell, keyboard *terminal.Keyboard, painter
 		top = drawn.Top
 		painter.Write(drawn.Lines, screen)
 		key := keyboard.ReadKey()
+		clicked := key.Name == "pointer" && clicks.Click(key.Mouse)
+		if clicked {
+			key = drawn.Pressed(key) // a key-line item does what its key does
+		}
 		switch {
 		case key.Name == "again":
 			painter.Forget()
@@ -73,7 +77,6 @@ func menuAddSubscription(cells []menu.Cell, keyboard *terminal.Keyboard, painter
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			at, _, top = drawn.Step(key.Mouse.Notches)
 		case key.Name == "pointer":
-			clicked := clicks.Click(key.Mouse)
 			row, _, hit := drawn.Hit(key.Mouse)
 			if away = !hit; hit {
 				at = row

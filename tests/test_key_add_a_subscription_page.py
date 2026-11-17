@@ -3,7 +3,8 @@ what it adds, drawn as Subscriptions draws one, each row named and drawn as Subs
 row -- the config's companies first, then the shipped ones it has not, then OpenCode, which signs
 in to any provider.  A heading is no stop for the keys, lights under no pointer and takes no
 click, and Enter says `⏎ add` on every row.  On a terminal too short for them all the title stays
-and the rows round the highlight are drawn, their headings over them.  The owner (10 Nov 2026), of this page: "dependign on
+and the rows round the highlight are drawn, their headings over them.  A click on an item of the
+key line does what its key does.  The owner (10 Nov 2026), of this page: "dependign on
 the provider, it either says add or open. Fix this. And this screen does not look astheitcally
 pleasing."
 
@@ -101,6 +102,19 @@ class AddASubscriptionPage(unittest.TestCase):
         self.term.keys("Down")                       # the highlight back, read after the click
         self.term.wait(lambda screen: title(screen) == ADD
                        and any(line[:1] == "›" for line in lines(screen)))
+        self.assertEqual(self.fakes["claude"].calls("login"), [])
+
+    def test_a_click_on_a_key_line_item_does_what_its_key_does(self):
+        at = lines(self.term.screen()).index(KEYS) + 1          # the key line's screen row
+
+        def pointer(item, reports):
+            self.term.type(reports.format(f"{KEYS.index(item) + 1};{at}"))
+        pointer("⏎ add", "\x1b[<35;{0}M")                       # off every row: none lit
+        self.term.wait(lambda screen: not any(line[:1] == "›" for line in lines(screen)))
+        pointer("⏎ add", "\x1b[<0;{0}M\x1b[<0;{0}m")  # as Enter there: the row the keys left lit
+        self.term.wait(lambda screen: title(screen) == ADD and "› Claude III" in screen)
+        pointer("esc back", "\x1b[<35;{0}M\x1b[<0;{0}M\x1b[<0;{0}m")
+        self.term.wait(lambda screen: title(screen) == PAGE)
         self.assertEqual(self.fakes["claude"].calls("login"), [])
 
     def test_a_click_beside_the_layout_takes_no_row(self):

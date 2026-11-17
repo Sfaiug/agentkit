@@ -85,8 +85,10 @@ func AddablesPage(s terminal.Screen, title string, choices []Addable, at, top in
 			body, lines = append(body, part), append(lines, pageEntry{row, -1})
 		}
 	}
-	page := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), "")))
+	keyLines := keyLine(s, keys, s.Width(), "")
+	page := max(1, s.Height()-5-len(keyLines))
 	top = pageTop(lines, pageEntry{at, -1}, top, page)
-	return PageFrame{Lines: Panel(s, title, time.Now().Format("15:04"), body[top:min(top+page, len(body))], keys),
-		Top: top, at: pageEntry{at, -1}, page: page, lines: lines, width: room}
+	drawn := Panel(s, title, time.Now().Format("15:04"), body[top:min(top+page, len(body))], keys)
+	return PageFrame{Lines: drawn, Top: top, at: pageEntry{at, -1}, page: page, lines: lines, width: room,
+		keySpots: spotted(keyLines, len(drawn)-len(keyLines)+1)}
 }
