@@ -667,7 +667,7 @@ def moving(clock, wake=None, timeout=TICK, going=None):
     """`wait_key` on the main screen, its digit wait and its stop question, and on a screen whose
     content is fetched: `timeout` seconds at most, and each of `clock`'s frames drawn while
     something moves and no key is waiting.  A key but the pointer's writes the last frame of the
-    fade before it at once (`motion.Clock.rest`), whatever reads next.
+    highlight's motion before it at once (`motion.Clock.rest`), whatever reads next.
 
     Only a wait that ran to its frame draws one.  One that ended before it, on news, returns
     None, its cells forgotten, for the caller to draw the screen again; so does one a resize
