@@ -1823,7 +1823,7 @@
     },
     {
      "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 44,
+     "row": 29,
      "span": [
       11,
       171
@@ -2621,7 +2621,7 @@
     },
     {
      "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 43,
+     "row": 28,
      "span": [
       84,
       120
@@ -4735,6 +4735,24 @@
     },
     {
      "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 0,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
+     "row": 1,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-question-waiting-scrolled-pane.txt",
      "row": 2,
      "span": [
       0,
@@ -4970,141 +4988,6 @@
     {
      "fixture": "claude-question-waiting-scrolled-pane.txt",
      "row": 28,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 29,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 30,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 31,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 32,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 33,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 34,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 35,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 36,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 37,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 38,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 39,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 40,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 41,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 42,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-waiting-scrolled-pane.txt",
-     "row": 43,
      "span": [
       0,
       3
