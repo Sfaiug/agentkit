@@ -143,6 +143,14 @@ class Fades(Menu):
             waits, (*_, opened, _) = self.typed([b"1", points[0], None, points[1], None, b"0"])
         self.lit_alone(waits, opened, "acme-7")         # seat 10, as the menu is back from it
 
+    def test_the_pointer_moving_while_a_number_waits_fades_the_row_it_left(self):
+        self.words.update({f"acme-{n}": "idle" for n in range(8)})
+        screen = self.typed([])[0]
+        to = POINT.format(12, self.row(screen, "web-portal")).encode()
+        with patch.object(menu, "open_session", return_value=None):
+            waits, (_, moved, *_) = self.typed([None, b"1", to, *[None] * 5, b"0"])
+        self.leaves(writes(waits, moved), (self.row(screen, "fix-api"), 1))
+
     def test_a_number_on_past_sessions_waits_with_the_fade_ended(self):
         found = [{"name": f"acme-{n}", "repo": None, "path": "/", "created": 9000,
                   "closed": 9500 - n} for n in range(10)]

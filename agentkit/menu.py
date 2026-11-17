@@ -7141,20 +7141,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                     cursor = turned(shown.get("turns") or [], page, cursor, turn)
                     look, pointing = False, False
                     continue
-                clock.forget()            # whatever the key opens, the menu back replays nothing
                 typed, key = key, pressed(key, shown, found)
-                if isinstance(key, Path):
-                    cursor = key              # the heading, highlighted when he is back
-                    show_features(key, dry_run)    # read with the keys, on the screen the menu has
-                    continue
-                if isinstance(key, tuple):
-                    cursor = key              # the meter, highlighted again back from it
-                    # a save it refused, in a notice: this screen has no line under it for one
-                    note = config_subscriptions(cfg, keyboard, key[1])
-                    if note:
-                        pause(note)
-                    continue
-                key = key.lower()
                 if (typed.name == "char" and len(key) == 1 and "1" <= key <= "9"
                         and int(key) * 10 <= len(found)):
                     # 1 then 2 within half a second is seat 12, whatever asks for a draw between
@@ -7175,6 +7162,21 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                         key += more.char
                     elif more is not None:
                         ahead = (more, drawn)     # read early: kept, with the screen it was read on
+                # whatever the key opens, the menu back replays nothing; the digit wait before
+                # it is still the menu, where the highlight fades as anywhere on it
+                clock.forget()
+                if isinstance(key, Path):
+                    cursor = key              # the heading, highlighted when he is back
+                    show_features(key, dry_run)    # read with the keys, on the screen the menu has
+                    continue
+                if isinstance(key, tuple):
+                    cursor = key              # the meter, highlighted again back from it
+                    # a save it refused, in a notice: this screen has no line under it for one
+                    note = config_subscriptions(cfg, keyboard, key[1])
+                    if note:
+                        pause(note)
+                    continue
+                key = key.lower()
                 if key.isdecimal() and key.isascii() and 1 <= int(key) <= len(found):
                     cursor = found[int(key) - 1]["name"]   # and highlighted when he is back
                 elif not terminal.is_esc(key) and key not in actions:
