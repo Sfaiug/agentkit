@@ -1254,9 +1254,9 @@ def model(cfg, name):
         known = ", ".join(sorted(cfg["models"]))
         raise Error(f"unknown model {name!r}; ~/.agentkit/config.toml defines: {known}")
     for field in ("harness", "model", "effort", "provider"):
-        if field not in entry:
+        if not isinstance(entry, dict) or field not in entry:
             raise Error(f"~/.agentkit/config.toml: [models.{name}] is missing {field!r}")
-    if entry["provider"] not in cfg["providers"]:
+    if not isinstance(entry["provider"], str) or entry["provider"] not in cfg["providers"]:
         raise Error(f"~/.agentkit/config.toml: [models.{name}].provider={entry['provider']!r} "
                     "has no [providers.*] entry")
     return entry

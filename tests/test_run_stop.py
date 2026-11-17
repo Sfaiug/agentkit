@@ -435,8 +435,8 @@ class RunStop(Sandbox):
 
                 with patch.object(handback, "reap", side_effect=reap), \
                         patch.object(run, "review_pass",
-                                     side_effect=lambda state, _cfg: state.get("verdict") == "PASS"), patch.object(transitions, "review_pass",
-                                     side_effect=lambda state, _cfg: state.get("verdict") == "PASS"), \
+                                     side_effect=lambda state, _cfg, **_kw: state.get("verdict") == "PASS"), patch.object(transitions, "review_pass",
+                                     side_effect=lambda state, _cfg, **_kw: state.get("verdict") == "PASS"), \
                         patch.object(run, "prepare", side_effect=AssertionError("a fresh run")), \
                         redirect_stdout(io.StringIO()):
                     jobs.job_adopt_worker(self.cfg, job_dir, job, task, kept, threading.Lock(),

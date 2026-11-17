@@ -43,8 +43,11 @@ def review_providers(cfg, executor, reviewer):
     return (executed["provider"] if executed else None), reviewed["provider"]
 
 
-def review_pass(state, cfg):
-    """A PASS needs commit verification and, when enabled, eligible review evidence."""
+def review_pass(state, cfg, ended=False):
+    """A PASS needs commit verification and, when enabled, eligible review evidence.
+
+    Judged by today's marks, which the run's next step runs under; `ended` reads the run as
+    it ended instead (`delivery`)."""
     evidence = state.get("review")
     if state.get("verdict") != "PASS" or not isinstance(evidence, dict):
         return False
@@ -68,20 +71,26 @@ def review_pass(state, cfg):
             return False
     elif not evidence.get("executor_provider"):
         return False
+    own = state.get("own_orchestrator") if state.get("own_pr") else None
+    if state.get("own_pr") and not own:
+        return False
+
+    def judged(mark):
+        # Read as it ended, a mark a loaded config no longer defines, renamed or removed since,
+        # has nothing to be compared with: what the evidence recorded at review stands for it.
+        # report_config's stand-in for a config that will not load defines no mark, so there
+        # none is known gone.
+        return mark and not (ended and cfg["models"] and mark not in cfg["models"])
+
     try:
-        providers = review_providers(cfg, state.get("executor"), state["reviewer"])
+        if any(judged(mark) and config.model(cfg, mark)["provider"] != recorded
+               for mark, recorded in ((state.get("executor"), evidence.get("executor_provider")),
+                                      (state["reviewer"], evidence["reviewer_provider"]))):
+            return False
+        if judged(own):
+            config.model(cfg, own)      # still defined, it still resolves
     except config.Error:
         return False
-    if providers != (evidence.get("executor_provider"), evidence["reviewer_provider"]):
-        return False
-    if state.get("own_pr"):
-        own = state.get("own_orchestrator")
-        if not own:
-            return False
-        try:
-            review_providers(cfg, own, state["reviewer"])
-        except config.Error:
-            return False
     return True
 
 
@@ -698,7 +707,7 @@ def delivery(state, cfg=None):
     if state.get("state") == "waiting":
         return f"WAITING: {state.get('merge_note') or state.get('error') or 'delivery pending'}"
     cfg = report_config(cfg)
-    if not review_pass(state, cfg) or state.get("state") in (
+    if not review_pass(state, cfg, ended=True) or state.get("state") in (
             "error", "fail", "interrupted", "exhausted", "blocked", "waiting_login",
             "stopped"):
         return "FAIL"

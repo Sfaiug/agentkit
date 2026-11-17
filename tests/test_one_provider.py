@@ -503,7 +503,7 @@ class OneProvider(unittest.TestCase):
         state = self.evidence()
         with patch.object(transitions, "review_pass", wraps=transitions.review_pass) as check:
             self.assertEqual(run.delivery(state, self.cfg), "PASS, delivered")
-        check.assert_called_once_with(state, self.cfg)
+        check.assert_called_once_with(state, self.cfg, ended=True)
         self.cfg["models"]["beta"]["reviews_own_provider"] = False
         self.assertTrue(run.review_pass(state, self.cfg))
         with patch.object(config, "load", return_value=self.cfg):
