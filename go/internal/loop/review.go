@@ -356,6 +356,7 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted, dis
 		}
 		record.Delete("dispute_files")
 		record.Delete("review_pending")
+		EndErrorRetry(record)
 	})
 	if err != nil {
 		return false, err

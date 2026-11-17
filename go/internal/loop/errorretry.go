@@ -20,8 +20,16 @@ func ParkError(dir string, record *run.Object, now time.Time) {
 }
 
 // ScheduleErrorRetry stamps the tick's next retry of an errored run, Python's
-// schedule_error_retry: on the rung already tried, a worker turn's transient waits, then hourly.
+// schedule_error_retry: on the rung already tried, a worker turn's transient waits, then hourly,
+// keeping the error that started the ladder as error_since so tickAdmission ages from it.
 func ScheduleErrorRetry(record *run.Object, now time.Time) {
+	if _, ok := record.Num("error_since"); !ok {
+		if _, dated := record.Num("finished_at"); dated {
+			record.Set("error_since", record.Get("finished_at"))
+		} else {
+			record.Set("error_since", float64(now.UnixNano())/1e9)
+		}
+	}
 	retries := rung(record)
 	run.SetAll(record, "error_retries", retries,
 		"error_retry_at", float64(now.UnixNano())/1e9+transientDelay(retries+1).Seconds())
@@ -43,10 +51,16 @@ func rung(record *run.Object) int {
 	return retries
 }
 
-// DropErrorRetry ends an error's retry episode: the rung goes with the hour.
+// DropErrorRetry removes the tick's retry stamps: the rung goes with the hour.
 func DropErrorRetry(record *run.Object) {
 	record.Delete("error_retry_at")
 	record.Delete("error_retries")
+}
+
+// EndErrorRetry ends an error episode once the run moves on or leaves error.
+func EndErrorRetry(record *run.Object) {
+	DropErrorRetry(record)
+	record.Delete("error_since")
 }
 
 // ErrorResumable is whether a resume could carry that errored run on, Python's error_resumable,

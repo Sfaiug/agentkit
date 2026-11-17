@@ -42,7 +42,7 @@ from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, replace_reviewer, resume_models, reviewer_order, run_workers, same_model, started_round)
 from .transitions import (change_budget, change_on, replacement_refusal,
-    change_reviewed, delivery, failed_at_budget, failed_in_integration,
+    change_reviewed, delivery, drop_error_retry, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
     queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
@@ -498,6 +498,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     except NotNeeded as exc:
         state.update(state="not_needed", verdict=None, not_needed=str(exc),
                      finished_at=time.time())
+        drop_error_retry(state, episode=True)
         run_record.save_state(run_dir, state)
         write_result(run_dir, state, cmds, log, cfg)
         worktrees.settle_run(state, run_dir, log)
@@ -522,8 +523,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     # retry inherits none of them.
     state.pop("quota_dry", None)
     state.pop("refusal_retry", None)
-    state.pop("error_retry_at", None)
-    state.pop("error_retries", None)
+    drop_error_retry(state, episode=True)
     for key in ("waiting_for", "login_resume_at", "login_back_at"):
         state.pop(key, None)
     state["finished_at"] = ended_at(state)
@@ -560,8 +560,7 @@ def mark_state(run_dir, name, error=None, log=None):
         park_error(run_dir, state)
     else:
         # an error's retry belongs to the error: any other mark ends that episode
-        state.pop("error_retry_at", None)
-        state.pop("error_retries", None)
+        drop_error_retry(state, episode=True)
     if name == "exhausted":
         park_exhausted(state, error)
     elif error:
@@ -1714,6 +1713,8 @@ def cmd_merge(argv):
         sampler.join(timeout=2)
         history.close_step(run_dir.name, log=log)
     state["finished_at"] = ended_at(state)
+    if state.get("state") != "error":
+        drop_error_retry(state, episode=True)
     run_record.save_state(run_dir, state)
     write_result(run_dir, state, cmds, log, cfg)
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):

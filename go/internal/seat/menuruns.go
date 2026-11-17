@@ -83,7 +83,7 @@ func viewRun(record *run.Object, now time.Time) (runView, bool) {
 			return runView{}, false
 		}
 	}
-	for _, field := range []string{"started_at", "finished_at", "error_retry_at"} {
+	for _, field := range []string{"started_at", "finished_at", "error_retry_at", "error_since"} {
 		if _, known := number(record.Get(field)); !known {
 			return runView{}, false
 		}

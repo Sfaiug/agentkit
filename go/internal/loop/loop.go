@@ -670,12 +670,14 @@ func (l *loop) finish(err error) int {
 				"blocked", cannot.section, "finished_at", clock())
 			record.Delete("quota_dry")
 			record.Delete("transient_wait")
+			EndErrorRetry(record)
 		})
 	case errors.As(err, &unnecessary):
 		err = l.finishNotNeeded(unnecessary)
 	case errors.As(err, &gone):
 		err = write(l.dir, func(record *run.Object) {
 			run.SetAll(record, "state", "fail", "error", gone.why, "finished_at", clock())
+			EndErrorRetry(record)
 		})
 		l.say("FAIL " + gone.why)
 	case err != nil:
@@ -710,7 +712,7 @@ func (l *loop) finish(err error) int {
 			for _, key := range []string{"transient_wait", "quota_dry", "refusal_retry"} {
 				record.Delete(key)
 			}
-			DropErrorRetry(record)
+			EndErrorRetry(record)
 		})
 	}
 	if errors.Is(err, errStop) {

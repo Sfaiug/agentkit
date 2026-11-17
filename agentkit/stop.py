@@ -341,7 +341,7 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
                     "handback_pending", "handback_wait_reason", "handback_note",
                     "notification_pending", "pending_inbox", "quota_dry", "refusal_retry",
                     "waiting_for", "login_resume_at", "login_back_at", "stall_resume_at",
-                    "resume_after", "error_retry_at", "error_retries", "waiting_on",
+                    "resume_after", "error_retry_at", "error_retries", "error_since", "waiting_on",
                     "waiting_resume_at", "slot_waiting", "launch_pending", "resume_from"):
             current.pop(key, None)
         current.update(extra or {})

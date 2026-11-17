@@ -34,6 +34,7 @@ func (l *loop) judgeOnChecks(ok bool, checked string) (bool, error) {
 	if err := l.save(func(record *run.Object) {
 		run.SetAll(record, "verdict", verdict, "findings", findings, "review", review)
 		record.Delete("review_pending")
+		EndErrorRetry(record)
 	}); err != nil {
 		return false, err
 	}

@@ -1021,8 +1021,7 @@ def mark_looked_at(run_dir):
                     or current.get("recovery_acknowledged_at")):
                 return False
             current["recovery_acknowledged_at"] = time.time()
-            current.pop("error_retry_at", None)
-            current.pop("error_retries", None)
+            drop_error_retry(current)
     except run_record.Unreadable:
         return False
     return True
@@ -1035,8 +1034,7 @@ def acknowledge(run_dir):
             if not waiting or state.get("recovery_acknowledged_at"):
                 raise config.Error("the run is no longer waiting for recovery")
             state["recovery_acknowledged_at"] = time.time()
-            state.pop("error_retry_at", None)
-            state.pop("error_retries", None)
+            drop_error_retry(state)
     except run_record.Unreadable:
         raise config.Error("the run is no longer waiting for recovery") from None
 
@@ -1057,15 +1055,30 @@ def error_retry_delay(retries):
     return ERROR_RETRY_CAP
 
 
+def drop_error_retry(state, *, episode=False):
+    """Remove the tick's retry stamps; `episode` also forgets when the error began."""
+    state.pop("error_retry_at", None)
+    state.pop("error_retries", None)
+    if episode:
+        state.pop("error_since", None)
+
+
 def schedule_error_retry(state, now=None):
     """Stamp the tick's next retry of this errored run onto its record.
 
     `error_retries` is the rung already tried, kept across attempts so the ladder
     never restarts: a run that errors again an hour later waits another hour, not
-    another minute.  Only the stamp is written here; whether the run can be
-    resumed at all is `error_resumable`'s answer, taken before this is called.
+    another minute.  `error_since` is the error at the foot of that ladder, which
+    `tick_admission` counts the day from, kept across attempts too.  Only the
+    stamps are written here; whether the run can be resumed at all is
+    `error_resumable`'s answer, taken before this is called.
     """
     now = time.time() if now is None else now
+    since = state.get("error_since")
+    if not isinstance(since, (int, float)) or isinstance(since, bool):
+        ended = state.get("finished_at")
+        state["error_since"] = (ended if isinstance(ended, (int, float))
+                                and not isinstance(ended, bool) else now)
     retries = state.get("error_retries") or 0
     if not isinstance(retries, int) or isinstance(retries, bool) or retries < 0:
         retries = 0
@@ -1116,8 +1129,7 @@ def park_error(run_dir, state, now=None):
     if tick_admission(state, now=now) and error_resumable(state, run_dir):
         schedule_error_retry(state, now=now)
     else:
-        state.pop("error_retry_at", None)
-        state.pop("error_retries", None)
+        drop_error_retry(state)
     return state
 
 
@@ -1201,8 +1213,12 @@ def tick_admission(state, now=None):
         return ""
     now = time.time() if now is None else now
     ended = state.get("finished_at")
-    if (not isinstance(ended, (int, float)) or isinstance(ended, bool)
-            or not 0 <= now - ended < 86400):
+    if not isinstance(ended, (int, float)) or isinstance(ended, bool):
+        return ""
+    since = state.get("error_since") if state.get("state") == "error" else None
+    if isinstance(since, (int, float)) and not isinstance(since, bool):
+        ended = since
+    if not 0 <= now - ended < 86400:
         return ""
     try:
         seat = launched_session(state)
