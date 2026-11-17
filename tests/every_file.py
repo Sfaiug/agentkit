@@ -16,8 +16,9 @@ the record in the file AK_TIMES names (agentkit/suite_times.py), or one never me
 at the measured files' seconds per byte; a part, `<file>::<part>` (suite_shares.parts_of), at its
 file's measured parts' mean, its file's parts in as few runs as keep each within PIECE.
 A failing file, or one reporting no executed cases, is named as it ends and runs once more after
-the pool, alone, as does a run stopped, with all it started, past STRETCH times the seconds the
-record gives its tests, at least LEAST (silence alone stops one with a test the record gives none):
+the pool, alone, as does one stopped past STRETCH times the seconds the record gives its tests, at
+least LEAST, its own process alone, the parts it had not ended failing beside those it named
+(silence alone stops one with a test the record gives none):
 landing.py passes a descriptor that reads end-of-file once its other parts have ended, and
 the re-run waits for that too; failing again it fails the whole and is named with its last
 lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after their
@@ -48,7 +49,6 @@ it lists them.
 import ast
 import os
 import re
-import signal
 import subprocess
 import sys
 import tempfile
@@ -158,12 +158,12 @@ def smoke_runs(smoke, offline):
     return names
 
 
-def run_file(root, path, env, parts=(), failed=None, timed=None, absent=None, recorded=None):
-    """Run the file for `parts`, its arguments, all of it where there are none; `failed`, a
-    list, gets the parts it names as failing, `timed`, a dict, the passing ones' seconds as the
-    run goes on, and `absent`, a list, those it names as not there.  With `recorded`, the seconds
-    the record gives the run, one past STRETCH times that, at least LEAST, is stopped: its code
-    is None."""
+def run_file(root, path, env, parts, failed, timed, absent, recorded):
+    """Run the file for `parts`, its arguments, all of it where there are none: `failed`, a list,
+    gets the parts it names as failing, `timed`, a dict, the passing ones' seconds as the run goes
+    on, and `absent`, a list, those it names as not there.  A run lasting past STRETCH times the
+    seconds the record gives it, `recorded` (None: no limit), at least LEAST, is stopped, its code
+    None: the parts it had not ended fail beside those it named, and run whole, all of it does."""
     began, stopped = time.monotonic(), False
     # Files can run beside smoke.sh in the same checkout. Their HOME and temp files must
     # not reach another file's sandbox; their bytecode is the piece's own (`env`).
@@ -176,32 +176,34 @@ def run_file(root, path, env, parts=(), failed=None, timed=None, absent=None, re
                                 for name in ("failed-parts", "part-times", "not-there"))
         child_env = dict(env, HOME=sandbox, TMPDIR=sandbox, FAILED_PARTS=str(named),
                          PART_TIMES=str(seconds), NOT_THERE=str(gone))
-        # In a session of its own, a stopped run is killed with everything it started.
         with subprocess.Popen([sys.executable, str(path.relative_to(root)), *parts], cwd=root,
-                              env=child_env, stdin=subprocess.DEVNULL, start_new_session=True,
+                              env=child_env, stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
             out = None
             while out is None:
                 try:
                     out = proc.communicate(timeout=POLL)[0]
                 except subprocess.TimeoutExpired as exc:
-                    # Stopped, what it read is all: one that left its session may hold the pipe.
-                    if stopped:
+                    # Stopped, what it read is all where a process the file left holds its output
+                    # open; once that is closed, the next call returns it all.
+                    if stopped and not proc.stdout.closed:
                         out = exc.output or b""
                 # A record read mid-write is no JSON, so it times nothing (suite_times.read).
-                if timed is not None and seconds.is_file():
+                if seconds.is_file():
                     timed.update(suite_times.read(seconds.read_text()))
                 if (not stopped and recorded is not None
                         and time.monotonic() - began > max(LEAST, STRETCH * recorded)):
                     stopped = True
-                    try:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-        if failed is not None and named.is_file():
+                    proc.kill()     # what it left is its piece's to end, as when it ends itself
+        if named.is_file():
             failed.extend(part for part in named.read_text().splitlines() if part)
-        if absent is not None and gone.is_file():
+        if gone.is_file():
             absent.extend(part for part in gone.read_text().splitlines() if part)
+    if stopped and parts:
+        ended = {*failed, *timed, *absent}
+        failed.extend(part for part in parts if part not in ended)
+    elif stopped:
+        failed.clear()      # what it named is not all that failed: the rest never ran
     code = None if stopped else proc.returncode
     return code, out.decode(errors="replace"), time.monotonic() - began
 
@@ -233,14 +235,14 @@ def asked_parts(only, name):
     return [] if "" in listed else sorted(listed)
 
 
-def recorded(times, name, parts):
+def given(times, name, parts):
     """The seconds the record, `times`, gives a run of the file `name` for `parts`: its tests'
     own, None where one has none."""
     tests = ids(name, parts)
     return sum(times[test] for test in tests) if all(test in times for test in tests) else None
 
 
-def failure(code, took, recorded=None):
+def failure(code, took, recorded):
     """Why a run that took `took` seconds and exited `code`, None where it was stopped, the
     record giving it `recorded` seconds, failed, as its lines say it."""
     if code is None:
@@ -418,7 +420,7 @@ def main(root, others=None):
                     again.append((name, named or asked, out))
                     # Said now: its re-run waits for the pool, which can outlast the silence limit.
                     print(f"RETRY {' '.join(ids(name, named or asked))}: "
-                          f"{failure(code, took, recorded(times, name, asked))}, "
+                          f"{failure(code, took, given(times, name, asked))}, "
                           "runs again alone once the others end", flush=True)
             if path is not None:
                 # ak's places run as many pieces as the cores fit: pieces sizing their own pools
@@ -432,7 +434,7 @@ def main(root, others=None):
                     named, timed, gone = [], {}, []
                     job = pool.submit(run_file, root, path, env, parts=parts, failed=named,
                                       timed=timed, absent=gone,
-                                      recorded=recorded(times, path.relative_to(root), parts))
+                                      recorded=given(times, path.relative_to(root), parts))
                     running[job] = (path, parts), named, timed, gone, set()
                     jobs = max(jobs, len(running))
                     path, parts, _ = next(pending, (None,) * 3)
@@ -448,7 +450,7 @@ def main(root, others=None):
         for name, named, out in again:
             still, timed, gone, shown = [], {}, [], set()
             job = pool.submit(run_file, root, root / name, env, parts=named, failed=still,
-                              timed=timed, absent=gone, recorded=recorded(times, name, named))
+                              timed=timed, absent=gone, recorded=given(times, name, named))
             ended = False
             while not ended:
                 ended = bool(wait([job], timeout=POLL).done)
@@ -464,7 +466,7 @@ def main(root, others=None):
                 failed.append(ids(name, still or [part for part in named if part not in timed]))
                 out = rerun
                 print(f"FAIL  {' '.join(failed[-1])}: "
-                      f"{failure(code, took, recorded(times, name, named))}, its last lines:")
+                      f"{failure(code, took, given(times, name, named))}, its last lines:")
             print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
     passed = f"{len(todo) - len(failed)} passed" + (f" ({len(flaky)} flaky)" if flaky else "")
     print(f"test files: {passed}, {len(failed)} failed, {jobs} at once, "
