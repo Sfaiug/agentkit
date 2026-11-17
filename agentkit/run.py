@@ -1062,6 +1062,9 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
                 state = {**previous, "pid": None, "process_identity": None,
                          "launch_pending": False, "launch_error": reason}
             else:
+                # interrupted, an errored run would pin again the version that erred
+                if not versions.pinned(previous):
+                    previous.pop("ak_checkout", None)
                 state = interrupt(previous, reason)
             run_record.save_state(run_dir, state)
             update_scope_line(run_dir, state)
