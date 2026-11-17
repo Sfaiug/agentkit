@@ -3092,12 +3092,17 @@ def act_word(text):
     return text.lstrip("→−- ")
 
 
-# What `+ add a subscription` offers each provider the shipped default has as: its company, and
-# the harness it runs on; any other is its name.  One shipped on a harness that runs any
-# provider (config.provider_hosts) is offered among that harness's own.  `Subscriptions` heads
-# a provider's with its company alone.
-COMPANIES = {"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex",
-             "meta": "Meta / Muse", "xai": "xAI / Grok Build", "google": "Google / Antigravity"}
+# The company each provider the shipped default has is (company_name).
+COMPANIES = {"anthropic": "Anthropic", "openai": "OpenAI", "meta": "Meta", "xai": "xAI",
+             "google": "Google"}
+
+
+def company_name(cfg, provider):
+    """What `provider`'s subscriptions sit under, bold, on `Subscriptions` and on `+ add a
+    subscription` alike: its company (COMPANIES), else its own name."""
+    return COMPANIES.get(provider) or config.provider_name(cfg, provider)
+
+
 # What `− remove` asks, and what it means; then the same about one subscription of a provider.
 REMOVE_PROVIDER_ASK = ("Remove {} and its models?",
                        "Its models leave the config, and its logins are signed out on this machine.")
@@ -5002,15 +5007,6 @@ def config_add(cfg, keyboard, through):
                 return name
 
 
-def _by_label(names, label):
-    """{label: name} for a list of providers: a label two of them share is followed by the
-    name itself, so the one picked is always the one it says -- a provider of the owner's own
-    called `claude` reads `Claude` as Anthropic's does."""
-    labels = [label(name) for name in names]
-    return {text if labels.count(text) == 1 else f"{text} ({name})": name
-            for text, name in zip(labels, names)}
-
-
 def _adapter_verbs(keyboard, harness, verbs, picked, account=None, provider=None, new=False):
     """Each of `verbs` of `harness`'s adapter (one with its words, `login again`), run as
     install.sh runs them, for `account`'s
@@ -5106,17 +5102,19 @@ def _add_subscription(cfg, keyboard, provider, listed, picked):
 
 @terminal.clicks_its_own
 def config_add_provider(cfg, keyboard):
-    """`+ add a subscription` on `c`: a provider the shipped default has and the config has not,
-    picked from a list, then put in the way it ships, so nothing is typed; or, listed after
-    them as the name it will get (`ChatGPT II`, config.account_label), another subscription
-    of a provider the config has, which is only logged in and listed (_add_subscription), where
-    its harness keeps more than one login (config.one_login).  Each is signed in under a new
-    random account name (`fresh`), so its login starts empty and the owner picks the account
-    signed in to; one that does not finish leaves nothing of it (_adapter_verbs).  A harness
-    that runs any provider it can log in
-    to (config.provider_hosts) is listed by its name after the shipped providers, standing in
-    for those shipped on it: picked, it is installed where its program is missing, then
-    `config_add` through it picks the provider, logs it in, and adds the model.
+    """`+ add a subscription` on `c`, read as `Subscriptions` is: each company's name bold over
+    what it adds (company_name), each row named as `Subscriptions` will name it once added, and
+    Enter or a click adding it.  First one more subscription of each provider the config has, in
+    the order `Subscriptions` lists them (`ChatGPT II`, config.account_label), which is only
+    logged in and listed (_add_subscription), where its harness keeps more than one login
+    (config.one_login); then each provider the shipped default has and the config has not, put
+    in the way it ships, so nothing is typed; then `another provider` under each harness that
+    runs any provider it can log in to (config.provider_hosts), standing in for those shipped on
+    it: picked, it is installed where its program is missing, then `config_add` through it
+    picks the provider, logs it in, and adds the model, Esc there coming back here.  Each is
+    signed in under a new random account name (`fresh`), so its login starts empty and the
+    owner picks the account signed in to; one that does not finish leaves nothing of it
+    (_adapter_verbs).
 
     A new provider's harness, the shipped default's for it, is installed when its program is
     nowhere to be found, then logged in: each its adapter's own verb, run as install.sh runs
@@ -5134,45 +5132,51 @@ def config_add_provider(cfg, keyboard):
     # Random, never `default` nor the next free name: a login once on disk under either would
     # call the new subscription logged in, on an account nobody chose.
     fresh = os.urandom(3).hex()
-    gone = [name for name in shipped.get("providers") or {} if name not in cfg["providers"]]
-    labels = _by_label([name for name in gone
-                        if hosts.keys().isdisjoint(config.provider_harnesses(shipped, name))],
-                       lambda name: COMPANIES.get(name, config.NAMES.get(name, name.title())))
-    through = {label: harness for harness, label in hosts.items() if label not in labels}
-    more = {}
-    for text, name in _by_label(list(cfg["providers"]),
-                                lambda name: config.provider_name(cfg, name)).items():
+    offers = []       # (company, row, what it adds), one row a company, as the page lists them
+    for name in cfg["providers"]:
         harnesses = config.provider_harnesses(cfg, name)
         if harnesses and config.one_login(harnesses[0]):
             continue                  # _add_subscription's login would be refused
-        after = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), fresh]
-        more[config.account_label({"providers": {name: {"name": text, "accounts": after}}},
-                                  name, after[-1])] = (name, after)
-
-    def around(lit):  # the screen the list is drawn on, drawn again after a key or a resize
-        terminal.frame("config · add a subscription",
-                       [""] * (len(labels) + len(through) + len(more)),
-                       terminal.keys("esc back", enter="open" if lit in through else "add"))
-        return 3
-    picked = None
+        listed = [*(config.accounts(cfg, name) or [config.DEFAULT_ACCOUNT]), fresh]
+        offers.append((company_name(cfg, name), config.account_label({"providers": {name: {
+            "name": config.provider_name(cfg, name), "accounts": listed}}}, name, fresh),
+            ("more", name, listed)))
+    offers += [(company_name(shipped, name), config.provider_name(shipped, name),
+                ("new", name, None)) for name in shipped.get("providers") or {}
+               if name not in cfg["providers"]
+               and hosts.keys().isdisjoint(config.provider_harnesses(shipped, name))]
+    offers += [(label, "another provider", ("through", harness, None))
+               for harness, label in hosts.items()]
+    rows, here, top = [("row", number) for number in range(len(offers))], ("row", 0), 0
     while True:       # Esc in a harness's list comes back here, that harness highlighted
-        picked = terminal.choose([*labels, *through, *more], picked, around=around)
-        if picked is None:
+        body, places, at = [], {}, None if terminal.away() else here
+        room = terminal.layout_width()
+        # wrapped, so a line the terminal would wrap never moves the next under another's place
+        for number, (company, row, _) in enumerate(offers):
+            body += [terminal.styled(part, "bold") for part in terminal.wrap(company, room)]
+            for line, part in enumerate(terminal.wrap(row, room - 2)):
+                places[len(body)] = (("row", number), [])
+                body.append(terminal.highlight(f"  {part}", mark=not line)
+                            if at == ("row", number) else f"  {part}")
+        act, here, _, top = matrix_key("config · add a subscription", body, places, rows, here,
+                                       top, "", terminal.keys("esc back", enter="add"))
+        if act == "back":
             return ""
-        if picked not in through:
+        if act != "enter" or not offers:
+            continue
+        _, picked, (kind, name, listed) = offers[here[1]]
+        if kind != "through":
             break
-        harness = through[picked]
-        failed = _adapter_verbs(keyboard, harness, () if config.harness_present(harness)
+        failed = _adapter_verbs(keyboard, name, () if config.harness_present(name)
                                 else ("install",), picked)
         if not failed:
             try:
-                config_add(cfg, keyboard, through=harness)
+                config_add(cfg, keyboard, through=name)
             except Back:
                 continue
         return failed
-    if picked in more:
-        return _add_subscription(cfg, keyboard, *more[picked], picked)
-    name = labels[picked]
+    if kind == "more":
+        return _add_subscription(cfg, keyboard, name, listed, picked)
     try:
         harness, first = config.provider_harness(shipped, name)
     except config.Error as exc:
@@ -5311,8 +5315,8 @@ def subscription_acts(cfg, keyboard, number):
 # The owner chose this layout on 26 Oct 2026, so the details stay calm until pointed at.
 @terminal.clicks_its_own
 def config_subscriptions(cfg, keyboard, number=None):
-    """`Subscriptions` on `c`: each subscription under its company (COMPANIES), named bold as `c`
-    names a harness, as the main screen draws it (usage_lines), then `+ add a subscription`
+    """`Subscriptions` on `c`: each subscription under its company (company_name), named bold as
+    `c` names a harness, as the main screen draws it (usage_lines), then `+ add a subscription`
     (config_add_provider), opened on the row of subscription `number`, from 1 in `cfg`'s
     usage_rows order, as Enter or a click on its meter opens it, on the ak screen, `c` and a
     new seat's models alike, else on the first.  The row the keys or the pointer are on
@@ -5367,9 +5371,7 @@ def _subscriptions(cfg, keyboard, whose):
         body, places, acts, moves = [], {}, {}, []
         for number, ((name, _, prov, account), line) in enumerate(zip(subs, drawn), 1):
             if number == 1 or subs[number - 2][0] != name:
-                company = (COMPANIES[name].split(" / ")[0] if name in COMPANIES
-                           else config.provider_name(cfg, name))
-                body.append(terminal.styled(company, "bold"))
+                body.append(terminal.styled(company_name(cfg, name), "bold"))
             # the row, all its line its own cell leaves, comes under the pointer to open its acts;
             # it has no band, its acts being what Enter and a click act on (terminal.under)
             row = [(1, width, None)]

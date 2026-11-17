@@ -59,7 +59,7 @@ class AddSubscriptionEscBackOneList(unittest.TestCase):
 
     def test_esc_goes_back_to_the_first_list_then_subscriptions(self):
         self.term.keys("Escape")
-        self.assertEqual(title(self.on("OpenCode", "open")), ADD)
+        self.assertEqual(title(self.on("another provider", "add")), ADD)
         self.term.keys("Escape")
         self.term.wait(lambda screen: title(screen) == PAGE)
 

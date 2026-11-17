@@ -54,10 +54,11 @@ USUAL = {".claude/settings.json": "{}", ".claude/projects/.keep": "",
 
 
 def offered(screen):
-    """The rows a list offers, the highlight's mark off them."""
+    """The rows a list offers, the highlight's mark off them: its lines two cells in, under the
+    names of their companies."""
     shown = lines(screen)
     end = next((number for number, line in enumerate(shown) if line.startswith(KEYS)), 2)
-    return [line[2:] for line in shown[2:end] if line[2:]]
+    return [line[2:] for line in shown[2:end] if line[:2] in ("  ", "› ") and line[2:]]
 
 
 def on_page(screen):
@@ -143,7 +144,7 @@ class UnfinishedSignInLeavesNothing(unittest.TestCase):
     def test_a_provider_the_config_lacks_leaves_nothing_either(self):
         self.open({"fable": "claude"})
         before = files(self.home)
-        self.add_quitting("OpenAI / Codex")
+        self.add_quitting("ChatGPT")
         self.assertEqual(files(self.home), before)
 
     def test_an_add_ended_while_what_its_sign_in_said_waits_leaves_nothing_either(self):

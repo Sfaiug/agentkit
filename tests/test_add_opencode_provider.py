@@ -1,10 +1,10 @@
-"""`+ add a subscription` offers OpenCode, then every model OpenCode runs now, as its own
-`/models` lists them, and after them every provider it can log in to; a picked provider is logged
-in on the terminal and its models join the list.  A model and an effort picked are added with the
-provider's table -- the shipped one where the shipped default has it, else the mode OpenCode's
-prices say, under the name OpenCode gives it, but its own provider's, which is OpenCode -- so
-nothing is typed into ak but what `/` finds in a list.  No second OpenCode login is offered: it
-keeps one.
+"""`+ add a subscription` offers `another provider` under OpenCode, then every model OpenCode
+runs now, as its own `/models` lists them, and after them every provider it can log in to; a
+picked provider is logged in on the terminal and its models join the list.  A model and an effort
+picked are added with the provider's table -- the shipped one where the shipped default has it,
+else the mode OpenCode's prices say, under the name OpenCode gives it, but its own provider's,
+which is OpenCode -- so nothing is typed into ak but what `/` finds in a list.  No second
+OpenCode login is offered: it keeps one.
 
 Each test runs `menu.show_config` with a real `terminal.Keyboard` in a child process on a pty of
 its own, through tests/test_config_matrix.py's Screen, in a temporary HOME.  OpenCode's adapter
@@ -79,13 +79,13 @@ def listed(lines):
             if re.match(r"[ ›]   \S", line)]
 
 
-def through(screen):
-    """`+ add`, then OpenCode: the screen once its models and providers are listed."""
+def through(screen, where=lambda lines: "  model" in lines and listed(lines)):
+    """`+ add`, then `another provider`, OpenCode's, its last row: the screen `where` accepts
+    under it, by default once its models and providers are listed."""
     open_providers(screen)
-    _, offered = pick(screen, ENTER, ADD, 6)
-    screen.case.assertEqual(offered[4], "  OpenCode")
-    return screen.press(DOWN * 4 + ENTER, lambda lines: title(lines) == THROUGH
-                        and "  model" in lines and listed(lines))
+    pick(screen, ENTER, ADD)
+    screen.press(DOWN * 20, lambda lines: "› another provider" in lines)
+    return screen.press(ENTER, lambda lines: title(lines) == THROUGH and where(lines))
 
 
 def verbs(screen):
@@ -168,8 +168,9 @@ class AddOpenCodeProvider(unittest.TestCase):
         lines = open_providers(screen)
         self.assertEqual(sorted(subscriptions(lines)), ["Claude", "MiMo"])
         mark = len(screen.text())
-        _, offered = pick(screen, ENTER, ADD, 6)
-        self.assertEqual(offered[4:], ["  OpenCode", "  Claude II"])
+        _, offered = pick(screen, ENTER, ADD)
+        self.assertEqual(offered, ["› Claude II", "  ChatGPT", "  Muse", "  Grok", "  Gemini",
+                                   "  another provider"])
         for name in ("OpenCode II", "MiMo II"):
             self.assertNotIn(name, screen.text()[mark:])
         screen.press(ESC, lambda lines: title(lines) == PAGE)
@@ -238,10 +239,8 @@ class AddOpenCodeProvider(unittest.TestCase):
                              "config.catalog = lambda *_: threading.Event().wait()\n"
                              "update.version =")
         screen = Screen(self, child=held, text=ONE)
-        open_providers(screen)
-        pick(screen, ENTER, ADD, 6)
-        screen.press(DOWN * 4 + ENTER, lambda lines: title(lines) == THROUGH
-                     and any("reading the models opencode offers" in line for line in lines))
+        through(screen, lambda lines: any("reading the models opencode offers" in line
+                                          for line in lines))
         screen.press(ESC, lambda lines: title(lines) == ADD)
 
 

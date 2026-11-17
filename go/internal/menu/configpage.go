@@ -67,6 +67,7 @@ type PageFrame struct {
 	at    pageEntry   // what the keys are on
 	page  int         // how many lines of rows are shown
 	lines []pageEntry // each line's
+	width int         // the layout's: a row is under the pointer to its last column (terminal.under)
 
 	arrows []pageArrow // the lit row's
 }
@@ -88,7 +89,7 @@ func (f PageFrame) Arrow(mouse terminal.Mouse) int {
 }
 
 // A pageEntry is a page's row, or a choice of the list open under it; choice -1 for the row, and
-// typedIn for the field open under it.
+// typedIn for the field open under it.  Row -1 is a line of no row: a company's name over its rows.
 type pageEntry struct{ row, choice int }
 
 const typedIn = -2
@@ -97,7 +98,7 @@ const typedIn = -2
 // every row.
 func (f PageFrame) Hit(mouse terminal.Mouse) (row, choice int, ok bool) {
 	line := f.Top + mouse.Row - 3 // the rows start on the screen's third row, under the header
-	if mouse.Row < 3 || line >= min(len(f.lines), f.Top+f.page) {
+	if mouse.Row < 3 || line >= min(len(f.lines), f.Top+f.page) || f.lines[line].row < 0 || mouse.Column > f.width {
 		return 0, -1, false
 	}
 	return f.lines[line].row, f.lines[line].choice, true
@@ -112,7 +113,7 @@ func (f PageFrame) Step(step int) (row, choice, top int) {
 	}
 	var through []pageEntry // what the keys move through, each once: the open list's choices, else the rows
 	for _, line := range f.lines {
-		if (line.choice >= 0) == (f.at.choice >= 0) && !slices.Contains(through, line) {
+		if line.row >= 0 && (line.choice >= 0) == (f.at.choice >= 0) && !slices.Contains(through, line) {
 			through = append(through, line)
 		}
 	}
@@ -365,5 +366,5 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	shown := min(len(body), top+page)
 	title := "config · " + view.Name
 	return PageFrame{comeUp(s, Panel(s, title, view.Clock, append(slices.Clone(body[top:shown]), under...), keys), title, clock.Risen()),
-		top, at, page, lines, arrows}
+		top, at, page, lines, s.LayoutWidth(), arrows}
 }

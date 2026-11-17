@@ -114,7 +114,7 @@ class UsageFollowsConfigOnDisk(unittest.TestCase):
         owner.wait("› + add a subscription")
         owner.keys("Enter")
         offered = owner.wait(lambda screen: title(screen) == ADD and "ChatGPT II" in screen)
-        rows = [line[2:] for line in lines(offered)[2:] if line[2:]]
+        rows = [line[2:] for line in lines(offered)[2:] if line[:2] in ("  ", "› ")]
         owner.keys(*["Down"] * rows.index("ChatGPT II"), "Enter")
         owner.wait(lambda screen: title(screen) == PAGE and "› ChatGPT II" in screen)
         self.read_as_on_disk()

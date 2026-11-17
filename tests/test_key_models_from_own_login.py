@@ -103,7 +103,8 @@ class ModelsFromOwnLogin(unittest.TestCase):
         self.to("+ add a subscription")
         self.term.keys("Enter")
         rows = offered(self.term.wait(lambda screen: title(screen) == ADD
-                                      and LIST_KEYS in lines(screen) and "Claude II" in screen))
+                                      and LIST_KEYS in lines(screen) and offered(screen)
+                                      and "Claude II" in offered(screen)))
         self.term.keys(*["Down"] * rows.index("Claude II"), "Enter")
         self.term.wait(lambda screen: title(screen) == PAGE and "Claude II" in screen)
         self.term.keys("Escape")

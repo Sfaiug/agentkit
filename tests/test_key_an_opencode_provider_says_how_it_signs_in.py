@@ -77,8 +77,8 @@ class OpenCodeProviderSaysHowItSignsIn(unittest.TestCase):
         self.to("+ add a subscription")
         self.term.keys("Enter")
         self.term.wait(lambda screen: title(screen) == ADD
-                       and row_at(screen, "OpenCode") is not None)
-        self.to("OpenCode")
+                       and row_at(screen, "another provider") is not None)
+        self.to("another provider")                   # OpenCode's
         self.term.keys("Enter")
 
     def to(self, row):

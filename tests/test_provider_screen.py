@@ -188,11 +188,11 @@ def choices(screen, after, count):
     return screen.until(ready, f"{count} choices")
 
 
-def pick(screen, keys, where, count):
-    """`keys`, then the screen named `where` and the `count` choices listed on it."""
-    mark = len(screen.text())
+def pick(screen, keys, where):
+    """`keys`, then the screen named `where` and the rows it lists under their companies' names,
+    as drawn: two cells in, `›` on the lit one."""
     lines = screen.press(keys, lambda lines: title(lines) == where)
-    return lines, choices(screen, mark, count)
+    return lines, [line for line in lines[2:lines.index("", 2)] if line[:2] in ("  ", "› ")]
 
 
 class ProviderScreen(unittest.TestCase):
@@ -201,11 +201,11 @@ class ProviderScreen(unittest.TestCase):
         home = screen.path.parent.parent
         lines = open_providers(screen)
         self.assertEqual(subscriptions(lines), ["Claude"])
-        lines, offered = pick(screen, ENTER, ADD, 6)
+        lines, offered = pick(screen, ENTER, ADD)
         self.assertEqual(lines[-1], KEYS["list"])
-        self.assertEqual(offered[:3], ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build"])
+        self.assertEqual(offered[3], "  Grok")
         mark = len(screen.text())
-        lines = screen.press(DOWN * 2 + ENTER, lambda lines: title(lines) == PAGE)
+        lines = screen.press(DOWN * 3 + ENTER, lambda lines: title(lines) == PAGE)
         # install, because grok was nowhere; then login, on the terminal given back for it,
         # then whether it has that login now, then whose login it is, for the line its row opens
         self.assertEqual((home / "verbs.log").read_text().split("\n"),
@@ -229,8 +229,9 @@ class ProviderScreen(unittest.TestCase):
         self.assertEqual(providers(lines), ["Claude", "Grok"])
         # a program already there is logged in and never installed
         open_providers(screen)
-        pick(screen, ENTER, ADD, 6)
-        screen.press(ENTER,
+        _, offered = pick(screen, ENTER, ADD)
+        self.assertEqual(offered[:3], ["› Claude II", "  Grok II", "  ChatGPT"])
+        screen.press(DOWN * 2 + ENTER,
                      lambda lines: title(lines) == PAGE and "ChatGPT" in subscriptions(lines))
         self.assertEqual((home / "verbs.log").read_text().split("\n")[4:],
                          ["codex login", "codex auth", "codex login-end", ""])
@@ -245,8 +246,8 @@ class ProviderScreen(unittest.TestCase):
     def test_an_added_provider_s_usage_model_names_the_model_it_added(self):
         screen = Screen(self, child=CHILD, text=ONE)
         open_providers(screen)
-        pick(screen, ENTER, ADD, 6)
-        screen.press(DOWN + ENTER,
+        pick(screen, ENTER, ADD)
+        screen.press(DOWN * 2 + ENTER,
                      lambda lines: title(lines) == PAGE and "Muse" in subscriptions(lines))
         saved = screen.saved()
         self.assertEqual(saved["providers"]["meta"], fresh("meta", saved))
@@ -260,9 +261,9 @@ class ProviderScreen(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=ONE + spark)
         open_providers(screen)
         before = screen.path.read_bytes()
-        pick(screen, ENTER, ADD, 6)
-        screen.press(DOWN + ENTER, lambda lines: "Meta / Muse adds its model as spark, and a "
-                                                 "model has that name; nothing added" in lines[-3])
+        pick(screen, ENTER, ADD)
+        screen.press(DOWN * 2 + ENTER, lambda lines: "Muse adds its model as spark, and a model "
+                                                     "has that name; nothing added" in lines[-3])
         self.assertEqual(screen.path.read_bytes(), before)
         back(screen)
         screen.leave()
@@ -271,20 +272,23 @@ class ProviderScreen(unittest.TestCase):
     def test_a_provider_already_added_is_not_offered(self):
         screen = Screen(self, child=CHILD, text=ONE)
         open_providers(screen)
-        _, offered = pick(screen, ENTER, ADD, 6)
-        self.assertEqual(offered, ["› OpenAI / Codex", "  Meta / Muse", "  xAI / Grok Build",
-                                   "  Google / Antigravity", "  OpenCode", "  Claude II"])
+        # one more of the config's, then the shipped ones it has not, each under its company,
+        # then OpenCode
+        lines, _ = pick(screen, ENTER, ADD)
+        self.assertEqual(lines[2:-2], ["Anthropic", "› Claude II", "OpenAI", "  ChatGPT",
+                                       "Meta", "  Muse", "xAI", "  Grok", "Google", "  Gemini",
+                                       "OpenCode", "  another provider"])
         screen.press(ESC, lambda lines: title(lines) == PAGE)
         back(screen)
         screen.leave()
-        # with every shipped provider added, OpenCode -- any provider it logs in to -- and
-        # another subscription of each but MiMo, whose OpenCode keeps one login, are offered
+        # with every shipped provider added, another subscription of each but MiMo, whose
+        # OpenCode keeps one login, and OpenCode -- any provider it logs in to -- are offered
         screen = Screen(self, child=CHILD)
         open_providers(screen)
         before, mark = screen.path.read_bytes(), len(screen.text())
-        _, offered = pick(screen, ENTER, ADD, 6)
-        self.assertEqual(offered, ["› OpenCode", "  Claude II", "  ChatGPT II", "  Muse II",
-                                   "  Grok II", "  Gemini II"])
+        _, offered = pick(screen, ENTER, ADD)
+        self.assertEqual(offered, ["› Claude II", "  ChatGPT II", "  Muse II", "  Grok II",
+                                   "  Gemini II", "  another provider"])
         self.assertNotIn("MiMo II", screen.text()[mark:])
         screen.press(ESC, lambda lines: title(lines) == PAGE)
         back(screen)
@@ -431,12 +435,17 @@ class ProviderScreen(unittest.TestCase):
             self.assertLessEqual(terminal.cells(line), 40, line)
         back(screen)
         screen.leave()
-        screen = Screen(self, child=CHILD, text=ONE, rows=24, cols=40)
+        # a provider of the owner's own, its name and its row each wider than the phone
+        name = '\nname = "Acme Enterprise Coding Subscription Plan Plus"'
+        long = ONE.replace("anthropic", "acme").replace('subscription"', 'subscription"' + name)
+        screen = Screen(self, child=CHILD, text=long, rows=24, cols=40)
         open_providers(screen)
-        lines, offered = pick(screen, ENTER, "agentkit · add a subscription", 6)   # config shed
-        for line in lines + offered:
+        lines, offered = pick(screen, ENTER, "agentkit · add a subscription")   # config shed
+        for line in lines:
             self.assertLessEqual(terminal.cells(line), 40, line)
-        self.assertEqual(offered[-2], "  OpenCode")
+        self.assertEqual(lines[2:6], ["Acme Enterprise Coding Subscription Plan", "Plus",
+                                      "› Acme Enterprise Coding Subscription", "  Plan Plus II"])
+        self.assertEqual(offered[-1], "  another provider")
         screen.press(ESC, lambda lines: title(lines) == PAGE)
         back(screen)
         screen.leave()

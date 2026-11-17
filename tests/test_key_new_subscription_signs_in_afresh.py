@@ -27,7 +27,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
-LIST_KEYS = "  ↑↓←→ move   ⏎ add   esc back"     # on its first row, a provider
+LIST_KEYS = "  ↑↓←→ move   ⏎ add   esc back"     # on every row
 PAGE, ADD = "agentkit · config · subscriptions", "agentkit · config · add a subscription"
 
 
@@ -47,10 +47,12 @@ def row_at(screen, row, mark="[› ]"):
 
 
 def offered(screen):
-    """The rows the list offers, the highlight's mark off them: every line under the rule down
-    to the blank one over its keys, one not drawn yet blank."""
+    """The rows the list offers, the highlight's mark off them, its companies' names over them
+    no rows: of the lines under the rule down to the blank one over its keys, those two cells
+    in; None while one is not drawn yet, blank."""
     shown = lines(screen)
-    return [line[2:] for line in shown[2:shown.index(LIST_KEYS) - 1]]
+    page = shown[2:shown.index(LIST_KEYS) - 1]
+    return None if "" in page else [line[2:] for line in page if line[:2] in ("  ", "› ")]
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -92,11 +94,9 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         """`+ add a subscription`, and the rows it offers, `row` among them when one is named."""
         self.to("+ add a subscription")
         self.term.keys("Enter")
-        # every row drawn, and `row` whole: its frame comes first with them blank, then they go
-        # in a line at a time, and the last one read can be half written
+        # every row drawn, and `row` whole: the last one read can be half written
         return offered(self.term.wait(lambda screen: title(screen) == ADD
                                       and LIST_KEYS in lines(screen) and offered(screen)
-                                      and "" not in offered(screen)
                                       and "+ add a subscription" not in offered(screen)
                                       and (row is None or row in offered(screen))))
 
@@ -110,7 +110,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
 
     def test_a_provider_the_config_lacks_signs_in_under_a_new_account_and_lists_only_it(self):
         self.open({"fable": "claude"})
-        self.pick("OpenAI / Codex")
+        self.pick("ChatGPT")
         self.term.wait(lambda screen: title(screen) == PAGE and "ChatGPT" in screen)
         [account] = self.logins("codex")
         self.assertTrue(account)                         # never the usual login
@@ -123,11 +123,11 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         self.open({"fable": "claude"})
         before = self.config.read_text()
         self.fakes["codex"].answer("login", "<refused>", 1)
-        self.pick("OpenAI / Codex")
+        self.pick("ChatGPT")
         self.term.wait("<refused>")
         self.term.keys("Enter")                           # what it said read
         self.term.wait(lambda screen: title(screen) == PAGE
-                       and "Codex login did not finish; OpenAI / Codex is not added" in screen)
+                       and "Codex login did not finish; ChatGPT is not added" in screen)
         [account] = self.logins("codex")
         self.assertTrue(account)
         self.assertEqual(self.config.read_text(), before)
@@ -135,7 +135,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
     def test_each_sign_in_opens_on_a_screen_of_its_own(self):
         self.open({"fable": "claude"})
         self.fakes["codex"].answer("login", "<codex says>", 1)
-        self.pick("OpenAI / Codex")
+        self.pick("ChatGPT")
         self.term.wait("<codex says>")
         self.term.keys("Enter")
         self.term.wait(lambda screen: title(screen) == PAGE and "is not added" in screen)
@@ -146,24 +146,24 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
     def test_ctrl_c_ends_a_sign_in_and_not_the_menu(self):
         self.open({"fable": "claude"})
         self.fakes["codex"].answer("login", "<enter the code>", None)   # as codex's device code
-        self.pick("OpenAI / Codex")
+        self.pick("ChatGPT")
         self.term.wait("<enter the code>")
         self.term.keys("C-c")
         self.term.wait(lambda screen: "<enter the code>" in screen and "esc back" in screen)
         self.term.keys("Enter")
         self.term.wait(lambda screen: title(screen) == PAGE
-                       and "Codex login did not finish; OpenAI / Codex is not added" in screen)
+                       and "Codex login did not finish; ChatGPT is not added" in screen)
 
     def test_a_sign_in_that_exits_0_with_no_login_adds_nothing(self):
         self.open({"fable": "claude"})
         before = self.config.read_text()
         self.fakes["codex"].answer("login", "<cut short>", 0)        # as codex 0.163's on ^C
         self.fakes["codex"].answer("auth", "<no login>", 1)
-        self.pick("OpenAI / Codex")
+        self.pick("ChatGPT")
         self.term.wait(lambda screen: "<cut short>" in screen and "esc back" in screen)
         self.term.keys("Enter")
         self.term.wait(lambda screen: title(screen) == PAGE
-                       and "Codex login did not finish; OpenAI / Codex is not added" in screen)
+                       and "Codex login did not finish; ChatGPT is not added" in screen)
         self.assertEqual(self.config.read_text(), before)
 
     def test_a_second_subscription_signs_in_under_a_new_account(self):
@@ -191,7 +191,7 @@ class NewSubscriptionSignsInAfresh(unittest.TestCase):
         saved = akconfig.read(self.home)["providers"]
         self.assertEqual((saved["anthropic"]["accounts"], "openai" in saved), (["default"], False))
         rows = self.add_list()
-        self.assertIn("OpenAI / Codex", rows)
+        self.assertIn("ChatGPT", rows)
         self.assertFalse([row for row in rows if row.startswith("Use ")], rows)
 
 

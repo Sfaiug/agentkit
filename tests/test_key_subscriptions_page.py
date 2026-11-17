@@ -137,7 +137,7 @@ class SubscriptionsPage(unittest.TestCase):
         self.term.wait(PAGE_KEYS.format("open"))           # on `+ add a subscription`
         self.term.keys("Enter")
         offered = self.term.wait(lambda screen: title(screen) == ADD and "Claude III" in screen)
-        rows = [line[2:] for line in lines(offered)[2:] if line[2:]]
+        rows = [line[2:] for line in lines(offered)[2:] if line[:2] in ("  ", "› ")]  # no heading
         self.term.keys(*["Down"] * rows.index("Claude III"), "Enter")
         added = self.term.wait(lambda screen: title(screen) == PAGE and "› Claude III" in screen)
         self.assertEqual(body(added)[3:], [

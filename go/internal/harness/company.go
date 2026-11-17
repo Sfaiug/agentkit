@@ -2,7 +2,6 @@ package harness
 
 import (
 	"cmp"
-	"strings"
 	"unicode"
 
 	"agentkit/internal/config"
@@ -49,16 +48,10 @@ func capitalised(name string) string {
 	return string(out)
 }
 
-// Maker is the company a shipped provider is and the harness it runs on, as `+ add a subscription`
-// offers it, Python's menu.COMPANIES: "" for one shipped with none.
-func Maker(provider string) string {
-	return map[string]string{"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex", "meta": "Meta / Muse",
-		"xai": "xAI / Grok Build", "google": "Google / Antigravity"}[provider]
-}
-
-// Heading is the company a shipped provider's subscriptions sit under on Subscriptions, its Maker
-// without the harness: "" for one shipped with none, headed by its name.
-func Heading(provider string) string {
-	company, _, _ := strings.Cut(Maker(provider), " / ")
-	return company
+// Heading is what provider's subscriptions sit under, bold, on Subscriptions and on `+ add a
+// subscription` alike, Python's menu.company_name: its company where it is shipped with one
+// (menu.COMPANIES), else name, its own.
+func Heading(provider, name string) string {
+	return cmp.Or(map[string]string{"anthropic": "Anthropic", "openai": "OpenAI", "meta": "Meta", "xai": "xAI",
+		"google": "Google"}[provider], name)
 }
