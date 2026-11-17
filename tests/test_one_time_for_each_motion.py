@@ -80,9 +80,12 @@ class OneTime(Screens):
         """Opus's effort on `c` for fix-api stepped onto the highest the catalog lists (`seen`)."""
         config.change_efforts("fix-api", lambda data: config.orchestrating_at(
             self.cfg["models"], data, "opus", CATALOG["claude-opus-5-5"][-2]))
-        return self.seen([None] * 4 + [Key("down"), Key("right"), Key("space"),
+        seen = self.seen([None] * 4 + [Key("down"), Key("right"), Key("space"),
                                        *self.moments(0.09, 0.1, 0.44, 0.45, REST)],
                          lambda: menu.show_config(False, Keyboard(), "fix-api"))
+        self.assertEqual(config.load_session(self.cfg, "fix-api")["efforts"]["opus"]["effort"],
+                         CATALOG["claude-opus-5-5"][-1])    # applied once the page has closed
+        return seen
 
     def test_what_comes_up_takes_150_ms(self):
         with self.subTest("the line under a row the highlight comes to"):

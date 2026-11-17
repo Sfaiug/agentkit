@@ -81,9 +81,10 @@ class AMoveInPlaceAsksNoLogin(unittest.TestCase):
     def test_an_effort_step_on_its_own_model_runs_no_auth(self):
         pid = self.pid()
         self.term.keys("Right", "Space")    # Opus 5.5's orchestrator effort
-        self.assertEqual(self.seat.wait_lines(1), ["/effort max"])
         self.term.wait(lambda screen: any(line.lstrip("› ").startswith("Opus 5.5")
                                           and line.split()[5] == "max" for line in rows(screen)))
+        self.term.keys("Escape")            # the page applies it as it closes
+        self.assertEqual(self.seat.wait_lines(1), ["/effort max"])
         self.assertEqual(self.record()["efforts"]["opus"]["effort"], "max")
         self.assertEqual(self.pid(), pid)
         self.assertEqual(self.fakes["claude"].calls("auth"), [])
@@ -97,7 +98,7 @@ class AMoveInPlaceAsksNoLogin(unittest.TestCase):
         screen = self.term.wait(lambda screen: "  Fable 5.1: Claude is signed out"
                                 in rows(screen))
         self.assertNotIn(f"  Restart {SEAT} on Fable 5.1?", rows(screen))
-        self.term.keys("Up", "Right", "Space")   # Opus 5.5's orchestrator effort
+        self.term.keys("Up", "Right", "Space", "Escape")    # Opus's effort, refused as it closes
         screen = self.term.wait(lambda screen: "  Opus 5.5: Claude is signed out"
                                 in rows(screen))
         self.assertNotIn(f"  Restart {SEAT} on Opus 5.5 at max?", rows(screen))

@@ -12,6 +12,8 @@ import (
 	"agentkit/internal/seat"
 )
 
+// Steps are held, the record left as it is, till the page applies the last of them in one write;
+// a restart Go does not carry is handed off.
 func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake adapter is a shell script")
@@ -52,20 +54,35 @@ func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testin
 	}
 	put(record, `{"orchestrator":"one","workers":["one"],"reviewers":["one"],"conversation":"second","custom":17,"efforts":{"one":{"effort":"high","review_effort":"medium"}}}`)
 	configBefore, _ := os.ReadFile(path)
+	c.Held = map[[2]string][2]string{}
+	before, _ := os.ReadFile(record)
 	for _, word := range []string{"low", "high", "low"} {
-		if note, known := stepConfigEffort(c, "acme", 0, 4, -1, unasked(t)); !known || note != "" {
-			t.Fatalf("step: %q, %v", note, known)
+		if note, known := stepConfigEffort(c, "acme", 0, 4, -1); !known || note != "" || c.Effort("one", 1) != word {
+			t.Fatalf("step past the adapter: %q, %v, %s", note, known, c.Effort("one", 1))
 		}
-		saved, err := run.ReadJSON(record)
-		if err != nil || saved.Str("conversation") != "second" || saved.Get("custom") != run.Number("17") || saved.Dict("efforts").Dict("one").Str("review_effort") != "medium" || c.Effort("one", 1) != word {
-			t.Fatalf("stepped past the adapter or lost record values: %s, %v", run.Line(saved), err)
-		}
-		if saved.Dict("efforts").Dict("one").Has("exec_effort") != (word != "high") {
-			t.Fatal("a build effort at the base effort did not follow it again")
+		if after, _ := os.ReadFile(record); !bytes.Equal(after, before) {
+			t.Fatalf("a held step rewrote the record: %s", after)
 		}
 	}
-	before, _ := os.ReadFile(record)
-	if note, known := stepConfigEffort(c, "acme", 0, 3, -1, unasked(t)); known || note != "" {
+	if note, known := applyConfigHeld(c, "acme", unasked(t)); !known || note != "" {
+		t.Fatalf("apply: %q, %v", note, known)
+	}
+	saved, err := run.ReadJSON(record)
+	if err != nil || saved.Str("conversation") != "second" || saved.Get("custom") != run.Number("17") ||
+		!run.Equal(saved.Dict("efforts").Dict("one"), run.Fields("effort", "high", "review_effort", "medium", "exec_effort", "low")) {
+		t.Fatalf("applied other than the last step or lost record values: %s, %v", run.Line(saved), err)
+	}
+	if len(c.Held) != 0 {
+		t.Fatal("the page holds what it applied")
+	}
+	// stepped back to the effort it follows, the build effort follows it again
+	stepConfigEffort(c, "acme", 0, 4, 1)
+	if applyConfigHeld(c, "acme", unasked(t)); readEfforts(t, record).Dict("one").Has("exec_effort") {
+		t.Fatal("a build effort at the base effort did not follow it again")
+	}
+	before, _ = os.ReadFile(record)
+	stepConfigEffort(c, "acme", 0, 3, -1)
+	if note, known := applyConfigHeld(c, "acme", unasked(t)); known || note != "" {
 		t.Fatalf("restart was not handed off: %q, %v", note, known)
 	}
 	if after, _ := os.ReadFile(record); !bytes.Equal(after, before) {
@@ -76,9 +93,9 @@ func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testin
 	}
 }
 
-// A step Go does not carry is Python's: onto a model the model list turned off, which Python's
-// switch plan refuses before anything else, or into a running harness Go types nothing into.  Go
-// writes nothing and owes nothing, the seat's harness running as it does.
+// A step Go does not carry, applied, is Python's: onto a model the model list turned off, which
+// Python's switch plan refuses before anything else, or into a running harness Go types nothing
+// into.  Go writes nothing and owes nothing, the seat's harness running as it does.
 func TestAStepGoDoesNotCarryIsHandedOff(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fakes are shell scripts")
@@ -135,7 +152,9 @@ esac
 			}
 			c.Levels["mid"] = []string{"high", "max"}
 			before, _ := os.ReadFile(record)
-			if note, known := stepConfigEffort(c, "acme", 0, 3, -1, unasked(t)); known || note != "" {
+			c.Held = map[[2]string][2]string{}
+			stepConfigEffort(c, "acme", 0, 3, -1)
+			if note, known := applyConfigHeld(c, "acme", unasked(t)); known || note != "" {
 				t.Fatalf("the step was not handed off: %q, %v", note, known)
 			}
 			if after, _ := os.ReadFile(record); !bytes.Equal(after, before) {
@@ -149,6 +168,15 @@ esac
 }
 
 // unasked is a card no step may ask on: one handed off asks nothing.
+func readEfforts(t *testing.T, record string) *run.Object {
+	t.Helper()
+	saved, err := run.ReadJSON(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return saved.Dict("efforts")
+}
+
 func unasked(t *testing.T) seatCard {
 	return func(question, _ string, _ bool) (bool, bool) {
 		t.Fatalf("asked %q", question)

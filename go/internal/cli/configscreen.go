@@ -21,12 +21,17 @@ import (
 
 // menuConfig uses the popup's seat, never the main screen's highlighted row. An ordinary
 // window edits what new seats take, and `a` gives them to the seats `main` reads as rows.
-// False leaves a key beyond this milestone to the shadow build.
+// False leaves a key beyond this milestone to the shadow build.  A seat's page holds each effort
+// stepped on it till it closes, or a model is picked on it, which first applies what it holds
+// (applyConfigHeld), as Python's config_matrix: the owner, 17 Nov 2026, "see the closing of the
+// hover menu as kind of like 'apply'".
 func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	c, err := matrix.Configured()
 	if err != nil || len(c.Names) == 0 {
 		return false
 	}
+	held := map[[2]string][2]string{}
+	c.Held = held
 	view := menu.ConfigView{Matrix: c, Scope: "new seats", Fresh: session == "", Cells: cells, Version: update.AgentkitVersion()}
 	if view.Version == "" {
 		view.Version = "?"
@@ -55,6 +60,13 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		keyboard.Drop()
 	}
 	defer painter.Forget()
+	defer func() {
+		// however else the page ends, as closing it does, it applies what it still holds: a page
+		// Python takes over from here holds nothing of it
+		if c != nil {
+			applyConfigHeld(c, session, cardOn(session, &view, keyboard, painter))
+		}
+	}()
 	nextKey := followSeat(session, keyboard)
 	drawn := -1 // the row the last draw highlighted
 	clock := &motion.Clock{}
@@ -108,7 +120,16 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		level := -1
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
-			return true
+			// closing applies what the page holds; what that could not do keeps it open, said
+			note, known := applyConfigHeld(c, session, cardOn(session, &view, keyboard, painter))
+			if !known {
+				return false
+			}
+			if note == "" {
+				return true
+			}
+			view.Note = note
+			continue
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
 			view.Row = max(frame.First, view.Row-1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
@@ -154,7 +175,10 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 				view.Away = true
 			}
 		case key.Name == "char" && key.Char == "r":
-			if !menuModels(session, c, keyboard, painter) {
+			c.Held = nil // what each role uses is the record's, nothing held over it (menu.models_screen)
+			known := menuModels(session, c, keyboard, painter)
+			c.Held = held
+			if !known {
 				return false
 			}
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
@@ -194,6 +218,7 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			if err != nil {
 				return false
 			}
+			c.Held = held
 			if err := catalogs.read(c); err != nil {
 				return err == context.Canceled
 			}
@@ -213,9 +238,18 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 		}
 		if view.Column >= 3 {
 			var known bool
-			if view.Note, known = stepConfigEffort(c, session, view.Row, view.Column, level, cardOn(session, &view, keyboard, painter)); !known {
+			if view.Note, known = stepConfigEffort(c, session, view.Row, view.Column, level); !known {
 				return false
 			}
+			continue
+		}
+		// a model picked applies what the page holds first, as closing does, and what that could
+		// not do stops it, said; it flips the marks as drawn, and the orchestrator's own, above,
+		// picks nothing
+		mark := c.Mark(c.Names[view.Row], view.Column)
+		if view.Note, known = applyConfigHeld(c, session, cardOn(session, &view, keyboard, painter)); !known {
+			return false
+		} else if view.Note != "" {
 			continue
 		}
 		if view.Column == 0 && session != "" {
@@ -224,7 +258,6 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			}
 			continue
 		}
-		mark := c.Mark(c.Names[view.Row], view.Column)
 		var changed *run.Object
 		if session != "" {
 			changed, err = seat.SaveMarks(session, mark)

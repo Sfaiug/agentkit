@@ -65,20 +65,22 @@ class ModelRowsFold(unittest.TestCase):
         self.term.wait(lambda screen: opus(screen)[0][2:] == ["    builds   [■]medium",
                                                               "    reviews   ■ medium"])
         self.term.keys("Right", "Space")
-        self.stepped_to(exec_effort="high")
         self.term.wait(lambda screen: opus(screen)[0][1:] == ["    orch      ● medium",
                                                               "    builds    ■ high",
                                                               "    reviews   ■ medium"])
+        self.term.keys("Escape")        # the page applies it as it closes
+        self.stepped_to(exec_effort="high")
 
     def test_a_click_on_a_folded_effort_steps_that_role_alone(self):
         shown, label = opus(self.term.screen())
         column = shown[3].index("medium") + 1
         row = label + 3
         self.term.type(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m")
-        self.stepped_to(review_effort="high")
         self.term.wait(lambda screen: opus(screen)[0][1:] == ["    orch      ● medium",
                                                               "    builds    ■ medium",
                                                               "    reviews   ■ high"])
+        self.term.keys("Escape")        # the page applies it as it closes
+        self.stepped_to(review_effort="high")
 
     def test_a_page_too_short_for_the_row_stays_on_the_cell_the_keys_are_on(self):
         self.term.resize(32, 12)
@@ -86,7 +88,6 @@ class ModelRowsFold(unittest.TestCase):
         self.term.keys("Right", "Right", "Right", "Right")      # to the review mark, the last line
         self.term.wait("    reviews  [■]medium")
         self.term.keys("Right", "Space")
-        self.stepped_to(review_effort="high")
         self.term.wait("    reviews   ■ high")
         self.term.keys("Left", "Down")                          # the review mark, onto the next row
         self.term.wait("    reviews  [□]")
@@ -94,6 +95,8 @@ class ModelRowsFold(unittest.TestCase):
         self.term.wait("    reviews  [■]high")
         self.term.keys("Left", "Left", "Left", "Left")
         self.term.wait("    orch     [●]medium")
+        self.term.keys("Escape")        # the page applies it as it closes
+        self.stepped_to(review_effort="high")
 
     def test_a_wider_terminal_has_the_columns_back(self):
         self.term.resize(100, 60)

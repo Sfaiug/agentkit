@@ -80,17 +80,18 @@ class CFollowsTheSeat(unittest.TestCase):
         self.term.wait(followed, bound=5)
         self.term.keys("Space")                       # still Opus's build effort
         self.term.wait(lambda screen: "medium" in row(screen, "Opus 5.5"))
-        self.assertEqual(json.loads(self.path.read_text())["efforts"]["opus"]["exec_effort"],
-                         "medium")
 
-        # A later record change proves another read landed after the local save.
+        # A later record change proves another read landed after the step, held on the page.
         changed = json.loads(self.path.read_text())
         changed["efforts"]["astra"]["exec_effort"] = "low"
         self.home.write(".agentkit/state/replacement.json", changed).replace(self.path)
         screen = self.term.wait(lambda screen: "low" in row(screen, "6 Astra"), bound=5)
         self.assertIn("medium", row(screen, "Opus 5.5"))
-        self.assertEqual(json.loads(self.path.read_text())["efforts"]["opus"]["exec_effort"],
-                         "medium")
+        self.term.keys("Escape")                      # the page applies it as it closes
+        self.term.wait("esc leave")
+        efforts = json.loads(self.path.read_text())["efforts"]
+        self.assertEqual((efforts["opus"]["exec_effort"], efforts["astra"]["exec_effort"]),
+                         ("medium", "low"))
 
     def test_unchanged_rows_stay_still(self):
         raw = self.home.root / "c-output"

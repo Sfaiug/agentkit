@@ -377,27 +377,40 @@ class Matrix(unittest.TestCase):
     def test_space_steps_an_effort_up_and_round_from_its_highest(self):
         screen = Screen(self, workers=["opus", "haiku"])
         screen.frame()
-        given = screen.path.read_bytes()
-        efforts = lambda: {name: model["effort"] for name, model in screen.record()["efforts"].items()}
+        given, record = screen.path.read_bytes(), screen.session.read_bytes()
         # opus takes low to max: up from xhigh is max, and up from max is low again
         screen.press(DOWN + RIGHT + SPACE, lambda lines: effort(lines, "opus") == "max")
-        self.assertEqual(efforts()["opus"], "max")
         screen.press(SPACE, lambda lines: effort(lines, "opus") == "low")
-        self.assertEqual(efforts()["opus"], "low")
         screen.press(b" ", lambda lines: effort(lines, "opus") == "medium")
-        self.assertEqual(efforts()["opus"], "medium")
         # haiku takes only none, its word alone: from xhigh its build effort lands there, and
         # none is all there is
         built = lambda lines: row(lines, "haiku")[1].split()[-4:-2] == ["■", "none"]
         screen.press(DOWN + RIGHT * 2 + SPACE, built)
-        self.assertEqual(screen.record()["efforts"]["haiku"]["exec_effort"], "none")
-        before = screen.session.read_bytes()
         lines = screen.press(SPACE)
         self.assertTrue(built(lines), row(lines, "haiku")[1])
-        self.assertEqual(screen.session.read_bytes(), before)
-        self.assertEqual(efforts()["opus"], "medium")      # no other model stepped
-        self.assertEqual(screen.path.read_bytes(), given)     # the seat's, not new seats'
+        self.assertEqual(screen.session.read_bytes(), record)     # held till the page closes
         screen.leave()
+        self.assertEqual(screen.effort("opus"), "medium")
+        self.assertEqual(screen.record()["efforts"]["haiku"]["exec_effort"], "none")
+        self.assertEqual(screen.path.read_bytes(), given)     # the seat's, not new seats'
+
+    def test_space_on_a_seat_whose_record_will_not_read_holds_nothing_and_esc_leaves(self):
+        broken = 'if session: config.session_path(session).write_text("{")\nusage.collect ='
+        screen = Screen(self, child=CHILD.replace("usage.collect =", broken))
+        screen.frame()
+        os.write(screen.master, SPACE + ESC)
+        self.assertEqual(screen.proc.wait(10), 0)
+
+    def test_a_mark_flips_as_drawn_whatever_another_window_saved_as_the_page_applied(self):
+        racing = ("apply = menu.apply_held\nmenu.apply_held = lambda cfg, seat, held, *rest: ("
+                  "held and config.update_session(seat[0], workers=['opus', 'fable']),"
+                  " apply(cfg, seat, held, *rest))[1]\nusage.collect =")   # Fable drawn unmarked
+        screen = Screen(self, workers=["opus"], child=CHILD.replace("usage.collect =", racing))
+        screen.frame()
+        screen.press(DOWN + RIGHT * 3 + SPACE, lambda lines: "max" in row(lines, "opus")[1])
+        screen.press(UP + SPACE)
+        screen.leave()
+        self.assertEqual(screen.record()["workers"], ["opus", "fable"])
 
     def test_a_click_on_an_effort_s_cell_takes_that_level(self):
         screen = Screen(self)
@@ -406,8 +419,8 @@ class Matrix(unittest.TestCase):
         lines = screen.click(line.index("━") + 3, number,
                              lambda lines: effort(lines, "opus") == "high")
         self.assertIn("Opus 5.5", highlighted(lines))
-        self.assertEqual(screen.effort("opus"), "high")
         screen.leave()
+        self.assertEqual(screen.effort("opus"), "high")
 
     def test_an_effort_shrinking_off_the_pointer_takes_its_row_s_highlight(self):
         screen = Screen(self)
@@ -454,12 +467,12 @@ class Matrix(unittest.TestCase):
         number, line = row(lines, "opus")      # a click on an effort's word steps it, its build's
         lines = screen.click(line.index("xhigh") + 1, number,
                              lambda lines: effort(lines, "opus") == "max")
-        self.assertEqual(screen.record()["efforts"]["opus"]["exec_effort"], "max")
         column = lines[-1].index("esc back") + 3      # and one on `esc back` leaves
         os.write(screen.master, f"\x1b[<0;{column};{len(lines)}M\x1b[<0;{column};{len(lines)}m"
                  .encode())
         screen.saw("<left>")
         self.assertEqual(screen.proc.wait(15), 0)
+        self.assertEqual(screen.record()["efforts"]["opus"]["exec_effort"], "max")
 
     def test_a_click_on_a_folded_role_acts_on_that_role(self):
         screen = Screen(self, rows=100, cols=32)      # every row, `Theme`'s folded marks too
@@ -471,9 +484,10 @@ class Matrix(unittest.TestCase):
         lines = screen.click(builds.index("xhigh") + 1, number + 2,
                              lambda lines: "max" in lines[row(lines, "opus")[0] + 1])
         number, _ = row(lines, "opus")
-        self.assertEqual(screen.record()["efforts"]["opus"]["exec_effort"], "max")
         self.assertEqual((lines[number], lines[number + 2]), (orch, reviews))
         self.assertIn("Opus 5.5", highlighted(lines))
+        screen.leave()
+        self.assertEqual(screen.record()["efforts"]["opus"]["exec_effort"], "max")
 
     def test_the_keys_come_onto_the_theme_in_force_and_theme_s_label_takes_no_click(self):
         screen = Screen(self)

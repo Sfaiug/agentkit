@@ -1,4 +1,4 @@
-"""On a seat's `c`, a step of its orchestrator's effort is typed into the harness running in
+"""Closing a seat's `c` types a step of its orchestrator's effort into the harness running in
 its pane, asking nothing (orch.switch_lines); where that harness has ended it asks first, and
 `Restart` restarts the seat's harness at it; Esc changes nothing.
 
@@ -54,13 +54,19 @@ class SeatEffortRestarts(unittest.TestCase):
         self.term.keys("c")
         self.term.wait(lambda screen: key_line(screen) == KEYS and "› Opus 5.5" in screen)
 
+    def stepped(self):      # the orchestrator's effort at max, held on the page
+        self.term.keys("Right", "Space")
+        self.term.wait(lambda screen: any(line.lstrip("› ").startswith("Opus 5.5")
+                                          and line.split()[5] == "max" for line in lines(screen)))
+
     def asked(self):
-        """Space on the orchestrator's effort, and the card it asks on, nothing changed yet."""
+        """A step of the orchestrator's effort and the card closing asks on, nothing changed yet."""
         self.home.tmux("respawn-pane", "-k", "-t", self.seat.pane, "true")   # its harness ends
         self.term.wait(lambda _: self.home.tmux("display-message", "-p", "-t", self.seat.pane,
                                                 "#{pane_dead}").out.strip() == "1")
         record, launched = self.path.read_bytes(), self.launches()
-        self.term.keys("Right", "Space")
+        self.stepped()
+        self.term.keys("Escape")
         self.term.wait(lambda screen: ASK in lines(screen) and "› ✓ Keep" in lines(screen)
                        and "  × Restart" in lines(screen))
         self.assertEqual((self.path.read_bytes(), self.launches()), (record, launched))
@@ -70,17 +76,16 @@ class SeatEffortRestarts(unittest.TestCase):
         return self.fakes["claude"].calls("interactive")
 
     def test_a_step_types_only_its_effort_into_its_running_harness(self):
-        self.term.keys("Right", "Space")
+        self.stepped()
+        self.term.keys("Escape")
         self.assertEqual(self.seat.wait_lines(1), ["/effort max"])
-        self.term.wait(lambda screen: any(line.lstrip("› ").startswith("Opus 5.5")
-                                          and line.split()[5] == "max" for line in lines(screen)))
-        self.assertNotIn(ASK, lines(self.term.screen()))
+        self.assertNotIn(ASK, lines(self.term.wait("esc leave")))
         self.assertEqual(self.launches(), [])
 
     def test_esc_on_the_card_changes_nothing(self):
         record, launched = self.asked()
-        self.term.keys("Escape")
-        self.term.wait(lambda screen: key_line(screen) == KEYS.replace("mark", "step") and ASK not in lines(screen))
+        self.term.keys("Escape")        # Keep: the page closes, holding nothing
+        self.term.wait(lambda screen: "esc leave" in key_line(screen) and ASK not in lines(screen))
         time.sleep(1)       # a restart, were one under way, would have begun
         self.assertEqual((self.path.read_bytes(), self.launches()), (record, launched))
 
@@ -92,9 +97,7 @@ class SeatEffortRestarts(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, "the seat's harness was never launched")
             time.sleep(0.1)
         self.assertEqual(self.launches()[-1]["argv"][:2], ["claude-opus-5-5", "max"])
-        # the open screen shows the record as the restart left it, once that restart is over
-        self.term.wait(lambda screen: any(line.lstrip("› ").startswith("Opus 5.5")
-                                          and line.split()[5] == "max" for line in lines(screen)))
+        self.term.wait("esc leave")     # the page closed once that restart is over
         self.assertEqual(json.loads(self.path.read_text())["efforts"]["opus"]["effort"], "max")
 
 

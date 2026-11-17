@@ -62,9 +62,8 @@ class SwitchAsksNothingOfUsage(unittest.TestCase):
         self.assertEqual(self.seat.wait_lines(2), ["/model claude-fable-5-1", "/effort xhigh"])
 
     def test_an_effort_step_on_a_model_whose_window_is_full_is_typed_into_it(self):
-        self.term.keys("Right", "Space")    # Opus 5.5's effort, one step up from xhigh
-        screen = self.term.wait(lambda screen: said(screen)
-                                or "max" in row(screen, "Opus 5.5"))
+        self.term.keys("Right", "Space", "Escape")  # Opus's effort up, applied as it closes
+        screen = self.term.wait(lambda screen: said(screen) or "esc leave" in key_line(screen))
         self.assertEqual(said(screen), [])
         self.assertEqual(self.seat.wait_lines(1), ["/effort max"])
 

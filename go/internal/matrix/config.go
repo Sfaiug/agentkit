@@ -14,6 +14,9 @@ type Configuration struct {
 	Models   map[string]config.Model
 	Levels   map[string][]string
 	Selected *run.Object
+	// Held is what a seat's `c` holds of its efforts till it closes (menu.held_over): by model and
+	// effort key, the record's effort when that cell was first stepped and the one held now.
+	Held map[[2]string][2]string
 }
 
 func Configured() (*Configuration, error) {
@@ -35,7 +38,7 @@ func Configured() (*Configuration, error) {
 	if defaults.Reviewers != nil {
 		selected.Set("reviewers", stringsAny(defaults.Reviewers))
 	}
-	found := &Configuration{names, models, map[string][]string{}, selected}
+	found := &Configuration{Names: names, Models: models, Levels: map[string][]string{}, Selected: selected}
 	for _, name := range names {
 		entry := models[name]
 		if found.Levels[name], err = config.Efforts(entry.Harness, entry.ID); err != nil {
@@ -78,7 +81,20 @@ func Stops(marks [3]bool) []int {
 	return columns
 }
 
+// Effort is the effort `name` runs `role` at as the page draws it: what it holds (Held) over the
+// selection's, else the entry's.  A held effort moves none of the model's other keys, as the move
+// that applies it moves none (menu.held_over), and a role held at a level with no word follows it.
 func (c *Configuration) Effort(name string, role int) string {
+	key := config.RoleEfforts[role]
+	if held, ok := c.Held[[2]string{name, key}]; ok {
+		if held[1] != "" || role == 0 {
+			return held[1]
+		}
+		key = "effort"
+		if held, ok := c.Held[[2]string{name, key}]; ok {
+			return held[1]
+		}
+	}
 	entry := c.Models[name]
 	efforts := entry.Efforts
 	if held := c.Selected.Dict("efforts"); held != nil && held.Dict(name) != nil {
@@ -89,7 +105,7 @@ func (c *Configuration) Effort(name string, role int) string {
 			}
 		}
 	}
-	if effort, set := efforts[config.RoleEfforts[role]]; set {
+	if effort, set := efforts[key]; set {
 		return effort
 	}
 	return efforts["effort"]

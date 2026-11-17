@@ -192,7 +192,7 @@ class KeptPrice(unittest.TestCase):
                 marks.keys("Down", "Down", "Right", "Space")      # Dear builds too
                 self.until(lambda: "dear" in self.groups(seat)["workers"], "the mark never landed")
                 self.assertEqual(self.kept(seat), every)
-                marks.keys("Right", "Space")                     # its build effort a step on
+                marks.keys("Right", "Space", "Escape")   # its build effort a step on, applied
                 self.until(lambda: "exec_effort" in (
                     self.record(seat)["efforts"]["dear"] if seat
                     else akconfig.read(self.home)["models"]["dear"]), "the step never landed")

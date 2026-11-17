@@ -49,12 +49,11 @@ class BarNamesEffort(unittest.TestCase):
         settings.keys("c")
         settings.wait(lambda screen: "› Opus 5.5" in screen and "esc back" in screen)
         settings.keys("Right", "Space")     # xhigh -> max
-        self.assertEqual(seat.wait_lines(1), ["/effort max"])
         settings.wait(lambda screen: any(line.lstrip("› ").startswith("Opus 5.5")
                                         and line.split()[5] == "max"
                                         for line in screen.split("\n")))
-        settings.keys("Space")              # max -> low
-        self.assertEqual(seat.wait_lines(2), ["/effort max", "/effort low"])
+        settings.keys("Space", "Escape")    # max -> low, the last step closing applies
+        self.assertEqual(seat.wait_lines(1), ["/effort low"])
         screen = term.wait(lambda screen: bar(screen)[0].endswith("Opus 5.5 low"))
         self.assertRegex(bar(screen)[0], r" +acme-fix +Opus 5\.5 low$")
 

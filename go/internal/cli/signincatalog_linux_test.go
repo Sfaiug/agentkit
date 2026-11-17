@@ -7,7 +7,8 @@ import (
 )
 
 // A model on c while its provider is logged out offers, once that provider is signed in through
-// `+ add a subscription`, the efforts its signed-in catalog lists: stepped, it saves one of those.
+// `+ add a subscription`, the efforts its signed-in catalog lists: stepped, it saves one of those
+// as the page closes.
 func TestASignInReadsEveryModelAgain(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	binary := filepath.Join(t.TempDir(), "ak")
@@ -57,6 +58,8 @@ with Home() as home:
     term.keys("Escape")
     term.wait(lambda s: title(s) != PAGE and "Subscriptions" in s and "reading the models" not in s, bound=10)
     term.keys("Up", "Up", "Right", "Right", "Right", "Space")   # one's build effort, stepped once
+    term.wait("━━──  medium", bound=10)
+    term.keys("Escape")     # applied as the page closes
     deadline = time.monotonic() + 10
     while "exec_effort" not in (efforts := json.loads(record.read_text()).get("efforts", {})).get("one", {}) and time.monotonic() < deadline:
         time.sleep(0.05)
