@@ -98,8 +98,7 @@ class AModelKeepsItsListedName(unittest.TestCase):
                                           "effort": "high", "provider": "openai"})
         row = self.seat_row(home, orchestrator="longcat-free", workers=["vega"],
                             reviewers=["longcat-free"])
-        self.assertIn("LongCat 2.5 Free high orchestrates", row)
-        self.assertIn("7.2 Vega high builds", row)
+        self.assertEqual(row.strip(), "build: 7.2 Vega high   review: LongCat 2.5 Free high")
 
     def test_an_entry_written_with_a_label_reads_so_and_one_without_reads_off_its_id(self):
         home = self.home({"minimax": {"harness": "claude", "model": "acme/minimax-m3.1-flash-free",
@@ -108,8 +107,8 @@ class AModelKeepsItsListedName(unittest.TestCase):
                                        "model": "acme/nemotron-3.5-super-vl-free"}})
         row = self.seat_row(home, orchestrator="minimax", workers=["nemotron"],
                             reviewers=["minimax"])
-        self.assertIn("MiniMax M3.1 Flash Free high orchestrates", row)
-        self.assertIn("Nemotron 3.5 Super Vl Free high builds", row)
+        self.assertEqual(row.strip(), "build: Nemotron 3.5 Super Vl Free high   "
+                                      "review: MiniMax M3.1 Flash Free high")
 
 
 if __name__ == "__main__":

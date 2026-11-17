@@ -11,16 +11,16 @@ agentkit                           14:02
 ATOLL
   1  atoll-fix   Fable 5.1  ● working
     ─────────────── no plan yet · 1 task
-     Fable 5.1 xhigh orchestrates…   ■□□
+     build and review: Opus 5.5…   ■□□
   2  atoll-plan  Fable 5.1  ! needs you
-     Fable 5.1 xhigh orchestrates…
+     build and review: Opus 5.5 xhigh
 
 agentkit
   3  menu        Fable 5.1  ○ idle
-     Fable 5.1 xhigh orchestrates…
+     build and review: Opus 5.5 xhigh
 
 newsletter-tool
   4  rent        Fable 5.1  ○ idle
-     Fable 5.1 xhigh orchestrates…
+     build and review: Opus 5.5 xhigh
 
   n new   c config   esc leave

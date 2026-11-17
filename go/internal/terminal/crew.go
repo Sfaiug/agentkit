@@ -5,30 +5,33 @@ import (
 	"strings"
 )
 
-// Crew opens with the seat's orchestrator, then names each model that builds or reviews once, in
-// the order it first comes, with the work it does there in words every font draws; nothing where
-// nobody is beside the orchestrator (menu.crew).
-func Crew(orchestrator string, builds, reviews []string) string {
-	if len(builds) == 0 && len(reviews) == 0 {
-		return ""
-	}
-	roles := []struct {
+// Crew names each role, then who is in it at the effort they run it at, in words every font draws;
+// one "build and review" where both hold the same; never the orchestrator, whose row names it;
+// nothing where nobody is beside the orchestrator (menu.crew).
+func Crew(builds, reviews []string) string {
+	type role struct {
 		word   string
 		models []string
-	}{{"orchestrates", []string{orchestrator}}, {"builds", builds}, {"reviews", reviews}}
-	var seen, parts []string
-	for _, model := range slices.Concat([]string{orchestrator}, builds, reviews) {
-		if slices.Contains(seen, model) {
+	}
+	roles := []role{{"build", builds}, {"review", reviews}}
+	if slices.Equal(distinct(builds), distinct(reviews)) {
+		roles = []role{{"build and review", builds}}
+	}
+	var parts []string
+	for _, role := range roles {
+		if len(role.models) == 0 {
 			continue
 		}
-		seen = append(seen, model)
-		var words []string
-		for _, role := range roles {
-			if slices.Contains(role.models, model) {
-				words = append(words, role.word)
-			}
+		var named []string
+		for _, model := range role.models {
+			named = append(named, Plain(model))
 		}
-		parts = append(parts, Plain(model)+" "+strings.Join(words, ", "))
+		parts = append(parts, role.word+": "+strings.Join(named, ", "))
 	}
 	return strings.Join(parts, "   ")
+}
+
+// distinct is models as a set: sorted, each once.
+func distinct(models []string) []string {
+	return slices.Compact(slices.Sorted(slices.Values(models)))
 }

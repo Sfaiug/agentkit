@@ -62,8 +62,8 @@ func TestANewSeatsCrewIsOneLineCutToItsRoomOnAPhone(t *testing.T) {
 	d := &Draft{Hint: "fix-api", Orchestrator: "opus", Workers: []string{"astra"}, Reviewers: []string{"fable"},
 		Models: map[string]config.Model{"opus": {ID: "default"}, "astra": {ID: "default"}, "fable": {ID: "default"}}}
 	v, s := (View{New: d}).withNew(), terminal.Screen{}
-	got := d.block(s, v.Seats[0], columns(s, v.Seats, 40))
-	if len(got) != 2 || strings.TrimSpace(got[1].line) != "opus orchestrates   astra builds…" {
+	got := d.block(s, v.Seats[0], columns(s, v.Seats, 30))
+	if len(got) != 2 || strings.TrimSpace(got[1].line) != "build: astra   review:…" {
 		t.Fatalf("%+v", got)
 	}
 }

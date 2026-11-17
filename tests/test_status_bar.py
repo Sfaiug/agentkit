@@ -90,7 +90,7 @@ class StatusBar(Sandbox):
         self.assertIn("! needs you", self.line(statusbar.TOP))
         # its question is on the seat's own screen: line two is who builds and reviews
         self.assertEqual(self.line(statusbar.WHY),
-                         "  Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews")
+                         "  build and review: Opus 5.5 xhigh")
         self.assertEqual(self.options["set-titles-string"], "herdr · needs you")
 
     def test_bar_and_row_come_from_one_function(self):

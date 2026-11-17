@@ -35,9 +35,9 @@ func TestTasksGiveWayToACountWhileTheCrewKeepsItsRoles(t *testing.T) {
 	seat := Seat{Word: "working", Model: "Opus", Builds: []string{"Spark", "Fable"}, Reviews: []string{"Fable"},
 		Tasks: []Task{{Stage: 0, Moving: true}, {Stage: 0}, {Stage: 1, Moving: true}, {Stage: 2}}}
 	for room, want := range map[int]string{
-		80: "Opus orchestrates   Spark builds   Fable builds, reviews   ■□□  ■□□  ■■□  ■■■",
-		61: "Opus orchestrates   Spark builds   Fable builds, reviews   +4",
-		40: "Opus orchestrates   Spark builds…   +4",
+		80: "build: Spark, Fable   review: Fable   ■□□  ■□□  ■■□  ■■■",
+		40: "build: Spark, Fable   review: Fable   +4",
+		30: "build: Spark, Fable…   ■□□  +3",
 		5:  "   +4",
 	} {
 		if got := detail(terminal.Screen{}, seat, room, nil); len(got) != 1 || got[0] != want || terminal.Cells(got[0]) > room {
@@ -90,7 +90,7 @@ func TestEveryWordOpensItsCrewAndNoSentence(t *testing.T) {
 		}
 		return opened
 	}
-	crew := []string{"     Fable 5.1 xhigh orchestrates, builds, reviews"}
+	crew := []string{"     build and review: Fable 5.1 xhigh"}
 	for _, lit := range view.Seats {
 		view.Highlight = Highlight{Cursor: lit.Name, Open: true}
 		opened := under(30)

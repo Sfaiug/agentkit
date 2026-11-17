@@ -176,7 +176,7 @@ class EveryScreenComesUp(unittest.TestCase):
     def test_a_new_seats_row_comes_up(self):
         Seat(self.home, "acme", model="mid", screen="claude-working-pane.txt", planned=True)
         self.term.wait("0 of 1")      # its plan's line on screen, set up again on every draw
-        for text in ("▏", "orchestrates"):     # the row `n` makes, and the line it opens
+        for text in ("▏", "build and review"):     # the row `n` makes, and the line it opens
             with self.subTest(text=text):
                 self.comes_up(["n"], text, "Down")
                 self.term.keys("Escape")    # the row dropped, for `n` to make it again

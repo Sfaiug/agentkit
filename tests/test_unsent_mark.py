@@ -24,7 +24,7 @@ AMBER = "\033[1;38;2;215;146;0m"      # needs you, in the black theme in true co
 
 def seat(word, bar=None):
     return {"number": "1", "name": "fix-api", "count": word, "word": word, "orchestrator": "opus",
-            "unsent": TEXT, "bar": bar, "crew": ("opus", ("opus",), ("astra",)), "tasks": []}
+            "unsent": TEXT, "bar": bar, "crew": (("opus",), ("astra",)), "tasks": []}
 
 
 def bare(line):
@@ -64,7 +64,7 @@ class UnsentMark(Sandbox):
                 said = " ".join(under).partition("¶ ")[2]
                 self.assertIn(TEXT, said)            # whole, wrapped at words, never cut
                 # what it opened before
-                self.assertTrue(under[-1].startswith("opus orchestrates, builds"), under)
+                self.assertTrue(under[-1].startswith("build: opus"), under)
         opened = block(info, pointed=True)[1]
         self.assertIn(f"{AMBER}¶ Fix", opened)
 

@@ -17,7 +17,7 @@ from fixtures.sandbox import Sandbox
 from agentkit import config, menu, record, statusbar, terminal
 
 NOW = 1_800_000_000
-CREW = "Fable 5.1 xhigh orchestrates   Opus 5.5 xhigh builds, reviews"   # each seat's
+CREW = "build and review: Opus 5.5 xhigh"   # each seat's
 
 
 def screen(text):
@@ -116,7 +116,7 @@ class MenuLiveLine(Sandbox):
         self.assertNotIn("\x1b[2J", out.getvalue())
         lines = screen(out.getvalue())
         self.assertEqual(self.under(lines, "fix-api").strip(),
-                         "Fable 5.1 xhigh orchestrates   opus Fast xhigh builds, reviews   ■□□")
+                         "build and review: opus Fast xhigh   ■□□")
 
 
 if __name__ == "__main__":

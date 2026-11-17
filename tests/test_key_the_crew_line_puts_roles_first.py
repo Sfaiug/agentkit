@@ -1,8 +1,9 @@
-"""The line naming a seat's crew says in words who orchestrates, who builds and who reviews.
+"""The line naming a seat's crew names each role, then the models in it.
 
-It opens with the seat's orchestrator, as its row names it, then names each model once at each
-effort it runs at with what it does there after it: `orchestrates`, `builds`, `reviews`, in that
-order, joined by `, `.  A seat with nobody beside its orchestrator opens no such line.  No glyph
+`build`, then `review`, each followed by the models in it at the effort each runs that role at,
+joined by `, `, the roles three cells apart; one `build and review:` where both hold the same
+models at the same efforts; a role nobody is in left out.  It never names the orchestrator, which
+its row already does, and a seat with nobody beside its orchestrator opens no such line.  No glyph
 stands for a role, so the line is the same in a C locale.  Black-box: `AK_BIN` from a pipe, where
 every row opens, and on a seat's bar as a person attached to it sees it, written by
 `ak orch why` (tests/fixtures/akterm.py), beside seats of tests/fixtures/akseat.py.
@@ -23,16 +24,14 @@ WIDTH = 160
 OPENS = 60      # a loaded host makes a first draw slow
 KEY = "Ctrl-b m  menu"
 C = {"LANG": "C", "LC_ALL": "C"}
-# whole in the 95 cells a row's line has on the menu, whose rows stop at 100 columns
-FOUR = ("Opus 5.5 low orchestrates   Vega low builds   Fable 5.1 low builds, reviews   "
-        "Lyra low reviews")
-TWO = "Opus 5.5 low orchestrates, reviews   Vega low builds"
+LINES = {"fix-api": "build: Vega low, Fable 5.1 low   review: Fable 5.1 low, Lyra low",
+         "same": "build and review: Vega low, Fable 5.1 low",
+         "split": "build: Fable 5.1 medium   review: Fable 5.1 high"}
 
 
-# The owner, 10 Nov 2026, of ⚒ and ◎: the config screen's words in their place, and "also add it
-# for orchestrates."
+# The owner's pick of 17 Nov 2026, in their words at menu.crew.
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-class TheCrewLineSaysItsRoles(unittest.TestCase):
+class TheCrewLinePutsRolesFirst(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
@@ -41,14 +40,17 @@ class TheCrewLineSaysItsRoles(unittest.TestCase):
                               "vega": {"harness": "codex", "effort": "low"},
                               "lyra": {"harness": "claude", "effort": "low"}})
         Seat(home, "fix-api", record={"workers": ["vega", "fable"], "reviewers": ["fable", "lyra"]})
-        Seat(home, "web", record={"workers": ["vega"], "reviewers": ["opus"]})
+        Seat(home, "same", record={"workers": ["vega", "fable"]})
+        Seat(home, "split", record={"workers": ["fable"], "efforts": {
+            "fable": {"effort": "low", "exec_effort": "medium", "review_effort": "high"}}})
         Seat(home, "calm", record={"workers": []})        # names nobody beside its orchestrator
         cls.menus = {}
         for name, locale in (("utf-8", {}), ("C", C)):
             done = home.ak(input="\n", env={"COLUMNS": str(WIDTH), **locale})
             assert done.code == 0, done.err
             cls.menus[name] = done.out
-        cls.bars = {name: cls.bar(name, locale) for name, locale in (("fix-api", {}), ("web", C))}
+        cls.bars = {name: cls.bar(name, locale)
+                    for name, locale in (("fix-api", {}), ("same", C), ("split", {}))}
 
     @classmethod
     def bar(cls, name, locale):
@@ -68,23 +70,18 @@ class TheCrewLineSaysItsRoles(unittest.TestCase):
         self.assertIsNotNone(at, "\n".join(lines))
         return lines[at + 1]
 
-    def test_each_of_four_is_named_once_with_its_effort_and_its_roles_the_orchestrator_first(self):
-        self.assertEqual(self.under("utf-8", "fix-api").strip(), FOUR)
-        self.assertRegex(self.bars["fix-api"], rf"^ *{re.escape(FOUR)} +{re.escape(KEY)}$")
-
-    def test_an_orchestrator_that_reviews_at_its_effort_is_named_once_with_both(self):
-        self.assertEqual(self.under("utf-8", "web").strip(), TWO)
+    def test_each_role_names_its_models_and_never_the_orchestrator(self):
+        for menu in self.menus:
+            for name, line in LINES.items():
+                self.assertEqual(self.under(menu, name).strip(), line, (menu, name))
+        for name, line in self.bars.items():
+            self.assertRegex(line, rf"^ *{re.escape(LINES[name])} +{re.escape(KEY)}$", name)
+            self.assertNotIn("Opus", line)
+            self.assertNotIn("orchestrates", line)
 
     def test_a_seat_with_nobody_beside_its_orchestrator_opens_no_crew_line(self):
         for menu in self.menus:
             self.assertRegex(self.under(menu, "calm"), r"^$|^[›> ] \d+  ")   # the gap, or a row
-
-    def test_no_screen_holds_a_role_glyph_and_a_c_locale_reads_the_same(self):
-        for name in ("fix-api", "web"):
-            self.assertEqual(self.under("C", name), self.under("utf-8", name), name)
-        self.assertRegex(self.bars["web"], rf"^ *{re.escape(TWO)} +{re.escape(KEY)}$")
-        for screen in (*self.menus.values(), *self.bars.values()):
-            self.assertNotRegex(screen, "[⚒◎]")
 
 
 if __name__ == "__main__":

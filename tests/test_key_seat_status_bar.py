@@ -23,7 +23,7 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 KEY = "Ctrl-b m  menu"
-CREW = r"^ *Opus 5\.5 xhigh orchestrates, builds, reviews +" + KEY + "$"   # line two
+CREW = r"^ *build and review: Opus 5\.5 xhigh +" + KEY + "$"   # line two
 
 
 class Bar(unittest.TestCase):
