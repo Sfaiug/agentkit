@@ -30,9 +30,10 @@ seat's own status bar and its window title.  `ak orch why <seat>` says what deci
 
 A row is one line: number, name, orchestrator, state, and one last column, its progress line
 in the room the row has (`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under
-any name a rename led from, else from its unfinished jobs) and how many tasks it has in flight
-(`own_tasks`), `3 of 8 · 2 tasks`, while it is not at rest, its work waiting to land too, else
-empty -- and `¶ unsent` after it where the owner left text unsent.
+any name a rename led from, else from its unfinished jobs) while it is not at rest, its work
+waiting to land too, else empty, then whatever its word how many tasks it has in flight
+(`own_tasks`), `3 of 8 · 2 tasks`, `2 tasks` -- and `¶ unsent` after it where the owner left
+text unsent.
 What the owner left unsent, then who builds and reviews and each task's squares (`crew`,
 `squares`), open under the row (`detail`), never what a seat said.  Never two state words on a row,
 never `N running`, and never a time estimate.
@@ -1312,9 +1313,9 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
 
     The word is `watch.session_state`'s and no screen's own: `working`, `needs you` or
     `done`. The last column is its progress line from `seat_progress` -- its plan, else its
-    unfinished jobs -- and how many `tasks` it has in flight, while it is not at rest, and for
-    `working` its place in the landing line (`_last_text`), else empty, then `¶ unsent` where
-    the owner left text unsent -- never two state words on one row; who builds, who reviews and
+    unfinished jobs -- while it is not at rest, and for `working` its place in the landing line,
+    else empty, then whatever its word how many `tasks` it has in flight (`_last_text`), then
+    `¶ unsent` where the owner left text unsent -- never two state words on one row; who builds, who reviews and
     its tasks open under it (`detail`).
     Every seat `orch.listing` offers gets a row: the ones tmux holds, and the ones only their
     record does -- a seat whose tmux instance is gone keeps its row and its number opens the
