@@ -130,15 +130,20 @@ class ModelsRoleLines(unittest.TestCase):
             on(role)
             term.keys("Down")
 
-    def test_on_40_and_28_cells_each_roles_lines_still_show_its_quality_and_cost(self):
-        for width in (40, 28):
-            shown = said(self.models(width)[1])
-            for word, _, *numbers in NEW_SEATS.values():
-                # its word's line, else the one under its model, whole: a line past the edge
-                # wraps, its numbers split
-                at = next(n for n, line in enumerate(shown) if word in line.split())
-                self.assertIn(numbers, [line.split()[-2:] for line in shown[at:at + 3]],
-                              (width, word, shown))
+    def test_on_40_cells_each_roles_line_still_shows_its_quality_and_cost(self):
+        shown = said(self.models(40)[1])
+        for word, _, *numbers in NEW_SEATS.values():
+            # its line, or the one under its word where the word takes a line of its own
+            at = next(n for n, line in enumerate(shown) if word in line.split())
+            self.assertTrue(any(line.endswith(" " + " ".join(numbers))
+                                for line in shown[at:at + 2]), (word, shown))
+
+    def test_on_28_cells_each_roles_quality_and_cost_stand_whole_under_its_model(self):
+        shown = said(self.models(28)[1])
+        for word, _, *numbers in NEW_SEATS.values():
+            # whole on the line under its model: a line past the edge would wrap, splitting them
+            at = next(n for n, line in enumerate(shown) if word in line.split())
+            self.assertEqual(shown[at + 2].split(), numbers, (word, shown))
 
     def test_ak_models_prints_the_same_lines(self):
         screen = said(self.models()[1])
