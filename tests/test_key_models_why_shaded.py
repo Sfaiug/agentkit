@@ -43,24 +43,24 @@ class ModelsWhyShaded(unittest.TestCase):
     setUpClass = classmethod(drawing.ModelsWhy.setUpClass.__func__)
     write, models, why = drawing.ModelsWhy.write, drawing.ModelsWhy.models, drawing.ModelsWhy.why
 
-    def shown(self, width, role="reviewer", *keys):
+    def shown(self, width, role="reviewer", keys=("Down", "Down")):
         """The names and efforts of `role`'s bars drawn shaded, left to right, `width` cells wide,
         once `keys` move to it, and the kinds of its why page (kinds), as tall as it is: Acme Max
         5 high builds and Acme Max 5 max reviews, priced by their runs."""
         self.write(drawing.DRAWN, ["max"], runs=True)
         term = self.models(width, 120)
-        term.keys(*keys or ("Down", "Down"))
+        term.keys(*keys)
         found = bars(term.wait(lambda screen: drawn(screen, role)), role)
         return ([f"{bar['name']} {bar['effort']}" for bar in found if bar["shaded"]],
                 kinds(self.why(term)))
 
     def test_on_100_cells_the_bars_drawn_shaded_are_shaded_in_their_order_the_rest_not_shown(self):
-        for role, keys, want in (("reviewer", (), ["Dune 1 high", "Elm 1 high"]),
+        for role, keys, want in (("reviewer", ("Down", "Down"), ["Dune 1 high", "Elm 1 high"]),
                                  # the row it uses, a bar of its own though no choice
                                  ("executor", ("Down",),
                                   ["Dune 1 high", "Elm 1 high", "Acme Max 5 high"])):
             with self.subTest(role=role):
-                shaded, page = self.shown(100, role, *keys)
+                shaded, page = self.shown(100, role, keys)
                 self.assertEqual(shaded, want)            # cheapest on the left
                 self.assertEqual(page["shaded"], shaded)
                 self.assertEqual(page["not shown"], ["Bolt 3 medium", "Crux 2 low"])
