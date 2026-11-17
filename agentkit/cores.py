@@ -42,9 +42,12 @@ def tell(state, log):
         held = host.cpu_held_usec(scope)
         if held is None:
             continue
-        last = before.get(scope.name)
-        seen = state["seat_cores"][scope.name] = {"at": now, "usec": held}
-        if not last or now <= last["at"] or held - last["usec"] < FULL * 1e6 * (now - last["at"]):
+        # A reading under `usec` counted used time alone: against one with a lifetime's waiting
+        # its interval would be over, so it is no reading.
+        last = before.get(scope.name) or {}
+        seen = state["seat_cores"][scope.name] = {"at": now, "held": held}
+        if ("held" not in last or now <= last["at"]
+                or held - last["held"] < FULL * 1e6 * (now - last["at"])):
             continue
         seen.update(since=last.get("since", last["at"]), told=last.get("told"),
                     ticks=host.cpu_ticks(scope))
