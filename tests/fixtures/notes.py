@@ -4,7 +4,8 @@ A unix datagram socket holds `net.unix.max_dgram_qlen` unread notes: 512 on a ho
 landing's offline sandbox.  A blocking `sendto` past them waits for a reader, so a key that read
 its socket only once `ak run` ended would wait on its own socket for ever.  `Notes()` binds a free
 abstract address, `address`, and reads it from that moment; `since()` hands back, as text and in
-the order sent, the notes since it last asked, every one whose `sendto` has returned.
+the order sent, the notes since it last asked, every one whose `sendto` has returned.  `close()`
+ends the reading and frees the socket, so each user registers it as a cleanup.
 """
 
 import select
@@ -18,8 +19,9 @@ class Notes:
         self._socket.bind("")   # Linux picks a free abstract name
         self._socket.setblocking(False)
         self.address = self._socket.getsockname()
-        self._read, self._lock = [], threading.Lock()
-        threading.Thread(target=self._reader, daemon=True).start()
+        self._read, self._lock, self._open = [], threading.Lock(), True
+        self._thread = threading.Thread(target=self._reader, daemon=True)
+        self._thread.start()
 
     def since(self):
         with self._lock:
@@ -27,8 +29,14 @@ class Notes:
             read, self._read = self._read, []
         return read
 
+    def close(self):
+        self._open = False
+        self._socket.shutdown(socket.SHUT_RD)   # readable for good: the reader's select wakes
+        self._thread.join()
+        self._socket.close()
+
     def _reader(self):
-        while True:
+        while self._open:
             select.select([self._socket], [], [])
             with self._lock:
                 self._drain()

@@ -68,6 +68,7 @@ class ThreeRuns(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         said = Notes()
+        cls.addClassCleanup(said.close)
         cls.rig = Rig(cls.home, "widgets", files={
             "AGENTS.md": "---\nhealth: none\ntests: python3 suite.py\n---\n# widgets\n",
             "suite.py": SUITE.format(said=said.address), "widget.txt": "v1\n",
