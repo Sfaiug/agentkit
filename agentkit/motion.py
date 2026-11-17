@@ -368,8 +368,9 @@ class Clock:
         self.last = None    # when the last frame was made
         self.seen = None    # key -> what the last draw showed, and since when and in place of
                             # what when that was news; None when no draw is to be compared with
-        self.touched = {}   # key -> since when it is news that changed nothing (`touch`), None
-                            # till a draw shows it
+        self.touched = {}   # key -> since when it is news that changed nothing (`touch`), inf
+                            # till a frame shows it
+        self.later = []     # what the next frame starts as it first shows it (`begin`)
         self.fade = fade    # what is drawn fades in over the first FADE seconds (`rise`): a popup
         self.page = page    # ... or, a page opening, all under its header and rule (`titled`)
         self.opened = None  # ... from its first frame
@@ -386,8 +387,8 @@ class Clock:
 
         At first and after `forget` -- a resize, another screen -- every value is taken as it
         is, and so is one no draw before showed: only a change seen while the menu is up moves.
-        A key touched is news from the first draw that shows it, what it showed before being
-        what it shows.
+        A key touched is news from the first frame that shows it (`begin`), what it showed
+        before being what it shows.
         """
         now, seen, self.seen = moment(), self.seen or {}, {}
         for key, value in values.items():
@@ -396,17 +397,23 @@ class Clock:
                               else (value, now, was[0]))
         news = {key: (since, before) for key, (_, since, before) in self.seen.items()
                 if since is not None}
-        for key in self.touched.keys() & values.keys():
-            if self.touched[key] is None:
-                self.touched[key] = now
-            news[key] = self.touched[key], values[key]
+        news.update((key, (since, values[key])) for key, since in self.touched.items()
+                    if key in values)
         return news
 
     def touch(self, key):
         """News at `key` that changed nothing -- a mark whose change was refused, the row `n`
-        makes -- from the first draw that shows it: however long that draw takes, it moves from
-        its first frame, as a page's rows do."""
-        self.touched[key] = None
+        makes -- from the first frame that shows it: however long the draw making that frame
+        takes, it moves from there, as a page's rows do."""
+        self.touched[key] = math.inf
+
+    def begin(self, key, start, row, since, before):
+        """News at `key` (`look`) started on screen row `row` by `start(clock, row, since,
+        before)`, touched news not yet shown by the frame that first shows it."""
+        if since == math.inf:
+            self.later.append((key, start, row, before))
+        else:
+            start(self, row, since, before)
 
     def settle(self):
         """A key: whatever moves ends on its last frame, a screen coming up too, the next draw
@@ -427,7 +434,7 @@ class Clock:
         news = self.look({key: value for _, key, value, _ in moves})
         for line, key, _, start in moves:
             if key in news and row(line) is not None:
-                start(self, row(line), *news[key])
+                self.begin(key, start, row(line), *news[key])
         return self.frame(), rising
 
     def start(self, cells, animation, until=None, effect=None):
@@ -490,6 +497,10 @@ class Clock:
         the screen has under it, the highlight's where it is (`terminal.pointed`); while a theme
         comes down the screen every row, and what moves only above the line it has come to."""
         now, self.last = moment(), time.monotonic()
+        later, self.later = self.later, []
+        for key, start, row, before in later:   # touched news, shown first here (`begin`)
+            self.touched[key] = now
+            start(self, row, now, before)
         out, amount, first = "", 0, 3 if self.page else 1     # where what comes up starts
         below = math.inf        # the first row still in the theme before the one chosen
         if self.turning:

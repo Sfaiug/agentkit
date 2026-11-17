@@ -121,7 +121,10 @@ class AMoveInPlaceAsksNoLogin(unittest.TestCase):
                          "effort": "max"},
             "glm": {"harness": "opencode", "model": ACME_GLM, "provider": "acme",
                     "effort": "high"}})
-        self.home.tmux("kill-session", "-t", f"={SEAT}")
+        # The server outlives its last session, so the next seat never meets it on its way out
+        # ("server exited unexpectedly"); the Home's close ends it.
+        self.home.tmux("set-option", "-s", "exit-empty", "off", ";",
+                       "kill-session", "-t", f"={SEAT}")
         self.home.write(f".agentkit/state/opencode-launch-{token}/session", "ses_0fa1c2d3e4ffAcme")
         seat = Seat(self.home, SEAT, model="deepseek", screen="opencode-prompt-pane.txt",
                     composer="┃  Ask anything…", record={"opencode_launch": token})

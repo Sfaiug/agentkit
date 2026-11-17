@@ -20,15 +20,21 @@ from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 
 WORKING, IDLE = ("s-work", "s-also"), "s-idle"
-TOKEN = re.compile(r"\x1b\[([0-9;:]*)m|(.)")
+TOKEN = re.compile(r"\x1b\[([0-9;:]*)m|(.)", re.S)
 
 
-def cells(line):
-    """A captured line's cells, each its character and the style it is drawn in."""
-    style, drawn = {}, []
-    for code, char in TOKEN.findall(line):
+def lines(screen):
+    """A capture's lines, each its cells: a character and the style it is drawn in.  tmux writes
+    a style only where it changes, from one line onto the next too, so a line goes on in the
+    style the one above it ended in: a row under one the highlight fades from names no
+    background the two share."""
+    style, drawn = {}, [[]]
+    for code, char in TOKEN.findall(screen):
+        if char == "\n":
+            drawn.append([])
+            continue
         if char:
-            drawn.append((char, tuple(sorted(style.items()))))
+            drawn[-1].append((char, tuple(sorted(style.items()))))
             continue
         params = (code or "0").split(";")
         while params:
@@ -94,8 +100,7 @@ class WorkingDot(unittest.TestCase):
                 raise AssertionError(f"{WORKING[0]}'s dot took the colours "
                                      f"{[colour(frame[WORKING[0]]) for frame in frames]}")
             rows = {}
-            for line in term.screen(colours=True).split("\n"):
-                drawn = cells(line)
+            for drawn in lines(term.screen(colours=True)):
                 text = "".join(char for char, _ in drawn)
                 # a whole row: a redraw writes a line at a time, and a capture can land inside one
                 if text.rstrip().endswith((" working", " idle", " no plan yet")):

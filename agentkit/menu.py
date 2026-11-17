@@ -2129,7 +2129,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 coming = {"opened": opened, "page": range(top + 1, top + len(body) + 1),
                           "born": range(top + min(own_rows, default=opened.start), opened.stop)}
                 for row in coming[key[0]]:
-                    motion.fading(out[row - 1])(clock, row, since, None)
+                    clock.begin(key, motion.fading(out[row - 1]), row, since, None)
             elif shown in ("needs you", "done"):
                 # its row glows in its word's colour and fades, and a line just done is crossed
                 # by one light

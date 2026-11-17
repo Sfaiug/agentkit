@@ -2,7 +2,8 @@
 however long the draw that makes it takes (docs/cli-design.md, Motion): after a draw 300 ms
 slow, twice the fade, it is still coming up at its first frame and 0.14 s on, and at rest 0.15 s
 on.  The ak screen as tests/test_moving_lights_are_the_rainbow.py drives it, on a clock of its
-own, which the slow draw moves while it lays the row out.
+own, which the slow draw moves while it lays the row out, or after, while it sets up the
+progress lines that move.
 """
 
 import unittest
@@ -17,19 +18,28 @@ REST = 1.0          # seconds after its first frame the row has long come up
 
 class NewSeatOpening(Screens):
     def test_the_new_seat_comes_up_from_its_first_frame_after_a_slow_draw(self):
-        self.words = {"fix-api": "needs you"}     # nothing breathes
-        laid, slow, first = menu.born_lines, [SLOW], []
+        for slowed in ("born_lines", "grow_line"):      # laying the row out, or what moves after
+            with self.subTest(slowed=slowed):
+                self.comes_up(slowed)
 
-        def born_lines(info, room):     # the first draw of the row is SLOW seconds long
+    def comes_up(self, slowed):
+        self.words, self.tasks = {"fix-api": "needs you"}, {"fix-api": (4, 12)}  # none breathes
+        made, typed, slow, first = getattr(menu, slowed), menu.born, [], []
+
+        def born(found):                # the row made: the draw making it is SLOW seconds long
+            slow.append(SLOW)
+            return typed(found)
+
+        def slowly(*args, **kwargs):
             self.sleep(slow.pop() if slow else 0)
-            return laid(info, room)
+            return made(*args, **kwargs)
 
         def at(seconds):                # a wait at `seconds` after the row's first frame
             def step():
                 first[:] = first or [self.now]
                 self.now = first[0] + seconds
             return step
-        with patch.object(menu, "born_lines", born_lines), \
+        with patch.object(menu, slowed, slowly), patch.object(menu, "born", born), \
                 patch.object(menu, "waited", lambda work, *_a, **_kw: work()), \
                 patch.object(orch, "held_names", set):
             frames, _ = self.frames([None, terminal.Key("char", "n"),
