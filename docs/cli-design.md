@@ -104,7 +104,7 @@ Something moves only while worked on, once when it changes, or under the pointer
 news pulses, settles or nudges, a theme comes down, the highlight glows in, fades out. Each takes
 one time (`motion.py`):
 
-- **Coming up:** a row's line, a page, screens opening.
+- **Coming up:** a row's line, page, card, screens opening.
 - **Filling:** a mark, an effort's cell, a task's square.
 - **A light passing:** a done line, an effort's top word.
 - **A light going round,** a breath: a line with no plan, a waiting rule.

@@ -52,8 +52,9 @@ class Keyboard:
         pass
 
 
-# working without one: empty, `no plan yet`, a light circling. [2, 14, 19, 23, 26 Oct 2026]
-class Breathing(Sandbox):
+class MainScreen(Sandbox):
+    """`menu.loop` on a true-colour terminal and a clock that moves only as its waits run."""
+
     def setUp(self):
         super().setUp()
         os.environ.pop("NO_COLOR")
@@ -133,6 +134,9 @@ class Breathing(Sandbox):
             self.assertEqual({(int(r), int(c)) for r, c, *_ in found}, dots)
             self.assertEqual(len({dot[2:] for dot in found}), 1, written)   # in one phase
 
+
+# working without one: empty, `no plan yet`, a light circling. [2, 14, 19, 23, 26 Oct 2026]
+class Breathing(MainScreen):
     # Something moves only while a model works on it, once when it changes, or under the pointer.
     # [2, 14, 19, 23, 26 Oct 2026]
     def test_only_the_working_dots_move_and_they_move_together(self):
@@ -217,7 +221,8 @@ class Breathing(Sandbox):
                      if "Stop fix-api and everything it runs?" in terminal.ANSI.sub("", written))
         self.assertEqual(waits[asked + 7][2][:3], "\033[H")          # Esc kept it: the list
         self.assertNotEqual(self.dots(waits[asked][2]), self.dots(waits[0][2]))
-        self.assert_breathing(waits[asked][2], waits[asked + 1:asked + 7])
+        up = next(n for n in range(asked + 1, asked + 7) if "Keep" not in waits[n][2])  # it is up
+        self.assert_breathing(waits[asked][2], waits[up:asked + 7])
 
     def test_a_resize_as_a_frame_falls_due_draws_the_whole_screen(self):
         script = iter([*[None] * 6, "resize", *[None] * 6, ""])
