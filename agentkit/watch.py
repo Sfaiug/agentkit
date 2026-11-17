@@ -8844,7 +8844,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import (alive, google_cloud, history, job as jobs, logins, machine_setup,
+    from . import (alive, cores, google_cloud, history, job as jobs, logins, machine_setup,
                    machines, night_review, nightly, retire, run, waiter)
     providers, fetched = {}, set()
 
@@ -8888,6 +8888,8 @@ def local_passes(state, dry_run, log):
         # has to be started.
         ("stall recovery", lambda: recover_runs(config.load(), dry_run, log), True),
         ("seat headroom", lambda: run.give_way(state, log), False),
+        # A seat whose own shell holds a core is owed a line saying so, before "owed lines".
+        ("seat cores", lambda: cores.tell(state, log), False),
         ("state save", lambda: save_state(state), False),
         ("usage refresh", read_usage, True),
         # ... and each seat waiting for usage settled again on what it read.  The refresh stays

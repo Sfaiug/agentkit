@@ -27,6 +27,16 @@ def seat_now(launched):
         return launched
 
 
+def scopes():
+    """{directory: the name its seat launched under} of each seat's scope under the seats' slice,
+    {} where the slice cannot be read."""
+    try:
+        return {path: seat[1] for path in (orch.slice_cgroup() / orch.seat_slice_name()).iterdir()
+                if (seat := SEAT_SCOPE.fullmatch(path.name)) and path.is_dir()}
+    except OSError:
+        return {}
+
+
 def once():
     """Set each weight under the seats' slice that does not read what it should.  One attach
     starts two passes at once, from two of its hooks, so a pass reads and sets under one lock:
@@ -48,18 +58,18 @@ def _weigh():
     if not rows:
         return
     attached = {name for clients, _, name in rows if clients != "0"}
+    first = {path: seat_now(launched) in attached for path, launched in scopes().items()}
     server = (host.process_cgroup(rows[0][1]) or "").rpartition("/")[2]
+    if server and (unit := orch.slice_cgroup() / orch.seat_slice_name() / server).is_dir():
+        first[unit] = True
     try:
-        for path in sorted((orch.slice_cgroup() / orch.seat_slice_name()).iterdir()):
-            seat = SEAT_SCOPE.fullmatch(path.name)
-            if path.is_dir() and (path.name == server or seat):
-                first = path.name == server or seat_now(seat[1]) in attached
-                weight = host.CPU_WEIGHT_MAX if first else BEHIND
-                if host._cpu_weight(path) != weight:
-                    subprocess.run(["systemctl", "--user", "set-property", "--runtime", path.name,
-                                    f"CPUWeight={weight}"],
-                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL, env=orch.bus_env(),
-                                   timeout=orch.SLICE_WAIT)
+        for path, ahead in first.items():
+            weight = host.CPU_WEIGHT_MAX if ahead else BEHIND
+            if host._cpu_weight(path) != weight:
+                subprocess.run(["systemctl", "--user", "set-property", "--runtime", path.name,
+                                f"CPUWeight={weight}"],
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, env=orch.bus_env(),
+                               timeout=orch.SLICE_WAIT)
     except (OSError, subprocess.SubprocessError):
         pass    # nothing to weigh, or nothing to ask: the rest would fare the same

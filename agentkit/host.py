@@ -513,6 +513,29 @@ def _cpu_rates(cgroups, delay=0.1):
             for cgroup, value in first.items() if second[cgroup] is not None}
 
 
+def cpu_ticks(cgroup):
+    """{"pid start": clock ticks it has spent on a CPU} of each process in the cgroup at that
+    directory, or under it, that can be read: its start tells a pid used again from the one
+    read before."""
+    ticks = {}
+    for pid in cgroup_pids(cgroup.relative_to(cgroup_path()).as_posix()):
+        try:
+            fields = _stat_fields(PROC / str(pid))     # utime, stime and start in clock ticks
+            ticks[f"{pid} {fields[19]}"] = int(fields[11]) + int(fields[12])
+        except (OSError, ValueError, IndexError):
+            continue
+    return ticks
+
+
+def command(pid):
+    """That process's command as one line; "" where it is gone or a zombie."""
+    try:
+        words = (PROC / str(pid) / "cmdline").read_bytes().decode(errors="replace").split("\0")
+    except OSError:
+        return ""
+    return " ".join(" ".join(words).split())
+
+
 CPU_WEIGHT_MAX = 10000   # the kernel's top cpu.weight
 
 
