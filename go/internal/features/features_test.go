@@ -98,7 +98,6 @@ func TestAWaitOverBeforeTheCommandStartsIsNoAnswer(t *testing.T) {
 	if _, why := own(checkout, "list"); !strings.HasPrefix(why, "list: no answer in ") {
 		t.Errorf("said %q", why)
 	}
-	time.Sleep(10 * time.Millisecond) // for a stop the deadline set off to have run
 }
 
 // One gone to a session of its own, holding the output open past the wait, is let go of: no
