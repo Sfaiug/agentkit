@@ -1,11 +1,14 @@
 """`ak standby ALIAS`: one pass of this machine's copy of ak's folder on the home it is a client
 of, at the same path, but each `.git` folder in it, a clone's own git data, the runs ended on both
-machines and an open run's scratch.  A run is open where its folder holds no record that can be
-read, or one whose state is not among `record.ENDED`: one that ended on the home since the last
-pass is open here still, so the next pass copies it, its ended record with it, and then no more.
-Before it, what a seat carrying on from the copy needs of each harness: its logins, every
-account's, and the folders its conversations start from, each at its path, the rest of that
-harness's folders this machine's own.  After it, ak here moves as every client's does
+machines, an open run's scratch, and what the home's account cannot read under ak's checkouts,
+`wt` and `work`: each folder it cannot list or enter, with all in it, and each regular file it
+cannot read, such as a test stopped before it cleaned up leaves, which would fail every pass.
+Elsewhere one fails the pass, as any error of rsync's does.  A run is open where its folder holds
+no record that can be read, or one whose state is not among `record.ENDED`: one that ended on the
+home since the last pass is open here still, so the next pass copies it, its ended record with
+it, and then no more.  Before it, what a seat carrying on from the copy needs of each harness: its
+logins, every account's, and the folders its conversations start from, each at its path, the rest
+of that harness's folders this machine's own.  After it, ak here moves as every client's does
 (`update.follow`), to the commit ak is at on the home once the home's move there is final, so the
 ak that takes over is the one that was live.
 
@@ -32,6 +35,7 @@ import glob
 import math
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -51,13 +55,17 @@ KEPT = tuple(path for path in (config.STATE / "server", versions.repository(),
 # three-minute window on 9 Nov the owner's home wrote 1.8 GB in them against 26 MB outside.
 SCRATCH = ("tmp", ".box-")
 LINKED = 3      # the ask's exit for a home whose runs' folder is a link
-# The ask of the home: the names of the runs open there, each NUL-ended, its records read as
+# The ask of the home, each name NUL-ended: the names of the runs open there, its records read as
 # `record.read_state` reads one, as text, for json.loads would take bytes after a BOM for a
-# record; a runs' folder the home lacks holds none.  By whatever python3 the home's ssh finds,
-# which may be older than ak's: so it imports nothing of ak's, comes on its input and is given
-# the folder and the ended states.
-OPEN = f"""import json, os, sys
-runs, *ended = sys.argv[1:]
+# record; a runs' folder the home lacks holds none.  Then an empty name, and the path of each
+# folder under the checkouts' folders the home's account cannot list or enter, and of each
+# regular file it cannot read, as access(2) answers for it: rsync's sender exits 23 for one and
+# deletes nothing.  The walk opens no file, of the million in them; it follows no link, which
+# rsync copies as one, and skips each `.git` folder, which no pass copies.  By whatever python3
+# the home's ssh finds, which may be older than ak's: so it imports nothing of ak's, comes on
+# its input and is given the folders and the ended states.
+ASK = f"""import json, os, sys
+runs, wt, work, *ended = sys.argv[1:]
 if os.path.islink(runs):
     sys.exit({LINKED})
 try:
@@ -73,6 +81,21 @@ for run in found:
             state = None
         if not (isinstance(state, dict) and state.get("state") in ended):
             sys.stdout.buffer.write(run.name + b"\\0")
+sys.stdout.buffer.write(b"\\0")
+folders = [os.fsencode(top) for top in (wt, work) if not os.path.islink(top)]
+while folders:
+    try:
+        found = list(os.scandir(folders.pop()))
+    except FileNotFoundError:
+        found = []
+    for entry in found:
+        if entry.is_dir(follow_symlinks=False) and entry.name != b".git":
+            if os.access(entry.path, os.R_OK | os.X_OK):
+                folders.append(entry.path)
+            else:
+                sys.stdout.buffer.write(entry.path + b"\\0")
+        elif entry.is_file(follow_symlinks=False) and not os.access(entry.path, os.R_OK):
+            sys.stdout.buffer.write(entry.path + b"\\0")
 """.encode()
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
 GOES = 3        # a go during which files vanished on the home leaves their old copies here
@@ -94,6 +117,13 @@ def _harnesses():
         paths |= {str(path.relative_to(home)) for path in logins if path.is_relative_to(home)}
         paths |= machine_turn.conversations(harness)
     return sorted(paths)
+
+
+def _literal(path):
+    """`path` as an rsync rule's pattern that matches it alone: each `*`, `?`, `[` and backslash
+    in a class of its own, stepped out of there.  A backslash alone would not do: rsync reads one
+    as stepping out only in a pattern that holds a wildcard."""
+    return re.sub(r"[*?[\\]", lambda found: f"[\\{found[0]}]", str(path))
 
 
 def _cron_word(word):
@@ -136,22 +166,27 @@ def _keep_job(alias):
 def _copy(alias, home, copied):
     """One pass from `alias`: `copied` under `home`, then ak's folder with each run open on the
     home or here.  Why it failed, or None."""
-    # The home's open runs first, so one whose runs' folder is a link fails the pass before it
-    # copies anything: rsync would put that link here in place of the runs' folder.
+    # The home's open runs and what it cannot read first, so one whose runs' folder is a link
+    # fails the pass before it copies anything: rsync would put that link here in place of the
+    # runs' folder.
     try:
         asked = subprocess.run(
-            ["ssh", alias, shlex.join(["python3", "-I", "-", str(config.RUNS), *record.ENDED])],
-            input=OPEN, stdout=subprocess.PIPE, timeout=TIMEOUT)
+            ["ssh", alias, shlex.join(["python3", "-I", "-", str(config.RUNS), str(config.WT),
+                                       str(config.WORK), *record.ENDED])],
+            input=ASK, stdout=subprocess.PIPE, timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
-        return f"its runs were not read within {TIMEOUT} seconds"
+        return f"what to copy was not read within {TIMEOUT} seconds"
     if asked.returncode == LINKED:
         return f"{config.tilde(config.RUNS)} is a link there"
     if asked.returncode:
-        return f"asking for its open runs exited {asked.returncode}"
-    runs = sorted({os.fsdecode(name) for name in asked.stdout.split(b"\0")[:-1]}
+        return f"reading what to copy exited {asked.returncode}"
+    names = asked.stdout.split(b"\0")[:-1]
+    gap = names.index(b"")
+    runs = sorted({os.fsdecode(name) for name in names[:gap]}
                   | {run.name for run in record.run_dirs()
                      if (state := record.read_state(run)) is None
                      or state.get("state") not in record.ENDED})
+    unread = [Path(os.fsdecode(path)).relative_to(config.HOME) for path in names[gap + 1:]]
     # Each harness path a source of its own: one the home lacks is never read as a deletion.  The
     # home's rsync expands each `*` (-s), not its login shell, which as zsh fails on one matching
     # nothing.
@@ -164,14 +199,18 @@ def _copy(alias, home, copied):
     # a `.git` folder and a run's scratch still let rsync's delete take a checkout or run the home
     # removed, whatever it holds here; a run ended on both machines it never reaches.  A run is
     # named literally, as any file is: rsync replaces a link here at an open run's folder, or
-    # deletes it, and never goes past it.
+    # deletes it, and never goes past it.  Nor does what the home cannot read in its checkouts
+    # cross, each named literally too, a folder with all in it: perishable as well, what the copy
+    # holds of it stays till its checkout goes, and the pass after the home reads it again
+    # copies it.
     at = config.PLACES["RUNS"]
     for args in (["-sR", "--no-implied-dirs", "--ignore-missing-args",
                   *(f"{alias}:{home}/./{path}" for path in copied), f"{home}/"],
                  [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
                   "--filter=-p .git/",
+                  *(f"--filter=-p /{_literal(path)}" for path in unread),
                   *(f"--filter=-p /{at}/**/{name}*/" for name in SCRATCH),
-                  *(f"--filter=+ /{at}/{glob.escape(run)}" for run in runs), f"--filter=- /{at}/*",
+                  *(f"--filter=+ /{at}/{_literal(run)}" for run in runs), f"--filter=- /{at}/*",
                   f"{alias}:{config.HOME}/", f"{config.HOME}/"]):
         for _ in range(GOES):
             code = subprocess.run([
