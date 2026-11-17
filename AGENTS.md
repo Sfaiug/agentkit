@@ -22,7 +22,7 @@ This section changes only with the owner's yes. Every other line has one home, a
 ## Working here
 
 - Python 3.11 standard library and bash. Python takes no dependency, ever.
-- One test file per behaviour: `python3 tests/test_<name>.py`, run straight, no runner.
+- One test file per behaviour: `python3 tests/test_<name>.py`, no runner.
 - `tests/landing.py` refuses what Python 3.11 cannot parse, f-strings aside: `python3.11 -m py_compile` what you touch holding one like `f"{data["key"]}"`. `AGENTKIT_ACCEPTANCE_REQUIRED=1` makes skips fail.
 - Match the file's style.
 - `README.md` holds only what ak is, installation and starting.
@@ -50,7 +50,7 @@ Mistakes no check catches and no one area of code holds; one that becomes a chec
 - Models are plugins. Each run takes its executor and its reviewer from that role's marks that can run now, each on its own, the mark `quality.pick` names first, so a model may review its own build. Every run records who built and who reviewed at which effort, for the owner to compare; ak's runs give "Costs only" (5 Nov), and ak spends no turn testing models. The owner: "Data collection yes, no recommendation." (3 Nov); `quality.pick` first, not random (9 Nov). [18 Sep–9 Nov 2026]
 - Every screen follows `docs/cli-design.md`, the one home of how a screen reads. [15, 16 Sep, 18 Oct]
 - A notes intake, if built, is an optional add-on on the ak screen, using ak's providers. [1 Oct]
-- ak ends a wait when that merges, closes or ends; a merge on a project with `health:`, once it is live or its window has passed. [4, 9 Oct 2026]
+- ak ends a wait when that merges, closes, ends or its date comes; a merge on a project with `health:`, once live or past its window. [4, 9 Oct, 17 Nov 2026]
 - Each line of `AGENTS.md` and `orchestrator.md` (word maxima: `tests/test_boundaries.py`) explains a check or a judgement no check can make.
 - Every project meets one contract, enforced by checks and scaled by what is at stake: a live project proves it is live with a real `health:`, deploys only code ak tested, and puts the previous release back by itself when health breaks. How each project deploys stays its own; a ready-made deploy kit covers the common case. [5 Oct, 15 Nov]
 - ak becomes one Go program for Linux, Mac and Windows (WSL2 first, native menu over ssh); Go may vendor modules. Uncapped (`.gitattributes`) `go/` milestones land in shadow until takeover, after black-box `AK_BIN` keys pass today's ak. Python then takes fixes (bugs, throughput, resources), the 20 Oct menu, 30 Oct pipeline, 2 Nov night read, 5 Nov models screen and 9 Nov standby, each with a key Go ports. Reason: one fast program anyone installs. [20, 23, 24, 30 Oct, 2, 5, 9 Nov 2026]

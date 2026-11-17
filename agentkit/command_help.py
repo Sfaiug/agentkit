@@ -170,7 +170,9 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                      'ak notify needs "Which branch?" --session parser-fix --dry-run'),
     "wait": ("usage: ak wait PR_URL|RUN_ID",
              "End this turn waiting on that pull request or run; ak wakes you with one line\n"
-             "when it merges, closes or ends. One already over is refused. Never a session.",
+             "when it merges, closes or ends. One already over is refused. Never a session.\n"
+             "Waiting on someone outside ak: ak wait until DATE \"WHAT\", DATE as YYYY-MM-DD\n"
+             "or \"YYYY-MM-DD HH:MM\" in this host's time; ak wakes you when it comes.",
              "ak wait https://github.com/acme/api/pull/12"),
     "plan": ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
              "ak plan check N 'COMMAND'",
