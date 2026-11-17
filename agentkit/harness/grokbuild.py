@@ -324,19 +324,20 @@ def end_conversation(path, ends):
 
 def turn_usage(out):
     """The closing `result`'s `usage`, the turn's own, under the model the worker launched it
-    with (`launched_model`), as `Harness.turn_usage` gives them: none where it has no `result`
-    with usage.
+    with (`launched_model`), as `Harness.turn_usage` gives them: none where no `result` counts
+    a token of any kind, as one holding only tool metrics would price the turn at nothing.
 
     Measured on two turns of one session (1.0.46, 17 Nov 2026): the second's counts were
     smaller than the first's, so they total no session; its cached input is beside its input,
     not in it; and `modelUsage` names the model with a suffix of Grok's own (`-build`), which no
     board lists, so a row under it would have no price."""
-    from . import last_entry, launched_model, token_counts
+    from . import TOKEN_TYPES, last_entry, launched_model, token_counts
     out = Path(out)
     try:
         result = last_entry(out / "events.jsonl", lambda entry: entry.get("type") == "result")
     except OSError:
         return None
-    if not isinstance((result or {}).get("usage"), dict):
+    usage = (result or {}).get("usage")
+    if not isinstance(usage, dict) or not any(type(usage.get(key)) is int for key in TOKEN_TYPES):
         return None
-    return None, False, {launched_model(out): token_counts(result["usage"])}
+    return None, False, {launched_model(out): token_counts(usage)}
