@@ -11,7 +11,7 @@ upgrade is put back from, its own usage probe, the receipt its SessionStart hook
 session into, the session each turn's end names, the session store its tokens and messages are
 in and the sessions gc ends,
 `opencode.py` the receipt it keeps its seat's session in, the endpoint that says
-how a model is paid and the sessions gc ends,
+how a model is paid, the sessions gc ends and the session totals its turns' tokens are by type,
 `antigravity.py` the database each of its conversations is, and which one a seat's agy holds
 open.  A script its adapter runs on its own sits beside its module, named for it:
 `muse_usage.py` is Muse's billed usage probe.
