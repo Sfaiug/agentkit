@@ -22,6 +22,8 @@ WAIT = ("end this turn waiting on a pull request or run\n"
         "\n"
         "End this turn waiting on that pull request or run; ak wakes you with one line\n"
         "when it merges, closes or ends. One already over is refused. Never a session.\n"
+        "Waiting on someone outside ak: ak wait until DATE \"WHAT\", DATE as YYYY-MM-DD\n"
+        "or \"YYYY-MM-DD HH:MM\" in this host's time; ak wakes you when it comes.\n"
         "\n"
         "Example: ak wait https://github.com/acme/api/pull/12\n")
 USAGE = {

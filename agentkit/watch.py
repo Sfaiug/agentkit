@@ -97,6 +97,11 @@ DEAD_WINDOW = 3600      # a third death inside this parks the run and tells the 
 LOGGED_OUT = re.compile(r"gh auth login|not logged in|bad credentials|HTTP 401", re.I)
 # the ticks a wait may stand on a fact nobody can read before it ends, said
 UNREAD_TICKS = 3
+# What `ak wait` waits on (`wait_fact`): a pull request, run or job, or, for someone outside ak
+# (a store reviewing a listing), a date the seat names (owner, 17 Nov 2026)
+WAIT_KINDS = ("pr", "run", "job", "until")
+# an `ak wait until` DATE, in the host's time
+DATES = ("%Y-%m-%d", "%Y-%m-%d %H:%M")
 
 
 def ask_inbox(cfg, question, url, sha, log, asked=False, typed=lambda: None):
@@ -3511,22 +3516,42 @@ def too_long(line):
 
 
 def waiting_on(name):
-    """That seat's own `ak wait`, while the pull request, run or job it names is not over; else
-    None.
+    """That seat's own `ak wait`, while the pull request, run or job it names is not over, or
+    the date it names has not come; else None.
 
     The wait is the seat's word, kept in its record's `wait` by `ak wait` and dropped by its
-    next `ak notify`.  Only the tick's wait pass (`wait_over`) asks GitHub or the run's record
-    whether what it names is over, and writes that down on the wait as `over` the moment it
-    sees it; this reads that mark and nothing else, so the ladder, the stop hook and the
+    next `ak notify`.  Only the tick's wait pass (`wait_over`) asks GitHub, the run's record or
+    the clock whether what it names is over, and writes that down on the wait as `over` the
+    moment it sees it; this reads that mark and nothing else, so the ladder, the stop hook and the
     tick's `stop_nudge` cost no network and decide the same.  A wait marked over counts for
     nothing afterwards, and only a new `ak wait` is a new wait.
     """
     wait = seat_read(name).get("wait")
-    if (not isinstance(wait, dict) or wait.get("over") or wait.get("kind") not in ("pr", "run", "job")
+    if (not isinstance(wait, dict) or wait.get("over") or wait.get("kind") not in WAIT_KINDS
             or not isinstance(wait.get("on"), str)):
         return None
     at = _stamp(wait.get("at"))
-    return {"on": wait["on"], "kind": wait["kind"], "at": at, "since": at}
+    # a date says until when, in the seat's own words as it typed them
+    on = f"{wait['on']} until {wait.get('until')}" if wait["kind"] == "until" else wait["on"]
+    return {"on": on, "kind": wait["kind"], "at": at, "since": at}
+
+
+def due(date):
+    """The moment an `ak wait until` DATE comes, or None where it is no such date."""
+    for form in DATES:
+        try:
+            return time.mktime(time.strptime(date, form))
+        except (TypeError, ValueError, OverflowError):
+            continue
+    return None
+
+
+def wait_clock():
+    """The time a wait's date is read against.  An answer key names its clock in `AK_WAIT_CLOCK`,
+    a file of Unix seconds read anew each time, so it reaches whatever program the key runs and
+    moves between commands; unset, the real clock."""
+    clock = os.environ.get("AK_WAIT_CLOCK")
+    return float(Path(clock).read_text()) if clock else time.time()
 
 
 def wait_fact(wait):
@@ -3534,10 +3559,15 @@ def wait_fact(wait):
     that is or None): a run once it is no longer going, a pull request once it is merged
     (by the run landing it, if one did) or closed, or
     while open, once no run reviewing or landing it is going (the last to end since the wait
-    began), or a job once its receipt says it finished.  (None, why, None) where nothing can
-    say yet: `wait_over` leaves the wait as it is
+    began), a job once its receipt says it finished, or a date once it has come.  (None, why,
+    None) where nothing can say yet: `wait_over` leaves the wait as it is
     while that is the owner's login to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
+    if wait.get("kind") == "until":
+        # a record no date is read from ends at once: no seat stands on it for good
+        if wait_clock() < (due(wait.get("until")) or 0):
+            return False, "", None
+        return True, f"{wait.get('until')}, the date you set for {on}, has come", None
     if wait.get("kind") == "job":
         from . import job as jobs
         job = jobs.read_job(config.JOBS / on)
@@ -3590,8 +3620,8 @@ def wait_fact(wait):
 
 def wait_over(cfg, log):
     """The tick's wait pass: a seat whose `ak wait` names a pull request, run or job that is now
-    merged, closed or ended, or whose own work is done and live (`work_live`), is told so,
-    once, and the wait is over.
+    merged, closed or ended, or a date that has come, or whose own work is done and live
+    (`work_live`), is told so, once, and the wait is over.
 
     The fact is asked once per tick here and nowhere else, and written on the wait as `over`
     the moment it is seen, so every reader of `waiting_on` agrees from then on.  The line goes
@@ -3616,7 +3646,7 @@ def wait_over(cfg, log):
     for name, wait in waiting.items():
         session = live.get(name)
         closed = session is None or any(session.get(key) for key in orch.CLOSED)
-        if wait.get("kind") not in ("pr", "run", "job"):
+        if wait.get("kind") not in WAIT_KINDS:
             # the record `ak wait <session>` wrote before waits named a pull request or run:
             # no fact can end it, so it is over, and there is nothing to type
             if wait_mark(name, wait, over="a wait on a session, from before ak wait named a "
@@ -3711,12 +3741,14 @@ def wait_over(cfg, log):
 
 
 def wait_main(argv):
-    """`ak wait PR_URL|RUN_ID|JOB_ID`: this seat ends its turn waiting on that fact.
+    """`ak wait PR_URL|RUN_ID|JOB_ID`: this seat ends its turn waiting on that fact; `ak wait
+    until DATE "WHAT"`: on someone outside ak, WHAT in its own words, until DATE.
 
     The seat is the one `ak notify` speaks for, and the wait is written to its own record and
     nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.  A wait
     names a fact ak can read, never a session: the tick ends it when the pull request merges
-    or closes, no run is going on it, or the run or job ends, and tells the seat so (`wait_over`).
+    or closes, no run is going on it, the run or job ends, or the date comes, and tells the
+    seat so (`wait_over`).
     One already over is refused with its fact (`wait_fact`), and a run's ending that waits for
     this seat with that ending's line, as is any from a seat whose work is done and live
     (`work_live`): the tick would end it at once and wake the seat for nothing.  A pull
@@ -3725,26 +3757,36 @@ def wait_main(argv):
     """
     if command_help.show("wait", argv):
         return 0
-    if len(argv) != 1 or argv[0].startswith("-"):
+    until = argv[:1] == ["until"]
+    if not until and (len(argv) != 1 or argv[0].startswith("-")):
         raise config.Error(command_help.COMMANDS["wait"][0])
     seat = config.current_session()
     if not seat:
         print("ak wait: no seat: run it inside an orchestrator session", file=sys.stderr)
         return 1
-    on = argv[0].strip()
-    pull = transitions.PR_PARTS.match(on)      # the one pattern of a GitHub pull request URL
-    if pull:
-        kind, shown = "pr", f"PR #{pull.group(3)}"
-    elif on and on not in (".", "..") and "/" not in on and (config.RUNS / on).is_dir():
-        kind, shown = "run", f"run {on}"
-    elif on and on not in (".", "..") and "/" not in on and (config.JOBS / on).is_dir():
-        kind, shown = "job", f"job {on}"
+    if until:
+        # one line: a newline typed into the seat when the date comes would be a key of its own
+        date, on = (argv[1], " ".join(argv[2].split())) if len(argv) == 3 else ("", "")
+        if not on or due(date) is None:
+            print('ak wait: ak wait until DATE "WHAT" takes DATE as YYYY-MM-DD or "YYYY-MM-DD '
+                  'HH:MM", this host\'s time, and WHAT as what you wait on', file=sys.stderr)
+            return 1
+        kind, shown = "until", f"{on} until {date}"
     else:
-        print(f"ak wait: {on!r} is neither a pull request URL nor a run id nor a job id; ak waits "
-              "on a pull request, run or job, never on a session (ak run status lists them)",
-              file=sys.stderr)
-        return 1
-    wait = {"on": on, "kind": kind, "at": time.time()}
+        on = argv[0].strip()
+        pull = transitions.PR_PARTS.match(on)      # the one pattern of a GitHub pull request URL
+        if pull:
+            kind, shown = "pr", f"PR #{pull.group(3)}"
+        elif on and on not in (".", "..") and "/" not in on and (config.RUNS / on).is_dir():
+            kind, shown = "run", f"run {on}"
+        elif on and on not in (".", "..") and "/" not in on and (config.JOBS / on).is_dir():
+            kind, shown = "job", f"job {on}"
+        else:
+            print(f"ak wait: {on!r} is neither a pull request URL nor a run id nor a job id; ak "
+                  "waits on a pull request, run or job, never on a session (ak run status lists "
+                  "them)", file=sys.stderr)
+            return 1
+    wait = {"on": on, "kind": kind, "at": time.time(), **({"until": date} if until else {})}
     over, why, _ = wait_fact(wait)
     if over is None:
         print(f"ak wait: gh cannot view {on}: {why}", file=sys.stderr)

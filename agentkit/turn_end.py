@@ -9,7 +9,7 @@ harness hands it, by the warm looker where one takes it (`looker.take`), and pri
 An orchestrator turn ends in exactly one of three ways -- an unanswered question through the
 harness's question prompt or `ak notify needs`, a run or live job it is waiting on, including
 background work it started in its own harness, a command aside, while the harness still lists
-it in flight, and a pull request or run it said it waits on with `ak wait`, for as long as
+it in flight, and a pull request, run or date it waits on by `ak wait`, for as long as
 `watch.waiting_on` says that is not yet over.  A merged run of its own not yet live, where its project declares
 `health:`, is ak's own step and a wait too.  With no open line in the seat's plan nothing is
 owed, and a plain reply stands.  A run of its own that sits parked and undecided --

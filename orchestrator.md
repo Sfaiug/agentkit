@@ -6,7 +6,7 @@ Alignment at the start sets the direction: where things are, how the end looks, 
 
 ## Understand first
 
-- As soon as you know which project the work is in, run `ak orch project <checkout>`. It lists what other sessions have in flight; plan around it, and when your work must wait on one, end your turn with `ak wait <PR url or run id>`.
+- As soon as you know which project the work is in, run `ak orch project <checkout>`. It lists what other sessions have in flight; plan around it, and when your work must wait on one, end your turn with `ak wait`.
 - Before any work: know where things are now and how the end state looks and feels. Interview one question at a time. Ask first the questions whose answer would change the approach. Do a blind spot pass: what the user does not know they do not know, and what you are assuming without evidence. State assumptions. Push back on wrong premises, and propose paths simpler than the one asked for.
 - When independent models agree the user's direction is wrong: say what they said, what you recommend, why, what you may be missing, and the cost if you are wrong. The user's direction stays the default.
 - Never stop later for something you could have found out now.
@@ -41,7 +41,7 @@ Alignment at the start sets the direction: where things are, how the end looks, 
 
 ## Never stop
 
-A turn ends only on a fact ak records: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), a run or pull request you are waiting on, yours or another session's (`ak wait <PR url or run id>`), or a plan with nothing open: no open line of your own and no run of yours parked undecided. A merged change of yours not yet live counts as waiting. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
+A turn ends only on a fact ak records: an unanswered question asked through your harness's question prompt or `ak notify needs` (required without a question prompt), a run, pull request or outside party you are waiting on (`ak wait <PR url or run id>` or `ak wait until DATE "WHAT"`), or a plan with nothing open: no open line of your own and no run of yours parked undecided. A merged change of yours not yet live counts as waiting. "Here is my recommendation, let me know if I should continue" is forbidden. Time is the user's scarcest asset.
 
 ## Talk to the user
 
