@@ -1,12 +1,13 @@
 """Each login's `a month` on `ak usage` is its own price: the `price` on its provider's table
 where the config sets one, else the list price of the plan state/logins.json says the login is on
 now, else none, `-`.  Claude's Pro is $20 a month, Max 20x $200 and Max 5x $100, ChatGPT's Pro
-$200 and Google AI Pro $19.99.  `ak usage --json` gives each login its `price`.
+$200, Google AI Pro $19.99 and Grok's X Premium $8.  `ak usage --json` gives each login its
+`price`.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each of
-the `claude`, `codex` and `antigravity` harnesses being tests/fixtures/meters.py's script beside
-its shipped manifest, with invented logins written into its Home, on a terminal wide enough for
-the whole table.  Fails against /bin/false.
+the `claude`, `codex`, `antigravity` and `grokbuild` harnesses being tests/fixtures/meters.py's
+script beside its shipped manifest, with invented logins written into its Home, on a terminal
+wide enough for the whole table.  Fails against /bin/false.
 """
 
 import json
@@ -25,7 +26,8 @@ WIDE = {"COLUMNS": "200"}
 PLANS = {("anthropic", "default"): ("Claude I", "max 20x"),
          ("anthropic", "second"): ("Claude II", "pro"),
          ("openai", "default"): ("ChatGPT", "pro"),
-         ("google", "default"): ("Gemini", "Google AI Pro")}
+         ("google", "default"): ("Gemini", "Google AI Pro"),
+         ("xai", "default"): ("Grok", "X Premium")}
 
 
 class PlanPrices(unittest.TestCase):
@@ -33,7 +35,7 @@ class PlanPrices(unittest.TestCase):
         self.home = Home()
         self.addCleanup(self.home.close)
         meter = meters.install(self.home)
-        for harness in ("claude", "codex", "antigravity"):
+        for harness in ("claude", "codex", "antigravity", "grokbuild"):
             shutil.copy2(meter.dir / "echo.sh", meter.dir / f"{harness}.sh")
         for provider, account in PLANS:
             meter.week(provider, account, used=50)
@@ -42,12 +44,13 @@ class PlanPrices(unittest.TestCase):
     def usage(self, **providers):
         """Each login's (`price` on `ak usage --json`, `a month` on `ak usage`), its provider's
         table given its keys in `providers`, each login on its plan in `self.plans`."""
-        akconfig.write(self.home, {"anvil": "claude", "bolt": "codex", "crux": "antigravity"},
+        akconfig.write(self.home, {"anvil": "claude", "bolt": "codex", "crux": "antigravity",
+                                  "dart": "grokbuild"},
                        providers={"anthropic": {"mode": "subscription",
                                                 "accounts": ["default", "second"],
                                                 **providers.get("anthropic", {})},
                                   **{name: {"mode": "subscription", **providers.get(name, {})}
-                                     for name in ("openai", "google")}})
+                                     for name in ("openai", "google", "xai")}})
         logins = {}
         for (provider, account), plan in self.plans.items():
             logins.setdefault(provider, {})[account] = {
@@ -68,13 +71,17 @@ class PlanPrices(unittest.TestCase):
         self.assertEqual(self.usage(), {("anthropic", "default"): (200, "200"),
                                         ("anthropic", "second"): (20, "20"),
                                         ("openai", "default"): (200, "200"),
-                                        ("google", "default"): (19.99, "19.99")})
+                                        ("google", "default"): (19.99, "19.99"),
+                                        ("xai", "default"): (8, "8")})
 
     def test_a_price_on_the_providers_table_wins_over_its_plan(self):
         got = self.usage(anthropic={"price": 150})
         self.assertEqual(got[("anthropic", "default")], (150, "150"))
         self.assertEqual(got[("anthropic", "second")], (150, "150"))
         self.assertEqual(got[("openai", "default")], (200, "200"))
+
+    def test_a_grok_login_on_x_premium_costs_its_list_price(self):
+        self.assertEqual(self.usage()[("xai", "default")], (8, "8"))
 
     def test_a_plan_not_listed_or_no_plan_has_no_price(self):
         self.plans[("anthropic", "second")] = "team"
