@@ -106,11 +106,12 @@ umask 077
 dirs=("$AK" "$AK/state" "$AK/secrets" "$AK/tmp" "$AK/env")
 if [ "$ROLE" = server ]; then
   dirs+=("$AK/runs" "$AK/wt" "$AK/work")
-else
+# On a standby these are its copy of its home's (agentkit/standby.py), which a takeover carries
+# on from: they stay whole, open runs and all, and leave nobody anything to inspect.
+elif [ ! -d "$AK/tmp/standby" ]; then
   # These belong to the server's loop. Remove only these paths, without following symlinks;
   # the bridge, server pointer, credentials and other local state must survive a reinstall.
-  # A mistaken --client or unavailable Tailscale must not erase the server's unfinished work,
-  # nor a standby's pass (agentkit/standby.py) what a takeover carries on from.
+  # A mistaken --client or unavailable Tailscale must not erase the server's unfinished work.
   if is_server_box "$SERVER_NAME"; then
     CLIENT_PRUNE_PENDING="local loop state kept: this host identifies as $SERVER_NAME; inspect it on the server before removing it"
   elif [ -d "$AK/runs" ] && ! python3 - "$AK/runs" <<'PYPRUNE'
@@ -130,7 +131,7 @@ except (OSError, ValueError) as exc:
 PYPRUNE
   then
     CLIENT_PRUNE_PENDING="local loop state kept: unfinished or unreadable runs; inspect them on the server before removing them"
-  elif [ ! -d "$AK/tmp/standby" ]; then
+  else
     rm -rf -- "$AK/runs" "$AK/wt" "$AK/work"
   fi
 fi
