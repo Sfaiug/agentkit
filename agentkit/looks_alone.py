@@ -54,9 +54,10 @@ def changes(repo, target, heads):
         named = {PurePosixPath(path): status for status, path in zip(fields[::2], fields[1::2])}
         if code or any(path.name == "AGENTS.md" for path in named):
             continue
-        tests = {path for path, status in named.items() if status in ("M", "D")
-                 and path in timed and TEST & {*path.parent.parts, *re.split(r"[._-]", path.stem)}}
+        tests = {path for path in named
+                 if path in timed and TEST & {*path.parent.parts, *re.split(r"[._-]", path.stem)}}
         looks = {path for path in named.keys() - tests if path.suffix.lower() in SUFFIXES}
-        if looks and looks | tests == named.keys():
+        if (looks and looks | tests == named.keys()
+                and all(named[path] in ("M", "D") for path in tests)):
             alone[head] = sorted(timed[path] for path in tests if named[path] == "M")
     return alone

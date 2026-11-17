@@ -6,7 +6,7 @@ says they are tests (a `tests/` directory here).  At its verdict of its own thos
 the target's `tests:` line, on the tree it would land as, before its task's `# once` commands:
 passing, it lands with no whole run, its merge ending with `Looks-Alone-Tree: <tree>`; red there,
 it waits for the whole run as any member.  A test page with a suffix of looks runs as a test.
-A change that adds a test waits, even one a round already timed; so does one of a timed test
+A change that adds a test waits, even a page a round already timed; so does one of a timed test
 alone, one beside a timed file whose path names no test, and one beside a timed AGENTS.md.
 
 Black-box, as that key and with its fixtures: the program `AK_BIN` names, on a busy host where a
@@ -44,8 +44,8 @@ exit $code
 """
 TEST = "./tests/look_test.sh"    # as the record spells it
 # a module whose doctests the suite times: it ships
-# a round times a test before its change is on the target: tests/new_test.sh
-TIMES = {TEST: 1, "widget.py": 1, "tests/new_test.sh": 1, "tests/page_test.md": 1,
+# a round times a test before its change is on the target: tests/new_test.md
+TIMES = {TEST: 1, "widget.py": 1, "tests/new_test.md": 1, "tests/page_test.md": 1,
          "tests/AGENTS.md": 1}
 EDITED = {**STYLE, "tests/look_test.sh": "true  # blink\n"}
 
@@ -129,7 +129,7 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
         self.assertEqual(self.ran(line), [(TEST, line.verdict(2)["land"])])
 
     def test_one_that_adds_a_test_waits(self):
-        self.waits({**STYLE, "tests/new_test.sh": "true\n"})
+        self.waits({**STYLE, "tests/new_test.md": "true\n"})
 
     def test_one_that_edits_a_timed_test_alone_waits(self):
         self.waits({"tests/look_test.sh": "true  # blink\n"})
