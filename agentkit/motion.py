@@ -56,7 +56,10 @@ SPINNER = "▖▘▝▗"     # quadrants, which a terminal draws itself, and `|/
 THEMED = 0.35       # seconds a theme chosen takes to come down the screen, its top row to its last
 LANDS = 0.25        # ... the highlight takes to settle onto the selection where it comes
 LEAVES = 0.2        # ... and to fade into the background where it left
-COMES = 0.45        # where it comes it starts that far from the selection to the accent
+# The highlight's colours as shares of the theme's selection, accent and background, drawn in the
+# theme in force whenever it changes (`painted`): where it comes it starts 45% of the way to the
+# accent.
+SELECTED, COMES, BACKGROUND = (1, 0, 0), (0.55, 0.45, 0), (0, 0, 1)
 
 
 def breath(now):
@@ -71,9 +74,15 @@ def eased(x):
 
 
 def mixed(one, other, x):
-    """The colour `x` (0 to 1) of the way from `one` to `other`, each `rrggbb`."""
-    return "".join(f"{round(a + (b - a) * x):02x}"
-                   for a, b in zip(bytes.fromhex(one), bytes.fromhex(other)))
+    """The highlight's colour `x` (0 to 1) of the way from `one` to `other` (SELECTED)."""
+    return tuple(a + (b - a) * x for a, b in zip(one, other))
+
+
+def painted(shares):
+    """The highlight's colour of `shares` (SELECTED) as `rrggbb` in the theme in force."""
+    rgbs = [bytes.fromhex(terminal.colour(role)) for role in ("selection", "accent", "background")]
+    return "".join(f"{round(sum(share * rgb[n] for share, rgb in zip(shares, rgbs))):02x}"
+                   for n in range(3))
 
 
 def lit(text, behind):
@@ -350,7 +359,7 @@ def fetching(clock, began):
 
 
 def lighting(glow, now):
-    """The background the highlight has at `now` where it moves (`Clock.light`)."""
+    """The colour the highlight has at `now` where it moves (`Clock.light`), as `mixed`."""
     since, took, start, end, _ = glow
     return mixed(start, end, eased((now - since) / took))
 
@@ -498,28 +507,25 @@ class Clock:
 
     def light(self, now, moves):
         """The highlight as a draw at `now` moves it (terminal.lights), by what it is on: where it
-        comes, from COMES of the way to the accent -- or from where it still fades there -- onto
-        the selection in LANDS seconds; where it left, on what is still there, from where it was
-        into the background in LEAVES: at rest on a screen up first or at another size, and where
-        colour cannot move."""
+        comes, from COMES -- or from where it still fades there -- onto the selection in LANDS
+        seconds; where it left, on what is still there, from where it was into the background in
+        LEAVES: at rest on a screen up first or at another size, and where colour cannot move."""
         was, self.lights, glows, self.glows = self.lights, terminal.lights(), self.glows, {}
         size, self.size = self.size, (terminal.width(), terminal.height())
         if self.up is None or not moves or size != self.size:
             return
-        selection = terminal.colour("selection")
         for what, spans in self.lights.items():
             glow = glows.get(what)
             if what not in was:
-                start = (lighting(glow, now) if glow else
-                         mixed(selection, terminal.colour("accent"), COMES))
-                self.glows[what] = now, LANDS, start, selection, spans
+                self.glows[what] = (now, LANDS, lighting(glow, now) if glow else COMES, SELECTED,
+                                    spans)
             elif glow:          # still coming
                 self.glows[what] = *glow[:4], spans
         for what in (was.keys() | glows.keys()) - self.lights.keys():
             glow = glows.get(what)
             if what in was:
-                glow = (now, LEAVES, lighting(glow, now) if glow else selection,
-                        terminal.colour("background"), was[what])
+                glow = (now, LEAVES, lighting(glow, now) if glow else SELECTED, BACKGROUND,
+                        was[what])
             still = [span for span in glow[4] if terminal.held(*span[:2]) == what]
             if still:
                 self.glows[what] = *glow[:4], still
@@ -577,7 +583,7 @@ class Clock:
         screen, moving = terminal.on_screen(), {}     # row -> where the highlight moves on it
         for what, glow in list(self.glows.items()):
             since, took, *_, spans = glow
-            x, rgb = (now - since) / took, lighting(glow, now)
+            x, rgb = (now - since) / took, painted(lighting(glow, now))
             for row, left, right in spans:
                 if row >= below or row > len(screen):
                     continue
