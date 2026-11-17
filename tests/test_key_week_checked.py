@@ -10,7 +10,8 @@ had a week in the seven days before:
 
 A day its plan rose by nothing, or had no week in the seven days before, counts for nothing;
 a login whose plan no day checks has an empty list.  Each plan is checked against its own week,
-so an upgrade's days are checked only once the new plan has a week.
+so an upgrade's days are checked only once the new plan has a week.  Each look works them out
+from the rows there are then: nothing keeps them from one look to the next.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py on
 tests/fixtures/meters.py's harness, with an invented board, plans, readings and token rows
@@ -49,6 +50,9 @@ class WeekChecked(unittest.TestCase):
                                            "accounts": ["default", "second"]}})
         self.home.write(".agentkit/state/boards.json", BOARD)
         self.seats, self.readings = [], []
+        with closing(sqlite3.connect(self.home.path / ".agentkit/history.db")) as db, db:
+            db.execute(SEAT_USAGE)
+            db.execute(METER_READINGS)
 
     def plans(self, **plans):
         """Each login's plan now, as its harness last answered."""
@@ -69,13 +73,14 @@ class WeekChecked(unittest.TestCase):
 
     def checks(self):
         """Each login's checks as (days before now its day ended, rose, predicted), the rows
-        written into history.db first."""
+        not yet in history.db written into it first."""
         with closing(sqlite3.connect(self.home.path / ".agentkit/history.db")) as db, db:
-            db.execute(SEAT_USAGE)
-            db.execute(METER_READINGS)
-            db.executemany(f"INSERT INTO seat_usage VALUES ({', '.join('?' * 10)})", self.seats)
-            db.executemany(f"INSERT INTO meter_readings VALUES ({', '.join('?' * 9)})",
-                           self.readings)
+            db.executemany("INSERT OR IGNORE INTO seat_usage VALUES "
+                           f"({', '.join('?' * 10)})", self.seats)
+            # by name: a look may have added columns to the table
+            db.executemany("INSERT OR IGNORE INTO meter_readings (provider, account, meter, "
+                           "used, resets_at, window_secs, at, source, plan) VALUES "
+                           f"({', '.join('?' * 9)})", self.readings)
         started = time.time()
         done = self.home.ak("usage", "--json")
         ended = time.time()
@@ -160,6 +165,19 @@ class WeekChecked(unittest.TestCase):
         checks = self.checks()
         self.assertChecks(checks["default"], (1, 25, 50))
         self.assertChecks(checks["second"], (4, 12, 10))
+
+    def test_each_look_works_them_out_from_the_rows_there_are_then(self):
+        self.plans(default="Max", second="Pro")
+        # six days ago: 0 -> 20 for $4, with no week before it and no day after: nothing to check
+        self.read("default", 0, 162, plan="Max")
+        self.spent("default", 4, 156)
+        self.read("default", 20, 150, plan="Max")
+        self.assertChecks(self.checks()["default"])
+        # a day ago's rows arrive, 20 -> 32 for $2: the next look checks it at that week, 10
+        self.read("default", 20, 42, plan="Max")
+        self.spent("default", 2, 36)
+        self.read("default", 32, 30, plan="Max")
+        self.assertChecks(self.checks()["default"], (1, 12, 10))
 
 
 if __name__ == "__main__":
