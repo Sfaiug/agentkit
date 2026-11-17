@@ -5,7 +5,8 @@ better row neither, as one no harness lists or one listed only by a harness runn
 yours, moves none of them.  Of each other release its best row is among `others` with the why it
 would have were it taken: `not set up`, by null, where it would be a choice, shaded so on
 `r recommended` on `c`; else `beaten`, `close` or `far below`.  ← and → take each choice in turn,
-from the best to the cheapest and back.  `ak models --json` and the screen say the same.
+from the best to the cheapest and back, and → on the best takes nothing: the one shaded past it
+stays so (matrix.takes).  `ak models --json` and the screen say the same.
 
 Black-box: AK_BIN in a temporary HOME, the boards held as just asked with invented releases of
 one maker (tests/test_key_role_choices.py), its harness a fake listing four of them, three of
@@ -118,7 +119,9 @@ class ChoicesAreYours(unittest.TestCase):
         term = self.screen()
         for key, release in (("Left", "acme-mid-1"), ("Left", "acme-gap-1"),
                              ("Left", "acme-base-1"), ("Right", "acme-gap-1"),
-                             ("Right", "acme-mid-1"), ("Right", "acme-top-1")):
+                             ("Right", "acme-mid-1"), ("Right", "acme-top-1"),
+                             # → on Top takes nothing: the ← after it takes Mid, not Top off Best
+                             ("Right", "acme-top-1"), ("Left", "acme-mid-1")):
             term.keys(key)
             self.orchestrating(release)
 

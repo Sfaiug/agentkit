@@ -320,7 +320,10 @@ def takes(cfg, row):
     one beside the entry it leaves (watch._taken_in): the first of its `yours` on a harness a
     configured model runs on, on the provider its id names (`<provider>/<model>`) where that
     harness runs any provider it logs in to (config.provider_hosts), {"harness", "model"} with
-    the first such model's `provider`, and its `mode` where it has one.  None for neither."""
+    the first such model's `provider`, and its `mode` where it has one.  None for neither: a
+    model ak holds no login for, on a harness running none of yours or listed by none, stays
+    shaded `not set up` until its company is added on `c`, never set up on a login ak has
+    not seen; the owner, 17 Nov 2026, asked whether one should: "Stay shaded"."""
     name = runner(cfg, row)
     if name or not row["yours"]:
         return name
