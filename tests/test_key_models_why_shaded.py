@@ -2,7 +2,8 @@
 2026: under `shaded` each the role's bars draw shaded, in the bars' order, the row it uses among
 them where that is no choice, and under `not shown` the rest of its others, in their order; a
 kind with none has no label.  The bars on a narrow screen shade fewer, and so does the page: on
-100 cells the reviewer's bars shade two of its four others, on 26 none.
+100 cells the reviewer's bars shade two of its four others, on 26 none; and on a page too short
+for the bars' whys, those that stand without them.
 
 Black-box, as tests/test_key_models_why.py, on its drawing: the program `AK_BIN` names in a
 terminal, its harnesses fakes listing invented models, the boards held as just asked and finished
@@ -16,6 +17,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REAL_TMUX
+from test_key_models_answer import lines
 from test_key_models_bars import bars, drawn
 import test_key_models_why as drawing
 
@@ -70,6 +72,28 @@ class ModelsWhyShaded(unittest.TestCase):
         self.assertEqual(shaded, [])
         self.assertNotIn("shaded", page)
         self.assertEqual(page["not shown"], OTHERS)
+
+    def test_on_a_page_too_short_for_the_bars_whys_shaded_lists_the_bars_drawn_without_them(self):
+        # Crux 2 builds, its costs said in few cells: on 28 cells its others' whys would leave
+        # Bolt 3 no place
+        self.write(drawing.TWO, ["crux"], runs=True)
+        unit = self.home.path / ".agentkit/state/models-unit"
+        unit.write_text("a week")
+        self.addCleanup(unit.unlink)
+        term = self.models(28, 26)
+        term.keys("Down")
+        found = bars(term.wait(lambda screen: drawn(screen, "executor")), "executor")
+        self.assertEqual([(f"{bar['name']} {bar['effort']}", bar["why"]) for bar in found
+                          if bar["shaded"]],
+                         [("Crux 2 low", None), ("Holm 1 high", None), ("Bolt 3 medium", None)])
+        term.keys("Enter")
+        term.wait("\n  why ")
+        term.resize(28, 120)          # the page whole, of the bars as they were drawn
+        page = lines(term.wait(lambda screen: len(lines(screen.rstrip())) > 26 and lines(
+            screen.rstrip())[-1] == "  esc back").rstrip())
+        page = kinds(page[page.index("  why Crux 2 low builds"):-2])
+        self.assertEqual(page["shaded"], ["Crux 2 low", "Holm 1 high", "Bolt 3 medium"])
+        self.assertNotIn("not shown", page)
 
 
 if __name__ == "__main__":

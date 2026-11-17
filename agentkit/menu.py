@@ -3779,9 +3779,9 @@ def scored(column, one):
 
 def flowed(parts, room, hang=0):
     """`parts` three cells apart on lines of `room` cells, each going on at its words beside the
-    one before it and the rest under the first, `hang` cells further in, a word too long for a
-    line split (terminal.wrap)."""
-    lines = [""]
+    one before it and the rest under the first, `hang` cells further in where that leaves a line
+    a cell, a word too long for a line split (terminal.wrap)."""
+    lines, hang = [""], min(hang, room - 1)
     for part in parts:
         gap = "   " if lines[-1] else ""
         for word in " ".join(terminal.wrap(part, room)).split():
@@ -3825,16 +3825,16 @@ def week_checked(plan, checks):
             f"{'high' if off >= 0 else 'low'}")
 
 
-def models_why(found, role, row, kept, unit, weeks):
+def models_why(found, role, row, kept, whys, unit, weeks):
     """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
     2026: a label column, each value going on at its words in its own (flowed), an other's lines
     after its first two cells further in, so each other's first line stands out.  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
     best choice it is; its cost in `unit`, said as UNITS says it, where that comes from
     (SOURCES) and how far off each of `weeks` foretold (week_checked); the rule that makes the
-    choices; and why each model is none (WHYS): under `shaded` each the bars, `kept` among them,
-    draw shaded at this width (models_standing), in their order, under `not shown` the rest of
-    its `others`, in their order.  Only a model's name is cut."""
+    choices; and why each model is none (WHYS): under `shaded` each the bars draw shaded at this
+    width, given `kept` and `whys` as models_bars was (models_standing), in their order, under
+    `not shown` the rest of its `others`, in theirs.  Only a model's name is cut."""
     room = terminal.layout_width() - 2
     width = terminal.cells("not shown")     # the design's label column: its widest label
     values = room - width - 2
@@ -3857,7 +3857,7 @@ def models_why(found, role, row, kept, unit, weeks):
             places=number(matrix.PLACES))
     behind, cost = below(row), cost_said(found, row, unit)
     # the bars with a why are the shaded ones
-    bars = [one for one, _ in models_standing(found, kept, unit)[1]]
+    bars = [one for one, _ in models_standing(found, kept, unit, whys)[1]]
     drawn = {id(one) for one in bars}
     kinds = {"shaded": [[why(one)] for one in bars if id(one) in found["whys"]],
              "not shown": [[why(one)] for one in found["others"] if id(one) not in drawn]}
@@ -3949,11 +3949,11 @@ def models_screen(cfg, session, selected, providers):
         price = price_held(session, here[1], used[here[1]], answer[here[1]])
         # where one-cell bars leave too little room these give way whole, in turn: the comparing
         # line, the `━` (the accent and the role's line still name the row in use), the whys
-        for under, marked, why in ((read, True, True), ([], True, True), ([], False, True),
-                                   ([], False, False)):
+        for under, marked, whys in ((read, True, True), ([], True, True), ([], False, True),
+                                    ([], False, False)):
             room = page_room([*under, *note_lines(note)], keys, over) - len(body)
             bars = models_bars(answer[here[1]], here[1], used[here[1]][2], own[here[1]][2], unit,
-                               room, marked, why, price)
+                               room, marked, whys, price)
             if len(bars) <= room:
                 break
         act, here, _, top = matrix_key(title, body + bars, places, rows, here, top, note, keys,
@@ -3996,7 +3996,7 @@ def models_screen(cfg, session, selected, providers):
             while row and key != "back":
                 if checking and not checking.is_alive():
                     weeks, checking = checking.answer(), None
-                lines = models_why(answer[role], role, row, own[role][2], unit, weeks)
+                lines = models_why(answer[role], role, row, own[role][2], whys, unit, weeks)
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
                                              [why], why, page, "", "esc back", clock=opened,
