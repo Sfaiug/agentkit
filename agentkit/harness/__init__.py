@@ -7,9 +7,9 @@ A harness that needs Python puts it in `agentkit/harness/<name>.py` and implemen
 hooks it has something to say about -- `claude.py` the transcript it writes and the counts by
 model its results report, `codex.py` the launch receipt its thread is proven by,
 `grokbuild.py` the session directory it opens and the result its turns' tokens are by type,
-`muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe, the receipt its SessionStart hook writes its
-session into, the session each turn's end names, the session store its tokens and messages are
-in and the sessions gc ends,
+`muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe,
+the receipt its SessionStart hook writes its session into, the session each turn's end names,
+the session store its tokens and messages are in and the sessions gc ends,
 `opencode.py` the receipt it keeps its seat's session in, the endpoint that says
 how a model is paid, the sessions gc ends and the session totals its turns' tokens are by type,
 `antigravity.py` the database each of its conversations is, and which one a seat's agy holds
@@ -196,11 +196,15 @@ TOKEN_TYPES = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_
                "output_tokens")
 
 
+def whole(count):
+    """Whether that is a token count: a whole number, not below 0."""
+    return type(count) is int and count >= 0
+
+
 def token_counts(usage, keys=TOKEN_TYPES):
     """Each of those keys' counts in that usage object, 0 where it holds no whole count."""
     usage = usage if isinstance(usage, dict) else {}
-    return tuple(value if type(value := usage.get(key)) is int and value >= 0 else 0
-                 for key in keys)
+    return tuple(count if whole(count := usage.get(key)) else 0 for key in keys)
 
 
 # Every reader here takes a record it cannot read for one that holds nothing, except inside

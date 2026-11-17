@@ -4,11 +4,12 @@ Grok Build's stream closes on a `result` whose `usage` counts the turn's own inp
 cache read and output, its cached input beside its input, and whose `modelUsage` repeats them
 under a name of Grok's own (`<model>-build`) that no board lists.  The turn's `turn_usage` row in
 history.db holds the `result`'s four counts under the model its entry launched it with, and
-`ak usage --json` prices the login's `listed_usd` from that row; a `result` counting no tokens,
-only tool metrics, leaves no row, as zeros would price the turn at nothing.  Black-box: AK_BIN runs a task
-through tests/fixtures/akbin.py on a fake harness configured as `grokbuild`, whose events are in
-the shape `grok --output-format streaming-messages-json` writes them, an invented board in its
-Home, and history.db is read with sqlite3.
+`ak usage --json` prices the login's `listed_usd` from that row; a `result` holding no whole
+count, only tool metrics and a negative one, leaves no row, as zeros would price the turn at
+nothing.  Black-box: AK_BIN runs a task through tests/fixtures/akbin.py on a fake harness
+configured as `grokbuild`, whose events are in the shape `grok --output-format
+streaming-messages-json` writes them, an invented board in its Home, and history.db is read with
+sqlite3.
 """
 
 import json
@@ -35,14 +36,13 @@ def usage(fresh, written, cached, output):
             "cache_creation_input_tokens": written}
 
 
-TOOLS = {"server_tool_use": {"web_search_requests": 0}}
-
-
 def events(counts):
     """A model call's message, then the turn's `result`, its `usage` counting `counts` beside
-    its tool metrics, as tests/fixtures/grok-events.jsonl has them."""
+    its tool metrics, or a negative input where there are none, as
+    tests/fixtures/grok-events.jsonl has them."""
     result = {"type": "result", "subtype": "success", "is_error": False, "num_turns": 2,
-              "result": "Done.", "session_id": SESSION, "usage": dict(TOOLS)}
+              "result": "Done.", "session_id": SESSION,
+              "usage": {"server_tool_use": {"web_search_requests": 0}, "input_tokens": -1}}
     if counts:
         result["usage"].update(usage(*counts))
         result["modelUsage"] = {"acme-4-build": dict(zip(
