@@ -95,10 +95,14 @@ def review_pass(state, cfg, ended=False):
 
 
 def invalidate_saved_pass(state, cfg, log):
-    """Recover old verdicts by reviewing the saved work, even if its task rounds are spent."""
+    """Recover old verdicts by reviewing the saved work, even if its task rounds are spent.
+
+    The run leaves its line with the review: a member with none stopped its own delivery and
+    the lander's check of every member, each reading the review it lacked (17 Nov 2026)."""
     if state.get("verdict") != "PASS" or review_pass(state, cfg):
         return
     log("WARN saved PASS lacks eligible review or commit verification evidence; reviewing again")
+    state.pop("waiting_on", None)
     entries = state["round_summaries"]
     rnd = len(entries) + 1
     state.update(verdict=None, review=None,
