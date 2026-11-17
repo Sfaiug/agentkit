@@ -59,7 +59,7 @@ class LineCheckGoesFirst(unittest.TestCase):
         self.said.setblocking(False)
         self.suite = SUITE.format(said=address)
 
-    def start(self, name, fork=False):
+    def start(self, name, *flags, fork=False):
         """A run on the repository `name`; on a `fork`'s, which it may only read, the run checks
         itself at landing, as no line does."""
         if name not in self.rigs:
@@ -70,7 +70,7 @@ class LineCheckGoesFirst(unittest.TestCase):
         before = set(taskfile.runs(self.home))
         task = taskfile.write(self.home, self.rigs[name].path, f"Add retry to {name}",
                               name=f"{name}-{len(before)}")
-        done = self.home.ak("run", str(task), "--bg")
+        done = self.home.ak("run", str(task), "--bg", *flags)
         self.assertEqual(done.code, 0, done.out + done.err)
         return (set(taskfile.runs(self.home)) - before).pop()
 
@@ -130,7 +130,9 @@ class LineCheckGoesFirst(unittest.TestCase):
                    "both lines' checks to run")
         cogs = self.start("cogs", fork=True)
         self.until(lambda: self.waiting(cogs), "the run's own landing check to wait")
-        self.start("dials")
+        # `--first`: with no room here for its suite, its line would otherwise wait for company
+        # (test_key_the_suite_runs_once_for_a_batch); turns go by rank whatever it says
+        self.start("dials", "--first")
         self.until(lambda: self.lines_waiting() == 1, "a line's check to wait after it")
         held = self.hold()
         self.end("anvils")
