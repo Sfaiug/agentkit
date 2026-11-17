@@ -14,7 +14,7 @@ import tempfile
 import threading
 import time
 from contextlib import ExitStack, contextmanager, nullcontext
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 from . import config, gitcall, handback, helper, history, host, orch, stuck, suite_times
@@ -2454,9 +2454,10 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
 
             def go_again(which):
                 """The goes the pieces at `which` ask for (`goes`), until none asks another: named
-                tests one piece at a time, then the whole pieces at once, on turns here taken as
-                their first ones were (`_GateHold.suite`, `attempts`): a turn kept for each from
-                its first go would sit idle while most are settled by their named tests."""
+                tests side by side (`side_by_side`), then the whole pieces at once, on turns here
+                taken as their first ones were (`_GateHold.suite`, `attempts`): a turn kept for
+                each from its first go would sit idle while most are settled by their named
+                tests."""
                 going, asked = {index: goes(index) for index in which}, {}
 
                 def answer(index, ended=None):
@@ -2465,12 +2466,41 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                     except StopIteration:
                         del going[index]
 
+                def side_by_side():
+                    """Each piece's named tests, go after go, until it asks for its whole piece or
+                    ends, taking no turn, as those named on the helper (above).  So a go starts
+                    beside its siblings' only while the host's cores, less the threads that want
+                    one now, fit one more piece (`host.cpu_room`), as a piece's turn does: one go
+                    looks at a time, the next once it has started, and one finding no room looks
+                    again after a poll or a sibling's end.  Beside none a go starts without a
+                    look; where the host shows no such count, one after another."""
+                    running = {}    # each go's piece, by its future
+                    with ThreadPoolExecutor(max_workers=len(which)) as pool:
+                        try:
+                            while True:
+                                ready = [index for index in sorted(going)
+                                         if asked[index] is not None
+                                         and index not in running.values()]
+                                if ready and (not running or (room := host.cpu_room()) is not None
+                                              and _fits(room, cpu) > 0):
+                                    running[pool.submit(attempt, f"{ready[0] + 1}/{count}",
+                                                        asked[ready[0]], turn=True)] = ready[0]
+                                elif not running:
+                                    return
+                                else:
+                                    # Answered in this thread, whose held turn a busy go's
+                                    # `wait_busy` gives back and takes again (`_GATE_HELD`).
+                                    for ended in wait(running, GATE_POLL if ready else None,
+                                                      FIRST_COMPLETED)[0]:
+                                        answer(running.pop(ended), ended.result())
+                        except BaseException:
+                            cancel.set()    # its siblings stop rather than wait out the limit
+                            raise
+
                 for index in which:
                     answer(index)
                 while going:
-                    for index in sorted(going):
-                        while index in going and asked[index] is not None:
-                            answer(index, attempt(f"{index + 1}/{count}", asked[index]))
+                    side_by_side()
                     if not going:
                         break
                     if hold is None and not over():

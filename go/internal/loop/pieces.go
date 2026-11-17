@@ -60,7 +60,8 @@ type piece struct {
 // the red piece redRank ranks first did, and hands on what handedOn says, its cost raised where it
 // ran out of memory, however it ended, but where it is handed on (overflowed).
 //
-// What Python does beyond that is not Go's yet and differs here: the suite's pace.
+// What Python does beyond that is not Go's yet and differs here: the suite's pace, and its red
+// pieces going again side by side, their named tests and their whole goes.
 func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
 	asked := clock() // each piece's first go is asked for now, a later one as the one before it ends
 	cpus, memory := suiteCost(l.dir, cwd, cmd)
