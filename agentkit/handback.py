@@ -253,6 +253,7 @@ def result_opening(run_dir, state, cfg=None):
             saved = ""
         if saved.startswith("# NOT LIVE "):
             return saved.partition("\n\n")[0]
+    cfg = transitions.report_config(cfg)    # one read: an edit between two would split heading from decision
     decided = decision_line(state, run_dir, cfg, save=False, report=True)
     if decided:
         return decided
@@ -1571,6 +1572,7 @@ def decision(run_dir, state, word, why, move, save=True, report=False):
 def decision_line(state, run_dir, cfg=None, save=True, report=False):
     """The line an ending its seat decides about is told in, else None: one delivered or stopped on
     purpose leaves nothing to decide, and one going or parked upstream has not ended, but for a provider."""
+    cfg = transitions.report_config(cfg)    # one read: an edit between two would split verdict from reason
     word = handback_verdict(state, cfg)
     if (word.startswith(("PASS", "DONE")) or transitions.delivered(state) or state.get("state") in ("waiting", "stopped")
             or transitions.going(state) and not transitions.exhausted_wait(state)):
@@ -1614,6 +1616,7 @@ def handback_line(state, run_dir, cfg=None, save=True, live=False):
         return seat_notice(state["merge_handback"] + gone_live, state, run_dir,
                            f"run {run_dir.name}: the maintainer decided on its PR.",
                            "Decide the next step." + gone_live, save)
+    cfg = transitions.report_config(cfg)    # one read: an edit between two would split verdict from reason
     decided = decision_line(state, run_dir, cfg, save)
     if decided:
         return decided
