@@ -15,6 +15,10 @@ import (
 	"agentkit/internal/host"
 )
 
+// group is how a project's command runs in a session of its own and is stopped (host.Group): a
+// variable, so a test stops it slowly.
+var group = host.Group
+
 // ProjectAnswer is a project's own command's JSON answer, as Python's gitcall.project_answer
 // reads it (ProjectOutput): read as Python reads it, so an id is the text Python's str() makes
 // of it, or nil and the one line saying why, calling it what.
@@ -44,12 +48,19 @@ func ProjectOutput(ctx context.Context, command, checkout string, env []string, 
 	cmd.Env = slices.DeleteFunc(slices.Clone(env), func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
 	var out, said bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &said
-	stop := host.Group(cmd)
+	stop := group(cmd)
 	err := cmd.Start()
 	if err == nil {
 		// past the wait its session goes, even once the shell is gone: what it started may still
-		// hold the output open, and exec stops watching the deadline when the shell exits
-		defer context.AfterFunc(ctx, stop)()
+		// hold the output open, and exec stops watching the deadline when the shell exits; ended
+		// before the answer says so, as what it reads is open in ak until then
+		killed := make(chan struct{})
+		ended := context.AfterFunc(ctx, func() { stop(); close(killed) })
+		defer func() {
+			if !ended() {
+				<-killed
+			}
+		}()
 		err = cmd.Wait()
 	}
 	var exit *exec.ExitError
