@@ -1,9 +1,9 @@
 """The line under a working row says who builds, who reviews, and each task as its squares.
 
 The owner's design (14 Oct 2026): pointing at a working seat opens one line under its row --
-`opus orchestrates   astra builds   fable reviews   ■□□  ■■□` -- the seat's orchestrator, then each
-model once, what it does after it in words (their pick of 10 Nov 2026), muted as the row's
-orchestrator, with each task in flight as three squares
+`build: astra   review: fable   ■□□  ■■□` -- each role, then the models in it (their pick of 17
+Nov 2026, at menu.crew), muted as the row's orchestrator, with each task in flight as three
+squares
 (build, review, land), the stages it reached filled: in working's colour while a model or ak
 works on it, dim while it waits; a run that ended is gone from it, whatever it delivered (their
 word of 19 Oct 2026).  No task's name appears anywhere.
@@ -95,28 +95,28 @@ class CrewAndSquares(Sandbox):
         info["word"] = "working"
         with patch.object(terminal, "colour_depth", return_value=0):
             [line] = menu.detail(info, 100)
-        self.assertEqual(line, "Opus 5.5 xhigh orchestrates   6 Astra xhigh builds   "
-                               "Fable 5.1 xhigh reviews   ■□□  ■■□")
+        self.assertEqual(line, "build: 6 Astra xhigh   review: Fable 5.1 xhigh   ■□□  ■■□")
         self.assertNotIn("parser", line)
-        # a model in two roles is named once, with both
-        info["crew"] = ("opus", ["opus", "astra"], ["fable", "opus"])
+        # a model in two roles is named under each; two roles holding the same are one
+        info["crew"] = (["opus", "astra"], ["fable", "opus"])
         with patch.object(terminal, "colour_depth", return_value=0):
             self.assertTrue(menu.detail(info, 100)[0].startswith(
-                "opus orchestrates, builds, reviews   astra builds   fable reviews   "))
+                "build: opus, astra   review: fable, opus   "))
+            self.assertEqual(menu.crew({"crew": (["opus", "astra"], ["astra", "opus"])}),
+                             "build and review: opus, astra")
         # the names are the colour of the row's orchestrator, their roles with them
         with patch.object(terminal, "colour_depth", return_value=24):
-            self.assertEqual(menu.crew({"crew": ("opus", ["astra"], ["fable"])}),
-                             terminal.styled("opus orchestrates   astra builds   fable reviews",
-                                             "muted"))
+            self.assertEqual(menu.crew({"crew": (["astra"], ["fable"])}),
+                             terminal.styled("build: astra   review: fable", "muted"))
         # a narrow line cuts the crew, never the squares
-        info["crew"] = ("opus", ["astra", "opus"], ["fable", "spark"])
+        info["crew"] = (["astra", "opus"], ["fable", "spark"])
         info["tasks"] = [(0, "moving")]
         with patch.object(terminal, "colour_depth", return_value=0):
             self.assertEqual(menu.detail(info, 39),
-                             ["opus orchestrates, builds   astr…   ■□□"])
+                             ["build: astra, opus   review:…   ■□□"])
 
     def test_an_orchestrator_building_alone_is_no_builder_on_the_line(self):
-        """The owner's word of 21 Oct 2026: with no executor marked, no `builds` names the
+        """The owner's word of 21 Oct 2026: with no executor marked, no `build` names the
         seat's own model, so the line differs from one whose executor is that same model."""
         records = [run("g1-parser", state="running", step="reviewer")]
         lines = {}
@@ -128,8 +128,8 @@ class CrewAndSquares(Sandbox):
             with patch.object(terminal, "colour_depth", return_value=0):
                 [lines[bool(workers)]] = menu.detail(info, 80)
         self.assertEqual(lines, {
-            False: "6 Astra xhigh orchestrates   Fable 5.1 xhigh reviews   ■■□",
-            True: "6 Astra xhigh orchestrates, builds   Fable 5.1 xhigh reviews   ■■□"})
+            False: "review: Fable 5.1 xhigh   ■■□",
+            True: "build: 6 Astra xhigh   review: Fable 5.1 xhigh   ■■□"})
 
 
 if __name__ == "__main__":

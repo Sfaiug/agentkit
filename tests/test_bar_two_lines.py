@@ -24,7 +24,7 @@ from agentkit.guard import commands  # noqa: E402
 from agentkit import record
 
 NOW = 1_800_000_000
-CREW = "Fable 5.1 xhigh orchestrates   6 Astra xhigh builds, reviews"   # line two
+CREW = "build and review: 6 Astra xhigh"   # line two
 MUTED = terminal.colour("muted", tmux=True)
 
 
@@ -152,7 +152,7 @@ class TwoLines(Sandbox):
         self.assertEqual(title, "fix-api · done")
 
     def test_e_a_client_short_of_room_keeps_its_tasks_over_who_builds(self):
-        versions = statusbar.whys({"crew": ("fable", ["astra"], ["opus"]),
+        versions = statusbar.whys({"crew": (["astra"], ["opus"]),
                                    "tasks": [(0, "moving")] * 101})
         self.assertEqual(len(versions), len(statusbar.WHYS))
         self.assertTrue(all("■" in drawn(version) for version in versions), versions)

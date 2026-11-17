@@ -574,10 +574,9 @@ class LiveStatus(unittest.TestCase):
         # two cells a glyph, so a cut at an odd column would halve one, and `#`s that tmux
         # reads doubled and shows once: the option holds it all, and tmux cuts it by cells
         model = "#1 漢字" * 40
-        why = statusbar.whys({"crew": (model, [model], []), "tasks": []})[0]
+        why = statusbar.whys({"crew": ([model], []), "tasks": []})[0]
         self.assertEqual(statusbar.lines("herdr", "opus", "needs you", "", why)[1],
-                         "  #[fg=#acb4bd]" + model.replace("#", "##")
-                         + " orchestrates, builds#[default]")
+                         "  #[fg=#acb4bd]build: " + model.replace("#", "##") + "#[default]")
         self.assertIn("/…:" + statusbar.WHY, statusbar.FORMATS[1])
         statusbar.dress("herdr", "opus")
         self.assertNotIn("status-left-length", self.options)

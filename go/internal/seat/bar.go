@@ -198,7 +198,7 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 	if model != "" {
 		head += "   " + barPaint(model, "muted")
 	}
-	why := barPaint(terminal.Crew(model, builds, reviews), "muted")
+	why := barPaint(terminal.Crew(builds, reviews), "muted")
 	if seat.Word == "needs you" && !seat.question {
 		why = tmuxText(terminal.Plain(seat.reason))
 	}

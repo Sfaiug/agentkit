@@ -53,7 +53,7 @@ class FadeIn(Sandbox):
         self.assertFalse([cell for cell in self.clock.cells if cell[1] == 1])   # drawn as it is
         lines, _ = self.draw("acme-02")
         row = next(n for n, line in enumerate(lines, 1) if " acme-02 " in line) + 1
-        builds = f"{config.model_at(self.cfg, None, 'astra', 'executor')} builds"
+        builds = f"build and review: {config.model_at(self.cfg, None, 'astra', 'executor')}"
         self.assertIn(builds, lines[row - 1])
         # the line it opens, and no other, comes up out of the background
         self.assertEqual([cell for cell in self.clock.cells if cell[1] == 1], [(row, 1)])
@@ -136,7 +136,7 @@ class FadeIn(Sandbox):
             cursor = drawn["order"][drawn["order"].index(cursor) + 1]
             now.return_value = 11.1
             lines, _ = self.draw(cursor, page=1, height=14)
-            builds = f"{config.model_at(self.cfg, None, 'astra', 'executor')} builds"
+            builds = f"build and review: {config.model_at(self.cfg, None, 'astra', 'executor')}"
             row = next(n for n, line in enumerate(lines, 1) if builds in line)
             animation, until = self.clock.cells[row, 1]
             self.assertAlmostEqual(until, 11.25)

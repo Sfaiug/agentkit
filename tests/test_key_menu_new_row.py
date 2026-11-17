@@ -22,7 +22,7 @@ from fixtures.akterm import Terminal
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 ROW_KEYS = "  ⏎ start   tab models   esc back"
 UNFILED = "not assigned yet"
-CREW = "     Fable 5.1 xhigh orchestrates, builds, reviews   6 Astra xhigh builds, reviews"
+CREW = "     build and review: Fable 5.1 xhigh, 6 Astra xhigh"
 SHIPPED = 'orchestrator = "opus"\nworkers = ["opus", "astra"]'
 DEFAULTS = 'orchestrator = "fable"\nworkers = ["fable", "astra"]'
 

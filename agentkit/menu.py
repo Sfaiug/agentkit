@@ -1129,35 +1129,35 @@ def squares(tasks, room=float("inf"), tmux=False, most=None):
 
 
 def seat_crew(cfg, selection):
-    """(its orchestrator, who builds, who reviews) a seat's work, from its saved selection: the
-    orchestrator as its row names it; its workers; its reviewers, else its workers, each named at
-    the effort it runs that role at (`config.model_at`).  A seat whose orchestrator builds alone
-    names no builder, and nothing says so: no `builds` is the seat itself building (the owner's
-    word of 21 Oct 2026).  No selection: nobody.  The menu row and the seat's own bar both read
-    this, as they read `seat_tasks`."""
+    """(who builds, who reviews) a seat's work, from its saved selection: its workers; its
+    reviewers, else its workers, each named at the effort it runs that role at
+    (`config.model_at`).  A seat whose orchestrator builds alone names no builder, and nothing
+    says so: no `build` is the seat itself building (the owner's word of 21 Oct 2026).  No
+    selection: nobody.  The menu row and the seat's own bar both read this, as they read
+    `seat_tasks`."""
     if not selection:
-        return None, [], []
+        return [], []
     workers = list(selection.get("workers") or [])
-    return (config.model_at(cfg, selection, selection["orchestrator"], "orchestrator"),
-            [config.model_at(cfg, selection, model, "executor") for model in workers],
+    return ([config.model_at(cfg, selection, model, "executor") for model in workers],
             [config.model_at(cfg, selection, model, "reviewer")
              for model in selection.get("reviewers", workers)])
 
 
 def crew(info, tmux=False, room=None):
-    """`opus max orchestrates   astra high builds   opus xhigh builds, reviews`: the seat's
-    orchestrator, then each model that builds or reviews its work, named once at each effort it
-    runs at (`seat_crew`), in the order it first comes, what it does there after it, all muted, as
-    the row's orchestrator is; words every font draws, under any locale (the owner's pick of 10
-    Nov 2026).  Nothing where nobody is beside the orchestrator.  Cut to `room` cells where
-    given; `tmux` draws it as tmux text."""
-    orchestrator, builds, reviews = info.get("crew") or (None, (), ())
-    if not builds and not reviews:
+    """`build: Opus 5.5 xhigh, 4 Carbon high   review: 6.1 Sol max`: each role, then who is in it
+    at the effort they run it at (`seat_crew`), all muted, as the row's orchestrator is; one
+    `build and review:` where both hold the same.  Never the orchestrator: its row names it.  The
+    owner, 17 Nov 2026: "we name the orch double, and name it explicitely which is not needed",
+    "it should be the other way around, role and what models are in this role".  Nothing where
+    nobody is beside the orchestrator.  Cut to `room` cells where given; `tmux` draws it as tmux
+    text."""
+    builds, reviews = info.get("crew") or ((), ())
+    roles = ((("build and review", builds),) if set(builds) == set(reviews)
+             else (("build", builds), ("review", reviews)))
+    text = "   ".join(f"{role}: " + ", ".join(map(terminal.plain, models))
+                       for role, models in roles if models)
+    if not text:
         return ""
-    roles = (("orchestrates", [orchestrator]), ("builds", builds), ("reviews", reviews))
-    text = "   ".join(f"{terminal.plain(model)} " + ", ".join(word for word, those in roles
-                                                           if model in those)
-                       for model in dict.fromkeys((orchestrator, *builds, *reviews)))
     return _paint(text if room is None else terminal.cut(text, room, spaced=True), "muted", tmux)
 
 

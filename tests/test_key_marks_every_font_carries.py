@@ -73,7 +73,7 @@ class MarksEveryFontCarries(unittest.TestCase):
         term = self.terminal()
         term.wait(lambda screen: MAIN_KEYS in lines(screen))
         term.keys("Down")       # the highlight on acme-spent opens its line, and nothing under it
-        opened = rf"\n› \d  acme-spent .*  back {BACK}\n +\S.* orchestrates, builds, reviews\n\n"
+        opened = rf"\n› \d  acme-spent .*  back {BACK}\n +build and review: \S.*\n\n"
         screen = term.wait(lambda screen: re.search(opened, "\n".join(lines(screen)))
                            and "¶ unsent" in screen)
         rows = {found[1]: line for line in lines(screen)

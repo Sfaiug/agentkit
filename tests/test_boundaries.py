@@ -282,7 +282,7 @@ RULES = [
               "go/internal/seat/said.go", "go/internal/seat/screen.go",
               "agentkit/notify.py", "agentkit/alive.py", "go/internal/notify/",
               "go/internal/tick/alive.go", "go/internal/tick/stopped.go"),
-     "max": 21},
+     "max": 20},
 ]
 
 # Every model ak runs is handed these whole, so each word costs every task some of its attention

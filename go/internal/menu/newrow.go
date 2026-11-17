@@ -165,7 +165,7 @@ func (d *Draft) block(s terminal.Screen, seat Seat, w widths) []row {
 		return shown
 	}
 	room := max(1, w.room-len(indent))
-	parts, tone := []string{terminal.CutSpaced(terminal.Crew(seat.Model, named(d.Workers, "exec_effort"), named(d.Reviewers, "review_effort")), room)}, "muted"
+	parts, tone := []string{terminal.CutSpaced(terminal.Crew(named(d.Workers, "exec_effort"), named(d.Reviewers, "review_effort")), room)}, "muted"
 	if why := d.Refusal(); why != "" {
 		parts, tone = terminal.Wrap(why, room), "amber"
 	}

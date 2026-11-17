@@ -27,7 +27,7 @@ SUBSCRIPTIONS = ("Claude", "ChatGPT", "Gemini", "Grok", "MiMo", "Muse")
 WORDS = {"acme": "working", "beta": "needs you", "fix-api": "idle"}
 START = ["› acme", "  beta", "  fix-api"]
 # beta asks on its screen, a Claude chooser, and opens who builds and reviews, never the question
-OPUS = "Opus 5.5 xhigh orchestrates, builds, reviews"       # acme's and beta's crew
+OPUS = "build and review: Opus 5.5 xhigh"       # acme's and beta's crew
 ON_BETA = ["  acme", "› beta", OPUS, "  fix-api"]
 POINT = "\x1b[<35;8;{row}M"           # the pointer moved, no button down, at column 8 of a row
 WHEEL_DOWN = "\x1b[<65;10;10M"
@@ -123,7 +123,7 @@ class Highlight(Menu):
         self.shows(term, ON_BETA)
         term.type(WHEEL_DOWN)
         self.shows(term, ["  acme", "  beta", "› fix-api",
-                          "Opus 5.5 xhigh orchestrates   6 Astra xhigh builds, reviews"])
+                          "build and review: 6 Astra xhigh"])
         # ↓ and the wheel on the last row stay there, or k would not land on beta
         term.keys("Down")
         term.type(WHEEL_DOWN)
