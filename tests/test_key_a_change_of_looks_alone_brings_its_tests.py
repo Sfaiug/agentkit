@@ -44,9 +44,9 @@ exit $code
 """
 TEST = "./tests/look_test.sh"    # as the record spells it
 # a module whose doctests the suite times: it ships
-# a round times a test before its change is on the target: tests/new_test.md
-TIMES = {TEST: 1, "widget.py": 1, "tests/new_test.md": 1, "tests/page_test.md": 1,
-         "tests/AGENTS.md": 1}
+# a round times a test before its change is on the target: tests/new_test.*
+TIMES = {TEST: 1, "widget.py": 1, "tests/new_test.sh": 1, "tests/new_test.md": 1,
+         "tests/page_test.md": 1, "tests/AGENTS.md": 1}
 EDITED = {**STYLE, "tests/look_test.sh": "true  # blink\n"}
 
 
@@ -73,8 +73,10 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
 
     def checked(self, line):
-        """How many whole runs of the suite, and which members got a verdict to land."""
-        return line.whole(), ["land" in line.verdict(n) for n in range(1, len(line.members) + 1)]
+        """How many whole runs of the suite, and each member's verdict: {"land"}, {"fix"}, or none
+        yet, still waiting."""
+        return line.whole(), [{"land", "fix"} & line.verdict(n).keys()
+                              for n in range(1, len(line.members) + 1)]
 
     def ran(self, line):
         """Each test the suite ran, with the tree it ran on, oldest first."""
@@ -107,29 +109,33 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
         self.join(line, {**STYLE, "tests/look_test.sh": "[ ! -f news.md ]\n"})
         line.rig.commit({"news.md": "x\n"}, "news")
         self.land(line)
-        self.assertEqual(self.checked(line), (0, [False]), line.runs())
+        self.assertEqual(self.checked(line), (0, [set()]), line.runs())
         self.assertEqual({test for test, _ in self.ran(line)}, {TEST})
 
     def test_a_test_page_runs_as_a_test(self):
         line = self.line(**{"tests/page_test.md": "true\n"})
         self.join(line, {**STYLE, "tests/page_test.md": "false\n"})
         self.land(line)
-        self.assertEqual(self.checked(line), (0, [False]), line.runs())
+        self.assertEqual(self.checked(line), (0, [set()]), line.runs())
         self.assertEqual({test for test, _ in self.ran(line)}, {"tests/page_test.md"})
 
     def waits(self, files, **target):
         """A member whose branch adds `files` to a target holding `target` too waits, while one
-        behind it that brings its test lands."""
+        behind it that brings its test lands.  `files` grow no prose, which outside the project's
+        `content:` only shrinks, so only what decides looks keeps it waiting."""
         line = self.line(**target)
         self.join(line, files)
         self.join(line, EDITED)
         self.land(line)
-        self.assertEqual(self.checked(line), (0, [False, True]), line.runs())
+        self.assertEqual(self.checked(line), (0, [set(), {"land"}]), line.runs())
         # no round ran here: the lander ran it, on the tree it gave the member to land
         self.assertEqual(self.ran(line), [(TEST, line.verdict(2)["land"])])
 
     def test_one_that_adds_a_test_waits(self):
-        self.waits({**STYLE, "tests/new_test.md": "true\n"})
+        self.waits({**STYLE, "tests/new_test.sh": "true\n"})
+
+    def test_one_that_adds_a_test_page_a_round_timed_waits(self):
+        self.waits({**STYLE, "tests/new_test.md": ""})
 
     def test_one_that_edits_a_timed_test_alone_waits(self):
         self.waits({"tests/look_test.sh": "true  # blink\n"})
@@ -138,8 +144,8 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
         self.waits({**STYLE, "widget.py": "y\n"})
 
     def test_one_beside_a_timed_agents_md_waits(self):
-        self.waits({**STYLE, "tests/AGENTS.md": "Other rules.\n"},
-                   **{"tests/AGENTS.md": "Rules.\n"})
+        self.waits({**STYLE, "tests/AGENTS.md": "New rules.\n"},
+                   **{"tests/AGENTS.md": "Old rules.\n"})
 
 
 if __name__ == "__main__":
