@@ -35,7 +35,8 @@ def listed(cfg, provider, account, since, until):
 
     A row is the login's where its account is and its harness is the provider's (`_ours`).  A
     row it cannot price, its model listing no price or its counts unknown, costs what the
-    login's priced rows cost a token.
+    login's priced rows cost a token.  A turn row costs the dollars it kept (`history`), whatever
+    the boards list now; one without is priced as it is read.
     """
     return _listed(_ours(cfg, provider), _pricing(), account, since, until)
 
@@ -44,10 +45,11 @@ def _listed(ours, prices, account, since, until):
     """`listed`, its rows `ours` priced at `prices`, so that a week (`weeks`) prices each of its
     stretches from the boards parsed once for it."""
     dollars, priced, unpriced, found = 0.0, 0, 0, False
-    for harness, model, tokens, counts in _rows(account or config.DEFAULT_ACCOUNT, since, until):
+    for harness, model, tokens, counts, kept in _rows(account or config.DEFAULT_ACCOUNT, since,
+                                                      until):
         if not ours(harness):
             continue
-        spent = _dollars(prices(model), counts)
+        spent = _cost(prices, model, counts, kept)
         if spent is None:
             unpriced += tokens or 0
             continue
@@ -136,8 +138,7 @@ def roles(cfg):
     plans = usage.plan_weeks(cfg, held, time.time())
     weeks = {(provider, account or config.DEFAULT_ACCOUNT): fit[1]
              for provider, logins in plans.items() for account, fit in logins.items()}
-    index = matrix._release_index(catalog.current(boards.cached()))
-    prices = functools.cache(lambda model: _prices(index, model))
+    prices = _pricing()
     providers = {name: cfg["models"][name]["provider"] for name in config.offered(cfg)}
     did = {}    # (run, role): (model, effort, the turns of it `counted_turns` names)
     for run, executor, effort, reviewer, reviewed, counted in _select(
@@ -150,16 +151,17 @@ def roles(cfg):
             role = "reviewer" if Path(turn).name.startswith("reviewer") else "executor"
             did.setdefault((run, role), (*who[role], set()))[2].add(turn)
     kept = {}
-    for run, turn, role, account, model, *counts in _select(
-            f"SELECT run_id, turn, role, account, model, {', '.join(PRICES)} FROM turn_usage"):
-        kept.setdefault((run, role), []).append((turn, account, model, counts))
+    for run, turn, role, account, model, listed_usd, *counts in _select(
+            f"SELECT run_id, turn, role, account, model, {_kept()}, {', '.join(PRICES)} "
+            "FROM turn_usage"):
+        kept.setdefault((run, role), []).append((turn, account, model, counts, listed_usd))
     samples = {}
     for (run, role), (name, effort, turns) in did.items():
         rows = kept.get((run, role), [])
         if name not in providers or effort is None or turns - {turn for turn, *_ in rows}:
             continue
-        spent = [(100 * dollars / week, dollars) for _, account, model, counts in rows
-                 if (dollars := _dollars(prices(model), counts)) is not None
+        spent = [(100 * dollars / week, dollars) for _, account, model, counts, listed_usd in rows
+                 if (dollars := _cost(prices, model, counts, listed_usd)) is not None
                  and (week := weeks.get((providers[name], account))) is not None]
         if len(spent) == len(rows):
             samples.setdefault((name, effort, role), []).append([sum(one) for one in zip(*spent)])
@@ -174,24 +176,33 @@ def roles(cfg):
 
 
 def _rows(account, since, until):
-    """(harness, model, tokens, counts by `PRICES`) of the login's rows between `since` and
-    `until`: a seat row at its `at`, a turn row the share of its span, from its `began` to its
-    `at`, that falls between them, one with no `began` at its `at`.  A seat row's harness is its
-    event's text before the first `:`, a turn row's the one its turn's `harness` receipt names,
-    None once that is gone; a seat row's tokens are its own, a turn row's its counts summed."""
+    """(harness, model, tokens, counts by `PRICES`, dollars kept) of the login's rows between
+    `since` and `until`: a seat row at its `at`, a turn row the share of its span, from its
+    `began` to its `at`, that falls between them, one with no `began` at its `at`.  A seat row's
+    harness is its event's text before the first `:`, a turn row's the one its turn's `harness`
+    receipt names, None once that is gone; a seat row's tokens are its own, a turn row's its
+    counts summed; a seat row keeps no dollars, a turn row those it kept, if any."""
     columns = ", ".join(PRICES)
     for event, model, tokens, *counts in _select(
             f"SELECT event, model, tokens, {columns} FROM seat_usage "
             "WHERE account = ? AND at >= ? AND at <= ?", account, since, until):
-        yield event.split(":", 1)[0], model, tokens, counts
-    for turn, model, began, at, *counts in _select(
-            f"SELECT turn, model, COALESCE(began, at), at, {columns} FROM turn_usage "
+        yield event.split(":", 1)[0], model, tokens, counts, None
+    for turn, model, began, at, kept, *counts in _select(
+            f"SELECT turn, model, COALESCE(began, at), at, {_kept()}, {columns} FROM turn_usage "
             "WHERE account = ? AND at >= ? AND COALESCE(began, at) <= ?", account, since, until):
         share = (min(at, until) - max(began, since)) / (at - began) if at > began else 1
         if not share:   # it only touches the time at an end: none of it was spent then
             continue
         counts =[None if count is None else count * share for count in counts]
-        yield _harness(turn), model, sum(count or 0 for count in counts), counts
+        yield (_harness(turn), model, sum(count or 0 for count in counts), counts,
+               None if kept is None else kept * share)
+
+
+def _kept():
+    """The column of a turn row's dollars kept, `listed_usd`, or NULL in a history.db no write
+    has added it to yet, as a read connection adds no column."""
+    return ("listed_usd" if ("listed_usd",) in _select(
+        "SELECT name FROM pragma_table_info('turn_usage')") else "NULL")
 
 
 @functools.cache
@@ -283,6 +294,11 @@ def _select(query, *args):
             return db.execute(query, args).fetchall()
     except (OSError, sqlite3.Error):
         return []
+
+
+def _cost(prices, model, counts, kept):
+    """A row's dollars: those it kept, else its `counts` at its `model`'s `prices` now."""
+    return _dollars(prices(model), counts) if kept is None else kept
 
 
 def _dollars(prices, counts):
