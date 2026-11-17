@@ -1,8 +1,9 @@
 """The notes a key's programs send it, read as they are sent.
 
-A unix datagram socket holds `net.unix.max_dgram_qlen` unread notes: 512 on a host, 10 in the
-landing's offline sandbox.  A blocking `sendto` past them waits for a reader, so a key that read
-its socket only once `ak run` ended would wait on its own socket for ever.  `Notes()` binds a free
+A unix datagram socket holds `net.unix.max_dgram_qlen` unread notes: 512 on a host, 10 in a new
+network namespace that does not take its host's, as the landing's offline sandbox does.  A
+blocking `sendto` past them waits for a reader, so a key that read its socket only once `ak run`
+ended would wait on its own socket for ever.  `Notes()` binds a free
 abstract address, `address`, and reads it from that moment; `since()` hands back, as text and in
 the order sent, the notes since it last asked, every one whose `sendto` has returned.  `close()`
 ends the reading and frees the socket, so each user registers it as a cleanup.
