@@ -608,10 +608,20 @@ def key_line(text, term_width=None, first=None):
 NO_PLAN = "no plan yet"     # a working seat's count where it has no plan (`plan_bar`)
 
 
+def with_tasks(said, tasks, room=None):
+    """`said`, then how many `tasks` a seat has in flight, ` · 2 tasks`, `, 2 tasks` without
+    UTF-8, or that count alone where nothing is said, `2 tasks`: a row's last column says it
+    whatever its word, as the menu says tasks by this count alone (the owner, 17 Nov 2026).
+    Where `room` cells do not hold it the count gives way, `said` alone."""
+    count = f"{tasks} task{'s' * (tasks != 1)}"
+    going = (f"{said}{' · ' if utf8() else ', '}{count}" if said else count) if tasks else said
+    return said if room is not None and cells(going) > room else going
+
+
 def plan_bar(done, total, room=8, least=8, word="working", tmux=False, tasks=0):
     """A seat's progress in `room` cells, its count included: a smooth line of how much of its
-    plan is done (`share_line`), then `done of total`, then ` · 2 tasks` while it has `tasks` in
-    flight, `, 2 tasks` without UTF-8 -- never under `least` cells of line, which a row too short
+    plan is done (`share_line`), then `done of total`, then its `tasks` in flight (`with_tasks`)
+    -- never under `least` cells of line, which a row too short
     for it then draws under itself.  The count stays the plan's, as a task mostly builds a plan line, and the tasks
     follow it (the owner's pick of 11 Nov 2026).  With no `least`, a room too small for a cell
     of line beside the count draws the count alone, and one too small for its tasks too the
@@ -620,10 +630,9 @@ def plan_bar(done, total, room=8, least=8, word="working", tmux=False, tasks=0):
     total = max(0, int(total or 0))
     done = max(0, min(int(done or 0), total))
     count = f"{done} of {total}" if total else NO_PLAN
-    joint = " · " if utf8() else ", "
-    going = f"{count}{joint}{tasks} task{'s' * (tasks != 1)}" if tasks else count
-    size = max(least, room - len(going) - 1)
-    said = going if size >= 1 or len(going) <= room else count
+    going = with_tasks(count, tasks)
+    size = max(least, room - cells(going) - 1)
+    said = going if size >= 1 else with_tasks(count, tasks, room)
     said = f"#[fg=#{colour('muted', tmux)}]{said}#[default]" if tmux else styled(said, "muted")
     return said if size < 1 else share_line(done / (total or 1), size, word, tmux) + f" {said}"
 

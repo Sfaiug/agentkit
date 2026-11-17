@@ -43,13 +43,31 @@ func moving(s terminal.Screen, seats []Seat, clock *motion.Clock) []Seat {
 	return seats
 }
 
+// withTasks is said, then how many tasks the seat has in flight, ` · 2 tasks`, `, 2 tasks` without
+// UTF-8, or that count alone where nothing is said, `2 tasks` (terminal.with_tasks): a row's last
+// column says it whatever its word.  Where room cells do not hold it the count gives way, said alone;
+// a negative room holds all.
+func withTasks(s terminal.Screen, said string, seat Seat, room int) string {
+	n, going := len(seat.Tasks), said
+	if n > 0 {
+		count := strconv.Itoa(n) + " task" + map[bool]string{true: "s"}[n != 1]
+		going = count
+		if said != "" {
+			going = said + map[bool]string{true: ", ", false: " · "}[s.ASCII()] + count
+		}
+	}
+	if room >= 0 && terminal.Cells(going) > room {
+		return said
+	}
+	return going
+}
+
 // planBar is a seat's progress in room cells, its count included (terminal.plan_bar): a smooth line
 // of how much of its plan is done in its word's colour, then `done of total`, both as far as the line
-// has moved (moving; motion.growing, motion.counting), then ` · 2 tasks` while it has tasks in flight,
-// as the count stays the plan's, all muted; with no plan the same line, nothing done, and `no plan
-// yet`.  Never
-// under smallest cells of line, the count alone where no cell of it fits, without its tasks where they
-// do not fit either.
+// has moved (moving; motion.growing, motion.counting), then its tasks in flight (withTasks), as the
+// count stays the plan's, all muted; with no plan the same line, nothing done, and `no plan yet`.
+// Never under smallest cells of line, the count alone where no cell of it fits, without its tasks
+// where they do not fit either.
 func planBar(s terminal.Screen, seat Seat, room, smallest int) string {
 	count, shown := noPlan, noPlan
 	if seat.Total > 0 {
@@ -57,17 +75,11 @@ func planBar(s terminal.Screen, seat Seat, room, smallest int) string {
 		counted := int(math.RoundToEven(float64(seat.counted) + float64(seat.Done-seat.counted)*seat.moved))
 		shown = fmt.Sprintf("%*s", len(count), fmt.Sprintf("%d of %d", counted, seat.Total))
 	}
-	going := ""
-	if n := len(seat.Tasks); n > 0 {
-		going = map[bool]string{true: ", ", false: " · "}[s.ASCII()] + strconv.Itoa(n) + " task" + map[bool]string{true: "s"}[n != 1]
-	}
-	size := max(smallest, room-terminal.Cells(count+going)-1)
+	going := withTasks(s, count, seat, -1)
+	size := max(smallest, room-terminal.Cells(going)-1)
 	if size < 1 {
-		if terminal.Cells(count+going) <= room {
-			return s.Styled(count+going, "muted")
-		}
-		return s.Styled(count, "muted")
+		return s.Styled(withTasks(s, count, seat, max(room, 0)), "muted")
 	}
 	return s.GlidingLine(seat.from, float64(seat.Done)/float64(max(seat.Total, 1)), seat.moved, seat.lit, size, seat.Word) + " " +
-		s.Styled(shown+going, "muted")
+		s.Styled(shown+going[len(count):], "muted")
 }

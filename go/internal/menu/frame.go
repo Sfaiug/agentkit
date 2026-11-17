@@ -379,9 +379,10 @@ func needing(seats []Seat, lines []row) bool {
 
 // lastColumn is a row's one last column in room cells (menu.last_column), none where room is
 // negative saying the fewest cells that hold it: its progress (planBar, barred), in its place for one
-// out of usage when it comes back, `back 19:20`, and `¶ unsent` two cells after where the owner left
-// text.  The line keeps eight cells at least, unless narrow, where it takes the room and never more:
-// the count alone where no cell of line fits, the mark alone where both do not.
+// out of usage when it comes back, `back 19:20`, else nothing, then whatever its word its tasks in
+// flight (withTasks), and `¶ unsent` two cells after where the owner left text.  The line keeps eight
+// cells at least, unless narrow, where it takes the room and never more: the count alone where no
+// cell of line fits, without its tasks where they do not fit either, the mark alone where both do not.
 func lastColumn(s terminal.Screen, seat Seat, room int, narrow bool) string {
 	mark := ""
 	if seat.Unsent != "" {
@@ -392,17 +393,23 @@ func lastColumn(s terminal.Screen, seat Seat, room int, narrow bool) string {
 		left -= terminal.Cells(mark) + 2
 	}
 	bar, text := "", ""
-	switch {
-	case seat.Word == "out of usage" && seat.Back != "":
-		text = "back " + seat.Back
-		bar = s.Styled(text, seat.Word)
-	case barred(seat):
+	if barred(seat) {
 		smallest := 8
 		if narrow {
 			smallest = 0
 		}
 		bar = planBar(s, seat, left, smallest)
 		text = terminal.Plain(planBar(s, seat, left, 0))
+	} else {
+		said, fits := "", -1
+		if seat.Word == "out of usage" && seat.Back != "" {
+			said = "back " + seat.Back
+		}
+		if narrow {
+			fits = max(left, 0)
+		}
+		text = withTasks(s, said, seat, fits)
+		bar = s.Styled(said, seat.Word) + s.Styled(text[len(said):], "muted")
 	}
 	if narrow && mark != "" && room >= 0 && terminal.Cells(text) > left {
 		bar = ""
