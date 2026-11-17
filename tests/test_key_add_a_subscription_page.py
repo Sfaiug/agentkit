@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
+from test_key_c_chooses_the_theme import BLACK, SELECTION, sgr
 from test_key_subscriptions_page import ADD, PAGE, lines, title
 
 KEYS = "  ↑↓←→ move   ⏎ add   esc back"
@@ -47,6 +48,9 @@ class AddASubscriptionPage(unittest.TestCase):
         self.term.wait(lambda screen: title(screen) == PAGE and "› Claude I " in screen)
         self.term.keys("Down", "Down", "Down")
         self.term.wait("› + add a subscription")
+        # read once its highlight is at rest on the selection: it comes on from toward the accent
+        # (tests/test_highlight_glows.py), as the page opened from it draws its own at rest
+        self.term.wait(lambda _: sgr(SELECTION[BLACK], "48") in self.drawn("+ add a subscription"))
         self.theirs = {text: self.drawn(text)
                        for text in ("Anthropic", "OpenAI", "Claude II", "+ add a subscription")}
         self.term.keys("Enter")
