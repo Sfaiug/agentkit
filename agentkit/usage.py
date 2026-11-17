@@ -2219,7 +2219,11 @@ def plan_checks(cfg, providers, now):
     check of each of the last seven days, the 24 hours up to `until`, that its plan rose
     (`plan_weeks` over that day) and had a week in the seven days before -- the points it rose
     by, `rose`, against those that week foretold for what bought them, `predicted`.  Each is
-    the plan's number as ak knew it then, against a day it had not seen."""
+    the plan's number as ak knew it then, against a day it had not seen.
+
+    Worked out when asked for, from the readings and receipts ak keeps around the clock: no
+    timer runs them and no notice says a plan's number drifted.  The owner, 17 Nov 2026, asked
+    whether working them out on a look at the why page is enough: "When I look"."""
     days = [(now - (n + 1) * 86400, now - n * 86400) for n in range(6, -1, -1)]
     windows = [window for since, until in days
                for window in ((since - SPENT_OVER, since), (since, until))]
