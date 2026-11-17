@@ -44,9 +44,9 @@ class EveryFileOrder(unittest.TestCase):
         tools.mkdir()
         temp.mkdir()
         # The line refuses a host without its namespace: stand in for one without touching the
-        # host's, running what follows the line's `-` as is.
+        # host's, running as is what follows the line's `sh -c`, its script and what that is handed.
         unshare = tools / "unshare"
-        unshare.write_text('#!/bin/sh\nwhile [ "$1" != - ]; do shift; done\nshift\nexec "$@"\n')
+        unshare.write_text('#!/bin/sh\nwhile [ "$1" != -c ]; do shift; done\nshift 3\nexec "$@"\n')
         unshare.chmod(0o755)
         return dict(os.environ, PATH=f"{tools}:{os.environ['PATH']}", TMPDIR=str(temp))
 
