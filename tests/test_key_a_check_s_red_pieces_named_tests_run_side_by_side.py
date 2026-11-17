@@ -1,6 +1,6 @@
-"""The tests a check's red pieces named run again alone side by side, taking no turn, while the
-host's cores, less the threads that want one now, leave room for a piece; one after another where
-they leave none, or the host shows no such count.
+"""The tests a check's red pieces named run again alone side by side while the host's cores, less
+the threads that want one now, leave room for a piece; one after another where they leave none, or
+the host shows no such count.
 
 Black-box: `AK_BIN` checks a landing line through tests/fixtures/akline.py on a host whose readings
 (AK_HOST_READINGS) give the threads that want a core as `cpu_wanted`, or none.  Two pieces of its
