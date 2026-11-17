@@ -260,9 +260,9 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     for every one), `best` quality, `pick` by role, `front`: those with a cost, best first,
     each better than every cheaper one, a row of yours than every cheaper one of yours, as one
     no harness of yours runs is no reason to leave it out; `take`: the same rule over yours;
-    and `choices`, `others` and `whys` over those with a cost (`_choices`), the choices being
-    rows a take can take (`takes`).  Keep the pick and take visible even if rows outside their
-    eligible pool beat them.  Every role's costs are in one unit (`_costs`), off
+    and `choices` over those with a cost, `others` and `whys` over every one (`_choices`), the
+    choices being rows a take can take (`takes`).  Keep the pick and take visible even if rows
+    outside their eligible pool beat them.  Every role's costs are in one unit (`_costs`), off
     `task_usage`, (logins, shares) as `spend.roles` measures them.  `limits`: each choice's
     price (`_limits`)."""
     measures = task_usage if task_usage is not None else _task_usage(cfg) if cfg else ({}, {})
@@ -280,7 +280,8 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
         front = sorted((row for n, row in enumerate(priced) if row is pick or row is take or all(
             cheaper["quality"] < row["quality"] for cheaper in priced[:n]
             if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
-        choices, others, whys = _choices(priced, {id(row) for row in priced if takes(cfg, row)})
+        choices, others, whys = _choices(priced, [row for row in them if row["cost"] is None],
+                                         {id(row) for row in priced if takes(cfg, row)})
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
                      "front": front, "take": take, "choices": choices, "others": others,
                      "whys": whys, "limits": _limits(choices, priced)}
@@ -349,25 +350,32 @@ def _above(row, other):
     return round(row["quality"] - other["quality"], 6)
 
 
-def _choices(priced, runs):
-    """Of `priced`, cheapest first and an equal cost better first, (`choices`, `others`, `whys`),
-    `runs` holding the ids of the rows a take can take (`takes`): `choices` are theirs
-    (`_chosen`), so a better row none can take moves none.  `others`: of each release with no
-    choice its best row, a cheaper one on a tie, best first.  `whys`: by its id, each row no
-    choice's (`_why`), which a role using it draws too (menu.models_bars), kept beside the rows
-    as what is compared never changes a row; one no take can take has the why it would have
-    were it takeable, the same rule over them and it."""
+def _choices(priced, costless, runs):
+    """Of `priced`, cheapest first and an equal cost better first, and `costless`, the rows with
+    no cost, (`choices`, `others`, `whys`), `runs` holding the ids of the rows a take can take
+    (`takes`): `choices` are theirs (`_chosen`), so a better row none can take moves none.
+    `others`: of each release with no choice its best row with a cost, a cheaper one on a tie,
+    else its best row, best first, those with a cost before those with none: every release
+    compared is among the choices or them, as `p` turns it on (the owner, 5 Nov 2026).
+    `whys`: by its id, each row no choice's (`_why`), which a role using it draws too
+    (menu.models_bars), kept beside the rows as what is compared never changes a row; one no
+    take can take has the why it would have were it takeable, the same rule over them and it."""
     def chosen(row=None):     # the rule over the rows `runs` holds and `row`
         return _chosen([one for one in priced if id(one) in runs or one is row])
     choices, front = chosen()
     whys = {id(row): _why(row, *((choices, front) if id(row) in runs else chosen(row)))
-            for row in priced if not any(one is row for one in choices)}
+            for row in (*priced, *costless) if not any(one is row for one in choices)}
+
+    def rank(row):            # a release's top: its best row with a cost, else its best
+        return row["cost"] is not None, row["quality"]
     picked, tops = {row["release"] for row in choices}, {}
-    for row in priced:
+    for row in (*priced, *costless):
         top = tops.get(row["release"])
-        if row["release"] not in picked and (top is None or row["quality"] > top["quality"]):
+        if row["release"] not in picked and (top is None or rank(row) > rank(top)):
             tops[row["release"]] = row
-    return choices, sorted(tops.values(), key=lambda row: (-row["quality"], row["cost"])), whys
+    # a cost of None is never weighed against one: rows with a cost and with none sort apart
+    return choices, sorted(tops.values(), key=lambda row: (
+        row["cost"] is None, -row["quality"], row["cost"])), whys
 
 
 def _chosen(priced):
@@ -392,12 +400,15 @@ def _chosen(priced):
 
 
 def _why(row, choices, front):
-    """(`why`, `by`) of `row` beside `choices` and `front` (`_chosen`): `not set up`, by None,
-    among the choices, as a row no take can take is where it would be one (`_choices`);
-    off the front, `beaten` by the cheapest choice, else row of the front, as good and no
-    dearer; on it, `far below`, by None, more than `WINDOW` under the best; else `close` to the
-    nearest choice, less than `APART` from it; else `no room`, by None: `APART` or more under
-    every choice, as the costliest `PLACES` leave it."""
+    """(`why`, `by`) of `row` beside `choices` and `front` (`_chosen`): `no cost`, by None,
+    where it has none, so never a bar or a step of ← or → (menu.models_standing,
+    menu.next_choice); `not set up`, by None, among the choices, as a row no take can take is
+    where it would be one (`_choices`); off the front, `beaten` by the cheapest choice, else
+    row of the front, as good and no dearer; on it, `far below`, by None, more than `WINDOW`
+    under the best; else `close` to the nearest choice, less than `APART` from it; else `no
+    room`, by None: `APART` or more under every choice, as the costliest `PLACES` leave it."""
+    if row["cost"] is None:
+        return "no cost", None
     if any(one is row for one in choices):
         return "not set up", None
     if not any(one is row for one in front):
