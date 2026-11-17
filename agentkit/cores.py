@@ -3,10 +3,12 @@
 ak weighed its runs' use and never a seat's own shell's: from 12 to 17 Nov 2026 a seat waited on
 a log with `read -t 20 < /dev/zero`, which never sleeps, and held a core at normal priority
 beside suites at nice 19, a core `gate.derived_heavy_limit` took from the suites' room.  Each
-tick keeps what CPU time each seat's scope has used, and reads the difference at the next: two
-samples inside one tick (`host._cpu_rates`) cannot tell a wait that spins from a moment's work.
-Only a difference over a known interval counts, so a scope new since the last tick is no
-offence, and a late tick's is spread over the time it took.
+tick keeps what CPU time each seat's scope has used or waited for, and reads the difference at
+the next: a thread that never sleeps on a busy host is given less than a core and waits for the
+rest, so its use alone misses it exactly when the core it takes is most missed.  Two samples
+inside one tick (`host._cpu_rates`) cannot tell a wait that spins from a moment's work.  Only a
+difference over a known interval counts, so a scope new since the last tick is no offence, and
+a late tick's is spread over the time it took.
 """
 
 import os
@@ -29,20 +31,20 @@ def _now():
 
 
 def tell(state, log):
-    """Owe each seat whose scope used FULL a core or more over each of the last two intervals a
-    line saying so, once, and again each AGAIN while it goes on; an interval under starts the
-    count over.  Each scope's reading is kept in `state` for the next tick, and on one whose
-    last interval was over, `since` the core was first held and each process's CPU time: its
-    busiest is the one that spent most of the next interval, as a shell days old that has just
-    begun to spin has spent little of its life."""
+    """Owe each seat whose scope used or waited for FULL a core or more over each of the last two
+    intervals a line saying so, once, and again each AGAIN while it goes on; an interval under
+    starts the count over.  Each scope's reading is kept in `state` for the next tick, and on one
+    whose last interval was over, `since` the core was first held and each process's CPU time:
+    its busiest is the one that spent most of the next interval, as a shell days old that has
+    just begun to spin has spent little of its life."""
     now, before, state["seat_cores"] = _now(), state.get("seat_cores") or {}, {}
     for scope, launched in front.scopes().items():
-        used = host._cpu_usec(scope)
-        if used is None:
+        held = host.cpu_held_usec(scope)
+        if held is None:
             continue
         last = before.get(scope.name)
-        seen = state["seat_cores"][scope.name] = {"at": now, "usec": used}
-        if not last or now <= last["at"] or used - last["usec"] < FULL * 1e6 * (now - last["at"]):
+        seen = state["seat_cores"][scope.name] = {"at": now, "usec": held}
+        if not last or now <= last["at"] or held - last["usec"] < FULL * 1e6 * (now - last["at"]):
             continue
         seen.update(since=last.get("since", last["at"]), told=last.get("told"),
                     ticks=host.cpu_ticks(scope))
