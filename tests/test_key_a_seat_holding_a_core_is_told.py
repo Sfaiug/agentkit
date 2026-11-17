@@ -7,13 +7,14 @@ scope used or waited for since the tick before (its `cpu.pressure`'s `some` tota
 one): 0.9 core or more, averaged over the time between them, two ticks in a row, and the seat is
 typed one line at its quiet prompt naming how long, its busiest command and where a wait
 belongs; the tick's log says the same.  Only a difference over a known interval counts: a seat
-seen first, a scope new since the last tick and a late tick are no offence.
+seen first, a scope new since the last tick and a late tick are no offence, and a process moved
+into a scope brings none of the CPU time it spent before.
 
 Black-box: the program `AK_BIN` names ticks from outside through tests/fixtures/akbin.py, on a
-stand-in cgroup tree (AK_CGROUP_ROOT, AK_CGROUP_FILE) whose CPU counters the test moves, and a
-clock it steps (AK_CORES_CLOCK), beside tests/fixtures/akseat.py's seats at Claude's prompt.  No
-wait is real.  The file runs whole in one box (`rerun_boxed`), where the tick sees the processes
-this test lists in a scope: a tick's own box (`home.tick()`) would hide them.
+stand-in cgroup tree (AK_CGROUP_ROOT, AK_CGROUP_FILE) whose CPU counters and processes the test
+moves, and a clock it steps (AK_CORES_CLOCK), beside tests/fixtures/akseat.py's seats at Claude's
+prompt.  No wait is real.  The file runs whole in one box (`rerun_boxed`), where the tick sees the
+processes this test lists in a scope: a tick's own box (`home.tick()`) would hide them.
 """
 
 import os
@@ -56,11 +57,12 @@ TOLD = [0, 0, 1, 1, 2]      # the lines acme and acme-waits have taken by the en
 BOUND = 120     # seconds what a tick started may outlive it, or a typed line take to arrive
 # acme's scope holds a process that spends a fifth of a second on a CPU before each tick, and a
 # younger one that spent its first second there and sleeps since: the larger share of its life,
-# and none of any interval.
+# and none of any interval.  A third spends its first second outside any seat and sleeps, moved
+# into acme's scope at the tick acme is first told.
 BUSY = ("# acme-busy-wait\nimport sys, time\nwhile sys.stdin.readline():\n"
         "    began = time.process_time()\n    while time.process_time() - began < 0.2:\n"
         "        pass\n    print(flush=True)\n")
-HELPER = ("# acme-done-helper\nimport sys, time\nwhile time.process_time() < 1:\n    pass\n"
+HELPER = ("# acme-{}-helper\nimport sys, time\nwhile time.process_time() < 1:\n    pass\n"
           "print(flush=True)\nsys.stdin.readline()\n")
 
 
@@ -84,10 +86,13 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
         clock = home.root / "clock"
         home.env.update(AK_CGROUP_ROOT=str(root), AK_CGROUP_FILE=str(membership),
                         AK_CORES_CLOCK=str(clock))
-        busy, helper = cls.held(BUSY), cls.held(HELPER)
+        busy, helper = cls.held(BUSY), cls.held(HELPER.format("done"))
+        moved = cls.held(HELPER.format("moved"))
         helper.stdout.readline()      # its second on a CPU spent
+        moved.stdout.readline()       # and this one's, in no seat
         (cls.seats / ACME).mkdir(parents=True)
-        (cls.seats / ACME / "cgroup.procs").write_text(f"{busy.pid}\n{helper.pid}\n")
+        procs = cls.seats / ACME / "cgroup.procs"
+        procs.write_text(f"{busy.pid}\n{helper.pid}\n")
         cls.seat = {name: Seat(home, name) for name in ("acme", "acme-idle", "acme-once",
                                                         "acme-new", "acme-waits", "acme-slow")}
         cls.ticks = []
@@ -103,6 +108,8 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
                 (cls.seats / scope / "cpu.pressure").write_text(
                     f"some avg10=0.00 avg60=0.00 avg300=0.00 total={seconds * 1_000_000}\n"
                     "full avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
+            if told:
+                procs.write_text(f"{busy.pid}\n{helper.pid}\n{moved.pid}\n")
             busy.stdin.write("\n")
             busy.stdin.flush()
             busy.stdout.readline()
@@ -144,6 +151,7 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
         [line] = heard[2]
         self.assertIn("acme-busy-wait", line)
         self.assertNotIn("acme-done-helper", line)
+        self.assertNotIn("acme-moved-helper", line)
         self.assertIn("`sleep`", line)
         self.assertIn("`ak wait`", line)
         self.assertIn(line, self.ticks[2][0].out)
