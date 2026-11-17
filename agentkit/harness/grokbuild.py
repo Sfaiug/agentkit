@@ -320,3 +320,23 @@ def end_conversation(path, ends):
                    env={**os.environ, "GROK_HOME": str(folder.parents[2])}, check=True)
     if folder.exists():
         raise OSError(f"grok sessions delete left {folder}")
+
+
+def turn_usage(out):
+    """The closing `result`'s `usage`, the turn's own, under the model the worker launched it
+    with (`launched_model`), as `Harness.turn_usage` gives them: none where it has no `result`
+    with usage.
+
+    Measured on two turns of one session (1.0.46, 17 Nov 2026): the second's counts were
+    smaller than the first's, so they total no session; its cached input is beside its input,
+    not in it; and `modelUsage` names the model with a suffix of Grok's own (`-build`), which no
+    board lists, so a row under it would have no price."""
+    from . import last_entry, launched_model, token_counts
+    out = Path(out)
+    try:
+        result = last_entry(out / "events.jsonl", lambda entry: entry.get("type") == "result")
+    except OSError:
+        return None
+    if not isinstance((result or {}).get("usage"), dict):
+        return None
+    return None, False, {launched_model(out): token_counts(result["usage"])}

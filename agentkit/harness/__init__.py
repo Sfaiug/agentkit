@@ -6,8 +6,8 @@ screen, its quota, its update and its conversation are, and the defaults here an
 A harness that needs Python puts it in `agentkit/harness/<name>.py` and implements only the
 hooks it has something to say about -- `claude.py` the transcript it writes and the counts by
 model its results report, `codex.py` the launch receipt its thread is proven by,
-`grokbuild.py` the session directory it opens, `muse.py` its launcher build, the snapshot an
-upgrade is put back from, its own usage probe, the receipt its SessionStart hook writes its
+`grokbuild.py` the session directory it opens and the result its turns' tokens are by type,
+`muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe, the receipt its SessionStart hook writes its
 session into, the session each turn's end names, the session store its tokens and messages are
 in and the sessions gc ends,
 `opencode.py` the receipt it keeps its seat's session in, the endpoint that says
@@ -188,6 +188,19 @@ def launched_model(out):
     except OSError:
         return None
     return model if model not in ("", "default") else None
+
+
+# A usage object's counts as Anthropic's API names them, in the order a usage row keeps them:
+# input, cache write, cache read, output.
+TOKEN_TYPES = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+               "output_tokens")
+
+
+def token_counts(usage, keys=TOKEN_TYPES):
+    """Each of those keys' counts in that usage object, 0 where it holds no whole count."""
+    usage = usage if isinstance(usage, dict) else {}
+    return tuple(value if type(value := usage.get(key)) is int and value >= 0 else 0
+                 for key in keys)
 
 
 # Every reader here takes a record it cannot read for one that holds nothing, except inside
