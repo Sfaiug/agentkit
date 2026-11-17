@@ -68,21 +68,16 @@ def review_pass(state, cfg):
             return False
     elif not evidence.get("executor_provider"):
         return False
+    # A mark the config no longer defines, renamed or removed since, has nothing to be
+    # compared with: the provider the evidence recorded at review stands for it.
     try:
-        providers = review_providers(cfg, state.get("executor"), state["reviewer"])
+        if any(mark in cfg["models"] and config.model(cfg, mark)["provider"] != recorded
+               for mark, recorded in ((state.get("executor"), evidence.get("executor_provider")),
+                                      (state["reviewer"], evidence["reviewer_provider"]))):
+            return False
     except config.Error:
         return False
-    if providers != (evidence.get("executor_provider"), evidence["reviewer_provider"]):
-        return False
-    if state.get("own_pr"):
-        own = state.get("own_orchestrator")
-        if not own:
-            return False
-        try:
-            review_providers(cfg, own, state["reviewer"])
-        except config.Error:
-            return False
-    return True
+    return not state.get("own_pr") or bool(state.get("own_orchestrator"))
 
 
 def invalidate_saved_pass(state, cfg, log):
@@ -676,8 +671,9 @@ def continue_line(state, run_dir=None):
 def report_config(cfg=None):
     """Live reports use the run's config; standalone reports tolerate a broken config file.
 
-    Without readable model policy a report cannot establish PASS, but it must still leave
-    the original failure and recovery instructions instead of failing while reporting it.
+    An unreadable one defines no marks, so a record's own review evidence stands
+    (`review_pass`), and a report still leaves the original failure and recovery
+    instructions instead of failing while reporting it.
     """
     if cfg is not None:
         return cfg

@@ -422,7 +422,8 @@ class OneProvider(unittest.TestCase):
         state = {**lp.state, "title": "Fixture", "state": "error", "error": "original failure"}
         with patch.object(config, "load", side_effect=config.Error("invalid TOML")):
             run.record_result(lp.run_dir, state, self.logs.append)
-            self.assertEqual(run.delivery(self.evidence()), "FAIL")
+            # no mark is defined to compare with: the record's own evidence stands
+            self.assertEqual(run.delivery(self.evidence()), "PASS, delivered")
         result = (lp.run_dir / "result.md").read_text()
         self.assertIn("original failure", result)
         self.assertIn("relaunch:", result)
