@@ -1878,8 +1878,10 @@ def passes_what_it_holds(code, only, ran, failed, absent):
         code == 0 or code > 0 and len(there) < len(only) and not set(there) & set(failed))
 
 
-def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, known=(), **kwargs):
-    """Run a suite and keep its named reds and flakes beside its check rows."""
+def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, known=(),
+              blamed=False, **kwargs):
+    """Run a suite and keep its named reds and flakes beside its check rows, its flakes alone
+    where a verdict keeps its reds (`blamed`, `run_done_when`'s)."""
     reds = {} if confirmed is not None or checked is not None else None
     flakes = [] if flaky is not None or checked is not None else None
     try:
@@ -1891,7 +1893,7 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, known
             confirmed.update(reds)
         if flaky is not None:
             flaky.extend(flakes)
-        history.test_reds(checked, reds, flakes, known)
+        history.test_reds(checked, {} if blamed else reds, flakes, known)
 
 
 def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, log=None,
@@ -2560,7 +2562,7 @@ def _running_commands(pid):
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
                   confirmed=None, flaky=None, checked=None, exits=None, timings=None,
-                  absent=None, known=()):
+                  absent=None, known=(), blamed=False):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2606,7 +2608,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     list, the tests it found failing, then passing, those a command run whole named failed
     before its re-run passed among them.  `checked`, a check's `(run directory, round, kind,
     tree)`, has each run of a command, or of a piece of one, leave its row in history
-    (`history.check`), a re-run one of its own.
+    (`history.check`), a re-run one of its own, and the tests it names red and flaky theirs
+    (`history.test_reds`): with `blamed`, a landing check's, the flaky alone, as its reds are
+    kept by the verdict that blames them on a change (`land.check_line`).
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
     until then, takes `text`, its capped form. `timings`, a dict, gets each passing command's
     ({file: seconds}, piece count) from this pass alone, before that cap.  `absent` is
@@ -2671,7 +2675,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         only=only, confirmed=reds, flaky=flakes, named=named,
                         # Whole commands retry here; their named outcomes must wait for that.
                         checked=checked if split(cmd) else None, asked=asked, raw=raw,
-                        absent=absent, used=ended, known=known)
+                        absent=absent, used=ended, known=known, blamed=blamed)
                     ended["exit"] = None if killed else code
                     end = progress.tell()
                 if log is not None and run_dir is not None:
@@ -2733,7 +2737,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             if flaky is not None:
                 flaky.extend(flakes)
             if not split(cmd):
-                history.test_reds(checked, reds, flakes, known)
+                history.test_reds(checked, {} if blamed else reds, flakes, known)
             if killed:
                 spent, kept = cmd, out
                 break
