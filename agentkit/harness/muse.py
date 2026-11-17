@@ -785,12 +785,40 @@ def run_event(entry, kind):
 
 
 def tokens(out):
-    """What the turn in `out` spent, read from Muse's own session store, or None.
+    """What the turn in `out` spent, its records' input and output (`_records`), or None."""
+    records = _records(out)
+    return sum(map(provider_tokens, records)) if records else None
+
+
+def turn_usage(out):
+    """The turn's own counts, the sum of its records' (`_records`), under the model the worker
+    launched it with (`launched_model`), as `Harness.turn_usage` gives them: none where it has
+    no record.
+
+    A record's input holds its cached prefix, which it says apart as `cached_tokens` where it
+    does, and its output its reasoning; Muse reports no cache write.
+    """
+    from . import launched_model
+    records = _records(out)
+    if not records:
+        return None
+    fresh = cached = output = 0
+    for record in records:
+        spent_in, spent_out, hit = (
+            value if type(value := record["quantity"].get(key)) is int and value >= 0 else 0
+            for key in ("input_tokens", "output_tokens", "cached_tokens"))
+        hit = min(hit, spent_in)
+        fresh, cached, output = fresh + spent_in - hit, cached + hit, output + spent_out
+    return None, False, {launched_model(out): (fresh, 0, cached, output)}
+
+
+def _records(out):
+    """The provider usage records Muse's own session store holds for the turn in `out`, each
+    one `provider_tokens` counts; None where its stream names no session or run.
 
     `muse exec --json` streams no usage at all.  The stream names the session and the run the
     turn opened; the session's log (`session_logs`) records a provider usage for every model
-    request, owned by that run -- earlier turns of a resumed session are other runs.  Input
-    tokens already include the cached prefix.
+    request, owned by that run -- earlier turns of a resumed session are other runs.
     """
     session, runs = None, set()
     try:
@@ -811,7 +839,7 @@ def tokens(out):
         return None
     if not isinstance(session, str) or not SESSION.fullmatch(session) or not runs:
         return None
-    total, seen = 0, False
+    records = []
     for path in session_logs(session):
         try:
             with path.open(errors="replace") as source:
@@ -821,13 +849,11 @@ def tokens(out):
                     try:
                         payload = json.loads(line).get("payload") or {}
                         record = payload["event"]["record"]
-                        if record["owner"].get("run_id") not in runs:
-                            continue
-                        spent = provider_tokens(record)
+                        if (record["owner"].get("run_id") in runs
+                                and provider_tokens(record) is not None):
+                            records.append(record)
                     except (ValueError, TypeError, KeyError, AttributeError):
                         continue
-                    if spent is not None:
-                        total, seen = total + spent, True
         except OSError:
             continue
-    return total if seen else None
+    return records
