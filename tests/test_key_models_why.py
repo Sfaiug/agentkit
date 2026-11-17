@@ -4,11 +4,12 @@ their own: its quality give or take 1.96 standard errors, the benchmarks that sc
 far below the role's best choice it is, of the two qualities as shown; its cost, `≈` against one
 no runs measured, and where that comes from -- its runs, its board price times what runs on its
 provider cost a board dollar, or on every provider at list prices at its own plan's rate, or its
-board price alone; the rule that makes the choices; and under `others`, in the order of the
-role's others, why each is none -- beaten, within a point of a choice, far below the best, no
-room, or not set up -- each one's lines after its first two cells further in, a role with none
-having no `others`.  Esc returns with `›` where it was, and a page taller than the screen turns
-with ↓ and ↑.
+board price alone; the rule that makes the choices; and why each model is none -- beaten,
+within a point of a choice, far below the best, no room, or not set up -- under `shaded` each the
+role's bars shade, in their order, under `not shown` the rest of the role's others, in theirs
+(tests/test_key_models_why_shaded.py), each one's lines after its first two cells further in, a
+label with none left out.  Esc returns with `›` where it was, and a page taller than the screen
+turns with ↓ and ↑.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
 harnesses fakes listing invented models, the boards held as just asked with invented rows, and
@@ -55,103 +56,110 @@ MODELS = {"crux": {"harness": "codex", "model": "crux-2", "effort": "low"},
           "mid": {"harness": "claude", "model": "acme-mid-5"},
           "max": {"harness": "claude", "model": "acme-max-5", "review_effort": "max"}}
 
-CHOICES = "  choices  the best, then cheaper ones a point apart, none more than 10 below, five at most"
+CHOICES = "  choices    the best, then cheaper ones a point apart, none more than 10 below, five at most"
 MAX_HIGH_BUILDS = [
     "  why Acme Max 5 high builds",
     "",
-    "  quality  94.8   give or take 3.7, from three benchmarks",
-    "           FrontierCode 2.0, Arena Agent carried from max, Terminal-Bench 4.0",
-    "           5.2 below the best, Acme Max 5 max",
+    "  quality    94.8   give or take 3.7, from three benchmarks",
+    "             FrontierCode 2.0, Arena Agent carried from max, Terminal-Bench 4.0",
+    "             5.2 below the best, Acme Max 5 max",
     "",
-    "  cost     ≈$10.00 a build   estimated: its board price, times what your runs on its provider cost a",
-    "           board dollar",
+    "  cost       ≈$10.00 a build   estimated: its board price, times what your runs on its provider cost",
+    "             a board dollar",
     "",
     CHOICES,
-    "  others   Elm 1 high, 98.0 for ≈$6.00: would be a choice, but it is listed nowhere a model of yours",
-    "             runs",
-    "           Dune 1 high, 96.0 for ≈$4.00: would be a choice, but it is listed nowhere a model of",
-    "             yours runs",
-    "           Bolt 3 medium, 88.0 for ≈$3.00: beaten by Acme Mid 5 high, 94.0 for $1.50",
-    "           Crux 2 low, 80.0 for ≈$1.00: 20.0 below the best"]
+    # the bars' shaded ones, cheapest first, the row it uses one, no choice
+    "  shaded     Dune 1 high, 96.0 for ≈$4.00: would be a choice, but it is listed nowhere a model of",
+    "               yours runs",
+    "             Elm 1 high, 98.0 for ≈$6.00: would be a choice, but it is listed nowhere a model of",
+    "               yours runs",
+    "             Acme Max 5 high, 94.8 for ≈$10.00: within a point of Acme Mid 5 high, 94.0 for $1.50",
+    "  not shown  Bolt 3 medium, 88.0 for ≈$3.00: beaten by Acme Mid 5 high, 94.0 for $1.50",
+    "             Crux 2 low, 80.0 for ≈$1.00: 20.0 below the best"]
 MAX_MAX_REVIEWS = [
     "  why Acme Max 5 max reviews",
     "",
-    "  quality  100.0   give or take 5.5, from two benchmarks",
-    "           FrontierCode 2.0, AA-Omniscience",
-    "           the best of these choices",
+    "  quality    100.0   give or take 5.5, from two benchmarks",
+    "             FrontierCode 2.0, AA-Omniscience",
+    "             the best of these choices",
     "",
-    "  cost     ≈$20.00 a review   estimated: its board price, times what your runs on its provider cost",
-    "           a board dollar",
+    "  cost       ≈$20.00 a review   estimated: its board price, times what your runs on its provider",
+    "             cost a board dollar",
     "",
     CHOICES,
-    "  others   Elm 1 high, 97.6 for ≈$6.00: would be a choice, but it is listed nowhere a model of yours",
-    "             runs",
-    "           Dune 1 high, 95.4 for ≈$4.00: would be a choice, but it is listed nowhere a model of",
-    "             yours runs",
-    "           Bolt 3 medium, 86.2 for ≈$3.00: beaten by Acme Mid 5 high, 93.4 for $1.50",
-    "           Crux 2 low, 82.4 for ≈$1.00: 17.6 below the best"]
+    "  shaded     Dune 1 high, 95.4 for ≈$4.00: would be a choice, but it is listed nowhere a model of",
+    "               yours runs",
+    "             Elm 1 high, 97.6 for ≈$6.00: would be a choice, but it is listed nowhere a model of",
+    "               yours runs",
+    "  not shown  Bolt 3 medium, 86.2 for ≈$3.00: beaten by Acme Mid 5 high, 93.4 for $1.50",
+    "             Crux 2 low, 82.4 for ≈$1.00: 17.6 below the best"]
 MID_BUILDS = [
     "  why Acme Mid 5 high builds",
     "",
-    "  quality  94.0   give or take 3.8, from three benchmarks",
-    "           FrontierCode 2.0, Arena Agent, Terminal-Bench 4.0",
+    "  quality    94.0   give or take 3.8, from three benchmarks",
+    "             FrontierCode 2.0, Arena Agent, Terminal-Bench 4.0",
     # 98.46 less 94.04, as shown: 98.5 less 94.0
-    "           4.5 below the best, Acme Mid 5 max",
+    "             4.5 below the best, Acme Mid 5 max",
     "",
-    "  cost     $1.50 a build   from 2 of your builds",
+    "  cost       $1.50 a build   from 2 of your builds",
     "",
     CHOICES,
-    "  others   Acme Max 5 max, 100.0 for ≈$20.00: would be a choice, but it is listed nowhere a model of",
-    "             yours runs",
-    "           Holm 1 high, 94.5 for ≈$2.00: within a point of Acme Mid 5 high, 94.0 for $1.50",
-    "           Fern 1 high, 89.5 for ≈$0.40: the five places go to better choices",
-    "           Bolt 3 medium, 88.0 for ≈$3.00: beaten by Acme Mid 5 low, 91.0 for ≈$0.60",
-    "           Crux 2 low, 80.0 for ≈$1.00: beaten by Acme Mid 5 low, 91.0 for ≈$0.60"]
+    # five choices leave the bars no place to shade
+    "  not shown  Acme Max 5 max, 100.0 for ≈$20.00: would be a choice, but it is listed nowhere a model",
+    "               of yours runs",
+    "             Holm 1 high, 94.5 for ≈$2.00: within a point of Acme Mid 5 high, 94.0 for $1.50",
+    "             Fern 1 high, 89.5 for ≈$0.40: the five places go to better choices",
+    "             Bolt 3 medium, 88.0 for ≈$3.00: beaten by Acme Mid 5 low, 91.0 for ≈$0.60",
+    "             Crux 2 low, 80.0 for ≈$1.00: beaten by Acme Mid 5 low, 91.0 for ≈$0.60"]
 CRUX_REVIEWS = [
     "  why Crux 2 low reviews",
     "",
-    "  quality  82.4   give or take 6.7, from two benchmarks",
-    "           FrontierCode 2.0, AA-Omniscience",
-    "           16.6 below the best, Acme Mid 5 max",
+    "  quality    82.4   give or take 6.7, from two benchmarks",
+    "             FrontierCode 2.0, AA-Omniscience",
+    "             16.6 below the best, Acme Mid 5 max",
     "",
-    "  cost     ≈$1.00 a review   estimated: its board price, times what your runs on every provider cost",
-    "           a board dollar at list prices, at its own plan's rate",
+    "  cost       ≈$1.00 a review   estimated: its board price, times what your runs on every provider",
+    "             cost a board dollar at list prices, at its own plan's rate",
     "",
     CHOICES,
-    "  others   Acme Max 5 max, 100.0 for ≈$20.00: would be a choice, but it is listed nowhere a model of",
-    "             yours runs",
-    "           Holm 1 high, 92.8 for ≈$2.00: beaten by Acme Mid 5 high, 93.4 for $1.50",
-    "           Fern 1 high, 89.0 for ≈$0.40: would be a choice, but it is listed nowhere a model of",
-    "             yours runs",
-    "           Bolt 3 medium, 86.2 for ≈$3.00: beaten by Acme Mid 5 low, 91.2 for ≈$0.60",
-    "           Crux 2 low, 82.4 for ≈$1.00: beaten by Acme Mid 5 low, 91.2 for ≈$0.60"]
+    # the row it uses, a bar of its own beside five choices
+    "  shaded     Crux 2 low, 82.4 for ≈$1.00: beaten by Acme Mid 5 low, 91.2 for ≈$0.60",
+    "  not shown  Acme Max 5 max, 100.0 for ≈$20.00: would be a choice, but it is listed nowhere a model",
+    "               of yours runs",
+    "             Holm 1 high, 92.8 for ≈$2.00: beaten by Acme Mid 5 high, 93.4 for $1.50",
+    "             Fern 1 high, 89.0 for ≈$0.40: would be a choice, but it is listed nowhere a model of",
+    "               yours runs",
+    "             Bolt 3 medium, 86.2 for ≈$3.00: beaten by Acme Mid 5 low, 91.2 for ≈$0.60"]
 CRUX_BUILDS_40 = [
     "  why Crux 2 low builds",
     "",
-    "  quality  80.0   give or take 7.1, from",
-    "           two benchmarks",
-    "           FrontierCode 2.0, Arena Agent",
-    "           no score, counted as its",
-    "           worst, Terminal-Bench 4.0",
-    "           20.0 below the best, Acme Max",
-    "           5 max",
+    "  quality    80.0   give or take 7.1,",
+    "             from two benchmarks",
+    "             FrontierCode 2.0, Arena",
+    "             Agent no score, counted as",
+    "             its worst, Terminal-Bench",
+    "             4.0",
+    "             20.0 below the best, Acme",
+    "             Max 5 max",
     "",
-    "  cost     ≈$1.00 a build   its board",
-    "           price alone: no build of",
-    "           yours priced a model",
+    "  cost       ≈$1.00 a build   its board",
+    "             price alone: no build of",
+    "             yours priced a model",
     "",
-    "  choices  the best, then cheaper ones a",
-    "           point apart, none more than",
-    "           10 below, five at most",
-    "  others   Holm 1 high, 94.5 for ≈$2.00:",
-    "             within a point of Acme Mid",
-    "             5 high, 94.0 for ≈$1.50",
-    "           Bolt 3 medium, 88.0 for",
-    "             ≈$3.00: beaten by Acme Mid",
-    "             5 high, 94.0 for ≈$1.50",
-    "           Crux 2 low, 80.0 for ≈$1.00:",
-    "             20.0 below the best"]
-
+    "  choices    the best, then cheaper ones",
+    "             a point apart, none more",
+    "             than 10 below, five at most",
+    "  shaded     Crux 2 low, 80.0 for",
+    "               ≈$1.00: 20.0 below the",
+    "               best",
+    "             Holm 1 high, 94.5 for",
+    "               ≈$2.00: within a point of",
+    "               Acme Mid 5 high, 94.0 for",
+    "               ≈$1.50",
+    "             Bolt 3 medium, 88.0 for",
+    "               ≈$3.00: beaten by Acme",
+    "               Mid 5 high, 94.0 for",
+    "               ≈$1.50"]
 
 def boards(found, priced=True):
     """The boards holding the rows `found`, their costs where `priced`, and the rows keeping them
@@ -254,7 +262,7 @@ class ModelsWhy(unittest.TestCase):
         term = self.models()
         # and with none priced no row is an other, so the page ends with the rule
         self.assertEqual(self.why(term, "Down"),
-                         [*MAX_HIGH_BUILDS[:6], "  cost     no cost", "", CHOICES])
+                         [*MAX_HIGH_BUILDS[:6], "  cost       no cost", "", CHOICES])
 
     def test_a_cost_from_your_runs_says_how_many_and_others_past_five_choices(self):
         self.write(FIVE, ["mid"], ["crux"], runs=True,
@@ -271,26 +279,29 @@ class ModelsWhy(unittest.TestCase):
         self.assertEqual(self.why(term, "Down"), CRUX_BUILDS_40)
 
     def test_an_others_line_that_wraps_hangs_under_its_first_line(self):
-        self.write(TWO[:-1], ["crux"])          # no Holm 1: two others
-        # each first line where `choices`'s value starts, `others` as wide, the rest two cells in
-        self.assertEqual(self.why(self.models(40), "Down")[-5:], [
-            "  others   Bolt 3 medium, 88.0 for",
-            "             ≈$3.00: beaten by Acme Mid",
-            "             5 high, 94.0 for ≈$1.50",
-            "           Crux 2 low, 80.0 for ≈$1.00:",
-            "             20.0 below the best"])
+        self.write(TWO[:-1], ["crux"])          # no Holm 1: two others, both shaded
+        # each first line where `choices`'s value starts, `not shown` as wide, the rest two
+        # cells in
+        self.assertEqual(self.why(self.models(40), "Down")[-7:], [
+            "  shaded     Crux 2 low, 80.0 for",
+            "               ≈$1.00: 20.0 below the",
+            "               best",
+            "             Bolt 3 medium, 88.0 for",
+            "               ≈$3.00: beaten by Acme",
+            "               Mid 5 high, 94.0 for",
+            "               ≈$1.50"])
         self.assertEqual(self.why(self.models(), "Down"), [
             "  why Crux 2 low builds",
             "",
-            "  quality  80.0   give or take 7.1, from two benchmarks",
-            "           FrontierCode 2.0, Arena Agent no score, counted as its worst, Terminal-Bench 4.0",
-            "           20.0 below the best, Acme Max 5 max",
+            "  quality    80.0   give or take 7.1, from two benchmarks",
+            "             FrontierCode 2.0, Arena Agent no score, counted as its worst, Terminal-Bench 4.0",
+            "             20.0 below the best, Acme Max 5 max",
             "",
-            "  cost     ≈$1.00 a build   its board price alone: no build of yours priced a model",
+            "  cost       ≈$1.00 a build   its board price alone: no build of yours priced a model",
             "",
             CHOICES,
-            "  others   Bolt 3 medium, 88.0 for ≈$3.00: beaten by Acme Mid 5 high, 94.0 for ≈$1.50",
-            "           Crux 2 low, 80.0 for ≈$1.00: 20.0 below the best"])
+            "  shaded     Crux 2 low, 80.0 for ≈$1.00: 20.0 below the best",
+            "             Bolt 3 medium, 88.0 for ≈$3.00: beaten by Acme Mid 5 high, 94.0 for ≈$1.50"])
 
     def test_a_why_taller_than_the_screen_turns_its_pages_to_its_last_line_and_back(self):
         # judged against the same why on a screen it fits: the page as it is drawn, whatever
