@@ -1,12 +1,12 @@
 """Every page comes up as a page `c` opens does (motion.Clock.rise): the company list, its
 `add a company`, `why`, the list a harness adds a model from and a new seat's row, its caret,
-and the line under it are each written, as they open, a frame whose text is part way from the
-background to its colour before the one at rest; a key that changes nothing read half way is
-answered at rest, and one read at rest, a resize or a way back from the screen it opened draws
-it only at rest.  A mark turned on or off on the company list is written half way before it is
-on or off: a dim `■` in the open one's ink, the owner's font rule's for the task's `▣`
-(tests/test_key_motion_every_font_carries.py).  The owner (10 Nov 2026): "make it animation
-consistent. [...] We want ak to feel like one app."
+and the line under it, a working seat's plan line beside them, are each written, as they open,
+a frame whose text is part way from the background to its colour before the one at rest; a key
+that changes nothing read half way is answered at rest, and one read at rest, a resize or a way
+back from the screen it opened draws it only at rest.  A mark turned on or off on the company
+list is written half way before it is on or off: a dim `■` in the open one's ink, the owner's
+font rule's for the task's `▣` (tests/test_key_motion_every_font_carries.py).  The owner (10
+Nov 2026): "make it animation consistent. [...] We want ak to feel like one app."
 
 Black-box: `AK_BIN`'s menu in a person's terminal (tests/fixtures/akterm.py) in every colour,
 over tests/test_key_models_company_list.py's boards and harnesses and the OpenCode of
@@ -24,6 +24,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akseat import Seat
 from fixtures.akterm import SERVER, Terminal
 from test_key_lists_name_what_enter_does import OPENCODE
 from test_key_models_answer import ENV
@@ -173,6 +174,8 @@ class EveryScreenComesUp(unittest.TestCase):
         self.comes_up(["Enter"], "Zeta Cloud")
 
     def test_a_new_seats_row_comes_up(self):
+        Seat(self.home, "acme", model="mid", screen="claude-working-pane.txt", planned=True)
+        self.term.wait("0 of 1")      # its plan's line on screen, set up again on every draw
         for text in ("▏", "orchestrates"):     # the row `n` makes, and the line it opens
             with self.subTest(text=text):
                 self.comes_up(["n"], text, "Down")
