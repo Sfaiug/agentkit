@@ -672,9 +672,13 @@ def test_reds(checked, confirmed, flaky, known=()):
 
 
 def test_audit(repo, since=0):
-    """Per-file outcomes, median piece seconds and the span in days of retained repo rows;
-    `landings` counts the runs whose landing check a test stopped from `since` on."""
-    reds, pieces = {}, []
+    """Per-file outcomes, the median seconds of a piece of the latest landing check that ran the
+    suite whole, and the span in days of the rows read; `landings` counts the runs whose landing
+    check a test stopped from `since` on.  Whole is every one of its more than one pieces, each
+    as first run on one tree: a piece run again and a narrowing's tests take seconds, and the
+    pieces of every row retained, mostly a week older and cut finer, read a fifth of what a
+    landing's took (17 Nov 2026)."""
+    reds, checks = {}, {}
     try:
         with contextlib.closing(_connect(readonly=True)) as connection:
             connection.row_factory = sqlite3.Row
@@ -692,16 +696,24 @@ def test_audit(repo, since=0):
                     "FROM test_reds t JOIN runs r USING (run_id) WHERE r.repo=? GROUP BY test",
                     (since, repo))}
             if "checks" in tables:
-                pieces = list(connection.execute(
-                    "SELECT c.finished_at-c.started_at, c.started_at, c.finished_at "
-                    "FROM checks c JOIN runs r USING (run_id) WHERE r.repo=? "
-                    "AND command GLOB 'AK_SHARD=*' AND c.finished_at>=c.started_at", (repo,)))
+                for run, tree, command, started, finished in connection.execute(
+                        "SELECT c.run_id, c.tree, c.command, c.started_at, c.finished_at "
+                        "FROM checks c JOIN runs r USING (run_id) WHERE r.repo=? "
+                        "AND c.kind='landing' AND c.rerun=0 AND command GLOB 'AK_SHARD=*' "
+                        "AND c.finished_at>=c.started_at", (repo,)):
+                    share, _, suite = command.partition(" ")
+                    checks.setdefault((run, tree, suite, share.partition("/")[2]), []).append(
+                        (started, finished))
     except (OSError, sqlite3.Error):
         pass
+    # `AK_SHARD=k/N`, each share once: as many pieces as N, N more than one
+    pieces = max((pieces for (*_, count), pieces in checks.items()
+                  if count == str(len(pieces)) != "1"),
+                 key=lambda pieces: max(finished for _, finished in pieces), default=[])
     moments = [at for row in reds.values() for at in (row["first"], row["last"])
-               if at is not None] + [at for piece in pieces for at in piece[1:]]
+               if at is not None] + [at for piece in pieces for at in piece]
     days = (max(moments) - min(moments)) / 86400 if moments else 0
-    return reds, median(piece[0] for piece in pieces) if pieces else None, days
+    return reds, median(end - start for start, end in pieces) if pieces else None, days
 
 
 def landing_checks(repo):

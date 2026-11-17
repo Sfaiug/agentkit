@@ -29,17 +29,20 @@ class TestAudit(unittest.TestCase):
         with sqlite3.connect(self.db) as connection:
             connection.executescript("""
                 CREATE TABLE runs (run_id TEXT, repo TEXT);
-                CREATE TABLE checks (run_id TEXT, command TEXT, started_at REAL, finished_at REAL);
+                CREATE TABLE checks (run_id TEXT, kind TEXT, tree TEXT, command TEXT,
+                                     started_at REAL, finished_at REAL, rerun INTEGER);
                 CREATE TABLE test_reds (run_id TEXT, round INTEGER, kind TEXT, tree TEXT,
                                         test TEXT, flaky INTEGER, at REAL);
             """)
             connection.executemany("INSERT INTO runs VALUES (?, ?)",
                                    [("fix-api", "widgets"), ("fix-web", "widgets"),
                                     ("fix-other", "widgets-linked")])
-            connection.executemany("INSERT INTO checks VALUES (?, ?, ?, ?)",
+            connection.executemany(
+                "INSERT INTO checks VALUES (?, 'landing', 'tree', ?, ?, ?, 0)",
                 [("fix-api", f"AK_SHARD={i}/4 suite", AT, AT + seconds)
                  for i, seconds in enumerate((40, 60, 100, 120), 1)] +
-                [("fix-other", "AK_SHARD=1/1 suite", 0, 1),
+                [("fix-other", f"AK_SHARD={i}/2 suite", 0, 1) for i in (1, 2)] +
+                [("fix-api", "AK_SHARD=1/1 suite", AT, AT + 1),
                  ("fix-api", "suite", AT, AT + 1),
                  ("fix-api", "AK_SHARD=1/1 suite", AT, None),
                  ("fix-api", "AK_SHARD=1/1 suite", AT, AT - 1)])
