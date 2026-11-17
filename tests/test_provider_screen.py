@@ -177,17 +177,6 @@ def back(screen):
     return screen.press(ESC, lambda lines: title(lines) == MATRIX)
 
 
-def choices(screen, after, count):
-    """The `count` choices terminal.choose drew under its screen after `after`, as shown: each to
-    its line's erase, or where the next row is addressed -- the highlighted one's band reaches
-    the layout's edge and erases nothing -- its band's blanks off."""
-    def ready(text):
-        found = re.search(r"\x1b\[\d+;1H(.*?)(?:\x1b\[K|(?=\x1b\[\d+;1H|\x1b\[\?2026l))" * count,
-                          text[after:])
-        return found and [terminal.ANSI.sub("", part).rstrip() for part in found.groups()]
-    return screen.until(ready, f"{count} choices")
-
-
 def pick(screen, keys, where):
     """`keys`, then the screen named `where` and the rows it lists under their companies' names,
     as drawn: two cells in, `›` on the lit one."""

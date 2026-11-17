@@ -13,6 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from test_close_and_info import ENTER, Menu
+from test_hover import played, texts
 from agentkit import menu, orch, terminal
 
 CFG = {"fixture": True}            # handed through to the opening, and read by nothing here
@@ -89,6 +90,12 @@ class Lines(unittest.TestCase):
         self.assertIn("1  omega", self.out.getvalue())
 
 
+def click(answer):
+    """A click on the row the screen up, as a person sees it, draws `answer` on."""
+    return lambda screen: terminal.Key("click", col=3, row=next(
+        row for row, line in enumerate(screen, 1) if answer in line))
+
+
 class Keys(unittest.TestCase):
     """The screen with the keys: each frame drawn, as plain lines, and what was reopened."""
 
@@ -111,6 +118,73 @@ class Keys(unittest.TestCase):
             opened = stack.enter_context(patch.object(menu, "open_session"))
             menu.show_past(CFG, seats, keyboard=Mock())
         return drawn, [call.args[1]["name"] for call in opened.call_args_list]
+
+    def x(self, size, *steps):
+        """`x` on the first of three past sessions in a terminal of `size`, then each of `steps`,
+        a function of the screen up, as a person sees it, to the key read next, or the size the
+        terminal is resized to, then Esc: each read's screen and the rows its spots are on, and
+        the sessions removed."""
+        seats = [dict(name=f"fix-api-{n}", repo="/x/acme", closed=NOW - n) for n in range(1, 4)]
+        size, out, reads, since = list(size), io.StringIO(), [], [0]
+        steps = iter([lambda screen: terminal.Key("char", "x"), *steps,
+                      *[lambda screen: terminal.Key("esc")] * 2])
+
+        def read_key(timeout=None, wake=None):
+            screen = texts(played(out.getvalue()[since[0]:], size[1]))
+            reads.append((screen, {row: what for row, (what, *_) in terminal._SPOTS.items()}))
+            step = next(steps)
+            if isinstance(step, tuple):         # resized: what is drawn next is drawn whole
+                size[:], since[0] = step, len(out.getvalue())
+                terminal._ASKED, terminal._UP = True, terminal._UP and []
+                return None
+            return step(screen)
+        with ExitStack() as stack:
+            for obj, name, value in ((terminal, "colour_depth", 0), (terminal, "utf8", True),
+                                     (orch, "listed", {}), (menu, "seat_progress", (0, 0)),
+                                     (menu, "past_said", ("", ""))):
+                stack.enter_context(patch.object(obj, name, return_value=value))
+            for name, at in (("width", 0), ("height", 1)):
+                stack.enter_context(patch.object(terminal, name, lambda *_a, at=at: size[at]))
+            stack.enter_context(patch.object(orch, "checkout_of", lambda repo, **_kw: Path(repo)))
+            stack.enter_context(patch.object(terminal, "read_key", read_key))
+            stack.enter_context(patch.multiple(terminal, _UP=None, _SPOTS={}, _ASKED=False,
+                                               _TAKEN=Mock(again=(None, None))))
+            removed = stack.enter_context(patch.object(menu, "remove_seat"))
+            stack.enter_context(redirect_stdout(out))
+            menu.show_past(CFG, seats, keyboard=Mock())
+        return reads, [call.args[0] for call in removed.call_args_list]
+
+    def test_x_asks_on_a_card_whose_answers_are_clicked_where_they_show(self):
+        for size in ((100, 10), (40, 11), (30, 12), (30, 10)):
+            for answer, removed in (("✓ Keep", []), ("× Remove", ["fix-api-1"])):
+                with self.subTest(size=size, answer=answer):
+                    reads, gone = self.x(size, click(answer))
+                    screen = reads[1][0]        # read on the card: it waits for its answer
+                    # nothing scrolled off: the heading on the first row, the card's keys last
+                    self.assertIn("past sessions", screen[0])
+                    self.assertIn("esc back", [line for line in screen if line][-1])
+                    self.assertTrue(all(any(word in line for line in screen)
+                                        for word in ("✓ Keep", "× Remove")), screen)
+                    self.assertEqual(gone, removed)
+                    self.assertNotIn("✓ Keep", "\n".join(reads[2][0]))     # answered
+
+    def test_a_card_shrunk_to_ten_rows_has_its_answers_on_the_rows_they_are_clicked(self):
+        for answer, removed in (("✓ Keep", []), ("× Remove", ["fix-api-1"])):
+            with self.subTest(answer=answer):
+                reads, gone = self.x((100, 24), (100, 10), click(answer))
+                screen, spots = reads[2]        # the frame after the resize
+                self.assertIn("past sessions", screen[0])
+                self.assertEqual(
+                    {what: row for row, what in spots.items() if what is not None},
+                    {number: next(row for row, line in enumerate(screen, 1) if word in line)
+                     for number, word in enumerate(("✓ Keep", "× Remove"))})
+                self.assertEqual(gone, removed)
+
+    def test_x_with_no_room_for_both_answers_asks_nothing_and_removes_nothing(self):
+        reads, gone = self.x((30, 5))
+        self.assertEqual(len(reads), 2)         # the page, and the page again after `x`
+        self.assertFalse(any("Keep" in "\n".join(screen) for screen, _ in reads))
+        self.assertEqual(gone, [])
 
     def test_p_lists_it_with_its_number_and_enter_reopens_it(self):
         shown = Menu(self, {"alpha": "working", "omega": "stopped"})       # a child on a pty

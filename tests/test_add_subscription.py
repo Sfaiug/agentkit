@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest import mock
 
 from test_config_matrix import DOWN, ENTER, Screen
-from test_provider_screen import (ADD, KEYS, PAGE, back, choices, open_providers, open_row, pick,
+from test_provider_screen import (ADD, KEYS, PAGE, back, open_providers, open_row, pick,
                                   remove_asked, removing, subscriptions, title)
 from agentkit import config, menu
 
@@ -154,8 +154,8 @@ class RemoveSubscription(unittest.TestCase):
         asked = remove_asked(screen, "Claude III")
         self.assertIn("  Remove Claude III?", asked)
         self.assertIn("  " + menu.REMOVE_SUBSCRIPTION_ASK[1], asked)
-        mark = screen.text().rindex("Remove Claude III?")
-        self.assertEqual(choices(screen, mark, 2), ["› ✓ Keep", "  × Remove"])
+        means = asked.index("  " + menu.REMOVE_SUBSCRIPTION_ASK[1])
+        self.assertEqual(asked[means + 1:means + 3], ["› ✓ Keep", "  × Remove"])
         screen.press(ENTER, lambda lines: title(lines) == PAGE)            # Enter keeps
         self.assertEqual(screen.path.read_bytes(), before)
         removing(screen, lambda lines: lines[-1] == KEYS["ask"])

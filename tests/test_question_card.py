@@ -12,7 +12,6 @@ import copy
 from contextlib import redirect_stdout
 import io
 import os
-import re
 from pathlib import Path
 import sys
 import time
@@ -49,8 +48,7 @@ CFG = {"defaults": {"orchestrator": "opus", "workers": ["opus"]},
 
 
 def ask(keys, cols=120):
-    """(the answer, the card's lines, what the choices wrote) for `keys` pressed on the card,
-    its first line on row 5."""
+    """(the answer, the card's lines) for `keys` pressed on the card, its first line on row 5."""
     shown = {}
 
     def around(card, keys):
@@ -60,31 +58,31 @@ def ask(keys, cols=120):
             patch.object(terminal, "width", return_value=cols), \
             patch.object(terminal, "colour_depth", return_value=256), \
             patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}), \
-            redirect_stdout(io.StringIO()) as out:
+            redirect_stdout(io.StringIO()):
         answer = terminal.confirm(QUESTION, MEANS, "Stop", around)
-    return answer, shown["card"], out.getvalue()
+    return answer, shown["card"]
 
 
 class QuestionCard(unittest.TestCase):
     def test_the_card_is_the_question_what_it_means_and_keep_first(self):
-        _, card, out = ask([Key("esc")])
+        _, card = ask([Key("esc")])
         with patch.object(terminal, "colour_depth", return_value=256):
             dim, warn = terminal.styled("  " + MEANS, "dim"), terminal.styled("× Stop", "amber")
-        self.assertEqual(card, ["", "  " + QUESTION, dim, "", "", ""])
         # the choices on the card's two rows before its last: Keep lit, on the selection over its
         # text and a cell each side, its row no band, and Stop in the warn colour
-        keep, stop = (row.split("\x1b[K")[0] for row in re.split(r"\x1b\[\d+;1H", out)[1:3])
+        keep, stop = card[3:5]
+        self.assertEqual(card, ["", "  " + QUESTION, dim, keep, stop, ""])
         self.assertEqual(terminal.ANSI.sub("", keep), "› ✓ Keep ")
         self.assertEqual([column for column, back in enumerate(terminal._grounds(keep), 1)
                           if back], list(range(2, 10)))
         self.assertIn("48;5;23m", keep)
         self.assertTrue(stop.endswith("  " + warn), repr(stop))
         # on a phone the question and its meaning wrap and no choice does
-        _, card, out = ask([Key("esc")], cols=40)
+        _, card = ask([Key("esc")], cols=40)
         means = [f"  {line}" for line in terminal.wrap(MEANS, 38)]
         self.assertEqual([terminal.ANSI.sub("", line) for line in card],
-                         ["", "  Stop fix-api and everything it runs?", *means, "", "", ""])
-        self.assertIn(f"\x1b[{7 + len(means)};1H", out)
+                         ["", "  Stop fix-api and everything it runs?", *means, "› ✓ Keep ",
+                          "  × Stop", ""])
 
     def test_esc_keeps_and_enter_on_the_second_choice_answers(self):
         self.assertFalse(ask([Key("esc")])[0])
