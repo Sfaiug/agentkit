@@ -6838,8 +6838,12 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
         here = here if here in names else names[0]
         said.update((session["name"], past_said(session)) for _, session in past
                     if session["name"] not in said)
-        room = matrix_page([], {}, None, 0, [], keys, lead=page_mark(98, 99))[1]
-        body, places, moves, page, turns = past_body(past, here, room, said)
+
+        def laid():
+            """The rows at the terminal's size now, `here` lit on its page."""
+            room = matrix_page([], {}, None, 0, [], keys, lead=page_mark(98, 99))[1]
+            return past_body(past, here, room, said)
+        body, places, moves, page, turns = laid()
         first = page_mark(page, len(turns)) if len(turns) > 1 else None
         act, row, _column, top = matrix_key("past sessions", body, places,
                                             [("row", name) for name in names], ("row", here),
@@ -6861,15 +6865,16 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             open_session(cfg, past[names.index(here) if act == "enter" else int(act) - 1][1], dry_run)
             return True
         if act == "x" and not terminal.unseen():     # unseen, it only brings the highlight back
-            at = max(line for line, (row, _) in places.items() if row == ("row", here)) + 1
-
-            def around(card, keys, at=at):
-                # in what a frame holds unscrolled at this height (`terminal.written` ends in a
-                # newline), the card to its answers, its top giving way where that is too
-                # little, then the rows round it in what is left; none where the answers are not
+            def around(card, keys):
+                # the rows laid out anew, a resize's; in what a frame holds unscrolled at this
+                # height (`terminal.written` ends in a newline), the card to its answers, its top
+                # giving way where that is too little, then the rows round it in what is left;
+                # none where the answers are not
                 holds = terminal.height() - 4 - len(terminal.key_line(keys))
                 if holds < 2:
                     return None
+                body, places = laid()[:2]
+                at = max(line for line, (row, _) in places.items() if row == ("row", here)) + 1
                 lines, skip = body[:at] + card + body[at:], max(0, at + len(card) - 1 - holds)
                 terminal.frame("past sessions", lines[skip:skip + holds], keys)
                 return 3 + at - skip

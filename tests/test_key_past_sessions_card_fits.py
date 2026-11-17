@@ -2,7 +2,8 @@
 short for the page and the card, the card's top and the rows round it give way, never its
 answers, its key line or the heading, and a click answers on the row its answer shows.
 Black-box: ak in a person's terminal (tests/fixtures/akterm.py) on past sessions as
-tests/test_key_menu_past.py opens them, shrunk to 30 by 10 before `x`.
+tests/test_key_menu_past.py opens them, shrunk to 30 by 10 before `x`, or narrowed to 30 by
+16 under its card, whose rows are then laid out anew.
 """
 
 import sys
@@ -38,6 +39,16 @@ class ACardFitsAShortTerminal(unittest.TestCase):
         column = lines[row - 1].index("×") + 1
         seats.menu.type(f"\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m")
         seats.menu.wait(lambda screen: not seats.state("session-beta.json").exists())
+
+    def test_narrowed_under_it_its_rows_fit_the_new_width(self):
+        home = Home()
+        self.addCleanup(home.close)
+        seats = Stopped(home, HARNESS)
+        seats.to_past()
+        seats.menu.keys("x")
+        seats.menu.wait(asked)
+        seats.menu.resize(30, 16)
+        seats.menu.wait(lambda screen: asked(screen) and len(screen.rstrip().split("\n")) <= 16)
 
 
 if __name__ == "__main__":
