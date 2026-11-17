@@ -53,11 +53,10 @@ class Delivery:
     # Python the systemd-run fake runs as each scope's command starts, `{root}` the test's folder.
     starts = ""
 
-    def deliver(self, answers="", moved=False):
-        """A task's run, from its start to its end, beside a manager that answers set-property
-        as the shell case arms `answers` say first, `{root}` the test's own folder, and 0 where
-        they say nothing, its target moving as its first delivery starts where `moved`; its
-        record."""
+    def task(self, answers="", moved=False):
+        """A task to run beside a manager that answers set-property as the shell case arms
+        `answers` say first, `{root}` the test's own folder, and 0 where they say nothing, its
+        target moving as its first delivery starts where `moved`; its file."""
         line = Line({"AGENTS.md": rules("sh suite.sh"), "t/ok.sh": "true\n"})
         self.addCleanup(line.close)
         self.home = home = line.home
@@ -84,9 +83,14 @@ class Delivery:
                   + '*" set-property "*) exit 0 ;; esac\nexit 1\n')
         GitHub(home).grant(line.rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"])
-        fakeadapter.install(home, claude="work", codex="pass")
-        done = home.ak("run", str(taskfile.write(home, line.rig.path)), timeout=600)
-        self.run_dir = taskfile.only_run(home)
+        self.fakes = fakeadapter.install(home, claude="work", codex="pass")
+        return taskfile.write(home, line.rig.path)
+
+    def deliver(self, answers="", moved=False):
+        """`task`'s run, from its start to its end; its record."""
+        task = self.task(answers, moved)
+        done = self.home.ak("run", str(task), timeout=600)
+        self.run_dir = taskfile.only_run(self.home)
         state = json.loads((self.run_dir / "run.json").read_text())
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertTrue(state.get("merged"), state)

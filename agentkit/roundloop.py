@@ -1653,7 +1653,6 @@ def rounds(lp):
     A recorded PASS on the verified commit can skip straight to delivery.
     An unfinished review resumes on the saved work without spending another executor turn.
     """
-    transitions.invalidate_saved_pass(lp.state, lp.cfg, lp.log)
     lp.rounds = lp.state["rounds"]
     lp.save()
     if (lp.state.get("waiting_on") or {}).get("line"):

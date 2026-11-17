@@ -292,7 +292,6 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 log(f"worktree {wt} on {branch} from {base} ({base_sha[:12]})"
                     + (f", merging into {target}" if target != base else ""))
         history_start(state, log)
-    invalidate_saved_pass(state, cfg, log)
     try:
         run_record.save_state(run_dir, state)
     except run_record.StopRequested:
@@ -2013,6 +2012,7 @@ def resume_run(argv):
         offset = (run_dir / "log.txt").stat().st_size
         spawn_bg(run_dir, ["resume", *requested], expected=expected)
         return follow_run(run_dir, cfg, offset)
+    log = logger(run_dir)
     with gate.slot_lock(), run_record.recovery_lock(run_dir):
         if run_record.read_state(run_dir) != expected:
             raise config.Error("the run changed while choosing recovery; select it again")
@@ -2029,6 +2029,10 @@ def resume_run(argv):
         # reason must not inherit any
         for key in ("waiting_for", "login_resume_at", "login_back_at"):
             state.pop(key, None)
+        if not state.get("review_pr"):      # a PR's review reads its own verdict (`review_pr`)
+            # Before it asks for a slot: a green delivery is let in past the host's gates as
+            # one that only merges (`gate.claim_slot`), which a run reviewing again is not.
+            invalidate_saved_pass(state, cfg, log)
         # the wait this resume answers is over too: main moved, or a hand hurried it
         if not (state.get("waiting_on") or {}).get("line"):
             state.pop("waiting_on", None)
@@ -2044,7 +2048,6 @@ def resume_run(argv):
         run_record.save_state(run_dir, state)
     # past the slot lock: a tick typing the job's line holds the job's lock until it is said
     jobs.answer_job_line(state)
-    log = logger(run_dir)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
     if not child:
         # the loop goes on from this copy and saves it: it carries the new scope, not the last
