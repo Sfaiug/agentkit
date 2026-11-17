@@ -1,10 +1,13 @@
 """`ak standby ALIAS`: one pass of this machine's copy of ak's folder on the home it is a client
-of, at the same path, but its runs, and each `.git` folder in it, a clone's own git data.  Before
-it, what a seat carrying on from the copy needs of each harness: its logins, every account's, and
-the folders its conversations start from, each at its path, the rest of that harness's folders
-this machine's own.  After it, ak here moves as every client's does (`update.follow`), to the
-commit ak is at on the home once the home's move there is final, so the ak that takes over is the
-one that was live.
+of, at the same path, but each `.git` folder in it, a clone's own git data, the runs ended on both
+machines and an open run's scratch.  A run is open where its folder holds no record that can be
+read, or one whose state is not among `record.ENDED`: one that ended on the home since the last
+pass is open here still, so the next pass copies it, its ended record with it, and then no more.
+Before it, what a seat carrying on from the copy needs of each harness: its logins, every
+account's, and the folders its conversations start from, each at its path, the rest of that
+harness's folders this machine's own.  After it, ak here moves as every client's does
+(`update.follow`), to the commit ak is at on the home once the home's move there is final, so the
+ak that takes over is the one that was live.
 
 rsync writes straight into the copy, sending what changed within each file, compressed, over the
 owner's line; each file lands whole, the old one or the new one.  A pass cut short leaves some
@@ -29,20 +32,48 @@ import glob
 import math
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import time
 
-from . import (command_help, config, machine_turn, move, notify, pair_clock, terminal, update,
-               versions)
+from . import (command_help, config, machine_turn, move, notify, pair_clock, record, terminal,
+               update, versions)
 
 # This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
 # a client of, its ak install and whether its install.sh is owed, the pages it sent and owes
-# (`back` pages from here), and what each machine keeps through a move; then the runs.
+# (`back` pages from here), and what each machine keeps through a move.
 KEPT = tuple(path for path in (config.STATE / "server", versions.repository(),
                                config.HOME / versions.VERSIONS, config.STATE / update.PENDING,
-                               notify.outbox(), *move.KEPT, config.RUNS)
+                               notify.outbox(), *move.KEPT)
              if path.is_relative_to(config.HOME))
+# A run's scratch, its folders of these names at any depth, which go when its turn ends: in one
+# three-minute window on 9 Nov the owner's home wrote 1.8 GB in them against 26 MB outside.
+SCRATCH = ("tmp", ".box-")
+LINKED = 3      # the ask's exit for a home whose runs' folder is a link
+# The ask of the home: the names of the runs open there, each NUL-ended, its records read as
+# `record.read_state` reads one, as text, for json.loads would take bytes after a BOM for a
+# record; a runs' folder the home lacks holds none.  By whatever python3 the home's ssh finds,
+# which may be older than ak's: so it imports nothing of ak's, comes on its input and is given
+# the folder and the ended states.
+OPEN = f"""import json, os, sys
+runs, *ended = sys.argv[1:]
+if os.path.islink(runs):
+    sys.exit({LINKED})
+try:
+    found = list(os.scandir(os.fsencode(runs)))
+except FileNotFoundError:
+    found = []
+for run in found:
+    if run.is_dir():
+        try:
+            with open(os.path.join(run.path, b"run.json"), encoding="utf-8") as kept:
+                state = json.load(kept)
+        except (OSError, ValueError, RecursionError):
+            state = None
+        if not (isinstance(state, dict) and state.get("state") in ended):
+            sys.stdout.buffer.write(run.name + b"\\0")
+""".encode()
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
 GOES = 3        # a go during which files vanished on the home leaves their old copies here
 # This machine's own folder of the copy, in ak's tmp folder: the stamp of the last pass that ended
@@ -103,8 +134,24 @@ def _keep_job(alias):
 
 
 def _copy(alias, home, copied):
-    """One pass from `alias`: `copied` under `home`, then ak's folder.  The exit of rsync that
-    failed it, or 0."""
+    """One pass from `alias`: `copied` under `home`, then ak's folder with each run open on the
+    home or here.  Why it failed, or None."""
+    # The home's open runs first, so one whose runs' folder is a link fails the pass before it
+    # copies anything: rsync would put that link here in place of the runs' folder.
+    try:
+        asked = subprocess.run(
+            ["ssh", alias, shlex.join(["python3", "-I", "-", str(config.RUNS), *record.ENDED])],
+            input=OPEN, stdout=subprocess.PIPE, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return f"its runs were not read within {TIMEOUT} seconds"
+    if asked.returncode == LINKED:
+        return f"{config.tilde(config.RUNS)} is a link there"
+    if asked.returncode:
+        return f"asking for its open runs exited {asked.returncode}"
+    runs = sorted({os.fsdecode(name) for name in asked.stdout.split(b"\0")[:-1]}
+                  | {run.name for run in record.run_dirs()
+                     if (state := record.read_state(run)) is None
+                     or state.get("state") not in record.ENDED})
     # Each harness path a source of its own: one the home lacks is never read as a deletion.  The
     # home's rsync expands each `*` (-s), not its login shell, which as zsh fails on one matching
     # nothing.
@@ -113,12 +160,18 @@ def _copy(alias, home, copied):
     # deletion it would empty the copy.  Times are compared to the nanosecond, as rsync's whole
     # seconds take a same-size write within one for no change, on every pass after.  No `.git`
     # folder crosses, the git data a clone carries in itself; the rest of its checkouts does, what
-    # git ignores too.  Perishable (-p), that rule still lets rsync's delete take a checkout the
-    # home removed, whatever `.git` folder it holds here.
+    # git ignores too, and each open run but its scratch.  Perishable (-p), the rules leaving out
+    # a `.git` folder and a run's scratch still let rsync's delete take a checkout or run the home
+    # removed, whatever it holds here; a run ended on both machines it never reaches.  A run is
+    # named literally, as any file is: rsync replaces a link here at an open run's folder, or
+    # deletes it, and never goes past it.
+    at = config.PLACES["RUNS"]
     for args in (["-sR", "--no-implied-dirs", "--ignore-missing-args",
                   *(f"{alias}:{home}/./{path}" for path in copied), f"{home}/"],
                  [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
                   "--filter=-p .git/",
+                  *(f"--filter=-p /{at}/**/{name}*/" for name in SCRATCH),
+                  *(f"--filter=+ /{at}/{glob.escape(run)}" for run in runs), f"--filter=- /{at}/*",
                   f"{alias}:{config.HOME}/", f"{config.HOME}/"]):
         for _ in range(GOES):
             code = subprocess.run([
@@ -127,9 +180,8 @@ def _copy(alias, home, copied):
             if code != move.VANISHED:
                 break
         if code:
-            print(f"ak standby: the pass from {alias} failed: rsync exited {code}", file=sys.stderr)
-            return code
-    return 0
+            return f"rsync exited {code}"
+    return None
 
 
 def _stamp(own, *lines):
@@ -178,7 +230,8 @@ def main(argv):
     # one, or at a folder between it and ak's folder, with the home's, or delete what it reaches.
     parts = {home / part for path in copied for folder in Path(path).parents[:-1]
              for part in glob.glob(str(folder), root_dir=home)}
-    parts |= {part for path in KEPT for part in (path, *path.parents)
+    # So would it at the runs' folder, which it writes into.
+    parts |= {part for path in (*KEPT, config.RUNS) for part in (path, *path.parents)
               if config.HOME in part.parents}
     refused += [f"{config.tilde(part)} is a link here" for part in sorted(parts)
                 if part.is_symlink()]
@@ -199,7 +252,8 @@ def main(argv):
             return 1
         notify.retry_pending()
         began = pair_clock.now()
-        if _copy(alias, home, copied):
+        if why := _copy(alias, home, copied):
+            print(f"ak standby: the pass from {alias} failed: {why}", file=sys.stderr)
             return 1
         _stamp(own, began.line(), alias)
         if why := update.follow(alias)[1]:

@@ -232,20 +232,21 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
     "standby": ("usage: ak standby [ALIAS]",
                 "On a client of ALIAS, keep this machine's crontab job that does this every three minutes,\n"
                 "then copy from that home to the same paths here each harness's logins, every account's,\n"
-                "and the folders its conversations are in, then ak's folder but its runs and .git folders.\n"
-                "It sends what changed, compressed, and what the home deleted in those folders goes here\n"
-                "too; a login or folder the home lacks stays here.  This machine keeps the rest of each\n"
-                "harness's folders, its own record of its server, of an install.sh owed and of its pages,\n"
-                "ak's tmp folder, ak's repository and its versions; each pass first sends again a page of\n"
-                "its own the webhook did not take.  Refused on any other machine, or if a link here\n"
-                "is at one of those kept or at ak's runs, at a folder between it and ak's folder, or at a\n"
-                "folder between HOME and a harness's login or conversations; one while a pass is under way\n"
-                "copies nothing.  After the copy, move ak here forward to the commit ak is at on that home,\n"
-                "once its move there is final, and run its install.sh again while it is owed.  A move here\n"
-                "is final once a pass of it ends well: the job puts back one that none has within an hour,\n"
-                "and no pass goes to that commit again.  Without ALIAS, show the home this machine copies\n"
-                "and the copy's age, from when the last pass that ended well began, and why ak here does\n"
-                "not follow that home yet: exit 1 if none from that home has.",
+                "and the folders its conversations are in, then ak's folder but its .git folders, its runs\n"
+                "ended on both machines and an open run's tmp* and .box-* folders.  It sends what changed,\n"
+                "compressed, and what the home deleted in those folders goes here too; a login or folder\n"
+                "the home lacks stays here.  This machine keeps the rest of each harness's folders, its own\n"
+                "record of its server, of an install.sh owed and of its pages, ak's tmp folder, ak's\n"
+                "repository and its versions; each pass first sends again a page of its own the webhook did\n"
+                "not take.  Refused on any other machine, or if a link here is at one of those kept or at\n"
+                "ak's runs, at a folder between it and ak's folder, or at a folder between HOME and a\n"
+                "harness's login or conversations; one while a pass is under way copies nothing.  After the\n"
+                "copy, move ak here forward to the commit ak is at on that home, once its move there is\n"
+                "final, and run its install.sh again while it is owed.  A move here is final once a pass of\n"
+                "it ends well: the job puts back one that none has within an hour, and no pass goes to that\n"
+                "commit again.  Without ALIAS, show the home this machine copies and the copy's age, from\n"
+                "when the last pass that ended well began, and why ak here does not follow that home yet:\n"
+                "exit 1 if none from that home has.",
                 "ak standby acme-mini"),
 }
 
