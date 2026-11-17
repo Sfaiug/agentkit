@@ -3217,18 +3217,23 @@ def model_heading(harness):
 TAKEN = {"orchestrate": "orchestrator", "execute": "workers", "review": "reviewers"}
 
 
+def stands(found, row):
+    """Whether `row`, of a role's answer `found` (matrix.answer), stands among its bars and
+    steps beside the choices where the role used it, the owner, 12 Nov 2026: no choice, `whys`
+    holding it (matrix._choices), and with a cost to stand at."""
+    return id(row) in found["whys"] and row["cost"] is not None
+
+
 def next_choice(cfg, found, row, step, kept):
     """What ← (`step` -1) or → (1) takes off `row`, the row a role uses, of its answer `found`
     (matrix.answer), the owner's design of 5 Nov 2026: (model, effort) of its next step down or
     up, in order of cost and on a tie of quality; None past either end.  The steps: its
     `choices`, each as the model a take of it takes (matrix.takes) at its effort, and the row
-    of `kept` (model, effort, row) where it is no choice, `whys` holding it (matrix._choices),
-    and has a cost to stand at, as the role used it: the owner, 12 Nov 2026.  A `row` that is no
-    step stands at its cost and quality, one with no cost as its best choice."""
+    of `kept` (model, effort, row) where it stands (`stands`), as the role used it.  A `row`
+    that is no step stands at its cost and quality, one with no cost as its best choice."""
     name, effort, own = kept
     steps = [(one, matrix.takes(cfg, one), one["effort"]) for one in found["choices"]]
-    steps += [(own, name, effort)] if id(own) in found["whys"] and own["cost"] is not None \
-        else []
+    steps += [(own, name, effort)] if stands(found, own) else []
     here = row if row and row["cost"] is not None else next(reversed(found["choices"]), None)
     if here is None:
         return None
@@ -3399,7 +3404,8 @@ WHYS = {"beaten": "beaten by {by}", "close": "within {apart} of {by}",
         "far below": "{below} below the best",
         "no room": "the {places} places go to better choices",
         "not set up": "would be a choice, but it is listed nowhere a model of yours runs",
-        "no cost": "no board prices it"}
+        "no cost": "no board prices it",
+        "not converted": "a board prices it, but your runs and plans give that price no cost"}
 NUMBERS = "zero one two three four five six seven eight nine".split()
 
 
@@ -3714,21 +3720,19 @@ def columned(text, room, after=" -."):
 def models_standing(found, kept, unit):
     """The bars of an answer `found` (matrix.answer) that stand at the screen's width, the
     owner's design of 5 Nov 2026, as (size, rows, labels, words, widths): its choices, solid,
-    then shaded `kept`, a row the role used, where it is no choice, `whys` holding it
-    (matrix._choices), one more where the choices leave no place (the owner, 12 Nov 2026), then
-    as many of its `others`, best first, as fill matrix.PLACES; each with a cost, as a bar
-    stands at its cost.  `rows` (row, its glyph), cheapest first, on a tie the worse; each
-    one's labels its cost in `unit`, quality and effort, its words its name and a shaded one's
-    why led by its glyph, and its column as wide as those and `size`, its words columned.
-    Where a word too wide for its column widens it past the screen, fewer stand: the shaded
-    ones go first, `kept` last, then the cheapest choices, as matrix._chosen keeps the
+    then shaded `kept`, a row the role used, where it stands (`stands`), one more where the
+    choices leave no place (the owner, 12 Nov 2026), then as many of its `others` that stand,
+    best first, as fill matrix.PLACES.  `rows` (row, its glyph), cheapest first, on a tie the
+    worse; each one's labels its cost in `unit`, quality and effort, its words its name and a
+    shaded one's why led by its glyph, and its column as wide as those and `size`, its words
+    columned.  Where a word too wide for its column widens it past the screen, fewer stand: the
+    shaded ones go first, `kept` last, then the cheapest choices, as matrix._chosen keeps the
     costliest.  A why counts drawn or not, so the same bars stand at a width however tall the
     page, the why page's `shaded` among them."""
     width, choices, whys = terminal.layout_width(), found["choices"], found["whys"]
     solid, shade, _ = GLYPHS[terminal.utf8()]
-    own = [kept] if id(kept) in whys and kept["cost"] is not None else []
-    shaded = [*own, *(row for row in found["others"] if row is not kept
-                      and row["cost"] is not None)][
+    own = [kept] if stands(found, kept) else []
+    shaded = [*own, *(row for row in found["others"] if row is not kept and stands(found, row))][
         :max(len(own), matrix.PLACES - len(choices))]
     while True:
         rows = sorted([(row, solid) for row in choices] + [(row, shade) for row in shaded],
@@ -3979,7 +3983,7 @@ def models_screen(cfg, session, selected, providers):
         # a take changes what each role uses, never the answer, which takes seconds to price
         used = matrix.uses(cfg, selected, answer)
         kept.update({role: one[:2] for role, one in used.items()
-                     if id(one[2]) in answer[role]["whys"]})
+                     if stands(answer[role], one[2])})
         # the row each role kept, else the one it uses, of the answer as it stands: `p` and the
         # boards landing make it anew
         own = {**used, **{role: (name, effort, matrix.row_of(answer[role]["rated"],

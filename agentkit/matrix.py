@@ -400,15 +400,16 @@ def _chosen(priced):
 
 
 def _why(row, choices, front):
-    """(`why`, `by`) of `row` beside `choices` and `front` (`_chosen`): `no cost`, by None,
-    where it has none, so never a bar or a step of ← or → (menu.models_standing,
-    menu.next_choice); `not set up`, by None, among the choices, as a row no take can take is
+    """(`why`, `by`) of `row` beside `choices` and `front` (`_chosen`): where it has no cost,
+    so is never a bar or a step of ← or → (menu.stands), by None, `no cost` where no board
+    prices it, else `not converted`, as your runs and plans give its board price no cost
+    (`_costs`); `not set up`, by None, among the choices, as a row no take can take is
     where it would be one (`_choices`); off the front, `beaten` by the cheapest choice, else
     row of the front, as good and no dearer; on it, `far below`, by None, more than `WINDOW`
     under the best; else `close` to the nearest choice, less than `APART` from it; else `no
     room`, by None: `APART` or more under every choice, as the costliest `PLACES` leave it."""
     if row["cost"] is None:
-        return "no cost", None
+        return "no cost" if row["board_cost"] is None else "not converted", None
     if any(one is row for one in choices):
         return "not set up", None
     if not any(one is row for one in front):

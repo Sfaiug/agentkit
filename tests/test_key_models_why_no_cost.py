@@ -3,11 +3,14 @@
 `cost`: the owner turns models on at `p` to compare them (5 Nov 2026), so none goes unsaid.  Its
 why page lists it under `not shown`, its quality and that no board prices it; it is never a bar
 and never a step of ← or →, as it has no cost to stand at: one used stands as the best choice.
+A row a board prices that your runs and plans give no cost, as only releases no board prices
+ran, is `not converted` instead.
 
 Black-box: AK_BIN in a temporary HOME, the boards held as just asked with invented releases of
 one maker (tests/test_key_role_choices.py), its harness a fake listing each of them, each
 configured; judged by `ak models --json`, the screen of 100 cells (tests/fixtures/akterm.py)
-and config.toml.  Fails against /bin/false.
+and config.toml; and the boards, logins' weeks and finished runs of
+tests/test_key_picks_priced_in_usage.py.  Fails against /bin/false.
 """
 
 import json
@@ -22,6 +25,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akterm import SERVER, Terminal
 from test_key_models_answer import ENV, lines
 from test_key_models_bars import bars
+import test_key_picks_priced_in_usage as priced
 from test_key_role_choices import hold
 
 # Release, name, quality in every role and cost a task, each at `high`, cheapest first; Bare's
@@ -122,6 +126,26 @@ class WhyNoCost(unittest.TestCase):
             term.keys(key)
             self.orchestrating(release)
             term.wait(lambda screen: drawn(screen) == BARS)
+
+
+class NotConverted(unittest.TestCase):
+    # its home: Anvil, Bloom and Dune ran builds and reviews, no orchestration
+    setUp, cache, command, answer = (getattr(priced.PicksPricedInUsage, name)
+                                     for name in ("setUp", "cache", "command", "answer"))
+
+    def test_with_only_releases_no_board_prices_run_one_a_board_prices_is_not_converted(self):
+        path = self.home.path / ".agentkit/state/boards.json"
+        held = json.loads(path.read_text())
+        for row in held["artificialanalysis.ai"]["rows"]:
+            if row["model"] in ("Anvil", "Bloom", "Dune") and row["effort"] == "high":
+                row["values"] = {key: value for key, value in row["values"].items()
+                                 if not key.endswith(".costPerTask")}
+        path.write_text(json.dumps(held))
+        self.assertEqual([(row["name"], row["why"], row["board_cost"]) for row in
+                          self.answer()["orchestrate"]["others"]],
+                         [("Crown", "not converted", 100), ("Bloom", "no cost", None),
+                          ("Anvil", "no cost", None), ("Echo", "not converted", 20),
+                          ("Dune", "no cost", None)])
 
 
 if __name__ == "__main__":
