@@ -19,10 +19,8 @@ pieces and the record times often.sh and quick.sh both whole and by a test of ea
 """
 
 import json
-import os
 from pathlib import Path
 import shlex
-import socket
 import sqlite3
 import sys
 import time
@@ -33,6 +31,7 @@ from fixtures import akconfig, clock, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
+from fixtures.notes import Notes
 from test_key_a_round_runs_its_changes_tests import SUITE
 
 DAY = 86400
@@ -78,20 +77,17 @@ class ThreeRuns(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         clock.standing(cls.home, "AK_ROUND_CLOCK", NOW)
-        said = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        cls.addClassCleanup(said.close)
-        said.bind(address := f"\0ak-red-test-runs-as-its-file-{os.getpid()}")
-        said.setblocking(False)
+        said = Notes()
         cls.rig = Rig(cls.home, "widgets", files={
             "AGENTS.md": "---\nhealth: none\ntests: python3 suite.py\n---\n# widgets\n",
-            "suite.py": SUITE.format(said=address), "widget.txt": "v1\n",
+            "suite.py": SUITE.format(said=said.address), "widget.txt": "v1\n",
             "tests/often.sh": "grep -qx v1 widget.txt\n",
             **{f"tests/{name}.sh": "true\n" for name in ("quick", "other", "held", "untimed")}})
         cls.rig.git("config", "ak.repository", "0123456789ab")
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
         review = ("import socket; socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)"
-                  f".sendto(b'review', {address!r})")
+                  f".sendto(b'review', {said.address!r})")
         cls.fakes = fakeadapter.install(cls.home, claude=WORK, codex={
             "sh": f"python3 -c {shlex.quote(review)}", "final": "Handed in.",
             "hand_in": [["done"]]})
@@ -102,12 +98,7 @@ class ThreeRuns(unittest.TestCase):
             task = taskfile.write(cls.home, cls.rig.path, f"Add {name}",
                                   done_when=(f"test -f {name}.txt",))
             cls.done[name] = cls.home.ak("run", str(task), timeout=300)
-            cls.notes[name] = []
-            while True:
-                try:
-                    cls.notes[name].append(said.recv(4096).decode())
-                except BlockingIOError:
-                    break
+            cls.notes[name] = said.since()
             run_dir = next(path for path in taskfile.runs(cls.home)
                            if path.name.endswith(f"-add-{name}"))
             cls.states[name] = (run_dir, json.loads((run_dir / "run.json").read_text()))
