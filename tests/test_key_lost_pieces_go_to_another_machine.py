@@ -73,7 +73,10 @@ class LostPiecesGoToAnotherMachine(unittest.TestCase):
         (runs := home.path / ".agentkit" / "runs").mkdir(parents=True)
         with (runs / ".heavy-0.lock").open("a") as turn:
             fcntl.flock(turn, fcntl.LOCK_EX)
-            run = home.spawn("run", str(taskfile.write(home, rig.path, "Add retry file")))
+            # `--first`: with no room here for its suite, its line would otherwise wait for company
+            # (test_key_the_suite_runs_once_for_a_batch)
+            run = home.spawn("run", str(taskfile.write(home, rig.path, "Add retry file")),
+                             "--first")
             deadline = time.monotonic() + 300
             while "acme-a run" not in (calls.read_text() if calls.exists() else ""):
                 self.assertIsNone(run.poll(), home.log("spawn-1.err").read_text())

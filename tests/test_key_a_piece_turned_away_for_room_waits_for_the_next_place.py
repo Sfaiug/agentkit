@@ -75,7 +75,10 @@ class TurnedAwayForRoom(unittest.TestCase):
         (runs := home.path / ".agentkit" / "runs").mkdir(parents=True)
         with (runs / ".heavy-0.lock").open("a") as turn:
             fcntl.flock(turn, fcntl.LOCK_EX)
-            run = home.spawn("run", str(taskfile.write(home, rig.path, "Add retry file")))
+            # `--first`: with no room here for its suite, its line would otherwise wait for company
+            # (test_key_the_suite_runs_once_for_a_batch)
+            run = home.spawn("run", str(taskfile.write(home, rig.path, "Add retry file")),
+                             "--first")
             try:
                 run.wait(timeout=300)
             except subprocess.TimeoutExpired:
