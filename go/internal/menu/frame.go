@@ -286,14 +286,10 @@ func Draw(view View, width, height int) Frame {
 	for bounded && len(out) < height-2-len(keys) {
 		out = append(out, "")
 	}
-	for at, line := range keys {
-		for _, item := range terminal.KeyItems(line) {
-			frame.keys = append(frame.keys, keySpot{len(out) + 1 + at, item.First, item.Last, pressing(item.Text)})
-		}
-	}
+	frame.keySpots = spotted(keys, len(out)+1)
 	// the item the pointer is on, on the selection: the pointer lights what a click there acts on
 	if at := frame.keyAt(view.Highlight.Pointer); at >= 0 {
-		spot := frame.keys[at]
+		spot := frame.keySpots[at]
 		line := spot.row - len(out) - 1
 		keys[line] = s.Selected(keys[line], spot.first, spot.last)
 	}

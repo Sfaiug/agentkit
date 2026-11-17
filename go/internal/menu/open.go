@@ -21,9 +21,9 @@ func (f Frame) Open(key terminal.Key) string {
 
 // Pressed is key, but for a click on an item of the key line that names a key: that key, as a click
 // does what the key would do.
-func (f Frame) Pressed(key terminal.Key) terminal.Key {
-	if at := f.keyAt(key.Mouse); at >= 0 && clicked(key) && f.keys[at].key.Name != "" {
-		return f.keys[at].key
+func (spots keySpots) Pressed(key terminal.Key) terminal.Key {
+	if at := spots.keyAt(key.Mouse); at >= 0 && clicked(key) && spots[at].key.Name != "" {
+		return spots[at].key
 	}
 	return key
 }

@@ -18,16 +18,30 @@ func (f Frame) seatAt(mouse terminal.Mouse) string {
 	return f.spots[mouse.Row-1]
 }
 
-// A keySpot is an item of the key line on the ak screen: its screen row, its first and last column
+// A keySpot is an item of a drawn key line: its screen row, its first and last column
 // (terminal.KeyItems), and the key a click on it presses (pressing).
 type keySpot struct {
 	row, first, last int
 	key              terminal.Key
 }
 
+// keySpots is each item of a screen's key line.
+type keySpots []keySpot
+
+// spotted is where each item of the key line `keys` is, its first line the screen's row `row`.
+func spotted(keys []string, row int) keySpots {
+	var spots keySpots
+	for at, line := range keys {
+		for _, item := range terminal.KeyItems(line) {
+			spots = append(spots, keySpot{row + at, item.First, item.Last, pressing(item.Text)})
+		}
+	}
+	return spots
+}
+
 // keyAt is the item of the key line the pointer is on, -1 for none.
-func (f Frame) keyAt(mouse terminal.Mouse) int {
-	return slices.IndexFunc(f.keys, func(spot keySpot) bool {
+func (spots keySpots) keyAt(mouse terminal.Mouse) int {
+	return slices.IndexFunc(spots, func(spot keySpot) bool {
 		return mouse.Row == spot.row && mouse.Column >= spot.first && mouse.Column <= spot.last
 	})
 }

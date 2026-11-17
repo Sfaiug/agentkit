@@ -70,6 +70,7 @@ type PageFrame struct {
 	width int         // the layout's: a row is under the pointer to its last column (terminal.under)
 
 	arrows []pageArrow // the lit row's
+	keySpots
 }
 
 // A pageArrow is an arrow drawn beside the lit row's value (PageRow.Step): its line, its column
@@ -357,7 +358,8 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 		under = append([]string{""}, under...)
 	}
 	// the key line and the note stay on the screen
-	page := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), ""))-len(under))
+	keyLines := keyLine(s, keys, s.Width(), "")
+	page := max(1, s.Height()-5-len(keyLines)-len(under))
 	top := view.Top
 	if view.Arrived { // from where the row is laid out now, its own lines and arrows drawn
 		top = min(top, slices.Index(lines, pageEntry{view.At, -1}))
@@ -365,6 +367,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	top = pageTop(lines, at, top, page)
 	shown := min(len(body), top+page)
 	title := "config · " + view.Name
-	return PageFrame{comeUp(s, Panel(s, title, view.Clock, append(slices.Clone(body[top:shown]), under...), keys), title, clock.Risen()),
-		top, at, page, lines, s.LayoutWidth(), arrows}
+	drawn := comeUp(s, Panel(s, title, view.Clock, append(slices.Clone(body[top:shown]), under...), keys), title, clock.Risen())
+	return PageFrame{Lines: drawn, Top: top, at: at, page: page, lines: lines, width: s.LayoutWidth(), arrows: arrows,
+		keySpots: spotted(keyLines, len(drawn)-len(keyLines)+1)}
 }
