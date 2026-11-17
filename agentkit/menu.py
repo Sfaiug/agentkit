@@ -3825,7 +3825,7 @@ def week_checked(plan, checks):
             f"{'high' if off >= 0 else 'low'}")
 
 
-def models_why(found, role, row, kept, whys, unit, weeks):
+def models_why(found, role, row, kept, unit, weeks, whys=True):
     """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
     2026: a label column, each value going on at its words in its own (flowed), an other's lines
     after its first two cells further in, so each other's first line stands out.  Its quality,
@@ -3996,7 +3996,7 @@ def models_screen(cfg, session, selected, providers):
             while row and key != "back":
                 if checking and not checking.is_alive():
                     weeks, checking = checking.answer(), None
-                lines = models_why(answer[role], role, row, own[role][2], whys, unit, weeks)
+                lines = models_why(answer[role], role, row, own[role][2], unit, weeks, whys)
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
                                              [why], why, page, "", "esc back", clock=opened,

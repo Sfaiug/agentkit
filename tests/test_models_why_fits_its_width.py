@@ -28,7 +28,7 @@ class WhyFitsItsWidth(unittest.TestCase):
         for width in range(14, 41):
             with self.subTest(width=width), patch.object(terminal, "layout_width",
                                                          return_value=width):
-                page = menu.models_why(found, "execute", choice, choice, True, "$ a task", [])
+                page = menu.models_why(found, "execute", choice, choice, "$ a task", [])
                 # the other, its bar drawn: its lines hang
                 self.assertIn("  shaded     ", [line[:13] for line in page])
                 self.assertLessEqual(max(map(terminal.cells, page)), width, page)
