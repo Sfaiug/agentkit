@@ -313,6 +313,13 @@ remedy = "exit Grok, run grok login in the host shell, then reopen the session"
 signatures = ["Session expired. Run `grok login` to re-authenticate.",
   "Your session has expired. Run `grok login` to sign in again"]
 
+# Each plan `login-end` names, at what it costs in US dollars a month.  Its words are the tier the
+# login's settings display (`subscription_tier_display`).  Price lists disagree on X Premium ($30
+# for the plan sold since 12 Oct 2026, $8 for an older one of that name), so the owner was asked
+# what that login costs, 17 Nov 2026: "$8".  Other plans are added as a login shows their words.
+[plans]
+"X Premium" = 8
+
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
 [effort]
 levels = ["low", "medium", "high", "xhigh"]
