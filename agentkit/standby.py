@@ -98,7 +98,6 @@ while folders:
             sys.stdout.buffer.write(entry.path + b"\\0")
 """.encode()
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
-GOES = 3        # a go during which files vanished on the home leaves their old copies here
 # This machine's own folder of the copy, in ak's tmp folder: the stamp of the last pass that ended
 # well, and the lock a pass holds, which the kernel lets go of when the pass ends, however it ends.
 # Names, not paths: each follows HOME, as config's places do.  install.sh keeps the runs, checkouts
@@ -212,13 +211,14 @@ def _copy(alias, home, copied):
                   *(f"--filter=-p /{at}/**/{name}*/" for name in SCRATCH),
                   *(f"--filter=+ /{at}/{_literal(run)}" for run in runs), f"--filter=- /{at}/*",
                   f"{alias}:{config.HOME}/", f"{config.HOME}/"]):
-        for _ in range(GOES):
-            code = subprocess.run([
-                "rsync", "-aHz", "--no-D", "--delete", "--modify-window=-1", f"--timeout={TIMEOUT}",
-                *(["--info=progress2"] if sys.stdout.isatty() else []), *args]).returncode
-            if code != move.VANISHED:
-                break
-        if code:
+        code = subprocess.run([
+            "rsync", "-aHz", "--no-D", "--delete", "--modify-window=-1", f"--timeout={TIMEOUT}",
+            *(["--info=progress2"] if sys.stdout.isatty() else []), *args]).returncode
+        # A file the home deleted while rsync read it is no failure, as in a move: all that is
+        # still there crossed, and what this machine held of the file goes with the next pass.
+        # A home at work deletes in its checkouts all the time: on 17 Nov a second and a third
+        # go each met more, and the passes failed for it.
+        if code not in (0, move.VANISHED):
             return f"rsync exited {code}"
     return None
 
