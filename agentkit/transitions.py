@@ -97,17 +97,29 @@ def review_pass(state, cfg, ended=False):
 def invalidate_saved_pass(state, cfg, log):
     """Recover old verdicts by reviewing the saved work, even if its task rounds are spent.
 
-    The run leaves its line with the review: a member with none stopped its own delivery and
-    the lander's check of every member, each reading the review it lacked (17 Nov 2026)."""
-    if state.get("verdict") != "PASS" or review_pass(state, cfg):
+    Never a line member's: erased there, the review was read by the member's own delivery and by
+    the lander's check of every member, which both stopped (17 Nov 2026).  Its resume takes it
+    out of the line first (`leaves_line`)."""
+    if (state.get("verdict") != "PASS" or (state.get("waiting_on") or {}).get("line")
+            or review_pass(state, cfg)):
         return
     log("WARN saved PASS lacks eligible review or commit verification evidence; reviewing again")
-    state.pop("waiting_on", None)
     entries = state["round_summaries"]
     rnd = len(entries) + 1
     state.update(verdict=None, review=None,
                  review_pending={"round": rnd, "summary": entries[-1]["summary"] if entries else ""},
                  rounds=max(state["rounds"], rnd))
+
+
+def leaves_line(state, cfg):
+    """Whether a line member's saved PASS no longer stands, and it left its line: its place was
+    the reviewed commit's.  Its rounds review the saved work again (`invalidate_saved_pass`) and
+    it joins the line anew."""
+    if (not (state.get("waiting_on") or {}).get("line") or state.get("verdict") != "PASS"
+            or review_pass(state, cfg)):
+        return False
+    del state["waiting_on"]
+    return True
 
 
 def delivered(state):

@@ -273,12 +273,11 @@ class RoundsPerPr(Sandbox):
                      change="20260101-0900-fix-parser", **{"from": "ak/fix-parser"})
         started = []
 
-        def far_enough(state, log):
-            if state.get("worktree"):       # the launch's record, past its receipt's row
-                started.append(state)
-                raise RuntimeError("far enough")
+        def far_enough(state, cfg, log):
+            started.append(state)
+            raise RuntimeError("far enough")
 
-        with patch.object(run, "history_start", side_effect=far_enough):
+        with patch.object(run, "invalidate_saved_pass", side_effect=far_enough):
             with self.assertRaises(RuntimeError):
                 run.loop(self.cfg, launch, task, opts, logs.append)
         self.assertEqual([(s["change"], s["from"], s["rounds"]) for s in started],
