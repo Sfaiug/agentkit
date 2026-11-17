@@ -47,7 +47,7 @@ def review_pass(state, cfg, ended=False):
     """A PASS needs commit verification and, when enabled, eligible review evidence.
 
     Judged by today's marks, which the run's next step runs under; `ended` reads the run as
-    it ended instead (`delivery`)."""
+    it ended instead (`delivery`, `job.job_classify`)."""
     evidence = state.get("review")
     if state.get("verdict") != "PASS" or not isinstance(evidence, dict):
         return False
