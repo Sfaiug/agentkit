@@ -2,7 +2,8 @@
 effort -- the orchestrator's model, else the first mark as the pick ranks them; a board row
 naming no effort, or a harness taking none, that row -- its quality and cost, `≈` before one no
 runs measured, under `quality` and the cost unit.  ↑↓ move `›`, ⏎ opens that row's why; on
-40 cells each line still shows its quality and cost; `ak models` prints a seat's without `›`.
+40 and 28 cells each role's lines still show its quality and cost whole; `ak models` prints a
+seat's without `›`.
 
 Black-box: `AK_BIN` in a terminal and as `ak models`, a fake harness, the boards as
 tests/test_key_role_choices.py writes them and one measured build (test_key_role_cost_from_runs's
@@ -129,13 +130,15 @@ class ModelsRoleLines(unittest.TestCase):
             on(role)
             term.keys("Down")
 
-    def test_on_40_cells_each_roles_line_still_shows_its_quality_and_cost(self):
-        shown = said(self.models(40)[1])
-        for word, _, *numbers in NEW_SEATS.values():
-            # its line, or the one under its word where the word takes a line of its own
-            at = next(n for n, line in enumerate(shown) if word in line.split())
-            self.assertTrue(any(line.endswith(" " + " ".join(numbers))
-                                for line in shown[at:at + 2]), (word, shown))
+    def test_on_40_and_28_cells_each_roles_lines_still_show_its_quality_and_cost(self):
+        for width in (40, 28):
+            shown = said(self.models(width)[1])
+            for word, _, *numbers in NEW_SEATS.values():
+                # its word's line, else the one under its model, whole: a line past the edge
+                # wraps, its numbers split
+                at = next(n for n, line in enumerate(shown) if word in line.split())
+                self.assertIn(numbers, [line.split()[-2:] for line in shown[at:at + 3]],
+                              (width, word, shown))
 
     def test_ak_models_prints_the_same_lines(self):
         screen = said(self.models()[1])
