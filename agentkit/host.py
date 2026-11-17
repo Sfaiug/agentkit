@@ -472,14 +472,14 @@ def _slice_cpu_quota(cgroup):
         return None
 
 
-def _cpu_usec(path):
+def _cpu_usec(path, stalled="full"):
     """Cumulative microseconds, or None where unread: a cgroup's on a CPU (`cpu.stat`
     `usage_usec`), or, for a cgroup's `cpu.pressure`, those it stood still for want of one
-    (`full` `total`: none of its threads ran)."""
+    (`full` `total`: none of its threads ran; `some`: one ready had none)."""
     try:
         if path.name == "cpu.pressure":
             for line in path.read_text().splitlines():
-                if line.startswith("full "):
+                if line.startswith(f"{stalled} "):
                     return float(line.rsplit("total=", 1)[1])
             return None
         for line in (path / "cpu.stat").read_text().splitlines():
@@ -511,6 +511,14 @@ def _cpu_rates(cgroups, delay=0.1):
         return {}
     return {cgroup: max(0.0, (second[cgroup] - value) / (elapsed * 1000000))
             for cgroup, value in first.items() if second[cgroup] is not None}
+
+
+def cpu_held_usec(cgroup):
+    """Cumulative microseconds the cgroup at that directory was on a CPU or had a task ready for
+    one and none (its `cpu.pressure` `some` total, none where unread), or None where its use is
+    unread: a thread that never sleeps holds a core whether it is given it or waits."""
+    used = _cpu_usec(cgroup)
+    return None if used is None else used + (_cpu_usec(cgroup / "cpu.pressure", "some") or 0)
 
 
 def cpu_ticks(cgroup):
