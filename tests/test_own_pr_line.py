@@ -200,7 +200,7 @@ class OwnPrLine(OwnPrLineFixture, unittest.TestCase):
             state = self.review(directory, url)
         self.assertEqual(state["verdict"], "FAIL")
         current_failure = state["review"]["overridden"]
-        reason = handback.handback_reason(state, self.cfg)
+        reason = handback.handback_reason(state)
         self.assertIn(current_failure, reason, f"obsolete findings hid the landing failure: {reason}")
 
     def test_work_already_on_the_target_is_recorded_as_landed(self):

@@ -722,10 +722,9 @@ def delivery(state, cfg=None):
         return f"not needed: {state['not_needed']}"
     if state.get("state") == "waiting":
         return f"WAITING: {state.get('merge_note') or state.get('error') or 'delivery pending'}"
-    cfg = report_config(cfg)
-    if not review_pass(state, cfg, ended=True) or state.get("state") in (
-            "error", "fail", "interrupted", "exhausted", "blocked", "waiting_login",
-            "stopped"):
+    # an ending its record decides reads no config: a broken one must not displace what it says
+    if state.get("state") in ("error", "fail", "interrupted", "exhausted", "blocked", "waiting_login",
+                              "stopped") or not review_pass(state, report_config(cfg), ended=True):
         return "FAIL"
     if state.get("scratch"):
         return "PASS, delivered"
