@@ -10,15 +10,13 @@ this also happens for new repos we work on".
 Black-box, as tests/test_key_the_suite_runs_at_landing_alone.py: the program `AK_BIN` names runs
 three tasks in turn from outside through tests/fixtures/akbin.py, against the bare origin of
 gitrig.py and the GitHub of fakegh.py, with scripted harnesses from fakeadapter.py.  A boxed check
-writes none of the test's files, so the suite notes each start, and the tests it was handed, on
-the test's socket, as the reviewer notes each review.
+writes none of the test's files, so the suite notes each start, and the tests it was handed, to
+notes.py, as the reviewer notes each review.
 """
 
 import json
-import os
 from pathlib import Path
 import shlex
-import socket
 import sys
 import unittest
 
@@ -27,6 +25,7 @@ from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
+from fixtures.notes import Notes
 
 # A runner that reports to ak: each test in tests/ is a shell script it names `./tests/<name>`,
 # timing each that passes as ak reads a time, running just those AK_ONLY lists where it is set
@@ -68,18 +67,15 @@ class ThreeRuns(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
-        said = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        cls.addClassCleanup(said.close)
-        said.bind(address := f"\0ak-round-runs-its-tests-{os.getpid()}")
-        said.setblocking(False)
+        said = Notes()
         cls.rig = Rig(cls.home, "widgets", files={
             "AGENTS.md": "---\nhealth: none\ntests: python3 suite.py\n---\n# widgets\n",
-            "suite.py": SUITE.format(said=address), "widget.txt": "v1\n",
+            "suite.py": SUITE.format(said=said.address), "widget.txt": "v1\n",
             "tests/gadget.sh": "grep -qx v1 widget.txt\n", "tests/gizmo.sh": "test -f widget.txt\n"})
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
         review = ("import socket; socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)"
-                  f".sendto(b'review', {address!r})")
+                  f".sendto(b'review', {said.address!r})")
         cls.fakes = fakeadapter.install(cls.home, claude=WORK, codex={
             "sh": f"python3 -c {shlex.quote(review)}", "final": "Handed in.",
             "hand_in": [["done"]]})
@@ -88,12 +84,7 @@ class ThreeRuns(unittest.TestCase):
             task = taskfile.write(cls.home, cls.rig.path, f"Add {name}",
                                   done_when=(f"test -f {name}.txt",))
             cls.done[name] = cls.home.ak("run", str(task), timeout=300)
-            cls.notes[name] = []
-            while True:
-                try:
-                    cls.notes[name].append(said.recv(4096).decode())
-                except BlockingIOError:
-                    break
+            cls.notes[name] = said.since()
             run_dir = next(path for path in taskfile.runs(cls.home)
                            if path.name.endswith(f"-add-{name}"))
             cls.states[name] = (run_dir, json.loads((run_dir / "run.json").read_text()))
