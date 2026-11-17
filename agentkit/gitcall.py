@@ -585,9 +585,11 @@ def dirty_paths(wt, env=None):
 def reset_checkout(wt, head, before, check=False):
     """Discard tracked changes and only paths created since the checkout was recorded."""
     git(wt, "reset", "--quiet", "--hard", head, check=check)
-    new = sorted(set(dirty_paths(wt)) - set(before))
+    # `-ff` takes a nested Git repository a check or proof left behind too, unless `before`
+    # holds a path inside it (making `notes` a repo collapses `notes/kept.txt` to `notes/`).
+    new = sorted(p for p in set(dirty_paths(wt)) - set(before)
+                 if not any(b.startswith(p if p.endswith("/") else f"{p}/") for b in before))
     if new:
-        # `-ff` takes a nested Git repository a check or proof left behind too.
         git(wt, "clean", "--quiet", "-ffd", "--", *(f":(literal){p}" for p in new), check=check)
 
 

@@ -69,5 +69,27 @@ class ARepositoryAProofLeavesGoesWithIt(unittest.TestCase):
         self.assertEqual((self.wt / "local-note.txt").read_text(), "kept\n")
 
 
+class ABeforePathInsideAProofsRepositoryStays(unittest.TestCase):
+    def test_a_before_file_whose_directory_the_proof_inits_is_not_deleted(self):
+        proof = "test -f notes/kept.txt && git init -q notes && git clone -q . proof-clone && false"
+        review = {"final": "One defect.", "hand_in": [
+            ["finding", "existing.txt:1", "old defect", "it matters later", "--run", proof],
+            ["done"]]}
+        with Home() as home:
+            rig = Rig(home, "widgets", files={"existing.txt": "before\n"})
+            akconfig.write(home, ["opus", "astra"])
+            fakeadapter.install(home, claude=WORK, codex=review)
+            task = taskfile.write(
+                home, rig.path, "Add retry file",
+                done_when=("mkdir -p notes && printf 'kept\\n' > notes/kept.txt && test -f retry.txt",))
+            done = home.ak("run", str(task), "--no-merge", timeout=300)
+            state = json.loads((taskfile.only_run(home) / "run.json").read_text())
+            wt = Path(state["worktree"])
+            self.assertNotEqual(done.code, 0)
+            self.assertEqual((wt / "notes/kept.txt").read_text(), "kept\n")
+            self.assertFalse((wt / "proof-clone").exists())
+            self.assertIn("probe_checkout", state)
+
+
 if __name__ == "__main__":
     unittest.main()
