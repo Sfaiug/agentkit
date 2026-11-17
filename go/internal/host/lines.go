@@ -25,6 +25,13 @@ const (
 	SuiteBusy = 75
 )
 
+// RanToEnd is whether a suite command's recorded exit is its runner's own ending, red or green,
+// Python's gate.ran_to_end: none from a busy suite (SuiteBusy), the shell (126, 127), a signal
+// (below 0, or 128 and up) or a helper that lost the piece.
+func RanToEnd(code int) bool {
+	return code >= 0 && code < 126 && code != SuiteBusy
+}
+
 // SuiteOwn is what a done-when command's environment never inherits, Python's gate.suite_env: a
 // loop started below a suite holds none of that suite's turn, nor its share or test lists.
 var SuiteOwn = []string{HeavyTurn, "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_NOT_THERE", "AK_TIMES"}
