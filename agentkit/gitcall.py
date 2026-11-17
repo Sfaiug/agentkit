@@ -587,7 +587,8 @@ def reset_checkout(wt, head, before, check=False):
     git(wt, "reset", "--quiet", "--hard", head, check=check)
     new = sorted(set(dirty_paths(wt)) - set(before))
     if new:
-        git(wt, "clean", "--quiet", "-fd", "--", *(f":(literal){p}" for p in new), check=check)
+        # `-ff` takes a nested Git repository a check or proof left behind too.
+        git(wt, "clean", "--quiet", "-ffd", "--", *(f":(literal){p}" for p in new), check=check)
 
 
 def writable_review_dirs(path, log):
