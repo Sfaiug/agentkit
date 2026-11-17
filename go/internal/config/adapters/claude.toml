@@ -266,8 +266,9 @@ scrolls = true
 tray = '[●◯] \S.*'
 # Scrolled up from its live bottom -- a wheel notch, PgUp -- it draws this pill on the row right
 # above its bottom rule, and the rows over it are the transcript, a dialog's controls cut off:
-# such a screen reads nothing (2.1.292).
-away = 'Jump to bottom \(ctrl\+End\) ↓'
+# such a screen reads nothing (2.1.292).  The pill has three labels (2.1.326): this one, `N new
+# messages`, and over a question `Waiting for your answer`.
+away = '(?:Jump to bottom|Waiting for your answer|\d+ new messages?) \(ctrl\+End\) ↓'
 
 # Read in file order, first match wins: the dialog before the spinner, the spinner before the
 # prompt, because the composer is still drawn while a turn runs.
