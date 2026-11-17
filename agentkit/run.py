@@ -550,6 +550,7 @@ def mark_state(run_dir, name, error=None, log=None):
         except (OSError, config.Error):
             pass
     state["state"], state["finished_at"] = name, time.time()
+    state.pop("resume_from", None)
     if name != "waiting_login":
         # the harness a login parked it on, and the stamps that paced and released the
         # retry: none means anything to a run that is no longer parked on one
@@ -1025,8 +1026,9 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
             state.pop("slot_waited", None)
         env["AK_RUN_DEPTH"] = str(state["run_depth"])
         if argv[:1] == ["resume"]:
-            state["resume_from"] = previous.get("resume_from") or (
-                "interrupted" if previous.get("state") == "queued" else previous["state"])
+            state["resume_from"] = ((previous.get("resume_from") or "interrupted")
+                                    if previous.get("state") == "queued"
+                                    else previous["state"])
             if not versions.pinned(state):
                 state.pop("ak_checkout", None)
         run_record.save_state(run_dir, state)

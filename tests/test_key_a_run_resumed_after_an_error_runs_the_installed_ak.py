@@ -74,7 +74,8 @@ class ARunResumedAfterAnErrorRunsTheInstalledAk(unittest.TestCase):
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude="work", codex="pass")
         Seat(home, "acme")
-        rig = Rig(home, "baseline")
+        cls.rig = rig = Rig(home, "widgets")
+        cls.base_sha = rig.head("main")
         task = taskfile.write(home, rig.path, title="Baseline launch", name="baseline")
         done = home.run(install.ak, "run", str(task), "--no-merge", timeout=120)
         assert done.code == 0, done.out + done.err
@@ -85,11 +86,10 @@ class ARunResumedAfterAnErrorRunsTheInstalledAk(unittest.TestCase):
         self.marker.unlink(missing_ok=True)
 
     def make_run(self, run_id, *, state, ak_checkout, **extra):
-        rig = Rig(self.home, run_id)
         wt = self.home.path / ".agentkit/wt" / run_id
         wt.parent.mkdir(parents=True, exist_ok=True)
-        rig.git("worktree", "add", "-q", "-b", f"ak/{run_id}", str(wt), "main")
-        task = taskfile.write(self.home, rig.path, title=f"Fix {run_id}", name=run_id)
+        self.rig.git("worktree", "add", "-q", "-b", f"ak/{run_id}", str(wt), "main")
+        task = taskfile.write(self.home, self.rig.path, title=f"Fix {run_id}", name=run_id)
         now = time.time()
         self.home.write(f".agentkit/runs/{run_id}/task.md", task.read_text())
         self.home.write(f".agentkit/runs/{run_id}/log.txt", "")
@@ -97,8 +97,8 @@ class ARunResumedAfterAnErrorRunsTheInstalledAk(unittest.TestCase):
             "run_id": run_id, "title": f"Fix {run_id}", "state": state,
             "verdict": "ERROR" if state == "error" else None,
             "error": "could not restore the checkout",
-            "repo": str(rig.path), "worktree": str(wt), "branch": f"ak/{run_id}",
-            "base": "origin/main", "target": "origin/main", "base_sha": rig.head("main"),
+            "repo": str(self.rig.path), "worktree": str(wt), "branch": f"ak/{run_id}",
+            "base": "origin/main", "target": "origin/main", "base_sha": self.base_sha,
             "rounds": 2, "round_summaries": [], "executor": "opus", "reviewer": "astra",
             "no_merge": True, "silence_minutes": 20, "ceiling_hours": 6,
             "started_at": now - 120,
@@ -115,10 +115,20 @@ class ARunResumedAfterAnErrorRunsTheInstalledAk(unittest.TestCase):
         self.assertEqual(after["ak_checkout"], self.installed_checkout)
         self.assertFalse(self.marker.exists())
 
+    def test_an_error_keeping_an_earlier_resume_from_resumes_on_the_installed_ak(self):
+        directory = self.make_run("20261117-0130-err-bg", state="error", resume_from="stalled",
+                                  ak_checkout=self.other)
+        done = self.home.run(self.install.ak, "run", "resume", directory.name, "--bg", timeout=120)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        after = wait_for(lambda: ended(directory))
+        self.assertEqual(after["state"], "pass", (directory / "log.txt").read_text())
+        self.assertEqual(after["ak_checkout"], self.installed_checkout)
+        self.assertFalse(self.marker.exists())
+
     def test_a_run_in_error_retried_by_the_tick_runs_the_installed_ak(self):
         pinned = Path(self.home.env["HOME"]) / ".agentkit/versions" / self.other_commit
         directory = self.make_run("20261117-0200-err-tick", state="error", ak_checkout=pinned,
-                                  launched_session="acme", error_retries=0,
+                                  resume_from="stalled", launched_session="acme", error_retries=0,
                                   error_retry_at=time.time() - 1)
         done = self.home.run(self.install.ak, "watch", timeout=300)
         self.assertEqual(done.code, 0, done.out + done.err)

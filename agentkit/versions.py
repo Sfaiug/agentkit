@@ -218,7 +218,7 @@ def dispatch(argv):
         if code := (state.get("ak_checkout") if argv[1] == "merge" else pinned(state)):
             with checkout(code) as path:
                 enter(path)
-        elif (argv[1] == "resume" and state.get("ak_checkout")
+        elif (argv[1] == "resume" and state
               and config.REPO != live() and config.REPO.parent == config.HOME / VERSIONS):
             sys.stdout.flush()
             sys.stderr.flush()
