@@ -3,7 +3,9 @@ the pass reads their records: one whose folder holds no record that can be read,
 is not an ended one.  An open run's folder crosses within one pass of each change but its scratch,
 a folder named `tmp…` or `.box-…` at any depth, and a `.git` folder; a `.git` file crosses.  A run
 that ended on the home since the last pass crosses once more, its ended record with it, and a later
-change to it on the home stays uncopied by the passes after.  A run ended on both machines before
+change to it on the home stays uncopied by the passes after; one a pass copied while its rsync
+exited 24, for a file the home deleted under it, crosses with each pass after, till one whose
+rsync exits 0.  A run ended on both machines before
 the first pass never crosses, and one open here that the home no longer has goes.  A link here
 where an open run's folder was goes, and what it points at stays as it was.  A pass from a home
 whose runs' folder is a link fails, saying so, before it copies anything.  Black-box, through
@@ -17,10 +19,11 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import boxable
+from fixtures.akbin import SYSTEM, boxable
 from fixtures.twohomes import Machines
 
 RUNS = ".agentkit/runs/"
+REAL = shutil.which("rsync", path=os.pathsep.join(SYSTEM))    # past any fake of it
 # open on the home: running, with no record yet, and with one that cannot be read, an ended one
 # after a BOM, which ak's reader of records refuses as JSON's of bytes would not
 OPEN = (f"{RUNS}20261116-0900-fix-api/", f"{RUNS}20261116-0910-add-docs/",
@@ -106,6 +109,27 @@ class APassCopiesOpenRuns(unittest.TestCase):
         for _ in range(2):
             self.standby()
             self.assertEqual(run(here, folder), ended)
+
+    def test_a_run_a_pass_ended_as_the_home_deleted_a_file_crosses_till_a_pass_meets_none(self):
+        home, here = self.home, self.here
+        folder = OPEN[0]
+        self.standby()
+        home.write(f"{folder}run.json", {"run_id": "fix-api", "state": "pass"})
+        # rsync's own word for a file gone between its listing and its sending, which it leaves
+        # here: as the two files the home deletes after each such pass were during it
+        vanishing = here.fake("rsync", f'#!/bin/sh\n{REAL} "$@" || exit; exit 24\n')
+        self.standby()
+        (home.path / folder / "notes.md").unlink()
+        self.standby()
+        self.assertCopied(folder)
+        (home.path / folder / FILES[0]).unlink()
+        vanishing.unlink()
+        self.standby()
+        self.assertCopied(folder)
+        ended = run(here, folder)
+        home.write(f"{folder}after.md", "made after its end")
+        self.standby()
+        self.assertEqual(run(here, folder), ended)
 
     def test_a_run_ended_on_both_machines_before_the_first_pass_is_not_copied(self):
         home, here = self.home, self.here

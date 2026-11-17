@@ -1,13 +1,13 @@
 """`ak standby ALIAS`, run on a client of ALIAS, makes one pass of this machine's copy of ak's
 folder on that home, at the same path: what the home deleted goes here too, and a run ended on
 both machines stays as it was here; a file rewritten at the same size within a second crosses
-too, and a file the home deletes mid-pass fails no pass.  This machine's record of its server, ak's tmp folder, its ak install and ak's repository
-stay as they were, and nothing starts from the copy: the crontab holds the standby's own job
-alone.  A pass whose home does not answer, or has no ak folder, leaves the copy as it was, says
-why and exits non-zero; a machine not ALIAS's client is refused, saying so, as is one where a
-link is at what it keeps or above it in ak's folder, which a pass would replace or go past.  None
-of those renames the copy's config key by its old name, as other commands do.  Black-box,
-through tests/fixtures/twohomes.py.
+too, and a file the home deletes mid-pass fails no pass.  This machine's record of its server,
+ak's tmp folder, its ak install and ak's repository stay as they were, and nothing starts from the
+copy: the crontab holds the standby's own job alone.  A pass whose home does not answer, or has
+no ak folder, leaves the copy as it was, says why and exits non-zero; a machine not ALIAS's client
+is refused, saying so, as is one where a link is at what it keeps or above it in ak's folder,
+which a pass would replace or go past.  None of those renames the copy's config key by its old
+name, as other commands do.  Black-box, through tests/fixtures/twohomes.py.
 """
 
 import os
