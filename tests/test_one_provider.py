@@ -521,6 +521,8 @@ class OneProvider(unittest.TestCase):
         self.cfg["models"]["nova"] = self.cfg["models"].pop("beta")
         with patch.object(handback, "reap", return_value=state):
             self.assertEqual(jobs.job_now(job, False, self.cfg)["tasks"][0]["state"], "passed")
+        # one that crashed after its review delivered nothing, whatever its verdict
+        self.assertEqual(jobs.job_classify({**state, "state": "error"}, self.cfg), "failed")
         # a mark still defined is compared with the record as before
         self.cfg["models"]["alpha"]["provider"] = "b"
         self.assertEqual(jobs.job_classify(state, self.cfg), "failed")
