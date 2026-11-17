@@ -168,17 +168,20 @@ class Keys(unittest.TestCase):
                     self.assertEqual(gone, removed)
                     self.assertNotIn("✓ Keep", "\n".join(reads[2][0]))     # answered
 
-    def test_a_card_shrunk_to_ten_rows_has_its_answers_on_the_rows_they_are_clicked(self):
-        for answer, removed in (("✓ Keep", []), ("× Remove", ["fix-api-1"])):
-            with self.subTest(answer=answer):
-                reads, gone = self.x((100, 24), (100, 10), click(answer))
-                screen, spots = reads[2]        # the frame after the resize
-                self.assertIn("past sessions", screen[0])
-                self.assertEqual(
-                    {what: row for row, what in spots.items() if what is not None},
-                    {number: next(row for row, line in enumerate(screen, 1) if word in line)
-                     for number, word in enumerate(("✓ Keep", "× Remove"))})
-                self.assertEqual(gone, removed)
+    def test_a_resized_card_has_its_answers_on_the_rows_they_are_clicked(self):
+        for size in ((100, 10), (30, 24)):
+            for answer, removed in (("✓ Keep", []), ("× Remove", ["fix-api-1"])):
+                with self.subTest(size=size, answer=answer):
+                    reads, gone = self.x((100, 24), size, click(answer))
+                    screen, spots = reads[2]        # the frame after the resize
+                    self.assertIn("past sessions", screen[0])
+                    # the rows round it laid out anew: wider, they wrap and scroll the heading off
+                    self.assertLessEqual(max(map(terminal.cells, screen)), size[0], screen)
+                    self.assertEqual(
+                        {what: row for row, what in spots.items() if what is not None},
+                        {number: next(row for row, line in enumerate(screen, 1) if word in line)
+                         for number, word in enumerate(("✓ Keep", "× Remove"))})
+                    self.assertEqual(gone, removed)
 
     def test_x_with_no_room_for_both_answers_asks_nothing_and_removes_nothing(self):
         reads, gone = self.x((30, 5))
