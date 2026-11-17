@@ -6864,9 +6864,14 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
             at = max(line for line, (row, _) in places.items() if row == ("row", here)) + 1
 
             def around(card, keys, at=at):
-                lines = body[:at] + card + body[at:]
-                skip = max(0, min(at, len(lines) - room))
-                terminal.frame("past sessions", lines[skip:skip + room], keys)
+                # in what a frame holds unscrolled at this height (`terminal.written` ends in a
+                # newline), the card to its answers, its top giving way where that is too
+                # little, then the rows round it in what is left; none where the answers are not
+                holds = terminal.height() - 4 - len(terminal.key_line(keys))
+                if holds < 2:
+                    return None
+                lines, skip = body[:at] + card + body[at:], max(0, at + len(card) - 1 - holds)
+                terminal.frame("past sessions", lines[skip:skip + holds], keys)
                 return 3 + at - skip
             if terminal.confirm(f"Remove {here} from past sessions?",
                                 "It can no longer be reopened.", "Remove", around):

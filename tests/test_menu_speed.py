@@ -80,7 +80,7 @@ class MenuSpeed(Sandbox):
             began["at"] = time.monotonic()
 
         def choose(choices, default=None, around=None, wait=None, **_kw):
-            around(choices[0])              # the question, drawn under its row
+            around(choices, choices[0])     # the question, drawn under its row
             self.assertLess(time.monotonic() - began["at"], FRAME, "the stop question")
             began["at"] = time.monotonic()
             return None                     # Esc: Keep

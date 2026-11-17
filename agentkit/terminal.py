@@ -858,7 +858,6 @@ TICK = 10.0        # the longest any row goes unwritten: a stray write, a child'
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
                    # one written over since (`over`); empty, nothing on it is known
 _UP_OF, _WHOLE = None, 0.0     # ... the screen and theme they are of, and when all went last
-_LIST = {}         # the rows of a list (`choose`), {row: line}, over the blank ones its screen has
 _MOVED = 0.0       # when a move of the pointer was last answered
 _HELD = None       # a move read and not answered yet, and when the first of them was
 _NEXT = None       # a key read past a move, answered after it
@@ -1617,17 +1616,16 @@ def written(lines, frame="", rising=False, screen=None):
     prompt goes.  `frame` goes in the same update (`over`); lines `rising` are its to write, never
     first as they are, on a cleared screen."""
     global _UP, _UP_OF, _WHOLE
-    rows = [_LIST.get(row, line) for row, line in enumerate(lines, 1)]
-    starts, screen = _starts(rows), (screen, theme())
-    if (rising or not _UP or screen != _UP_OF or len(rows) >= height()
+    starts, screen = _starts(lines), (screen, theme())
+    if (rising or not _UP or screen != _UP_OF or len(lines) >= height()
             or time.monotonic() >= _WHOLE + TICK):
         _WHOLE, text = time.monotonic(), "\033[H" + "".join(
             _cleared(line) + "\n" for line in (() if rising else starts.values())) + "\033[J"
     else:
         text = _differing(starts.items())
-        text += f"\033[{len(rows) + 1};1H\033[J" if text or len(rows) < len(_UP) else ""
+        text += f"\033[{len(lines) + 1};1H\033[J" if text or len(lines) < len(_UP) else ""
     # a row a line wraps onto is no row of its own: once it is one again, it is written
-    _UP = None if _UP is None else [starts.get(row) for row in range(1, len(rows) + 1)]
+    _UP = None if _UP is None else [starts.get(row) for row in range(1, len(lines) + 1)]
     _UP_OF = screen
     over(frame, text)
 
@@ -1649,13 +1647,13 @@ def clicks_its_own(read):
     a cell it rests on is no row the keys' highlight is on."""
     @wraps(read)
     def reading(*args, **kwargs):
-        global _PRESSED, _POINTER, _AWAY, _HELD, _LIST, _UP
+        global _PRESSED, _POINTER, _AWAY, _HELD, _UP
         _PRESSED, _POINTER, _AWAY, _HELD = False, None, False, None
         try:
             return read(*args, **kwargs)
         finally:
-            _PRESSED, _POINTER, _AWAY, _HELD, _LIST = False, None, False, None, {}
-            _UP = _UP and []     # what it wrote where the cursor was, and its list, are no draw's
+            _PRESSED, _POINTER, _AWAY, _HELD = False, None, False, None
+            _UP = _UP and []     # what it wrote where the cursor was is no draw's
     return reading
 
 
@@ -1711,7 +1709,7 @@ def field(prompt, placeholder="", around=None):
 
 
 @clicks_its_own
-def choose(choices, default=None, around=None, wait=None, warn=None):
+def choose(choices, default=None, around=None, wait=None, warn=None, above=list):
     """One of `choices` picked with the keys; None on Esc.
 
     The list is drawn where the cursor is and drawn over in place as the highlight moves.
@@ -1721,11 +1719,12 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
     pointer onto one.  The keys are `read_key`'s, so the terminal is a `Keyboard`'s already;
     the main menu is what takes one, and so far nothing else does.
 
-    `around(choice)` draws the screen a list is asked inside, its key line naming what Enter
-    does on `choice`, the highlighted one, None with none, and returns the row its first choice
-    goes on; it is called again after every key and whenever the screen wants drawing again --
-    a resize -- so the list and the rows a click is read against are always where that screen
-    now puts them.
+    `around(lines, choice)` draws the screen a list is asked inside, its `lines` where they go --
+    `above()`'s, a card's question (`confirm`), over the choices -- its key line naming what Enter
+    does on `choice`, the highlighted one, None with none, and returns the row its first line
+    goes on, None where it has none; it is called again after every key and whenever the screen
+    wants drawing again -- a resize -- so the list and the rows a click is read against are
+    always where that screen now puts them, and it is their one writer.
     There a click on a choice picks it; the key line's Enter and Esc answer as their keys do,
     and a click on nothing is let go; a button that went down before the list moved is no click.
     The pointer on a choice moves the highlight to it, and its screen is drawn again for what
@@ -1734,12 +1733,12 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
     """
-    global _PRESSED, _SHOWN, _PAINTED, _LIST
+    global _PRESSED
     at = (choices.index(default) if default in choices
           else 0 if default is None and choices else None)
-    drawn, top, again = 0, None, around is not None
+    drawn, top, rows = 0, None, {}
     while True:
-        lines, ends = [], []
+        lines, ends = above(), []
         for number, choice in enumerate(choices):
             text = cut(str(choice), width() - 3)       # room for the mark and a cell each side
             line = "  " + (styled(text, "amber") if choice == warn else text)
@@ -1747,34 +1746,26 @@ def choose(choices, default=None, around=None, wait=None, warn=None):
             ends.append(cells(text) + 3)
             lines.append(highlight(selected(line, 2, ends[-1]), band=False)
                          if number == at and not _AWAY else line)
-        if again:
-            _LIST = dict(enumerate(lines, top)) if top and _UP else {}
-            moved, again = around(None if at is None else choices[at]), False
-            if moved != top:
-                _PRESSED = False  # a press where a choice was is no click on what is there now
-            top = moved
-            if not top:
+        if around:
+            top = around(lines, None if at is None else choices[at])
+            if top is None:
                 return None       # the screen it is asked on has no row for it any more
-        if not top:
+            moved = {top + len(lines) - len(choices) + number: (number, [(2, end, None)])
+                     for number, end in enumerate(ends)}      # each there where it is lit
+            if moved.keys() != rows.keys():
+                _PRESSED = False  # a press where a choice was is no click on what is there now
+            rows = moved
+            # its screen's key line and its own choices are what the pointer lands on; that
+            # screen's rows -- the seats under a question -- are nothing while it is asked
+            relight({**{row: spot for row, spot in _SPOTS.items() if spot[0] is None}, **rows})
+        else:
             over("", (f"\033[{drawn}A" if drawn else "")
                  + "".join(f"\r{line}\033[K\n" for line in lines))
-        drawn = len(lines)
-        if top:       # over its screen's lines, as drawn, so the pointer is read against them
-            _SHOWN, _PAINTED = ([*was[:top - 1], *[""] * (top - 1 - len(was)), *lines,
-                                 *was[top - 1 + len(lines):]] for was in (_SHOWN, _PAINTED))
-            left, _LIST = _LIST, dict(enumerate(lines, top))      # any it moved off go back
-            over(_differing((row, _PAINTED[row - 1]) for row in sorted({*left, *_LIST})
-                            if row <= len(_PAINTED)))
-        rows = ({top + number: (number, [(2, end, None)]) for number, end in enumerate(ends)}
-                if top else {})       # each there where it is lit (`under`)
-        # its screen's key line and its own choices are what the pointer lands on; that
-        # screen's rows -- the seats under a question -- are nothing while it is asked
-        relight({**{row: spot for row, spot in _SPOTS.items() if spot[0] is None}, **rows})
+            drawn = len(lines)
         key = read_key() if wait is None else wait()
-        again = around is not None        # its screen as well: a key puts out what was lit
         if key is None:
             continue
-        cell = under(key, _SPOTS).cell if key.name == "click" and top else None
+        cell = under(key, _SPOTS).cell if key.name == "click" and around else None
         if cell in ("⏎", "enter", "esc"):
             key = Key("esc" if cell == "esc" else "enter")
         spot = under(key, rows)
@@ -1800,20 +1791,22 @@ def confirm(question, meaning, answer, around, wait=None):
     `choose` reads them, so Enter or a click answers.  `around(card, keys)` draws the screen it
     is asked on with the card's lines where they go, under the card's own key line, `keys`:
     Enter named for the highlighted answer (`⏎ keep`, `⏎ stop`), nothing of that screen's.  It
-    returns the row the first line landed on, or None when there is none any more; it is called
-    again on a resize, the card wrapped anew, and whenever `wait` answers None: a `meaning`
-    that is a function is asked again on each draw.
+    returns the row the first line goes on, above the screen where its top gives way, or None
+    where both answers have none; it is called again on a resize, the card wrapped anew, and
+    whenever `wait` answers None: a `meaning` that is a function is asked again on each draw.
     """
     keep, act = f"{glyph('done')} Keep", f"{glyph('FAIL')} {answer}"
 
-    def drawn(lit):
+    def asked():
         room = layout_width() - 2
-        card = ["", *(f"  {line}" for line in wrap(question, room)),
+        return ["", *(f"  {line}" for line in wrap(question, room)),
                 *(styled(f"  {line}", "dim") for line in wrap(
-                    meaning() if callable(meaning) else meaning, room)), "", "", ""]
-        top = around(card, keys("esc back", enter=(answer if lit == act else "Keep").lower()))
-        return top and top + len(card) - 3     # the choices' rows, the two before the last
-    return choose([keep, act], keep, around=drawn, wait=wait, warn=act) == act
+                    meaning() if callable(meaning) else meaning, room))]
+
+    def drawn(lines, lit):
+        enter = (answer if lit == act else "Keep").lower()
+        return around([*lines, ""], keys("esc back", enter=enter))
+    return choose([keep, act], keep, around=drawn, wait=wait, warn=act, above=asked) == act
 
 
 def _read(prompt):
