@@ -147,7 +147,7 @@ from agentkit import config, menu, motion, orch, terminal
 
 
 class Waited:
-    now = time.monotonic()
+    now = 0.0       # as the test counts frames: from a host's clock, three may round short of FADE
 
     def monotonic(self):
         return self.now
