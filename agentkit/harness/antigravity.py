@@ -16,6 +16,7 @@ were read off agy 1.2.13's own databases.
 
 import contextlib
 import fcntl
+import json
 import os
 from pathlib import Path
 import re
@@ -32,6 +33,9 @@ from . import LAUNCHER, issued
 USER, MODEL, CARD = 14, 15, 132
 WORDS = {USER: ("user", 19, 2), MODEL: ("model", 20, 1)}
 LAUNCH_ENV = "AGENTKIT_ANTIGRAVITY_LAUNCH"
+# what a model call's `usage` counts, in the order a `turn_usage` row keeps them, less the cache
+# write agy never reports
+TOKEN_KINDS = ("input_tokens", "cache_read_tokens", "output_tokens")
 SOURCE = "antigravity-hook"   # `id_source`: a conversation the seat's own agy took a prompt in
 PROC = Path("/proc")
 
@@ -148,6 +152,35 @@ def held_open(token):
                                                                              path.stem):
                 found.add(path.stem)
     return found
+
+
+def turn_usage(out):
+    """The turn's own counts, the sum of each model call's `usage` its stream's `step_update`s
+    give, under the model the worker launched it with (`launched_model`), as
+    `Harness.turn_usage` gives them: none where no call reported one.
+
+    agy counts a call's thinking inside its `output_tokens`, its cached input beside its
+    `input_tokens` (`cache_read_tokens`, in neither that nor `total_tokens`), and writes no
+    cache.  The closing `result` totals every turn the conversation has had, so is not read.
+    """
+    from . import launched_model
+    calls = []
+    try:
+        with (Path(out) / "events.jsonl").open(errors="replace") as stream:
+            for line in stream:
+                try:
+                    usage = json.loads(line)["step_update"]["usage"]
+                except (ValueError, TypeError, KeyError):
+                    continue
+                if isinstance(usage, dict):
+                    calls.append([count if type(count := usage.get(key)) is int and count >= 0
+                                  else 0 for key in TOKEN_KINDS])
+    except OSError:
+        return None
+    if not calls:
+        return None
+    fresh, cached, output = map(sum, zip(*calls))
+    return None, False, {launched_model(out): (fresh, 0, cached, output)}
 
 
 def prompt(entry):

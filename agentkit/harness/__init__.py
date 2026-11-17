@@ -180,6 +180,16 @@ def last_entry(path, pick):
     return None
 
 
+def launched_model(out):
+    """The model the worker launched the turn in `out` with, its `model` receipt: None where
+    that is missing, empty or `default`, as the harness then ran one of its choosing."""
+    try:
+        model = (Path(out) / "model").read_text()
+    except OSError:
+        return None
+    return model if model not in ("", "default") else None
+
+
 # Every reader here takes a record it cannot read for one that holds nothing, except inside
 # `strictly`: there, a record that is there and cannot be read is an error (`unread`).  The done
 # check reads so, since an owner it could not read is no owner who said nothing.  It is one read
