@@ -121,6 +121,11 @@ class AddASubscriptionPage(unittest.TestCase):
         self.term.wait(lambda screen: title(screen) == PAGE)
         self.assertEqual(self.fakes["claude"].calls("login"), [])
 
+    def test_a_click_on_add_with_a_row_lit_adds_it(self):
+        at = f"{KEYS.index('⏎ add') + 1};{lines(self.term.screen()).index(KEYS) + 1}"
+        self.term.type(f"\x1b[<0;{at}M\x1b[<0;{at}m")     # no move first: the button down lights nothing
+        self.term.wait(lambda screen: title(screen) == PAGE and self.fakes["claude"].calls("login"))
+
     def test_a_click_beside_the_layout_takes_no_row(self):
         asked = {name: fake.calls() for name, fake in self.fakes.items()}
         self.term.resize(160, 40)
