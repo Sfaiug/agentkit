@@ -706,10 +706,9 @@ def test_audit(repo, since=0):
                         (started, finished))
     except (OSError, sqlite3.Error):
         pass
-    # `AK_SHARD=k/N`, each share once: as many pieces as N, N more than one
-    pieces = max((pieces for (*_, count), pieces in checks.items()
-                  if count == str(len(pieces)) != "1"),
-                 key=lambda pieces: max(finished for _, finished in pieces), default=[])
+    # A first run holds each share of `AK_SHARD=k/N` once (`rerun`): N of them are all N
+    pieces = max((ran for (*_, count), ran in checks.items() if count == str(len(ran)) != "1"),
+                 key=lambda ran: max(finished for _, finished in ran), default=[])
     moments = [at for row in reds.values() for at in (row["first"], row["last"])
                if at is not None] + [at for piece in pieces for at in piece]
     days = (max(moments) - min(moments)) / 86400 if moments else 0

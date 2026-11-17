@@ -10,8 +10,8 @@ runner that reports a file's seconds and names the test that failed (`tests/a.py
 name stands once, by the most runs one red of it stopped, the most first, as many as their
 recorded times fit in one piece of the suite: the median piece of the latest landing check that
 ran it whole, or the whole record for a suite that runs uncut or no landing ran whole in pieces
-yet.  A test taken by its own name whose file is taken too is not handed, as
-the file runs it; the piece a ceiling, its time goes to no other.  Left out are one the record
+yet.  A test taken by its own name whose file is taken too is not handed, as the file runs it;
+the piece a ceiling, its time goes to no other.  Left out are one the record
 times by neither name, one whose file is gone, and one the target is red on now by its landing
 line's record (`land.red_tests`), a file by a test of it, which no round can fix; one it was red
 on and repaired runs again.  A project with no record runs none: only a runner that reports to ak
