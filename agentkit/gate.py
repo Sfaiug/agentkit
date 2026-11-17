@@ -1629,6 +1629,13 @@ def names_shard(command):
     return re.search(r"\bAK_SHARD\b", command) is not None
 
 
+def ran_to_end(code):
+    """Whether a suite command's recorded `exit` is its runner's own ending, red or green: none
+    from a check stopped (None), a busy suite (`SUITE_BUSY`), the shell (126, 127), a signal
+    (below 0, or 128 and up) or a helper that lost the piece (`helper.GONE`, `helper.FULL`)."""
+    return code in range(126) and code != SUITE_BUSY
+
+
 def suite_cost(command, cwd, run_dir):
     """A repository and suite's measured scheduling cost, each part the initial estimate
     until a finished suite measured it."""

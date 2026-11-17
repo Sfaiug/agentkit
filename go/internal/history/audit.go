@@ -4,9 +4,12 @@ import (
 	"math"
 	"os"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/ncruces/go-sqlite3"
 
+	"agentkit/internal/host"
 	"agentkit/internal/quality"
 )
 
@@ -14,8 +17,8 @@ import (
 type Audit struct {
 	// Reds are each test file's flakes, catches and main_red.
 	Reds map[string]Row
-	// Target is the median seconds of the repository's suite pieces: no file is over it where
-	// none was timed.
+	// Target is the median seconds of a piece of the repository's latest landing check that ran
+	// the suite whole: no file is over it where none did.
 	Target float64
 	// Days is the span of the rows read.
 	Days float64
@@ -49,7 +52,8 @@ func TestAudit(repo string) (Audit, error) {
 			"FROM test_reds t JOIN runs r USING (run_id) WHERE r.repo=? GROUP BY test", repo)
 	}
 	if err == nil && have["checks"] {
-		pieces, err = db.rows("SELECT c.finished_at-c.started_at AS took, c.started_at, c.finished_at "+
+		pieces, err = db.rows("SELECT c.run_id, c.tree, c.command, "+
+			"c.kind='landing' AND c.rerun=0 AS first, c.exit, c.started_at, c.finished_at "+
 			"FROM checks c JOIN runs r USING (run_id) WHERE r.repo=? "+
 			"AND command GLOB 'AK_SHARD=*' AND c.finished_at>=c.started_at", repo)
 	}
@@ -61,9 +65,38 @@ func TestAudit(repo string) (Audit, error) {
 		audit.Reds[row.Text("test")] = row
 		moments = append(moments, numbers(row, "first", "last")...)
 	}
+	// Each first run of a piece of a landing check that ran to its end, by check: a first run
+	// holds each share of `AK_SHARD=k/N` once (rerun), so N of them are all N.
+	type check struct{ run, tree, suite, count string }
+	var order []check
+	checks := map[check][]Row{}
 	for _, piece := range pieces {
-		took = append(took, numbers(piece, "took")...)
 		moments = append(moments, numbers(piece, "started_at", "finished_at")...)
+		if code, ok := piece.Num("exit"); ok && piece.Truthy("first") && host.RanToEnd(int(code)) {
+			share, suite, _ := strings.Cut(piece.Text("command"), " ")
+			_, count, _ := strings.Cut(share, "/")
+			key := check{piece.Text("run_id"), piece.Text("tree"), suite, count}
+			if checks[key] == nil {
+				order = append(order, key)
+			}
+			checks[key] = append(checks[key], piece)
+		}
+	}
+	var whole []Row
+	last := math.Inf(-1)
+	for _, key := range order {
+		if ran := checks[key]; key.count == strconv.Itoa(len(ran)) && key.count != "1" {
+			for _, piece := range ran {
+				if ended, _ := piece.Num("finished_at"); ended > last {
+					last, whole = ended, ran
+				}
+			}
+		}
+	}
+	for _, piece := range whole {
+		started, _ := piece.Num("started_at")
+		ended, _ := piece.Num("finished_at")
+		took = append(took, ended-started)
 	}
 	if len(took) > 0 {
 		audit.Target = quality.Median(took)

@@ -8,9 +8,10 @@ runs it.  Then those landing checks of the last WINDOW were red on, flakes aside
 (`history.test_audit`), each as the name the record times it by: its own, else its file's, for a
 runner that reports a file's seconds and names the test that failed (`tests/a.py::test_b`).  A
 name stands once, by the most runs one red of it stopped, the most first, as many as their
-recorded times fit in one piece of the suite: the median a piece took, or the whole record for a
-suite that runs uncut.  A test taken by its own name whose file is taken too is not handed, as
-the file runs it; the piece a ceiling, its time goes to no other.  Left out are one the record
+recorded times fit in one piece of the suite: the median piece of the latest landing check that
+ran it whole, or the whole record for a suite that runs uncut or no landing ran whole in pieces
+yet.  A test taken by its own name whose file is taken too is not handed, as the file runs it;
+the piece a ceiling, its time goes to no other.  Left out are one the record
 times by neither name, one whose file is gone, and one the target is red on now by its landing
 line's record (`land.red_tests`), a file by a test of it, which no round can fix; one it was red
 on and repaired runs again.  A project with no record runs none: only a runner that reports to ak
@@ -56,7 +57,8 @@ def chosen(lp):
         lp.wt, "rev-parse", f"{lp.state.get('target_sha') or lp.upstream}^{{tree}}"))
         for name in (test, test.partition("::")[0])}
     # One piece of the suite, a ceiling as WINDOW is: a suite cut finer runs fewer.  One the
-    # target runs uncut, whatever it ran as before, or whose pieces nothing timed yet, the whole.
+    # target runs uncut, whatever it ran as before, or no landing ran whole in pieces yet, the
+    # whole.
     left = piece if piece is not None and gate.names_shard(line) else sum(times.values())
     runs = {}
     for test, red in reds.items():

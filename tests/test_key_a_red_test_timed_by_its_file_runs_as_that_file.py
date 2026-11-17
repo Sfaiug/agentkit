@@ -119,8 +119,8 @@ class ThreeRuns(unittest.TestCase):
                 "VALUES (?, NULL, 'landing', 'tree', ?, 0, ?)",
                 [(run, test, NOW - DAY) for test, landed in REDS.items() for run in landed])
             connection.executemany(
-                "INSERT INTO checks (run_id, kind, command, started_at, finished_at) "
-                "VALUES ('fix-a', 'landing', ?, ?, ?)",
+                "INSERT INTO checks (run_id, kind, command, started_at, finished_at, rerun, "
+                "exit) VALUES ('fix-a', 'landing', ?, ?, ?, 0, 0)",
                 [(f"AK_SHARD={share}/2 {CUT}", NOW - DAY, NOW - DAY + 45) for share in (1, 2)])
         tip = cls.rig.head()
         cls.home.write(".agentkit/runs/repair/run.json", {
