@@ -439,18 +439,12 @@ def error(record, cwd, conversation):
     return said
 
 
-# The `result` line's counts, as adapters/opencode.sh names them from `opencode session export`,
-# in the order a usage row keeps them: input, cache write, cache read, output (reasoning in it).
-TOKEN_TYPES = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
-               "output_tokens")
-
-
 def turn_usage(out):
     """The counts the turn's `result` line totals its session with, whatever model ran each turn
     of it, under the model the worker launched it with (`launched_model`), as `Harness.turn_usage`
     gives them: none where it has no such line.  adapters/opencode.sh appends it after the run
-    from the session's export."""
-    from . import last_entry, launched_model
+    from the session's export, in Anthropic's names, the reasoning in the output."""
+    from . import last_entry, launched_model, token_counts
     out = Path(out)
     try:
         result = last_entry(out / "events.jsonl", lambda entry: entry.get("type") == "result")
@@ -458,7 +452,4 @@ def turn_usage(out):
         return None
     if result is None:
         return None
-    usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
-    return result.get("sessionID"), True, {launched_model(out): tuple(
-        value if type(value := usage.get(key)) is int and value >= 0 else 0
-        for key in TOKEN_TYPES)}
+    return result.get("sessionID"), True, {launched_model(out): token_counts(result.get("usage"))}

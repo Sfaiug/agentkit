@@ -117,12 +117,8 @@ def seat_token_sources(record):
     return [path, *path.with_suffix("").glob("subagents/**/*.jsonl")]
 
 
-# A message's counts in the order its usage row keeps them: input, cache write, cache read, output.
-TOKEN_TYPES = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
-               "output_tokens")
-
-
 def seat_token_usage(entry, cursor):
+    from . import TOKEN_TYPES
     if entry.get("type") != "assistant":
         return None
     message = entry.get("message") or {}
@@ -142,7 +138,7 @@ def turn_usage(out):
     before Claude Code wrote one, counts its own messages from its stream and its session's
     transcripts.
     """
-    from . import last_entry
+    from . import last_entry, token_counts
     out = Path(out)
     try:
         result = last_entry(out / "events.jsonl", lambda entry: entry.get("type") == "result"
@@ -153,19 +149,12 @@ def turn_usage(out):
         return None
     if result.get("type") != "result":
         return _transcript_usage(out, result)
-
-    def counts(usage, keys):
-        usage = usage if isinstance(usage, dict) else {}
-        return tuple(value if type(value := usage.get(key)) is int and value >= 0 else 0
-                     for key in keys)
-
     models = result.get("modelUsage")
     if isinstance(models, dict) and models:
-        return result.get("session_id"), True, {model: counts(usage, (
+        return result.get("session_id"), True, {model: token_counts(usage, (
             "inputTokens", "cacheCreationInputTokens", "cacheReadInputTokens", "outputTokens"))
             for model, usage in models.items()}
-    return result.get("session_id"), False, {None: counts(result.get("usage"), (
-        "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"))}
+    return result.get("session_id"), False, {None: token_counts(result.get("usage"))}
 
 
 def _transcript_usage(out, init):

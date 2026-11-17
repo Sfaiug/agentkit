@@ -56,7 +56,8 @@
 # for agentkit/history.py live in the event stream's `usage` objects -- input_tokens and
 # output_tokens beside cache_read_input_tokens and cache_creation_input_tokens, on the
 # assistant message's `usage` and on the terminal `result` event's `usage` (which repeats
-# per-model in the camelCase `modelUsage` object) -- and event_tokens reads them untaught.
+# per-model in the camelCase `modelUsage` object) -- event_tokens reads them untaught, and
+# agentkit/harness/grokbuild.py `turn_usage` the result's by type.
 set -uo pipefail
 command -v grok >/dev/null || PATH="${GROK_BIN_DIR:-$HOME/.grok/bin}${PATH:+:$PATH}"   # its installer puts it here: the fallback when PATH has no answer
 # The instruction files grok reads for Claude and Cursor -- CLAUDE.md under .claude, their
