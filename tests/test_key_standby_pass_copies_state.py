@@ -1,6 +1,6 @@
 """`ak standby ALIAS`, run on a client of ALIAS, makes one pass of this machine's copy of ak's
 folder on that home, at the same path: what the home deleted goes here too, and the home's runs
-and checkouts stay out; a file rewritten at the same size within a second crosses too.  This
+stay out; a file rewritten at the same size within a second crosses too.  This
 machine's record of its server, ak's tmp folder, its ak install and ak's repository stay as they
 were, and nothing starts from the copy: the crontab holds the standby's own job alone.  A pass
 whose home does not answer, or has no ak folder, leaves the copy as it was, says why and exits
@@ -23,9 +23,8 @@ from fixtures.twohomes import Machines
 STATE = ".agentkit/state/watch.json"     # the home's, which a pass copies
 WRITTEN = 1_800_000_000_100_000_000     # when, in nanoseconds: a tenth into its second
 GONE = ".agentkit/tasks/fix-api.md"      # copied by an earlier pass, since deleted on the home
-# the home's runs and checkouts, which no pass copies
-RUNS = (".agentkit/runs/r-fix-api/run.json", ".agentkit/wt/r-fix-api/main.py",
-        ".agentkit/work/acme-api/main.py")
+# the home's runs, which no pass copies
+RUNS = (".agentkit/runs/r-fix-api/run.json", ".agentkit/runs/r-fix-api/round-1/main.py")
 SERVER = ".agentkit/state/server"     # this machine's, which the home has none of
 # this machine's own, which the home holds its own of: ak's tmp folder, its ak install, ak's
 # repository and a version of ak
@@ -48,7 +47,7 @@ class APassCopiesAksFolder(unittest.TestCase):
         for path in (GONE, *OWN):
             here.write(path, f"this machine's {path}")
 
-    def test_a_pass_copies_aks_folder_but_its_runs_and_checkouts_and_keeps_this_machines_own(self):
+    def test_a_pass_copies_aks_folder_but_its_runs_and_keeps_this_machines_own(self):
         home, here = self.home, self.here
         before = here.tree()
         done = here.ak("standby", home.name)

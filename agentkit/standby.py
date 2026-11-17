@@ -1,5 +1,5 @@
 """`ak standby ALIAS`: one pass of this machine's copy of ak's folder on the home it is a client
-of, at the same path, but the runs and their checkouts, which a pass of their own copies.  Before
+of, at the same path, but its runs, and each `.git` folder in it, a clone's own git data.  Before
 it, what a seat carrying on from the copy needs of each harness: its logins, every account's, and
 the folders its conversations start from, each at its path, the rest of that harness's folders
 this machine's own.  After it, ak here moves as every client's does (`update.follow`), to the
@@ -38,12 +38,10 @@ from . import (command_help, config, machine_turn, move, notify, pair_clock, ter
 
 # This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
 # a client of, its ak install and whether its install.sh is owed, the pages it sent and owes
-# (`back` pages from here), and what each machine keeps through a move; then the runs and
-# checkouts.
+# (`back` pages from here), and what each machine keeps through a move; then the runs.
 KEPT = tuple(path for path in (config.STATE / "server", versions.repository(),
                                config.HOME / versions.VERSIONS, config.STATE / update.PENDING,
-                               notify.outbox(), *move.KEPT,
-                               config.RUNS, config.WT, config.WORK)
+                               notify.outbox(), *move.KEPT, config.RUNS)
              if path.is_relative_to(config.HOME))
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
 GOES = 3        # a go during which files vanished on the home leaves their old copies here
@@ -113,10 +111,14 @@ def _copy(alias, home, copied):
     # Then ak's folder, last, so no seat's record here names a conversation the copy lacks.  A
     # home without the folder fails rsync's sender, 23, and rsync then deletes nothing here: as a
     # deletion it would empty the copy.  Times are compared to the nanosecond, as rsync's whole
-    # seconds take a same-size write within one for no change, on every pass after.
+    # seconds take a same-size write within one for no change, on every pass after.  No `.git`
+    # folder crosses, the git data a clone carries in itself; the rest of its checkouts does, what
+    # git ignores too.  Perishable (-p), that rule still lets rsync's delete take a checkout the
+    # home removed, whatever `.git` folder it holds here.
     for args in (["-sR", "--no-implied-dirs", "--ignore-missing-args",
                   *(f"{alias}:{home}/./{path}" for path in copied), f"{home}/"],
                  [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
+                  "--filter=-p .git/",
                   f"{alias}:{config.HOME}/", f"{config.HOME}/"]):
         for _ in range(GOES):
             code = subprocess.run([
