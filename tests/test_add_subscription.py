@@ -1,6 +1,6 @@
 """Another subscription of a provider is added by `+ add a subscription` on `c`'s `Subscriptions`,
-removed under its row there: `+ add` lists one more of every provider the config has as the name
-it will get (`Claude II`),
+removed under its row there: `+ add` lists one more of every provider the config has first, as
+the name it will get (`Claude II`),
 logs it in on the terminal under a fresh AGENTKIT_ACCOUNT and appends that name to the
 provider's `accounts`, `default` first when it listed none; a login that fails adds nothing.
 `− remove` under the row of any subscription of a provider with several asks with `Keep`
@@ -78,11 +78,6 @@ provider = "openai"
 [providers.openai]
 mode = "subscription"
 """
-# What `+ add` lists for either config here: the shipped providers it has not, then one more
-# subscription of each it has.
-EVERY = 6
-
-
 def rows(home):
     """The names on the menu's usage grid for the config in `home`, read by the menu's own
     loader, so a name `+ add` wrote is one the config accepts."""
@@ -98,10 +93,10 @@ class AddSubscription(unittest.TestCase):
         screen = Screen(self, child=CHILD, text=CLAUDE)
         home = screen.path.parent.parent
         open_providers(screen)
-        _, offered = pick(screen, ENTER, ADD, EVERY)
-        self.assertEqual(offered[-1], "  Claude II")       # after the providers not added
+        _, offered = pick(screen, ENTER, ADD)
+        self.assertEqual(offered[0], "› Claude II")        # before the providers not added
         mark = len(screen.text())
-        screen.press(DOWN * (EVERY - 1) + ENTER, lambda lines: title(lines) == PAGE)
+        screen.press(ENTER, lambda lines: title(lines) == PAGE)
         # its login, then whether it has that login now, then whose login it is, asked for the
         # line its row opens
         [(harness, verb, account), probed, asked] = [line.split() for line in
@@ -116,9 +111,9 @@ class AddSubscription(unittest.TestCase):
         self.assertEqual(rows(home), ["Claude I", "Claude II"])     # the name it was offered as
         # a list that has names gets one more, fresh, at its end, under the next number
         open_providers(screen)
-        _, offered = pick(screen, ENTER, ADD, EVERY)
-        self.assertEqual(offered[-1], "  Claude III")
-        screen.press(DOWN * (EVERY - 1) + ENTER, lambda lines: title(lines) == PAGE)
+        _, offered = pick(screen, ENTER, ADD)
+        self.assertEqual(offered[0], "› Claude III")
+        screen.press(ENTER, lambda lines: title(lines) == PAGE)
         third = (home / "verbs.log").read_text().splitlines()[-1].split()[-1]
         self.assertNotIn(third, ("default", account))
         self.assertEqual(screen.saved()["providers"]["anthropic"]["accounts"],
@@ -133,10 +128,10 @@ class AddSubscription(unittest.TestCase):
         (home / "refuse").touch()
         open_providers(screen)
         before = screen.path.read_bytes()
-        _, offered = pick(screen, ENTER, ADD, EVERY)
-        self.assertEqual(offered[-2:], ["  Claude II", "  ChatGPT II"])
+        _, offered = pick(screen, ENTER, ADD)
+        self.assertEqual(offered[:2], ["› Claude II", "  ChatGPT II"])
         mark = len(screen.text())
-        os.write(screen.master, DOWN * (EVERY - 1) + ENTER)    # no screen until it is read
+        os.write(screen.master, DOWN + ENTER)    # no screen until it is read
         screen.saw("<refused>", after=mark)
         lines = screen.press(ENTER, lambda lines: title(lines) == PAGE)   # read, then back
         self.assertIn("Codex login did not finish; ChatGPT II is not added", lines[-3])

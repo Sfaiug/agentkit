@@ -1,7 +1,6 @@
 package menu
 
 import (
-	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,7 +49,7 @@ func Cells(now time.Time) ([]Cell, error) {
 				return nil, err
 			}
 			cell := Cell{Label: label, Left: left, Said: said, Ends: logins.Ending(login, now), Provider: sub.Name,
-				Account: account, Company: cmp.Or(harness.Heading(sub.Name), name),
+				Account: account, Company: harness.Heading(sub.Name, name),
 				Harness: logins.Harness(sub),
 				Held:    readings.InHand(sub.Name, account), Notes: readings.Detail(sub.Name, account)}
 			if login != nil {

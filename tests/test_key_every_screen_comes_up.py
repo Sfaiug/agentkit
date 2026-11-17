@@ -169,8 +169,8 @@ class EveryScreenComesUp(unittest.TestCase):
         self.term.wait("› + add a subscription")
         self.term.keys("Enter")
         self.term.wait("Claude II")
-        self.term.keys(*["Down"] * 3)
-        self.term.wait("› OpenCode")
+        self.term.keys(*["Down"] * 5)           # OpenCode's, the last
+        self.term.wait("› another provider")
         self.comes_up(["Enter"], "Zeta Cloud")
 
     def test_a_new_seats_row_comes_up(self):

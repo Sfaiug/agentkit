@@ -1,89 +1,92 @@
 package menu
 
 import (
-	"cmp"
 	"slices"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/terminal"
 )
 
-// An Addable is a choice of `+ add a subscription`'s first list, by the label it is offered under.
+// An Addable is a row of `+ add a subscription`: the company it is under and the name it is offered as.
 type Addable struct {
-	Label, Provider string
-	Host            string   // a harness that runs any provider it can log in to, which opens its own list
-	Accounts        []string // another subscription's: its provider's accounts, the new one last
+	Company, Label, Provider string
+	Host                     string   // a harness that runs any provider it can log in to, which opens its own list
+	Accounts                 []string // another subscription's: its provider's accounts, the new one last
 }
 
-// Addables is `+ add a subscription`'s first list (menu.config_add_provider): each provider the
-// shipped default has and the config lacks, by its company and the harness it runs on, but those
-// shipped on a host; each host, by its label, standing in for those; then, as the name it will get
-// (`ChatGPT II`), another subscription of each provider the config has, its account fresh, where its
-// harness keeps more than one login.
+// Addables is `+ add a subscription`'s rows (menu.config_add_provider), each under its company as
+// Subscriptions heads it (harness.Heading) and named as Subscriptions will name it once added: first,
+// in the config's order, another subscription of each provider it has (`ChatGPT II`), its account
+// fresh, where its harness keeps more than one login; then each provider the shipped default has and
+// the config lacks, but those shipped on a host; then `another provider` under each host, standing in
+// for those.
 func Addables(fresh string) ([]Addable, error) {
 	has, lacks, err := config.ProviderNames()
 	if err != nil {
 		return nil, err
 	}
-	hosts, hostLabels := config.ProviderHosts()
-	var shipped []string
-	for _, provider := range lacks {
-		// the shipped default's alone: a model of the config naming a provider it lacks runs nowhere
-		if !slices.ContainsFunc(config.ShippedHarnesses(provider), func(on string) bool { return slices.Contains(hosts, on) }) {
-			shipped = append(shipped, provider)
-		}
-	}
-	var makers []string
-	for _, provider := range shipped {
-		company := harness.Company(provider)
-		makers = append(makers, cmp.Or(harness.Maker(provider), company))
-	}
-	choices := byLabel(shipped, makers)
-	for _, host := range hosts {
-		if !slices.ContainsFunc(choices, func(one Addable) bool { return one.Label == hostLabels[host] }) {
-			choices = append(choices, Addable{Label: hostLabels[host], Host: host})
-		}
-	}
-	var names []string
+	var choices []Addable
 	for _, provider := range has {
-		name, err := harness.ProviderName(provider)
-		if err != nil {
-			return nil, err
-		}
-		names = append(names, name)
-	}
-	for _, more := range byLabel(has, names) {
-		harnesses, err := config.ProviderHarnesses(more.Provider)
+		harnesses, err := config.ProviderHarnesses(provider)
 		if err != nil {
 			return nil, err
 		}
 		if len(harnesses) > 0 && config.OneLogin(harnesses[0]) {
 			continue // its login would be refused
 		}
-		accounts, err := config.Accounts(more.Provider)
+		name, err := harness.ProviderName(provider)
+		if err != nil {
+			return nil, err
+		}
+		accounts, err := config.Accounts(provider)
 		if err != nil {
 			return nil, err
 		}
 		if len(accounts) == 0 {
 			accounts = []string{config.DefaultAccount} // its usual login
 		}
-		more.Accounts = append(accounts, fresh)
-		more.Label = config.AccountLabel(more.Accounts, fresh, more.Label)
-		choices = append(choices, more)
+		accounts = append(accounts, fresh)
+		choices = append(choices, Addable{Company: harness.Heading(provider, name),
+			Label: config.AccountLabel(accounts, fresh, name), Provider: provider, Accounts: accounts})
+	}
+	hosts, hostLabels := config.ProviderHosts()
+	for _, provider := range lacks {
+		// the shipped default's alone: a model of the config naming a provider it lacks runs nowhere
+		if !slices.ContainsFunc(config.ShippedHarnesses(provider), func(on string) bool { return slices.Contains(hosts, on) }) {
+			name := harness.Company(provider)
+			choices = append(choices, Addable{Company: harness.Heading(provider, name), Label: name, Provider: provider})
+		}
+	}
+	for _, host := range hosts {
+		choices = append(choices, Addable{Company: hostLabels[host], Label: "another provider", Host: host})
 	}
 	return choices, nil
 }
 
-// byLabel is each of providers by its label, one two of them share followed by the provider itself,
-// so the one picked is always the one it says (menu._by_label).
-func byLabel(providers, labels []string) []Addable {
-	var named []Addable
-	for i, provider := range providers {
-		text := labels[i]
-		if slices.Index(labels, text) != i || slices.Index(labels[i+1:], text) >= 0 {
-			text += " (" + provider + ")"
+// AddablesPage is `+ add a subscription` drawn (menu.config_add_provider): each of choices under its
+// company, bold and flush left as Subscriptions heads one, on a line of no row; a name wider than the
+// layout wraps, each line of a row its row's.  The row at is lit unless the pointer is away, and paged
+// so it is shown as matrix_key pages it (PageFrame).
+func AddablesPage(s terminal.Screen, title string, choices []Addable, at, top int, away bool) PageFrame {
+	room, keys := s.LayoutWidth(), pageKeys(s, "add")
+	var body []string
+	var lines []pageEntry
+	for row, choice := range choices {
+		for _, part := range terminal.Wrap(choice.Company, room) {
+			body, lines = append(body, s.Bold(part)), append(lines, pageEntry{-1, -1})
 		}
-		named = append(named, Addable{Label: text, Provider: provider})
+		for line, part := range terminal.Wrap(choice.Label, room-2) {
+			part = "  " + part
+			if row == at && !away {
+				part = s.Band(s.Highlight(part, line == 0), room)
+			}
+			body, lines = append(body, part), append(lines, pageEntry{row, -1})
+		}
 	}
-	return named
+	page := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), "")))
+	top = pageTop(lines, pageEntry{at, -1}, top, page)
+	return PageFrame{Lines: Panel(s, title, time.Now().Format("15:04"), body[top:min(top+page, len(body))], keys),
+		Top: top, at: pageEntry{at, -1}, page: page, lines: lines, width: room}
 }

@@ -19,14 +19,14 @@ then `────────────────────────�
 
 ## Width and rhythm
 
-The layout is at most 120 columns wide, and seat content at most 100. A project's, harness's or
-company's name is bold and flush left over its seats, models or subscriptions, two spaces in; a
-blank line parts projects.
+The layout is at most 120 columns wide, seat content at most 100. A project's, harness's or
+company's name is bold, flush left over its seats, models or subscriptions
+(`+ add a subscription`'s too), two spaces in; a blank line parts projects.
 
 Rows are tables. Their columns are fixed, sized once per draw and split by two-space gutters,
 never ` · `: number, name, model, state, and a last column that takes the rest.
 
-Nothing is ever cut in the middle of a word, a glyph or a sentence. A column gives way first,
+Nothing is ever cut inside a word, a glyph or a sentence. A column gives way first,
 a long line wraps at words, and below 60 columns a row folds onto an indented second line. No
 line keeps trailing space. Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`,
 `terminal.cells`, `terminal.plain`, `terminal.styled`.

@@ -1,8 +1,9 @@
 """The lists `+ add a subscription` opens name what Enter does on each choice.
 
 The owner (27 Oct 2026): "everywhere enter is for like opening, new page and stuff like that,
-and space should be select / unselect".  `+ add a subscription`'s first list says `⏎ add` on a
-provider and `⏎ open` on a harness that lists providers; in the list that harness opens Enter is
+and space should be select / unselect".  `+ add a subscription`'s first list says `⏎ add` on
+every row, OpenCode's `another provider` too (owner, 10 Nov 2026: "dependign on the provider, it
+either says add or open. Fix this."); in the list that harness opens Enter is
 `⏎ log in` on a provider not logged in to, `⏎ open` on a model and `⏎ add` on an effort, and
 Space there opens nothing.  Black-box: `AK_BIN`'s menu in a terminal (tests/fixtures/akterm.py),
 its harnesses faked (tests/fixtures/fakeadapter.py), the fake OpenCode listing MiMo, paid for,
@@ -32,11 +33,11 @@ esac
 
 def downs_to_opencode(term):
     """How many rows below the first, where the highlight starts, `+ add a subscription`'s first
-    list has OpenCode.  Its frame is drawn before its rows, top to bottom: read once OpenCode's
-    row is drawn."""
-    shown = lines(term.wait(lambda screen: "  OpenCode" in lines(screen)
+    list has OpenCode's `another provider`, its last: its rows are two cells in, under their
+    companies' names, which the keys pass over."""
+    shown = lines(term.wait(lambda screen: "  another provider" in lines(screen)
                             and key_line(screen) == KEYS.format("add")))
-    return shown.index("  OpenCode") - 2
+    return sum(line[:2] in ("  ", "› ") for line in shown[2:shown.index("  another provider")])
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -75,11 +76,10 @@ class ListsNameWhatEnterDoes(unittest.TestCase):
         self.term.keys("Down", "Down")                # past ChatGPT
         self.term.wait(KEYS.format("open"))
         self.term.keys("Enter")
-        self.term.keys(*["Down"] * downs_to_opencode(self.term))
-        self.on("OpenCode", "open")
-        self.term.keys("Down")
         self.on("Claude II", "add")                   # another subscription
-        self.term.keys("Up", "Enter")
+        self.term.keys(*["Down"] * downs_to_opencode(self.term))
+        self.on("another provider", "add")            # a harness that lists providers
+        self.term.keys("Enter")
         self.on("  MiMo V2.6 Pro", "open")
         self.term.keys("Space", "Down")               # Space first: had it opened, Down moves
         shown = self.on("  Zeta Cloud", "log in")   # among the efforts

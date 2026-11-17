@@ -22,7 +22,10 @@ import (
 const addTitle = "config · add a subscription"
 
 // menuAddSubscription is `+ add a subscription` on Subscriptions (menu.config_add_provider): one of
-// menu.Addables picked from a list, so nothing is typed.  Each subscription is signed in afresh
+// menu.Addables picked on its page (menu.AddablesPage), each under its company, so nothing is typed,
+// Enter or a click adding it on every row: ↑/↓, k/j and the wheel move the keys, through the pages
+// of a row taller than the page first, and the pointer lights the row under it, none off every row,
+// where Enter or space only brings the keys' back.  Each subscription is signed in afresh
 // under an account name of its own, so no login already on disk is ever taken for it, the owner's
 // word of 26 Oct 2026; one whose sign-in does not finish adds nothing and leaves nothing of it.  A
 // host opens its own list (menuAddThrough), Esc there coming back here, that host highlighted; a
@@ -40,32 +43,55 @@ func menuAddSubscription(cells []menu.Cell, keyboard *terminal.Keyboard, painter
 	if err != nil {
 		return "config: " + err.Error()
 	}
-	var labels []string
-	for _, choice := range choices {
-		labels = append(labels, choice.Label)
-	}
-	list := menu.List{Title: addTitle, Choices: labels, Enter: func(label string) string {
-		if choices[slices.Index(labels, label)].Host != "" {
-			return "open"
-		}
-		return "add"
-	}}
-	label := ""
-	if len(labels) > 0 {
-		label = labels[0]
-	}
+	at, top, away := 0, 0, false
+	var clicks terminal.Clicks
 	defer painter.Forget()
 	for {
-		if label = menuChoose(func(terminal.Screen) menu.List { return list }, label, keyboard, painter); label == "" {
-			return ""
+		screen := keyboard.Screen()
+		drawn := menu.AddablesPage(screen, addTitle, choices, at, top, away)
+		top = drawn.Top
+		painter.Write(drawn.Lines, screen)
+		key := keyboard.ReadKey()
+		switch {
+		case key.Name == "again":
+			painter.Forget()
+			continue
+		case away && (key.Name == "space" || key.Name == "enter"):
+			away = false // pressed with no highlight drawn: it only comes back where the keys left it
+			continue
 		}
-		picked := choices[slices.Index(labels, label)]
+		if key.Name != "wake" {
+			away = false
+		}
+		switch {
+		case key.Name == "esc" || key.Name == "eof":
+			return ""
+		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
+			at, _, top = drawn.Step(-1)
+		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
+			at, _, top = drawn.Step(1)
+		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
+			at, _, top = drawn.Step(key.Mouse.Notches)
+		case key.Name == "pointer":
+			clicked := clicks.Click(key.Mouse)
+			row, _, hit := drawn.Hit(key.Mouse)
+			if away = !hit; hit {
+				at = row
+			}
+			if hit && clicked {
+				key.Name = "enter"
+			}
+		}
+		if key.Name != "enter" || len(choices) == 0 {
+			continue
+		}
+		picked := choices[at]
 		switch {
 		case picked.Host != "":
 			if verb := adapterVerbs(keyboard, painter, picked.Host, installing(picked.Host), "", "", false); verb != "" {
-				return notAdded(picked.Host, verb, label)
+				return notAdded(picked.Host, verb, picked.Label)
 			}
-			if menuAddThrough(picked.Host, label, cells, keyboard, painter) {
+			if menuAddThrough(picked.Host, picked.Company, cells, keyboard, painter) {
 				continue // Esc there comes back here, that host highlighted
 			}
 			return ""

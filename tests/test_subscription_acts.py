@@ -127,8 +127,9 @@ class SubscriptionActs(Sandbox):
 
     def test_the_last_row_removed_leaves_the_highlight_on_the_new_last(self):
         last = len(self.rows) - 1
+        # Enter there opens `+ add a subscription`, which Esc leaves, no subscription's act run
         self.assertEqual(self.drive(*["down"] * last, "right", "right", "enter", "down",
-                                    "enter"), ([], [self.rows[last]]))
+                                    "enter", "esc"), ([], [self.rows[last]]))
 
     def test_a_page_with_no_subscription_still_adds_one(self):
         added = []
