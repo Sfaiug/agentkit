@@ -18,6 +18,8 @@ nobody updated for 30 days with OpenCode's own delete, which takes its children 
 
 How MiMo is paid is learned from where OpenCode's own global config sends it: that outranks
 whatever mode agentkit's config was given, and anything short of a plain token-plan URL is payg.
+
+A worker turn's tokens by type are its session's totals, which history counts the growth of.
 """
 
 import json
@@ -435,3 +437,28 @@ def error(record, cwd, conversation):
         reset = datetime.fromtimestamp((created + wait) / 1000, timezone.utc)
         said += f" try again at {reset.isoformat(timespec='milliseconds')}"
     return said
+
+
+# The `result` line's counts, as adapters/opencode.sh names them from `opencode session export`,
+# in the order a usage row keeps them: input, cache write, cache read, output (reasoning in it).
+TOKEN_TYPES = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+               "output_tokens")
+
+
+def turn_usage(out):
+    """The counts the turn's `result` line totals its session with, whatever model ran each turn
+    of it, under the model the worker launched it with (`launched_model`), as `Harness.turn_usage`
+    gives them: none where it has no such line.  adapters/opencode.sh appends it after the run
+    from the session's export."""
+    from . import last_entry, launched_model
+    out = Path(out)
+    try:
+        result = last_entry(out / "events.jsonl", lambda entry: entry.get("type") == "result")
+    except OSError:
+        return None
+    if result is None:
+        return None
+    usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
+    return result.get("sessionID"), True, {launched_model(out): tuple(
+        value if type(value := usage.get(key)) is int and value >= 0 else 0
+        for key in TOKEN_TYPES)}

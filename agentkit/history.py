@@ -857,22 +857,35 @@ def _turn_usage(connection, plugin, run_id, out):
             for turn, when, model, *numbers in rows:
                 if turn in ours and when < began:
                     kept[model] = tuple(map(sum, zip(kept.get(model, (0,) * 4), numbers)))
-            counts = {model: tuple(max(0, now - then) for now, then in zip(numbers, kept.get(
-                model, (0,) * len(numbers)))) for model, numbers in counts.items()}
+            counts = _less(counts, kept)
         later = min(((when, turn) for turn, when, *_ in rows if ours.get(turn) and when > began),
                     default=None)
         if later:
+            theirs = {model: numbers for turn, _, model, *numbers in rows if turn == later[1]}
             connection.executemany(
-                "UPDATE turn_usage SET input=MAX(0, input-?), cache_write=MAX(0, cache_write-?), "
-                "cache_read=MAX(0, cache_read-?), output=MAX(0, output-?) "
+                "UPDATE turn_usage SET input=?, cache_write=?, cache_read=?, output=? "
                 "WHERE turn=? AND model IS ?",
-                [(*numbers, later[1], model) for model, numbers in counts.items()])
+                [(*numbers, later[1], model) for model, numbers in _less(theirs, counts).items()])
     try:
         account = (out / "account").read_text()
     except OSError:
         account = None
     at = _moment(out / "events.jsonl")
     return [(account, model, began, at, *numbers) for model, numbers in counts.items()]
+
+
+def _less(counts, off):
+    """`counts` by model less `off` by model, never below 0: each model's off its own count, and
+    what that cannot hold off the others in turn, as a session's totals hold all its turns even
+    where they name only the model of its latest."""
+    left = {model: list(numbers) for model, numbers in counts.items()}
+    for model, numbers in off.items():
+        for kind, number in enumerate(numbers):
+            for one in sorted(left, key=lambda name: name != model):    # its own model first
+                taken = min(number, left[one][kind])
+                left[one][kind] -= taken
+                number -= taken
+    return {model: tuple(numbers) for model, numbers in left.items()}
 
 
 def _moment(path):
