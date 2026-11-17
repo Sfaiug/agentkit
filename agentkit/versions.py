@@ -193,6 +193,15 @@ def unpinned(env):
     return kept
 
 
+def pinned(state):
+    """The `ak_checkout` `state` keeps, if any: a run that ended in `error` has no process left
+    that depends on its version, so resuming it runs the installed ak."""
+    if not state or state.get("state") == "error" or (
+            state.get("state") == "queued" and state.get("resume_from") == "error"):
+        return None
+    return state.get("ak_checkout")
+
+
 def dispatch(argv):
     from . import record, worker
     if argv[:2] == ["run", "--lander"]:
@@ -201,11 +210,20 @@ def dispatch(argv):
     elif (argv[:1] == ["hand-in"] and os.environ.get(worker.RUN_MARKER)
             and (path := os.environ.get(CODE_ENV))):
         enter(Path(path))
-    elif len(argv) >= 3 and argv[:2] in (["run", "resume"], ["run", "merge"]):
-        state = record.read_state(config.RUNS / argv[2]) or {}
-        if code := state.get("ak_checkout"):
+    elif argv[:2] in (["run", "resume"], ["run", "merge"]):
+        args = [arg for arg in argv[2:] if arg != "--bg"] if argv[1] == "resume" else argv[2:]
+        state = (record.read_state(config.RUNS / args[0])
+                 if args and Path(args[0]).name == args[0] and args[0] not in (".", "..")
+                 else None) or {}
+        if code := (state.get("ak_checkout") if argv[1] == "merge" else pinned(state)):
             with checkout(code) as path:
                 enter(path)
+        elif (argv[1] == "resume" and state.get("ak_checkout")
+              and config.REPO != live() and config.REPO.parent == config.HOME / VERSIONS):
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.execve(sys.executable, [sys.executable, str(live() / "bin" / "ak"), *argv],
+                      unpinned(os.environ))
     if config.REPO.parent == config.HOME / VERSIONS:
         enter(config.REPO)
 

@@ -604,7 +604,7 @@ def pickup_while_queued(run_dir, behind=None, execv=None, current=None):
     with a waiter holding next to no memory, which execs the same launch back (`waiter`).
     Only a detached launch's own process moves (`spawn_bg`); a job's threads share one.
     `execv` and `current` are the injected exec and installed version the tests use."""
-    if ((run_record.read_state(run_dir) or {}).get("ak_checkout")
+    if (versions.pinned(run_record.read_state(run_dir))
             or os.environ.get(config.RUN_DIR_ENV) != str(run_dir)
             or threading.current_thread() is not threading.main_thread()
             or getattr(jobs._JOB_MUTE, "depth", 0)):
@@ -706,7 +706,7 @@ def depth_refused():
 def run_slot(run_dir, prior=None):
     state = gate.wait_for_slot(run_dir, between=functools.partial(pickup_while_queued, run_dir))
     if lone_run() and sys.orig_argv[-len(sys.argv):] == sys.argv:
-        with run_record.record(run_dir) as current, versions.checkout(state.get("ak_checkout")) as path:
+        with run_record.record(run_dir) as current, versions.checkout(versions.pinned(state)) as path:
             current["ak_checkout"] = state["ak_checkout"] = str(path)
             current.flush()
             os.environ[config.RUN_DIR_ENV] = str(run_dir)
@@ -981,7 +981,8 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
     log_path = run_dir / "log.txt"
     # on the install, whoever starts it: a run's own process runs the version it was admitted
     # on, and a launch from there would wait, pick up and be admitted by that version's rules;
-    # `resume` and `merge` go back to the run's own version (`versions.dispatch`)
+    # `resume` (unless the run ended in `error`) and `merge` go back to the run's own version
+    # (`versions.dispatch`)
     env = dict(versions.unpinned(os.environ), **{config.RUN_DIR_ENV: str(run_dir)})
     child = ([sys.executable, str(versions.live() / "bin" / "ak"), "run"]
              + [a for a in argv if a != "--bg"])
@@ -1026,6 +1027,8 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
         if argv[:1] == ["resume"]:
             state["resume_from"] = previous.get("resume_from") or (
                 "interrupted" if previous.get("state") == "queued" else previous["state"])
+            if not versions.pinned(state):
+                state.pop("ak_checkout", None)
         run_record.save_state(run_dir, state)
         try:
             unit, cap, properties = run_placement(run_dir, previous)
@@ -1821,7 +1824,9 @@ def resume_run(argv):
                 "--no-worktree": bool(state.get("repo")) and wt == Path(state["repo"]),
                 "--bg": False}
         if wt is None:
-            opts.update(state.get("launch_opts") or {})
+            opts.update(state.get("launch_opts") or {"--no-merge": True})
+            if n_rounds is not None:
+                opts["--rounds"] = str(n_rounds)
         cfg, log = config.load(), logger(run_dir)
         if state.get("review_pr"):
             return drive(cfg, run_dir, opts, log,
@@ -2014,6 +2019,8 @@ def resume_run(argv):
                                 else None) or time.time(),
                      **run_record.process_owner(), recovery_pending=not legacy_pass,
                      recovery_acknowledged_at=None, error=None, finished_at=None)
+        if not versions.pinned(state):
+            state.pop("ak_checkout", None)
         clear_delivery(state)
         # the harness a login parked it on, and the stamps that paced and released the
         # retry: this resume is the answer to all of them, and a later stop for another
