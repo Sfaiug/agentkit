@@ -101,7 +101,7 @@ Colour says where a thing stands and never who.
 ## Motion
 
 Something moves only while worked on, once when it changes, or under the pointer: work breathes,
-news pulses, settles or nudges, a theme comes down, the highlight fades where it left. Each takes
+news pulses, settles or nudges, a theme comes down, the highlight glows in, fades out. Each takes
 one time (`motion.py`):
 
 - **Coming up:** a row's line, a page, screens opening.

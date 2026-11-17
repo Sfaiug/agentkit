@@ -5,7 +5,8 @@ only those cells may move: every working dot in step, the rest of its row and an
 as they were, whichever row the highlight is on -- but the light going round a working row's line
 while it has no plan yet (tests/test_no_plan_bar.py).  Black-box: ak runs in a terminal of its own, in
 colour, beside two seats whose panes show a working claude and one at its prompt; what moves is
-read from the terminal's cells and their colours, sampled with no key pressed.
+read from the terminal's cells and their colours, sampled with no key pressed and the highlight
+at rest.
 """
 
 import re
@@ -137,7 +138,16 @@ class WorkingDot(unittest.TestCase):
             if highlighted:
                 term.keys("Down", "Down")
                 term.wait(f"› 3  {IDLE}  Opus 5.5 xhigh  ○ idle")
+                # come to rest as it rested on the first row: the highlight moves a moment after
+                # the key that moved it (tests/test_highlight_glows.py), the watch after none
+                deadline = time.monotonic() + 15
+                while (row := next((drawn for drawn in lines(term.screen(colours=True))
+                                    if IDLE in "".join(char for char, _ in drawn)), None)
+                       ) is None or row[0] != rest:
+                    self.assertLess(time.monotonic(), deadline, row and (row[0], rest))
+                    time.sleep(0.05)
             frames = self.watch(term)
+            rest = frames[0][WORKING[0]][0]     # the highlight's `›` on the first row
             self.assertEqual(frames[0][IDLE][0][0] == "›", highlighted)
             for frame in frames:
                 self.assertEqual(frame[IDLE], frames[0][IDLE])

@@ -1,6 +1,8 @@
-"""Where the highlight left fades from the selection into the background in 0.2 s (the owner, 12
-Nov 2026: "glowing effect ... when selection things"), on tests/test_news_motion.py's clock, in a
-terminal of 24-bit colour that sets no background: the cells ak writes, read as written."""
+"""Where the highlight comes, by a key or the pointer, it starts 45% of the way from the theme's
+selection to its accent and settles onto the selection in 0.25 s; where it left it fades from the
+selection into the background in 0.2 s (the owner, 12 Nov 2026: "glowing effect ... when selection
+things"), on tests/test_news_motion.py's clock, in a terminal of 24-bit colour that sets no
+background: the cells ak writes, read as written."""
 
 import io
 import os
@@ -14,8 +16,8 @@ from test_news_motion import CELL, Keyboard, Menu
 from agentkit import menu, motion, terminal
 
 ESC, DOWN = b"\x1b", b"\x1b[B"
-SELECTION = ("8", "48", "93")       # the black theme's, over its black background
-BACKS = re.compile(r"48;2;(\d+);(\d+);(\d+)")
+# the black theme's background, its selection, and where the highlight comes
+BLACK, SELECTION, COMES = "000000", "08305d", "2764a6"
 POINT = "\x1b[<35;{};{}M"             # the pointer moved, as modes 1003 and 1006 report it
 DRAW = re.compile(r"(\x1b\[H.*?\x1b\[J)", re.S)
 
@@ -23,6 +25,13 @@ DRAW = re.compile(r"(\x1b\[H.*?\x1b\[J)", re.S)
 def lines(screen):
     """A whole draw's lines, row 1 first, as written."""
     return DRAW.search(screen).group()[3:-3].split("\n")
+
+
+def backs(text):
+    """The backgrounds `text`'s cells are on, as a terminal shows them, `rrggbb` each: a cell on
+    none adds none."""
+    return {bytes(map(int, ground.split(";")[2:])).hex()
+            for ground in terminal._grounds(text) if ground}
 
 
 def writes(waits, since):
@@ -88,33 +97,49 @@ class Fades(Menu):
     def row(self, waits, name):
         return self.cell(waits[0][2], name, name)[0]
 
-    def leaves(self, cells, at):
-        """`cells`' writes at `at`, (row, column), each moment's last: the first on the
-        selection, each after it nearer the background, and from LEAVES seconds on, on none."""
-        frames = {when: set(BACKS.findall(text)) for when, cell, text in cells if cell == at}
+    def moves(self, cells, at, start, took, end=None):
+        """`cells`' writes at `at`, (row, column), each moment's last: the first on `start`, each
+        after it nearer `end` -- the background where None -- and from `took` seconds on, on it,
+        or on none of its own."""
+        frames = {when: backs(text) for when, cell, text in cells if cell == at}
         self.assertTrue(frames, f"nothing written at {at}")
         first = min(frames)
-        fading = [backs for when, backs in frames.items() if when < first + motion.LEAVES]
-        self.assertEqual(fading[0], {SELECTION})
-        self.assertTrue(all(len(backs) == 1 for backs in fading), fading)
-        steps = [sum(map(int, back)) for (back,) in fading]
+        moving = [backs for when, backs in frames.items() if when < first + took]
+        self.assertEqual(moving[0], {start})
+        self.assertTrue(all(len(backs) == 1 for backs in moving), moving)
+        steps = [sum(abs(a - b) for a, b in zip(bytes.fromhex(rgb), bytes.fromhex(end or BLACK)))
+                 for (rgb,) in moving]
         self.assertGreaterEqual(len(steps), 4, steps)
         self.assertEqual(steps, sorted(set(steps), reverse=True), steps)
-        rest = [backs for when, backs in frames.items() if when >= first + motion.LEAVES]
+        rest = [backs for when, backs in frames.items() if when >= first + took]
         self.assertTrue(rest)
-        self.assertEqual([backs for backs in rest if backs], [])
+        self.assertEqual([backs for backs in rest if backs != ({end} if end else set())], [])
+
+    def comes(self, cells, at):
+        self.moves(cells, at, COMES, motion.LANDS, SELECTION)
+
+    def leaves(self, cells, at):
+        self.moves(cells, at, SELECTION, motion.LEAVES)
 
     def lit_alone(self, waits, at, name):
-        """From the screen drawn at wait `at` on, `name`'s row on the selection and no other cell
-        on a background."""
-        row = self.cell(waits[at][2], "› ", name)[0]
-        self.assertEqual({(number, back) for _, (number, _), text in writes(waits, at)
-                          for back in BACKS.findall(text)}, {(row, SELECTION)})
+        """From the screen drawn whole at wait `at` on -- after the last frame of what the key
+        read there ended -- `name`'s row on the selection and no other cell on a background."""
+        _, when, text = waits[at]
+        drawn = [(None, when, text[DRAW.search(text).start():]), *waits[at + 1:]]
+        row = self.cell(drawn[0][2], "› ", name)[0]
+        self.assertEqual({(number, back) for _, (number, _), text in writes(drawn, 0)
+                          for back in backs(text)}, {(row, SELECTION)})
 
-    def test_down_fades_the_row_it_left(self):
+    def test_down_lights_the_next_row_from_toward_the_accent_and_fades_the_one_it_left(self):
         waits, (down, *_) = self.typed([None, DOWN])
-        self.cell(waits[down][2], "› ", "web-portal")
+        self.comes(writes(waits, down), (self.cell(waits[down][2], "› ", "web-portal")[0], 1))
         self.leaves(writes(waits, down), (self.row(waits, "fix-api"), 1))
+
+    def test_on_a_white_terminal_the_highlight_comes_from_its_own_accent(self):
+        with patch.object(terminal, "THEME", terminal.WHITE):
+            waits, (down, *_) = self.typed([None, DOWN])
+        self.moves(writes(waits, down), (self.cell(waits[down][2], "› ", "web-portal")[0], 1),
+                   "79b0e5", motion.LANDS, "dcecff")
 
     def test_a_second_down_ends_the_first_fade_and_starts_its_own(self):
         self.words["acme"] = "idle"
@@ -122,7 +147,7 @@ class Fades(Menu):
         self.cell(waits[again][2], "› ", "acme")
         cells, first = writes(waits, again), self.row(waits, "fix-api")
         self.assertEqual([text for _, (row, _), text in cells
-                          if row == first and BACKS.search(text)], [])
+                          if row == first and backs(text)], [])
         self.leaves(cells, (self.row(waits, "web-portal"), 1))
 
     def test_a_number_waits_for_its_second_digit_with_the_fade_ended(self):
@@ -133,7 +158,7 @@ class Fades(Menu):
         row = self.row(waits, "fix-api")
         ended = [text for at, _, text in CELL.findall(waits[digit][2]) if int(at) == row]
         self.assertTrue(ended)
-        self.assertEqual(BACKS.findall(ended[-1]), [])
+        self.assertEqual(backs(ended[-1]), set())
 
     def test_a_number_typed_as_the_pointer_moves_ends_its_fades_and_comes_back_at_rest(self):
         self.words.update({f"acme-{n}": "idle" for n in range(8)})
@@ -161,12 +186,12 @@ class Fades(Menu):
                                                                    keyboard=Keyboard()))
         digit = next(n for n, (timeout, _, _) in enumerate(waits) if timeout == 0.5)
         row = next(at for _, (at, _), text in writes(waits, 0) if "acme-0" in terminal.plain(text))
-        written = [set(BACKS.findall(text)) for _, (at, _), text in writes(waits[:digit + 1], 0)
+        written = [backs(text) for _, (at, _), text in writes(waits[:digit + 1], 0)
                    if at == row]
         self.assertIn({SELECTION}, written)         # lit till Down, then fading
         self.assertEqual(written[-1], set())
 
-    def test_the_pointer_going_off_a_meter_fades_its_cell(self):
+    def test_the_pointer_lights_a_meter_and_fades_it_as_it_goes(self):
         screen = self.typed([])[0][0][2]
         meter = self.cell(screen, "Claude", "Claude")
         blank = next(row for row, line in enumerate(lines(screen), 1)
@@ -177,6 +202,7 @@ class Fades(Menu):
         lit = [n for n, back in enumerate(terminal._grounds(on), 1) if back == "48;2;8;48;93"]
         self.assertIn(meter[1], lit)
         self.assertEqual(lit, list(range(lit[0], lit[-1] + 1)))     # its cell, whole
+        self.comes(writes(waits[:off], onto), (meter[0], lit[0]))
         self.leaves(writes(waits, off), (meter[0], lit[0]))
 
     def test_the_ak_screen_is_first_drawn_with_its_highlight_alone_at_rest(self):

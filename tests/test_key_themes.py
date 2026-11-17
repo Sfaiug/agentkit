@@ -171,6 +171,10 @@ class Themes(unittest.TestCase):
                         # each cell's background, None where it has none
                         lit = {next((part for part in shown if part.startswith("48")), None)
                                for _, shown in line[at:at + len("c config")]}
+                    # lit, not on the background white paints every cell on: the clock on past
+                    # the light's coming, which began as the pointer was read
+                    if lit and not lit & {None, role("background", theme, bg)}:
+                        self.at(OPENED + 10)
 
     def test_a_seats_bar_opens_with_its_state_on_accent_on_its_role(self):
         for seat, word, name in (("acme", "● working", "accent"),

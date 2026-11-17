@@ -11,7 +11,8 @@ rows comes down with the first, that under them with the last.
 
 Black-box: the program AK_BIN names runs in a person's terminal of 24-bit colour that sets no
 background (tests/fixtures/akterm.py) over one working seat (tests/fixtures/akseat.py), each row
-judged whole in a theme as tests/test_key_c_chooses_the_theme.py judges it.  Its clock injected: `AK_MOTION_CLOCK` names
+judged whole in a theme as tests/test_key_c_chooses_the_theme.py judges it, the highlight where
+it comes as well as at rest.  Its clock injected: `AK_MOTION_CLOCK` names
 a file of seconds that stands still until the test moves it, so each frame is read off the screen
 at the moment set, however late the host's load makes it.
 """
@@ -31,13 +32,19 @@ from test_key_c_chooses_the_theme import BLACK, CONFIG, SELECTION, SIZE, WHITE, 
 
 TEXT = "181c22"         # white's text
 HALF = SIZE[1] // 2
+# where the highlight comes on each theme, as the clock standing at the key that moved it holds
+# it: its first frame, toward the accent (tests/test_highlight_glows.py)
+COMES = {BLACK: "2764a6", WHITE: "79b0e5"}
 # a cell on any other background is in neither theme
-GROUNDS = {sgr(rgb, "48") for rgb in (BLACK, WHITE, *SELECTION.values())}
+GROUNDS = {sgr(rgb, "48") for rgb in (BLACK, WHITE, *SELECTION.values(), *COMES.values())}
 
 
 def themes(rows):
-    """The theme each row of the screen is whole in (theme_of), top down."""
-    return [theme_of(line) for line in rows[:SIZE[1]]] + [None] * (SIZE[1] - len(rows))
+    """The theme each row of the screen is whole in (theme_of), the highlight where it comes
+    taken for its selection, top down."""
+    came = {sgr(COMES[rgb], "48"): sgr(SELECTION[rgb], "48") for rgb in COMES}
+    return [theme_of([(char, {came.get(part, part) for part in shown}) for char, shown in line])
+            for line in rows[:SIZE[1]]] + [None] * (SIZE[1] - len(rows))
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

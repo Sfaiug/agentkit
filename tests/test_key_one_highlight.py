@@ -35,6 +35,7 @@ from fixtures.akterm import SERVER, Terminal
 from fixtures.draws import draws
 
 SELECTION, BLACK = "48;2;8;48;93", "48;2;0;0;0"     # the black theme's selection, background
+COMES = "48;2;39;100;166"       # ... and where the highlight comes (tests/test_highlight_glows.py)
 WIDTH = 100                                         # the terminal's, and so the layout's
 MAIN_KEYS = "↑↓←→ move   ⏎ open   n new   c config   esc leave"
 MARKS = "●○■□"
@@ -52,11 +53,11 @@ def grounds(shown):
     return {ground(look) for line in shown for _, look in line}
 
 
-def lit_rows(shown):
-    """{row, from 1: its columns on the selection} of the rows that have any."""
+def lit_rows(shown, on=SELECTION):
+    """{row, from 1: its columns on the selection, or `on`} of the rows that have any."""
     return {row: columns for row, line in enumerate(shown, 1)
             if (columns := [column for column, (_, look) in enumerate(line, 1)
-                            if ground(look) == SELECTION])}
+                            if ground(look) == on])}
 
 
 def starts(shown, text, row=None):
@@ -336,8 +337,8 @@ class OneHighlight(unittest.TestCase):
 
     def test_the_row_the_pointer_leaves_while_a_number_waits_fades_too(self):
         # ten seats: `1` waits half a second for a second digit, the menu up as ever; the
-        # fade's first frame, ak's clock standing, is read from the program's own bytes
-        # (`pipe-pane`), `9` ending the wait on no seat
+        # fade's first frame, ak's clock standing, as beta's highlight comes, is read from the
+        # program's own bytes (`pipe-pane`), `9` ending the wait on no seat
         for n in range(8):
             Seat(self.home, f"crew-{n}", model="fable")
         clock, raw = self.home.root / "clock", self.home.root / "raw"
@@ -349,8 +350,9 @@ class OneHighlight(unittest.TestCase):
         self.assertEqual(piped.code, 0, piped.err)
         self.term.type("1" + point(number + 3, beta) + "9")
         self.assertNotIn(acme, lit_rows(self.rest(lambda shown: starts(shown, "›  2  beta"))))
-        lit = [lit_rows(looks(screen)).keys() for screen in draws(raw.read_text("utf-8"))]
-        self.assertTrue(any({acme, beta} <= rows for rows in lit), lit)
+        lit = [(lit_rows(shown).keys(), lit_rows(shown, COMES).keys())
+               for shown in map(looks, draws(raw.read_text("utf-8")))]
+        self.assertTrue(any(acme in fading and beta in coming for fading, coming in lit), lit)
 
     def test_in_sixteen_colours_a_seat_has_its_mark_alone(self):
         self.assertEqual(grounds(self.main(TERM="xterm-16color")), {None})
