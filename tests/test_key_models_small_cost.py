@@ -74,7 +74,7 @@ class ModelsSmallCost(unittest.TestCase):
                     term.keys("Enter")
                     # drawn whole once its key line, the last, stands under its cost
                     term.wait(lambda screen: lines(screen.rstrip())[-1] == "  esc back"
-                              and f"\n  cost     {WHY[unit]}" in screen
+                              and f"\n  cost       {WHY[unit]}" in screen
                               and not FREE.search(screen))
                     term.keys("Escape")
                     term.wait("\n› reviewer ")

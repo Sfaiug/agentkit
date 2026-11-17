@@ -28,17 +28,17 @@ HOUR, DAY = 3600, 86400
 # two weeks' resets, as tests/test_key_week_checked.py reads them; every reading below is hours
 # from a day's end
 WEEK, LAST_WEEK = NOW + 3 * DAY, NOW - 4 * DAY
-# each plan's line, the values' column 11 cells in
+# each plan's line, the values' column 13 cells in
 CHECKED = {100: ["Max's week, checked on 2 days: it foretold 18 points where its meter rose 12, "
                  "50% high",
                  "Pro's week, checked on 1 day: it foretold 10 points where its meter rose 25, "
                  "60% low",
                  "Team's week: no day checked yet", "Scale's week: no day checked yet"],
            40: ["Max's week, checked on 2", "days: it foretold 18 points",
-                "where its meter rose 12, 50%", "high",
-                "Pro's week, checked on 1 day:", "it foretold 10 points where",
-                "its meter rose 25, 60% low",
-                "Team's week: no day checked", "yet", "Scale's week: no day checked", "yet"]}
+                "where its meter rose 12,", "50% high",
+                "Pro's week, checked on 1", "day: it foretold 10 points",
+                "where its meter rose 25,", "60% low",
+                "Team's week: no day checked", "yet", "Scale's week: no day", "checked yet"]}
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -125,11 +125,11 @@ class ModelsWhyChecked(unittest.TestCase):
         for width, want in CHECKED.items():
             with self.subTest(width=width):
                 block = self.cost(width, "Down")
-                self.assertEqual(block[-len(want):], [" " * 11 + line for line in want], block)
+                self.assertEqual(block[-len(want):], [" " * 13 + line for line in want], block)
 
     def test_a_plan_the_usage_cache_holds_no_meter_of_is_checked_on_no_day(self):
         # Crux 2 orchestrates, priced at OpenAI's own plan's rate
-        self.assertEqual(self.cost(100)[-1], " " * 11 + "Crew's week: no day checked yet")
+        self.assertEqual(self.cost(100)[-1], " " * 13 + "Crew's week: no day checked yet")
 
 
 if __name__ == "__main__":

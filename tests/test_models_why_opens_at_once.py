@@ -42,7 +42,7 @@ class WhyOpensAtOnce(Sandbox):
         self.opened, self.let_go = threading.Event(), threading.Event()
         self.addCleanup(self.let_go.set)
 
-    def why(self, found, role, row, unit, weeks):
+    def why(self, found, role, row, kept, unit, weeks):
         """The page: its heading, then a line of each of `weeks`."""
         self.opened.set()
         return [HEADING, *("  " + menu.week_checked(*week) for week in weeks)]
