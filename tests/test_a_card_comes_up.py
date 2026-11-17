@@ -155,6 +155,9 @@ class ComingUp(test_breathing.MainScreen):
         self.assertEqual([ink(waits[pressed][2], word) for word in ("✓ Keep", "× Stop")],
                          [light("text"), light("amber")])
         self.assertNotIn("✓ Keep", waits[pressed + 1][2])    # Esc, the highlight still moving
+        # Down again as the highlight still lands on `× Remove`, the last: it is there, at rest
+        waits = self.remove(None, Key("down"), Key("down"), Key("esc"))
+        self.assertIsNone(waits[-1][0])
 
     def test_a_click_on_keep_half_way_up_keeps_whatever_moves_the_card_as_it_is_read(self):
         # the count landing takes a line off the card: `× Stop` comes up onto the row clicked
@@ -171,15 +174,19 @@ class ComingUp(test_breathing.MainScreen):
         self.assertLess(ink(waits[1][2], "✓ Keep"), light("text"))          # the card coming up
 
     def test_where_nothing_moves_the_card_is_up_at_once_and_waits_for_a_key_alone(self):
-        rows = [8]
-        for still in (patch.object(terminal, "height", side_effect=lambda: rows[0]),  # it scrolls
-                      patch.dict(os.environ, {"NO_COLOR": "1"})):
+        rows = []
+        for still in (patch.dict(os.environ, {"NO_COLOR": "1"}),
+                      patch.object(terminal, "height", side_effect=lambda: rows[0])):  # it scrolls
             with self.subTest(still), still:
+                rows[:] = [8]
+                waits, asked = self.ask(*[None] * 4)
                 # the terminal grown as the first is read: drawn again where it can move, up
-                waits = self.remove(None, Key("esc"), at=0, news=lambda: rows.__setitem__(0, 24))
-                self.assertEqual([timeout for timeout, _, _ in waits], [None, None])
-                for _, _, written in waits:
+                removing = self.remove(None, Key("esc"), at=0, news=lambda: rows.__setitem__(0, 24))
+                self.assertEqual([timeout for timeout, _, _ in removing], [None, None])
+                for _, _, written in waits[asked:-1] + removing:      # Esc read last
                     self.assertNotRegex(written.rpartition("\033[J")[2], r"\x1b\[\d+;\d+H")
+        self.assertEqual([ink(waits[asked][2], word) for word in ("✓ Keep", "× Stop")],
+                         [light("text"), light("amber")])       # on 8 rows, at rest at once
         # a page's, as `c`'s whose `a` asks: drawn first where nothing moves, it is up, and stays
         # up drawn again where it can
         page = motion.Clock(page=True)

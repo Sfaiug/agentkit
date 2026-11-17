@@ -453,11 +453,11 @@ class Clock:
             start(self, row, since, before)
 
     def settle(self):
-        """A key: whatever moves ends on its last frame, a screen coming up too, the next draw
-        showing it still, and only what the key itself changes is news."""
+        """A key: whatever moves ends on its last frame, a screen coming up and the highlight
+        too, the next draw showing it still, and only what the key itself changes is news."""
         self.seen = self.seen and {key: (value, None, None)
                                    for key, (value, _, _) in self.seen.items()}
-        self.touched, self.turning = {}, None
+        self.touched, self.turning, self.glows = {}, None, {}
         self.opened = None if self.opened is None else -math.inf
 
     def hold(self):
