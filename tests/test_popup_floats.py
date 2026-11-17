@@ -404,6 +404,12 @@ class ThePaneBehind(unittest.TestCase):
                 started = [tmux.start(end="kill"), tmux.start(small=True, end="kill")]
                 first, second = ((job, tmux.seen(saw)) for job, saw in started)
                 self.assertEqual(second[1]["styles"], dict.fromkeys(STYLES, DIM))
+                # each popup dims it beside coming up, so the dim the second saw may be the
+                # first's: both are up once both have counted themselves in
+                deadline = time.monotonic() + 15
+                while tmux.options().get("@ak_floats") != "2":
+                    self.assertLess(time.monotonic(), deadline, "the second never counted in")
+                    time.sleep(0.02)
                 tmux.down(*first, end="kill")
                 for name in STYLES:                             # the second is still up
                     self.assertEqual(tmux.options()[name], DIM)
@@ -504,8 +510,9 @@ class TheContent(unittest.TestCase):
         os.write(popup.master, DOWN)        # at the first frame's time: the clock is held there
         highlighted = r"›(?:\s|\x1b\[[0-9;]*m)*2(?:\s|\x1b\[[0-9;]*m)+seat-b"
         found = popup.until(highlighted, "seat-b highlighted", after=mark)
-        # still coming up after it: the key was pressed during the fade, and did not end it
-        self.assertRegex(popup.text()[found.start():], r"\x1b\[\d+;1H\x1b\[38;2;")
+        # still coming up after it: the key was pressed during the fade, and did not end it --
+        # read as it comes, for the pty may hand the frame over in pieces
+        popup.until(r"\x1b\[\d+;1H\x1b\[38;2;", "the fade going on after it", after=found.start())
         # and the frame answering it, the header above, less than 100 ms into the fade
         self.assertLess(header_tones(popup.text()[:found.start()])[-1], tone(0.1))
         os.write(popup.master, b"\x1b")
