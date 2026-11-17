@@ -60,6 +60,8 @@ func menuAddSubscription(cells []menu.Cell, keyboard *terminal.Keyboard, painter
 		case key.Name == "again":
 			painter.Forget()
 			continue
+		case key.Name == "pointer" && !key.Mouse.Released && key.Mouse.Button&(32|64) == 0:
+			continue // the button going down lights nothing: the click is when it comes up (read_key)
 		case away && (key.Name == "space" || key.Name == "enter"):
 			away = false // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
