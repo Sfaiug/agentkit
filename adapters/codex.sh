@@ -182,7 +182,10 @@ interactive)
   # The printed command runs later, outside this adapter's environment, perhaps under an
   # account's home a seat handed down: it carries the login, the usual one's too.
   keys=""; [ -z "$ACCOUNT" ] || keys="-u OPENAI_API_KEY -u CODEX_API_KEY "
-  printf 'env %sCODEX_HOME=%q ' "$keys" "$LOGIN"
+  # Remote Control is the seat wrapper's app server's, started when the pane runs this line,
+  # so this launch's on or off goes to it on the line, over whatever the pane inherits.
+  printf 'env %sCODEX_HOME=%q AGENTKIT_REMOTE_CONTROL=%q ' "$keys" "$LOGIN" \
+      "${AGENTKIT_REMOTE_CONTROL:-on}"
   # The seat's first message, when its launch carries one, goes in as codex's `[PROMPT]`,
   # which `codex resume` takes too: sent once the conversation has loaded, never typed into a
   # TUI still loading it.  codex-seat.py keeps the options it adds ahead of it.

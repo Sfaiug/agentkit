@@ -273,15 +273,17 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     that file where the caller wrote it for more than one asking.  What the harness checks
     before a launch is checked here too (its plugin's `checked`), and the adapter told so.
     `line` is what the harness opens on as its first prompt, in $AGENTKIT_FIRST_PROMPT, where
-    its manifest says it takes one (`takes_line`); none is passed on from this process.  A
-    model off in the model list opens no seat, a dry run's included (matrix.refuse_off).
+    its manifest says it takes one (`takes_line`); none is passed on from this process.  The
+    config's `remote_control` goes in $AGENTKIT_REMOTE_CONTROL, so a seat's every launch follows
+    it.  A model off in the model list opens no seat, a dry run's included (matrix.refuse_off).
     """
     entry = config.model(cfg, name)
     matrix.refuse_off(cfg, name)
     adapter = config.adapter(entry["harness"], versions.live())
     rulebook = rulebook or write_rulebook(os.environ.get(config.SESSION_ENV, ""))
     told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook),
-            config.FIRST_PROMPT_ENV: line or ""}
+            config.FIRST_PROMPT_ENV: line or "",
+            config.REMOTE_CONTROL_ENV: "on" if config.remote_control(cfg) else "off"}
     told.update(harness_plugin(entry["harness"]).checked(told[config.ACCOUNT_ENV]))
     proc = subprocess.run([str(adapter), "interactive", entry["model"],
                            config.role_effort(entry, "orchestrator"),

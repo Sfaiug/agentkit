@@ -81,6 +81,7 @@ RULES_REF = "refs/remotes/origin/HEAD"
 ACCOUNT_ENV = "AGENTKIT_ACCOUNT"           # which of a provider's `accounts` an adapter call is for
 FIRST_PROMPT_ENV = "AGENTKIT_FIRST_PROMPT"  # ... and the line its harness opens on, where it takes one
 PROVIDER_ENV = "AGENTKIT_PROVIDER"         # ... and which providers, where a harness runs several's
+REMOTE_CONTROL_ENV = "AGENTKIT_REMOTE_CONTROL"  # ... and `on` or `off`, a seat's (remote_control)
 DEFAULT_ACCOUNT = "default"                # ... the login it has when it lists none: the empty name
 UNATTENDED_ENV = "AGENTKIT_UNATTENDED"   # set below a run loop: what it starts is machinery
 CODE = Path.home() / "code"                # where the checkouts live, and where a new seat opens
@@ -2116,6 +2117,8 @@ def adapter(harness, code=None):
         orchestrator behaves one way whatever runs it; anything else it writes goes beside that
         file.  With `[launch] first_prompt = true` it puts a non-empty $AGENTKIT_FIRST_PROMPT
         on that line as one single-quoted word, for a new conversation and a resumed one alike.
+        $AGENTKIT_REMOTE_CONTROL `off` starts it without the harness's Remote Control, where
+        it has one.
     usage
         one JSON object of meters, `error` set rather than a non-zero exit, and `credits`, the
         bought credits left where the provider has them, in `currency` where they are money.
@@ -2597,6 +2600,16 @@ def account_env(account):
     """What an adapter call for that account is told: its name in AGENTKIT_ACCOUNT, and for
     `default` the empty name -- the login the adapter uses when no account is named at all."""
     return {ACCOUNT_ENV: "" if account in (None, DEFAULT_ACCOUNT) else account}
+
+
+def remote_control(cfg):
+    """`remote_control` at the top of config.toml, true unless written false: off, a seat's
+    launch tells its adapter `off` in $AGENTKIT_REMOTE_CONTROL (orch.command)."""
+    value = cfg.get("remote_control", True)
+    if not isinstance(value, bool):
+        raise Error(f"~/.agentkit/{CONFIG_NAME}: remote_control must be true or false "
+                    f"(got {value!r})")
+    return value
 
 
 def provider_env(providers):

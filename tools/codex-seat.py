@@ -256,7 +256,10 @@ def connected(cmd, home, alive):
     cmd += ["-c", "sqlite_home=" + json.dumps(str(home))]
     runtime = tempfile.TemporaryDirectory(prefix=".cx-")
     path = Path(runtime.name) / "s"
-    server = [cmd[0], "app-server", "--remote-control", "--listen", "unix://" + str(path)]
+    # off (`remote_control = false`), nothing is enrolled, so there is nothing to name or pair
+    remote = os.environ.get(config.REMOTE_CONTROL_ENV) != "off"
+    server = [cmd[0], "app-server", *(["--remote-control"] if remote else []),
+              "--listen", "unix://" + str(path)]
     for i, word in enumerate(cmd[:-1]):
         if word in ("-c", "--config"):
             server += ["-c", cmd[i + 1]]
@@ -304,7 +307,7 @@ def connected(cmd, home, alive):
             while tui.poll() is None and alive():
                 if proc.poll() is not None:
                     raise config.Error("Codex seat server stopped")
-                if time.monotonic() >= check_at:
+                if remote and time.monotonic() >= check_at:
                     client = None
                     try:
                         client = Client(str(path))

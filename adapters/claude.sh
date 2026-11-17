@@ -304,11 +304,12 @@ interactive)
   # shlex.split, which `ak orch` parses this line with, reads no $'...'.
   first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
     { sq="'"; first=" -- '${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
-  # Remote Control on, named after the seat: the owner follows his seats from the Claude
-  # app, and a seat reopened without it -- a resume, an account move -- would be lost there.
-  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --settings %q --remote-control %q%s\n' \
-      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "$PINS" "${AGENTKIT_SESSION:-}" \
-      "$first" ;;
+  # The session named after the seat, so its composer and /resume carry the name; with Remote
+  # Control on, as the owner follows their seats from the Claude app, by that name there too.
+  named=--remote-control; [ "${AGENTKIT_REMOTE_CONTROL:-}" != off ] || named=--name
+  printf 'python3 %q -- claude %s%s--model %q --effort %q --dangerously-skip-permissions --settings %q %s %q%s\n' \
+      "$REPO/tools/idle-compact.py" "$resume" "$rules" "$1" "$2" "$PINS" "$named" \
+      "${AGENTKIT_SESSION:-}" "$first" ;;
 usage)
   command -v jq >/dev/null && command -v curl >/dev/null || err "jq and curl are required"
   login; status
