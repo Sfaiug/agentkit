@@ -74,6 +74,7 @@ class ThreeRuns(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         clock.standing(cls.home, "AK_ROUND_CLOCK", NOW)
         said = Notes()
+        cls.addClassCleanup(said.close)
         cls.rig = Rig(cls.home, "widgets", files={
             "AGENTS.md": "---\nhealth: none\ntests: python3 suite.py\n---\n# widgets\n",
             "suite.py": SUITE.format(said=said.address), "widget.txt": "v1\n",

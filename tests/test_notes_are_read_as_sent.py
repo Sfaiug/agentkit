@@ -1,12 +1,15 @@
 """tests/fixtures/notes.py reads its socket as notes are sent: a child sends more notes with a
 blocking `sendto` than any socket holds unread (512 on a host, 10 in the landing's sandbox) while
 the test only waits for it to end, and the fixture hands back every one in the order sent, then
-none."""
+none; closed, it holds no thread and nothing holds it."""
 
+import gc
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import unittest
+import weakref
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.notes import Notes
@@ -21,10 +24,20 @@ for n in range(600):
 class NotesAreReadAsSent(unittest.TestCase):
     def test_600_notes_sent_unread_come_back_in_order_then_none(self):
         notes = Notes()
+        self.addCleanup(notes.close)
         subprocess.run([sys.executable, "-c", SEND.format(address=notes.address)],
                        check=True, timeout=60)
         self.assertEqual(notes.since(), [str(n) for n in range(600)])
         self.assertEqual(notes.since(), [])
+
+    def test_closed_it_holds_no_thread_and_nothing_holds_it(self):
+        threads = threading.active_count()
+        notes = Notes()
+        notes.close()
+        closed = weakref.ref(notes)
+        del notes
+        gc.collect()
+        self.assertEqual((threading.active_count(), closed()), (threads, None))
 
 
 if __name__ == "__main__":
