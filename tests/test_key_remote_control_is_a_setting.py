@@ -1,24 +1,23 @@
 """`remote_control = false` at the top of config.toml starts every seat without its harness's
-Remote Control: a Claude seat's session still named after the seat, a Codex seat's app server
-not enrolled.  `true`, or no such line, starts it with Remote Control, a Claude seat's named
-after the seat; a value that is not a boolean is refused, naming the key.
+Remote Control: a Claude seat's session still named after the seat (a Codex seat's:
+tests/test_key_remote_control_off_on_codex.py).  `true`, or no such line, starts it with Remote
+Control, a Claude seat's named after the seat; a value that is not a boolean is refused, naming
+the key.
 
 A seat's next launch follows the setting, so a new Claude seat and one reopened from its record
 answer alike.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, whose fake `claude` refuses every call, and `ak orch --dry-run` prints
-the line a Claude seat opens on; a Codex seat opens on the Home's tmux, where a fake `codex`
-logs how its app server was started.  This test fails against `/bin/false`.
+the line a Claude seat opens on.  This test fails against `/bin/false`.
 """
 
 import shlex
 import sys
 from pathlib import Path
-import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import LOG, REAL_TMUX, Home
+from fixtures.akbin import Home
 from fixtures.akseat import Seat
 
 SEAT = "acme"
@@ -63,36 +62,6 @@ class RemoteControlIsASetting(unittest.TestCase):
                 done = self.launch(reopened, remote_control="no")
                 self.assertEqual(done.code, 2, done.out + done.err)
                 self.assertIn("remote_control", done.err)
-
-
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
-class CodexSeat(unittest.TestCase):
-    def server(self, inherited, **settings):
-        """The words a new Codex seat's app server was started with, opened from a seat whose
-        own launch was told `inherited`."""
-        home = Home()
-        self.addCleanup(home.close)
-        home.env["AGENTKIT_REMOTE_CONTROL"] = inherited
-        akconfig.write(home, ["astra"], settings=settings)
-        # a Codex that can take the seat's hooks, which is what a seat's app server serves
-        home.fake("codex", LOG.format(python=shlex.quote(sys.executable),
-                                      log=shlex.quote(str(home.log("codex"))))
-                  + "case $1 in --help) echo '  --dangerously-bypass-hook-trust' ;; esac\n")
-        done = home.ak("orch", SEAT, "--model", "astra", "--workers", "astra", tty=True)
-        self.assertEqual(done.code, 0, done.out + done.err)
-        until = time.monotonic() + 30
-        while not (started := [args for args in home.calls("codex") if args[:1] == ["app-server"]]):
-            self.assertLess(time.monotonic(), until, "no Codex app server started")
-            time.sleep(0.05)
-        return started[0]
-
-    def test_off_starts_the_app_server_without_remote_control(self):
-        self.assertNotIn("--remote-control", self.server("on", remote_control=False))
-
-    def test_on_or_unset_starts_it_with_remote_control(self):
-        for settings in ({"remote_control": True}, {}):
-            with self.subTest(**settings):
-                self.assertIn("--remote-control", self.server("off", **settings))
 
 
 if __name__ == "__main__":
