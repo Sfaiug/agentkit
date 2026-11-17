@@ -62,7 +62,7 @@ func parkExhausted(record *run.Object, why string, window bool) {
 // markState is how a run stopped, Python's mark_state: what an earlier wait paced means nothing now.
 func markState(record *run.Object, state, why string) {
 	run.SetAll(record, "state", state, "finished_at", clock(), "error", why)
-	DropErrorRetry(record) // an error's retry belongs to the error: any other mark ends that episode
+	EndErrorRetry(record) // an error's retry belongs to the error: any other mark ends that episode
 	if state != "waiting_login" {
 		for _, key := range LoginKeys {
 			record.Delete(key)

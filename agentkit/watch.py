@@ -5071,8 +5071,10 @@ def is_preexisting(state, now=None):
 
     An ending that finished before the hand-back existed, or more than an hour before the tick
     first sees it without a mark, is not delivered: it is marked `handed_back` with the note,
-    and nothing is typed or reopened for it.  A record with no date to age by is delivered: an
-    interruption has no ending date by nature, and history always has one.
+    and nothing is typed or reopened for it.  An error on the retry ladder belongs to the tick
+    until its day is up (`error_since`), so its hour starts no earlier than then.  A record
+    with no date to age by is delivered: an interruption has no ending date by nature, and
+    history always has one.
     """
     at = time.time() if now is None else now
     ended = ending_at(state)
@@ -5081,6 +5083,9 @@ def is_preexisting(state, now=None):
         if isinstance(started, (int, float)) and not isinstance(started, bool):
             return at - float(started) > HANDBACK_MAX_AGE
         return False
+    since = state.get("error_since") if state.get("state") == "error" else None
+    if isinstance(since, (int, float)) and not isinstance(since, bool):
+        ended = max(ended, float(since) + 86400)
     return at - ended > HANDBACK_MAX_AGE
 
 
@@ -7251,8 +7256,7 @@ def resume_errored(dry_run=False, log=print, now=None):
                     # inadmissible ending's do, so `going` ends with them
                     if not dry_run and ("error_retry_at" in state
                                         or "error_retries" in state):
-                        state.pop("error_retry_at", None)
-                        state.pop("error_retries", None)
+                        transitions.drop_error_retry(state)
                     continue
                 reason = ("cannot be resumed where it stopped"
                           if not transitions.error_resumable(state, run_dir) else
@@ -7263,8 +7267,7 @@ def resume_errored(dry_run=False, log=print, now=None):
                         if dry_run:
                             log(f"would leave {run_dir.name} parked for a person: {reason}")
                         else:
-                            state.pop("error_retry_at", None)
-                            state.pop("error_retries", None)
+                            transitions.drop_error_retry(state)
                             log(f"WARN {run_dir.name}: {reason}; leaving it parked for a person")
                     continue
                 at = state.get("error_retry_at")

@@ -95,8 +95,14 @@ func tickAdmitted(record *Object, now time.Time) bool {
 			return false
 		}
 	}
-	finished, ok := record.Num("finished_at")
-	if age := seconds(now) - finished; !ok || !(0 <= age && age < 86400) {
+	ended, ok := record.Num("finished_at")
+	if !ok {
+		return false
+	}
+	if since, retried := record.Num("error_since"); retried && record.Str("state") == "error" {
+		ended = since
+	}
+	if age := seconds(now) - ended; !(0 <= age && age < 86400) {
 		return false
 	}
 	path, err := config.SessionPath(Seat(record))

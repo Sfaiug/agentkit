@@ -124,7 +124,11 @@ func (l *loop) execute(word, name, body, findings string) (string, error) {
 			if done.code != 0 {
 				l.say(fmt.Sprintf("WARN %s %s; see %s", word, cmp.Or(killedWord(done.code), fmt.Sprintf("exited %d", done.code)), filepath.Join(out, "stderr.log")))
 			}
-			if err := l.saveSession(&l.execSession, c.session, "exec_session"); err != nil {
+			l.execSession = c.session
+			if err := l.save(func(record *run.Object) {
+				record.Set("exec_session", none(c.session))
+				EndErrorRetry(record)
+			}); err != nil {
 				return "", err
 			}
 			submitted, _ := handin.Read(filepath.Join(done.out, handin.File))

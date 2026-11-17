@@ -1263,6 +1263,7 @@ def finish_blocked(run_dir, state, exc, log, cfg):
     state.update({"state": "blocked", "verdict": "BLOCKED", "error": str(exc),
                   "blocked": exc.section, "finished_at": time.time()})
     state.pop("quota_dry", None)
+    transitions.drop_error_retry(state, episode=True)
     run_record.save_state(run_dir, state)
     handback.record_result(run_dir, state, log, cfg)
     worktrees.settle_run(state, run_dir, log)

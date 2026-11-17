@@ -31,5 +31,6 @@ func (l *loop) fixRun(record *run.Object) bool {
 func (l *loop) finishNotNeeded(ending *notNeeded) error {
 	return write(l.dir, func(record *run.Object) {
 		run.SetAll(record, "state", "not_needed", "verdict", nil, "not_needed", ending.why, "finished_at", clock())
+		EndErrorRetry(record)
 	})
 }

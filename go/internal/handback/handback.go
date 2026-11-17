@@ -176,10 +176,16 @@ func handedBack(record *run.Object) bool {
 }
 
 // history is an ending older than an hour, or with no date to age by but a start that is: never
-// replayed (watch.is_preexisting).
+// replayed (watch.is_preexisting).  An error on the retry ladder belongs to the tick until its day
+// is up, so its hour starts no earlier than then.
 func history(record *run.Object) bool {
 	for _, key := range []string{"finished_at", "interrupted_at"} {
 		if at, ok := run.Num(record.Get(key)); ok {
+			if key == "finished_at" && record.Str("state") == "error" {
+				if since, retried := run.Num(record.Get("error_since")); retried {
+					at = max(at, since+86400)
+				}
+			}
 			return seconds()-at > maxAge
 		}
 	}

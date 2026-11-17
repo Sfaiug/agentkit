@@ -1138,6 +1138,7 @@ def execute(lp, role, text, name):
         if code != 0:
             lp.log(f"WARN {role} {turns.killed_word(code) or f'exited {code}'}; "
                    f"see {out / 'stderr.log'}")
+        transitions.drop_error_retry(lp.state, episode=True)
         lp.save()
         return worker_result(lp, summary, out)
 
@@ -1165,6 +1166,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
                         review={"no_review": True, "executor": lp.executor, "reviewer": None,
                                 "verdict": verdict, "returncode": 0, "done_when": ok, **validation})
         lp.state.pop("review_pending", None)
+        transitions.drop_error_retry(lp.state, episode=True)
         lp.log(f"no review: checks {'passed' if ok else 'FAILED'}")
         lp.save()
         return verdict
@@ -1549,6 +1551,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                           "returncode": code, "verdict": verdict, "done_when": ok, **validation, **passed,
                           **({"overridden": overridden} if overridden else {})}
     lp.state.pop("review_pending", None)
+    transitions.drop_error_retry(lp.state, episode=True)
     fixed_from = lp.state.get("reviewed_sha") if lp.rnd > 1 else None     # round 1 judges a build, not a fix
     if validation.get("head_sha"):
         lp.state["delta_from"] = validation["head_sha"]     # every review, recorded or not
