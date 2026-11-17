@@ -1,13 +1,13 @@
 """`ak standby ALIAS`, run on a client of ALIAS, makes one pass of this machine's copy of ak's
 folder on that home, at the same path: what the home deleted goes here too, and a run ended on
 both machines stays as it was here; a file rewritten at the same size within a second crosses
-too.  This machine's record of its server, ak's tmp folder, its ak install and ak's repository
-stay as they were, and nothing starts from the copy: the crontab holds the standby's own job
-alone.  A pass whose home does not answer, or has no ak folder, leaves the copy as it was, says
-why and exits non-zero; a machine not ALIAS's client is refused, saying so, as is one where a
-link is at what it keeps or above it in ak's folder, which a pass would replace or go past.  None
-of those renames the copy's config key by its old name, as other commands do.  Black-box,
-through tests/fixtures/twohomes.py.
+too, and a file the home deletes mid-pass fails no pass.  This machine's record of its server,
+ak's tmp folder, its ak install and ak's repository stay as they were, and nothing starts from the
+copy: the crontab holds the standby's own job alone.  A pass whose home does not answer, or has
+no ak folder, leaves the copy as it was, says why and exits non-zero; a machine not ALIAS's client
+is refused, saying so, as is one where a link is at what it keeps or above it in ak's folder,
+which a pass would replace or go past.  None of those renames the copy's config key by its old
+name, as other commands do.  Black-box, through tests/fixtures/twohomes.py.
 """
 
 import os
@@ -17,10 +17,11 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import boxable
+from fixtures.akbin import SYSTEM, boxable
 from fixtures.twohomes import Machines
 
 STATE = ".agentkit/state/watch.json"     # the home's, which a pass copies
+REAL = shutil.which("rsync", path=os.pathsep.join(SYSTEM))    # past any fake of it
 WRITTEN = 1_800_000_000_100_000_000     # when, in nanoseconds: a tenth into its second
 GONE = ".agentkit/tasks/fix-api.md"      # copied by an earlier pass, since deleted on the home
 # a run ended on both machines, which no pass copies
@@ -71,6 +72,15 @@ class APassCopiesAksFolder(unittest.TestCase):
         done = here.ak("standby", home.name)
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual(here.tree()[STATE], home.tree()[STATE])
+
+    def test_a_file_the_home_deletes_mid_pass_fails_no_pass(self):
+        home, here = self.home, self.here
+        # rsync's own word for a file gone between its listing and its sending
+        here.fake("rsync", f'#!/bin/sh\n{REAL} "$@" || exit; exit 24\n')
+        done = here.ak("standby", home.name)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual(here.tree().get(STATE), home.tree()[STATE])
+        self.assertEqual(here.ak("standby").code, 0)    # it stamped: the copy has an age
 
     def test_a_pass_whose_home_does_not_answer_or_has_no_ak_folder_leaves_the_copy(self):
         home, here = self.home, self.here

@@ -6,11 +6,13 @@ cannot read, such as a test stopped before it cleaned up leaves, which would fai
 Elsewhere one fails the pass, as any error of rsync's does.  A run is open where its folder holds
 no record that can be read, or one whose state is not among `record.ENDED`: one that ended on the
 home since the last pass is open here still, so the next pass copies it, its ended record with
-it, and then no more.  Before it, what a seat carrying on from the copy needs of each harness: its
-logins, every account's, and the folders its conversations start from, each at its path, the rest
-of that harness's folders this machine's own.  After it, ak here moves as every client's does
-(`update.follow`), to the commit ak is at on the home once the home's move there is final, so the
-ak that takes over is the one that was live.
+it, and then no more, but after a go of rsync's that exited 24, for a file the home deleted under
+it: what this machine held of that file stays, so the runs of that go are owed to the next pass,
+ended or not, till a go of them exits 0.  Before it, what a seat carrying on from the copy needs
+of each harness: its logins, every account's, and the folders its conversations start from, each
+at its path, the rest of that harness's folders this machine's own.  After it, ak here moves as
+every client's does (`update.follow`), to the commit ak is at on the home once the home's move
+there is final, so the ak that takes over is the one that was live.
 
 rsync writes straight into the copy, sending what changed within each file, compressed, over the
 owner's line; each file lands whole, the old one or the new one.  A pass cut short leaves some
@@ -20,10 +22,10 @@ that ends well evens it out.
 Before the pass it keeps this machine's own job, which makes the pass again every three minutes,
 as the home's tick runs, after the keeper of a move of ak here, as the tick's line runs it
 (`back`), then sends again, as a tick does, each page of this machine's own the webhook did not
-take (`notify.retry_pending`), whether the home answers or not.  A pass that ends well stamps
-when it began, and from which home, then why ak here stayed where it was, if it did, and at its
-end does with the last move here what the end of a tick does on a home (`versions.final`): a
-pass of the version that move put live makes it final.
+take (`notify.retry_pending`), whether the home answers or not.  A pass that ends well keeps
+the runs it owes the next, then stamps when it began, and from which home, then why ak here
+stayed where it was, if it did, and at its end does with the last move here what the end of a
+tick does on a home (`versions.final`): a pass of the version that move put live makes it final.
 That is all a pass keeps: one that fails, however it fails, writes nothing and makes nothing
 final, for it cannot tell a silent home from code that is broken, and `ak standby`, which reads
 the copy's age from the stamp, shows passes failing as an age that goes on growing.  A pass's
@@ -98,12 +100,12 @@ while folders:
             sys.stdout.buffer.write(entry.path + b"\\0")
 """.encode()
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
-GOES = 3        # a go during which files vanished on the home leaves their old copies here
 # This machine's own folder of the copy, in ak's tmp folder: the stamp of the last pass that ended
-# well, and the lock a pass holds, which the kernel lets go of when the pass ends, however it ends.
+# well, the runs it owes the next, each name NUL-ended as the ask's are, and the lock a pass holds,
+# which the kernel lets go of when the pass ends, however it ends.
 # Names, not paths: each follows HOME, as config's places do.  install.sh keeps the runs, checkouts
 # and work of a client with this folder, a standby.
-FOLDER, COPIED, LOCK = "standby", "copied", "lock"
+FOLDER, COPIED, OWED, LOCK = "standby", "copied", "owed", "lock"
 TAG = b"# agentkit standby"     # what the job's line in the crontab ends in
 
 
@@ -163,9 +165,9 @@ def _keep_job(alias):
     return True
 
 
-def _copy(alias, home, copied):
+def _copy(alias, home, copied, own):
     """One pass from `alias`: `copied` under `home`, then ak's folder with each run open on the
-    home or here.  Why it failed, or None."""
+    home or here, or owed in `own`.  Why it failed, or None."""
     # The home's open runs and what it cannot read first, so one whose runs' folder is a link
     # fails the pass before it copies anything: rsync would put that link here in place of the
     # runs' folder.
@@ -182,7 +184,11 @@ def _copy(alias, home, copied):
         return f"reading what to copy exited {asked.returncode}"
     names = asked.stdout.split(b"\0")[:-1]
     gap = names.index(b"")
-    runs = sorted({os.fsdecode(name) for name in names[:gap]}
+    try:
+        owed = (own / OWED).read_bytes().split(b"\0")[:-1]
+    except FileNotFoundError:     # no pass here has ended well yet
+        owed = []
+    runs = sorted({os.fsdecode(name) for name in (*names[:gap], *owed)}
                   | {run.name for run in record.run_dirs()
                      if (state := record.read_state(run)) is None
                      or state.get("state") not in record.ENDED})
@@ -212,23 +218,31 @@ def _copy(alias, home, copied):
                   *(f"--filter=-p /{at}/**/{name}*/" for name in SCRATCH),
                   *(f"--filter=+ /{at}/{_literal(run)}" for run in runs), f"--filter=- /{at}/*",
                   f"{alias}:{config.HOME}/", f"{config.HOME}/"]):
-        for _ in range(GOES):
-            code = subprocess.run([
-                "rsync", "-aHz", "--no-D", "--delete", "--modify-window=-1", f"--timeout={TIMEOUT}",
-                *(["--info=progress2"] if sys.stdout.isatty() else []), *args]).returncode
-            if code != move.VANISHED:
-                break
-        if code:
+        code = subprocess.run([
+            "rsync", "-aHz", "--no-D", "--delete", "--modify-window=-1", f"--timeout={TIMEOUT}",
+            *(["--info=progress2"] if sys.stdout.isatty() else []), *args]).returncode
+        # A file the home deleted while rsync read it is no failure, as in a move: all that is
+        # still there crossed, and what this machine held of the file goes with the next pass.
+        # A home at work deletes in its checkouts all the time: on 17 Nov a second and a third
+        # go each met more, and the passes failed for it.
+        if code not in (0, move.VANISHED):
             return f"rsync exited {code}"
+    # The next pass copies these runs whatever their records say: a run this go ended here would
+    # else be ended on both machines, and what it held of a deleted file would stay for good.
+    _keep(own / OWED, b"".join(os.fsencode(run) + b"\0" for run in runs) if code else b"")
     return None
 
 
+def _keep(kept, data):
+    """`data` in `kept`, whole or not at all: a write cut short leaves the last."""
+    new = kept.with_name(f"{kept.name}.new")
+    new.write_bytes(data)
+    new.replace(kept)
+
+
 def _stamp(own, *lines):
-    """The stamp of a pass that ended well, whole or not at all: a write cut short leaves the
-    last."""
-    new = own / f"{COPIED}.new"
-    new.write_text("".join(f"{line}\n" for line in lines))
-    new.replace(own / COPIED)
+    """The stamp of a pass that ended well."""
+    _keep(own / COPIED, "".join(f"{line}\n" for line in lines).encode())
 
 
 def _shown():
@@ -291,7 +305,7 @@ def main(argv):
             return 1
         notify.retry_pending()
         began = pair_clock.now()
-        if why := _copy(alias, home, copied):
+        if why := _copy(alias, home, copied, own):
             print(f"ak standby: the pass from {alias} failed: {why}", file=sys.stderr)
             return 1
         _stamp(own, began.line(), alias)
