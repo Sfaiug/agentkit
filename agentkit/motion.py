@@ -516,6 +516,8 @@ class Clock:
         opened = now if self.opened is None else self.opened    # not yet: by this draw's frame
         if (self.fade or self.page) and moves and now < opened + FADE:
             self.rising = lines
+        elif not moves:     # up at once: a later draw where it can move does not open it again
+            self.opened = -math.inf
         return self.rising is not None or self.turning is not None
 
     def light(self, now, moves):

@@ -128,13 +128,33 @@ class ComingUp(test_breathing.MainScreen):
             self.assertEqual(len({dot[2:] for dot in found}), 1)
         self.assert_breathing(waits[landed][2], waits[up[-1] + 1:-1])
 
-    def test_down_half_way_up_draws_the_card_at_rest(self):
-        waits, asked = self.ask(None, Key("down"), None)
+    def remove(self, *script, at=-1, news=None):
+        """`− remove` under Claude II, the card's waits answered from `script` (`answering`) and
+        none removed: each wait's timeout, when it was asked, and what was written before it."""
+        # its providers alone: a removal goes no further than its save, never signing anything out
+        cfg = {"providers": {"anthropic": {"accounts": ["default", "b2"]}}}
+        out, waits, answer = io.StringIO(), [], answering(self.sleep, script, at, news)
+        out.isatty = lambda: True
+
+        def wait_key(prompt, timeout=None, wake=None):
+            waits.append((timeout, self.now, out.getvalue()))
+            out.seek(0)
+            out.truncate()
+            return answer(timeout)
+        with patch.object(menu, "wait_key", wait_key), redirect_stdout(out), \
+                patch.object(terminal, "_TAKEN", test_breathing.Keyboard()):
+            said = menu.config_remove_provider(cfg, ("anthropic", "b2", "Claude II"))
+        self.assertEqual((said, cfg["providers"]["anthropic"]["accounts"]), ("", ["default", "b2"]))
+        return waits
+
+    def test_down_half_way_up_draws_the_card_at_rest_and_esc_after_it_no_more(self):
+        waits, asked = self.ask(None, Key("down"))
         pressed = asked + 2                 # what the key drew
         self.assertAlmostEqual(waits[pressed][1] - waits[asked][1], motion.FADE / 2)
         self.assertLess(ink(waits[pressed - 1][2], "✓ Keep"), light("text"))
         self.assertEqual([ink(waits[pressed][2], word) for word in ("✓ Keep", "× Stop")],
                          [light("text"), light("amber")])
+        self.assertNotIn("✓ Keep", waits[pressed + 1][2])    # Esc, the highlight still moving
 
     def test_a_click_on_keep_half_way_up_keeps_whatever_moves_the_card_as_it_is_read(self):
         # the count landing takes a line off the card: `× Stop` comes up onto the row clicked
@@ -146,25 +166,25 @@ class ComingUp(test_breathing.MainScreen):
         means = menu.REMOVE_SUBSCRIPTION_ASK[1]
         self.cols = next(width for width in range(60, 121) if len(terminal.wrap(
             means, width - 2)) > len(terminal.wrap(means, 118)))       # widened, a line less
-        # its providers alone: a removal goes no further than its save, never signing anything out
-        cfg = {"providers": {"anthropic": {"accounts": ["default", "b2"]}}}
-        out = io.StringIO()
-        out.isatty = lambda: True
-        answer = answering(self.sleep, [None, "✓ Keep"], 1, lambda: setattr(self, "cols", 120))
-        with patch.object(menu, "wait_key", lambda prompt, timeout=None, wake=None:
-                          answer(timeout)), redirect_stdout(out):
-            said = menu.config_remove_provider(cfg, ("anthropic", "b2", "Claude II"))
-        self.assertEqual((said, cfg["providers"]["anthropic"]["accounts"]), ("", ["default", "b2"]))
+        waits = self.remove(None, "✓ Keep", at=1, news=lambda: setattr(self, "cols", 120))
+        self.assertAlmostEqual(waits[1][1] - waits[0][1], motion.FRAME)     # read at FADE / 2,
+        self.assertLess(ink(waits[1][2], "✓ Keep"), light("text"))          # the card coming up
 
-    def test_under_no_color_or_on_a_screen_that_scrolls_no_frame_follows_the_cards(self):
-        for still in (patch.dict(os.environ, {"NO_COLOR": "1"}),
-                      patch.object(terminal, "height", return_value=8)):   # taller: it scrolls
+    def test_where_nothing_moves_the_card_is_up_at_once_and_waits_for_a_key_alone(self):
+        rows = [8]
+        for still in (patch.object(terminal, "height", side_effect=lambda: rows[0]),  # it scrolls
+                      patch.dict(os.environ, {"NO_COLOR": "1"})):
             with self.subTest(still), still:
-                waits, asked = self.ask(*[None] * 4)
-                for _, _, written in waits[asked:-1]:      # Esc read last
+                # the terminal grown as the first is read: drawn again where it can move, up
+                waits = self.remove(None, Key("esc"), at=0, news=lambda: rows.__setitem__(0, 24))
+                self.assertEqual([timeout for timeout, _, _ in waits], [None, None])
+                for _, _, written in waits:
                     self.assertNotRegex(written.rpartition("\033[J")[2], r"\x1b\[\d+;\d+H")
-        self.assertEqual([ink(waits[asked][2], word) for word in ("✓ Keep", "× Stop")],
-                         [light("text"), light("amber")])       # on 8 rows, at rest at once
+        # a page's, as `c`'s whose `a` asks: drawn first where nothing moves, it is up, and stays
+        # up drawn again where it can
+        page = motion.Clock(page=True)
+        with patch.object(motion, "movable", side_effect=[False, True]):
+            self.assertEqual([page.rise(["acme"]) for _ in "up"], [False, False])
 
 
 if __name__ == "__main__":

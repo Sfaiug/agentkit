@@ -663,11 +663,12 @@ def wait_key(prompt, timeout=None, wake=None):
     return read("", "")
 
 
-def moving(clock, wake=None, timeout=TICK, going=None):
-    """`wait_key` on the main screen, its digit wait and its stop question, and on a screen whose
+def moving(clock, wake=None, timeout=TICK, going=None, rest=True):
+    """`wait_key` on the main screen, its digit wait and a card asked, and on a screen whose
     content is fetched: `timeout` seconds at most, and each of `clock`'s frames drawn while
     something moves and no key is waiting.  A key but the pointer's writes the last frame of the
-    highlight's motion before it at once (`motion.Clock.rest`), whatever reads next.
+    highlight's motion before it at once (`motion.Clock.rest`), whatever reads next, but to
+    what draws itself again or goes on reading it (`rest` False: a card, `asking`).
 
     Only a wait that ran to its frame draws one.  One that ended before it, on news, returns
     None, its cells forgotten, for the caller to draw the screen again; so does one a resize
@@ -687,7 +688,7 @@ def moving(clock, wake=None, timeout=TICK, going=None):
             clock.clear()
             clock.forget()
             return None
-        if isinstance(key, terminal.Key) and key.name != "point":
+        if rest and isinstance(key, terminal.Key) and key.name != "point":
             terminal.over(clock.rest())
         if key is not None or due is None or time.monotonic() >= until:
             return key
@@ -707,10 +708,16 @@ def asking(clock, around, going=lambda: None):
     and `draw` on the ak screen).  Its frames are drawn while the answer is waited for
     (`moving`), `going()`'s fetch looked at, and a key, not the pointer, ends them, answered as
     it is read on the card as it was drawn: one that keeps it draws it at rest, as a resize
-    does.  Its highlight comes up with it, and news that moves the card, a count landing, moves
-    the highlight with it (`motion.Clock.hold`): only a key or the pointer moves it on the card."""
+    does, and no more of it is drawn after one that answers.  With nothing to draw, a key or a
+    resize alone is waited for, as on a page that draws nothing more.  Its highlight comes up
+    with it, and news that moves the card, a count landing, moves the highlight with it
+    (`motion.Clock.hold`): only a key or the pointer moves it on the card."""
     def wait():
-        key = moving(clock, going=going())
+        fetching = going()
+        if fetching or clock.wait() is not None:
+            key = moving(clock, going=fetching, rest=False)
+        elif (key := wait_key("> ")) is None:
+            clock.forget()            # a resize: drawn as it is (moving)
         if key is None:
             clock.hold()
         elif key.name != "point":
