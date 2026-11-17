@@ -74,7 +74,6 @@ if args[:1] == ['app-server'] and 'FAKE_NATIVE' not in os.environ:
         signal.signal(sig, lambda signum, frame: native.send_signal(signum))
     sys.exit(native.wait())
 if args[:1] == ['app-server']:
-    assert '--remote-control' in args
     # Its entry point killed, it never outlives the test. The entry point names itself: one killed
     # before this runs has already left the child to another parent.
     def orphaned(parent=int(os.environ.pop('FAKE_NATIVE'))):
@@ -88,14 +87,16 @@ if args[:1] == ['app-server']:
     identity = ch / 'installation_id'
     if not identity.exists():
         identity.write_text('acme-' + uuid.uuid4().hex)
+    environment = None      # without --remote-control the server enrolls nothing
     database = ch / 'state_5.sqlite'
     with sqlite3.connect(database) as db:
         db.execute('CREATE TABLE IF NOT EXISTS remote_control_enrollments '
                    '(environment_id TEXT, account_id TEXT)')
-        if not db.execute('SELECT 1 FROM remote_control_enrollments').fetchone():
-            db.execute('INSERT INTO remote_control_enrollments VALUES (?, ?)',
-                       ('env_acme_' + uuid.uuid4().hex, 'acme-account'))
-        environment = db.execute('SELECT environment_id FROM remote_control_enrollments').fetchone()[0]
+        if '--remote-control' in args:
+            if not db.execute('SELECT 1 FROM remote_control_enrollments').fetchone():
+                db.execute('INSERT INTO remote_control_enrollments VALUES (?, ?)',
+                           ('env_acme_' + uuid.uuid4().hex, 'acme-account'))
+            environment = db.execute('SELECT environment_id FROM remote_control_enrollments').fetchone()[0]
     settings = {}
     for i, word in enumerate(args[:-1]):
         if word == '-c':

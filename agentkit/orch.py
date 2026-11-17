@@ -3162,6 +3162,9 @@ def cmd_rules(argv):
 def cmd_pair(argv):
     if len(argv) != 1:
         raise config.Error("usage: ak orch pair SEAT")
+    if not config.remote_control(config.load()):
+        raise config.Error(f"Remote Control is off in ~/.agentkit/{config.CONFIG_NAME} "
+                           "(remote_control = false)")
     # the seat's tool answers: its words and exit status are the verb's own
     return subprocess.run([sys.executable, str(config.REPO / "tools/codex-seat.py"),
                            "--pair", argv[0]]).returncode

@@ -2604,7 +2604,8 @@ def account_env(account):
 
 def remote_control(cfg):
     """`remote_control` at the top of config.toml, true unless written false: off, a seat's
-    launch tells its adapter `off` in $AGENTKIT_REMOTE_CONTROL (orch.command)."""
+    launch tells its adapter `off` in $AGENTKIT_REMOTE_CONTROL (orch.command), and `ak orch
+    pair` refuses."""
     value = cfg.get("remote_control", True)
     if not isinstance(value, bool):
         raise Error(f"~/.agentkit/{CONFIG_NAME}: remote_control must be true or false "
