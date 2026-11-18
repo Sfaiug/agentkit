@@ -19,17 +19,17 @@ then `────────────────────────�
 
 ## Width and rhythm
 
-The layout is at most 120 columns wide, seat content at most 100, and drawn for "40 cells and
-wider" (owner, 18 Nov 2026): a line that wraps or misplaces a click below 40 is no defect and
-gets no fix. A project's, harness's or company's name is bold, flush left over its seats,
-models or subscriptions (`+ add a subscription`'s too), two spaces in; a blank line parts
-projects.
+The layout is at most 120 columns, seat content at most 100, and drawn for 40 columns,
+"40 cells and wider" (owner, 18 Nov 2026): a line that wraps or misplaces a click below 40 is
+no defect and gets no fix. A project's, harness's or company's name is bold, flush left over
+its seats, models or subscriptions (`+ add a subscription`'s too), two spaces in; a blank
+line parts projects.
 
 Rows are tables of fixed columns, sized once per draw and split by two-space gutters,
 never ` · `: number, name, model, state, and a last that takes the rest.
 
 Nothing is cut inside a word, a glyph or a sentence. A column gives way first,
-a long line wraps at words, and below 60 columns a row folds onto an indented second line. No
+a long line wraps at words, and below 60 a row folds onto an indented second line. No
 line keeps trailing space. Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`,
 `terminal.cells`, `terminal.plain`, `terminal.styled`.
 
