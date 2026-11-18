@@ -133,23 +133,26 @@ func TestACommandIsNeverTheShellsOptions(t *testing.T) {
 func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	t.Setenv("ACME_TOKEN", "kept")
-	// absolute, as a relative TMPDIR would leave the link's target relative to the link and PWD
-	// is the checkout made absolute; and as the system has it, never by its words alone: a
-	// TMPDIR with a symlink before `..`, or `..` above a working directory named through one,
-	// is another directory once cleaned
+	// PWD is the checkout made absolute by its words, so its temp directory is taken as named
+	// where that is absolute and clean, and otherwise as the system has it: a relative TMPDIR
+	// would leave the link's target relative to the link, and one with a symlink before `..`,
+	// or `..` above a working directory named through one, is another directory once cleaned
 	dir := t.TempDir()
-	wd, err := os.Getwd()
-	if err == nil {
-		wd, err = filepath.EvalSymlinks(wd)
-	}
-	if err == nil && !filepath.IsAbs(dir) {
+	if !filepath.IsAbs(dir) {
+		wd, err := os.Getwd()
+		if err == nil {
+			wd, err = filepath.EvalSymlinks(wd)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 		dir = wd + string(os.PathSeparator) + dir
 	}
-	if err == nil {
-		dir, err = filepath.EvalSymlinks(dir)
-	}
-	if err != nil {
-		t.Fatal(err)
+	if filepath.Clean(dir) != dir {
+		var err error
+		if dir, err = filepath.EvalSymlinks(dir); err != nil {
+			t.Fatal(err)
+		}
 	}
 	checkout := filepath.Join(dir, "acme-link")
 	if err := os.Mkdir(filepath.Join(dir, "acme"), 0o755); err != nil {
