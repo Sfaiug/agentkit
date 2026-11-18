@@ -2264,7 +2264,9 @@ def _manifest(harness):
         cached = _MANIFESTS.get(path)
         if cached and cached[0] == stamp:
             return cached[1]
-        data = _read_toml(path) or {}
+        data = _read_toml(path)
+        if data is None:    # gone since its stat: missing, as above, and nothing cached
+            continue
         _MANIFESTS[path] = (stamp, data)
         return data
     return {}
