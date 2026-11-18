@@ -12,6 +12,7 @@ fits each plan's points of a week a listed dollar takes from every login's readi
 import contextlib
 import functools
 import json
+import math
 from pathlib import Path
 import sqlite3
 import time
@@ -34,9 +35,9 @@ def listed(cfg, provider, account, since, until):
     and `until` at listed prices; None where none of its rows from then can be priced.
 
     A row is the login's where its account is and its harness is the provider's (`_ours`).  A
-    row it cannot price, its model listing no price or its counts unknown, costs what the
-    login's priced rows cost a token.  A turn row costs the dollars it kept (`history`), whatever
-    the boards list now; one without is priced as it is read.
+    row it cannot price, its model listing no price, its counts unknown or its cost no float's,
+    costs what the login's priced rows cost a token.  A turn row costs the dollars it kept
+    (`history`), whatever the boards list now; one without is priced as it is read.
     """
     return _listed(_ours(cfg, provider), _pricing(), account, since, until)
 
@@ -303,10 +304,16 @@ def _cost(prices, model, counts, kept):
 
 def _dollars(prices, counts):
     """What a row's `counts` by `PRICES` cost at `prices`, a million tokens of each; None where
-    either is unknown."""
+    either is unknown or the cost is no float's, as a board listing an infinite price, one near
+    a float's largest or an integer past it: summed, it would leave every cost it joins infinite
+    or NaN, or raise."""
     if prices is None or None in counts:
         return None
-    return sum(count * price for count, price in zip(counts, prices)) / 1e6
+    try:
+        dollars = sum(count * price for count, price in zip(counts, prices)) / 1e6
+    except OverflowError:   # json reads an integer whole, and one past a float's largest
+        return None
+    return dollars if math.isfinite(dollars) else None
 
 
 def _pricing():

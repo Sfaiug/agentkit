@@ -2,6 +2,7 @@ package matrix
 
 import (
 	"cmp"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -288,8 +289,8 @@ func (s *spend) plans(accounts []usage.Week, windows ...[2]float64) []map[usage.
 // listed is the dollars the login of provider spent between since and until at listed prices,
 // false where none of its rows from then can be priced, Python's spend.listed.  A row is the
 // login's where its account is and its harness runs models of that provider alone; a row it
-// cannot price, its model listing no price or its counts unknown, costs what the login's priced
-// rows cost a token.
+// cannot price, its model listing no price, its counts unknown or its cost no float's, costs what
+// the login's priced rows cost a token.
 func (s *spend) listed(provider, account string, since, until float64) (float64, bool) {
 	dollars, priced, unpriced, found := 0.0, 0.0, 0.0, false
 	for _, row := range s.rows(cmp.Or(account, config.DefaultAccount), since, until) {
@@ -387,7 +388,9 @@ func (s *spend) runsAlone(harness, provider string) bool {
 }
 
 // dollars is what a row's counts cost at its model's listed prices, a million tokens of each,
-// false where either is unknown, Python's spend._dollars.
+// false where either is unknown or the cost is no float's, as a board listing an infinite price
+// or one near a float's largest: summed, it would leave every cost it joins infinite or NaN,
+// Python's spend._dollars.
 func (s *spend) dollars(row spent) (float64, bool) {
 	prices := s.listedPrices(row.model)
 	if prices == nil || !row.known {
@@ -397,7 +400,8 @@ func (s *spend) dollars(row spent) (float64, bool) {
 	for i, price := range prices {
 		costs[i] = row.counts[i] * price
 	}
-	return quality.Sum(costs) / 1e6, true
+	dollars := quality.Sum(costs) / 1e6
+	return dollars, !math.IsInf(dollars, 0) && !math.IsNaN(dollars)
 }
 
 // listedPrices is a model's listed price a million tokens of each type, nil where it has none,
