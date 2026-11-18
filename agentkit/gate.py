@@ -1922,13 +1922,16 @@ def unfinished(given, activity, failed, start=0):
 def passes_what_it_holds(code, only, ran, failed, absent):
     """Whether a run of just the tests `only` lists, exiting `code`, passed each one its tree
     holds: it named each as run (`AK_RAN`) but those it named as not there (`AK_NOT_THERE`), as
-    a test file names a part only a later change adds, and failing, it named one at least as not
-    there and none of the others as failed (`AK_FAILED`).  A narrowing step counts that stack as
-    passing them (land._check_tests, land._probe); to a person and every other check the run
-    exited as it did."""
+    a test file names a part only a later change adds, and failing, it ended as its runner ends
+    (`ran_to_end`: a test that dies of a signal takes its runner along, named as run alone) and
+    named one at least as not there and nothing else as failed (`AK_FAILED`): a file handed
+    whole fails by a part of it.  A narrowing step counts that stack as passing them
+    (land._check_tests, land._probe), and a round that run of its chosen tests as exiting 0
+    (`_run_suite`'s `absent_ok`); to a person and every other check the run exited as it did."""
     there = [test for test in only if test not in absent]
-    return all(test in ran for test in there) and (
-        code == 0 or code > 0 and len(there) < len(only) and not set(there) & set(failed))
+    return all(test in ran for test in there) and (code == 0 or (
+        ran_to_end(code) and len(there) < len(only)
+        and set(failed) <= set(only) - set(there)))
 
 
 def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, known=(),
@@ -1952,7 +1955,7 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, known
 def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, flaky=None, named=None, checked=None, asked=None,
-              raw=None, absent=None, used=None, known=(), **kwargs):
+              raw=None, absent=None, absent_ok=False, used=None, known=(), **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1985,7 +1988,8 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
     or `shard`) named as failed, confirmed or not.
     `raw` receives each piece's process exits by share, before checking coverage of `only`.
     `absent`, a list, gets with `shard` and `only` the tests the run named as not there where it
-    passed what its tree holds (`passes_what_it_holds`), and none otherwise.
+    passed what its tree holds (`passes_what_it_holds`), and none otherwise; with `absent_ok`
+    that run exits 0 here, those tests said in `output`.
     Every piece gets `times`, the file times recorded as the suite starts (`_record`), in the
     file AK_TIMES names: a record another suite changes meanwhile would cut a later piece's share
     differently.
@@ -2025,13 +2029,21 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
             confirmed[shard] = (unfinished(only, activity, failed, start) if stops == ["silence"]
                                 else [test for test in only if code > 0 and not killed
                                       and test in ran and test in failed])
+        excused = ([test for test in only if test in gone] if only is not None and not killed
+                   and passes_what_it_holds(code, only, ran, failed, gone) else [])
         if absent is not None and only is not None:
-            # the last go's, as a re-run decides
-            absent[:] = ([test for test in only if test in gone] if not killed
-                         and passes_what_it_holds(code, only, ran, failed, gone) else [])
+            absent[:] = excused     # the last go's, as a re-run decides
         if named is not None and code > 0:
-            named.extend(failed)
-        if ran is not None:
+            # a runner names a test not there as failed too (tests/every_file.py): it failed none
+            named.extend(test for test in failed if test not in (gone or ()))
+        if absent_ok and excused:
+            # Counted in the exit, where a narrowing step is told beside it (`absent`): a re-run
+            # and its flaky record go by the exit alone (`run_done_when`), as does the log a
+            # resumed round settles its checks from (`roundloop.settled_gate`).
+            output.write("[not there (AK_NOT_THERE), counted as passed: "
+                         f"{' '.join(excused)}]\n".encode())
+            code = 0
+        elif ran is not None:
             code = unnamed(code, only, ran, output)
         if pieces is not None:
             pieces[shard] = None if killed else code
@@ -2645,7 +2657,7 @@ def _running_commands(pid):
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
                   confirmed=None, flaky=None, checked=None, exits=None, timings=None,
-                  took=None, absent=None, known=(), blamed=False):
+                  took=None, absent=None, absent_ok=False, known=(), blamed=False):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2698,7 +2710,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     until then, takes `text`, its capped form. `timings`, a dict, gets each passing command's
     ({file: seconds}, piece count) from this pass alone, before that cap, and `took` its last
     go's seconds, charged to the ceiling as they are: its waits for a turn aside.  `absent` is
-    `run_suite`'s, for one command, and `known` its for every one.
+    `run_suite`'s, for one command, and `absent_ok` and `known` its for every one.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2759,7 +2771,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         only=only, confirmed=reds, flaky=flakes, named=named,
                         # Whole commands retry here; their named outcomes must wait for that.
                         checked=checked if split(cmd) else None, asked=asked, raw=raw,
-                        absent=absent, used=ended, known=known, blamed=blamed)
+                        absent=absent, absent_ok=absent_ok, used=ended, known=known,
+                        blamed=blamed)
                     ended["exit"] = None if killed else code
                     end = progress.tell()
                 go = left - (deadline - time.monotonic())

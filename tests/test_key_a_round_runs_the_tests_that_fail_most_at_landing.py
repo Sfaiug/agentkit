@@ -162,11 +162,11 @@ class ThreeRuns(unittest.TestCase):
 
     def test_a_red_test_runs_most_first_and_its_failing_exit_sends_the_round_back(self):
         # A suite the target runs uncut fits all, though it once ran in pieces: failing, its
-        # re-run failing, then after the fixer's turn failing twice only by the part not there,
-        # the test the target is red on now left out.
+        # re-run failing, then after the fixer's turn failing only by the part not there, which
+        # passes, the test the target is red on now left out.
         self.assertEqual(self.notes["two"],
                          ["suite ./tests/often.sh ./tests/sometimes.sh ./tests/parts.sh::dropped"
-                          " ./tests/repaired.sh"] * 4
+                          " ./tests/repaired.sh"] * 3
                          + ["review", "suite whole"])
         self.assertEqual([run["role"] for run in self.fakes["claude"].runs()],
                          ["executor", "executor", "fixer", "executor"])
@@ -176,9 +176,9 @@ class ThreeRuns(unittest.TestCase):
 
     def test_of_more_than_fit_one_piece_the_most_often_red_run(self):
         # held.sh too, the target moved past its red; landing then runs the suite's pieces
-        self.assertEqual(self.notes["three"][:3], [
+        self.assertEqual(self.notes["three"][:2], [
             "suite ./tests/held.sh ./tests/often.sh ./tests/parts.sh::dropped"
-            " ./tests/repaired.sh"] * 2 + ["review"])
+            " ./tests/repaired.sh", "review"])
 
 
 if __name__ == "__main__":

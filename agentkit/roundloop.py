@@ -490,14 +490,13 @@ def verify_work(lp, cmds=None):
         # One more check, on no suite turn: the line given just those tests (`AK_ONLY`), red by
         # its exit, a pass that does not name each one as run among them (`gate.unnamed`).  The
         # record times a part until a landing times its file again, so one the tree dropped is
-        # handed: failing only by naming it not there, the run passed what its tree holds, as a
-        # narrowing step's does (18 Nov 2026: every round of one project failed on such a part).
-        gone = []
+        # handed: a run failing only by naming it not there passes (`absent_ok`), as a narrowing
+        # step's does (18 Nov 2026: every round of one project failed on such a part).
         passed, more = gate.run_done_when(
             [named[0]], lp.wt, lp.round_dir / "donewhen.log", lp.artifacts, lp.done_when_limit,
             lp.log, silence=lp.turn_limit, run_dir=lp.run_dir, shard="1/1", only=named[1],
-            checked=(lp.run_dir, lp.rnd, "done-when", head), absent=gone)
-        ok, text = ok and (passed or bool(gone)), f"{text}\n\n{more}"
+            checked=(lp.run_dir, lp.rnd, "done-when", head), absent_ok=True)
+        ok, text = ok and passed, f"{text}\n\n{more}"
     if not lp.scratch and not lp.state.get("review_pr") and (
             not clean or gitcall.commit_identity(lp.wt) != lp.validation or
             gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
