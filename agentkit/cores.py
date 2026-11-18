@@ -65,6 +65,17 @@ def tell(state, log):
                   log)
 
 
+def holding(state):
+    """[(seat, seconds)] of each seat the tick's last reading (`tell`) found holding a core, and
+    how long it had by then, longest first.  A scope's `told` marks one: it is there from the
+    second interval in a row over, when the seat is told, to the first under, while `since` is
+    there from the first, which alone is no offence."""
+    held = [(front.seat_now(front.SEAT_SCOPE.fullmatch(scope)[1]), seen["at"] - seen["since"])
+            for scope, seen in (state.get("seat_cores") or {}).items()
+            if seen.get("told") is not None]
+    return sorted(held, key=lambda seat: -seat[1])
+
+
 def _tell(name, command, held, log):
     """Owe that seat the line, as the tick's log says it, unless the last is still owed: two
     lines would each open a turn."""
