@@ -1,6 +1,7 @@
 """A release Artificial Analysis names with no letter or digit takes no other board's numbers:
 an Arena row named so too, `???` beside a release named `!!!`, leaves the models screen's answer
-as it was.
+as it was.  One named with spaces or hyphens alone is labelled by its slug, as one it names
+nothing is.
 
 Black-box: AK_BIN in a temporary HOME, the boards held as just asked
 (tests/test_key_role_choices.py) with one release's name then made whitespace or punctuation,
@@ -54,6 +55,14 @@ class WordlessRelease(unittest.TestCase):
                 alone = answer(name, None)
                 self.assertTrue(alone["execute"]["choices"], alone)
                 self.assertEqual(answer(name, model), alone)
+
+    def test_a_release_named_with_spaces_or_hyphens_alone_is_labelled_by_its_slug(self):
+        for name in ("  \n", "---"):
+            with self.subTest(name=name):
+                found = answer(name, None)
+                self.assertEqual({row["name"] for role in ("orchestrate", "execute", "review")
+                                  for row in found[role]["choices"]
+                                  if row["release"] == "acme-bevel-1"}, {"Acme Bevel 1"}, found)
 
 
 if __name__ == "__main__":

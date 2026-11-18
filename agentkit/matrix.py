@@ -75,8 +75,11 @@ def found(index, model):
     brackets (`Acme 5 (Default Fallback)`; two such names stand for nothing), else under each
     board name that adds a version or date to a `model` naming none (`Acme Flash 1017` for
     `acme-flash`, `lineup` taking only one release), else the same matches without a trailing
-    `-free` pricing tier; none where the board has nothing for it."""
+    `-free` pricing tier; none where the board has nothing for it or `model` holds no letter or
+    digit, which names nothing (`catalog._names`)."""
     wanted = normal(model)
+    if not wanted:
+        return []
     if wanted in index:
         return index[wanted]
     stems = [stem for stem in index if stem and not stem[-1].isdigit()
@@ -109,7 +112,7 @@ def _release_index(releases):
 
 def lineup(boards, offers):
     """A row per current release (`catalog.current`) and effort, `name` as ak says it
-    (config.release_label), of its slug where the board names it nothing, and `board_name` as
+    (config.release_label), of its slug where that of its name is empty, and `board_name` as
     the board does, with its `values` as the catalog joins them and `yours`: each model of
     `offers` ({harness: config.catalog(harness)}) that `found` matches to this release alone,
     as {"harness", "model"}, at each effort it lists and at a row naming no effort, which is
@@ -129,7 +132,8 @@ def lineup(boards, offers):
                     yours.setdefault((release["slug"], effort["effort"]), []).append(
                         {"harness": harness, "model": model["id"]})
     return [{"release": release["slug"],
-             "name": config.release_label(release["name"] or release["slug"]),
+             "name": (config.release_label(release["name"] or "")
+                      or config.release_label(release["slug"])),
              "board_name": release["name"], "maker": release["maker"],
              "effort": effort["effort"], "values": effort["values"],
              "yours": yours.get((release["slug"], effort["effort"]), [])}

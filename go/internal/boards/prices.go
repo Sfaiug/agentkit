@@ -16,9 +16,6 @@ var listed = []string{"aa.price1mInputTokens", "aa.cacheWritePrice", "aa.cacheHi
 // its first; a cache price it lists none of is its input price, and one listing no input or output
 // price has none.
 func (index Index) Prices(model string) []float64 {
-	if model == "" {
-		return nil
-	}
 	var release *Release
 	for _, one := range index.Found(model) {
 		if release != nil && release.Slug != one.Release.Slug {
