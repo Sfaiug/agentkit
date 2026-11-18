@@ -4,9 +4,9 @@
 other board's rows naming the release: the names match on letters and digits alone, a bracket
 of dates and sizes dropped and an eight-digit date matching as its last four digits; a name
 keeping another bracket, or matching two current releases, joins nothing, and a release its
-record gives no name is joined by none.  A row
-joins the effort it names, the default where it names none, else the release's only effort;
-of several rows on one column the lowest is kept, with its own interval.
+record gives no name, or one of no letter or digit, is joined by none.  A row joins the effort
+it names, the default where it names none, else the release's only effort; of several rows on
+one column the lowest is kept, with its own interval.
 
 Offline: `catalog` is handed a `boards` dict as `boards.collect` returns it.  The models are
 invented.
@@ -76,12 +76,13 @@ class JoinsBoards(unittest.TestCase):
                          {"low": {"aa.intelligenceIndex": 20}})
 
     def test_a_release_with_no_name_is_current_and_joins_nothing(self):
-        row = aa("delta-1", "Delta 1", None, "delta-1", 25)
-        row["release"]["name"] = None
-        [release] = catalog.current({"artificialanalysis.ai": {"rows": [row]},
-                                     "arena.ai": {"rows": [arena("Delta 1", None, 1000)]}})
-        self.assertEqual((release["slug"], self.efforts(release)),
-                         ("delta-1", {None: {"aa.intelligenceIndex": 25}}))
+        for name, model in ((None, "Delta 1"), ("  \n", "???"), ("!!!", "~~~")):
+            row = aa("delta-1", "Delta 1", None, "delta-1", 25)
+            row["release"]["name"] = name
+            [release] = catalog.current({"artificialanalysis.ai": {"rows": [row]},
+                                         "arena.ai": {"rows": [arena(model, None, 1000)]}})
+            self.assertEqual((release["slug"], self.efforts(release)),
+                             ("delta-1", {None: {"aa.intelligenceIndex": 25}}), name)
 
     def test_a_board_s_rows_are_left_as_they_were(self):
         before = repr(BOARDS)
