@@ -516,9 +516,10 @@ def _cpu_rates(cgroups, delay=0.1):
 def cpu_held_usec(cgroup):
     """Cumulative microseconds the cgroup at that directory was on a CPU or had a task ready for
     one and none (its `cpu.pressure` `some` total, none where unread), or None where its use is
-    unread: a thread that never sleeps holds a core whether it is given it or waits."""
-    used = _cpu_usec(cgroup)
-    return None if used is None else used + (_cpu_usec(cgroup / "cpu.pressure", "some") or 0)
+    unread: a thread that never sleeps holds a core whether it is given it or waits.  With it,
+    whether the waiting was read: a count with it and one without are of two kinds."""
+    used, waited = _cpu_usec(cgroup), _cpu_usec(cgroup / "cpu.pressure", "some")
+    return None if used is None else used + (waited or 0), waited is not None
 
 
 def cpu_ticks(cgroup):

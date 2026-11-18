@@ -46,13 +46,16 @@ def tell(state, log):
     if it began since: one moved into the scope brings the time it spent before."""
     now, before, state["seat_cores"] = _now(), state.get("seat_cores") or {}, {}
     for scope, launched in front.scopes().items():
-        held = host.cpu_held_usec(scope)
+        held, waits = host.cpu_held_usec(scope)
         if held is None:
             continue
         # A reading under `usec` counted used time alone: against one with a lifetime's waiting
         # its interval would be over, so it is no reading.
         last = before.get(scope.name) or {}
-        seen = state["seat_cores"][scope.name] = {"at": now, "held": held}
+        if last.get("waits", waits) != waits:
+            # its waiting was read at one end only: a lifetime's would count as the interval's
+            last = {}
+        seen = state["seat_cores"][scope.name] = {"at": now, "held": held, "waits": waits}
         if ("held" not in last or now <= last["at"]
                 or held - last["held"] < FLOOR * 1e6 * (now - last["at"])):
             continue
