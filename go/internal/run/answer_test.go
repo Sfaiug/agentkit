@@ -14,8 +14,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"agentkit/internal/gitcall"
 )
 
 // Past the wait, the stop the deadline sets off has ended by the time the answer says so: one still
@@ -128,43 +126,26 @@ func TestACommandIsNeverTheShellsOptions(t *testing.T) {
 	}
 }
 
-// Given no environment, the command runs in ak's own, at its checkout as named, still without the
-// seat's name: an ssh in it would otherwise be that seat reaching the live host.
+// Given no environment, the command runs in ak's own, at its checkout, still without the seat's
+// name: an ssh in it would otherwise be that seat reaching the live host.
 func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	t.Setenv("ACME_TOKEN", "kept")
-	// PWD is the checkout made absolute by its words, so its temp directory is taken as named
-	// where that is absolute and clean, and otherwise as the system has it: a relative TMPDIR
-	// would leave the link's target relative to the link, and one with a symlink before `..`,
-	// or `..` above a working directory named through one, is another directory once cleaned
-	dir := t.TempDir()
-	if !filepath.IsAbs(dir) {
-		wd, err := os.Getwd()
-		if err == nil {
-			wd, err = filepath.EvalSymlinks(wd)
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		dir = wd + string(os.PathSeparator) + dir
+	// The PWD ak gives the shell is read, in a checkout no TMPDIR names, not the one the shell
+	// prints: for a PWD that does not reach its directory a shell prints the directory's own
+	// name, so $PWD would tell the checkout's from ak's own only under a link in a temp
+	// directory, and whether that link's name reaches it from inside is TMPDIR's to decide
+	t.Setenv("PWD", "/acme") // ak's own, so never the checkout's by chance
+	var env []string
+	before := group
+	group = func(cmd *exec.Cmd) func() { env = cmd.Env; return before(cmd) }
+	t.Cleanup(func() { group = before })
+	out, why := ProjectOutput(context.Background(), `printf '%s %s\n' "${AGENTKIT_SESSION-absent}" "$ACME_TOKEN"`, "/", nil, time.Second, "list")
+	if why != "" || string(out) != "absent kept\n" {
+		t.Errorf("answered %q, said %q", out, why)
 	}
-	if filepath.Clean(dir) != dir {
-		var err error
-		if dir, err = filepath.EvalSymlinks(dir); err != nil {
-			t.Fatal(err)
-		}
-	}
-	checkout := filepath.Join(dir, "acme-link")
-	if err := os.Mkdir(filepath.Join(dir, "acme"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(dir, "acme"), checkout); err != nil {
-		t.Fatal(err)
-	}
-	out, why := ProjectOutput(context.Background(), `printf '%s %s %s\n' "${AGENTKIT_SESSION-absent}" "$ACME_TOKEN" "$PWD"`, checkout, nil, time.Second, "list")
-	// the output is decoded, so a checkout's path not in UTF-8 reads as Python reads it
-	if want := gitcall.Decoded("absent kept " + checkout + "\n"); why != "" || string(out) != want {
-		t.Errorf("answered %q, said %q, want %q", out, why, want)
+	if !slices.Contains(env, "PWD=/") {
+		t.Error("its PWD is not its checkout")
 	}
 }
 
