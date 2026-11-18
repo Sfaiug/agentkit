@@ -3686,7 +3686,12 @@ def columned(text, room, after=" -."):
     word wider than a line broken after each hyphen in it, a part still wider after each dot
     (`Acme-` over `7.1`, a version kept whole where it can be), and a part with neither left
     whole, wider than `room`, as models_bars widens its column to it; `text` plain, as a board's
-    name may hold control characters (terminal.plain)."""
+    name may hold control characters (terminal.plain).
+
+    A part wider than the screen wraps there, off the rows this page counts: left so.  Of the
+    boards' 128 names on 18 Nov 2026 the widest such part is 11 cells, a screen is 40 and
+    wider, and cutting inside one failed three reviews on which glyphs may part (run
+    20261118-1126): a name nobody has is not served."""
     text = terminal.plain(text)
     if terminal.cells(text) <= room or not after:
         return [text]
