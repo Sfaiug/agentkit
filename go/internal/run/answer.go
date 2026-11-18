@@ -62,6 +62,11 @@ func ProjectOutput(ctx context.Context, command, checkout string, env []string, 
 			}
 		}()
 		err = cmd.Wait()
+		// exec gives up on held output only past the wait, at times before the deadline's timer
+		// fires, and then reports the shell's exit or its own giving up: past it, it is no answer
+		if deadline, _ := ctx.Deadline(); !time.Now().Before(deadline) {
+			cancel()
+		}
 	}
 	var exit *exec.ExitError
 	switch {
