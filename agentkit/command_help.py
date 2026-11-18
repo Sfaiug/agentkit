@@ -234,7 +234,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
     "standby": ("usage: ak standby [ALIAS]",
                 "On a client of ALIAS, keep this machine's crontab job that does this every three minutes,\n"
                 "then copy from that home to the same paths here each harness's logins, every account's,\n"
-                "and the folders its conversations are in, then ak's folder with every run, each folder in\n"
+                "and the folders its conversations are in, and ~/code whole, its .git folders too, then\n"
+                "ak's folder with every run, each folder in\n"
                 "ak's runs on either machine, but its .git folders and each run's tmp* and .box-* folders;\n"
                 "the rest of ak's runs is each machine's own.  It sends what changed, compressed, and what\n"
                 "the home deleted in those folders goes here too; a login or folder the home lacks stays\n"

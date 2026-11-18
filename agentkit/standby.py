@@ -10,7 +10,9 @@ were 440 000 files, which rsync compared from the copy in 52 s at the home's bus
 copied hourly would hold the pass's lock as long as that took, or, beside the pass, write in the
 runs' folder while it does.  Before it, what a seat carrying on from the copy needs of each
 harness: its logins, every account's, and the folders its conversations start from, each at its
-path, the rest of that harness's folders this machine's own.  After it, ak here moves as every
+path, the rest of that harness's folders this machine's own; and as one more such path ~/code
+whole, each project's `.git` folder too, so that a project and its runs' checkouts work in the
+copy: rsync compared the owner's 406 000 files in 31 s on 18 Nov.  After it, ak here moves as every
 client's does (`update.follow`), to the commit ak is at on the home once the home's move there
 is final, so the ak that takes over is the one that was live.
 
@@ -261,7 +263,8 @@ def main(argv):
         return _shown()
     if len(argv) != 1 or argv[0].startswith("-"):
         raise config.Error(command_help.COMMANDS["standby"][0])
-    alias, home, copied = argv[0], Path.home(), _harnesses()
+    alias, home = argv[0], Path.home()
+    copied = [*_harnesses(), str(config.CODE.relative_to(home))]
     refused = [f"this machine is not a client of {alias}"] * (config.server_alias() != alias)
     # rsync replaces a link here at what it copies of a harness, but writes through one at a
     # folder between that and the home.  What is kept are names: rsync would replace a link at
