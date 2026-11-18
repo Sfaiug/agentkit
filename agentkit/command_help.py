@@ -37,8 +37,8 @@ COMMANDS = {
                 "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
                 "A follow-up is a defect from before the task; --before names the base or an ancestor commit, or verbatim lines in its file at base, and its command must fail on base.\n"
                 "Without --before, its --run must fail now and on the reviewed commit, and ak replays it on base:\n"
-                "one that passes there blocks as a finding, since this change caused it.\n"
-                "Unproven follow-ups are dropped into Notes.\n"
+                "one that passes there is weighed as a finding, since this change caused it.\n"
+                "Unproven follow-ups, and every one in a scratch review, which has no base, are dropped into Notes.\n"
                 "A follow-up's --run is one line without backticks or this checkout's path.\n"
                 "Only a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\n"
                 "ak gives the next reviewer the dispute and its own proof output beside the finding.\n"
@@ -55,7 +55,7 @@ COMMANDS = {
                         'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py"'),
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
                           "Hand in a defect that existed before the task, to fix after the merge (--before proves it);\n"
-                          "without --before, ak replays --run on base, and one that passes there blocks as a finding, since this change caused it.\n"
+                          "without --before, --run must fail on the reviewed commit, and one passing on base is weighed as a finding, since this change caused it.\n"
                           "Its command becomes the check of a line in the owning session's plan, deferred once a fix run of its own has it.",
                           'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py" --before "return None"'),
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",

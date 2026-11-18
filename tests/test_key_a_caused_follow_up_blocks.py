@@ -18,7 +18,7 @@ from fixtures.gitrig import Rig
 
 PROOF = "grep -qx ready retry.txt"
 CAUSE = "its proof passes on base and fails on this commit, so this change caused it"
-TOLD = "one that passes there blocks as a finding, since this change caused it"
+TOLD = "is weighed as a finding, since this change caused it"
 
 
 class CausedFollowUpBlocks(unittest.TestCase):
