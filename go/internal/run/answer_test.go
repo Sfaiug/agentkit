@@ -125,3 +125,14 @@ func TestACommandIsNeverTheShellsOptions(t *testing.T) {
 		}
 	}
 }
+
+// Given no environment, the command runs in ak's own, still without the seat's name: an ssh in it
+// would otherwise be that seat reaching the live host.
+func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
+	t.Setenv("AGENTKIT_SESSION", "acme")
+	t.Setenv("ACME_TOKEN", "kept")
+	out, why := ProjectOutput(context.Background(), `echo "${AGENTKIT_SESSION-absent} $ACME_TOKEN"`, t.TempDir(), nil, time.Second, "list")
+	if why != "" || string(out) != "absent kept\n" {
+		t.Errorf("answered %q, said %q", out, why)
+	}
+}
