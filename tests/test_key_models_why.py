@@ -278,6 +278,11 @@ class ModelsWhy(unittest.TestCase):
         term = self.models(40)
         self.assertEqual(self.why(term, "Down"), CRUX_BUILDS_40)
 
+    def test_on_22_cells_the_heading_goes_on_at_its_words_its_model_named(self):
+        # no room for Crux 2 beside `why`, its effort and its verb on one line
+        self.write(TWO, ["crux"])
+        self.assertEqual(self.why(self.models(22))[:3], ["  why Crux 2 low", "  orchestrates", ""])
+
     def test_an_others_line_that_wraps_hangs_under_its_first_line(self):
         self.write(TWO[:-1], ["crux"])          # no Holm 1: two others, both shaded
         # each first line where `choices`'s value starts, `not shown` as wide, the rest two
