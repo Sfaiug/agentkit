@@ -1313,10 +1313,36 @@ def at_efforts(cfg, record):
         for name, entry in cfg["models"].items()}}
 
 
-def run_efforts(cfg, record):
-    """What a run's receipt records as `efforts`: every model's, at the seat `record`'s."""
-    return {name: efforts_of(entry) for name, entry in at_efforts(cfg, record)["models"].items()
-            if isinstance(entry, dict)}
+def as_launched(cfg, record):
+    """`cfg` as run `record` was launched with it, hiding from the run each of its marks the
+    config has renamed or removed since -- its `workers`, `reviewers`, `executor`, `reviewer`,
+    `launch_executor`, `launch_reviewer`, `own_orchestrator` and `launch_opts`' `--exec` and
+    `--review`: that mark reads as the `[models.*]` entry the launch recorded (`models`,
+    run_marks), so the same model goes on building and reviewing.  A mark the config defines is
+    the config's, and a recorded one whose provider it no longer defines stays gone, as does any
+    other mark and every mark of a record without `models` (launched before it)."""
+    record = record or {}
+    opts = record.get("launch_opts") or {}
+    marks = {*(record.get("workers") or ()), *(record.get("reviewers") or ()),
+             *(record.get(key) for key in ("executor", "reviewer", "launch_executor",
+                                           "launch_reviewer", "own_orchestrator")),
+             opts.get("--exec"), opts.get("--review")}
+    gone = {name: entry for name, entry in (record.get("models") or {}).items()
+            if name in marks and name not in cfg["models"]}
+    if not gone:
+        return cfg
+    kept = offered({"models": gone, "providers": cfg["providers"]})
+    return {**cfg, "models": {**cfg["models"], **{name: gone[name] for name in kept}}}
+
+
+def run_marks(cfg, record):
+    """What a run's receipt records of every model at launch: its `efforts`, at the seat
+    `record`'s (at_efforts), and its `models` entry (as_launched)."""
+    return {"efforts": {name: efforts_of(entry)
+                        for name, entry in at_efforts(cfg, record)["models"].items()
+                        if isinstance(entry, dict)},
+            # TOML holds dates, inf and nan JSON cannot, and no entry key a run reads is one
+            "models": json.loads(json.dumps(cfg["models"], default=str), parse_constant=str)}
 
 
 def model_name(cfg, name):

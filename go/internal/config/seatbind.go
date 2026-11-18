@@ -4,7 +4,7 @@ import "slices"
 
 // BindSeat is the Binding a seat's own launch records, as Python's capture_launch binds it from
 // config.load_session: the seat record's workers, and its reviewers where it names any, each model
-// at the efforts the record holds for it, every other at its entry's own (config.run_efforts).  A
+// at the efforts the record holds for it, every other at its entry's own (config.run_marks).  A
 // record Python reads otherwise is errUnbound: a list naming a model the config does not offer,
 // which load_session passes over or falls back from, a list empty or repeating a name, or efforts
 // load_session refuses.
