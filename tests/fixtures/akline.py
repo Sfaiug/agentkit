@@ -18,6 +18,7 @@ run), so a verdict stays on its record to be read.
     line.close()
 """
 
+import hashlib
 import json
 
 from fixtures.akbin import Home
@@ -77,6 +78,16 @@ class Line:
                        "head_sha": head, "tree_sha": tree},
             "waiting_on": {"line": self.line, "joined": n}}))
         self.members.append(directory)
+
+    @property
+    def cost(self):
+        """Where ak keeps the suite's cost: `suite-<key>.json` in the Home's state."""
+        key = hashlib.sha256(f"{self.rig.path}\n{SUITE}".encode()).hexdigest()
+        return self.home.path / ".agentkit" / "state" / f"suite-{key}.json"
+
+    def measured(self, seconds):
+        """Put on record that the suite's last green check took `seconds`."""
+        self.home.write(self.cost.relative_to(self.home.path), {"green_seconds": seconds})
 
     def land(self, timeout=600):
         """One lander pass over the line."""
