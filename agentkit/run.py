@@ -2197,7 +2197,9 @@ def follow_run(run_dir, cfg, offset=0):
         return 2
     if state.get("state") == "not_needed":
         return 0
-    return 0 if (state.get("state") == "pass" and review_pass(state, cfg)
+    # Read as it ended: `cfg` was loaded before the wait, and a resume may have reviewed
+    # under a mark it never knew.
+    return 0 if (state.get("state") == "pass" and review_pass(state, cfg, ended=True)
                  and not state.get("merge_failed")) else 1
 
 

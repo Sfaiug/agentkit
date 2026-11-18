@@ -407,6 +407,14 @@ class JoinLine(Sandbox):
                 with patch.object(job, "job_await", return_value=state), redirect_stdout(io.StringIO()):
                     self.assertEqual(run.follow_run(self.directory, self.cfg), expected)
 
+    def test_foreground_follow_passes_a_merge_reviewed_under_a_mark_it_never_loaded(self):
+        state = {**self.saved(), "state": "pass", "merged": True, "reviewer": "nova"}
+        state["review"] = {**state["review"], "reviewer": "nova"}
+        renamed = {**self.cfg, "models": {**self.cfg["models"], "nova": self.cfg["models"]["astra"]}}
+        self.assertTrue(run.review_pass(state, renamed))
+        with patch.object(job, "job_await", return_value=state), redirect_stdout(io.StringIO()):
+            self.assertEqual(run.follow_run(self.directory, self.cfg), 0)
+
     def test_job_task_exits_and_the_ladder_follows_its_line(self):
         def work(*args, **_kw):
             run.merge(self.lp)
