@@ -8,7 +8,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -76,108 +75,22 @@ func configKey() ([]any, error) {
 	return key, nil
 }
 
-var bracketed = regexp.MustCompile(`\([^()]*\)`)
-
-// normal is a model's name as every board and config spells it alike: its letters and digits.
-func normal(text string) string {
-	text = text[strings.LastIndexByte(text, '/')+1:]
-	return strings.Map(func(r rune) rune {
-		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
-			return r
-		}
-		return -1
-	}, strings.ToLower(text))
-}
-
-// A hit is one name a release goes by on a board.
-type hit struct {
-	model   string
-	release *boards.Release
-}
-
-func allDigits(text string) bool {
-	return text != "" && strings.Trim(text, "0123456789") == ""
-}
-
-// found is a board's hits for one model: under its exact name, else under a board's name naming no
-// version of its own that model extends with one (`Acme Pro` for `acme-pro-1.0`, never `Acme 5`
-// for `acme-5-5`), else under the one board name that is model with a qualifier in brackets
-// (`Acme 5 (Default Fallback)`; two such names stand for nothing), else under each board name that
-// adds a version or date to a model naming none (`Acme Flash 1017` for `acme-flash`, lineup taking
-// only one release), else the same matches without a trailing `-free` pricing tier.
-func found(index map[string][]hit, model string) []hit {
-	wanted := normal(model)
-	if hits, ok := index[wanted]; ok {
-		return hits
-	}
-	longest, stemmed := "", false
-	for stem := range index {
-		if stem != "" && !allDigits(stem[len(stem)-1:]) && strings.HasPrefix(wanted, stem) && allDigits(wanted[len(stem):]) &&
-			(!stemmed || len(stem) > len(longest)) {
-			longest, stemmed = stem, true
-		}
-	}
-	if stemmed {
-		return index[longest]
-	}
-	var qualified []string
-	for stem, hits := range index {
-		if normal(bracketed.ReplaceAllString(hits[0].model, "")) == wanted {
-			qualified = append(qualified, stem)
-		}
-	}
-	if len(qualified) == 1 {
-		return index[qualified[0]]
-	}
-	var extended []hit
-	if wanted == "" || !allDigits(wanted[len(wanted)-1:]) {
-		for stem, hits := range index {
-			if strings.HasPrefix(stem, wanted) && allDigits(stem[len(wanted):]) {
-				extended = append(extended, hits...)
-			}
-		}
-	}
-	if len(extended) > 0 {
-		return extended
-	}
-	if bare, free := strings.CutSuffix(model, "-free"); free {
-		// Free is a pricing tier, so use the underlying model's board rows.
-		return found(index, bare)
-	}
-	return nil
-}
-
-// indexOf is the hits found reads, each release under every name it goes by.
-func indexOf(releases []*boards.Release) map[string][]hit {
-	index := map[string][]hit{}
-	for _, release := range releases {
-		// the name first: found reads the first hit's for a bracketed qualifier; either may lack
-		name, _ := release.Name.(string)
-		for _, each := range []string{name, release.Slug} {
-			if each != "" {
-				index[normal(each)] = append(index[normal(each)], hit{each, release})
-			}
-		}
-	}
-	return index
-}
-
 // lineup is a row per current release and effort, `name` as ak says it (config.Spoken), of its
 // slug where the board names it nothing, and `board_name` as the board does, with its values as
-// the catalog joins them and `yours`: each model of offers that found matches to this release
+// the catalog joins them and `yours`: each model of offers that Found matches to this release
 // alone, as {"harness", "model"}, at each effort it lists and at a row naming no effort, which is
 // the model however it is run, or at the release's default where it lists none but `none`.
 func lineup(held *run.Object, harnesses []any, offers map[string][]listing.Model) []any {
 	releases := boards.Current(held)
-	index := indexOf(releases)
+	index := boards.IndexOf(releases)
 	type place struct{ slug, effort string }
 	yours := map[place][]any{}
 	for _, each := range harnesses {
 		name := each.(string)
 		for _, model := range offers[name] {
 			hits := map[string]*boards.Release{}
-			for _, one := range found(index, model.ID) {
-				hits[one.release.Slug] = one.release
+			for _, one := range index.Found(model.ID) {
+				hits[one.Release.Slug] = one.Release
 			}
 			if len(hits) != 1 {
 				continue

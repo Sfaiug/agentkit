@@ -1,6 +1,8 @@
 package history
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -54,11 +56,17 @@ func TestATurnCountedAfterItsSessionsNextTotalGivesItsShareBack(t *testing.T) {
 	}
 }
 
-// A turn giving its share back from a later total that kept its dollars, as Python prices a row it
-// writes, leaves that total's row of a model whose counts change without them, priced as it is
-// read, and its row of one whose counts stay as they were with its own.
+// Each row a turn writes keeps what its counts cost at the boards' prices then, and a turn giving
+// its share back from a later total prices that total's row of a model whose counts change anew,
+// leaving its row of one whose counts stay with the dollars it kept.
 func TestASharedTotalsRowKeepsItsDollarsOnlyWhileItsCountsStay(t *testing.T) {
 	home(t)
+	board := `{"model": "Claude %[1]s 5", "slug": "claude-%[2]s-5", "release": {"slug": "claude-%[2]s-5", "name": "Claude %[1]s 5"}, ` +
+		`"values": {"aa.price1mInputTokens": %[3]d, "aa.price1mOutputTokens": 1}}`
+	if os.MkdirAll(filepath.Join(filepath.Dir(Path()), "state"), 0o700) != nil || os.WriteFile(filepath.Join(filepath.Dir(Path()), "state", "boards.json"),
+		[]byte(`{"artificialanalysis.ai": {"rows": [`+fmt.Sprintf(board, "Opus", "opus", 300000)+`, `+fmt.Sprintf(board, "Haiku", "haiku", 100000)+`]}}`), 0o600) != nil {
+		t.Fatal("boards")
+	}
 	log, lines := said()
 	id := "20261106-1200-fix-api"
 	going := record(t, `{"run_id": "`+id+`", "state": "running"}`)
@@ -85,10 +93,10 @@ func TestASharedTotalsRowKeepsItsDollarsOnlyWhileItsCountsStay(t *testing.T) {
 		got = append(got, []any{filepath.Base(kept.Text("turn")), kept["model"], kept["input"], kept["listed_usd"]})
 	}
 	want := [][]any{
-		{"executor-opus", "claude-haiku-5", int64(0), nil},
-		{"executor-opus", "claude-opus-5", int64(10), nil},
+		{"executor-opus", "claude-haiku-5", int64(0), 0.0},
+		{"executor-opus", "claude-opus-5", int64(10), 3.0},
 		{"fixer-opus", "claude-haiku-5", int64(5), 1.0},
-		{"fixer-opus", "claude-opus-5", int64(5), nil},
+		{"fixer-opus", "claude-opus-5", int64(5), 1.5},
 	}
 	if !reflect.DeepEqual(got, want) || len(*lines) > 0 {
 		t.Fatalf("kept\n%v\nwant\n%v\nsaid %q", got, want, *lines)

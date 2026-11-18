@@ -11,10 +11,11 @@ import (
 // against their rows, not what they report now, as a transcript coming home later changes a
 // killed turn's report, never its rows.  Turns are counted in whatever order their collectors find
 // them, so the earliest of the session's totals kept that began after this turn gives its counts
-// back, and a row whose counts that changes keeps no dollars: they were what its old counts cost,
-// and Go prices a row as it is read, not as it writes it.  The session's turns are the run's turns
-// with rows and a beginning whose report, read again with the harness name, names the session.
-func (db *DB) share(id any, name string, session any, totals bool, began float64, counts []harness.Counts) error {
+// back, and a row whose counts that changes is priced anew at price: its dollars were what its old
+// counts cost.  One whose counts stay keeps its dollars, though the boards dropped its model since.
+// The session's turns are the run's turns with rows and a beginning whose report, read again with
+// the harness name, names the session.
+func (db *DB) share(id any, name string, session any, totals bool, began float64, counts []harness.Counts, price func(any, [4]int64) any) error {
 	rows, err := db.rows("SELECT turn, began, model, input, cache_write, cache_read, output FROM turn_usage "+
 		"WHERE run_id=? AND began IS NOT NULL", id)
 	if err != nil {
@@ -36,8 +37,7 @@ func (db *DB) share(id any, name string, session any, totals bool, began float64
 		when, _ := row.Num("began")
 		if theirs && when < began {
 			sum := kept[row["model"]]
-			for kind, column := range []string{"input", "cache_write", "cache_read", "output"} {
-				count, _ := row[column].(int64)
+			for kind, count := range countsOf(row) {
 				sum[kind] += count
 			}
 			kept[row["model"]] = sum
@@ -53,16 +53,29 @@ func (db *DB) share(id any, name string, session any, totals bool, began float64
 			}
 		}
 	}
-	if later == "" {
-		return nil
-	}
-	for _, each := range counts {
-		if err := db.exec("UPDATE turn_usage SET (input, cache_write, cache_read, output, listed_usd) = (MAX(0, input-?1), "+
-			"MAX(0, cache_write-?2), MAX(0, cache_read-?3), MAX(0, output-?4), NULL) WHERE turn=?5 AND model IS ?6 AND "+
-			"(input, cache_write, cache_read, output) IS NOT (MAX(0, input-?1), MAX(0, cache_write-?2), MAX(0, cache_read-?3), MAX(0, output-?4))",
-			each.Spent[0], each.Spent[1], each.Spent[2], each.Spent[3], later, each.Model); err != nil {
-			return err
+	for _, row := range rows {
+		for _, each := range counts {
+			was, left := countsOf(row), [4]int64{}
+			for kind := range left {
+				left[kind] = max(0, was[kind]-each.Spent[kind])
+			}
+			if row.Text("turn") != later || !run.Equal(row["model"], each.Model) || left == was {
+				continue
+			}
+			if err := db.exec("UPDATE turn_usage SET input=?, cache_write=?, cache_read=?, output=?, listed_usd=? WHERE turn=? AND model IS ?",
+				left[0], left[1], left[2], left[3], price(each.Model, left), later, each.Model); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// countsOf is a turn_usage row's counts by kind.
+func countsOf(row Row) [4]int64 {
+	var counts [4]int64
+	for kind, column := range []string{"input", "cache_write", "cache_read", "output"} {
+		counts[kind], _ = row[column].(int64)
+	}
+	return counts
 }

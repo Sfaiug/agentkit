@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 
+	"agentkit/internal/boards"
 	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
@@ -58,7 +60,7 @@ func (db *DB) spend(id any, name, out string) error {
 		return nil
 	}
 	tokens, said := harness.Tokens(name, out)
-	usage, err := db.turnUsage(id, name, out)
+	usage, err := db.turnUsage(id, name, out, pricing())
 	if err != nil {
 		return err
 	}
@@ -67,7 +69,7 @@ func (db *DB) spend(id any, name, out string) error {
 			return nil
 		}
 		for _, row := range usage {
-			for _, count := range row[4:] {
+			for _, count := range row[4:8] {
 				tokens += float64(count.(int64))
 			}
 		}
@@ -89,7 +91,7 @@ func (db *DB) spend(id any, name, out string) error {
 	}
 	for _, row := range usage {
 		if err := db.exec("INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, input, "+
-			"cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)", append([]any{turn, id, role}, row...)...); err != nil {
+			"cache_write, cache_read, output, listed_usd) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", append([]any{turn, id, role}, row...)...); err != nil {
 			return err
 		}
 	}
@@ -98,15 +100,16 @@ func (db *DB) spend(id any, name, out string) error {
 
 // turnUsage is the turn_usage columns past its role of each model the turn in out reported, Python's
 // _turn_usage: the login it ran on, the model, when it began (its harness receipt) and ended (its
-// last event), and its counts by kind, its share of its session where it names one.
-func (db *DB) turnUsage(id any, name, out string) ([][]any, error) {
+// last event), its counts by kind, its share of its session where it names one, and what they cost
+// at price.
+func (db *DB) turnUsage(id any, name, out string, price func(any, [4]int64) any) ([][]any, error) {
 	session, totals, counts, reported := harness.TurnCounts(name, out)
 	if !reported {
 		return nil, nil
 	}
 	began, dated := moment(filepath.Join(out, "harness"))
 	if session != nil && dated {
-		if err := db.share(id, name, session, totals, began, counts); err != nil {
+		if err := db.share(id, name, session, totals, began, counts, price); err != nil {
 			return nil, err
 		}
 	}
@@ -117,9 +120,28 @@ func (db *DB) turnUsage(id any, name, out string) ([][]any, error) {
 	var rows [][]any
 	for _, each := range counts {
 		rows = append(rows, []any{account, each.Model, known(began, dated), known(moment(filepath.Join(out, "events.jsonl"))),
-			each.Spent[0], each.Spent[1], each.Spent[2], each.Spent[3]})
+			each.Spent[0], each.Spent[1], each.Spent[2], each.Spent[3], price(each.Model, each.Spent)})
 	}
 	return rows, nil
+}
+
+// pricing is what a turn row's counts of a model cost at the prices the stored boards list for it,
+// the boards read once at the first row priced, Python's _listed_usd: nil where they list none.
+// Kept with the row, they stay what its turn spent when a board later reprices its model or drops
+// it for its maker's next.
+func pricing() func(model any, counts [4]int64) any {
+	index := sync.OnceValue(func() boards.Index { return boards.IndexOf(boards.Current(boards.Cached())) })
+	return func(model any, counts [4]int64) any {
+		name, _ := model.(string)
+		tokens := make([]float64, len(counts))
+		for kind, count := range counts {
+			tokens[kind] = float64(count)
+		}
+		if dollars, priced := boards.Dollars(index().Prices(name), tokens); priced {
+			return dollars
+		}
+		return nil
+	}
 }
 
 // receipts are the harness receipts of the run id's turns, each in its turn's directory.

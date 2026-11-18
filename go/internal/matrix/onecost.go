@@ -96,17 +96,17 @@ func measure(rows []quality.Row, measured *Measures, names []string, models map[
 			}
 		}
 	}
-	index := indexOf(releases)
+	index := boards.IndexOf(releases)
 	var order []place
 	at := map[place][]measurement{}
 	for _, name := range names {
 		release := ""
-		for _, one := range found(index, models[name].ID) {
-			if release != "" && release != one.release.Slug {
+		for _, one := range index.Found(models[name].ID) {
+			if release != "" && release != one.Release.Slug {
 				release = ""
 				break
 			}
-			release = one.release.Slug
+			release = one.Release.Slug
 		}
 		if release == "" {
 			continue
