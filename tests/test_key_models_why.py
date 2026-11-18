@@ -272,9 +272,12 @@ class ModelsWhy(unittest.TestCase):
             "             Crux 2 low, 80.0: no board prices it"])
 
     def test_with_no_row_in_use_and_no_choice_it_opens_its_first_other(self):
-        # Crux 2 orchestrates on no board, and nothing priced leaves no choice
+        # Crux 2 orchestrates on no board, and nothing priced leaves no choice: the best on the
+        # boards is no best choice
         self.write([row for row in DRAWN if row[0] != "crux-2"], ["max"], priced=False)
-        self.assertEqual(self.why(self.models())[0], "  why Acme Max 5 max orchestrates")
+        shown = self.why(self.models())
+        self.assertEqual(shown[0], "  why Acme Max 5 max orchestrates")
+        self.assertEqual(shown[4], "             the best on the boards")
 
     def test_a_cost_from_your_runs_says_how_many_and_others_past_five_choices(self):
         self.write(FIVE, ["mid"], ["crux"], runs=True,
