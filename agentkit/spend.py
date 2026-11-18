@@ -115,6 +115,10 @@ def weeks(cfg, meters, windows):
             if dollars is not None:
                 points, spent = fits.get((window, provider, plan), (0, 0))
                 fits[window, provider, plan] = points + top - base, spent + dollars
+    # Multiplied by 100 before it is divided, so a spend within two digits of a float's largest
+    # fits an infinite week: left so.  A login's week is thousands of dollars, and dividing
+    # first made Python and Go differ in sign and rounding (three reviews of run 20261118-0942,
+    # 18 Nov 2026): a spend nobody has is not served.
     held = {key: (100 * dollars / points if points >= FEWEST_POINTS and dollars else None,
                   points, dollars)
             for key, (points, dollars) in fits.items()}
