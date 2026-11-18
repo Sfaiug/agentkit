@@ -36,7 +36,8 @@ PROJECTS = {
     "pieces": (PIECES, [("b", FINISHED, None, "landing", f"AK_SHARD=1/2 {PIECES}", 1),
                         ("b", FINISHED, None, "landing", f"AK_SHARD=2/2 {PIECES}", 0)]),
     "timed": (WHOLE, [("c", FINISHED, None, "landing", WHOLE, 0)]),
-    "aside": (WHOLE, [("k", FINISHED, None, "landing", WHOLE, 0)]),
+    "behind": (WHOLE, [("k", FINISHED, None, "landing", WHOLE, 0)]),
+    "aside": (WHOLE, [("l", FINISHED, None, "landing", WHOLE, 0)]),
     "fresh": (PIECES, [("d", FINISHED, 1, "done-when", f"AK_SHARD=1/1 {PIECES}", 0),
                        ("e", FINISHED, None, "landing", f"AK_SHARD=1/2 {PIECES}", 0),
                        ("e", FINISHED, None, "landing", f"AK_SHARD=2/2 {PIECES}", None),
@@ -62,20 +63,27 @@ class Told(unittest.TestCase):
                        "finished_at REAL)")
             db.execute("CREATE TABLE checks (run_id TEXT, round INTEGER, kind TEXT, tree TEXT, "
                        "command TEXT, exit INTEGER, finished_at REAL)")
+            unsuited = {"AGENTS.md": "---\nhealth: none\nusers: none\n---\n"}
             for number, (name, (suite, checks)) in enumerate(PROJECTS.items()):
-                rig = Rig(home, name, files={
-                    "AGENTS.md": f"---\ntests: {suite}\nhealth: none\nusers: none\n---\n"})
+                suited = {"AGENTS.md": f"---\ntests: {suite}\nhealth: none\nusers: none\n---\n"}
+                rig = Rig(home, name, files=suited)
                 rig.git("config", "ak.repository", f"{number:012x}")
                 for run, end, *check in checks:
                     db.execute("INSERT OR IGNORE INTO runs VALUES (?, ?, 'task', ?)",
                                (run, name, end))
                     db.execute("INSERT INTO checks VALUES (?, ?, ?, 'cedar', ?, ?, 2)",
                                (run, *check))
+                if name == "behind":
+                    # Its checkout was left a commit behind its default branch, on one that
+                    # declared no suite: its own main would read that.
+                    rig.commit(unsuited)
+                    rig.commit(suited)
+                    rig.git("reset", "-q", "--hard", "HEAD~1")
                 if name == "aside":
                     # Its checkout is on a branch of its own that declares no suite, called
                     # origin/HEAD: that short name would read it, not the default branch.
                     rig.git("checkout", "-q", "-b", "origin/HEAD")
-                    rig.commit({"AGENTS.md": "---\nhealth: none\nusers: none\n---\n"}, push=False)
+                    rig.commit(unsuited, push=False)
         home.write(".agentkit/state/test-times-000000000002.json", {"tests/test_api.py": 3.0})
 
     def project(self, checkout, columns):
@@ -85,7 +93,7 @@ class Told(unittest.TestCase):
         return done.out.splitlines()
 
     def test_a_suite_run_whole_at_landing_with_no_times_is_told_in_one_line(self):
-        for name in ("silent", "pieces", "aside"):
+        for name in ("silent", "pieces", "behind", "aside"):
             for columns, cap in ((60, 60), (250, 120)):
                 with self.subTest(name, columns=columns):
                     lines = self.project(name, columns)
