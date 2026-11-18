@@ -1,6 +1,6 @@
 # CLI design
 
-Every screen ak draws speaks this page's one design language, so nobody needs a manual.
+Every screen speaks this page's one design language, so nobody needs a manual.
 `menu.py` draws each with `terminal.py`'s helpers, never its own; what each does lives in its
 code and tests.
 
@@ -19,35 +19,31 @@ then `────────────────────────�
 
 ## Width and rhythm
 
-The layout is at most 120 columns wide, seat content at most 100, and drawn for 40 columns
-and wider: about a phone held upright. A narrower terminal is not promised, so a line that
-wraps or misplaces a click below 40 is no defect and gets no fix. The owner, 18 Nov 2026,
-asked whether screens should be drawn for "40 cells and wider" after reviews at 28, 20, 13
-and 1 columns each cost up to three builds: yes. A project's, harness's or
-company's name is bold, flush left over its seats, models or subscriptions
-(`+ add a subscription`'s too), two spaces in; a blank line parts projects.
+The layout is at most 120 columns wide, seat content at most 100, and drawn for "40 cells and
+wider" (owner, 18 Nov 2026): a line that wraps or misplaces a click below 40 is no defect and
+gets no fix. A project's, harness's or company's name is bold, flush left over its seats,
+models or subscriptions (`+ add a subscription`'s too), two spaces in; a blank line parts
+projects.
 
-Rows are tables. Their columns are fixed, sized once per draw and split by two-space gutters,
-never ` · `: number, name, model, state, and a last column that takes the rest.
+Rows are tables of fixed columns, sized once per draw and split by two-space gutters,
+never ` · `: number, name, model, state, and a last that takes the rest.
 
-Nothing is ever cut inside a word, a glyph or a sentence. A column gives way first,
+Nothing is cut inside a word, a glyph or a sentence. A column gives way first,
 a long line wraps at words, and below 60 columns a row folds onto an indented second line. No
 line keeps trailing space. Helpers: `terminal.cut`, `terminal.wrap`, `terminal.pad`,
 `terminal.cells`, `terminal.plain`, `terminal.styled`.
-
-Example: `  1  atoll-fix  fable  ● working  ━━━━━╸─────── 2 of 5`.
 
 ## Words
 
 Words are plain and explain themselves.
 
-- **Glyphs:** every glyph is followed by its word (`● working`).
+- **Glyphs:** each is followed by its word (`● working`).
 - **Marks:** `●`/`○` pick one, `■`/`□` any; on in the accent, off dim (`terminal.toggle`).
-- **Models:** a model is named in full, its version included: `Opus 5.5`, `gpt-6.1-sol`
+- **Models:** named in full, version included: `Opus 5.5`, `gpt-6.1-sol`
   (`config.model_name`).
-- **Subscriptions:** a subscription is named by its provider, with a roman numeral among
+- **Subscriptions:** named by provider, with a roman numeral among
   several (`Claude II`), never by key or account (`config.account_label`).
-- **Ages:** ages read `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
+- **Ages:** `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
 - **Tasks, runs and estimates:** no screen names a task or a run, nor says when work
   will finish.
 - **Progress:** every bar is a seat's progress line; every row ends in its tasks going:
@@ -77,7 +73,7 @@ Every screen reads the same keys, one at a time, with no Enter.
 - **Arrows, Space and Enter:** arrows move the highlight, on selection: a row whole, a cell
   over its width, its row bold (`terminal.highlight`, `terminal.selected`). Space marks what it
   is on; Enter goes forward (`terminal.keys`).
-- **Esc:** Esc goes back; on the main screen it leaves.
+- **Esc:** goes back; on the main screen it leaves.
 - **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
 - **Digits:** a digit opens that seat.
 - **Pointer:** a click does what the key does. The pointer lights what a click acts on,
