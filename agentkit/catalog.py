@@ -45,9 +45,10 @@ def _release(slug, rows):
 
 def _names(name):
     """The forms a name matches as: its letters and digits alone, ignoring case, and so again
-    with each eight-digit date cut to its last four digits."""
+    with each eight-digit date cut to its last four digits; none where it holds no letter or
+    digit, which names nothing."""
     return {"".join(char for char in form.casefold() if char.isalnum())
-            for form in (name, DATE.sub(r"\1", name))}
+            for form in (name, DATE.sub(r"\1", name))} - {""}
 
 
 def _board_names(name):
@@ -151,7 +152,7 @@ def current(boards):
     named = {}
     for release in releases:
         # a record may give its release no name, and then no other board's row names it
-        for name in _names(release["name"]) if release["name"] else ():
+        for name in _names(release["name"] or ""):
             named.setdefault(name, []).append(release)
     others = [held for board, held in boards.items() if board != BOARD]
     for held in others:
