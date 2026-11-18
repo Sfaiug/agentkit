@@ -1,6 +1,7 @@
-"""Every line of the why page (menu.models_why) fits a screen 14 cells wide or wider, the label
-column and one cell of value: an other's lines after its first hang two cells further in only
-where that leaves them a cell (menu.flowed).
+"""Every line of the why page (menu.models_why) fits a screen 8 cells wide or wider: the label
+column and one cell of value, or, narrower than that leaves, each value folded under its label two
+cells in; an other's lines after its first hang two cells further in only where that leaves them
+a cell (menu.flowed).
 
 In this process, an invented answer of one choice and an other it beats; judged by the cells of
 each line at each width.
@@ -21,18 +22,18 @@ def model(name, quality, cost, effort):
 
 
 class WhyFitsItsWidth(unittest.TestCase):
-    def test_no_line_is_wider_than_a_screen_of_14_cells_or_more(self):
+    def test_no_line_is_wider_than_a_screen_of_8_cells_or_more(self):
         # each role's verb, with and without an effort beside the name in the heading
         for role, effort, width in [(role, effort, width) for role in menu.DOES
-                                    for effort in ("", "medium") for width in range(14, 41)]:
+                                    for effort in ("", "medium") for width in range(8, 41)]:
             choice, other = model("Acme 1", 95.0, 1, effort), model("Bolt 1", 90.0, 2, effort)
             found = {"choices": [choice], "rated": [choice, other], "others": [other],
                      "whys": {id(other): ("beaten", choice)}, "cost_unit": "money"}
             with self.subTest(role=role, effort=effort, width=width), patch.object(
                     terminal, "layout_width", return_value=width):
                 page = menu.models_why(found, role, choice, choice, "$ a task", [])
-                # the other, its bar drawn: its lines hang
-                self.assertIn("  shaded     ", [line[:13] for line in page])
+                # the other, its bar drawn: its lines hang, beside its label or under it
+                self.assertIn("  shaded", [line[:8] for line in page])
                 self.assertLessEqual(max(map(terminal.cells, page)), width, page)
 
 
