@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"agentkit/internal/gitcall"
 )
 
 // Past the wait, the stop the deadline sets off has ended by the time the answer says so: one still
@@ -140,7 +142,8 @@ func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, why := ProjectOutput(context.Background(), `printf '%s %s %s\n' "${AGENTKIT_SESSION-absent}" "$ACME_TOKEN" "$PWD"`, checkout, nil, time.Second, "list")
-	if want := "absent kept " + checkout + "\n"; why != "" || string(out) != want {
+	// the output is decoded, so a checkout's path not in UTF-8 reads as Python reads it
+	if want := gitcall.Decoded("absent kept " + checkout + "\n"); why != "" || string(out) != want {
 		t.Errorf("answered %q, said %q, want %q", out, why, want)
 	}
 }
