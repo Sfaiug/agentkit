@@ -3,16 +3,24 @@ and again each hour while it goes on.
 
 From 12 to 17 Nov 2026 a seat waited on a log with `read -t 20 < /dev/zero`, which never sleeps,
 and held a core for five days that nothing saw.  Each tick reads how much CPU time each seat's
-scope used or waited for since the tick before (its `cpu.pressure`'s `some` total, where both
-ticks read it): `cores.FLOOR` or more, averaged over the time between them, two ticks in a row,
-and the seat is typed one line at its quiet prompt naming how much of a core, to one decimal, how
-long, its busiest command and where a wait belongs; the tick's log says the same.  Only a
-difference over a known interval counts: a seat seen first, a scope new since the last tick and a
-late tick are no offence, and a process moved into a scope brings none of the CPU time it spent
-before.  Nor is all a scope ever waited, where one tick of two left its waiting unread or the
-version before this one saved its count without saying whether the waiting was in it
-(`.agentkit/state/watch.json`): what it used counts through that, and a seat told before it is
-told again no sooner for it.
+scope used or waited for since the tick before (its `cpu.pressure`'s `some` total, where it has
+one): `cores.FLOOR` or more, averaged over the time between them, two ticks in a row, and the
+seat is typed one line at its quiet prompt naming how much of a core, to one decimal, how long,
+its busiest command and where a wait belongs; the tick's log says the same.  Only a difference
+over a known interval counts: a seat seen first, a scope new since the last tick and a late tick
+are no offence, and a process moved into a scope brings none of the CPU time it spent before.
+
+A tick may leave a scope's waiting unread: it stands as last read, and the interval counts what
+the scope used.  Read again, what the scope waited since is part of what a seat held all the
+while, and of a later interval only by what the time before could not hold; all a scope ever
+waited, read for the first time, is part of none.
+
+The version before this one saved each count without saying whether the scope's waiting was in it
+(`.agentkit/state/watch.json`).  It was in a count greater than all the scope has used since, and
+a scope that never waited has none: an interval from such a count counts whole, and ticks in a
+row go on through it where the count they began at is such a one too.  From another count what
+the scope used counts alone and ticks in a row begin again; a seat told before is told again no
+sooner where all the scope ever waited besides would put that interval over.
 
 Black-box: the program `AK_BIN` names ticks from outside through tests/fixtures/akbin.py, on a
 stand-in cgroup tree (AK_CGROUP_ROOT, AK_CGROUP_FILE) whose CPU counters and processes the test
@@ -42,6 +50,8 @@ OLD, NEW = "agentkit-seat-acme-new-1111aaaa.scope", "agentkit-seat-acme-new-2222
 WAITS, SLOW = "agentkit-seat-acme-waits-3333cccc.scope", "agentkit-seat-acme-slow-4444dddd.scope"
 BACK, ON = "agentkit-seat-acme-back-5555eeee.scope", "agentkit-seat-acme-on-6666ffff.scope"
 SAVED, HOUR = "agentkit-seat-acme-saved-7777aaaa.scope", "agentkit-seat-acme-hour-8888bbbb.scope"
+AGAIN, STALE = "agentkit-seat-acme-again-9999cccc.scope", "agentkit-seat-acme-stale-aaaadddd.scope"
+NEVER = "agentkit-seat-acme-never-bbbbeeee.scope"
 START = 1_800_000_000
 # Each tick's clock past START, and the CPU seconds each seat scope has used by then.  acme holds
 # a core from the first interval on, after five days' use before it was first seen; acme-idle
@@ -49,39 +59,57 @@ START = 1_800_000_000
 # every other interval; acme-new a core in the interval before its scope was made again, at once
 # holding more than its old one did; acme-waits 0.45 of one, and 0.85 over the late last interval;
 # acme-slow 0.4; acme-back two cores over the first interval and none after; acme-on and acme-hour
-# a core throughout; acme-saved a core over the first interval alone.  The last tick is over an
-# hour after acme was first told.
+# a core throughout; acme-saved and acme-stale a core over the first interval alone; acme-again
+# none over the first interval and a core over the next two; acme-never none.  The last tick is
+# over an hour after acme was first told.
 TICKS = [(0, {ACME: 432_000, IDLE: 0, ONCE: 0, OLD: 0, WAITS: 0, SLOW: 0,
-              BACK: 200, ON: 0, SAVED: 300, HOUR: 540}),
+              BACK: 200, ON: 0, SAVED: 300, HOUR: 540, AGAIN: 600, STALE: 600, NEVER: 480}),
          (180, {ACME: 432_180, IDLE: 72, ONCE: 180, OLD: 180, WAITS: 81, SLOW: 72,
-                BACK: 560, ON: 180, SAVED: 480, HOUR: 720}),
+                BACK: 560, ON: 180, SAVED: 480, HOUR: 720, AGAIN: 600, STALE: 780, NEVER: 480}),
          (360, {ACME: 432_360, IDLE: 144, ONCE: 190, NEW: 1_000, WAITS: 162, SLOW: 144,
-                BACK: 560, ON: 360, SAVED: 480, HOUR: 900}),
+                BACK: 560, ON: 360, SAVED: 480, HOUR: 900, AGAIN: 780, STALE: 780, NEVER: 480}),
          (540, {ACME: 432_540, IDLE: 216, ONCE: 370, NEW: 1_180, WAITS: 243, SLOW: 216,
-                BACK: 560, ON: 540, SAVED: 480, HOUR: 1_080}),
+                BACK: 560, ON: 540, SAVED: 480, HOUR: 1_080, AGAIN: 960, STALE: 780, NEVER: 480}),
          (4_000, {ACME: 436_000, IDLE: 396, ONCE: 470, NEW: 1_180, WAITS: 3_184, SLOW: 1_600,
-                  BACK: 560, ON: 4_000, SAVED: 480, HOUR: 4_540})]
+                  BACK: 560, ON: 4_000, SAVED: 480, HOUR: 4_540, AGAIN: 960, STALE: 780,
+                  NEVER: 480})]
 # The CPU seconds by each tick in which a task of a scope with a `cpu.pressure` was ready and had
 # none: acme-waits waits 0.15 of a core while another of its threads runs (`full` stays 0), 0.6
 # with what it uses and a core over the last interval, 0.946 since it was first seen; acme-slow
-# none since it was first seen, and the last four none since the 170 s each waited before that:
-# the second tick finds acme-back's and acme-on's `cpu.pressure` gone, and the third back.
-WAITED = [{WAITS: 0, SLOW: 60, BACK: 170, ON: 170, SAVED: 170, HOUR: 170},
-          {WAITS: 27, SLOW: 60, SAVED: 170, HOUR: 170},
-          {WAITS: 54, SLOW: 60, BACK: 170, ON: 170, SAVED: 170, HOUR: 170},
-          {WAITS: 81, SLOW: 60, BACK: 170, ON: 170, SAVED: 170, HOUR: 170},
-          {WAITS: 600, SLOW: 60, BACK: 170, ON: 170, SAVED: 170, HOUR: 170}]
+# none since it was first seen, nor acme-saved, acme-hour, acme-again and acme-stale since what
+# each waited before that; acme-never none ever.  The second tick finds the `cpu.pressure` of
+# acme-back, acme-on and acme-again gone, and the third back: acme-again's as it was, acme-back's
+# 100 s on, which either interval between may have held whole, and acme-on's 180 s on, half a
+# core over the two.  The third is the first to find acme-once's, with the 300 s it ever waited.
+WAITED = [{WAITS: 0, SLOW: 60, BACK: 170, ON: 170, SAVED: 170, HOUR: 170, AGAIN: 400, STALE: 400,
+           NEVER: 0},
+          {WAITS: 27, SLOW: 60, SAVED: 170, HOUR: 170, STALE: 400, NEVER: 0},
+          {ONCE: 300, WAITS: 54, SLOW: 60, BACK: 270, ON: 350, SAVED: 170, HOUR: 170, AGAIN: 400,
+           STALE: 400, NEVER: 0},
+          {ONCE: 300, WAITS: 81, SLOW: 60, BACK: 270, ON: 350, SAVED: 170, HOUR: 170, AGAIN: 400,
+           STALE: 400, NEVER: 0},
+          {ONCE: 300, WAITS: 600, SLOW: 60, BACK: 270, ON: 350, SAVED: 170, HOUR: 170, AGAIN: 400,
+           STALE: 400, NEVER: 0}]
 # What the version before this one saved three minutes before the first tick, in microseconds
 # and with no word on whether a count has the scope's waiting in it: acme-saved's without, of a
 # tick that left it unread, and acme-hour's with, after two intervals of a core and the line told
-# for them at that tick.
+# for them at that tick.  The other three's after one interval over, from the count each began
+# at: acme-again's of a core, its 400 s of waiting in both counts; acme-stale's of none, its
+# 400 s read then for the first time and taken for the interval's; acme-never's of a core.
 BEFORE = {SAVED: {"at": START - 180, "held": 300_000_000},
           HOUR: {"at": START - 180, "held": 530_000_000, "since": START - 540,
-                 "since_held": 170_000_000, "told": START - 180, "ticks": {}}}
+                 "since_held": 170_000_000, "told": START - 180, "ticks": {}},
+          AGAIN: {"at": START - 180, "held": 820_000_000, "since": START - 360,
+                  "since_held": 640_000_000, "told": None, "ticks": {}},
+          STALE: {"at": START - 180, "held": 820_000_000, "since": START - 360,
+                  "since_held": 420_000_000, "told": None, "ticks": {}},
+          NEVER: {"at": START - 180, "held": 300_000_000, "since": START - 360,
+                  "since_held": 120_000_000, "told": None, "ticks": {}}}
 # The lines each seat that is told has taken by the end of each tick: acme-hour none more inside
 # the hour of the one the version before told it.
 TOLD = [0, 0, 1, 1, 2]
-HEARD = {"acme": TOLD, "acme-waits": TOLD, "acme-on": TOLD, "acme-hour": [0, 0, 0, 0, 1]}
+HEARD = {"acme": TOLD, "acme-waits": TOLD, "acme-on": TOLD, "acme-hour": [0, 0, 0, 0, 1],
+         "acme-again": [1, 1, 1, 2, 2], "acme-stale": [0, 1, 1, 1, 1], "acme-never": [1] * 5}
 BOUND = 120     # seconds what a tick started may outlive it, or a typed line take to arrive
 # acme's scope holds a process that spends a fifth of a second on a CPU before each tick, and a
 # younger one that spent its first second there and sleeps since: the larger share of its life,
@@ -133,7 +161,7 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
         procs.write_text(f"{busy.pid}\n{helper.pid}\n")
         cls.seat = {name: Seat(home, name) for name in (
             "acme", "acme-idle", "acme-once", "acme-new", "acme-waits", "acme-slow", "acme-back",
-            "acme-on", "acme-saved", "acme-hour")}
+            "acme-on", "acme-saved", "acme-hour", "acme-again", "acme-stale", "acme-never")}
         cls.ticks = []
         for tick, ((at, used), waited) in enumerate(zip(TICKS, WAITED)):
             clock.write_text(str(START + at))
@@ -211,13 +239,17 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
     def test_a_seat_using_less_than_the_floor_and_waiting_for_none_hears_nothing(self):
         self.assertEqual(self.lines("acme-slow"), [[]] * len(TICKS))
 
-    def test_a_seat_whose_waiting_is_read_again_is_not_told_of_all_it_ever_waited(self):
+    def test_waiting_read_again_is_no_part_of_an_interval_that_may_have_held_none_of_it(self):
         self.assertEqual(self.lines("acme-back"), [[]] * len(TICKS))
 
     def test_a_seat_using_a_core_is_told_on_time_though_a_tick_left_its_waiting_unread(self):
         heard = self.lines("acme-on")
         self.assertEqual([len(lines) for lines in heard], TOLD, heard)
-        self.assertIn("1.0", heard[2][0])       # what it used, and none of what it ever waited
+        self.assertIn("1.5", heard[2][0])       # with what it waited meanwhile, read again
+
+    def test_a_seat_idle_over_an_interval_that_left_its_waiting_unread_is_told_again(self):
+        heard = self.lines("acme-again")
+        self.assertEqual([len(lines) for lines in heard], HEARD["acme-again"], heard)
 
     def test_a_count_the_version_before_saved_without_the_waiting_gains_none_of_it(self):
         self.assertEqual(self.lines("acme-saved"), [[]] * len(TICKS))
@@ -225,6 +257,16 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
     def test_a_seat_the_version_before_told_is_told_again_when_its_hour_is_over(self):
         heard = self.lines("acme-hour")
         self.assertEqual([len(lines) for lines in heard], HEARD["acme-hour"], heard)
+
+    def test_ticks_in_a_row_go_on_from_counts_the_version_before_saved_alike(self):
+        for name in "acme-again", "acme-never":
+            [line] = self.lines(name)[0]
+            self.assertIn("1.0", line)
+
+    def test_ticks_in_a_row_begin_again_at_a_count_unlike_the_one_they_began_at(self):
+        heard = self.lines("acme-stale")
+        self.assertEqual([len(lines) for lines in heard], HEARD["acme-stale"], heard)
+        self.assertIn("1.0", heard[1][0])       # the two intervals of a core, and no waiting
 
     def test_a_seat_under_the_floor_hears_nothing_however_late_a_tick(self):
         self.assertEqual(self.lines("acme-idle"), [[]] * len(TICKS))
