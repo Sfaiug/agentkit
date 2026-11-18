@@ -72,6 +72,9 @@ func (db *DB) share(id any, name string, session any, totals bool, began float64
 			}
 			dollars = price(each.Model, left)
 		}
+		// The turn's path alone names its rows, as in Python: it holds its run's id, and two runs'
+		// receipts under one directory (a link from one run to the other's turn) is left so: an input
+		// no home holds is not served.
 		if err := db.exec("UPDATE turn_usage SET (input, cache_write, cache_read, output, listed_usd) = (MAX(0, input-?1), "+
 			"MAX(0, cache_write-?2), MAX(0, cache_read-?3), MAX(0, output-?4), ?7) WHERE turn=?5 AND model IS ?6 AND "+
 			"(input, cache_write, cache_read, output) IS NOT (MAX(0, input-?1), MAX(0, cache_write-?2), MAX(0, cache_read-?3), MAX(0, output-?4))",
