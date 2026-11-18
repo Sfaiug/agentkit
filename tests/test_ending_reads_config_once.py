@@ -54,7 +54,7 @@ class EndingReadsConfigOnce(Sandbox):
                         self.assertIn(why, told, f"{name} of {outcome}")
 
     def test_a_file_tomllib_cannot_read_leaves_what_the_record_says(self):
-        # past Python's digit limit tomllib raises a bare ValueError, no TOMLDecodeError
+        # past Python's digit limit tomllib raises a bare ValueError, past its stack a RecursionError
         self.addCleanup(sys.set_int_max_str_digits, sys.get_int_max_str_digits())
         sys.set_int_max_str_digits(4300)
         adapters = self.root / "adapters"
@@ -64,12 +64,15 @@ class EndingReadsConfigOnce(Sandbox):
                              review={"executor": "opus", "verdict": "PASS", "returncode": 0,
                                      "done_when": True, "no_review": True}), "# PASS, merged"),
                 (self.ending("acme-reviewed", error="Saved diagnostic."), "Why: Saved diagnostic"))
-        broken = {config.HOME / config.CONFIG_NAME: b"max_runs = " + b"9" * 4301 + b"\n",
-                  adapters / "acme.toml": b'name = "\xff"\n'}
-        for path, data in broken.items():
+        depth = sys.getrecursionlimit()     # a frame or more each level
+        deep = b"value = " + b"[" * depth + b"0" + b"]" * depth + b"\n"
+        home, manifest = config.HOME / config.CONFIG_NAME, adapters / "acme.toml"
+        broken = ((home, b"max_runs = " + b"9" * 4301 + b"\n"), (manifest, b'name = "\xff"\n'),
+                  (home, deep), (manifest, deep))
+        for path, data in broken:
             path.write_bytes(data)
             for (directory, state), words in told:
-                with self.subTest(path.name, record=directory.name):
+                with self.subTest(path.name, data=data[:12], record=directory.name):
                     self.assertIn(words, handback.result_opening(directory, state))
             path.unlink()
 

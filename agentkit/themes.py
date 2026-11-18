@@ -41,7 +41,7 @@ def named(path):
     try:
         with open(path, "rb") as file:
             word = tomllib.load(file).get("theme")
-    except (OSError, ValueError):     # a TOMLDecodeError and a UnicodeDecodeError are ValueErrors
+    except (OSError, ValueError, RecursionError):     # what config._read_toml refuses
         return None
     return NAMES.get(word) if isinstance(word, str) else None
 
