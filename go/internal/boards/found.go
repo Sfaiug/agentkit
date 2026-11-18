@@ -36,9 +36,13 @@ func allDigits(text string) bool {
 // for `acme-5-5`), else under the one board name that is model with a qualifier in brackets
 // (`Acme 5 (Default Fallback)`; two such names stand for nothing), else under each board name that
 // adds a version or date to a model naming none (`Acme Flash 1017` for `acme-flash`, lineup taking
-// only one release), else the same matches without a trailing `-free` pricing tier.
+// only one release), else the same matches without a trailing `-free` pricing tier; none for a
+// model holding no letter or digit, which names nothing.
 func (index Index) Found(model string) []Hit {
 	wanted := normal(model)
+	if wanted == "" {
+		return nil
+	}
 	if hits, ok := index[wanted]; ok {
 		return hits
 	}
@@ -62,7 +66,7 @@ func (index Index) Found(model string) []Hit {
 		return index[qualified[0]]
 	}
 	var extended []Hit
-	if wanted == "" || !allDigits(wanted[len(wanted)-1:]) {
+	if !allDigits(wanted[len(wanted)-1:]) {
 		for stem, hits := range index {
 			if strings.HasPrefix(stem, wanted) && allDigits(stem[len(wanted):]) {
 				extended = append(extended, hits...)
