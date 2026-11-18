@@ -10,7 +10,10 @@ root, or takes the `origin` homes share (tests/fixtures/twohomes.py); HOME/agent
 of it on main, and `install.ak` its `bin/ak` as the home's commands find it.  Its origin reads
 as GitHub's acme/agentkit, `ORIGIN`, so a pull request merged there is on its repository: an
 `ssh` serves git's fetch of it, `FETCH`, from the bare origin, and refuses all else.
-`advance()` adds a line to `notes` in one more commit on origin's main.  `seat(name)` opens a
+`advance()` adds a line to `notes` in one more commit on origin's main.  `refs()` are the refs
+origin holds under refs/agentkit/, `commit(sha)` the bytes it holds of one, and `set_ref` changes
+one, or deletes it, as a stranger would, from no machine; `agentkit_refs` reads them from git's
+lines as a machine's ls-remote writes them.  `seat(name)` opens a
 seat of tests/fixtures/akseat.py in HOME/agentkit, at its prompt, holding a run that merged into
 acme/agentkit: the seat a tick hands agentkit's own faults back to.  The tick asks the public
 model boards over HTTP itself, so every proxy an HTTP client honours names a loopback port nobody
@@ -42,8 +45,10 @@ PROGRAM = next((folder for folder in Path(AK).resolve().parents if (folder / ".g
                Path(AK).parents[1])
 INSTALL = '#!/bin/sh\n[ "$1" != --prepare ] || exit 0\necho installed >>"$HOME/installed"\n'
 ORIGIN = "git@github.com:acme/agentkit.git"
-# git fetches over ssh by running its last word on the far end; only ORIGIN's is served.
-FETCH = ("git@github.com", "git-upload-pack 'acme/agentkit.git'")
+# git fetches, and pushes, over ssh by running its last word on the far end, where the
+# repositories are; only ORIGIN's is served.
+FETCH, PUSH = (("git@github.com", f"{program} 'acme/agentkit.git'")
+               for program in ("git-upload-pack", "git-receive-pack"))
 SSH = f"""#!/bin/sh
 case "$*" in
   *"{' '.join(FETCH)}") exec git-upload-pack {{bare}} ;;
@@ -55,10 +60,10 @@ PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY"
 BARE = Path("remotes", "acme", "agentkit.git")
 
 
-def _git(where, *args):
+def _git(where, *args, raw=False):
     """Run git in `where` on the test's side, as no home's command, for an origin is no home's;
-    its output, stripped."""
-    done = subprocess.run(["git", "-C", str(where), *args], capture_output=True, text=True,
+    its output, stripped, or `raw`, the bytes git wrote."""
+    done = subprocess.run(["git", "-C", str(where), *args], capture_output=True, text=not raw,
                           timeout=120, env={
                               "PATH": os.pathsep.join(SYSTEM), "GIT_CONFIG_NOSYSTEM": "1",
                               "GIT_CONFIG_GLOBAL": os.devnull,
@@ -67,7 +72,7 @@ def _git(where, *args):
                               "GIT_COMMITTER_NAME": "acme",
                               "GIT_COMMITTER_EMAIL": "acme@example.com"})
     assert done.returncode == 0, f"git {' '.join(args)}: {done.stderr}"
-    return done.stdout.strip()
+    return done.stdout if raw else done.stdout.strip()
 
 
 def _push(seed, message):
@@ -116,6 +121,19 @@ class Install:
             notes.write("one more line on origin\n")
         return self._push("one more line")
 
+    def refs(self):
+        """Each ref origin holds under refs/agentkit/, and the commit it names."""
+        return agentkit_refs(_git(self.bare, "for-each-ref",
+                                  "--format=%(objectname)%09%(refname)", raw=True))
+
+    def commit(self, sha):
+        """The commit `sha`, the bytes origin holds."""
+        return _git(self.bare, "cat-file", "commit", sha, raw=True)
+
+    def set_ref(self, ref, value):
+        """Have origin's `ref` name `value`, a commit it holds; None deletes it."""
+        _git(self.bare, "update-ref", *(("-d", ref) if value is None else (ref, value)))
+
     def seat(self, name="atoll"):
         """A seat in HOME/agentkit that merged a pull request into acme/agentkit."""
         seat = Seat(self.home, name, cwd=self.path)
@@ -126,11 +144,12 @@ class Install:
             "pr": "https://github.com/acme/agentkit/pull/1", "launched_session": name})
         return seat
 
-    def git(self, *args):
-        """Run git in HOME/agentkit, on the home; its output, stripped."""
-        done = self.home.run("git", "-C", str(self.at), *args)
+    def git(self, *args, raw=False):
+        """Run git in HOME/agentkit, on the home; its output, stripped, or `raw`, the bytes git
+        wrote."""
+        done = self.home.run("git", "-C", str(self.at), *args, raw=raw)
         assert done.code == 0, f"git {' '.join(args)}: {done.err}"
-        return done.out.strip()
+        return done.out if raw else done.out.strip()
 
     def head(self):
         """The commit HOME/agentkit has checked out."""
@@ -148,6 +167,15 @@ class Install:
         return _push(self.seed, message)
 
     _git = staticmethod(_git)
+
+
+def agentkit_refs(listed):
+    """Each ref under refs/agentkit/ in git's lines `listed`, `<sha>\t<name>\n` as ls-remote
+    writes them, by its name's bytes as Python names a path's: a name holds no control byte (git
+    check-ref-format), so a tab and a line feed split git's lines, and nothing else does."""
+    pairs = (line.split(b"\t", 1) for line in listed.split(b"\n") if line)
+    return {os.fsdecode(name): sha.decode() for sha, name in pairs
+            if name.startswith(b"refs/agentkit/")}
 
 
 def copy_tracked(to):

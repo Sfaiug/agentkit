@@ -2,8 +2,10 @@
 alike, each with a host name, a home at the other's path, a /tmp, fakes, variables, a cgroup
 root and an ak install of its own, and each reaching the other by ssh as the key and the tick
 reach it; a third where a key names one; one a key holds made the other's client, silent or
-hanging; and their installs' one origin, which a fetch reaches from either, the other silent."""
+hanging; and their installs' one origin, which a fetch reaches from either, the other silent,
+and a push of a ref under refs/agentkit/ too, by compare-and-swap, which a key reads and writes."""
 
+from concurrent.futures import ThreadPoolExecutor
 import os
 import sys
 from pathlib import Path
@@ -12,7 +14,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import boxable
-from fixtures.akinstall import ORIGIN
+from fixtures.akinstall import ORIGIN, agentkit_refs
 from fixtures.twohomes import Machines
 
 REFUSED = "systemctl: not scripted in this test\n"
@@ -171,6 +173,56 @@ class TwoHomes(unittest.TestCase):
             tip = mini.install.advance()
             mini.install.git("fetch", "-q", "origin")
             self.assertEqual(mini.install.git("rev-parse", "origin/main"), tip)
+
+    @staticmethod
+    def commit_on(machine):
+        """A commit made in `machine`'s install, naming it, that no remote holds yet."""
+        return machine.install.git("-c", "user.name=acme", "-c", "user.email=acme@example.com",
+                                   "commit-tree", "-m", machine.name, "HEAD^{tree}")
+
+    @staticmethod
+    def read(machine):
+        """The refs under refs/agentkit/ that `machine` reads on its install's remote, each once:
+        `--refs` lists no peeled `^{}` line beside a tag's."""
+        return agentkit_refs(machine.install.git("ls-remote", "--refs", "origin", raw=True))
+
+    def test_a_ref_one_pushes_is_what_the_other_and_the_key_read(self):
+        install, pushed = self.machines[0].install, {}
+        for machine, other in self.pairs:
+            ref, made = f"refs/agentkit/{machine.name}", self.commit_on(machine)
+            self.addCleanup(install.set_ref, ref, None)
+            machine.install.git("push", "-q", "origin", f"{made}:{ref}")
+            pushed[ref] = made
+            self.assertEqual((self.read(other), install.refs()), (pushed, pushed))
+            held = machine.install.git("cat-file", "commit", made, raw=True)
+            self.assertEqual(install.commit(made), held)    # whole, its last line break too
+
+    def test_of_two_pushes_naming_one_old_value_one_is_refused(self):
+        install, ref = self.machines[0].install, "refs/agentkit/home"
+        old = install.origin()
+        install.set_ref(ref, old)
+        self.addCleanup(install.set_ref, ref, None)
+        made = {machine.name: self.commit_on(machine) for machine in self.machines}
+
+        def push(machine):     # both at once, as two machines taking one lease would
+            return machine.run("git", "-C", machine.install.at, "push", "-q",
+                               f"--force-with-lease={ref}:{old}", "origin",
+                               f"{made[machine.name]}:{ref}").code
+
+        with ThreadPoolExecutor() as pool:
+            codes = dict(zip(made, pool.map(push, self.machines)))
+        self.assertEqual(sorted(code == 0 for code in codes.values()), [False, True], codes)
+        won = next(name for name, code in codes.items() if code == 0)
+        self.assertEqual(install.refs(), {ref: made[won]})
+
+    def test_a_keys_change_of_a_ref_and_its_delete_are_what_each_machine_reads(self):
+        mini, vm = self.machines
+        install, ref, made = mini.install, "refs/agentkit/home", self.commit_on(mini)
+        self.addCleanup(install.set_ref, ref, None)
+        mini.install.git("push", "-q", "origin", f"{made}:{ref}")
+        for value, read in ((install.origin(), {ref: install.origin()}), (None, {})):
+            install.set_ref(ref, value)
+            self.assertEqual([self.read(machine) for machine in self.machines], [read] * 2)
 
     def test_a_tick_moves_the_install_it_runs_from_alone(self):
         with Machines("acme-mini", "acme-vm") as (mini, vm):

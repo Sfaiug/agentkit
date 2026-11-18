@@ -288,11 +288,12 @@ class Home:
         """Run the program once; see `run`.  `boxed` gives it the /tmp of `box`."""
         return self.run(*(self.box() if boxed else ()), self.program, *args, **kwargs)
 
-    def run(self, *argv, input=None, tty=False, env=None, cwd=None, timeout=120, keep=()):
+    def run(self, *argv, input=None, tty=False, env=None, cwd=None, timeout=120, keep=(),
+            raw=False):
         """Run a command in this Home and wait for it.  `tty` puts a terminal on its stdin with
         `input` typed into it, as a person would.  `keep` are descriptors it, and whatever it
-        starts, inherits.  A hang fails the test, naming the command, and leaves nothing of it
-        running."""
+        starts, inherits.  `raw` keeps the bytes of its pipes, undecoded.  A hang fails the test,
+        naming the command, and leaves nothing of it running."""
         typist = terminal = None
         if tty:
             typist, terminal = os.openpty()
@@ -300,7 +301,7 @@ class Home:
             input = None
         try:
             proc = self._popen(argv, env, cwd, stdin=terminal if tty else subprocess.PIPE,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=not raw,
                                pass_fds=keep)
             try:
                 out, err = proc.communicate(input, timeout=timeout)
