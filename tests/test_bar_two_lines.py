@@ -129,12 +129,12 @@ class TwoLines(Sandbox):
         self.assertNotIn("Merge", "".join(self.options.values()))
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
 
-    def test_c1_what_needs_you_outside_the_chat_is_line_two_alone(self):
+    def test_c1_what_needs_you_outside_the_chat_is_line_two_at_every_width(self):
         reason = "GitHub is logged out: run `gh auth login -p https -w`"
-        self.going()
+        self.going()        # no squares a client keeps over it
         statusbar.redress(self.seat, {"word": "needs you", "reason": reason}, cfg=self.cfg)
-        self.assertEqual([drawn(self.options[option]) for option in statusbar.WHYS],
-                         [f"  {reason}", "", "", ""])     # no squares a client keeps over it
+        for option in statusbar.WHYS:
+            self.assertEqual(drawn(self.options[option]), f"  {reason}")
 
     def test_c2_a_seat_waiting_to_land_keeps_its_line(self):
         self.plan(2, 5)

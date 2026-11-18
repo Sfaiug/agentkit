@@ -53,9 +53,9 @@ CLICK = ("bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + H
 CELLS = 36                         # a working seat's progress line and its count
 BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one is short of room
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
-# Line two: every task's squares and who builds and reviews, then those squares alone, then cut
-# to six, then to one (`whys`).
-WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 4)))
+# Line two: every task's squares and who builds and reviews, then those squares alone; again
+# with them cut to six, then to one (`whys`).
+WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 6)))
 
 
 def _cut(option, room):
@@ -78,23 +78,18 @@ def _line_one():
     return found
 
 
-def _first_fitting(options, room):
-    """The first of `options` whose text fits in `room` cells, drawn whole, else the last cut
-    to it."""
-    found = _cut(options[-1], room)
-    for option in reversed(options):
-        found = "#{?#{e|<=:#{w:" + option + "}," + room + "},#{" + option + "}," + found + "}"
-    return found
-
-
 def _line_two():
     """Line two a space short of the key, so the key stays whole on every client, a phone's
-    included: whole where it fits, else cut after its squares where they fit, else the first
-    fewer squares that fit."""
+    included: the most squares that fit, then the crew -- whole where it fits, else cut where
+    the three cells after the squares and one of its own fit, so its `…` never reads as a cut
+    square, else not drawn; the fewest squares cut where not even they fit."""
     room = "#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}"
-    squares = "#{e|<=:#{w:" + WHYS[1] + "}," + room + "}"
-    return ("#[align=left]#{?" + squares + "," + _first_fitting(WHYS[:1], room) + ","
-            + _first_fitting(WHYS[2:], room) + "} #[align=right]#{" + KEY + "}")
+    found = _cut(WHYS[-1], room)
+    for crewed, alone in reversed(list(zip(WHYS[::2], WHYS[1::2]))):
+        found = ("#{?#{e|<=:#{w:" + crewed + "}," + room + "},#{" + crewed + "},"
+                 "#{?#{e|<:#{e|+:#{w:" + alone + "},3}," + room + "}," + _cut(crewed, room) + ","
+                 "#{?#{e|<=:#{w:" + alone + "}," + room + "},#{" + alone + "}," + found + "}}}")
+    return "#[align=left]" + found + " #[align=right]#{" + KEY + "}"
 
 
 # Each line as tmux draws it from those options, cut with one `…` where it would run off the
@@ -152,16 +147,17 @@ def lines(name, model, word=None, last="", why=""):
 def whys(info):
     """Line two, one version for each of `WHYS`, as tmux text: a needs-you reason no chat shows,
     alone; otherwise every task's squares (`menu.squares`), then who builds and reviews
-    (`menu.crew`) -- then those squares alone, whole on a client that cuts the crew after them
-    (`_line_two`), then cut to six, then to one and the count of the rest.  The owner
+    (`menu.crew`), then those squares alone -- and again with them cut to six, then to one and
+    the count of the rest, so a narrow client still sees its tasks (`_line_two`).  The owner
     picked the squares first, 17 Nov 2026.  A question is not repeated: a stop shows `needs
     you` only once it is the agent's last message, or its card is up (owner, 23 Oct 2026: "if
     we dont need it, lets remove it")."""
     if info.get("word") == "needs you" and not info.get("question"):
-        return [orch.tmux_text(terminal.plain(info.get("sentence") or "")), "", "", ""]
-    every, few, least = (menu.squares(info.get("tasks") or [], tmux=True, most=most)
-                         for most in (None, 6, 1))
-    return ["   ".join(filter(None, (every, menu.crew(info, tmux=True)))), every, few, least]
+        return [orch.tmux_text(terminal.plain(info.get("sentence") or ""))] * len(WHYS)
+    crew, tasks = menu.crew(info, tmux=True), info.get("tasks") or []
+    every, few, least = (menu.squares(tasks, tmux=True, most=most) for most in (None, 6, 1))
+    return [version for squares in (every, few, least)
+            for version in ("   ".join(filter(None, (squares, crew))), squares)]
 
 
 def sessions():
