@@ -3,8 +3,8 @@ and again each hour while it goes on.
 
 From 12 to 17 Nov 2026 a seat waited on a log with `read -t 20 < /dev/zero`, which never sleeps,
 and held a core for five days that nothing saw.  Each tick reads how much CPU time each seat's
-scope used or waited for since the tick before (its `cpu.pressure`'s `some` total, where it has
-one): `cores.FLOOR` or more, averaged over the time between them, two ticks in a row, and the
+scope used or waited for since the tick before (its `cpu.pressure`'s `some` total, where both
+read it): `cores.FLOOR` or more, averaged over the time between them, two ticks in a row, and the
 seat is typed one line at its quiet prompt naming how much of a core, to one decimal, how long,
 its busiest command and where a wait belongs; the tick's log says the same.  Only a difference
 over a known interval counts: a seat seen first, a scope new since the last tick and a late tick
@@ -36,7 +36,7 @@ ONCE = "agentkit-seat-acme-once-4567cdef.scope"
 # acme-new's seat launched again between two ticks, in a scope of another name
 OLD, NEW = "agentkit-seat-acme-new-1111aaaa.scope", "agentkit-seat-acme-new-2222bbbb.scope"
 WAITS, SLOW = "agentkit-seat-acme-waits-3333cccc.scope", "agentkit-seat-acme-slow-4444dddd.scope"
-BACK = "agentkit-seat-acme-back-5555eeee.scope"
+BACK, ON = "agentkit-seat-acme-back-5555eeee.scope", "agentkit-seat-acme-on-6666ffff.scope"
 START = 1_800_000_000
 # Each tick's clock past START, and the CPU seconds each seat scope has used by then.  acme holds
 # a core from the first interval on, after five days' use before it was first seen; acme-idle
@@ -49,17 +49,20 @@ TICKS = [(0, {ACME: 432_000, IDLE: 0, ONCE: 0, OLD: 0, WAITS: 0, SLOW: 0}),
          (360, {ACME: 432_360, IDLE: 144, ONCE: 190, NEW: 1_000, WAITS: 162, SLOW: 144}),
          (540, {ACME: 432_540, IDLE: 216, ONCE: 370, NEW: 1_180, WAITS: 243, SLOW: 216}),
          (4_000, {ACME: 436_000, IDLE: 396, ONCE: 470, NEW: 1_180, WAITS: 3_184, SLOW: 1_600})]
-# acme-back uses two cores over the first interval and nothing after; the 170 s it waited before
-# it was first seen go unread at the second tick and are read again from the third
-for (_, used), back in zip(TICKS, (200, 560, 560, 560, 560)):
-    used[BACK] = back
+# acme-back uses two cores over the first interval and nothing after, acme-on a core throughout;
+# the 170 s each waited before it was first seen go unread at the second tick and are read again
+# from the third
+for (at, used), back in zip(TICKS, (200, 560, 560, 560, 560)):
+    used[BACK], used[ON] = back, at
 # The CPU seconds by each tick in which a task of a scope with a `cpu.pressure` was ready and had
 # none: acme-waits waits 0.15 of a core while another of its threads runs (`full` stays 0), 0.6
 # with what it uses and a core over the last interval, 0.946 since it was first seen; acme-slow
 # none since it was first seen.
-WAITED = [{WAITS: 0, SLOW: 60, BACK: 170}, {WAITS: 27, SLOW: 60}, {WAITS: 54, SLOW: 60, BACK: 170},
-          {WAITS: 81, SLOW: 60, BACK: 170}, {WAITS: 600, SLOW: 60, BACK: 170}]
-TOLD = [0, 0, 1, 1, 2]      # the lines acme and acme-waits have taken by the end of each tick
+WAITED = [{WAITS: 0, SLOW: 60, BACK: 170, ON: 170}, {WAITS: 27, SLOW: 60},
+          {WAITS: 54, SLOW: 60, BACK: 170, ON: 170}, {WAITS: 81, SLOW: 60, BACK: 170, ON: 170},
+          {WAITS: 600, SLOW: 60, BACK: 170, ON: 170}]
+# the lines acme, acme-waits and acme-on have each taken by the end of each tick
+TOLD = [0, 0, 1, 1, 2]
 BOUND = 120     # seconds what a tick started may outlive it, or a typed line take to arrive
 # acme's scope holds a process that spends a fifth of a second on a CPU before each tick, and a
 # younger one that spent its first second there and sleeps since: the larger share of its life,
@@ -101,7 +104,7 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
         procs.write_text(f"{busy.pid}\n{helper.pid}\n")
         cls.seat = {name: Seat(home, name) for name in ("acme", "acme-idle", "acme-once",
                                                         "acme-new", "acme-waits", "acme-slow",
-                                                        "acme-back")}
+                                                        "acme-back", "acme-on")}
         cls.ticks = []
         for (at, used), waited, told in zip(TICKS, WAITED, TOLD):
             clock.write_text(str(START + at))
@@ -111,7 +114,8 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
                 (cls.seats / scope).mkdir(exist_ok=True)
                 (cls.seats / scope / "cpu.stat").write_text(
                     f"usage_usec {seconds * 1_000_000}\nuser_usec 0\nsystem_usec 0\n")
-            (cls.seats / BACK / "cpu.pressure").unlink(missing_ok=True)
+            for scope in used.keys() - waited.keys():
+                (cls.seats / scope / "cpu.pressure").unlink(missing_ok=True)
             for scope, seconds in waited.items():
                 (cls.seats / scope / "cpu.pressure").write_text(
                     f"some avg10=0.00 avg60=0.00 avg300=0.00 total={seconds * 1_000_000}\n"
@@ -123,7 +127,8 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
             busy.stdout.readline()
             done = cls.tick()
             deadline = time.monotonic() + BOUND
-            while (min(len(cls.seat[name].lines()) for name in ("acme", "acme-waits")) < told
+            while (min(len(cls.seat[name].lines())
+                       for name in ("acme", "acme-waits", "acme-on")) < told
                    and time.monotonic() < deadline):
                 time.sleep(0.05)
             cls.ticks.append((done, {name: seat.lines() for name, seat in cls.seat.items()}))
@@ -182,6 +187,11 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
 
     def test_a_seat_whose_waiting_went_unread_for_a_tick_is_not_told_of_all_it_ever_waited(self):
         self.assertEqual(self.lines("acme-back"), [[]] * len(TICKS))
+
+    def test_a_seat_using_a_core_is_told_on_time_though_a_tick_left_its_waiting_unread(self):
+        heard = self.lines("acme-on")
+        self.assertEqual([len(lines) for lines in heard], TOLD, heard)
+        self.assertIn("1.0", heard[2][0])       # what it used, and none of what it ever waited
 
     def test_a_seat_under_the_floor_hears_nothing_however_late_a_tick(self):
         self.assertEqual(self.lines("acme-idle"), [[]] * len(TICKS))

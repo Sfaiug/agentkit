@@ -38,32 +38,41 @@ def _now():
 def tell(state, log):
     """Owe each seat whose scope used or waited for FLOOR of a core or more over each of the last
     two intervals a line saying so, once, and again each AGAIN while it goes on; an interval under
-    starts the count over.  Each scope's reading is kept in `state` for the next tick, and on one
-    whose last interval was over, `since` it was first held, what it had held by then
-    (`since_held`: the line says what it held over that time) and each process's CPU time:
-    its busiest is the one that spent most of the next interval, as a shell days old that has
-    just begun to spin has spent little of its life.  One not read then counts from nothing only
-    if it began since: one moved into the scope brings the time it spent before."""
+    starts the count over.  The waiting counts over an interval both of whose ends read it.  Each
+    scope's reading is kept in `state` for the next tick with the waiting in it (`waited`, None
+    where unread), and on one whose last interval was over, `since` it was first held, what it
+    had held by then (`since_held`: the line says what it held over that time) and each
+    process's CPU time: its busiest is the one that spent most of the next interval, as a shell
+    days old that has just begun to spin has spent little of its life.  One not read then counts
+    from nothing only if it began since: one moved into the scope brings the time it spent
+    before."""
     now, before, state["seat_cores"] = _now(), state.get("seat_cores") or {}, {}
     for scope, launched in front.scopes().items():
-        held, waits = host.cpu_held_usec(scope)
+        held, waited = host.cpu_held_usec(scope)
         if held is None:
             continue
         # A reading under `usec` counted used time alone: against one with a lifetime's waiting
         # its interval would be over, so it is no reading.
         last = before.get(scope.name) or {}
-        if last.get("waits", waits) != waits:
-            # its waiting was read at one end only: a lifetime's would count as the interval's
-            last = {}
-        seen = state["seat_cores"][scope.name] = {"at": now, "held": held, "waits": waits}
+        seen = state["seat_cores"][scope.name] = {"at": now, "held": held, "waited": waited}
+        # Until 18 Nov 2026 a count was saved without saying whether the scope's waiting was in
+        # it: it is read as this one is.
+        was = last.get("waited", waited)
+        # Where one end alone read the waiting, the count jumps by all the scope ever waited,
+        # which is no part of the interval: taken out, what was used still counts, so a streak
+        # and when it was told go on.  The streak's count jumps with it.
+        jump = (waited or 0) - (was or 0) if None in (waited, was) else 0
         if ("held" not in last or now <= last["at"]
-                or held - last["held"] < FLOOR * 1e6 * (now - last["at"])):
+                or held - last["held"] - jump < FLOOR * 1e6 * (now - last["at"])):
             continue
-        # A streak goes on from one reading's time and count together: one saved with a time
-        # alone (before 18 Nov 2026) starts over, as a count read later would say less was held.
+        if "waited" not in last:
+            # over, yet by all the scope ever waited if that was not in the count before: no
+            # streak starts or goes on from it, and when its seat was told stands
+            seen["told"] = last.get("told")
+            continue
         going = "since_held" in last
         seen.update(since=last["since"] if going else last["at"],
-                    since_held=last["since_held"] if going else last["held"],
+                    since_held=(last["since_held"] if going else last["held"]) + jump,
                     told=last.get("told"), ticks=host.cpu_ticks(scope))
         if going and (seen["told"] is None or now - seen["told"] >= AGAIN):
             seen["told"] = now
