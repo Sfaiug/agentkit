@@ -150,8 +150,9 @@ class Catalog(Sandbox):
             ("acme-nova-1", "Nova 1", "acme-nova-1", "Nova 1", "Acme", True, "acme-nova-2", 16),
             ("acme-nova-2", "Nova 2", "acme-nova-2", "Nova 2", "Acme", False, None, 18),
             ("beta-nova-1", "Nova 1", "beta-nova-1", "Nova 1", "Beta", False, None, 17),
-            # a release with no name, or one of no letter or digit, is a series alone
+            # a release with no name, or one of no letter or digit or no text, is a series alone
             ("awl-1", "Awl 1", "awl-1", None, "Acme", True, "awl-2", 1),
+            ("chisel-1", "Chisel 1", "chisel-1", 7, "Acme", True, "awl-2", 1),
             ("awl-2", "Awl 2", "awl-2", "Awl 2", "Acme", False, None, 15),
             ("bevel-1", "Bevel 1", "bevel-1", None, "Acme", False, None, 10),
             ("cask-1", "Cask 1", "cask-1", " ... ", "Acme", True, "awl-2", 1),
