@@ -203,7 +203,9 @@ def install(home, **harnesses):
         text = shipped.read_text() if shipped.exists() else "version = 1\n"
         kept = "".join(re.findall(r"(?m)^(?:sessions|lent_for) = .*\n", text))
         text = re.sub(r"(?ms)^\[worker\]\n.*?(?=^\[|\Z)", "", text).rstrip()
-        state = json.dumps([str(directory), str(Path(AK).parent)])     # a turn hands in through AK
+        # read back as templates (`config.manifest_paths`), where `$$` is a dollar as written
+        state = json.dumps([str(path).replace("$", "$$")
+                            for path in (directory, Path(AK).parent)])     # a turn hands in through AK
         fake.manifest.write_text(f"{text}\n\n[worker]\nstate = {state}\n{kept}")
     return fakes
 
