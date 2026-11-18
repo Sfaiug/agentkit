@@ -45,8 +45,10 @@ def _release(slug, rows):
 
 def _names(name):
     """The forms a name matches as: its letters and digits alone, ignoring case, and so again
-    with each eight-digit date cut to its last four digits; none where it holds no letter or
-    digit, which names nothing."""
+    with each eight-digit date cut to its last four digits; none where it is no text holding a
+    letter or digit, which names nothing: a record may give its release no name, or a number."""
+    if not isinstance(name, str):
+        return set()
     return {"".join(char for char in form.casefold() if char.isalnum())
             for form in (name, DATE.sub(r"\1", name))} - {""}
 
@@ -117,8 +119,8 @@ def _gone(releases):
     series = {}
     for slug, rows in releases.items():
         name = rows[0]["release"]["name"]
-        # a missing name says nothing of which releases are one model's
-        series.setdefault((rows[0]["maker"], name) if name else (slug,), set()).add(slug)
+        # a name that names nothing says nothing of which releases are one model's
+        series.setdefault((rows[0]["maker"], name) if _names(name) else (slug,), set()).add(slug)
     gone = {}
     for slugs in series.values():
         deprecated = [slug for slug in slugs if not _current(releases[slug])]
@@ -151,8 +153,7 @@ def current(boards):
                 if _current(rows) and slug not in gone]
     named = {}
     for release in releases:
-        # a record may give its release no name, and then no other board's row names it
-        for name in _names(release["name"] or ""):
+        for name in _names(release["name"]):
             named.setdefault(name, []).append(release)
     others = [held for board, held in boards.items() if board != BOARD]
     for held in others:
