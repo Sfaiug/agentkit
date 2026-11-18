@@ -72,6 +72,17 @@ programs = ["muse-bin-*"]
 capture = true
 strips_timestamp = true
 
+# Each plan by the id its usage frame's `subscription.tier` carries (adapters/muse-usage.sh), and
+# what it costs in US dollars a month.  Muse says a login's plan nowhere else, and only as that
+# id: a real login's frame gave 27681527378179523 on 17 Nov 2026, and the owner, asked that day
+# which plan it is, answered "High, $15".  Muse Code's plans are Everyday Usage $5, High Usage
+# $15, Power Usage $50 and Maximum Usage $200 a month; the others join as a login shows their id.
+[tiers]
+"27681527378179523" = "High Usage"
+
+[plans]
+"High Usage" = 15
+
 # Muse 1.4.7's hooks reach a seat from its launch line and Muse's settings file.  Its own
 # question tool fires no tool hook, but its dialog opening is a Notification of its own kind,
 # which no text on the screen can fake: that decides `asking`, as an approval's notice does on a
