@@ -41,10 +41,12 @@ class RightEndsStayWhole(unittest.TestCase):
             written = home.ak("orch", "why", name)
             assert written.code == 0, written.err
         # A wide terminal shows why beside the key: a bar without that reason has nothing to
-        # cut, and the narrow terminals below would pass on it.
+        # cut, and the narrow terminals below would pass on it.  It is acme's by its name, all
+        # beta's bar draws otherwise.
         Terminal(home, "orch", "acme", size=(100, 24)).wait(
-            lambda screen: len(bar(screen)) == 2 and bar(screen)[1].endswith(KEY)
-            and "GitHub is logged out" in bar(screen)[1], bound=OPENS)
+            lambda screen: len(bar(screen)) == 2 and " acme " in bar(screen)[0]
+            and bar(screen)[1].endswith(KEY) and "GitHub is logged out" in bar(screen)[1],
+            bound=OPENS)
 
     def test_17_and_16_columns_keep_the_key_and_who_else_needs_you_whole(self):
         for width in (17, 16):
