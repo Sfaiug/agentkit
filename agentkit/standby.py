@@ -70,14 +70,20 @@ SCRATCH = ("tmp", ".box-")
 LINKED = {3: config.RUNS, 4: config.CODE}
 # The ask of the home, each name NUL-ended: the names of its runs, each folder in its runs'
 # folder, as `record.run_dirs` lists them; a runs' folder the home lacks holds none.  Then an
-# empty name, and the path of each folder under ~/code and ak's checkouts' folders the home's
-# account cannot list or enter, and of each regular file it cannot read, as access(2) answers for
-# it: rsync's sender exits 23 for one and deletes nothing.  The walk opens no file, of the
-# million in them; it follows no link, which rsync copies as one, and enters no `.git` folder:
-# none crosses from ak's folder, and under ~/code what the home cannot read in one fails the pass.
+# empty name, and the path of each scratch checkout of its lander's, found as the lander finds
+# its own (`land._clear_left`): in `wt`, named as it names one, its mark in the checkout's own
+# git directory, as git there gives that.  The mark decides: a seat's checkout may bear the name,
+# and holds work.  Then an empty name, and the path of each folder under ~/code and ak's
+# checkouts' folders the home's account cannot list or enter, and of each regular file it cannot
+# read, as access(2) answers for it: rsync's sender exits 23 for one and deletes nothing.  The
+# walk opens no file, of the million in them; it follows no link, which rsync copies as one, and
+# enters no `.git` folder: none crosses from ak's folder, and under ~/code what the home cannot
+# read in one fails the pass.  Nor does it enter a scratch checkout, or name one: none crosses,
+# and the rules for what the account cannot read of one would keep the copy's, or be more than
+# one command may be given.
 # By whatever python3 the home's ssh finds, which may be older than ak's: so it imports nothing of
 # ak's, comes on its input and is given the folders, LINKED's first.
-ASK = f"""import os, sys
+ASK = f"""import glob, os, subprocess, sys
 runs, code, wt, work = sys.argv[1:]
 for status, top in zip({tuple(LINKED)}, (runs, code)):
     if os.path.islink(top):
@@ -90,10 +96,18 @@ for run in found:
     if run.is_dir():
         sys.stdout.buffer.write(run.name + b"\\0")
 sys.stdout.buffer.write(b"\\0")
+scratch = set()
+for path in glob.glob(os.fsencode(glob.escape(os.path.join(wt, "{land.SCRATCH}")) + "*")):
+    own = subprocess.run(["git", "-C", path, "rev-parse", "--absolute-git-dir"],
+                         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    if not own.returncode and os.path.isfile(own.stdout[:-1] + b"/{land.SCRATCH_MARK}"):
+        scratch.add(path)
+        sys.stdout.buffer.write(path + b"\\0")
+sys.stdout.buffer.write(b"\\0")
 folders = [os.fsencode(top) for top in (code, wt, work) if not os.path.islink(top)]
 while folders:
     try:
-        found = list(os.scandir(folders.pop()))
+        found = [entry for entry in os.scandir(folders.pop()) if entry.path not in scratch]
     except FileNotFoundError:
         found = []
     for entry in found:
@@ -196,8 +210,10 @@ def _copy(alias, home, copied):
         return f"reading what to copy exited {asked.returncode}"
     names = asked.stdout.split(b"\0")[:-1]
     gap = names.index(b"")
+    end = names.index(b"", gap + 1)
     runs = sorted({*map(os.fsdecode, names[:gap]), *(run.name for run in record.run_dirs())})
-    unread = [Path(os.fsdecode(path)) for path in names[gap + 1:]]
+    scratch, unread = ([Path(os.fsdecode(path)) for path in paths]
+                       for paths in (names[gap + 1:end], names[end + 1:]))
     # Each harness path a source of its own, and ~/code: one the home lacks is never read as a
     # deletion.  The home's rsync expands each `*` (-s), not its login shell, which as zsh fails on
     # one matching nothing.
@@ -217,11 +233,12 @@ def _copy(alias, home, copied):
     # rsync keeps a hard link within one transfer alone: a file with names in a run and outside
     # the runs, as a package cache links one into each checkout, crosses as two of the same bytes.
     at = config.PLACES["RUNS"]
-    # A scratch checkout of the lander's is hidden on the home, so one here goes: a check's own,
-    # removed when the check ends, and a takeover's lander checks anew.  On 18 Nov one check's
-    # tests wrote 70 000 files, 920 MB, into one between two passes, half of what a pass sent.
+    # Each scratch checkout of the lander's the ask named is hidden on the home, so one here
+    # goes: a check's own, removed when the check ends, and a takeover's lander checks anew.  On
+    # 18 Nov one check's tests wrote 70 000 files, 920 MB, into one between two passes, half of
+    # what a pass sent.  One made since the ask crosses as it then is, and goes with the next pass.
     rules = [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
-             f"--filter=H /{config.WT.relative_to(config.HOME)}/{land.SCRATCH}*/",
+             *(f"--filter=H /{_literal(path.relative_to(config.HOME))}/" for path in scratch),
              "--filter=-p .git/", *_left_out(unread, config.HOME, config.HOME)]
     names = b"".join(os.fsencode(f"/{at}/{_literal(run)}") + b"\0" for run in runs)
     for args, given in ((["-sR", "--no-implied-dirs", "--ignore-missing-args",
