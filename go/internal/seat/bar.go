@@ -40,8 +40,12 @@ var (
 		"run-shell -C \"switch-client -t '#{E:" + barHit + "}'\""}
 )
 
+// barCut is that option cut to room cells and the `…` tmux adds past them, the cell every caller's
+// room leaves it; nothing where not one cell is left, since tmux reads a limit of 0 as none and a
+// negative one as the line's tail, and one forced would push into what is beside it
+// (statusbar._cut).
 func barCut(option, room string) string {
-	return "#{=/#{?#{e|>:" + room + ",0}," + room + ",1}/…:" + option + "}"
+	return "#{?#{e|>:" + room + ",0},#{=/" + room + "/…:" + option + "},}"
 }
 
 // barLineOne is the widest progress line beside who else needs you that fits the client, drawn
