@@ -2,8 +2,8 @@
 effort -- the orchestrator's model, else the first mark as the pick ranks them; a board row
 naming no effort, or a harness taking none, that row -- its quality and cost, `≈` before one no
 runs measured, under `quality` and the cost unit.  ↑↓ move `›`, ⏎ opens that row's why; on
-40 and 28 cells each role's lines still show its quality and cost whole, and on 22 and 14 its
-quality over its cost where side by side they would pass the edge; `ak models` prints a seat's without `›`.
+40 and 28 cells each role's lines still show its quality and cost whole; `ak models` prints a
+seat's without `›`.
 
 Black-box: `AK_BIN` in a terminal and as `ak models`, a fake harness, the boards as
 tests/test_key_role_choices.py writes them and one measured build (test_key_role_cost_from_runs's
@@ -59,45 +59,52 @@ def role_lines(answer, at=None):
                                 for role, line in answer.items())]
 
 
+def made(cleanup):
+    """A Home holding the models above, their boards, a week's use, the measured build and the
+    seat acme-fix, closed by `cleanup`: tests/test_key_models_numbers_stack.py's too."""
+    home = Home()
+    cleanup(home.close)
+    fakeadapter.install(home, claude="pass")["claude"].answer("models", "".join(
+        f"acme-{name}-1\tAcme {name.title()} 1\t{'none' if name == 'bare' else 'low high'}\n"
+        for name in MODELS))
+    akconfig.write(home, {name: {"harness": "claude", "model": f"acme-{name}-1", **entry}
+                          for name, entry in MODELS.items()},
+                   orchestrator="bare", workers=["plain", "top"], reviewers=["plain"],
+                   # $520 a month, so a week of it $120 and a point of that $1.20
+                   providers={"anthropic": {"mode": "subscription", "price": 520}})
+    held = boards()
+    for board in held.values():
+        board["rows"] = [row for row in board["rows"] if row["model"] == "Old 1"]
+    for name, effort, share, cost in ROWS:
+        row = aa(f"acme-{name}-1", f"Acme {name.title()} 1", effort, {
+            "aa.intelligenceIndex": 50, "aa.frontierCode20": share,
+            "aa.terminalBench40": share, "aa.omniscience": 100 * share,
+            "aa.automationBenchPartialScore": share, "aa.price1mInputTokens": 1,
+            "aa.price1mOutputTokens": 1, **{
+                f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost
+                for slug in EVALUATIONS}})
+        if DEFAULTS.get(name, "") == effort:
+            row["slug"] = f"acme-{name}-1"
+        held["artificialanalysis.ai"]["rows"].append(row)
+        held["arena.ai"]["rows"].append({"model": f"Acme {name.title()} 1", "effort": effort,
+                                        "values": {"arena.agent": share}})
+    home.write(".agentkit/state/boards.json", held)
+    home.write(".agentkit/state/usage.json", {"providers": {"anthropic": {"meters": [
+        {"name": "weekly", "used": 40, "window_secs": 604800, "resets_at": NOW + 86400}]}}})
+    # a week of $100 at a dollar a million tokens: the build's 0.2M tokens are 0.2 points
+    history = History(home)
+    history.week("anthropic", "default", "claude", "acme-top-1", 50e6, 50)
+    history.run(("top", "high"), built=[[("default", "acme-top-1", (.2e6, 0, 0, 0))]])
+    history.save()
+    Seat(home, "acme-fix", model="fast", record=SEAT)
+    return home
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ModelsRoleLines(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.home = home = Home()
-        cls.addClassCleanup(home.close)
-        fakeadapter.install(home, claude="pass")["claude"].answer("models", "".join(
-            f"acme-{name}-1\tAcme {name.title()} 1\t{'none' if name == 'bare' else 'low high'}\n"
-            for name in MODELS))
-        akconfig.write(home, {name: {"harness": "claude", "model": f"acme-{name}-1", **entry}
-                              for name, entry in MODELS.items()},
-                       orchestrator="bare", workers=["plain", "top"], reviewers=["plain"],
-                       # $520 a month, so a week of it $120 and a point of that $1.20
-                       providers={"anthropic": {"mode": "subscription", "price": 520}})
-        held = boards()
-        for board in held.values():
-            board["rows"] = [row for row in board["rows"] if row["model"] == "Old 1"]
-        for name, effort, share, cost in ROWS:
-            row = aa(f"acme-{name}-1", f"Acme {name.title()} 1", effort, {
-                "aa.intelligenceIndex": 50, "aa.frontierCode20": share,
-                "aa.terminalBench40": share, "aa.omniscience": 100 * share,
-                "aa.automationBenchPartialScore": share, "aa.price1mInputTokens": 1,
-                "aa.price1mOutputTokens": 1, **{
-                    f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost
-                    for slug in EVALUATIONS}})
-            if DEFAULTS.get(name, "") == effort:
-                row["slug"] = f"acme-{name}-1"
-            held["artificialanalysis.ai"]["rows"].append(row)
-            held["arena.ai"]["rows"].append({"model": f"Acme {name.title()} 1", "effort": effort,
-                                            "values": {"arena.agent": share}})
-        home.write(".agentkit/state/boards.json", held)
-        home.write(".agentkit/state/usage.json", {"providers": {"anthropic": {"meters": [
-            {"name": "weekly", "used": 40, "window_secs": 604800, "resets_at": NOW + 86400}]}}})
-        # a week of $100 at a dollar a million tokens: the build's 0.2M tokens are 0.2 points
-        history = History(home)
-        history.week("anthropic", "default", "claude", "acme-top-1", 50e6, 50)
-        history.run(("top", "high"), built=[[("default", "acme-top-1", (.2e6, 0, 0, 0))]])
-        history.save()
-        Seat(home, "acme-fix", model="fast", record=SEAT)
+        cls.home = made(cls.addClassCleanup)
 
     def models(self, width=100, seat=None):
         """`r` on `c`, over `seat` or in a window of its own, once its lines are drawn."""
@@ -144,30 +151,6 @@ class ModelsRoleLines(unittest.TestCase):
             # whole on the line under its model: a line past the edge would wrap, splitting them
             at = next(n for n, line in enumerate(shown) if word in line.split())
             self.assertEqual(shown[at + 2].split(), numbers, (word, shown))
-
-    def test_on_22_and_14_cells_each_roles_quality_stands_over_its_cost_inside_the_edge(self):
-        unit = self.home.write(".agentkit/state/models-unit", "% of a week")
-        self.addCleanup(unit.unlink)
-        printed = {width: self.home.ak("models", env={**ENV, "COLUMNS": str(width)})
-                   for width in (100, 22, 14)}
-        for done in printed.values():
-            self.assertEqual(done.code, 0, done.err)
-        wide = {word: line.split()[-2:] for line in said(printed[100].out)
-                for word, *_ in NEW_SEATS.values() if word in line.split()}
-        # side by side, `quality  % of a week` and each role's numbers take 24 cells: on 22 the
-        # heading and each role's numbers stack under its model, on 14 the unit and each model
-        # break at their spaces as well, every line inside the edge
-        for width, broken in ((22, {}), (14, {
-                "% of a week": ["% of a", "week"], "Acme Bare 1 medium": ["Acme Bare", "1 medium"],
-                "Acme Top 1 high": ["Acme Top 1", "high"], "Acme Plain 1": ["Acme Plain", "1"]})):
-            shown = lines(printed[width].out)
-            first = next(n for n, line in enumerate(shown) if line.split() == ["quality"])
-            shown = shown[first:shown.index("", first)]
-            self.assertLessEqual(max(map(len, shown)), width, shown)
-            self.assertEqual([" ".join(line.split()) for line in shown], [
-                "quality", *broken.get("% of a week", ["% of a week"]),
-                *(line for word, model, *_ in NEW_SEATS.values()
-                  for line in [word, *broken.get(model, [model]), *wide[word]])], width)
 
     def test_ak_models_prints_the_same_lines(self):
         screen = said(self.models()[1])
