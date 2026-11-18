@@ -246,6 +246,12 @@ DEPENDENCIES = (
 # and 8a-8f the meters, 20e and 20f the seats, 31b and 31c the MCP wiring.
 LIVE_CHECKS = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d", "6f", "6g",
                "31a", "31d"}
+# The live checks that may start a model turn, or read the run one made (4b, 4c, 4d): a harness
+# call, an `ak run`, or a seat's pick (6, 6b, 6d), which reads meters some harnesses read with a
+# turn.  Asked with AK_LIVE_NO_MODEL_CALLS=1, a run leaves them out, so a host checks new code
+# without its logins paying turns for it.  Check 1's usage reading stays: it is how ak reads
+# meters everywhere.
+MODEL_CALLS = {"3", "3a", "4", "4b", "4c", "4d", "6", "6b", "6d", "31d"}
 # The checks that read the checkout alone and take seconds: tests/landing.py runs them first in
 # every share and stops there when one fails; every_file.py leaves them to it.
 STATIC_CHECKS = ("test_dead_code", "test_boundaries", "test_modules_say_what_they_are", "test_docs",
@@ -332,8 +338,10 @@ def main():
     path = Path(sys.argv[1])
     root = path.resolve().parents[1]
     # A whole run leaves out the blocks a change to Go alone cannot alter; AK_ONLY's run whatever
-    # the change.
+    # the change.  AK_LIVE_NO_MODEL_CALLS=1 leaves MODEL_CALLS out of either.
     left = python_left_out(root) if listed() is None else set()
+    if os.environ.get("AK_LIVE_NO_MODEL_CALLS") == "1":
+        left |= {f"{SMOKE}#{name}" for name in MODEL_CALLS}
     print(smoke_source(path.read_text(), root, piece, *smoke_mode(), left), end="")
     return 0
 
