@@ -24,10 +24,11 @@ LINE = ("This seat has held a whole CPU core for {held}{busiest}. A wait belongs
 
 
 def _now():
-    """The time this module reads.  An answer key names its clock in `AK_CORES_CLOCK`, a file of
-    Unix seconds read anew each time; unset, the real clock."""
+    """The time this module reads: seconds since boot, which no change of the wall clock steps
+    and on which each process's start is read.  An answer key names its clock in
+    `AK_CORES_CLOCK`, a file of those seconds read anew each time; unset, the real clock."""
     clock = os.environ.get("AK_CORES_CLOCK")
-    return float(Path(clock).read_text()) if clock else time.time()
+    return float(Path(clock).read_text()) if clock else time.clock_gettime(time.CLOCK_BOOTTIME)
 
 
 def tell(state, log):
@@ -36,7 +37,8 @@ def tell(state, log):
     starts the count over.  Each scope's reading is kept in `state` for the next tick, and on one
     whose last interval was over, `since` the core was first held and each process's CPU time:
     its busiest is the one that spent most of the next interval, as a shell days old that has
-    just begun to spin has spent little of its life."""
+    just begun to spin has spent little of its life.  One not read then counts from nothing only
+    if it began since: one moved into the scope brings the time it spent before."""
     now, before, state["seat_cores"] = _now(), state.get("seat_cores") or {}, {}
     for scope, launched in front.scopes().items():
         held = host.cpu_held_usec(scope)
@@ -53,8 +55,11 @@ def tell(state, log):
                     ticks=host.cpu_ticks(scope))
         if "since" in last and (seen["told"] is None or now - seen["told"] >= AGAIN):
             seen["told"] = now
+            # a start is read in whole ticks, rounded down: one born in the reading's own tick
+            # but after it reads as that tick
             spent = {process: ticks - last["ticks"].get(process, 0)
-                     for process, ticks in seen["ticks"].items()}
+                     for process, ticks in seen["ticks"].items() if process in last["ticks"]
+                     or int(process.split(" ")[1]) >= int(last["at"] * os.sysconf("SC_CLK_TCK"))}
             busiest = max(spent, key=spent.get, default="").split(" ")[0]
             _tell(front.seat_now(launched), busiest and host.command(busiest), now - seen["since"],
                   log)
