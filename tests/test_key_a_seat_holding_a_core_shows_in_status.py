@@ -1,7 +1,7 @@
 """`ak run status` names, under the host's lines, each seat the tick's last reading found holding
 a core (tests/test_key_a_seat_holding_a_core_is_told.py), and how long it had held it then,
-longest first: `seats holding a core: fix-api 6m · parser 3m`, in a seat's own status too.  While
-none is, as on a host where none ever was, there is no such line.
+longest first: `seats holding 0.5 of a core or more: fix-api 6m · parser 3m`, in a seat's own
+status too.  While none is, as on a host where none ever was, there is no such line.
 
 Black-box: the program `AK_BIN` names ticks (`home.tick()`) on a stand-in cgroup tree
 (AK_CGROUP_ROOT, AK_CGROUP_FILE) whose CPU counters the test moves, and a clock it steps
@@ -56,13 +56,14 @@ class ASeatHoldingACoreShowsInStatus(unittest.TestCase):
         """The lines of `ak run status`, in a seat holding none, naming the seats holding a core."""
         done = cls.home.ak("run", "status", env={"AGENTKIT_SESSION": "acme"})
         assert done.code == 0 and "seat acme's runs only" in done.out, done.out + done.err
-        return [line for line in done.out.splitlines() if line.startswith("seats holding a core")]
+        return [line for line in done.out.splitlines() if line.startswith("seats holding ")]
 
     def test_a_seat_over_a_core_shows_with_how_long(self):
-        self.assertEqual(self.after[1], ["seats holding a core: fix-api 3m"])
+        self.assertEqual(self.after[1], ["seats holding 0.5 of a core or more: fix-api 3m"])
 
     def test_seats_holding_a_core_show_on_one_line_longest_first(self):
-        self.assertEqual(self.after[2], ["seats holding a core: fix-api 6m · parser 3m"])
+        self.assertEqual(self.after[2],
+                         ["seats holding 0.5 of a core or more: fix-api 6m · parser 3m"])
 
     def test_no_line_on_a_host_where_no_seat_ever_held_a_core(self):
         self.assertEqual([self.before, self.after[0]], [[], []])
@@ -79,8 +80,8 @@ class ASeatHoldingACoreShowsInStatus(unittest.TestCase):
             done = home.ak("run", "status")
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual([line for line in done.out.splitlines()
-                          if line.startswith("seats holding a core")],
-                         ["seats holding a core: fix-api 9m"])
+                          if line.startswith("seats holding ")],
+                         ["seats holding 0.5 of a core or more: fix-api 9m"])
 
 
 if __name__ == "__main__":
