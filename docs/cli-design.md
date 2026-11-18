@@ -50,8 +50,8 @@ Words are plain and explain themselves.
   `━━━━╸──── 3 of 8 · 2 tasks` (owner, 11 Nov 2026; `terminal.plan_bar`,
   `terminal.share_line`).
 
-Nothing explains itself on hover. A highlighted row opens its models, never what its seat said
-(owner, 9 Nov 2026), nor its tasks' squares, which its seat's bar draws (owner, 17 Nov 2026).
+Nothing explains itself on hover. A highlighted row opens its models alone (owner, 9, 17 Nov
+2026).
 
 ## Characters
 
