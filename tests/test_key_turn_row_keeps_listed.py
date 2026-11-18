@@ -8,11 +8,14 @@ login's priced rows cost a token (tests/test_key_listed_spend.py).
 
 Black-box: AK_BIN runs a task through tests/fixtures/akbin.py on a fake Claude executor whose
 turn's `result` counts tokens of two models, an invented board in its Home before the run and
-another after it.  Fails against /bin/false.
+another after it, and a history.db from before rows kept dollars, so the run's write is the one
+adding them.  Fails against /bin/false.
 """
 
+from contextlib import closing
 import json
 from pathlib import Path
+import sqlite3
 import sys
 import time
 import unittest
@@ -21,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
+from test_key_listed_spend import TURN_USAGE
 
 OWNERS = {"AK_NOTIFY_SINK": None}
 SESSION = "session-acme"
@@ -65,6 +69,8 @@ class ATurnOnAModelTheBoardsDrop(unittest.TestCase):
         fakeadapter.install(cls.home, claude={**fakeadapter.WORK, "session": SESSION,
                                               "events": events()}, codex="pass")
         cls.home.write(".agentkit/state/boards.json", board("anvil-1", "Anvil 1"))
+        with closing(sqlite3.connect(cls.home.path / ".agentkit/history.db")) as db, db:
+            db.execute(TURN_USAGE)
         cls.done = cls.home.ak("run", str(taskfile.write(cls.home, Rig(cls.home, "widgets").path)),
                                "--no-merge", env=OWNERS, timeout=300)
         cls.before = cls.home.ak("usage", "--json")
