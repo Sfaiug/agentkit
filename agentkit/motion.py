@@ -1,15 +1,15 @@
 """The one animation clock: which cells move, and what each shows at every frame.
 
-At rest only what a model works on moves, breathing: a working session's `●`, the tip of its line
-and its moving tasks' squares (`menu.tips`), a light going round its line while it has no plan
+At rest only what a model works on moves, breathing: a working session's `●` and the tip of its
+line (`menu.tips`), a light going round its line while it has no plan
 yet; news moves once and is then still --
 a `!` that turned `needs you` pulses twice, a `✓` that turned `done` settles from bright and a
 light crosses its line, either's row glowing in its word's colour as it fades; the line a row
 opens comes up as the highlight comes to it, and a page's rows as it is turned to; each
 progress line grows to its length as the menu opens and glides to a new one as its plan moves,
-its count counting up with it, a task's next square fills through its half and one that failed
-nudges; an effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
-through its word, a mark set fills and one cleared empties, one whose change was refused shakes;
+its count counting up with it; an effort's bar a step filled rises into place and a step onto a
+model's highest effort sends a light through its word, a mark set fills and one cleared empties,
+one whose change was refused shakes;
 a popup's content fades in once, as it opens, a card as it is asked, and a page's under its
 header as it opens, its name writing itself out in the header, and a theme chosen comes down
 the screen it is chosen on, a row at a time; the rule under a screen's
@@ -36,7 +36,7 @@ from .themes import RAINBOW
 FRAME = 1 / 20      # at most twenty frames a second
 # Each kind of motion takes one time wherever it is drawn (docs/cli-design.md, Motion).
 FADE = 0.15         # seconds what comes up out of the background takes: a row's line, page, popup
-FILL = 0.1          # ... a cell takes to fill or empty: a mark, an effort's cell, a task's square
+FILL = 0.1          # ... a cell takes to fill or empty: a mark, an effort's cell
 SWEEP = 0.45        # ... a light takes to pass once: across a done seat's line, an effort's word
 BREATH = 2.0        # ... a breathing cell out to its dimmer tone and back, and a light's round
 DIMMER = 0.5        # ... that tone: half way from its colour to the background

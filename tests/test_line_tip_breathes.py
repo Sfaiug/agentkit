@@ -1,10 +1,10 @@
-"""While a model works, the tip of its seat's line and its moving tasks' squares breathe.
+"""While a model works, the tip of its seat's line breathes.
 
 The owner's design (14 Oct 2026): motion means a model is working right now.  The `●` of a
-working seat breathes, and in the same phase so does the tip of its row's progress line and,
-on the line the highlighted row opens, the square of the stage each moving task is at; a task
-that waits, and a seat that needs you or is done, stand still.  Offline: a temporary HOME,
-fake seats and runs, the motion clock read, no terminal.
+working seat breathes, and in the same phase so does the tip of its row's progress line; the
+line the highlighted row opens, which draws no task's squares (the owner, 17 Nov 2026), and a
+seat that needs you or is done, stand still.  Offline: a temporary HOME, fake seats and runs,
+the motion clock read, no terminal.
 """
 
 from contextlib import redirect_stdout
@@ -60,19 +60,14 @@ class Breathes(Sandbox):
         line = lines[row - 1]
         return row, terminal.cells(line[:line.rfind(char) if last else line.find(char)]) + 1
 
-    def test_the_tip_and_the_moving_square_breathe_and_nothing_else_of_theirs(self):
+    def test_the_tip_breathes_and_nothing_else_of_theirs(self):
         lines, clock = self.drawn("acme-api")
         tip = self.cell(lines, lambda line: " acme-api " in line, "━")
         self.assertIn(tip, clock.cells)
-        # the line acme-api opens: the queued task's lone square still, then the reviewing
-        # task's second square breathing, its first filled and still
+        # the line acme-api opens, its tasks in flight and all, holds still
         under = tip[0] + 1
-        self.assertRegex(lines[under - 1], r"   ■□□  ■■□$")
-        square = self.cell(lines, lambda line: line == lines[under - 1], "■■□")
-        self.assertIn((under, square[1] + 1), clock.cells)
-        self.assertNotIn((under, square[1]), clock.cells)
-        queued = self.cell(lines, lambda line: line == lines[under - 1], "■□□")
-        self.assertNotIn(queued, clock.cells)
+        self.assertEqual(lines[under - 1].strip(), "build and review: 6 Astra xhigh")
+        self.assertFalse([cell for cell in clock.cells if cell[0] == under])
         # a seat that needs you holds its line still
         still = self.cell(lines, lambda line: " acme-docs " in line, "━")
         self.assertNotIn(still, clock.cells)
@@ -85,7 +80,7 @@ class Breathes(Sandbox):
             self.assertRegex(line, f"^ +━*{tip}─+ 2 of 4 · 2 tasks$")
             self.assertIn((row, terminal.cells(line[:line.rfind(tip)]) + 1), clock.cells)
 
-    def test_draft_glyphs_stay_still_while_the_real_task_square_breathes(self):
+    def test_draft_glyphs_stay_still(self):
         self.seats = self.seats[:1]
         self.records = self.records[:1]
         for width in (100, 59, 40):
@@ -96,12 +91,10 @@ class Breathes(Sandbox):
                                                              "unsent": draft, "since": None}):
                     lines, clock = self.drawn("acme-api", width)
                     dot = self.cell(lines, lambda line: " acme-api " in line, "●")
-                    square = self.cell(lines, lambda line: line.rstrip().endswith("■■□"), "■■□")
                     # the row keeps its own progress line beside the mark, its tip breathing
                     bar = next(n for n, line in enumerate(lines, 1) if "2 of 4" in line)
-                    moving = {dot, (square[0], square[1] + 1)}
-                    self.assertLessEqual(moving, set(clock.cells))
-                    self.assertEqual({row for row, _ in set(clock.cells) - moving}, {bar})
+                    self.assertIn(dot, clock.cells)
+                    self.assertEqual({row for row, _ in set(clock.cells) - {dot}}, {bar})
 
     def test_only_the_last_bar_cell_breathes_in_each_palette(self):
         for depth, light in ((24, False), (24, True), (256, False), (256, True)):

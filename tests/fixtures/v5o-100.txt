@@ -7,9 +7,9 @@ agentkit                                                                        
 
 atoll
   1  atoll-job    Fable 5.1 xhigh  ● working    ━━━━━━━━━━━━━━━──────────────────── 3 of 7 · 2 tasks
-     build and review: Opus 5.5 xhigh   ■□□  ■□□
+     build and review: Opus 5.5 xhigh
   2  atoll-solo   Fable 5.1 xhigh  ● working    ────────────────────────────── no plan yet · 2 tasks
-     build and review: Opus 5.5 xhigh   ■□□  ■□□
+     build and review: Opus 5.5 xhigh
 
 agentkit
   3  herdr-quiet  Fable 5.1 xhigh  ! needs you

@@ -11,7 +11,7 @@ agentkit                           14:02
 ATOLL
   1  atoll-fix   Fable 5.1  ● working
     ─────────────── no plan yet · 1 task
-     build and review: Opus 5.5…   ■□□
+     build and review: Opus 5.5 xhigh
   2  atoll-plan  Fable 5.1  ! needs you
      build and review: Opus 5.5 xhigh
 

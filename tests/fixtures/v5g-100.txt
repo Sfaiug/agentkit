@@ -13,7 +13,7 @@ atoll
 
 agentkit
   3  herdr        Fable 5.1 xhigh  ● working    ─────────────────────────────── no plan yet · 1 task
-     build and review: Opus 5.5 xhigh   ■□□
+     build and review: Opus 5.5 xhigh
 
 not assigned yet
   4  scribe       Fable 5.1 xhigh  ○ idle
