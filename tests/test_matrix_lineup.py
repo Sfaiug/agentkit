@@ -64,6 +64,13 @@ class Lineup(unittest.TestCase):
                          {"release": "acme-5", "name": "Acme 5", "maker": "Acme",
                           "values": BOARDS["artificialanalysis.ai"]["rows"][1]["values"]})
 
+    def test_a_release_the_board_names_nothing_is_named_by_its_slug(self):
+        nameless = aa("bevel-1", None, "high", "bevel-1", 0.5, 0.5)
+        boards = {"artificialanalysis.ai": {"rows": [*BOARDS["artificialanalysis.ai"]["rows"],
+                                                     nameless]}}
+        row = next(row for row in matrix.lineup(boards, {}) if row["release"] == "bevel-1")
+        self.assertEqual((row["name"], row["board_name"]), ("Bevel 1", None))
+
     def test_a_model_naming_an_older_release_makes_nothing_of_the_current_one_yours(self):
         offers = {"anvil": [{"id": "acme-4", "efforts": ["high"]}]}
         self.assertEqual([row["yours"] for row in matrix.lineup(BOARDS, offers)], [[]] * 5)

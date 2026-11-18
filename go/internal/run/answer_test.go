@@ -125,3 +125,33 @@ func TestACommandIsNeverTheShellsOptions(t *testing.T) {
 		}
 	}
 }
+
+// Given no environment, the command runs in ak's own, at its checkout as named, still without the
+// seat's name: an ssh in it would otherwise be that seat reaching the live host.
+func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
+	t.Setenv("AGENTKIT_SESSION", "acme")
+	t.Setenv("ACME_TOKEN", "kept")
+	dir := t.TempDir()
+	checkout := filepath.Join(dir, "acme-link")
+	if err := os.Mkdir(filepath.Join(dir, "acme"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "acme"), checkout); err != nil {
+		t.Fatal(err)
+	}
+	out, why := ProjectOutput(context.Background(), `echo "${AGENTKIT_SESSION-absent} $ACME_TOKEN $PWD"`, checkout, nil, time.Second, "list")
+	if want := "absent kept " + checkout + "\n"; why != "" || string(out) != want {
+		t.Errorf("answered %q, said %q, want %q", out, why, want)
+	}
+}
+
+// An environment exec refuses starts nothing: the command would run without what it was given.
+func TestAMalformedEnvironmentStartsNothing(t *testing.T) {
+	dir := t.TempDir()
+	if _, why := ProjectOutput(context.Background(), "printf started > ran", dir, []string{"ACME_MODE=preview\x00"}, time.Second, "set"); why == "" {
+		t.Error("answered as if it ran")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran")); !os.IsNotExist(err) {
+		t.Errorf("the command ran: %v", err)
+	}
+}

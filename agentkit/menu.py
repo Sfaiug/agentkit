@@ -3871,21 +3871,22 @@ def models_why(found, role, row, kept, unit, weeks):
     2026: a label column, each value going on at its words in its own (flowed), an other's lines
     after its first two cells further in, so each other's first line stands out.  Its quality,
     give or take 1.96 standard errors, the measures that scored it and how far below the role's
-    best choice it is; its cost in `unit`, said as UNITS says it, where that comes from
-    (SOURCES) and how far off each of `weeks` foretold (week_checked); the rule that makes the
-    choices; and why each model is none (WHYS): under `shaded` each the bars of `kept` draw
-    shaded at this width (models_standing), in their order, under `not shown` the rest of its
-    `others`, in theirs; a page leaving its values no cell beside it folds each under its label,
-    two cells in.  The page's margin and that fold are two cells where that leaves a line a
-    cell, else as many as do.  Only a model's name is cut."""
+    best choice it is, else, with no choice, the best on the boards; its cost in `unit`, said as
+    UNITS says it, where that comes from (SOURCES) and how far off each of `weeks` foretold
+    (week_checked); the rule that makes the choices; and why each model is none (WHYS): under
+    `shaded` each the bars of `kept` draw shaded at this width (models_standing), in their order,
+    under `not shown` the rest of its `others`, in theirs; a page leaving its values no cell
+    beside it folds each under its label, two cells in.  The page's margin and that fold are two
+    cells where that leaves a line a cell, else as many as do.  Only a model's name is cut."""
     margin = min(2, terminal.layout_width() - 1)
     room = terminal.layout_width() - margin
     width = terminal.cells("not shown")     # the design's label column: its widest label
     fold = room - width - 2 < 1
     indent = min(2, room - 1) if fold else width + 2       # the cells before a value
     values = room - indent
-    # the best choice, else, with nothing priced to choose among, the best rated row
-    top = max(found["choices"] or found["rated"], key=lambda one: one["quality"])
+    # the best choice, else, with nothing priced to choose among, the best on the boards
+    top, best = max(found["choices"] or found["rated"], key=lambda one: one["quality"]), (
+        "the best of these choices" if found["choices"] else "the best on the boards")
     measures = {column: one for column, *_ in quality.ROLES[role]
                 for one in [row["measures"].get(column)] if one}
     counted = sum(one["how"] != "missing" for one in measures.values())
@@ -3912,7 +3913,7 @@ def models_why(found, role, row, kept, unit, weeks):
     said = [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
                                                    f"{number(counted)} benchmarks"],
                          [", ".join(scored(column, one) for column, one in measures.items())],
-                         ["the best of these choices"] if row is top else
+                         [best] if row is top else
                          [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
                           f"{named(top, values)}"]]},
             {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,
