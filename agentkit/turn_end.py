@@ -26,7 +26,9 @@ then costs the user nothing but one turn.  A turn that would end on a last messa
 a question mark, with nothing asked through the question prompt or `ak notify needs`, is sent
 back once: a question left in prose reaches nobody but the terminal, so the seat asks it there
 or goes on without it.  So is a turn whose own ssh reached the live host and that leaves its plan
-no open line (`stop.live_unrecorded`): what it did there is written down, or it only read.
+no open line (`stop.live_unrecorded`): what it did there is written down, or it only read.  So,
+at every turn's end, is one of a seat with a done plan whose project's suite reports no tests to
+ak (`stop.untested`): the seat writes that into its plan and builds it.
 
 Before the harness draws its question prompt (PreToolUse, where its adapter installs it) this
 refuses the question of a seat whose plan is done with nothing from the owner since
@@ -36,8 +38,9 @@ asks back for the turn's end, as every seat's own question is kept (`watch.keep`
 answer on the card drops it as their time (`watch.answered_kept`), and a card that answered
 nothing has it asked when the turn ends.
 
-It blocks at most twice in one turn, and once more for a question left in prose.  The counter
-lives beside the turn's own start in ~/.agentkit/state/stop-<seat>.json, which
+It blocks at most twice in one turn, and once more for a question left in prose; a done plan on
+a project whose suite reports no tests goes back at every stop, which an open line ends.  The
+counter lives beside the turn's own start in ~/.agentkit/state/stop-<seat>.json, which
 hooks/seat-state.sh writes fresh on every UserPromptSubmit; the third stop stands, and one
 with work open and nothing recorded becomes a question to the owner carrying the seat's last
 words, so a model that truly cannot proceed is heard rather than looping forever.
@@ -54,7 +57,7 @@ import os
 
 from . import config, harness, lifecycle, notify, questions
 from .handback import handback_reason
-from .stop import live_unrecorded, question_refused, recorded_ending, ways_out
+from .stop import live_unrecorded, question_refused, recorded_ending, untested, ways_out
 from .watch import keep, start_look, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
@@ -245,6 +248,7 @@ def held(launched, payload, records=None):
     of this seat's runs parked and undecided, and nothing at all is owed with no open line in
     the seat's plan.  A turn that ends so on a question in prose alone goes back once to ask it,
     and one that reached the live host with no open line once to write it down; neither counts.
+    One that `stop.untested` names goes back at every stop, counting none.
     """
     if payload.get("terminationReason") not in (None, "", "NO_TOOL_CALL"):
         return ""    # agy's cancelled or error terminations are not a turn ending on its words
@@ -284,6 +288,9 @@ def held(launched, payload, records=None):
         if live:
             config.write_latch(latch, {**record, "live_back": True})
             return live
+        owes = not asked and untested(seat)
+        if owes:
+            return owes     # at every stop, past the turn's blocks: nothing is kept
         if (asked or record.get("asked_back") or not trails_question(last_message(payload))
                 or question_refused(seat)):
             return ""

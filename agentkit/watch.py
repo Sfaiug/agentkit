@@ -5328,8 +5328,9 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     """The end-of-turn rule at a seat's prompt: a turn ends with a question asked through
     `ak notify needs`, a finished plan or a run or live job to wait on, and a seat that stopped on none
     of the three is told to get on with it.  A question mark on the screen asks nobody anything.
-    An unnamed seat is told to name itself instead (`config.name_owed`), and one whose turn
-    reached the live host with no open line in its plan to write that down (`stop.live_unrecorded`).
+    An unnamed seat is told to name itself instead (`config.name_owed`), one whose turn reached
+    the live host with no open line in its plan to write that down (`stop.live_unrecorded`), and
+    one with a done plan whose project's suite reports no tests to fix it (`stop.untested`).
 
     A harness whose hook judges its stops is here only for a seat whose plan owes a line: a stop
     its hook never saw, as a reopened conversation has, or let stand on a reason since gone, as a
@@ -5420,7 +5421,7 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
     if not question and isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return      # its wait is over: wait_over says so, and why, before any continue
     ends, undecided = stop.recorded_ending(name, records, question=question)
-    unrecorded = ends and not question and stop.live_unrecorded(name)
+    unrecorded = ends and not question and (stop.live_unrecorded(name) or stop.untested(name))
     if ends and not unrecorded and not unseen:
         return
     parked = [directory.name for directory, _ in undecided]

@@ -4074,12 +4074,12 @@ def cmd_project(argv):
     if suite_times.unreported(repo):
         # `~` holds each space of the line a runner prints, so wrapping at any width neither
         # closes up nor breaks at the two ak reads
+        runner = re.sub(r"`[^`]*`", lambda span: span[0].replace(" ", "~"), suite_times.RUNNER)
         for part in terminal.wrap(
                 "this project's suite reports no tests to ak, so a landing cannot retry or narrow "
                 "a red by the tests that failed, the suite is cut into pieces by count instead "
-                "of by time, and a round runs none of the change's tests: its runner must print "
-                "`PASS~~<file>~(<seconds>s)` for each file that passes and take ak's files "
-                "AK_ONLY, AK_RAN, AK_FAILED and AK_NOT_THERE", terminal.layout_width()):
+                f"of by time, and a round runs none of the change's tests: {runner}",
+                terminal.layout_width()):
             print(part.replace("~", " "))
     return 0
 
