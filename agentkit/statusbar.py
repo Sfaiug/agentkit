@@ -59,11 +59,12 @@ WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 6)))
 
 
 def _cut(option, room):
-    """`option` cut with one `…` to `room` cells -- to one at the least, since tmux reads a limit
-    of 0 as none and a negative one as the line's tail.  Only a text that does not fit goes
-    through it: tmux marks one that fills its room to the cell cut too, as it drops the styles
-    after its last cell."""
-    return "#{=/#{?#{e|>:" + room + ",0}," + room + ",1}/…:" + option + "}"
+    """`option` cut to `room` cells and the `…` tmux adds past them, the cell every caller's room
+    leaves it; nothing where not one cell is left, since tmux reads a limit of 0 as none and a
+    negative one as the line's tail, and one forced would push into what is beside it.  Only a
+    text that does not fit goes through it: tmux marks one that fills its room to the cell cut
+    too, as it drops the styles after its last cell."""
+    return "#{?#{e|>:" + room + ",0},#{=/" + room + "/…:" + option + "},}"
 
 
 def _line_one():
