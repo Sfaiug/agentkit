@@ -148,9 +148,12 @@ class ListedSpend(unittest.TestCase):
         # priced near a float's largest, its average a token still prices the row no float holds
         self.seat("chime", "default", "forge-1", (1, 0, 1_999_999, 0))   # 1e302 a two million
         self.turn("chime", "default", "forge-1", (2_000_000, 0, 0, 0))
+        # two tokens are 2e302, which a float holds: multiplied before scaled, they stay unpriced
+        self.turn("chime", "second", "forge-1", (2, 0, 0, 0))
         spent = self.spent()
         self.assertAlmostEqual(spent["acme", "default"], 3 + 0.5)
         self.assertIsNone(spent["acme", "second"])
+        self.assertIsNone(spent["brine", "second"])
         self.assertAlmostEqual(spent["brine", "default"] / 1e302, 2)
 
     def test_only_the_logins_rows_of_the_last_seven_days_count(self):
