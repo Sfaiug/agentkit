@@ -478,15 +478,21 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual(self.start(directory, state), [])
         self.assertEqual(self.spawns, [])
 
-    def test_own_pr_and_fix_runs_start_their_followups(self):
+    def test_an_own_pr_starts_its_followups_and_its_fix_run_none_but_a_repair(self):
         directory, state = self.source(own_pr=True, review_pr="url")
         child = self.start(directory, state)[0]
         fixed = record.read_state(child)
-        fixed.update(state="pass", merged=True, followups=[OTHER], target="main")
+        self.assertEqual(fixed["launched_session"], "seat")
+        fixed.update(state="pass", merged=True, followups=[OTHER],
+                     followup_checks={OTHER: "false"}, target="main")
         record.save_state(child, fixed)
-        grandchild = self.start(child, fixed)[0]
-        self.assertEqual(record.read_state(grandchild)["followup"]["run"], child.name)
-        self.assertEqual(record.read_state(grandchild)["launched_session"], "seat")
+        self.assertEqual(self.start(child, fixed), [])
+        self.assertFalse(config.plan_path("seat").exists())     # nor a plan line
+        # a red target's repair is asked for by the landing line, not handed on by the merge
+        red = {"command": "false", "check": "false", "sha": state["base_sha"],
+               "text": "The target fails its check"}
+        repair = run.start_followups(fixed, child, self.logs.append, self.cfg, repair=red)
+        self.assertEqual(record.read_state(config.RUNS / repair)["followup"]["run"], child.name)
 
     def test_a_review_followups_run_is_one_per_check_and_its_line_deferred_once_a_run_has_it(self):
         directory, state = self.source(followup_checks={DEFECT: CHECK})
@@ -640,15 +646,14 @@ class FollowupRuns(unittest.TestCase):
         self.assertEqual([c["role"] for c in calls], ["executor", "reviewer"])
         self.assertIn("starts on the target branch's tip, fetched when this run started", calls[0]["prompt"])
         self.assertIn("another open run of session seat", calls[0]["prompt"])
-        self.assertEqual(len(fixed["followup_runs"]), 1)     # the fix run's own follow-up gets a run too
+        self.assertNotIn("followup_runs", fixed)     # the fix run's own follow-up gets no run
         found = fixed["followups"][0]
         self.assertEqual(found.splitlines()[0], OTHER)
         self.assertIn("ZeroDivisionError", found)
         self.assertIn(f"Commit {merged}", found)
         self.assertIn("Before the task: return 1 / value", found)
-        self.assertIn(f"- [ ] Fix {OTHER} · check: `python3 -c 'from other import ratio; ratio(0)'` "
-                      f"· {plan.named(self.repo)} · deferred · written ", config.plan_path("seat").read_text())
-        self.assertIn("now deferred in your plan: Fix other.py:2", (child / "result.md").read_text())
+        self.assertFalse(config.plan_path("seat").exists())     # nor a plan line
+        self.assertIn("A fix run's follow-ups start no run", (child / "result.md").read_text())
 
     def test_not_needed_is_done_without_checks_review_or_pr(self):
         for index, mode in enumerate(("gone", "duplicate")):
