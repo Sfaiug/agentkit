@@ -48,6 +48,8 @@ class ARetiredReviewerLeavesARunItsOthers(unittest.TestCase):
         go.touch()
         terminal.join()
         (done,) = ended
+        # Without astra's first review, nova's merge proves no replacement.
+        self.assertTrue(reviewing.exists(), done.out + done.err)
         (record,) = (home.path / ".agentkit" / "runs").glob("*/run.json")
         state = json.loads(record.read_text())
         self.assertEqual((state["reviewers"], state["reviewer"], state.get("merged")),
