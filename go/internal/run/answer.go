@@ -42,9 +42,13 @@ func ProjectAnswer(ctx context.Context, command, checkout string, env []string, 
 // shell ended, the last look at or past wait or ctx's end; one that has not is killed with
 // everything it started, so a `set` said to have failed never lands after.
 func ProjectOutput(ctx context.Context, command, checkout string, env []string, wait time.Duration, what string) ([]byte, string) {
-	ctx, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
 	noAnswer := fmt.Sprintf("%s: no answer in %d s", what, wait/time.Second)
+	// the deadline is read by the clock too: ctx's own timer can fire late on a loaded host
+	deadline := time.Now().Add(wait)
+	if end, ok := ctx.Deadline(); ok && end.Before(deadline) {
+		deadline = end
+	}
+	passed := func() bool { return ctx.Err() != nil || !time.Now().Before(deadline) }
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = checkout
 	cmd.Env = slices.DeleteFunc(slices.Clone(env), func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
@@ -63,8 +67,7 @@ func ProjectOutput(ctx context.Context, command, checkout string, env []string, 
 	defer saidR.Close()
 	defer saidW.Close()
 	cmd.Stdout, cmd.Stderr = outW, saidW
-	// a deadline passed starts nothing, even before its timer fires (an inherited one's still pending)
-	if deadline, _ := ctx.Deadline(); ctx.Err() != nil || !time.Now().Before(deadline) {
+	if passed() {
 		return nil, noAnswer
 	}
 	err = cmd.Start()
@@ -85,24 +88,22 @@ func ProjectOutput(ctx context.Context, command, checkout string, env []string, 
 		<-saying
 		close(read)
 	}()
-	select {
-	case <-read:
-	case <-ctx.Done():
-	}
+	// the deadline seen first is no answer, whatever the output does after
 	ended, code := false, 0
 	select {
+	case <-ctx.Done():
+	case <-time.After(time.Until(deadline)):
 	case <-read:
 		// The shell is looked at until a look finds it ended, which reaps it, or one begun at or
 		// past the deadline finds it running: one ending between the deadline and that last look
 		// has answered, as with Python's subprocess timeout.
 		for {
-			passed := ctx.Err() != nil
-			if ended, code, err = reap(cmd, false); ended || passed {
+			last := passed()
+			if ended, code, err = reap(cmd, false); ended || last {
 				break
 			}
 			time.Sleep(5 * time.Millisecond)
 		}
-	default:
 	}
 	if !ended {
 		stop()
