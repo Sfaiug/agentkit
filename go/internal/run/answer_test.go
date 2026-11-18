@@ -6,11 +6,13 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -35,6 +37,14 @@ func TestPastTheWaitTheStopHasEndedBeforeTheAnswer(t *testing.T) {
 	}
 }
 
+// unfired is a deadline passed whose timer has not fired yet, as on a loaded host.
+type unfired struct {
+	context.Context
+	deadline time.Time
+}
+
+func (u unfired) Deadline() (time.Time, bool) { return u.deadline, true }
+
 // recorded has group and reap note each stop as it begins and each reap of a shell found ended,
 // in order: what the run saw, as seen() gives it.
 func recorded(t *testing.T) (seen func() []string) {
@@ -57,16 +67,8 @@ func recorded(t *testing.T) (seen func() []string) {
 	return func() []string { lock.Lock(); defer lock.Unlock(); return slices.Clone(notes) }
 }
 
-// unfired is a deadline passed whose timer has not fired yet, as on a loaded host.
-type unfired struct {
-	context.Context
-	deadline time.Time
-}
-
-func (u unfired) Deadline() (time.Time, bool) { return u.deadline, true }
-
-// Past the wait, read by the clock before ctx's timer says so, the session goes before the shell
-// is reaped, never after: from the reap on, the session's number is a stranger's to take.
+// Past the wait the session goes before the shell is reaped, never after: from the reap on, the
+// session's number is a stranger's to take.
 func TestPastTheWaitTheSessionGoesBeforeTheShellIsReaped(t *testing.T) {
 	for _, command := range []string{
 		"exec >/dev/null 2>&1; sleep 5", // the shell outlives its output
@@ -74,9 +76,7 @@ func TestPastTheWaitTheSessionGoesBeforeTheShellIsReaped(t *testing.T) {
 	} {
 		t.Run(command, func(t *testing.T) {
 			seen := recorded(t)
-			wait := 100 * time.Millisecond
-			ctx := unfired{context.Background(), time.Now().Add(wait)}
-			if _, why := ProjectOutput(ctx, command, t.TempDir(), nil, wait, "list"); !strings.HasPrefix(why, "list: no answer in ") {
+			if _, why := ProjectOutput(context.Background(), command, t.TempDir(), nil, 100*time.Millisecond, "list"); !strings.HasPrefix(why, "list: no answer in ") {
 				t.Errorf("said %q", why)
 			}
 			if went := seen(); !slices.Equal(went, []string{"stop", "reap"}) {
@@ -86,24 +86,36 @@ func TestPastTheWaitTheSessionGoesBeforeTheShellIsReaped(t *testing.T) {
 	}
 }
 
-// A shell a look finds ended has answered, the look coming once the deadline has passed as well:
-// what the look finds decides, never the instant it comes.
-func TestAShellFoundEndedPastTheDeadlineHasAnswered(t *testing.T) {
+// A shell that ended before the deadline has answered, the look finding it ended coming after the
+// deadline: what the look finds decides, never the instant it comes.
+func TestAShellEndedBeforeTheDeadlineHasAnsweredWhenTheLookComesAfter(t *testing.T) {
 	seen := recorded(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	looking, looked := reap, false
-	reap = func(cmd *exec.Cmd, _ bool) (bool, int, error) {
+	reap = func(cmd *exec.Cmd, wait bool) (bool, int, error) {
+		ended, code, err := looking(cmd, wait)
 		if !looked {
-			// the first look finds the shell still running, then the deadline passes
+			// the first look finds the shell running past its output, waiting to be let go; let
+			// go, it ends, which SIGCHLD says without reaping it, and then the deadline passes
 			looked = true
+			exited := make(chan os.Signal, 1)
+			signal.Notify(exited, syscall.SIGCHLD)
+			defer signal.Stop(exited)
+			if err := os.WriteFile(filepath.Join(cmd.Dir, "go"), nil, 0o600); err != nil {
+				t.Error(err)
+			}
+			select {
+			case <-exited:
+			case <-time.After(10 * time.Second):
+				t.Error("let go, the shell never ended")
+			}
 			cancel()
-			return false, 0, nil
 		}
-		// the next finds it ended, as the end of its output says it is or soon will be
-		return looking(cmd, true)
+		return ended, code, err
 	}
-	out, why := ProjectOutput(ctx, "echo '[]'", t.TempDir(), nil, time.Minute, "list")
+	command := "echo '[]'; exec >/dev/null 2>&1; while [ ! -e go ]; do sleep .01; done"
+	out, why := ProjectOutput(ctx, command, t.TempDir(), nil, time.Minute, "list")
 	if why != "" || strings.TrimSpace(string(out)) != "[]" {
 		t.Errorf("answered %q, said %q", out, why)
 	}
