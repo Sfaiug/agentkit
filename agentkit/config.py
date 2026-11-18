@@ -403,7 +403,7 @@ def _read_toml(path):
         return None
     except OSError as exc:
         raise Error(f"cannot read {path}: {exc}")
-    except ValueError as exc:   # bad TOML, bad UTF-8, or an integer past Python's digit limit
+    except (ValueError, RecursionError) as exc:   # bad TOML or UTF-8, or past Python's digit or depth limit
         raise Error(f"{path}: {exc}")
 
 
@@ -2293,11 +2293,7 @@ def _manifest(harness):
         cached = _MANIFESTS.get(path)
         if cached and cached[0] == stamp:
             return cached[1]
-        try:
-            with path.open("rb") as fh:
-                data = tomllib.load(fh)
-        except (OSError, ValueError) as exc:     # as _read_toml: any unparseable file
-            raise Error(f"{path}: {exc}")
+        data = _read_toml(path) or {}
         _MANIFESTS[path] = (stamp, data)
         return data
     return {}
