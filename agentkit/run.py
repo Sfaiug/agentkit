@@ -2197,8 +2197,11 @@ def follow_run(run_dir, cfg, offset=0):
         return 2
     if state.get("state") == "not_needed":
         return 0
-    return 0 if (state.get("state") == "pass" and review_pass(state, cfg)
-                 and not state.get("merge_failed")) else 1
+    # `cfg` was loaded before the wait, and a resume may review again under a mark it names
+    # otherwise or not at all: a merge passed review under the config it ran with, which no
+    # earlier config takes back, and a PASS left unmerged reads as it ended.
+    return 0 if (state.get("state") == "pass" and not state.get("merge_failed")
+                 and (state.get("merged") or review_pass(state, cfg, ended=True))) else 1
 
 
 # --- a PR reviewed alone: the reviewer only ------------------------------------
