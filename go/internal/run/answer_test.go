@@ -126,13 +126,21 @@ func TestACommandIsNeverTheShellsOptions(t *testing.T) {
 	}
 }
 
-// Given no environment, the command runs in ak's own, still without the seat's name: an ssh in it
-// would otherwise be that seat reaching the live host.
+// Given no environment, the command runs in ak's own, at its checkout as named, still without the
+// seat's name: an ssh in it would otherwise be that seat reaching the live host.
 func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	t.Setenv("ACME_TOKEN", "kept")
-	out, why := ProjectOutput(context.Background(), `echo "${AGENTKIT_SESSION-absent} $ACME_TOKEN"`, t.TempDir(), nil, time.Second, "list")
-	if why != "" || string(out) != "absent kept\n" {
-		t.Errorf("answered %q, said %q", out, why)
+	dir := t.TempDir()
+	checkout := filepath.Join(dir, "acme-link")
+	if err := os.Mkdir(filepath.Join(dir, "acme"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "acme"), checkout); err != nil {
+		t.Fatal(err)
+	}
+	out, why := ProjectOutput(context.Background(), `echo "${AGENTKIT_SESSION-absent} $ACME_TOKEN $PWD"`, checkout, nil, time.Second, "list")
+	if want := "absent kept " + checkout + "\n"; why != "" || string(out) != want {
+		t.Errorf("answered %q, said %q, want %q", out, why, want)
 	}
 }
