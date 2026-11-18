@@ -266,7 +266,10 @@ READINGS_KEPT_FOR = 35 * 86400     # five weeks
 # written with the turn's sum in `runs`: `turn` its directory as `counted_turns` names it,
 # `account` the login it ran on, `model` NULL where it named none, `began` and `at` when it
 # started and ended.  Where its harness totals a session, each count is what that total exceeds
-# the rows the run keeps for the session's earlier turns, never below 0.
+# the rows the run keeps for the session's earlier turns, never below 0.  `listed_usd` is what
+# the counts cost at the prices the stored boards listed for the model as they were written
+# (`_listed_usd`), NULL where they listed none or on a row from before it: a board drops a
+# model once its maker ships the next, and spend prices a row from the boards only without it.
 TURN_USAGE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS turn_usage (
     turn TEXT,
@@ -282,6 +285,7 @@ CREATE TABLE IF NOT EXISTS turn_usage (
     output INTEGER
 )
 """
+TURN_USAGE_MIGRATIONS = (("listed_usd", "REAL"),)
 
 
 def path():
@@ -320,7 +324,8 @@ def _connect(*, readonly=False):
                               ("reviews", REVIEW_MIGRATIONS), ("findings", FINDING_MIGRATIONS),
                               ("owner", OWNER_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS),
-                              ("meter_readings", METER_READING_MIGRATIONS)):
+                              ("meter_readings", METER_READING_MIGRATIONS),
+                              ("turn_usage", TURN_USAGE_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         for name, kind in migrations:
             if name not in have:
@@ -802,24 +807,26 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
         return
     counted = set(json.loads(row[0] or "[]"))
     plugin = harness_plugin(harness)
+    priced = _listed_usd()
     values = []
     for out in paths:
         out = Path(out)
         turn = str(out.resolve())
         if turn not in counted:
             value = plugin.tokens(out)
-            usages = _turn_usage(connection, plugin, run_id, out)
+            usages = _turn_usage(connection, plugin, run_id, out, priced)
             if value is None and usages:
                 # a turn killed before its stream showed a usage, its session's transcripts
                 # holding its messages, totals its counts
-                value = sum(sum(usage[4:]) for usage in usages)
+                value = sum(sum(usage[4:8]) for usage in usages)
             if value is not None:
                 values.append(value)
                 counted.add(turn)
                 # kept at once, so a later turn of the same session among `paths` sees them
                 connection.executemany(
                     "INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, "
-                    "input, cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    "input, cache_write, cache_read, output, listed_usd) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     [(turn, run_id, role, *usage) for usage in usages])
     if not values:
         return
@@ -830,9 +837,10 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
         (int(sum(values)), json.dumps(sorted(counted)), run_id))
 
 
-def _turn_usage(connection, plugin, run_id, out):
-    """(account, model, began, at, input, cache write, cache read, output) for each model the
-    turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them.
+def _turn_usage(connection, plugin, run_id, out, priced):
+    """(account, model, began, at, input, cache write, cache read, output, listed usd) for each
+    model the turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them, `priced`
+    (`_listed_usd`) giving the last.
 
     It began when its `harness` receipt was written and ended at its last event.  What a
     session's total exceeds is measured against the rows kept for the session's turns that began
@@ -861,17 +869,39 @@ def _turn_usage(connection, plugin, run_id, out):
         later = min(((when, turn) for turn, when, *_ in rows if ours.get(turn) and when > began),
                     default=None)
         if later:
-            theirs = {model: numbers for turn, _, model, *numbers in rows if turn == later[1]}
+            theirs = {model: tuple(numbers) for turn, _, model, *numbers in rows
+                      if turn == later[1]}
+            # only a row whose counts change is priced anew: one the boards dropped since keeps
+            # its dollars
             connection.executemany(
-                "UPDATE turn_usage SET input=?, cache_write=?, cache_read=?, output=? "
-                "WHERE turn=? AND model IS ?",
-                [(*numbers, later[1], model) for model, numbers in _less(theirs, counts).items()])
+                "UPDATE turn_usage SET input=?, cache_write=?, cache_read=?, output=?, "
+                "listed_usd=? WHERE turn=? AND model IS ?",
+                [(*numbers, priced(model, numbers), later[1], model)
+                 for model, numbers in _less(theirs, counts).items() if numbers != theirs[model]])
     try:
         account = (out / "account").read_text()
     except OSError:
         account = None
     at = _moment(out / "events.jsonl")
-    return [(account, model, began, at, *numbers) for model, numbers in counts.items()]
+    return [(account, model, began, at, *numbers, priced(model, numbers))
+            for model, numbers in counts.items()]
+
+
+def _listed_usd():
+    """What a turn row's counts cost at the prices the stored boards list for its model, the
+    boards read once at the first row priced (`spend._dollars` of `spend._prices`): None where
+    they list none, and where they cannot be read or priced, as no board fails a row's write.
+    A cost no float holds is none: a row keeps its cost for good, past the board that gave it."""
+    from . import spend     # here, not at the top: spend reads this module as it loads
+    prices = spend._pricing()
+
+    def priced(model, numbers):
+        try:
+            dollars = spend._dollars(prices(model), numbers)
+        except Exception:   # noqa: BLE001 -- a board ak cannot read prices nothing
+            return None
+        return dollars if dollars is not None and math.isfinite(dollars) else None
+    return priced
 
 
 def _less(counts, off):
