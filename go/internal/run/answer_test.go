@@ -144,3 +144,14 @@ func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 		t.Errorf("answered %q, said %q, want %q", out, why, want)
 	}
 }
+
+// An environment exec refuses starts nothing: the command would run without what it was given.
+func TestAMalformedEnvironmentStartsNothing(t *testing.T) {
+	dir := t.TempDir()
+	if _, why := ProjectOutput(context.Background(), "printf started > ran", dir, []string{"ACME_MODE=preview\x00"}, time.Second, "set"); why == "" {
+		t.Error("answered as if it ran")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran")); !os.IsNotExist(err) {
+		t.Errorf("the command ran: %v", err)
+	}
+}
