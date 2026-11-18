@@ -35,14 +35,6 @@ func TestPastTheWaitTheStopHasEndedBeforeTheAnswer(t *testing.T) {
 	}
 }
 
-// unfired is a deadline passed whose timer has not fired yet, as on a loaded host.
-type unfired struct {
-	context.Context
-	deadline time.Time
-}
-
-func (u unfired) Deadline() (time.Time, bool) { return u.deadline, true }
-
 // recorded has group and reap note each stop as it begins and each reap of a shell found ended,
 // in order: what the run saw, as seen() gives it.
 func recorded(t *testing.T) (seen func() []string) {
@@ -65,8 +57,16 @@ func recorded(t *testing.T) (seen func() []string) {
 	return func() []string { lock.Lock(); defer lock.Unlock(); return slices.Clone(notes) }
 }
 
-// Past the wait the session goes before the shell is reaped, never after: from the reap on, the
-// session's number is a stranger's to take.
+// unfired is a deadline passed whose timer has not fired yet, as on a loaded host.
+type unfired struct {
+	context.Context
+	deadline time.Time
+}
+
+func (u unfired) Deadline() (time.Time, bool) { return u.deadline, true }
+
+// Past the wait, read by the clock before ctx's timer says so, the session goes before the shell
+// is reaped, never after: from the reap on, the session's number is a stranger's to take.
 func TestPastTheWaitTheSessionGoesBeforeTheShellIsReaped(t *testing.T) {
 	for _, command := range []string{
 		"exec >/dev/null 2>&1; sleep 5", // the shell outlives its output
@@ -74,7 +74,9 @@ func TestPastTheWaitTheSessionGoesBeforeTheShellIsReaped(t *testing.T) {
 	} {
 		t.Run(command, func(t *testing.T) {
 			seen := recorded(t)
-			if _, why := ProjectOutput(context.Background(), command, t.TempDir(), nil, 100*time.Millisecond, "list"); !strings.HasPrefix(why, "list: no answer in ") {
+			checkout, wait := t.TempDir(), 100*time.Millisecond
+			ctx := unfired{context.Background(), time.Now().Add(wait)}
+			if _, why := ProjectOutput(ctx, command, checkout, nil, wait, "list"); !strings.HasPrefix(why, "list: no answer in ") {
 				t.Errorf("said %q", why)
 			}
 			if went := seen(); !slices.Equal(went, []string{"stop", "reap"}) {
