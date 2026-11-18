@@ -63,6 +63,7 @@ NOT_TOML = {
     "an unclosed list": (BASE + "within = [\n").encode(),
     "a key set twice": ("max_runs = 1\nmax_runs = 2\n" + BASE).encode(),
     "bytes that are not UTF-8": BASE.encode() + b'name = "\xff"\n',
+    "an integer of 4301 digits": ("max_runs = " + "9" * 4301 + "\n" + BASE).encode(),
 }
 
 
