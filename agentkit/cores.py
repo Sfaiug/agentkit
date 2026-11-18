@@ -38,29 +38,45 @@ def _now():
 def tell(state, log):
     """Owe each seat whose scope used or waited for FLOOR of a core or more over each of the last
     two intervals a line saying so, once, and again each AGAIN while it goes on; an interval under
-    starts the count over.  Each scope's reading is kept in `state` for the next tick, and on one
-    whose last interval was over, `since` it was first held, what it had held by then
-    (`since_held`: the line says what it held over that time) and each process's CPU time:
-    its busiest is the one that spent most of the next interval, as a shell days old that has
-    just begun to spin has spent little of its life.  One not read then counts from nothing only
-    if it began since: one moved into the scope brings the time it spent before."""
+    starts the count over.  Each scope's reading is kept in `state` for the next tick with the
+    waiting in it (`waited`, None where unread), and on one whose last interval was over, `since`
+    it was first held, what it had held by then (`since_held`: the line says what it held over
+    that time) and each process's CPU time: its busiest is the one that spent most of the next
+    interval, as a shell days old that has just begun to spin has spent little of its life.  One
+    not read then counts from nothing only if it began since: one moved into the scope brings
+    the time it spent before."""
     now, before, state["seat_cores"] = _now(), state.get("seat_cores") or {}, {}
     for scope, launched in front.scopes().items():
-        held = host.cpu_held_usec(scope)
+        held, waited = host.cpu_held_usec(scope)
         if held is None:
             continue
         # A reading under `usec` counted used time alone: against one with a lifetime's waiting
         # its interval would be over, so it is no reading.
         last = before.get(scope.name) or {}
-        seen = state["seat_cores"][scope.name] = {"at": now, "held": held}
-        if ("held" not in last or now <= last["at"]
-                or held - last["held"] < FLOOR * 1e6 * (now - last["at"])):
+        seen = state["seat_cores"][scope.name] = {"at": now, "held": held, "waited": waited}
+        if "held" not in last or now <= last["at"]:
+            continue
+        # Two counts of which one alone has the waiting in it differ by all the scope ever
+        # waited, which is no part of the interval: taken out, what the scope used still counts.
+        # What it waited meanwhile is then unknown: at most all it ever waited where this count
+        # has it, any amount where this one lacks it.  A reading saved until 18 Nov 2026 does not
+        # say whether its count has it, and is read as one without.
+        was, floor = last.get("waited"), FLOOR * 1e6 * (now - last["at"])
+        rose = most = held - last["held"]
+        if (was is None) != (waited is None):
+            rose, most = (rose - waited, rose) if was is None else (rose + was, float("inf"))
+        if rose < floor:
+            # Under, unless what is unknown may have made it up: nothing then says the seat held
+            # on, so its count starts over, and nothing that it let go, so when it was told stands.
+            if most >= floor:
+                seen["told"] = last.get("told")
             continue
         # A streak goes on from one reading's time and count together: one saved with a time
         # alone (before 18 Nov 2026) starts over, as a count read later would say less was held.
+        # `since_held` is this count less what the streak held, whatever was taken out of it.
         going = "since_held" in last
-        seen.update(since=last["since"] if going else last["at"],
-                    since_held=last["since_held"] if going else last["held"],
+        streak = rose + (last["held"] - last["since_held"] if going else 0)
+        seen.update(since=last["since"] if going else last["at"], since_held=held - streak,
                     told=last.get("told"), ticks=host.cpu_ticks(scope))
         if going and (seen["told"] is None or now - seen["told"] >= AGAIN):
             seen["told"] = now
@@ -70,8 +86,8 @@ def tell(state, log):
                      for process, ticks in seen["ticks"].items() if process in last["ticks"]
                      or int(process.split(" ")[1]) >= int(last["at"] * os.sysconf("SC_CLK_TCK"))}
             busiest = max(spent, key=spent.get, default="").split(" ")[0]
-            _tell(front.seat_now(launched), busiest and host.command(busiest),
-                  held - seen["since_held"], now - seen["since"], log)
+            _tell(front.seat_now(launched), busiest and host.command(busiest), streak,
+                  now - seen["since"], log)
 
 
 def holding(state):
