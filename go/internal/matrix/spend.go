@@ -50,19 +50,21 @@ func spending(held *run.Object) *spend {
 }
 
 // A spent row is one of a login's rows: its harness ("" where unknown), model, tokens and counts,
-// known false where one is.
+// known false where one is, and the dollars a turn row kept (history's listed_usd), saved false
+// where it kept none.
 type spent struct {
 	harness, model string
 	tokens         float64
 	counts         []float64
 	known          bool
+	kept           float64
+	saved          bool
 }
 
 // measures is Python's spend.roles: of each offered model at each effort it did a worker role at,
 // the means over the task runs that ended where it did of the dollars the role's turn_usage rows
-// took at held's listed prices, and of the points of a week that is, each row's dollars times 100
-// over the week of its login under the model's provider (plans); and each login's plan where its
-// week holds some.  A run's reviewer is at the one effort its reviews name; a run counts for
+// took (dollars), and of the points of a week that is, each row's dollars times 100 over the week
+// of its login under the model's provider (plans); and each login's plan where its week holds some.  A run's reviewer is at the one effort its reviews name; a run counts for
 // nothing in a role a counted turn of which kept no row, a row of which has no listed price or a
 // login of which has no week.
 func measures(held *run.Object) (*Measures, error) {
@@ -135,8 +137,8 @@ func measures(held *run.Object) (*Measures, error) {
 	// one read, as a run resumed between two would add its new turns' rows to its ended sample
 	for _, row := range s.db.Select("SELECT run_id, executor, executor_effort, reviewer, (SELECT CASE WHEN " +
 		"COUNT(DISTINCT effort) = 1 THEN MIN(effort) END FROM reviews WHERE reviews.run_id = runs.run_id) AS reviewed, " +
-		"counted_turns, turn, role, account, model, " + counts + " FROM runs LEFT JOIN turn_usage USING (run_id) " +
-		"WHERE kind = 'task' AND finished_at IS NOT NULL") {
+		"counted_turns, turn, role, account, model, listed_usd, " + counts + " FROM runs LEFT JOIN " + s.db.Migrated("turn_usage") +
+		" USING (run_id) WHERE kind = 'task' AND finished_at IS NOT NULL") {
 		if row["turn"] != nil {
 			key := task{row.Text("run_id"), row.Text("role")}
 			rows[key] = append(rows[key], kept{row.Text("turn"), row.Text("account"), counted(row, "", 0)})
@@ -292,7 +294,8 @@ func (s *spend) plans(accounts []usage.Week, windows ...[2]float64) []map[usage.
 // false where none of its rows from then can be priced, Python's spend.listed.  A row is the
 // login's where its account is and its harness runs models of that provider alone; a row it
 // cannot price, its model listing no price, its counts unknown or its cost no float's, costs what
-// the login's priced rows cost a token.
+// the login's priced rows cost a token.  A turn row costs the dollars it kept, whatever the boards
+// list now.
 func (s *spend) listed(provider, account string, since, until float64) (float64, bool) {
 	dollars, priced, unpriced, found := 0.0, 0.0, 0.0, false
 	for _, row := range s.rows(cmp.Or(account, config.DefaultAccount), since, until) {
@@ -323,7 +326,7 @@ func (s *spend) listed(provider, account string, since, until float64) (float64,
 // turn row the share of its span, from its began to its at, that falls between them, one with no
 // began at its at.  A seat row's harness is its event's text before the first `:`, a turn row's
 // the one its turn's harness receipt names; a seat row's tokens are its own, a turn row's its
-// counts summed.
+// counts summed; a seat row keeps no dollars, a turn row its share of those it kept, if any.
 func (s *spend) rows(account string, since, until float64) []spent {
 	var found []spent
 	for _, row := range s.db.Select("SELECT event, model, tokens, "+counts+" FROM seat_usage "+
@@ -332,8 +335,8 @@ func (s *spend) rows(account string, since, until float64) []spent {
 		harness, _, _ := strings.Cut(row.Text("event"), ":")
 		found = append(found, counted(row, harness, tokens))
 	}
-	for _, row := range s.db.Select("SELECT turn, model, COALESCE(began, at) AS began, at, "+counts+" FROM turn_usage "+
-		"WHERE account = ? AND at >= ? AND COALESCE(began, at) <= ?", account, since, until) {
+	for _, row := range s.db.Select("SELECT turn, model, COALESCE(began, at) AS began, at, listed_usd, "+counts+
+		" FROM "+s.db.Migrated("turn_usage")+" WHERE account = ? AND at >= ? AND COALESCE(began, at) <= ?", account, since, until) {
 		began, _ := row.Num("began")
 		at, _ := row.Num("at")
 		share := 1.0
@@ -347,7 +350,7 @@ func (s *spend) rows(account string, since, until float64) []spent {
 		for i := range each.counts {
 			each.counts[i] *= share
 		}
-		each.tokens = quality.Sum(each.counts)
+		each.tokens, each.kept = quality.Sum(each.counts), each.kept*share
 		found = append(found, each)
 	}
 	return found
@@ -370,9 +373,11 @@ func harnessOf(turn string) string {
 
 var harnesses sync.Map
 
-// counted is the row's model and counts, an unknown count counting 0 toward its tokens.
+// counted is the row's model, counts and the dollars it kept, an unknown count counting 0 toward
+// its tokens.
 func counted(row history.Row, harness string, tokens float64) spent {
 	each := spent{harness: harness, model: row.Text("model"), tokens: tokens, known: true}
+	each.kept, each.saved = row.Num("listed_usd")
 	for _, column := range strings.Split(counts, ", ") {
 		count, ok := row.Num(column)
 		each.counts, each.known = append(each.counts, count), each.known && ok
@@ -391,11 +396,14 @@ func (s *spend) runsAlone(harness, provider string) bool {
 	return s.ours[key]
 }
 
-// dollars is what a row's counts cost at its model's listed prices, a million tokens of each,
-// false where either is unknown or the cost is no float's, as a board listing an infinite price
-// or one near a float's largest: summed, it would leave every cost it joins infinite or NaN,
-// Python's spend._dollars.
+// dollars is what a row cost, Python's spend._cost: those it kept, else what its counts cost at
+// its model's listed prices now, a million tokens of each, false where either is unknown or the
+// cost is no float's, as a board listing an infinite price or one near a float's largest: summed,
+// it would leave every cost it joins infinite or NaN, Python's spend._dollars.
 func (s *spend) dollars(row spent) (float64, bool) {
+	if row.saved {
+		return row.kept, true
+	}
 	prices := s.listedPrices(row.model)
 	if prices == nil || !row.known {
 		return 0, false

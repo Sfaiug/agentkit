@@ -3,6 +3,7 @@ package history
 import (
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"agentkit/internal/run"
@@ -47,6 +48,47 @@ func TestATurnCountedAfterItsSessionsNextTotalGivesItsShareBack(t *testing.T) {
 		{"fixer-opus", "claude-opus-5", int64(5), int64(500), int64(4000), int64(60)},
 		{"final-fixer-opus", "claude-haiku-5", int64(0), int64(0), int64(0), int64(0)},
 		{"final-fixer-opus", "claude-opus-5", int64(5), int64(500), int64(3000), int64(40)},
+	}
+	if !reflect.DeepEqual(got, want) || len(*lines) > 0 {
+		t.Fatalf("kept\n%v\nwant\n%v\nsaid %q", got, want, *lines)
+	}
+}
+
+// A turn giving its share back from a later total that kept its dollars, as Python prices a row it
+// writes, leaves that total's row of a model whose counts change without them, priced as it is
+// read, and its row of one whose counts stay as they were with its own.
+func TestASharedTotalsRowKeepsItsDollarsOnlyWhileItsCountsStay(t *testing.T) {
+	home(t)
+	log, lines := said()
+	id := "20261106-1200-fix-api"
+	going := record(t, `{"run_id": "`+id+`", "state": "running"}`)
+	Start(going, log)
+	total := func(opus, haiku int) string {
+		return `{"type": "result", "session_id": "session-acme", "usage": {"input_tokens": 1}, "modelUsage": {` +
+			`"claude-opus-5": {"inputTokens": ` + strconv.Itoa(opus) + `}, "claude-haiku-5": {"inputTokens": ` + strconv.Itoa(haiku) + `}}}`
+	}
+	turn(t, id, "executor-opus", "claude", total(10, 0), 1000, 1005)
+	Spent(going, "claude", turn(t, id, "fixer-opus", "claude", total(15, 5), 1010, 1015), log)
+	db, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.exec("UPDATE turn_usage SET listed_usd = 1"); err != nil {
+		t.Fatal(err)
+	}
+	ended := going.Copy()
+	run.SetAll(ended, "state", "stopped", "finished_at", 1100.0)
+	Finish(ended, log)
+	var got [][]any
+	for _, kept := range query(t, db, "SELECT * FROM turn_usage ORDER BY began, model") {
+		got = append(got, []any{filepath.Base(kept.Text("turn")), kept["model"], kept["input"], kept["listed_usd"]})
+	}
+	want := [][]any{
+		{"executor-opus", "claude-haiku-5", int64(0), nil},
+		{"executor-opus", "claude-opus-5", int64(10), nil},
+		{"fixer-opus", "claude-haiku-5", int64(5), 1.0},
+		{"fixer-opus", "claude-opus-5", int64(5), nil},
 	}
 	if !reflect.DeepEqual(got, want) || len(*lines) > 0 {
 		t.Fatalf("kept\n%v\nwant\n%v\nsaid %q", got, want, *lines)

@@ -20,7 +20,7 @@ func FirstReviewSizes() (builds, own []Row) {
 	if db == nil {
 		return nil, nil
 	}
-	runs := db.migrated("runs")
+	runs := db.Migrated("runs")
 	mine := "(kind IS 'seat PR' OR COALESCE(own_orchestrator, '') <> '')"
 	judged := make([]any, len(run.Judged))
 	for i, state := range run.Judged {
