@@ -314,7 +314,7 @@ class ModelsWhy(unittest.TestCase):
             "  cost", "    ≈$1.00 a", "    task", "    its board", "    price", "    alone: no",
             "    task of", "    yours", "    priced a", "    model", ""])
         self.assertEqual(why[why.index("    most"):why.index("    most") + 3],
-                         ["    most", "  not shown", "    Hol…"])
+                         ["    most", "  not shown", "    Holm 1"])
 
     def test_on_4_cells_each_value_folds_as_far_in_as_leaves_it_a_cell(self):
         # the margin's two cells leave the fold one: two would push each value cell past the

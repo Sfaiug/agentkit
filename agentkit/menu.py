@@ -3600,10 +3600,11 @@ def models_said(cfg, answer, used, unit):
     return said
 
 
-def named(row, room):
-    """A row's model and effort in `room` cells, only the name cut."""
-    effort = f" {row['effort']}" if row["effort"] else ""
-    return terminal.cut(row["name"], room - terminal.cells(effort)) + effort
+def named(row):
+    """A row's model and its effort.  A board's name or a config's effort may hold control
+    characters: none reaches the terminal (terminal.plain), each made plain on its own, so an
+    escape one leaves open cannot take the other."""
+    return " ".join(filter(None, (terminal.plain(row[key] or "") for key in ("name", "effort"))))
 
 
 def packed(parts, gap, room):
@@ -3642,9 +3643,7 @@ def models_body(said, unit, at=None):
         width = max(1, min(max(widths), space))
         return [f"{piece:>{width}}" for part in after for broken in columned(part, width, " ,")
                 for piece in terminal.wrap(broken, width)]
-    # a board's name may hold control characters: none reaches the terminal (terminal.plain)
-    models = [terminal.plain(row["name"] + (f" {row['effort']}" if row["effort"] else ""))
-              for _, row, *_ in said]
+    models = [named(row) for _, row, *_ in said]
     full = max(map(terminal.cells, models))
     tail = max((2 + terminal.cells(line) for *_, after in said for line in follows(after)),
                default=0)
@@ -3821,15 +3820,18 @@ def scored(column, one):
 def flowed(parts, room, hang=0):
     """`parts` three cells apart on lines of `room` cells, each going on at its words beside the
     one before it and the rest under the first, `hang` cells further in where that leaves a line
-    a cell, a word too long for a line split (terminal.wrap)."""
+    a cell, a word too long for the line it starts split there (terminal.wrap), its pieces
+    joined by nothing: a release's name split mid-version reads as that version."""
     lines, hang = [""], min(hang, room - 1)
     for part in parts:
         gap = "   " if lines[-1] else ""
-        for word in " ".join(terminal.wrap(part, room)).split():
+        for word in terminal.plain(part).split():
             if lines[-1] and terminal.cells(lines[-1] + gap + word) > room:
-                lines.extend(" " * hang + piece for piece in terminal.wrap(word, room - hang))
-            else:
-                lines[-1] += gap + word
+                lines.append(" " * hang)
+                gap = ""
+            head, *rest = terminal.wrap(word, room - terminal.cells(lines[-1] + gap))
+            lines[-1] += gap + head
+            lines += [" " * hang + piece for piece in terminal.wrap("".join(rest), room - hang)]
             gap = " "
     return lines
 
@@ -3877,7 +3879,8 @@ def models_why(found, role, row, kept, unit, weeks):
     `shaded` each the bars of `kept` draw shaded at this width (models_standing), in their order,
     under `not shown` the rest of its `others`, in theirs; a page leaving its values no cell
     beside it folds each under its label, two cells in.  The page's margin and that fold are two
-    cells where that leaves a line a cell, else as many as do.  Only a model's name is cut."""
+    cells where that leaves a line a cell, else as many as do.  A model's name goes on at its
+    words as any value does, never cut: releases of one name differ only at its end."""
     margin = min(2, terminal.layout_width() - 1)
     room = terminal.layout_width() - margin
     width = terminal.cells("not shown")     # the design's label column: its widest label
@@ -3895,7 +3898,7 @@ def models_why(found, role, row, kept, unit, weeks):
         return round(top["quality"], 1) - round(one["quality"], 1)
 
     def priced(one):      # a row with no cost, its quality alone
-        return f"{named(one, values)}, {one['quality']:.1f}" + (
+        return f"{named(one)}, {one['quality']:.1f}" + (
             f" for {cost_said(found, one, unit)}" if one["cost"] is not None else "")
 
     def why(one):
@@ -3915,7 +3918,7 @@ def models_why(found, role, row, kept, unit, weeks):
                          [", ".join(scored(column, one) for column, one in measures.items())],
                          [best] if row is top else
                          [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
-                          f"{named(top, values)}"]]},
+                          f"{named(top)}"]]},
             {"cost": [[UNITS[unit].format(cost=cost, run=RUN[role]) if cost != "-" else cost,
                        SOURCES[row["cost_rule"]].format(runs=row["runs"], run=RUN[role])],
                       *([week_checked(*week)] for week in weeks)]
@@ -3923,9 +3926,7 @@ def models_why(found, role, row, kept, unit, weeks):
             {"choices": [[f"the best, then cheaper ones {points(matrix.APART)} apart, none more "
                           f"than {number(matrix.WINDOW)} below, {number(matrix.PLACES)} at most"]],
              **kinds}]
-    # the name cut to share a line with `why` and its effort, the rest going on at its words:
-    # a narrow page leaves no name room beside the verb, and each line counts as one row
-    lines = terminal.wrap(f"why {named(row, room - 4)} {DOES[role]}", room)
+    lines = terminal.wrap(f"why {named(row)} {DOES[role]}", room)
     for block in said:
         lines.append("")
         for label, parts in block.items():
