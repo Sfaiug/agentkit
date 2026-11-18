@@ -148,7 +148,8 @@ def current(boards):
                 if _current(rows) and slug not in gone]
     named = {}
     for release in releases:
-        for name in _names(release["name"]):
+        # a record may give its release no name, and then no other board's row names it
+        for name in _names(release["name"]) if release["name"] else ():
             named.setdefault(name, []).append(release)
     others = [held for board, held in boards.items() if board != BOARD]
     for held in others:
