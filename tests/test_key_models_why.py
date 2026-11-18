@@ -5,7 +5,8 @@ far below the role's best choice it is, of the two qualities as shown; its cost,
 no runs measured, and where that comes from -- its runs, its board price times what runs on its
 provider cost a board dollar, or on every provider at list prices at its own plan's rate, or its
 board price alone; the rule that makes the choices; and why each model is none -- beaten,
-within a point of a choice, far below the best, no room, or not set up -- under `shaded` each the
+within a point of a choice, far below the best, no room, not set up, or priced by no board
+(tests/test_key_models_why_no_cost.py) -- under `shaded` each the
 role's bars shade, in their order, under `not shown` the rest of the role's others, in theirs
 (tests/test_key_models_why_shaded.py), each one's lines after its first two cells further in, a
 label with none left out.  Esc returns with `›` where it was, and a page taller than the screen
@@ -260,9 +261,15 @@ class ModelsWhy(unittest.TestCase):
     def test_with_nothing_priced_its_cost_is_none_and_its_quality_still_below_the_best(self):
         self.write(DRAWN, ["max"], priced=False)
         term = self.models()
-        # and with none priced no row is an other, so the page ends with the rule
-        self.assertEqual(self.why(term, "Down"),
-                         [*MAX_HIGH_BUILDS[:6], "  cost       no cost", "", CHOICES])
+        # and with none priced each release is an other, its best row by quality, never a bar
+        self.assertEqual(self.why(term, "Down"), [
+            *MAX_HIGH_BUILDS[:6], "  cost       no cost", "", CHOICES,
+            "  not shown  Acme Max 5 max, 100.0: no board prices it",
+            "             Elm 1 high, 98.0: no board prices it",
+            "             Dune 1 high, 96.0: no board prices it",
+            "             Acme Mid 5 high, 94.0: no board prices it",
+            "             Bolt 3 medium, 88.0: no board prices it",
+            "             Crux 2 low, 80.0: no board prices it"])
 
     def test_a_cost_from_your_runs_says_how_many_and_others_past_five_choices(self):
         self.write(FIVE, ["mid"], ["crux"], runs=True,
