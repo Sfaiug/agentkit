@@ -283,9 +283,11 @@ def main(argv):
     alias, home = argv[0], Path.home()
     copied = [*_harnesses(), str(config.CODE.relative_to(home))]
     refused = [f"this machine is not a client of {alias}"] * (config.server_alias() != alias)
-    # The home's ~/code would take the place of the ak running here.
+    # The home's ~/code would take the place of the ak running here.  realpath, as Python 3.11's
+    # `Path.resolve` raises at a link here that loops.
     refused += [f"ak runs from {config.tilde(config.REPO)} here, under "
-                f"{config.tilde(config.CODE)}"] * config.REPO.is_relative_to(config.CODE.resolve())
+                f"{config.tilde(config.CODE)}"] * config.REPO.is_relative_to(
+                    os.path.realpath(config.CODE))
     # rsync replaces a link here at what it copies of a harness, but writes through one at a
     # folder between that and the home.  What is kept are names: rsync would replace a link at
     # one, or at a folder between it and ak's folder, with the home's, or delete what it reaches.
