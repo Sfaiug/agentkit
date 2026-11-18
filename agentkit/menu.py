@@ -3666,9 +3666,11 @@ def models_body(said, unit, at=None):
         if terminal.cells(line) <= space:
             return [line]
         # else the quality over the cost at one width, a part wider than `space` broken at its
-        # spaces and thousands (`% of a` over `week`), so no line passes the edge
+        # spaces and thousands (`% of a` over `week`), else wherever it must: no line passes
+        # the edge, where the terminal would wrap it into rows the page does not count
         width = max(1, min(max(widths), space))
-        return [f"{piece:>{width}}" for part in after for piece in columned(part, width, " ,")]
+        return [f"{piece:>{width}}" for part in after for broken in columned(part, width, " ,")
+                for piece in terminal.wrap(broken, width)]
     # a board's name may hold control characters: none reaches the terminal (terminal.plain)
     models = [terminal.plain(row["name"] + (f" {row['effort']}" if row["effort"] else ""))
               for _, row, *_ in said]

@@ -152,22 +152,22 @@ class ModelsRoleLines(unittest.TestCase):
                    for width in (100, 22, 14)}
         for done in printed.values():
             self.assertEqual(done.code, 0, done.err)
-        wide = said(printed[100].out)
-        # `quality  % of a week` and each role's numbers side by side take 24 cells: on 22 the
-        # heading and each role's numbers stack, on 14 `% of a week` breaks at its spaces too,
-        # every line inside the edge
-        for width in (22, 14):
+        wide = {word: line.split()[-2:] for line in said(printed[100].out)
+                for word, *_ in NEW_SEATS.values() if word in line.split()}
+        # side by side, `quality  % of a week` and each role's numbers take 24 cells: on 22 the
+        # heading and each role's numbers stack under its model, on 14 the unit and each model
+        # break at their spaces as well, every line inside the edge
+        for width, broken in ((22, {}), (14, {
+                "% of a week": ["% of a", "week"], "Acme Bare 1 medium": ["Acme Bare", "1 medium"],
+                "Acme Top 1 high": ["Acme Top 1", "high"], "Acme Plain 1": ["Acme Plain", "1"]})):
             shown = lines(printed[width].out)
             first = next(n for n, line in enumerate(shown) if line.split() == ["quality"])
             shown = shown[first:shown.index("", first)]
             self.assertLessEqual(max(map(len, shown)), width, shown)
-            starts = [next(n for n, line in enumerate(shown) if line.split() == [word])
-                      for word, *_ in NEW_SEATS.values()]
-            self.assertEqual(" ".join(shown[:starts[0]]).split(), "quality % of a week".split())
-            for (word, *_), end in zip(NEW_SEATS.values(), [*starts[1:], len(shown)]):
-                numbers = next(line.split()[-2:] for line in wide if word in line.split())
-                self.assertEqual([line.split() for line in shown[end - 2:end]],
-                                 [[number] for number in numbers], (width, word, shown))
+            self.assertEqual([" ".join(line.split()) for line in shown], [
+                "quality", *broken.get("% of a week", ["% of a week"]),
+                *(line for word, model, *_ in NEW_SEATS.values()
+                  for line in [word, *broken.get(model, [model]), *wide[word]])], width)
 
     def test_ak_models_prints_the_same_lines(self):
         screen = said(self.models()[1])
