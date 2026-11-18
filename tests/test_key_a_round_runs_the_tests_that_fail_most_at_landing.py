@@ -6,7 +6,8 @@ handed in the same run, named as
 the record spells them, and its failing exit sends the round back.  Left out are a test red only
 before then, one the record times not, one whose file is gone and one the target is red on now by
 its landing line's record; one the target was red on and repaired runs, as that one does once the
-target has moved past its red.
+target has moved past its red.  A part the record still times and its file no longer holds is
+handed and named not there: the round goes on where the rest passed.
 
 Owner, 16 Nov 2026: "Yes, this small set … And make sure this also happens for new repos we work
 on".
@@ -36,6 +37,14 @@ from fixtures.gitrig import Rig
 from fixtures.notes import Notes
 from test_key_a_round_runs_its_changes_tests import SUITE
 
+# A runner that names a part (`file::part`) its file does not hold as not there, failing with it
+# unrun, and each test that failed as failed.
+SUITE = SUITE.replace('failed = [', """gone = [test for test in tests if "::" in test
+        and test.partition("::")[2] not in open(test.partition("::")[0]).read()]
+tests = [test for test in tests if test not in gone]
+failed = [""", 1).replace("sys.exit(bool(failed))", """for name, said in (("AK_NOT_THERE", gone), ("AK_FAILED", failed)):
+    open(os.environ.get(name) or os.devnull, "w").write("".join(test + "\\n" for test in said))
+sys.exit(bool(failed or gone))""")
 DAY = 86400
 NOW = 1_900_000_000     # far from the real clock: a round reading that one would run old.sh
 SAID = "./TESTS/OFTEN.SH IS BROKEN"
@@ -54,7 +63,8 @@ WORK = [
 # The record: often.sh and sometimes.sh cost 30 s each, more than the 45 s of one piece together.
 CUT = ': "$AK_SHARD"; python3 suite.py'
 TIMES = {"./tests/often.sh": 30, "./tests/sometimes.sh": 30, "./tests/held.sh": 1,
-         "./tests/repaired.sh": 1, "./tests/flaky.sh": 1, "./tests/old.sh": 1, "./tests/gone.sh": 1}
+         "./tests/repaired.sh": 1, "./tests/flaky.sh": 1, "./tests/old.sh": 1, "./tests/gone.sh": 1,
+         "./tests/parts.sh::dropped": 1}     # a part parts.sh no longer holds
 EVERY = ("fix-a", "fix-b", "fix-c", "fix-d", "fix-e")
 # test: (the runs whose landing it was red in, days back, flaky)
 REDS = {"./tests/held.sh": (EVERY[:4], 1, 0),
@@ -64,7 +74,8 @@ REDS = {"./tests/held.sh": (EVERY[:4], 1, 0),
         "./tests/flaky.sh": (EVERY, 1, 1),
         "./tests/old.sh": (EVERY, 15, 0),
         "./tests/untimed.sh": (EVERY, 1, 0),
-        "./tests/gone.sh": (EVERY, 1, 0)}
+        "./tests/gone.sh": (EVERY, 1, 0),
+        "./tests/parts.sh::dropped": (EVERY[:1], 1, 0)}
 
 
 class ThreeRuns(unittest.TestCase):
@@ -80,7 +91,7 @@ class ThreeRuns(unittest.TestCase):
             "suite.py": SUITE.format(said=said.address), "widget.txt": "v1\n",
             "tests/often.sh": "grep -qx v1 widget.txt\n",
             **{f"tests/{name}.sh": "true\n"
-               for name in ("sometimes", "held", "repaired", "flaky", "old", "untimed")}})
+               for name in ("sometimes", "held", "repaired", "flaky", "old", "untimed", "parts")}})
         cls.rig.git("config", "ak.repository", "0123456789ab")
         cls.first = cls.rig.origin("rev-parse", "main^{tree}")
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
@@ -151,10 +162,11 @@ class ThreeRuns(unittest.TestCase):
 
     def test_a_red_test_runs_most_first_and_its_failing_exit_sends_the_round_back(self):
         # A suite the target runs uncut fits all, though it once ran in pieces: failing, its
-        # re-run failing, then passing after the fixer's turn, the test the target is red on now
-        # left out.
+        # re-run failing, then after the fixer's turn failing twice only by the part not there,
+        # the test the target is red on now left out.
         self.assertEqual(self.notes["two"],
-                         ["suite ./tests/often.sh ./tests/sometimes.sh ./tests/repaired.sh"] * 3
+                         ["suite ./tests/often.sh ./tests/sometimes.sh ./tests/parts.sh::dropped"
+                          " ./tests/repaired.sh"] * 4
                          + ["review", "suite whole"])
         self.assertEqual([run["role"] for run in self.fakes["claude"].runs()],
                          ["executor", "executor", "fixer", "executor"])
@@ -164,8 +176,9 @@ class ThreeRuns(unittest.TestCase):
 
     def test_of_more_than_fit_one_piece_the_most_often_red_run(self):
         # held.sh too, the target moved past its red; landing then runs the suite's pieces
-        self.assertEqual(self.notes["three"][:2], [
-            "suite ./tests/held.sh ./tests/often.sh ./tests/repaired.sh", "review"])
+        self.assertEqual(self.notes["three"][:3], [
+            "suite ./tests/held.sh ./tests/often.sh ./tests/parts.sh::dropped"
+            " ./tests/repaired.sh"] * 2 + ["review"])
 
 
 if __name__ == "__main__":
