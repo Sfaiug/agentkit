@@ -1,13 +1,13 @@
 """`ak standby ALIAS`, run on a client of ALIAS, makes one pass of this machine's copy of ak's
-folder on that home, at the same path: what the home deleted goes here too, and a run ended on
-both machines stays as it was here; a file rewritten at the same size within a second crosses
-too, and a file the home deletes mid-pass fails no pass.  This machine's record of its server,
-ak's tmp folder, its ak install and ak's repository stay as they were, and nothing starts from the
-copy: the crontab holds the standby's own job alone.  A pass whose home does not answer, or has
-no ak folder, leaves the copy as it was, says why and exits non-zero; a machine not ALIAS's client
-is refused, saying so, as is one where a link is at what it keeps or above it in ak's folder,
-which a pass would replace or go past.  None of those renames the copy's config key by its old
-name, as other commands do.  Black-box, through tests/fixtures/twohomes.py.
+folder on that home, at the same path: what the home deleted goes here too; a file rewritten at
+the same size within a second crosses too, and a file the home deletes mid-pass fails no pass.
+This machine's record of its server, ak's tmp folder, its ak install and ak's repository stay as
+they were, and nothing starts from the copy: the crontab holds the standby's own job alone.  A
+pass whose home does not answer, or has no ak folder, leaves the copy as it was, says why and
+exits non-zero; a machine not ALIAS's client is refused, saying so, as is one where a link is at
+what it keeps or above it in ak's folder, which a pass would replace or go past.  None of those
+renames the copy's config key by its old name, as other commands do.  Black-box, through
+tests/fixtures/twohomes.py.
 """
 
 import os
@@ -24,9 +24,6 @@ STATE = ".agentkit/state/watch.json"     # the home's, which a pass copies
 REAL = shutil.which("rsync", path=os.pathsep.join(SYSTEM))    # past any fake of it
 WRITTEN = 1_800_000_000_100_000_000     # when, in nanoseconds: a tenth into its second
 GONE = ".agentkit/tasks/fix-api.md"      # copied by an earlier pass, since deleted on the home
-# a run ended on both machines, which no pass copies
-RUNS = (".agentkit/runs/r-fix-api/run.json", ".agentkit/runs/r-fix-api/round-1/main.py")
-ENDED = {"run_id": "r-fix-api", "state": "pass"}
 SERVER = ".agentkit/state/server"     # this machine's, which the home has none of
 # this machine's own, which the home holds its own of: ak's tmp folder, its ak install, ak's
 # repository and a version of ak
@@ -43,15 +40,13 @@ class APassCopiesAksFolder(unittest.TestCase):
         here.client_of(home)
         config = here.path / ".agentkit/config.toml"
         config.write_text(f"rounds = 3\n{config.read_text()}")    # review_rounds' old name
-        for path in (STATE, *RUNS, *OWN):
+        for path in (STATE, *OWN):
             home.write(path, f"the home's {path}")
-        home.write(RUNS[0], {**ENDED, "merged": True})
         os.utime(home.path / STATE, ns=(WRITTEN, WRITTEN))
         for path in (GONE, *OWN):
             here.write(path, f"this machine's {path}")
-        here.write(RUNS[0], ENDED)
 
-    def test_a_pass_copies_aks_folder_but_a_run_ended_on_both_and_keeps_this_machines_own(self):
+    def test_a_pass_copies_aks_folder_and_keeps_this_machines_own(self):
         home, here = self.home, self.here
         before = here.tree()
         done = here.ak("standby", home.name)
@@ -59,8 +54,8 @@ class APassCopiesAksFolder(unittest.TestCase):
         after = here.tree()
         self.assertEqual(after.get(STATE), home.tree()[STATE])
         self.assertNotIn(GONE, after)
-        self.assertEqual({path: after.get(path) for path in (SERVER, *OWN, *RUNS)},
-                         {path: before.get(path) for path in (SERVER, *OWN, *RUNS)})
+        self.assertEqual({path: after.get(path) for path in (SERVER, *OWN)},
+                         {path: before.get(path) for path in (SERVER, *OWN)})
         # nothing started from the copy: no seat or run, no unit, and no tick beside the job
         self.assertNotEqual(here.tmux("list-sessions").code, 0)
         for tool in ("systemctl", "systemd-run"):
