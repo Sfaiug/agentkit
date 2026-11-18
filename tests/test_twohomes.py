@@ -14,7 +14,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import boxable
-from fixtures.akinstall import ORIGIN
+from fixtures.akinstall import ORIGIN, agentkit_refs
 from fixtures.twohomes import Machines
 
 REFUSED = "systemctl: not scripted in this test\n"
@@ -182,9 +182,9 @@ class TwoHomes(unittest.TestCase):
 
     @staticmethod
     def read(machine):
-        """The refs under refs/agentkit/ that `machine` reads on its install's remote."""
-        listed = machine.install.git("ls-remote", "origin", "refs/agentkit/*")
-        return dict(line.split("\t")[::-1] for line in listed.splitlines())   # a ref holds no tab
+        """The refs under refs/agentkit/ that `machine` reads on its install's remote, each once:
+        `--refs` lists no peeled `^{}` line beside a tag's."""
+        return agentkit_refs(machine.install.git("ls-remote", "--refs", "origin", raw=True))
 
     def test_a_ref_one_pushes_is_what_the_other_and_the_key_read(self):
         install, pushed = self.machines[0].install, {}
@@ -194,8 +194,8 @@ class TwoHomes(unittest.TestCase):
             machine.install.git("push", "-q", "origin", f"{made}:{ref}")
             pushed[ref] = made
             self.assertEqual((self.read(other), install.refs()), (pushed, pushed))
-            held = machine.run("git", "-C", machine.install.at, "cat-file", "commit", made).out
-            self.assertEqual(install.commit(made), held.encode())   # whole, its last line break too
+            held = machine.install.git("cat-file", "commit", made, raw=True)
+            self.assertEqual(install.commit(made), held)    # whole, its last line break too
 
     def test_of_two_pushes_naming_one_old_value_one_is_refused(self):
         install, ref = self.machines[0].install, "refs/agentkit/home"
