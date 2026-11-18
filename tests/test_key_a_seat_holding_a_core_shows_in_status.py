@@ -70,6 +70,18 @@ class ASeatHoldingACoreShowsInStatus(unittest.TestCase):
     def test_no_line_after_a_tick_in_which_no_seat_held_a_core(self):
         self.assertEqual(self.after[3], [])
 
+    def test_a_seat_holding_a_core_in_two_scopes_shows_once_with_the_longest(self):
+        # a respawn's new scope beside its old one
+        with Home() as home:
+            home.write(".agentkit/state/watch.json", {"seat_cores": {
+                FIX: {"at": 540, "since": 0},
+                "agentkit-seat-fix-api-0123abcd.scope": {"at": 540, "since": 180}}})
+            done = home.ak("run", "status")
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual([line for line in done.out.splitlines()
+                          if line.startswith("seats holding a core")],
+                         ["seats holding a core: fix-api 9m"])
+
 
 if __name__ == "__main__":
     unittest.main()
