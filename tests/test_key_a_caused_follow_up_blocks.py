@@ -2,7 +2,8 @@
 
 Black-box through AK_BIN: a fake reviewer hands in only a follow-up and done. A proof
 passing on base and failing on the commit sends its site and the cause back to the fixer;
-one failing on base too stays a follow-up and passes in round one.
+one failing on base too stays a follow-up and passes in round one.  The reviewer's rules and
+the help of `ak hand-in` and `ak hand-in follow-up` say so, as ak weighs it.
 """
 
 import json
@@ -17,6 +18,7 @@ from fixtures.gitrig import Rig
 
 PROOF = "grep -qx ready retry.txt"
 CAUSE = "its proof passes on base and fails on this commit, so this change caused it"
+TOLD = "passing on base is weighed as a finding, since this change caused it"
 
 
 class CausedFollowUpBlocks(unittest.TestCase):
@@ -72,6 +74,16 @@ class CausedFollowUpBlocks(unittest.TestCase):
         self.assertIn("caller.txt:1 - retry setting is wrong - breaks callers", follow_up)
         self.assertEqual(state["followup_checks"], {follow_up: "false"})
         self.assertEqual(json.loads((directory / "round-1/reviewer/findings.json").read_text()), [])
+        self.assertIn(TOLD, (directory / "round-1/reviewer/prompt.md").read_text())
+
+    def test_the_help_of_hand_in_says_what_ak_does(self):
+        home = Home()
+        self.addCleanup(home.close)
+        for entry in (["hand-in"], ["hand-in", "follow-up"]):
+            with self.subTest(entry=entry):
+                done = home.ak(*entry, "-h")
+                self.assertEqual(done.code, 0, done.out + done.err)
+                self.assertIn(TOLD, " ".join(done.out.split()))
 
 
 if __name__ == "__main__":

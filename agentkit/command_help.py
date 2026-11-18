@@ -35,9 +35,10 @@ COMMANDS = {
                 "Paths and lines must exist in the checkout; a quote must occur in that file.\n"
                 "--run executes in the checkout and records bounded output excerpts and the exit status.\n"
                 "A finding's command must fail while the defect exists; ak re-runs it on commit and base.\n"
-                "A follow-up from before the task has --before, naming the base or an ancestor commit, or verbatim lines in its file at base; its command must fail on base.\n"
-                "A follow-up of this change has no --before; its --run must fail now and on the reviewed commit.\n"
-                "Unproven follow-ups are dropped into Notes.\n"
+                "A follow-up is a defect from before the task; --before names the base or an ancestor commit, or verbatim lines in its file at base, and its command must fail on base.\n"
+                "Without --before, its --run must fail now and on the reviewed commit, and one\n"
+                "passing on base is weighed as a finding, since this change caused it.\n"
+                "Unproven follow-ups, and every one in a scratch review, which has no base, are dropped into Notes.\n"
                 "A follow-up's --run is one line without backticks or this checkout's path.\n"
                 "Only a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\n"
                 "ak gives the next reviewer the dispute and its own proof output beside the finding.\n"
@@ -53,8 +54,8 @@ COMMANDS = {
                         "Hand in a finding for ak to weigh, with a failing command or quoted evidence.",
                         'ak hand-in finding api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py"'),
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
-                          "Hand in a defect that cannot fail this review: one that existed before the task (--before proves it),\n"
-                          "or a smaller one of this change that need not hold it (no --before; --run must fail now).\n"
+                          "Hand in a defect that existed before the task, to fix after the merge (--before proves it);\n"
+                          "without --before, --run must fail on the reviewed commit, and one passing on base is weighed as a finding, since this change caused it.\n"
                           "Its command becomes the check of a line in the owning session's plan, deferred once a fix run of its own has it.",
                           'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py" --before "return None"'),
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",
