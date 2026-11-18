@@ -2,7 +2,8 @@
 no word (docs/cli-design.md): each role's lines hold the model it uses at its effort, and each
 bar's label its model's name, a word wider than its six-cell column broken only after a hyphen
 or a dot in it, and one with neither whole in a wider column; `ak models` on 40 cells the same,
-a control sequence in a board's name never reaching the terminal.
+a control sequence in a board's name never reaching the terminal, and a word wider than the
+screen whole on a line as wide.
 
 Black-box: `AK_BIN` in a terminal 40 cells wide (tests/fixtures/akterm.py) and as `ak models`, a
 fake harness running three invented models, each for a role of [defaults], among five choices on
@@ -100,6 +101,14 @@ class ModelsNamesInFull(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         self.assertNotIn("\x1b", done.out)
         self.assertTrue(in_full(done.out), done.out)
+
+    def test_ak_models_on_40_cells_leaves_a_word_wider_than_the_screen_whole(self):
+        wide = "W" * 41     # no space, hyphen or dot: nowhere a name breaks
+        done = self.home(wide).ak("models", env={**ENV, "COLUMNS": "40"})
+        self.assertEqual(done.code, 0, done.err)
+        roles = role_lines(done.out)
+        for role, uses in USES.items():
+            self.assertTrue(whole(uses.replace(" ", " " + wide, 1), roles[role]), done.out)
 
 
 if __name__ == "__main__":
