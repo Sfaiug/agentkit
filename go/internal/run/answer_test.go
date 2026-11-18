@@ -133,30 +133,46 @@ func TestACommandIsNeverTheShellsOptions(t *testing.T) {
 func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	t.Setenv("ACME_TOKEN", "kept")
-	// absolute, as a relative TMPDIR would leave the link's target relative to the link and PWD
-	// is the checkout made absolute; and as the system has it, never by its words alone: a
-	// TMPDIR with a symlink before `..`, or `..` above a working directory named through one,
-	// is another directory once cleaned
-	dir := t.TempDir()
-	wd, err := os.Getwd()
+	// The checkout is a link in the temp directory, and a shell keeps the PWD it is given only
+	// where that is absolute and clean and reaches its directory. So the link is made under the
+	// first name of the temp directory that holds it: the system's, then the given one cleaned
+	// where it has no `..`, which after a link is the parent of where the link leads. The
+	// system's can pass its own limit with the link added, where the given one is shorter
+	sep := string(os.PathSeparator)
+	named := t.TempDir()
+	var names []string
+	real, err := filepath.EvalSymlinks(named)
+	if !filepath.IsAbs(named) {
+		wd, gone := os.Getwd()
+		if gone != nil {
+			t.Fatal(gone)
+		}
+		named = wd + sep + named
+		if err == nil && !filepath.IsAbs(real) {
+			if wd, err = filepath.EvalSymlinks(wd); err == nil {
+				real = filepath.Join(wd, real)
+			}
+		}
+	}
 	if err == nil {
-		wd, err = filepath.EvalSymlinks(wd)
+		names = append(names, real)
 	}
-	if err == nil && !filepath.IsAbs(dir) {
-		dir = wd + string(os.PathSeparator) + dir
+	if !strings.Contains(named+sep, sep+".."+sep) {
+		names = append(names, filepath.Clean(named))
 	}
-	if err == nil {
-		dir, err = filepath.EvalSymlinks(dir)
+	checkout := ""
+	for _, name := range names {
+		if checkout = filepath.Join(name, "acme-link"); os.Symlink("acme", checkout) == nil {
+			// after its link, whose longer name was the one to fit
+			if err := os.Mkdir(filepath.Join(name, "acme"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+		checkout = ""
 	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	checkout := filepath.Join(dir, "acme-link")
-	if err := os.Mkdir(filepath.Join(dir, "acme"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(filepath.Join(dir, "acme"), checkout); err != nil {
-		t.Fatal(err)
+	if checkout == "" {
+		t.Fatalf("no name of the temp directory %q holds the checkout's link", named)
 	}
 	out, why := ProjectOutput(context.Background(), `printf '%s %s %s\n' "${AGENTKIT_SESSION-absent}" "$ACME_TOKEN" "$PWD"`, checkout, nil, time.Second, "list")
 	// the output is decoded, so a checkout's path not in UTF-8 reads as Python reads it
