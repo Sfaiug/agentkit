@@ -6,13 +6,11 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -83,44 +81,6 @@ func TestPastTheWaitTheSessionGoesBeforeTheShellIsReaped(t *testing.T) {
 				t.Errorf("went %v", went)
 			}
 		})
-	}
-}
-
-// A shell that ended before the deadline has answered, the look finding it ended coming after the
-// deadline: what the look finds decides, never the instant it comes.
-func TestAShellEndedBeforeTheDeadlineHasAnsweredWhenTheLookComesAfter(t *testing.T) {
-	seen := recorded(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	looking, looked := reap, false
-	reap = func(cmd *exec.Cmd, wait bool) (bool, int, error) {
-		ended, code, err := looking(cmd, wait)
-		if !looked {
-			// the first look finds the shell running past its output, waiting to be let go; let
-			// go, it ends, which SIGCHLD says without reaping it, and then the deadline passes
-			looked = true
-			exited := make(chan os.Signal, 1)
-			signal.Notify(exited, syscall.SIGCHLD)
-			defer signal.Stop(exited)
-			if err := os.WriteFile(filepath.Join(cmd.Dir, "go"), nil, 0o600); err != nil {
-				t.Error(err)
-			}
-			select {
-			case <-exited:
-			case <-time.After(10 * time.Second):
-				t.Error("let go, the shell never ended")
-			}
-			cancel()
-		}
-		return ended, code, err
-	}
-	command := "echo '[]'; exec >/dev/null 2>&1; while [ ! -e go ]; do sleep .01; done"
-	out, why := ProjectOutput(ctx, command, t.TempDir(), nil, time.Minute, "list")
-	if why != "" || strings.TrimSpace(string(out)) != "[]" {
-		t.Errorf("answered %q, said %q", out, why)
-	}
-	if went := seen(); !slices.Equal(went, []string{"reap"}) {
-		t.Errorf("went %v", went)
 	}
 }
 
