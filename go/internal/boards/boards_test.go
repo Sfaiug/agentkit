@@ -279,6 +279,9 @@ func TestAnotherBoardsRowJoinsTheReleaseItNames(t *testing.T) {
 		aaRow("acme-7-0902", "acme-7-0902", "Acme 7 0902", "", false, "", 70),
 		aaRow("bolt-3-max", "bolt-3", "Bolt 3", "max", false, "", 60),
 		aaRow("bolt-3-low", "bolt-3", "Bolt 3", "low", false, "", 55),
+		// releases with no name, which no other board's row names
+		aaRow("awl-1", "awl-1", "", "", false, "", 50),
+		strings.Replace(aaRow("bevel-1", "bevel-1", "", "", false, "", 40), `"name": ""`, `"name": null`, 1),
 	)
 	other := func(model, effort string, values string) any {
 		word := "null"
@@ -295,6 +298,8 @@ func TestAnotherBoardsRowJoinsTheReleaseItNames(t *testing.T) {
 		other("Bolt 3", "max", `"arena.agent": 0.8`),
 		other("Bolt 3", "high", `"arena.agent": 0.2`), // an effort the release lacks
 		other("Bolt 3", "", `"arena.agent": 0.2`),     // no default, and two efforts
+		other("---", "", `"arena.agent": 0.9`),
+		other("None", "", `"arena.agent": 0.9`),
 	})
 	values := map[string]string{}
 	for _, release := range Current(boards) {
@@ -307,6 +312,8 @@ func TestAnotherBoardsRowJoinsTheReleaseItNames(t *testing.T) {
 		"acme-7-0902/": `{"aa.intelligenceIndex": 70, "arena.agent": 0.3}`,
 		"bolt-3/max":   `{"aa.intelligenceIndex": 60, "arena.agent": 0.8}`,
 		"bolt-3/low":   `{"aa.intelligenceIndex": 55}`,
+		"awl-1/":       `{"aa.intelligenceIndex": 50}`,
+		"bevel-1/":     `{"aa.intelligenceIndex": 40}`,
 	} {
 		if values[at] != want {
 			t.Errorf("%s: %s, want %s", at, values[at], want)

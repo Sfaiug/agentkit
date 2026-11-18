@@ -315,8 +315,11 @@ func Current(boards *run.Object) []*Release {
 		}
 		made := release(each.from)
 		out = append(out, made)
-		for _, form := range forms(run.Text(made.Name)) {
-			named[form] = append(named[form], made)
+		// a record may give its release no name, and then no other board's row names it
+		if name, _ := made.Name.(string); name != "" {
+			for _, form := range forms(name) {
+				named[form] = append(named[form], made)
+			}
 		}
 	}
 	for _, board := range names {
