@@ -145,9 +145,13 @@ class ListedSpend(unittest.TestCase):
         self.seat("echo", "default", "anvil-1", (1_000_000, 0, 5_000_000, 0))   # 3
         self.turn("echo", "default", "forge-1", (1_000_000, 0, 0, 0))
         self.turn("echo", "second", "forge-1", (1_000_000, 0, 0, 0))
+        # priced near a float's largest, its average a token still prices the row no float holds
+        self.seat("chime", "default", "forge-1", (1, 0, 1_999_999, 0))   # 1e302 a two million
+        self.turn("chime", "default", "forge-1", (2_000_000, 0, 0, 0))
         spent = self.spent()
         self.assertAlmostEqual(spent["acme", "default"], 3 + 0.5)
         self.assertIsNone(spent["acme", "second"])
+        self.assertAlmostEqual(spent["brine", "default"] / 1e302, 2)
 
     def test_only_the_logins_rows_of_the_last_seven_days_count(self):
         self.seat("echo", "default", "anvil-1", (1_000_000, 0, 5_000_000, 0), ago=6 * DAY)  # 3

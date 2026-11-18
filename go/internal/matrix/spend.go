@@ -312,7 +312,9 @@ func (s *spend) listed(provider, account string, since, until float64) (float64,
 	if priced == 0 {
 		return dollars, true
 	}
-	return dollars + unpriced*dollars/priced, true
+	// the tokens' ratio first: dollars near a float's largest times tokens overflow where the
+	// estimate does not
+	return dollars + dollars*(unpriced/priced), true
 }
 
 // rows are the login's rows between since and until, Python's spend._rows: a seat row at its at, a
