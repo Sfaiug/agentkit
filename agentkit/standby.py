@@ -158,8 +158,8 @@ def _keep_job(alias):
 
 
 def _copy(alias, home, copied):
-    """One pass from `alias`: `copied` under `home`, then ak's folder with each run of the home's
-    or this machine's.  Why it failed, or None."""
+    """One pass from `alias`: `copied` under `home`, then each run of the home's or this
+    machine's, then the rest of ak's folder.  Why it failed, or None."""
     # The home's runs and what it cannot read first, so one whose runs' folder is a link fails the
     # pass before it copies anything: rsync would put that link here in place of the runs' folder.
     try:
@@ -192,18 +192,25 @@ def _copy(alias, home, copied):
     # cannot read in its checkouts cross, each named literally too, a folder with all in it:
     # perishable as well, what the copy holds of it stays till its checkout goes, and the pass
     # after the home reads it again copies it.
+    # rsync tries each rule on each file, on each machine, and the runs' names are thousands, more
+    # than one command may be given: they come on its input, in a transfer of the runs' folder
+    # alone, which takes all inside a run before a name is tried on it; the rest crosses after.
     at = config.PLACES["RUNS"]
-    for args in (["-sR", "--no-implied-dirs", "--ignore-missing-args",
-                  *(f"{alias}:{home}/./{path}" for path in copied), f"{home}/"],
-                 [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
-                  "--filter=-p .git/",
-                  *(f"--filter=-p /{_literal(path)}" for path in unread),
-                  *(f"--filter=-p /{at}/**/{name}*/" for name in SCRATCH),
-                  *(f"--filter=+ /{at}/{_literal(run)}" for run in runs), f"--filter=- /{at}/*",
-                  f"{alias}:{config.HOME}/", f"{config.HOME}/"]):
+    rules = [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
+             "--filter=-p .git/", *(f"--filter=-p /{_literal(path)}" for path in unread)]
+    names = b"".join(os.fsencode(f"/{at}/{_literal(run)}") + b"\0" for run in runs)
+    for args, given in ((["-sR", "--no-implied-dirs", "--ignore-missing-args",
+                          *(f"{alias}:{home}/./{path}" for path in copied), f"{home}/"], None),
+                        ([*rules, *(f"--filter=-p /{at}/**/{name}*/" for name in SCRATCH),
+                          f"--filter=+ /{at}/*/**", "--from0", "--include-from=-",
+                          f"--filter=- /{at}/*", f"--filter=+ /{at}/", "--filter=- /*",
+                          f"{alias}:{config.HOME}/", f"{config.HOME}/"], names),
+                        ([f"--exclude=/{at}", *rules, f"{alias}:{config.HOME}/",
+                          f"{config.HOME}/"], None)):
         code = subprocess.run([
             "rsync", "-aHz", "--no-D", "--delete", "--modify-window=-1", f"--timeout={TIMEOUT}",
-            *(["--info=progress2"] if sys.stdout.isatty() else []), *args]).returncode
+            *(["--info=progress2"] if sys.stdout.isatty() else []), *args],
+            input=given).returncode
         # A file the home deleted while rsync read it is no failure, as in a move: all that is
         # still there crossed, and what this machine held of the file goes with the next pass.
         # A home at work deletes in its checkouts all the time: on 17 Nov a second and a third
