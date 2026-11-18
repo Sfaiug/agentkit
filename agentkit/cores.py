@@ -77,14 +77,18 @@ def tell(state, log):
 def holding(state):
     """[(seat, seconds)] of each seat whose scope the tick's last reading (`tell`) found holding
     FLOOR of a core, `since` when, and how long it had by then, longest first.  A seat holding it
-    in several scopes (a respawn's beside its old one) is named once, with the longest: they are
-    one seat's by its record (`config.session_identity`); a rename under way gives two names."""
-    held = {}
+    in several scopes (a respawn's beside its old one) is named once, with the longest: each
+    keeps the name its seat launched under, and all are asked at once for the names their seats
+    go by now (`config.resolve_sessions`), as a rename between two askings named one seat twice."""
+    launched = {}
     for scope, seen in (state.get("seat_cores") or {}).items():
         if "since" in seen:
-            name, seat = config.session_identity(front.SEAT_SCOPE.fullmatch(scope)[1])
-            held[seat] = max(held.get(seat, (0, name)), (seen["at"] - seen["since"], name))
-    return sorted(((name, seconds) for seconds, name in held.values()), key=lambda seat: -seat[1])
+            name = front.SEAT_SCOPE.fullmatch(scope)[1]
+            launched[name] = max(launched.get(name, 0), seen["at"] - seen["since"])
+    now, held = config.resolve_sessions(launched), {}
+    for name, seconds in launched.items():
+        held[now[name]] = max(held.get(now[name], 0), seconds)
+    return sorted(held.items(), key=lambda seat: -seat[1])
 
 
 def _tell(name, command, usec, seconds, log):

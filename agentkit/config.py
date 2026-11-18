@@ -1555,18 +1555,32 @@ def _followed(name):
     raise Error(f"{session_path(seen[0])}: more than {RENAME_HOPS} renames deep")
 
 
-def session_identity(name):
-    """(the name that session goes by now, what tells its seat from every other): its record's
-    `created` (`discard_session`), which a rename copies with it, so the two names a half-written
-    rename leaves whole are one seat; the name where none says.  One renamed since is followed."""
-    data = None
-    with suppress(Error):
-        for _ in range(RENAME_HOPS + 1):
+def resolve_sessions(names):
+    """{name: the name its session goes by now} for those names.
+
+    Nothing is locked, so no two files are read at one moment, and a rename between two reads
+    would name one seat twice: all are read again until two readings in a row agree, RENAME_HOPS
+    times at most, as a reader waits on no writer.  Between a rename's two writes both names
+    hold the seat's record whole: names holding one record that says when its seat was `created`
+    go by the first of them.  A record that does not may be any seat's, and a chain that cannot
+    be followed leads nowhere: its name tells it apart.
+    """
+    def read(name):
+        with suppress(Error):
             name = resolve_session(name)
-            data = _session_json(session_path(name))
-            if not isinstance(data, dict) or not isinstance(data.get("renamed"), str):
-                break
-    return name, (isinstance(data, dict) and data.get("created")) or name
+        record = session_record(name)
+        # both as JSON: no name reads as a record does
+        return name, json.dumps(record if record and record.get("created") else name,
+                                sort_keys=True)
+
+    reading = None
+    for _ in range(RENAME_HOPS):
+        with look.one_look():       # each file once: a name and its record are of one moment
+            last, reading = reading, [read(name) for name in names]
+        if reading == last:
+            break
+    first = {}
+    return {name: first.setdefault(seat, now) for name, (now, seat) in zip(names, reading)}
 
 
 def current_session():
