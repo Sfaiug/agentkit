@@ -663,11 +663,12 @@ def wait_key(prompt, timeout=None, wake=None):
     return read("", "")
 
 
-def moving(clock, wake=None, timeout=TICK, going=None):
-    """`wait_key` on the main screen, its digit wait and its stop question, and on a screen whose
+def moving(clock, wake=None, timeout=TICK, going=None, rest=True):
+    """`wait_key` on the main screen, its digit wait and a card asked, and on a screen whose
     content is fetched: `timeout` seconds at most, and each of `clock`'s frames drawn while
     something moves and no key is waiting.  A key but the pointer's writes the last frame of the
-    highlight's motion before it at once (`motion.Clock.rest`), whatever reads next.
+    highlight's motion before it at once (`motion.Clock.rest`), whatever reads next, but to
+    what draws itself again or goes on reading it (`rest` False: a card, `asking`).
 
     Only a wait that ran to its frame draws one.  One that ended before it, on news, returns
     None, its cells forgotten, for the caller to draw the screen again; so does one a resize
@@ -687,7 +688,7 @@ def moving(clock, wake=None, timeout=TICK, going=None):
             clock.clear()
             clock.forget()
             return None
-        if isinstance(key, terminal.Key) and key.name != "point":
+        if rest and isinstance(key, terminal.Key) and key.name != "point":
             terminal.over(clock.rest())
         if key is not None or due is None or time.monotonic() >= until:
             return key
@@ -698,6 +699,46 @@ def moving(clock, wake=None, timeout=TICK, going=None):
             return None
         terminal.over(clock.frame())
         left = until - time.monotonic()
+
+
+def asking(clock, around, going=lambda: None):
+    """How a screen drawn on `clock` asks yes or no: `ask(question, meaning, answer)`, the answer
+    on the card terminal.confirm draws by `around(card, keys)`, which comes up on that clock as
+    a page's rows do, as touched news, `asked`, from the first frame that shows it (`framed`,
+    and `draw` on the ak screen).  Its frames are drawn while the answer is waited for
+    (`moving`), `going()`'s fetch looked at, and a key, not the pointer, ends them, answered as
+    it is read on the card as it was drawn: one that keeps it draws it at rest, as a resize
+    does, and no more of it is drawn after one that answers.  With nothing to draw, a key or a
+    resize alone is waited for, as on a page that draws nothing more.  Its highlight comes up
+    with it, and news that moves the card, a count landing, moves the highlight with it
+    (`motion.Clock.hold`): only a key or the pointer moves it on the card."""
+    def wait():
+        fetching = going()
+        if fetching or clock.wait() is not None:
+            key = moving(clock, going=fetching, rest=False)
+        elif (key := wait_key("> ")) is None:
+            clock.forget()            # a resize: drawn as it is (moving)
+        if key is None:
+            clock.hold()
+        elif key.name != "point":
+            clock.settle()
+        return key
+
+    def ask(question, meaning, answer):
+        clock.touch(("asked",))
+        clock.hold()
+        return terminal.confirm(question, meaning, answer, around, wait)
+    return ask
+
+
+def framed(clock, title, lines, at, card, keys):
+    """`title`'s screen of `lines` (terminal.frame) drawn on `clock`, the card terminal.confirm
+    asks on among them from line `at`, before the first where its top gives way, its lines
+    there coming up on the clock (`asking`): the screen row of the card's first line."""
+    terminal.frame(title, lines, keys, drawn=lambda: clock.drawn(
+        [(line, ("asked",), True, motion.fading(lines[line]))
+         for line in range(max(0, at), min(len(lines), at + len(card)))], lambda line: 3 + line))
+    return 3 + at
 
 
 class Back(Exception):
@@ -1835,7 +1876,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
     `clock`, the menu's `motion.Clock`, is handed each working seat's `●` to breathe while the
     menu has the keyboard, and the news since the draw before: a `!` that turned `needs you`
     pulses, a `✓` that turned `done` settles and a usage bar that moved glides, and a seat `n`
-    makes (`born`) comes up with its line as a page's rows do, its news touched there.  Their
+    makes (`born`) and the card `ask` draws (`asked`) come up as a page's rows do.  Their
     first frame goes out in the draw's own write, at the clock's phase, so nothing jumps when
     the screen is drawn over.  While a popup's content fades in, the whole screen is handed to
     it, to come up out of the background (`motion.Clock.rise`).
@@ -2090,6 +2131,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                   (("page",), page, None, False)]
         if newborn:       # the row `n` makes: its news touched as it is made
             moves.append((("born",), True, None, False))
+        if at:            # the card `x` asks on: its news touched as it is asked (`asking`)
+            moves.append((("asked",), True, None, False))
         news = clock.look({key: shown for key, shown, _, _ in moves})
 
         def line(name, moving, counted=None):
@@ -2128,9 +2171,10 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                     filled = written[column - 1 + shown[0]]
                     clock.start([(row, column + shown[0])], *motion.halving(
                         filled, terminal.styled(terminal.plain(filled), "dim"), since, lit))
-            elif key[0] in ("opened", "page", "born"):    # what comes up out of the background
+            elif key[0] in ("opened", "page", "born", "asked"):    # what comes up
                 coming = {"opened": opened, "page": range(top + 1, top + len(body) + 1),
-                          "born": range(top + min(own_rows, default=opened.start), opened.stop)}
+                          "born": range(top + min(own_rows, default=opened.start), opened.stop),
+                          "asked": range(top + at + 1, top + at + 1 + len(asked))}
                 for row in coming[key[0]]:
                     clock.begin(key, motion.fading(out[row - 1]), row, since, None)
             elif shown in ("needs you", "done"):
@@ -3193,13 +3237,13 @@ def next_choice(cfg, found, row, step, kept):
     return next(((model, level) for _, model, level in steps[at + 1:]), None)
 
 
-def take_choice(cfg, name, selected, providers, role, model, effort, around):
+def take_choice(cfg, name, selected, providers, role, model, effort, ask):
     """A take (next_choice): seat `name`'s `role` becomes `model` at `effort`, its model set up
     first where none of yours runs it (set_up), the role staying where that fails.  An executor or
     reviewer takes it as the seat's own effort for that role (`exec_effort`, `review_effort`;
     one at the model's effort or at none leaves it following the effort, _follows), the role
     and the effort saved to the seat's record as it stands in one write (roles_saved), or
-    neither.  The orchestrator moves the seat, asked first on the card `around` draws where
+    neither.  The orchestrator moves the seat, asked first on the card `ask` asks on where
     that restarts it (seat_effort).  With no `name`, `selected` being [defaults], the role is
     taken there, the orchestrator at `effort` as the entry's `effort`, and the entry and
     [defaults] are saved in one write (defaults_saved), no open seat changing.  What to say
@@ -3210,7 +3254,7 @@ def take_choice(cfg, name, selected, providers, role, model, effort, around):
     if note:
         return note
     if name is not None and role == "orchestrate":
-        return seat_effort(cfg, name, selected, model, effort, around, providers=providers)
+        return seat_effort(cfg, name, selected, model, effort, ask, providers=providers)
     key = config.ROLE_EFFORTS[matrix.CONFIG_ROLES[role]]
     taken = {TAKEN[role]: model if role == "orchestrate" else [model]}
     if name is not None:
@@ -3975,16 +4019,16 @@ def models_screen(cfg, session, selected, providers):
         def around(card, keys):   # the role lines the card leaves room for, the question under them
             over, lines, places = laid(here[1], card, keys)
             first, room = matrix_page(lines, places, here, top, card, keys, over)
-            shown = lines[first:first + room]
-            terminal.frame(title, [*over, *shown, *card], keys)
-            return 3 + len(over) + len(shown)
+            shown = [*over, *lines[first:first + room]]
+            return framed(clock, title, [*shown, *card], len(shown), card, keys)
+        ask = asking(clock, around)
         if act == "back":
             return
         if act in ("left", "right"):
             found = next_choice(cfg, answer[here[1]], used[here[1]][2], 1 if act == "right" else -1,
                                 own[here[1]])
             if found:
-                note = take_choice(cfg, session, selected, providers, here[1], *found, around)
+                note = take_choice(cfg, session, selected, providers, here[1], *found, ask)
                 if note == "":    # taken: `selected` may also hold another window's write since
                     note = keep_price(cfg, session, selected, answer, here[1], used[here[1]][2])
         elif act == "p":
@@ -4438,10 +4482,10 @@ def _held_steps(cfg, held):
     return [(model, key, now) for (model, key), (_, now) in held.items() if model in cfg["models"]]
 
 
-def apply_held(cfg, seat, held, around, providers=None):
+def apply_held(cfg, seat, held, ask, providers=None):
     """What a seat's page holds (held_over) applied once, then held no more, `seat` (name, record):
     the effort of the orchestrator its record names now as one move, asked first where that
-    restarts it on `around`'s card (seat_effort), every other written at once (efforts_saved)."""
+    restarts it by `ask` (seat_effort), every other written at once (efforts_saved)."""
     name, record = seat
     steps = _held_steps(cfg, held) if name else []
     if name is None:    # a seat not made yet takes what its page draws (born_models)
@@ -4452,22 +4496,22 @@ def apply_held(cfg, seat, held, around, providers=None):
     rest = [step for step in steps if step not in lead]
     said = [efforts_saved(cfg, name, record, rest)] if rest else []
     for model, _, effort in lead:
-        said.append(seat_effort(cfg, name, record, model, effort, around, providers=providers))
+        said.append(seat_effort(cfg, name, record, model, effort, ask, providers=providers))
     held.clear()
     return "\n".join(filter(None, said))
 
 
-def seat_effort(cfg, name, selected, model, effort, around, providers=None):
+def seat_effort(cfg, name, selected, model, effort, ask, providers=None):
     """Seat `name` moved to `model` with its orchestrator at `effort`, or at the one it runs
-    `model` at for None, a restart once `Restart` is picked on the card `around` draws
-    (terminal.confirm), the owner's 24 Oct words about the orchestrator: "it should ask me to
+    `model` at for None, a restart once `Restart` is picked on the card `ask` asks on
+    (asking), the owner's 24 Oct words about the orchestrator: "it should ask me to
     confirm. As this restarts the session."  The move alone writes the record
     (orch.switch_orchestrator), and `selected` then holds it as it is.  What to say under the
     rows, or ""; None where Restart was not picked."""
     note = orch.switch_orchestrator(cfg, name, model, providers=providers, effort=effort,
                                     asked=lambda kept: (
-        terminal.confirm((RESTART_ASK if effort else MOVE_ASK).format(
-            name, config.model_name(cfg, model), effort), MOVE_MEANS[kept], "Restart", around)))
+        ask((RESTART_ASK if effort else MOVE_ASK).format(
+            name, config.model_name(cfg, model), effort), MOVE_MEANS[kept], "Restart")))
     try:
         selected.update(config.load_session(cfg, name, required=False) or {})
     except (config.Error, OSError) as exc:
@@ -4779,18 +4823,18 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
                 cfg, here, column, as_drawn, providers, scope=scope, rows=under), card, keys)
             first, room = matrix_page(body, places, here, top, card, keys, over, keyed=column)
-            shown = body[first:first + room]
-            terminal.frame(title, [*over, *shown, *card], keys)
-            return 3 + len(over) + len(shown)
+            shown = [*over, *body[first:first + room]]
+            return framed(clock, title, [*shown, *card], len(shown), card, keys)
+        ask = asking(clock, around)
         if act == "back" or born and act == "enter" and here[0] == "model":   # a meter opens
             # closing applies what the page holds; what that could not do keeps it open, said
-            if not (note := seat and apply_held(cfg, seat, held, around, providers)):
+            if not (note := seat and apply_held(cfg, seat, held, ask, providers)):
                 return act == "enter" if born else cfg
             continue
         try:
             if act == "a" and fresh:
                 clock.forget()            # the card: the matrix back from it replays nothing
-                refused = apply_defaults(cfg, around)
+                refused = apply_defaults(cfg, ask)
                 continue
             if act == "r" and advice:     # a record that will not read has nobody to take it
                 clock.forget()            # another screen: the matrix back from it replays nothing
@@ -4833,8 +4877,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                 # a pick applies what the page holds first, as closing does, what that could not
                 # do refusing it; it flips the marks as drawn, and the orchestrator's own picks none
                 note = (held and (column or here[1] != selected["orchestrator"])
-                        and apply_held(cfg, seat, held, around, providers)) or (
-                    session_mark(cfg, session, as_drawn, here[1], column, providers, around)
+                        and apply_held(cfg, seat, held, ask, providers)) or (
+                    session_mark(cfg, session, as_drawn, here[1], column, providers, ask)
                     if session else born_mark(cfg, selected, here[1], column, providers) if born
                     else defaults_mark(cfg, selected, here[1], column))
                 if note:
@@ -5284,11 +5328,11 @@ def config_remove_provider(cfg, picked):
         return "the config needs one provider"
     shown = config.provider_name(cfg, name) if last else label
     question, means = REMOVE_PROVIDER_ASK if last else REMOVE_SUBSCRIPTION_ASK
+    clock = motion.Clock()            # the page's own: the card on it comes up
 
     def asked(card, keys):
-        terminal.frame(title, card, keys)
-        return 3
-    if not terminal.confirm(question.format(shown), means, "Remove", asked):
+        return framed(clock, title, card, 0, card, keys)
+    if not asking(clock, asked)(question.format(shown), means, "Remove"):
         return ""
     before, harness = copy.deepcopy(cfg), logins.harness(cfg, name)
     try:
@@ -6445,10 +6489,10 @@ def defaults_saved(cfg, selected, changed, before):
     return note
 
 
-def apply_defaults(cfg, around):
+def apply_defaults(cfg, ask):
     """`a` on a fresh window's `c`: every listed seat with a record but the weekly audit's takes
     [defaults]'s executors and reviewers and the entries' efforts for the models it then runs,
-    once `Apply` is picked on the card `around` draws (terminal.confirm), which names each seat
+    once `Apply` is picked on the card `ask` asks on (asking), which names each seat
     that restarts; one not running [defaults]'s orchestrator at its entry's effort then moves to
     it at that effort (orch.switch_orchestrator), the only way a seat's orchestrator effort
     changes, so a move refused or failed leaves its record on the one its harness runs, its
@@ -6473,7 +6517,7 @@ def apply_defaults(cfg, around):
     means = (f"{', '.join(restarts)} restart{'s' * (len(restarts) == 1)} on "
              f"{config.model_name(cfg, lead)} at {effort}." if restarts
              else "No session restarts.")
-    if not terminal.confirm(APPLY_ASK.format(count), means, APPLY_ANSWER, around):
+    if not ask(APPLY_ASK.format(count), means, APPLY_ANSWER):
         return {}
     runs = [lead, *defaults["workers"], *defaults.get("reviewers", defaults["workers"])]
     taken = {model: config.efforts_of(cfg["models"][model]) for model in runs}
@@ -6562,14 +6606,14 @@ def born_mark(cfg, selected, model, column, providers):
     return note
 
 
-def session_mark(cfg, name, selected, model, column, providers, around=None):
+def session_mark(cfg, name, selected, model, column, providers, ask=None):
     """Act on one of a session's marks, saving it to the session's record at once.
 
     `column` is 0 for the orchestrator and 1 for executes and 2 for reviews, as
     `orch.role_mark` numbers them. The orchestrator moves the seat to that model under the
     same name, inside its running harness asking nothing where that harness takes the move
-    (orch.switch_lines), else by a restart once `Move` is picked on the card `around` draws
-    (terminal.confirm), the owner's 24 Oct words: "when pressing a different orch, it should
+    (orch.switch_lines), else by a restart once `Move` is picked on the card `ask` asks on
+    (asking), the owner's 24 Oct words: "when pressing a different orch, it should
     ask me to confirm. As this restarts the session. for exec and review should be instant."
     A harness that is not installed or not logged in is refused in one line before any
     question with the seat as it was, and so is a record naming a model removed on this
@@ -6582,9 +6626,9 @@ def session_mark(cfg, name, selected, model, column, providers, around=None):
     """
     if column == 0:
         note = orch.switch_orchestrator(cfg, name, model, providers,
-                                        asked=around and (lambda kept: terminal.confirm(
+                                        asked=ask and (lambda kept: ask(
                                             MOVE_ASK.format(name, config.model_name(cfg, model)),
-                                            MOVE_MEANS[kept], "Move", around)))
+                                            MOVE_MEANS[kept], "Move")))
         if note == "":
             selected["orchestrator"] = model
         return note or ""
@@ -6939,10 +6983,10 @@ def show_past(cfg, found, dry_run=False, keyboard=None):
                 body, places = laid()[:2]
                 at = max(line for line, (row, _) in places.items() if row == ("row", here)) + 1
                 lines, skip = body[:at] + card + body[at:], max(0, at + len(card) - 1 - holds)
-                terminal.frame("past sessions", lines[skip:skip + holds], keys)
-                return 3 + at - skip
-            if terminal.confirm(f"Remove {here} from past sessions?",
-                                "It can no longer be reopened.", "Remove", around):
+                return framed(clock, "past sessions", lines[skip:skip + holds], at - skip, card,
+                              keys)
+            if asking(clock, around)(f"Remove {here} from past sessions?",
+                                     "It can no longer be reopened.", "Remove"):
                 keyboard.give()       # the stop says what it did where it can be read
                 clock.forget()        # another screen: the page back from it is drawn as it is
                 remove_seat(here, dry_run)
@@ -7278,9 +7322,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None, said=()):
                         draw(cfg, found, keys, page, cursor, drawn, ask=(own, card),
                              look=False, groups=groups, clock=clock)
                         return drawn["ask"]
-                    if not terminal.confirm(
-                            STOP_ASK.format(own), means, "Stop", around, wait=lambda: moving(
-                                clock, going=None if counted[0] else runs.is_alive)):
+                    ask = asking(clock, around, lambda: None if counted[0] else runs.is_alive)
+                    if not ask(STOP_ASK.format(own), means, "Stop"):
                         continue
                 stop_behind(own, dry_run)
                 return 0                      # the popup over it goes first

@@ -54,6 +54,8 @@ class OrchestratorMarkAsksFirst(Sandbox):
                 (update, "agentkit_version", lambda: "abc1234"),
                 (usage, "collect", lambda *_a, **_kw: usage.Readings({}))):
             self.stack.enter_context(patch.object(target, name, side_effect=value))
+        # the terminal taken, as Keyboard says: the card's wait reads keys, not lines (menu.moving)
+        self.stack.enter_context(patch.object(terminal, "_TAKEN", Keyboard()))
 
     def orchestrator(self):
         return config.load_session(self.cfg, "fix-api")["orchestrator"]

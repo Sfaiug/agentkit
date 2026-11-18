@@ -10,7 +10,7 @@ progress line grows to its length as the menu opens and glides to a new one as i
 its count counting up with it, a task's next square fills through its half and one that failed
 nudges; an effort's bar a step filled rises into place and a step onto a model's highest effort sends a light
 through its word, a mark set fills and one cleared empties, one whose change was refused shakes;
-a popup's content fades in once, as it opens, and a page's under its
+a popup's content fades in once, as it opens, a card as it is asked, and a page's under its
 header as it opens, its name writing itself out in the header, and a theme chosen comes down
 the screen it is chosen on, a row at a time; the rule under a screen's
 header glides while its content is fetched, a spinner turning beside what ak waits on;
@@ -373,6 +373,13 @@ def moment():
     return float(Path(clock).read_text()) if clock else time.monotonic()
 
 
+def movable():
+    """Whether anything moves on the screen up (terminal.on_screen): not where colour cannot --
+    off a terminal, under NO_COLOR, at eight colours -- nor on a screen as tall as the terminal,
+    which scrolls it, no row left where it was drawn (terminal.written)."""
+    return terminal.colour_depth() > 8 and len(terminal.on_screen()) < terminal.height()
+
+
 def spinning(began):
     """The spinner beside what one of ak's own waits from `began` is for -- a catalog, a
     login, a reset spent -- in the accent, a glyph each SPIN seconds: an animation, for as long
@@ -408,6 +415,7 @@ class Clock:
         self.size = None    # ... and the terminal's size it was drawn at
         self.glows = {}     # ... and what of it, or of what it left, moves: since when, for how
                             # many seconds, from which colour to which, its cells
+        self.held = False   # ... and whether the next draw moves it with what it is on (`hold`)
 
     def look(self, values):
         """Which of `values` -- key -> what a draw shows for it -- are news, each key -> (since
@@ -445,12 +453,18 @@ class Clock:
             start(self, row, since, before)
 
     def settle(self):
-        """A key: whatever moves ends on its last frame, a screen coming up too, the next draw
-        showing it still, and only what the key itself changes is news."""
+        """A key: whatever moves ends on its last frame, a screen coming up and the highlight
+        too, the next draw showing it still, and only what the key itself changes is news."""
         self.seen = self.seen and {key: (value, None, None)
                                    for key, (value, _, _) in self.seen.items()}
-        self.touched, self.turning = {}, None
+        self.touched, self.turning, self.glows = {}, None, {}
         self.opened = None if self.opened is None else -math.inf
+
+    def hold(self):
+        """The next draw moves the highlight with what it is on, not by a key -- a card coming up
+        or moved by news (menu.asking): what it lights comes up with it, at rest, and a run on
+        no row's spot, known by its place alone (terminal.held), neither comes nor leaves."""
+        self.held = True
 
     def drawn(self, moves, row):
         """A draw's frame: every cell it wrote over still, then each of its `moves` -- (line,
@@ -471,10 +485,9 @@ class Clock:
         until `until` -- then its last frame is written and it is still -- or while it is drawn.
         `effect(now, text)` also transforms animations written inside its span.
 
-        Nothing moves where colour cannot: off a terminal, under NO_COLOR, at eight colours;
-        and news whose time is over does not move again.
+        Nothing moves where it cannot (`movable`); news whose time is over does not move again.
         """
-        if terminal.colour_depth() > 8 and (until is None or until > moment()):
+        if movable() and (until is None or until > moment()):
             for cell in cells:
                 self.cells[cell] = animation, until
                 self.effects[cell] = effect
@@ -486,7 +499,7 @@ class Clock:
 
     def rise(self, lines):
         """Whether `lines`, a draw's screen top down, are the frames' to write, and what moves in
-        them, where colour can move.  They come up out of the background on a clock made to
+        them, where it can (`movable`).  They come up out of the background on a clock made to
         `fade`, or a `page`'s: whatever is drawn in the FADE seconds from its first frame till a
         key (`settle`), news too, each from where the fade has got to.  Drawn in another
         theme than the draw before, one chosen on the screen, the new theme comes down it from
@@ -494,7 +507,7 @@ class Clock:
         the line it has come to are the screen as it was up, in the theme it was, so every row
         is whole in one of the two and reads, where a mix of the two would read in neither.
         """
-        now, theme, moves = moment(), terminal.theme(), terminal.colour_depth() > 8
+        now, theme, moves = moment(), terminal.theme(), movable()
         if self.up and self.up[1] != theme and moves:
             self.turning = now, terminal.rows(*self.up)
             self.opened = -math.inf     # what was coming up is up: the theme comes down over it
@@ -503,17 +516,25 @@ class Clock:
         opened = now if self.opened is None else self.opened    # not yet: by this draw's frame
         if (self.fade or self.page) and moves and now < opened + FADE:
             self.rising = lines
+        elif not moves:     # up at once: a later draw where it can move does not open it again
+            self.opened = -math.inf
         return self.rising is not None or self.turning is not None
 
     def light(self, now, moves):
         """The highlight as a draw at `now` moves it (terminal.lights), by what it is on: where it
         comes, from COMES -- or from where it still fades there -- onto the selection in LANDS
         seconds; where it left, on what is still there, from where it was into the background in
-        LEAVES: at rest on a screen up first or at another size, and where colour cannot move."""
+        LEAVES: at rest on a screen up first or at another size, and where nothing can;
+        after `hold`, where it comes too."""
         was, self.lights, glows, self.glows = self.lights, terminal.lights(), self.glows, {}
         size, self.size = self.size, (terminal.width(), terminal.height())
+        held, self.held = self.held, False
         if self.up is None or not moves or size != self.size:
             return
+        if held:        # what it lit by a place alone may be there still or have moved off
+            was, glows = ({what: one for what, one in old.items() if what[0] is not None}
+                          for old in (was, glows))
+            was.update(self.lights)
         for what, spans in self.lights.items():
             glow = glows.get(what)
             if what not in was:

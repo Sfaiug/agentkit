@@ -1,5 +1,5 @@
 """Every page comes up as a page `c` opens does (motion.Clock.rise): the company list, its
-`add a company`, `why`, the list a harness adds a model from and a new seat's row, its caret,
+`add a company`, `why`, the list a harness adds a model from, a card, a new seat's row, its caret,
 and the line under it, a working seat's plan line beside them, are each written, as they open,
 a frame whose text is part way from the background to its colour before the one at rest; a key
 that changes nothing read half way is answered at rest, and one read at rest, a resize or a way
@@ -172,6 +172,13 @@ class EveryScreenComesUp(unittest.TestCase):
         self.term.keys(*["Down"] * 5)           # OpenCode's, the last
         self.term.wait("› another provider")
         self.comes_up(["Enter"], "Zeta Cloud")
+
+    def test_a_card_asked_comes_up(self):
+        self.term.keys("c")
+        self.term.wait("r recommended")
+        self.term.keys(*["Down"] * 4, "Enter")       # the page `+ add a subscription` is on
+        self.term.wait("+ add a subscription")
+        self.comes_up(["Right", "Right", "Enter"], "× Remove")   # `− remove` under the first
 
     def test_a_new_seats_row_comes_up(self):
         Seat(self.home, "acme", model="mid", screen="claude-working-pane.txt", planned=True)

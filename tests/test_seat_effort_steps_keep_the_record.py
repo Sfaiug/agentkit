@@ -52,9 +52,8 @@ class SeatEffortSteps(Sandbox):
                 cfg["models"], record, model, effort))
             return ""
         held, before = self.stepped("orchestrator"), self.held()
-        with patch.object(menu.terminal, "confirm", return_value=True), \
-                patch.object(menu.orch, "switch_orchestrator", side_effect=restart):
-            note = menu.apply_held(self.cfg, ("fix-api", self.selected), held, lambda *_: 0)
+        with patch.object(menu.orch, "switch_orchestrator", side_effect=restart):
+            note = menu.apply_held(self.cfg, ("fix-api", self.selected), held, lambda *card: True)
         self.assertEqual(note, "")
         self.assertEqual(handed, [("fix-api", "opus", "low", True, before)])
         self.assertEqual(self.held()["opus"],
@@ -64,9 +63,8 @@ class SeatEffortSteps(Sandbox):
     def test_an_orchestrator_step_on_a_record_that_will_not_read_says_why(self):
         held = self.stepped("orchestrator")
         config.session_path("fix-api").write_text("{")
-        with patch.object(menu.terminal, "confirm", return_value=True), \
-                patch.object(usage, "collect", return_value={}):
-            note = menu.apply_held(self.cfg, ("fix-api", self.selected), held, lambda *_: 0)
+        with patch.object(usage, "collect", return_value={}):
+            note = menu.apply_held(self.cfg, ("fix-api", self.selected), held, lambda *card: True)
         self.assertIn("session-fix-api.json", note)
 
     def test_a_take_keeps_a_key_saved_since_and_the_screen_holds_what_it_saved(self):
