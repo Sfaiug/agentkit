@@ -204,6 +204,7 @@ var migrations = []struct{ table, columns string }{
 	{"dones", "work TEXT"},
 	{"meter_readings", "plan TEXT"},
 	{"meter_readings", "scope TEXT"},
+	{"turn_usage", "listed_usd REAL"},
 }
 
 // dropped are the columns of runs an older ak made and nothing reads or writes.

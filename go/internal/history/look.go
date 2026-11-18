@@ -37,13 +37,16 @@ func (db *DB) ReviewedRuns(harness, model string) ([]Row, bool) {
 	}
 	return db.read("SELECT reviews.effort, COUNT(DISTINCT run_id), "+
 		"COUNT(DISTINCT CASE WHEN reviews.round=1 AND reviews.verdict='PASS' THEN run_id END) "+
-		"FROM "+db.migrated("reviews")+" JOIN runs USING (run_id) WHERE harness=? AND model=? AND "+
+		"FROM "+db.Migrated("reviews")+" JOIN runs USING (run_id) WHERE harness=? AND model=? AND "+
 		"reviews.round IS NOT NULL AND "+realWork+" GROUP BY reviews.effort", harness, model)
 }
 
-// migrated is table as Python's migration leaves it, for a connection that writes nothing: each
+// Migrated is table as Python's migration leaves it, for a connection that writes nothing: each
 // column the migration would add, and the table lacks, read as the NULL it would hold.
-func (db *DB) migrated(table string) string {
+func (db *DB) Migrated(table string) string {
+	if db == nil {
+		return table
+	}
 	have, err := db.columns(table)
 	if err != nil || len(have) == 0 {
 		return table
