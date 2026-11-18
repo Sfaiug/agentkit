@@ -7,6 +7,8 @@
 # other check ran at landing on the same commit.  The landing suite never runs them; ak runs
 # this file before a host takes new agentkit code and when a harness upgrades, with
 # AGENTKIT_ACCEPTANCE_REQUIRED=1, so a skipped check fails it too.
+# AK_LIVE_NO_MODEL_CALLS=1 leaves out every check that makes a model call (MODEL_CALLS beside
+# LIVE_CHECKS), so the host's logins pay no turn for it; a check left out is no skip.
 # A live check of a commit (LIVE_RUN in agentkit/update.py: this checkout is the `tree` beside
 # its `failed`) runs with this home's real records, so first it shadows Go on them and keeps what
 # Go did differently in that folder's shadow.json.  The tick removes that folder once the install
