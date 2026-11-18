@@ -668,13 +668,13 @@ def exhausted_waits_for(state, providers, cfg=None, workers=None, now=None):
     now = time.time() if now is None else now
     if cfg is None:
         return None, None, True
-    if workers is None:
-        try:
-            workers = run_workers(cfg, state) or config.workers(cfg)
-        except (config.Error, KeyError, TypeError, AttributeError):
-            return None, None, True
     try:
-        offered = config.offered(cfg)   # a spare retired since launch waits on no window
+        # the run's marks as its own resume reads them: one gone from the config since launch
+        # is a worker still where its record holds it, and waits on no window where it is not
+        cfg = config.as_launched(cfg, state)
+        if workers is None:
+            workers = run_workers(cfg, state) or config.workers(cfg)
+        offered = config.offered(cfg)
         names = {config.model(cfg, name)["provider"] for name in workers if name in offered}
     except (config.Error, KeyError, TypeError, AttributeError):
         return None, None, True
