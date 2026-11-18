@@ -134,8 +134,20 @@ func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	t.Setenv("ACME_TOKEN", "kept")
 	// absolute, as a relative TMPDIR would leave the link's target relative to the link and PWD
-	// is the checkout made absolute
-	dir, err := filepath.Abs(t.TempDir())
+	// is the checkout made absolute; and as the system has it, never by its words alone: a
+	// TMPDIR with a symlink before `..`, or `..` above a working directory named through one,
+	// is another directory once cleaned
+	dir := t.TempDir()
+	wd, err := os.Getwd()
+	if err == nil {
+		wd, err = filepath.EvalSymlinks(wd)
+	}
+	if err == nil && !filepath.IsAbs(dir) {
+		dir = wd + string(os.PathSeparator) + dir
+	}
+	if err == nil {
+		dir, err = filepath.EvalSymlinks(dir)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
