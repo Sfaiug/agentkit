@@ -157,7 +157,8 @@ def host_status_line():
              f"{admitted}")
     held = " · ".join(f"{seat} {terminal.format_age(seconds)}"
                        for seat, seconds in cores.holding(watch.load_state()))
-    return f"{first}\n{heavy}" + (f"\nseats holding a core: {held}" if held else "")
+    return f"{first}\n{heavy}" + (
+        f"\nseats holding {cores.FLOOR:g} of a core or more: {held}" if held else "")
 
 
 def slot_place(state):
