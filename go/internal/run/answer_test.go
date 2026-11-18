@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"agentkit/internal/gitcall"
 )
 
 // Past the wait, the stop the deadline sets off has ended by the time the answer says so: one still
@@ -126,26 +128,39 @@ func TestACommandIsNeverTheShellsOptions(t *testing.T) {
 	}
 }
 
-// Given no environment, the command runs in ak's own, at its checkout, still without the seat's
-// name: an ssh in it would otherwise be that seat reaching the live host.
+// Given no environment, the command runs in ak's own, at its checkout as named, still without the
+// seat's name: an ssh in it would otherwise be that seat reaching the live host.
 func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	t.Setenv("ACME_TOKEN", "kept")
-	// The PWD ak gives the shell is read, in a checkout no TMPDIR names, not the one the shell
-	// prints: for a PWD that does not reach its directory a shell prints the directory's own
-	// name, so $PWD would tell the checkout's from ak's own only under a link in a temp
-	// directory, and whether that link's name reaches it from inside is TMPDIR's to decide
-	t.Setenv("PWD", "/acme") // ak's own, so never the checkout's by chance
-	var env []string
-	before := group
-	group = func(cmd *exec.Cmd) func() { env = cmd.Env; return before(cmd) }
-	t.Cleanup(func() { group = before })
-	out, why := ProjectOutput(context.Background(), `printf '%s %s\n' "${AGENTKIT_SESSION-absent}" "$ACME_TOKEN"`, "/", nil, time.Second, "list")
-	if why != "" || string(out) != "absent kept\n" {
-		t.Errorf("answered %q, said %q", out, why)
+	// The checkout is a link in the temp directory, and a shell keeps the PWD it is given only
+	// where that reaches its directory from inside it. So the link is named from the temp
+	// directory as the system has it: TMPDIR's own words can lead elsewhere from there, or once
+	// cleaned, or pass the system's limits with the link added. Only where the system's name
+	// cannot hold the link, itself too long, is it named as TMPDIR has it
+	dir := t.TempDir()
+	if !filepath.IsAbs(dir) {
+		wd, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		// as written, never cleaned: `..` after a link is the parent of where the link leads
+		dir = wd + string(os.PathSeparator) + dir
 	}
-	if !slices.Contains(env, "PWD=/") {
-		t.Error("its PWD is not its checkout")
+	if real, err := filepath.EvalSymlinks(dir); err == nil && os.Symlink("acme", filepath.Join(real, "acme-link")) == nil {
+		dir = real
+	} else if err := os.Symlink("acme", filepath.Join(dir, "acme-link")); err != nil {
+		t.Fatal(err)
+	}
+	checkout := filepath.Join(dir, "acme-link")
+	// made after its link, whose longer name decided where both fit
+	if err := os.Mkdir(filepath.Join(dir, "acme"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, why := ProjectOutput(context.Background(), `printf '%s %s %s\n' "${AGENTKIT_SESSION-absent}" "$ACME_TOKEN" "$PWD"`, checkout, nil, time.Second, "list")
+	// the output is decoded, so a checkout's path not in UTF-8 reads as Python reads it
+	if want := gitcall.Decoded("absent kept " + checkout + "\n"); why != "" || string(out) != want {
+		t.Errorf("answered %q, said %q, want %q", out, why, want)
 	}
 }
 
