@@ -7,8 +7,8 @@ the record spells them, and its failing exit sends the round back.  Left out are
 before then, one the record times not, one whose file is gone and one the target is red on now by
 its landing line's record; one the target was red on and repaired runs, as that one does once the
 target has moved past its red.  A part the record times and its file no longer holds is handed:
-the run names it as not there (`AK_NOT_THERE`), the others run again without it, and that exit
-is the check's.
+the run names it as not there (`AK_NOT_THERE`) and fails, and its re-run, which decides as any
+does, is not handed it.
 
 Owner, 16 Nov 2026: "Yes, this small set … And make sure this also happens for new repos we work
 on".
@@ -155,12 +155,13 @@ class ThreeRuns(unittest.TestCase):
 
     def test_a_red_test_runs_most_first_and_its_failing_exit_sends_the_round_back(self):
         # A suite the target runs uncut fits all, though it once ran in pieces: failing, its
-        # re-run failing, then passing after the fixer's turn, the test the target is red on now
-        # left out; each go, handed the removed part, runs again without it.
+        # re-run failing, then, after the fixer's turn, failing by the removed part alone and
+        # its re-run passing, the test the target is red on now left out; no re-run is handed
+        # the removed part.
         self.assertEqual(self.notes["two"],
                          ["suite ./tests/parts.sh::removed ./tests/often.sh ./tests/sometimes.sh "
                           "./tests/repaired.sh",
-                          "suite ./tests/often.sh ./tests/sometimes.sh ./tests/repaired.sh"] * 3
+                          "suite ./tests/often.sh ./tests/sometimes.sh ./tests/repaired.sh"] * 2
                          + ["review", "suite whole"])
         self.assertEqual([run["role"] for run in self.fakes["claude"].runs()],
                          ["executor", "executor", "fixer", "executor"])

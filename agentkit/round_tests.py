@@ -15,8 +15,8 @@ the piece a ceiling, its time goes to no other.  Left out are one the record
 times by neither name, one whose file is gone, and one the target is red on now by its landing
 line's record (`land.red_tests`), a file by a test of it, which no round can fix; one it was red
 on and repaired runs again.  A part its file no longer holds is handed, as only its runner knows
-it gone: the run names it as not there, and the others run again without it, their exit the
-check's (`gate.run_suite`).  A project with no record runs none: only a runner that reports to ak
+it gone: the run names it as not there and is asked for it no more, nor is a failing run's re-run
+(`gate.run_suite`).  A project with no record runs none: only a runner that reports to ak
 keeps one, and nothing is declared.  The whole suite runs at landing alone (10 Nov 2026); on 3-16
 Nov these cost 2.0-2.5% of it and would have caught 62-67% of the reds a landing blamed on a
 change, each of which ran its whole stack's suite again (16 Nov 2026).
