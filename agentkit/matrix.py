@@ -109,11 +109,11 @@ def _release_index(releases):
 
 def lineup(boards, offers):
     """A row per current release (`catalog.current`) and effort, `name` as ak says it
-    (config.release_label) and `board_name` as the board does, with its `values` as the
-    catalog joins them and `yours`: each model of `offers` ({harness: config.catalog(harness)})
-    that `found` matches to this release alone, as {"harness", "model"}, at each effort it
-    lists and at a row naming no effort, which is the model however it is run, or at the
-    release's default where it lists none but `none`."""
+    (config.release_label), of its slug where the board names it nothing, and `board_name` as
+    the board does, with its `values` as the catalog joins them and `yours`: each model of
+    `offers` ({harness: config.catalog(harness)}) that `found` matches to this release alone,
+    as {"harness", "model"}, at each effort it lists and at a row naming no effort, which is
+    the model however it is run, or at the release's default where it lists none but `none`."""
     releases = catalog.current(boards)
     index = _release_index(releases)
     yours = {}
@@ -128,7 +128,8 @@ def lineup(boards, offers):
                 if effort["effort"] in words if words else effort["default"]:
                     yours.setdefault((release["slug"], effort["effort"]), []).append(
                         {"harness": harness, "model": model["id"]})
-    return [{"release": release["slug"], "name": config.release_label(release["name"]),
+    return [{"release": release["slug"],
+             "name": config.release_label(release["name"] or release["slug"]),
              "board_name": release["name"], "maker": release["maker"],
              "effort": effort["effort"], "values": effort["values"],
              "yours": yours.get((release["slug"], effort["effort"]), [])}
