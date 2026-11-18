@@ -42,10 +42,10 @@ class RowOpens(Sandbox):
                                      "state": "running", "launched_session": "acme-plan"})
                         for run, step in (("g1", "executor"), ("g2", "reviewer"))]
 
-    def screen(self, cursor=None, owned=True):
+    def screen(self, cursor=None, owned=True, width=100):
         drawn = {} if owned else None
         keys = terminal.keys(menu.KEYS, enter="open") if owned else menu.KEYS
-        with patch.object(terminal, "width", return_value=100), \
+        with patch.object(terminal, "width", return_value=width), \
                 patch.object(terminal, "height", return_value=30), \
                 redirect_stdout(io.StringIO()) as out:
             menu.draw(self.cfg, self.seats, keys, 0, cursor, drawn, look=False,
@@ -77,6 +77,14 @@ class RowOpens(Sandbox):
         under = self.opened(self.screen("acme-plan"), "acme-plan")
         self.assertEqual(" ".join(under[:-1]), f"¶ {UNSENT}")
         self.assertEqual(under[-1], CREW)
+
+    def test_squares_the_owner_left_unsent_are_drawn_as_typed_beside_tasks_in_flight(self):
+        # beside the row's count, or under a row too narrow for it
+        watch.seat_write("acme-plan", unsent="explain ■□□ please")
+        for width in (100, 40):
+            with self.subTest(width=width):
+                lines = self.screen("acme-plan", width=width)
+                self.assertTrue(any("explain ■□□" in line for line in lines), lines)
 
     def test_moving_the_highlight_moves_no_other_row(self):
         heights = {len(self.screen(cursor)) for cursor in ("acme-plan", "acme-docs", "acme-fix")}
