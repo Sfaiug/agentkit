@@ -2,7 +2,8 @@
 at the mean over the task runs that ended where it did it of the points of a week its `turn_usage`
 rows took: at listed prices, times 100 over each row's login's `week_listed_usd` (`ak usage
 --json`).  A counted turn with no row, or a row with no listed price, leaves its run out of the
-role, reviews naming two efforts out of the reviewer's; a model with no runs keeps its estimate.
+role, reviews naming two efforts out of the reviewer's, as does a run running again (resumed);
+a model with no runs keeps its estimate.
 
 Black-box through tests/fixtures/akbin.py on tests/fixtures/meters.py's harness, with invented
 boards, plans, readings, seat spend and finished runs in its Home.  Fails against /bin/false.
@@ -73,10 +74,11 @@ class History:
         self.rows["seat_usage"].append((f"{harness}:seat-{len(self.rows['seat_usage'])}",
                                         NOW - 2.5 * DAY, tokens, account, model, tokens, 0, 0, 0))
 
-    def run(self, executor=None, reviewer=None, efforts=(), *, built=(), reviewed=()):
-        """A task run that ended: `executor` (model, effort) built it in a counted turn per list
-        of `built`, `reviewer` reviewed it in one per list of `reviewed`, a review per effort of
-        `efforts`.  A list holds its turn's rows, (account, model, counts); None, no row."""
+    def run(self, executor=None, reviewer=None, efforts=(), *, built=(), reviewed=(), ended=True):
+        """A task run that ended, or runs again where not `ended`: `executor` (model, effort)
+        built it in a counted turn per list of `built`, `reviewer` reviewed it in one per list of
+        `reviewed`, a review per effort of `efforts`.  A list holds its turn's rows, (account,
+        model, counts); None, no row."""
         run, turns = f"fix-api-{len(self.rows['runs'])}", []
         for role, kept in (("executor", built), ("reviewer", reviewed)):
             for n, rows in enumerate(kept):
@@ -84,8 +86,8 @@ class History:
                 self.rows["turn_usage"] += [(turns[-1], run, role, account, model, NOW - DAY,
                                              NOW - DAY, *counts) for account, model, counts
                                             in rows or ()]
-        self.rows["runs"].append((run, *(executor or (None, None)), reviewer, "task", NOW - DAY,
-                                  json.dumps(turns)))
+        self.rows["runs"].append((run, *(executor or (None, None)), reviewer, "task",
+                                  NOW - DAY if ended else None, json.dumps(turns)))
         self.rows["reviews"] += [(run, f"review-{n}", one) for n, one in enumerate(efforts)]
 
     def save(self):
@@ -177,6 +179,7 @@ class RoleCostFromRuns(unittest.TestCase):
         self.history.run(("anvil", "high"), built=[kept + [("default", "easel-2", (1, 0, 0, 0))]])
         # its reviews name two efforts: no reviewer's
         self.history.run(None, "bloom", ["high", "low"], reviewed=[review + review])
+        self.history.run(("anvil", "high"), built=[kept, kept], ended=False)
         weeks, answer = self.answer()
         found = answer["task_usage"]
         self.assertEqual({model: {effort: list(roles) for effort, roles in efforts.items()}
