@@ -193,6 +193,13 @@ class ComingUp(test_breathing.MainScreen):
         with patch.object(motion, "movable", side_effect=[False, True]):
             self.assertEqual([page.rise(["acme"]) for _ in "up"], [False, False])
 
+    def test_where_nothing_moves_a_card_its_count_still_pending_is_drawn_once(self):
+        frames = [None] * (int(menu.TICK / motion.FRAME) + 1)      # past the whole screen's TICK
+        with patch.object(terminal, "height", return_value=8):     # it scrolls: nothing moves
+            waits, _ = self.ask(*frames, lands=len(frames) + 1)    # once the menu is left
+        self.assertEqual(sum(QUESTION in terminal.ANSI.sub("", written)
+                             for _, _, written in waits), 1)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
