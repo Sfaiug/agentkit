@@ -1555,6 +1555,20 @@ def _followed(name):
     raise Error(f"{session_path(seen[0])}: more than {RENAME_HOPS} renames deep")
 
 
+def session_identity(name):
+    """(the name that session goes by now, what tells its seat from every other): its record's
+    `created` (`discard_session`), which a rename copies with it, so the two names a half-written
+    rename leaves whole are one seat; the name where none says.  One renamed since is followed."""
+    data = None
+    with suppress(Error):
+        for _ in range(RENAME_HOPS + 1):
+            name = resolve_session(name)
+            data = _session_json(session_path(name))
+            if not isinstance(data, dict) or not isinstance(data.get("renamed"), str):
+                break
+    return name, (isinstance(data, dict) and data.get("created")) or name
+
+
 def current_session():
     """The session this process runs in, by its current name, or None outside a seat."""
     name = os.environ.get(SESSION_ENV)

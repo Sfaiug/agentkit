@@ -40,7 +40,7 @@ class ACoreHolderRenamedMeanwhile(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual([line for line in done.out.splitlines()
                           if line.startswith("seats holding ")],
-                         ["seats holding 0.5 of a core or more: fix-api 9m"])
+                         ["seats holding 0.5 of a core or more: parser 9m"])     # its name by then
 
 
 if __name__ == "__main__":

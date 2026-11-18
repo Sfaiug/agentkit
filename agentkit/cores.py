@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import time
 
-from . import front, host, orch, watch
+from . import config, front, host, orch, watch
 
 # Of a core: a wait that polls hard, reading a long log every second or two between short
 # sleeps, holds 0.5 to 0.8 for hours, while on 18 Nov 2026 the busiest of 19 seats at work used
@@ -76,19 +76,15 @@ def tell(state, log):
 
 def holding(state):
     """[(seat, seconds)] of each seat whose scope the tick's last reading (`tell`) found holding
-    FLOOR of a core, `since` when, and how long it had by then, longest first.  A respawn's new
-    scope may sit beside its old one: a seat holding it in both is named once, with the longest."""
-    launched = {}
+    FLOOR of a core, `since` when, and how long it had by then, longest first.  A seat holding it
+    in several scopes (a respawn's beside its old one) is named once, with the longest: they are
+    one seat's by its record (`config.session_identity`); a rename under way gives two names."""
+    held = {}
     for scope, seen in (state.get("seat_cores") or {}).items():
         if "since" in seen:
-            name = front.SEAT_SCOPE.fullmatch(scope)[1]
-            launched[name] = max(launched.get(name, 0), seen["at"] - seen["since"])
-    held = {}
-    for name, seconds in launched.items():
-        # asked once for a launch name: a rename between two askings named one seat twice
-        seat = front.seat_now(name)
-        held[seat] = max(held.get(seat, 0), seconds)
-    return sorted(held.items(), key=lambda seat: -seat[1])
+            name, seat = config.session_identity(front.SEAT_SCOPE.fullmatch(scope)[1])
+            held[seat] = max(held.get(seat, (0, name)), (seen["at"] - seen["since"], name))
+    return sorted(((name, seconds) for seconds, name in held.values()), key=lambda seat: -seat[1])
 
 
 def _tell(name, command, usec, seconds, log):
