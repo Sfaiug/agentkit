@@ -46,20 +46,24 @@ def unreported(repo):
     none of its tests.  A plain row of a suite run in pieces ran one piece or some tests."""
     from . import gate
     suite = gitcall.declared(repo, "tests")
-    if not suite or read(handed(repo)):
+    if not suite:
         return False
-    shares = {}
+    # History first (sqlite, no git): `stop.untested` asks at every done seat's Stop, and
+    # `handed` reads the repository's ID through git.
+    shares, whole = {}, False
     for run, tree, command, code in history.landing_checks(Path(repo).name):
         if not gate.ran_to_end(code):
             continue
         share, _, rest = command.partition(" ")
         if command == suite and not gate.names_shard(suite):
-            return True
+            whole = True
+            break
         if rest == suite and share.startswith("AK_SHARD="):
             index, _, count = share.removeprefix("AK_SHARD=").partition("/")
             shares.setdefault((run, tree, count), set()).add(index)
-    return any(len(found) == int(count) for (_, _, count), found in shares.items()
-               if count.isdigit())
+    whole = whole or any(len(found) == int(count) for (_, _, count), found in shares.items()
+                         if count.isdigit())
+    return whole and not read(handed(repo))
 
 
 def read(text):
