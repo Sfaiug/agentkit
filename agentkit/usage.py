@@ -203,6 +203,10 @@ def _probe(cfg, provider, now, account=None):
     out = {"provider": provider, "harness": harness, "via": via, "meters": [],
            "error": data.get("error"), "pace": None, **_resets(harness, account, data),
            "exhausted": False, "probed_at": now}
+    if "plan" in data:
+        # the plan the frame it read names, null included; an answer that read no frame has no
+        # key, and keeps the reading's (`_kept`)
+        out["plan"] = _text(data["plan"])
     credits = "unlimited" if data.get("credits") == "unlimited" else _number(data.get("credits"))
     if credits is not None:
         out["credits"] = credits
@@ -355,17 +359,21 @@ def _kept(cached, fresh, now):
     the ask's own error is the error.  An answer whose every meter is spent is a refusal and
     names only the window it hit: the reading's other windows stand beside it (`_beside`),
     and so does the moment they were measured at, the oldest the row now shows.
+    The reading's `plan` is one value beside its meters, the last frame's to name: an answer
+    holding the key read a frame and sets it, null included, its meters there or not, and
+    every other keeps it.
     """
+    cached = cached if isinstance(cached, dict) else {}
+    if "plan" not in fresh and "plan" in cached:
+        fresh = {**fresh, "plan": cached["plan"]}
     if fresh.get("meters") or fresh.get("none"):
-        meters = _beside(cached.get("meters") if isinstance(cached, dict) else None,
-                         fresh.get("meters"), now)
+        meters = _beside(cached.get("meters"), fresh.get("meters"), now)
         if meters is fresh.get("meters"):
             return fresh
         asked = {name: at for name, at in _meter_asked(cached).items()
                  if any(m.get("name") == name for m in meters)}
         asked.update(_meter_asked(fresh))
         return {**fresh, "meters": meters, "fetched_at": _taken(cached), "probed_meters": asked}
-    cached = cached if isinstance(cached, dict) else {}
     since = _number(cached.get("stale_since")) if cached.get("probe_error") else None
     keys = ("meters", "fetched_at", "probed_meters", "resets", "reset_kinds", "credits",
             "currency", "error", "notes", "none", "none_reason")
@@ -1936,15 +1944,28 @@ def _held(dollars, meter):
     return f"{named} {about} ${dollars:.0f} at list prices"
 
 
+def plan(provider, account=None):
+    """The plan `provider`'s login `account` (None, its usual one) is on now: the one `login-end`
+    names (state/logins.json), else the one its kept reading holds (`_kept`); or None."""
+    return (logins.whose(provider, account)[1]
+            or _text(_cached_provider(provider, account).get("plan")))
+
+
 def price(cfg, provider, account=None):
-    """What `provider`'s login `account` (None, its usual one) costs a month: the `price` on the
-    provider's table, in whatever its owner pays in, else the list price of the plan the login
-    is on now (state/logins.json) on the `[plans]` of the harness that asks it; or None."""
+    """What `provider`'s login `account` (None, its usual one) costs a month, on its `plan`
+    (`_monthly`)."""
+    return _monthly(cfg, provider, lambda: plan(provider, account))
+
+
+def _monthly(cfg, provider, plan):
+    """What a login of `provider` costs a month: the `price` on the provider's table, in
+    whatever its owner pays in, else the list price of the plan `plan()` gives on the `[plans]`
+    of the harness that asks it; or None.  The plan is asked only where the table names no
+    price: a login's files decide nothing there, so none that cannot be read stops it."""
     own = _number(((cfg.get("providers") or {}).get(provider) or {}).get("price"))
     if own is not None:
         return own
-    plan = logins.whose(provider, account)[1]
-    return _number(harness_plugin(logins.harness(cfg, provider)).plans.get(plan))
+    return _number(harness_plugin(logins.harness(cfg, provider)).plans.get(plan()))
 
 
 def _digits(value):
@@ -2253,10 +2274,11 @@ def main(argv):
         now = time.time()
         weeks, checks = plan_weeks(cfg, providers, now), plan_checks(cfg, providers, now)
         for _, name, prov, account in _accounts(cfg, providers):
-            prov["price"] = price(cfg, name, account)
-            prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             (prov["plan"], prov["week_listed_usd"], prov["plan_points"],
              prov["plan_listed_usd"]) = weeks[name][account]
+            # the plan it shows priced, not the plan read again: a probe meanwhile may change it
+            prov["price"] = _monthly(cfg, name, lambda: prov["plan"])
+            prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             prov["plan_checks"] = checks[name][account]
         json.dump({"providers": providers, "pick_order": order,
                    "review": review_pair(cfg, providers)}, sys.stdout, indent=2)

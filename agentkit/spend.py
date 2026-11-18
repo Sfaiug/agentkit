@@ -16,7 +16,7 @@ from pathlib import Path
 import sqlite3
 import time
 
-from . import boards, catalog, config, history, logins, matrix
+from . import boards, catalog, config, history, matrix
 
 # a reading is of the week of the one before it, by `resets_at`, at most this many seconds later
 DRIFT = 600
@@ -62,7 +62,7 @@ def _listed(ours, prices, account, since, until):
 
 
 def weeks(cfg, meters, windows):
-    """{provider: [{account: (its plan as state/logins.json names it now, what a week of that plan
+    """{provider: [{account: (the plan its login is on now (`usage.plan`), what a week of that plan
     holds in listed dollars, and the points and dollars that is read from)}] of each of `windows`,
     (since, until) each} for each login of each provider in `meters`, {provider: {account, None
     for the usual one: the meter `usage.shared_week` names for it}}.
@@ -78,7 +78,8 @@ def weeks(cfg, meters, windows):
     one whose spend cannot be priced counts for nothing.  A week holds nothing anyone can name
     while its plan's points are under FEWEST_POINTS or its dollars 0.
     """
-    plans = {(provider, account): logins.whose(provider, account)[1]
+    from . import usage   # here, not at the top: usage reads this module as it loads
+    plans = {(provider, account): usage.plan(provider, account)
              for provider, accounts in meters.items() for account in accounts}
     groups, start, last = {}, {}, {}
     for window, (since, until) in enumerate(windows):
