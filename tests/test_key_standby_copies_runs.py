@@ -1,12 +1,12 @@
 """`ak standby ALIAS` copies, with ak's folder, every run in ak's runs, each folder there on the
-home or here, open or ended, within one pass of each change, but its scratch, a folder named
-`tmp…` or `.box-…` at any depth, and a `.git` folder; a `.git` file crosses.  What the home
-removed of a run goes from the copy, and so does a run the home removed or only the copy holds;
-what the home deleted as a pass met a file vanishing, rsync's exit 24, goes with the next.  A
-link here where a run's folder was goes, whatever it points at, and that stays as it was.  A file
-beside the runs, a lock, queue or wait of each machine's own, neither crosses nor goes.  A pass
-from a home whose runs' folder is a link fails, saying so, before it copies anything.
-Black-box, through tests/fixtures/twohomes.py.
+home or here, whatever its record says or whether it has one, open or ended, within one pass of
+each change, but its scratch, a folder named `tmp…` or `.box-…` at any depth, and a `.git`
+folder; a `.git` file crosses.  What the home removed of a run goes from the copy, and so does a
+run the home removed or only the copy holds; what the home deleted as passes met a file
+vanishing, rsync's exit 24, goes with the next.  A link here where a run's folder was goes,
+whatever it points at, and that stays as it was.  A file beside the runs, a lock, queue or wait
+of each machine's own, neither crosses nor goes.  A pass from a home whose runs' folder is a link
+fails, saying so, before it copies anything.  Black-box, through tests/fixtures/twohomes.py.
 """
 
 import os
@@ -21,12 +21,15 @@ from fixtures.twohomes import Machines
 
 RUNS = ".agentkit/runs/"
 REAL = shutil.which("rsync", path=os.pathsep.join(SYSTEM))    # past any fake of it
-# on the home: a run open there, and one that ended there before the copy's first pass
-OPEN, ENDED = f"{RUNS}20261116-0900-fix-api/", f"{RUNS}20261020-0900-old-fix/"
-RECORDS = {OPEN: {"run_id": "fix-api", "state": "running"},
-           ENDED: {"run_id": "old-fix", "state": "pass", "merged": True}}
-# in each of them, which crosses but its scratch and the clone's git data
-FILES = ("notes.md", "round-1/executor/events.jsonl", "round-1/review-checkout/main.py",
+# open on the home: running, with no record yet, and with one that cannot be read, an ended one
+# after a BOM, which ak's reader of records refuses as JSON's of bytes would not
+OPEN = (f"{RUNS}20261116-0900-fix-api/", f"{RUNS}20261116-0910-add-docs/",
+        f"{RUNS}20261116-0920-fix-cli/")
+RECORDS = ({"run_id": "fix-api", "state": "running"}, None, '﻿{"state": "pass"}')
+# and one that ended on the home before the copy's first pass
+ENDED = f"{RUNS}20261020-0900-old-fix/"
+# in the first of them and the ended one, which cross but their scratch and the clone's git data
+FILES = ("round-1/executor/events.jsonl", "round-1/review-checkout/main.py",
          "round-1/review-checkout/.git/HEAD", ".git")
 SCRATCH = ("tmpk2j4w8x1/prompt.md", ".box-q7m2/note", "round-1/executor/.box-r3n8/token",
            "round-1/review-checkout/tmpa9/prompt.md")
@@ -57,10 +60,14 @@ class APassCopiesEveryRun(unittest.TestCase):
         self.addCleanup(machines.close)
         self.home, self.here = home, here = machines
         here.client_of(home)
-        for folder, record in RECORDS.items():
-            home.write(f"{folder}run.json", record)
+        for folder, record in (*zip(OPEN, RECORDS),
+                               (ENDED, {"run_id": "old-fix", "state": "pass", "merged": True})):
+            home.write(f"{folder}notes.md", f"the home's {folder}")
+            if record is not None:
+                home.write(f"{folder}run.json", record)
+        for folder in (OPEN[0], ENDED):
             for path in (*FILES, *SCRATCH):
-                home.write(f"{folder}{path}", f"the home's {folder}{path}")
+                home.write(f"{folder}{path}", f"the home's {path}")
 
     def standby(self):
         done = self.here.ak("standby", self.home.name)
@@ -69,62 +76,79 @@ class APassCopiesEveryRun(unittest.TestCase):
     def assertCopied(self, folder):
         self.assertEqual(run(self.here, folder), crossing(run(self.home, folder)))
 
-    def test_an_open_run_and_one_ended_before_the_first_pass_cross_but_scratch_and_git(self):
+    def test_every_runs_folder_crosses_within_one_pass_of_each_change_but_scratch_and_git(self):
         home, here = self.home, self.here
         self.standby()
-        for folder in RECORDS:
+        for folder in (*OPEN, ENDED):
             self.assertCopied(folder)
+        for folder in (OPEN[0], ENDED):
             copy = run(here, folder)
             self.assertTrue(copy[".git"])
             self.assertTrue(copy["round-1/review-checkout/main.py"])
             for path in (*SCRATCH, "round-1/review-checkout/.git/HEAD"):
                 self.assertNotIn(path, copy)
                 self.assertTrue(run(home, folder)[path])
-
-    def test_a_later_change_in_a_run_open_or_ended_crosses_with_the_next_pass(self):
-        home, here = self.home, self.here
+        # in an open run and in one ended on both machines alike
+        for folder in (OPEN[0], ENDED):
+            home.write(f"{folder}round-1/executor/events.jsonl", "a later event")
+            home.write(f"{folder}round-2/plan.md", "made")
+            (home.path / folder / "notes.md").unlink()
+        home.write(f"{OPEN[1]}run.json", {"run_id": "add-docs", "state": "queued"})
         self.standby()
-        # the open run ended since, and the other, ended on both machines, changed after its end
-        home.write(f"{OPEN}run.json", {**RECORDS[OPEN], "state": "pass"})
-        home.write(f"{ENDED}run.json", {**RECORDS[ENDED], "finished_at": 1789000000})
-        for folder in RECORDS:
-            home.write(f"{folder}round-2/verdict.md", "made after the first pass")
-            (home.path / folder / FILES[1]).unlink()
-        self.standby()
-        for folder in RECORDS:
+        for folder in (*OPEN, ENDED):
             self.assertCopied(folder)
-            self.assertNotIn(FILES[1], run(here, folder))
 
-    def test_a_run_the_home_removed_or_only_the_copy_holds_goes_from_the_copy(self):
+    def test_a_run_ended_on_the_home_crosses_with_its_record_and_each_change_after(self):
         home, here = self.home, self.here
-        only = {f"{RUNS}20261010-0900-own-fix/": "running",
-                f"{RUNS}20261010-0930-own-docs/": "stopped"}
-        for folder, state in only.items():
-            here.write(f"{folder}run.json", {"run_id": folder, "state": state})
-            for path in (*FILES[:-1], *SCRATCH):
-                here.write(f"{folder}{path}", "this machine's")
+        folder = OPEN[0]
         self.standby()
-        for folder in (*only, *RECORDS):
-            self.assertEqual(os.path.lexists(here.path / folder), folder in RECORDS, folder)
-        for folder in RECORDS:
-            shutil.rmtree(home.path / folder)
+        home.write(f"{folder}run.json", {"run_id": "fix-api", "state": "pass"})
+        home.write(f"{folder}round-1/verdict.md", "passed")
         self.standby()
-        for folder in RECORDS:
-            self.assertFalse(os.path.lexists(here.path / folder))
+        self.assertCopied(folder)
+        home.write(f"{folder}run.json", {"run_id": "fix-api", "state": "pass", "merged": True})
+        home.write(f"{folder}round-1/verdict.md", "passed, and merged")
+        home.write(f"{folder}after.md", "made after its end")
+        self.standby()
+        self.assertCopied(folder)
 
-    def test_what_the_home_deleted_as_a_pass_met_a_file_vanishing_goes_with_the_next(self):
+    def test_what_the_home_deleted_as_passes_met_a_file_vanishing_goes_with_the_next(self):
         home, here = self.home, self.here
+        folders = (OPEN[0], ENDED)
+        self.standby()
+        home.write(f"{OPEN[0]}run.json", {"run_id": "fix-api", "state": "pass"})
         # rsync's own word for a file gone between its listing and its sending, which it leaves
-        # here: as the file the home deletes after the pass was during it
+        # here: as the files the home deletes after each such pass were during it
         vanishing = here.fake("rsync", f'#!/bin/sh\n{REAL} "$@" || exit; exit 24\n')
         self.standby()
-        for folder in RECORDS:
+        for folder in folders:
+            (home.path / folder / "notes.md").unlink()
+        self.standby()
+        for folder in folders:
+            self.assertCopied(folder)
             (home.path / folder / FILES[0]).unlink()
         vanishing.unlink()
         self.standby()
-        for folder in RECORDS:
+        for folder in folders:
             self.assertCopied(folder)
-            self.assertNotIn(FILES[0], run(here, folder))
+
+    def test_a_run_the_home_removed_or_only_the_copy_holds_goes_from_the_copy(self):
+        home, here = self.home, self.here
+        only = (f"{RUNS}20261010-0900-own-fix/", f"{RUNS}20261010-0930-own-docs/")
+        for folder, state in zip(only, ("running", "stopped")):
+            here.write(f"{folder}run.json", {"run_id": folder, "state": state})
+            for path in FILES[:-1] + SCRATCH:
+                here.write(f"{folder}{path}", "this machine's")
+        self.standby()
+        for folder in only:
+            self.assertFalse(os.path.lexists(here.path / folder))
+        self.assertCopied(OPEN[1])
+        self.assertCopied(ENDED)
+        shutil.rmtree(home.path / OPEN[1])
+        shutil.rmtree(home.path / ENDED)
+        self.standby()
+        for folder in (OPEN[1], ENDED):
+            self.assertFalse(os.path.lexists(here.path / folder))
 
     def test_a_link_here_where_a_runs_folder_was_goes_and_what_it_points_at_stays(self):
         home, here = self.home, self.here
@@ -135,7 +159,7 @@ class APassCopiesEveryRun(unittest.TestCase):
         # at a run the home lacks, to a folder, and at each it has, to a folder, a file or nothing
         gone = f"{RUNS}20261010-0900-own-fix"
         (here.path / gone).symlink_to(f"{here.env['HOME']}/{OWN}")    # as it names it
-        for folder in RECORDS:
+        for folder in (OPEN[0], ENDED):
             for to in (OWN, f"{OWN}notes.md", f"{OWN}missing"):
                 with self.subTest(folder=folder, to=to):
                     shutil.rmtree(here.path / folder)
@@ -163,7 +187,7 @@ class APassCopiesEveryRun(unittest.TestCase):
         before = own()
         self.standby()
         self.assertEqual(own(), before)
-        for folder in RECORDS:
+        for folder in (*OPEN, ENDED):
             self.assertCopied(folder)
 
     def test_a_pass_from_a_home_whose_runs_folder_is_a_link_fails_and_copies_nothing(self):
