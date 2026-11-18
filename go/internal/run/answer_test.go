@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -97,5 +98,30 @@ func TestPastItsDeadlineBeforeItsTimerFiresTheCommandNeverStarts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "ran")); !os.IsNotExist(err) {
 		t.Errorf("the command ran past its deadline: %v", err)
+	}
+}
+
+// A deadline passed by the time the shell has started runs nothing, even before its timer has said
+// so: the command would make its change after its time was up.
+func TestPastItsDeadlineOnceStartedBeforeItsTimerFiresTheCommandNeverRuns(t *testing.T) {
+	dir := t.TempDir()
+	ctx := unfired{context.Background(), time.Now().Add(100 * time.Millisecond)}
+	syscall.ForkLock.Lock() // the fork waits for it, as on a loaded host, until past the deadline
+	time.AfterFunc(time.Until(ctx.deadline), syscall.ForkLock.Unlock)
+	if _, why := ProjectOutput(ctx, "printf started > ran", dir, nil, time.Second, "list"); !strings.HasPrefix(why, "list: no answer in ") {
+		t.Errorf("said %q", why)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran")); !os.IsNotExist(err) {
+		t.Errorf("the command ran past its deadline: %v", err)
+	}
+}
+
+// A command is what the shell runs, never options to it: -n or +x would answer nothing as if it had
+// run, and -i would read the shell's startup file.
+func TestACommandIsNeverTheShellsOptions(t *testing.T) {
+	for _, command := range []string{"-n", "+x", "-i"} {
+		if _, why := ProjectOutput(context.Background(), command, t.TempDir(), nil, time.Minute, "list"); why == "" {
+			t.Errorf("%s answered as if it had run", command)
+		}
 	}
 }
