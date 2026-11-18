@@ -32,8 +32,12 @@ class WhyFitsItsWidth(unittest.TestCase):
             with self.subTest(role=role, effort=effort, width=width), patch.object(
                     terminal, "layout_width", return_value=width):
                 page = menu.models_why(found, role, choice, choice, "$ a task", [])
-                # the other, its bar drawn: its lines hang, beside its label or under it
-                self.assertIn("  shaded", [line[:8] for line in page])
+                # the other, its bar drawn: its lines hang, beside its label where 14 cells leave
+                # a value one, else under it
+                if width >= 14:
+                    self.assertIn("  shaded     ", [line[:13] for line in page])
+                else:
+                    self.assertIn("  shaded", page)
                 self.assertLessEqual(max(map(terminal.cells, page)), width, page)
 
 
