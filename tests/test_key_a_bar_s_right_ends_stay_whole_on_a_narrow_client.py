@@ -37,20 +37,23 @@ class RightEndsStayWhole(unittest.TestCase):
         home.write(".agentkit/state/watch.json", {"gh_out": {"at": time.time() - 300}})
         for name in ("beta", "acme"):
             Seat(home, name)
-        cls.seat = Terminal(home, "orch", "acme", size=(100, 24))
-        cls.seat.wait("acme", bound=OPENS)
         for name in ("beta", "acme"):     # acme last, so its bar counts beta's word
             written = home.ak("orch", "why", name)
             assert written.code == 0, written.err
-        cls.seat.wait(lambda screen: bar(screen)[1].endswith(KEY)
-                      and "GitHub is logged out" in bar(screen)[1], bound=OPENS)
+        # A wide terminal shows why beside the key: a bar without that reason has nothing to
+        # cut, and the narrow terminals below would pass on it.
+        Terminal(home, "orch", "acme", size=(100, 24)).wait(
+            lambda screen: len(bar(screen)) == 2 and bar(screen)[1].endswith(KEY)
+            and "GitHub is logged out" in bar(screen)[1], bound=OPENS)
 
     def test_17_and_16_columns_keep_the_key_and_who_else_needs_you_whole(self):
         for width in (17, 16):
             with self.subTest(width):
-                self.seat.resize(width, 24)
-                self.seat.wait(lambda screen: bar(screen)[0].endswith(OTHER)
-                               and bar(screen)[1].endswith(KEY), bound=OPENS)
+                # A terminal of its own, opened this narrow: one resized down to it may still
+                # show the wider bar it drew before, cut to fit, and that reads the same.
+                seat = Terminal(self.home, "orch", "acme", size=(width, 24))
+                seat.wait(lambda screen: len(bar(screen)) == 2 and bar(screen)[0].endswith(OTHER)
+                          and bar(screen)[1].endswith(KEY), bound=OPENS)
 
 
 if __name__ == "__main__":
