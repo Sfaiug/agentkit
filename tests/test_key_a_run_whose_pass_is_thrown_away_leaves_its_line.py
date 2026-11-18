@@ -1,7 +1,8 @@
 """A run whose saved PASS is thrown away leaves its line, before it asks for a slot.
 
 A member parked in a line with a green verdict is resumed as the line resumes it, its reviewer's
-mark renamed in the config meanwhile: the saved PASS can no longer be judged eligible.  Kept in
+mark renamed in the config meanwhile and moved to another provider, so the run cannot read it as it
+recorded it (config.as_launched): the saved PASS can no longer be judged eligible.  Kept in
 the line without its review, the run's own delivery and the lander's check of every member read
 a review that was gone: twelve passed runs ended in error and two projects merged nothing for over
 an hour (17 Nov 2026).  It reviews its saved work again and joins the line anew, as work a host
@@ -20,7 +21,7 @@ from test_key_a_delivering_run_has_the_landing_weight import Delivery
 
 RENAMED = '''if args[-2] == "resume":
     config = pathlib.Path({root}, "home", ".agentkit", "config.toml")
-    config.write_text(config.read_text().replace('"astra"', '"nova"'))
+    config.write_text(config.read_text().replace('"astra"', '"nova"').replace('"openai"', '"acme"'))
 '''
 # How an older ak left a green member whose PASS it threw away: the review pending, the place kept.
 ERASED = '''run = pathlib.Path({root}, "home", ".agentkit", "runs", args[-1])
