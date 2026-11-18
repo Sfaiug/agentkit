@@ -338,7 +338,8 @@ class NudgeTurnRule(Sandbox):
                 self.setUp()
                 self.harness = harness
                 checkout = self.root / "code" / "silent app"
-                checkout.mkdir(parents=True, exist_ok=True)
+                # a repository of its own: a plain folder here would be read as agentkit's
+                subprocess.run(["git", "init", "-q", str(checkout)], check=True)
                 (checkout / "AGENTS.md").write_text(
                     "---\ntests: bash tests/all.sh\nhealth: none\nusers: none\n---\n")
                 with closing(sqlite3.connect(history.path())) as db, db:
