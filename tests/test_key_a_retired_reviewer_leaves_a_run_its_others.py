@@ -12,6 +12,7 @@ harnesses.  The first review waits for a file the test writes once astra is gone
 
 from pathlib import Path
 import json
+import shlex
 import sys
 import threading
 import time
@@ -34,8 +35,9 @@ class ARetiredReviewerLeavesARunItsOthers(unittest.TestCase):
                        reviewers=["astra", "nova"])
         codex = fakeadapter.install(home, claude="work", codex="pass")["codex"]
         reviewing, go = codex.dir / "reviewing", codex.dir / "go"
-        codex.behave({**fakeadapter.PASS, "sh": f"touch {reviewing}; while [ ! -e {go} ]; do sleep 0.1; done"},
-                     "pass")
+        marked, release = shlex.quote(str(reviewing)), shlex.quote(str(go))
+        codex.behave({**fakeadapter.PASS,
+                      "sh": f"touch {marked}; while [ ! -e {release} ]; do sleep 0.1; done"}, "pass")
         ended = []
         task = taskfile.write(home, rig.path)
         terminal = threading.Thread(target=lambda: ended.append(home.ak("run", str(task), timeout=600)))
