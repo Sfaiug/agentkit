@@ -20,7 +20,7 @@ CHECKOUTS = (".agentkit/wt/", ".agentkit/work/")
 WT, WORK = ".agentkit/wt/20261116-0900-fix-api/", ".agentkit/work/20261116-0930-add-docs/"
 CLONE = ".agentkit/wt/acme-seat/"       # a seat's clone, its git data in itself
 OLD = ".agentkit/wt/20261020-0900-old-fix/"     # this machine's own, a clone the home lacks
-OWN = "code/acme-own/"      # this machine's own repository, outside ak's folder
+OWN = "personal/acme-own/"      # this machine's own repository, outside ak's folder and ~/code
 
 
 def checkouts(machine):
