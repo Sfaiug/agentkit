@@ -260,8 +260,11 @@ func TestCurrentKeepsWhatItsSeriesKeeps(t *testing.T) {
 		// a series: a retired one of it names a release outside, so its current variant goes too
 		aaRow("fade", "fade", "Fade", "", true, "new", 50),
 		aaRow("fade-v", "fade-v", "Fade", "", false, "", 50),
+		// a release with no name is a series alone
+		strings.Replace(aaRow("awl-1", "awl-1", "", "", true, "new", 1), `"name": ""`, `"name": null`, 1),
+		strings.Replace(aaRow("bevel-1", "bevel-1", "", "", false, "", 10), `"name": ""`, `"name": null`, 1),
 	)
-	if got := slugs(Current(boards)); !reflect.DeepEqual(got, []string{"strong", "new", "noindex"}) {
+	if got := slugs(Current(boards)); !reflect.DeepEqual(got, []string{"strong", "new", "bevel-1", "noindex"}) {
 		t.Fatalf("current %v", got)
 	}
 	efforts := Current(boards)[1].Efforts
