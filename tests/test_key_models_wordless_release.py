@@ -58,6 +58,7 @@ class WordlessRelease(unittest.TestCase):
         for name, model in (("  \n", "???"), ("!!!", "~~~"), (7, "7")):
             with self.subTest(name=name):
                 alone = answer(name, None)
+                self.assertTrue(alone["execute"]["choices"], alone)
                 self.assertEqual([row["release"] for row in alone["review"]["choices"]],
                                  ["acme-awl-1", "acme-bevel-1"], alone)
                 self.assertEqual(answer(name, model), alone)
