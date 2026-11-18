@@ -3,8 +3,9 @@ paths: what a seat carrying on from the copy needs of each harness, its logins, 
 and the folders its conversations start from, the rest of that harness's folders this machine's
 own; then ~/code, as rsync copies any folder: every file, a `.git` folder's too, a link as the
 link it is; then ak's folder, but each `.git` folder in it, a clone's own git data, each run's
-scratch, and each name in the runs' folder that is no run on either machine, such as each
-machine's own locks and queues.  Nor does what the home's account cannot read under ~/code and
+scratch, each scratch checkout of the lander's, and each name in the runs' folder that is no run
+on either machine, such as each machine's own locks and queues.  Nor does what the home's
+account cannot read under ~/code and
 ak's checkouts, `wt` and `work`, cross: each folder it cannot list or enter, with all in it, and
 each regular file it cannot read, such as a test stopped before it cleaned up leaves, which would
 fail every pass.  Elsewhere one fails the pass, as any error of rsync's does, in a `.git` folder
@@ -51,8 +52,8 @@ import subprocess
 import sys
 import time
 
-from . import (command_help, config, machine_turn, move, notify, pair_clock, record, terminal,
-               update, versions)
+from . import (command_help, config, land, machine_turn, move, notify, pair_clock, record,
+               terminal, update, versions)
 
 # This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
 # a client of, its ak install and whether its install.sh is owed, the pages it sent and owes
@@ -216,7 +217,11 @@ def _copy(alias, home, copied):
     # rsync keeps a hard link within one transfer alone: a file with names in a run and outside
     # the runs, as a package cache links one into each checkout, crosses as two of the same bytes.
     at = config.PLACES["RUNS"]
+    # A scratch checkout of the lander's is hidden on the home, so one here goes: a check's own,
+    # removed when the check ends, and a takeover's lander checks anew.  On 18 Nov one check's
+    # tests wrote 70 000 files, 920 MB, into one between two passes, half of what a pass sent.
     rules = [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
+             f"--filter=H /{config.WT.relative_to(config.HOME)}/{land.SCRATCH}*/",
              "--filter=-p .git/", *_left_out(unread, config.HOME, config.HOME)]
     names = b"".join(os.fsencode(f"/{at}/{_literal(run)}") + b"\0" for run in runs)
     for args, given in ((["-sR", "--no-implied-dirs", "--ignore-missing-args",

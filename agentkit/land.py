@@ -40,6 +40,7 @@ FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees thi
 # one a killed checker left goes when a checker next starts a pass (`_clear_left`), or with gc a
 # day unused, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
+SCRATCH = "land-"   # in config.WT: how each scratch checkout's name begins (`_scratch`)
 WAKE = 10           # a blamed run waits at most this long once no run it waits on is in line
 BATCH = 2 * 3600    # on a busy host a whole suite waits at most this long for company,
 COMPANY = 3         # and at most this many times its last green check (`gate.green_seconds`):
@@ -389,7 +390,7 @@ def _scratch(repo, commit, opened):
     """A scratch checkout of `commit`, removed when `opened` closes, or None with why not."""
     from . import run
     config.WT.mkdir(parents=True, exist_ok=True)
-    scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix="land-")))
+    scratch = Path(opened.enter_context(tempfile.TemporaryDirectory(dir=config.WT, prefix=SCRATCH)))
     opened.callback(os.close, os.open(scratch, os.O_RDONLY))
     code, out = gitcall.add_worktree(repo, scratch, "--detach", commit, mark=SCRATCH_MARK)
     opened.callback(run.git_out, repo, "worktree", "remove", "--force", str(scratch))
@@ -400,7 +401,7 @@ def _clear_left():
     """Remove each scratch checkout (`_scratch`), of any line, whose checker is gone: a killed
     one removes none of its own (two left 187, about 28 GiB, 10 Nov 2026).  One whose mark names
     no maker yet is gc's."""
-    for scratch in config.WT.glob("land-*"):
+    for scratch in config.WT.glob(f"{SCRATCH}*"):
         code, private = gitcall.git_out(scratch, "rev-parse", "--absolute-git-dir")
         try:
             maker = None if code else json.loads(Path(private, SCRATCH_MARK).read_text())
