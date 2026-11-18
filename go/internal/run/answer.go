@@ -43,12 +43,20 @@ func ProjectAnswer(ctx context.Context, command, checkout string, env []string, 
 func ProjectOutput(ctx context.Context, command, checkout string, env []string, wait time.Duration, what string) ([]byte, string) {
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
+	// a deadline passed ends ctx even before its timer fires (an inherited one's still pending, or
+	// exec giving up on held output first), so the shell neither starts nor answers past it
+	expire := func() {
+		if deadline, _ := ctx.Deadline(); !time.Now().Before(deadline) {
+			cancel()
+		}
+	}
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
 	cmd.Dir, cmd.WaitDelay = checkout, wait // one gone to a session of its own is let go of then
 	cmd.Env = slices.DeleteFunc(slices.Clone(env), func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
 	var out, said bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &said
 	stop := group(cmd)
+	expire()
 	err := cmd.Start()
 	if err == nil {
 		// past the wait its session goes, even once the shell is gone: what it started may still
@@ -62,11 +70,7 @@ func ProjectOutput(ctx context.Context, command, checkout string, env []string, 
 			}
 		}()
 		err = cmd.Wait()
-		// exec gives up on held output only past the wait, at times before the deadline's timer
-		// fires, and then reports the shell's exit or its own giving up: past it, it is no answer
-		if deadline, _ := ctx.Deadline(); !time.Now().Before(deadline) {
-			cancel()
-		}
+		expire()
 	}
 	var exit *exec.ExitError
 	switch {

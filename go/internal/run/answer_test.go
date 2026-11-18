@@ -4,7 +4,9 @@ package run
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -59,5 +61,18 @@ func TestPastTheWaitBeforeItsTimerFiresWhatTheCommandStartedGoesToo(t *testing.T
 		if !stopped.Load() {
 			t.Errorf("%s: what it started still runs past the wait", command)
 		}
+	}
+}
+
+// A deadline already passed starts nothing, even before its timer has said so: the command would
+// make its change after its time was up.
+func TestPastItsDeadlineBeforeItsTimerFiresTheCommandNeverStarts(t *testing.T) {
+	dir := t.TempDir()
+	ctx := unfired{context.Background(), time.Now().Add(-time.Second)}
+	if _, why := ProjectOutput(ctx, "printf started > ran", dir, nil, time.Second, "list"); !strings.HasPrefix(why, "list: no answer in ") {
+		t.Errorf("said %q", why)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ran")); !os.IsNotExist(err) {
+		t.Errorf("the command ran past its deadline: %v", err)
 	}
 }
