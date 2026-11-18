@@ -567,8 +567,9 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
         return pair
     if executor:
         refuse_unready(cfg, providers, executor)
+    offered = config.offered(cfg)   # a spare retired since launch has no meter to name
     reasons = [why for name in (workers if workers is not None else config.workers(cfg))
-               if (why := usage.model_exhausted(cfg, name, providers)[1])]
+               if name in offered and (why := usage.model_exhausted(cfg, name, providers)[1])]
     raise turns.QuotaDry("nothing is left to execute with a legal reviewer"
                          + (": " + "; ".join(dict.fromkeys(reasons)) if reasons else ""))
 
@@ -673,7 +674,8 @@ def exhausted_waits_for(state, providers, cfg=None, workers=None, now=None):
         except (config.Error, KeyError, TypeError, AttributeError):
             return None, None, True
     try:
-        names = {config.model(cfg, name)["provider"] for name in workers}
+        offered = config.offered(cfg)   # a spare retired since launch waits on no window
+        names = {config.model(cfg, name)["provider"] for name in workers if name in offered}
     except (config.Error, KeyError, TypeError, AttributeError):
         return None, None, True
     spent = [provider for provider in names
