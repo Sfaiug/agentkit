@@ -1,5 +1,5 @@
-"""A harness manifest (adapters/<harness>.toml) that is not TOML is refused naming its file, and
-one missing from AGENTKIT_ADAPTER_DIR is read from the checkout's adapters/ instead.
+"""A harness manifest (adapters/<harness>.toml) that is not TOML or not UTF-8 is refused naming
+its file, and one missing from AGENTKIT_ADAPTER_DIR is read from the checkout's adapters/ instead.
 
 Everything ak knows about a harness's screen, models and efforts is in its manifest, so a typo
 there must say which file to fix, as a user error and never a traceback.  A directory of fake
@@ -45,6 +45,9 @@ def shipped_model():
     raise AssertionError("the checkout ships no manifest whose catalog gives efforts")
 
 
+BROKEN = {"not TOML": b"[effort\n", "not UTF-8": b'name = "\xff"\n'}
+
+
 class BrokenManifest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -52,21 +55,25 @@ class BrokenManifest(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         cls.adapters = adapter_dir(cls.home, "adapters")
         cls.manifest = cls.adapters / "echo.toml"
-        cls.manifest.write_text(cls.manifest.read_text() + "[effort\n")
+        cls.good = cls.manifest.read_bytes()
         cls.env = {"AGENTKIT_ADAPTER_DIR": str(cls.adapters)}
 
-    def test_usage_refuses_a_manifest_that_is_not_toml_naming_its_file(self):
-        done = self.home.ak("usage", "--json", env=self.env)
-        self.assertEqual(done.code, 2, done.out)
-        self.assertTrue(done.err.startswith(f"ak usage: {self.manifest}: "), done.err)
-        self.assertNotIn("Traceback", done.err)
-        self.assertEqual(done.out, "")
+    def refused(self, *command, check=lambda done: None):
+        for case, tail in BROKEN.items():
+            with self.subTest(case):
+                self.manifest.write_bytes(self.good + tail)
+                done = self.home.ak(*command, env=self.env)
+                self.assertEqual(done.code, 2, done.out)
+                self.assertTrue(done.err.startswith(f"ak {command[0]}: {self.manifest}: "),
+                                done.err)
+                self.assertNotIn("Traceback", done.err)
+                check(done)
+
+    def test_usage_refuses_a_broken_manifest_naming_its_file(self):
+        self.refused("usage", "--json", check=lambda done: self.assertEqual(done.out, ""))
 
     def test_doctor_refuses_it_the_same_way(self):
-        done = self.home.ak("doctor", env=self.env)
-        self.assertEqual(done.code, 2, done.out)
-        self.assertTrue(done.err.startswith(f"ak doctor: {self.manifest}: "), done.err)
-        self.assertNotIn("Traceback", done.err)
+        self.refused("doctor")
 
 
 class MissingManifest(unittest.TestCase):

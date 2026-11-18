@@ -403,7 +403,7 @@ def _read_toml(path):
         return None
     except OSError as exc:
         raise Error(f"cannot read {path}: {exc}")
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+    except ValueError as exc:   # bad TOML, bad UTF-8, or an integer past Python's digit limit
         raise Error(f"{path}: {exc}")
 
 
@@ -2270,7 +2270,7 @@ def _manifest(harness):
         try:
             with path.open("rb") as fh:
                 data = tomllib.load(fh)
-        except (OSError, tomllib.TOMLDecodeError) as exc:
+        except (OSError, ValueError) as exc:     # as _read_toml: any unparseable file
             raise Error(f"{path}: {exc}")
         _MANIFESTS[path] = (stamp, data)
         return data

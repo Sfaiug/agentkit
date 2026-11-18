@@ -1,7 +1,7 @@
 """An ending reads model policy once, and only when its review decides it: a provider edited
 between two reads made `PASS merged` carry no PR, and a FAIL give a passing run's reason, and a
-config that will not load must leave what a blocked, failed or unneeded run's record says.  Each
-of the three that tell an ending, in process; a seat's look, the one of them `ak` reaches alone,
+config that will not load must leave what a blocked, failed or unneeded run's record says, and
+what a passing one says, whatever the file's fault.  Each of the three that tell an ending, in process; a seat's look, the one of them `ak` reaches alone,
 is tests/test_key_an_ending_reads_one_config.py.
 
 Offline: a temporary HOME (`Sandbox`) whose `config.load` is patched.
@@ -9,6 +9,8 @@ Offline: a temporary HOME (`Sandbox`) whose `config.load` is patched.
 
 import copy
 from itertools import chain, repeat
+import os
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -50,6 +52,26 @@ class EndingReadsConfigOnce(Sandbox):
                     told = said(directory, state)
                     if not (name == "decision_line" and outcome == "not_needed"):   # nothing to decide
                         self.assertIn(why, told, f"{name} of {outcome}")
+
+    def test_a_file_tomllib_cannot_read_leaves_what_the_record_says(self):
+        # past Python's digit limit tomllib raises a bare ValueError, no TOMLDecodeError
+        self.addCleanup(sys.set_int_max_str_digits, sys.get_int_max_str_digits())
+        sys.set_int_max_str_digits(4300)
+        adapters = self.root / "adapters"
+        adapters.mkdir()
+        self.stack.enter_context(patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapters)}))
+        told = ((self.ending("acme-checks", merged=True, checks_only=True, reviewer=None,
+                             review={"executor": "opus", "verdict": "PASS", "returncode": 0,
+                                     "done_when": True, "no_review": True}), "# PASS, merged"),
+                (self.ending("acme-reviewed", error="Saved diagnostic."), "Why: Saved diagnostic"))
+        broken = {config.HOME / config.CONFIG_NAME: b"max_runs = " + b"9" * 4301 + b"\n",
+                  adapters / "acme.toml": b'name = "\xff"\n'}
+        for path, data in broken.items():
+            path.write_bytes(data)
+            for (directory, state), words in told:
+                with self.subTest(path.name, record=directory.name):
+                    self.assertIn(words, handback.result_opening(directory, state))
+            path.unlink()
 
 
 if __name__ == "__main__":
