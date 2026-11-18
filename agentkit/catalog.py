@@ -33,11 +33,17 @@ def _releases(boards):
     return releases
 
 
+def _release_name(rows):
+    """A release's name off its rows; None where the record gives none, or no text."""
+    name = rows[0]["release"]["name"]
+    return name if isinstance(name, str) else None
+
+
 def _release(slug, rows):
     """A release as callers see it: its slug, name and maker, and its efforts weakest first,
     each with its row's slug, whether it is the default and its row's numbers."""
     rows = sorted(rows, key=lambda row: effort_rank(row["effort"]))
-    return {"slug": slug, "name": rows[0]["release"]["name"], "maker": rows[0]["maker"],
+    return {"slug": slug, "name": _release_name(rows), "maker": rows[0]["maker"],
             "efforts": [{"effort": row["effort"], "slug": row["slug"],
                          "default": row["slug"] == slug, "values": dict(row["values"])}
                         for row in rows]}
@@ -45,9 +51,9 @@ def _release(slug, rows):
 
 def _names(name):
     """The forms a name matches as: its letters and digits alone, ignoring case, and so again
-    with each eight-digit date cut to its last four digits; none where it is no text holding a
-    letter or digit, which names nothing: a record may give its release no name, or a number."""
-    if not isinstance(name, str):
+    with each eight-digit date cut to its last four digits; none where it holds no letter or
+    digit, which names nothing."""
+    if not name:
         return set()
     return {"".join(char for char in form.casefold() if char.isalnum())
             for form in (name, DATE.sub(r"\1", name))} - {""}
@@ -118,7 +124,7 @@ def _gone(releases):
     else the ends stay and the others go, to the end when there is exactly one."""
     series = {}
     for slug, rows in releases.items():
-        name = rows[0]["release"]["name"]
+        name = _release_name(rows)
         # a name that names nothing says nothing of which releases are one model's
         series.setdefault((rows[0]["maker"], name) if _names(name) else (slug,), set()).add(slug)
     gone = {}
@@ -146,7 +152,7 @@ def current(boards):
         slug, rows = item
         best = max((row["values"]["aa.intelligenceIndex"] for row in rows
                     if "aa.intelligenceIndex" in row["values"]), default=None)
-        return best is None, -(best or 0), str(rows[0]["release"]["name"])
+        return best is None, -(best or 0), str(_release_name(rows))
     held = _releases(boards)
     gone = _gone(held)
     releases = [_release(slug, rows) for slug, rows in sorted(held.items(), key=strength)
