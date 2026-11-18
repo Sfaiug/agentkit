@@ -152,7 +152,7 @@ def roles(cfg):
             did.setdefault((run, role), (*who[role], set()))[2].add(turn)
     kept = {}
     for run, turn, role, account, model, listed_usd, *counts in _select(
-            f"SELECT run_id, turn, role, account, model, {_kept()}, {', '.join(PRICES)} "
+            f"SELECT run_id, turn, role, account, model, {{kept}}, {', '.join(PRICES)} "
             "FROM turn_usage"):
         kept.setdefault((run, role), []).append((turn, account, model, counts, listed_usd))
     samples = {}
@@ -188,7 +188,7 @@ def _rows(account, since, until):
             "WHERE account = ? AND at >= ? AND at <= ?", account, since, until):
         yield event.split(":", 1)[0], model, tokens, counts, None
     for turn, model, began, at, kept, *counts in _select(
-            f"SELECT turn, model, COALESCE(began, at), at, {_kept()}, {columns} FROM turn_usage "
+            f"SELECT turn, model, COALESCE(began, at), at, {{kept}}, {columns} FROM turn_usage "
             "WHERE account = ? AND at >= ? AND COALESCE(began, at) <= ?", account, since, until):
         share = (min(at, until) - max(began, since)) / (at - began) if at > began else 1
         if not share:   # it only touches the time at an end: none of it was spent then
@@ -196,13 +196,6 @@ def _rows(account, since, until):
         counts =[None if count is None else count * share for count in counts]
         yield (_harness(turn), model, sum(count or 0 for count in counts), counts,
                None if kept is None else kept * share)
-
-
-def _kept():
-    """The column of a turn row's dollars kept, `listed_usd`, or NULL in a history.db no write
-    has added it to yet, as a read connection adds no column."""
-    return ("listed_usd" if ("listed_usd",) in _select(
-        "SELECT name FROM pragma_table_info('turn_usage')") else "NULL")
 
 
 @functools.cache
@@ -288,10 +281,16 @@ def _receipt(turn, name):
 
 
 def _select(query, *args):
-    """What `query` finds in history.db; nothing where it cannot answer, as before a table is."""
+    """What `query` finds in history.db; nothing where it cannot answer, as before a table is.
+    Its `{kept}` is a turn row's dollars kept, `listed_usd`, or NULL in a history.db no write has
+    added it to yet, as a read connection adds no column.  Looked for in the query's own read:
+    a write adding it and a row between a look and the query left that row's dollars unread."""
     try:
         with contextlib.closing(history._connect(readonly=True)) as db:
-            return db.execute(query, args).fetchall()
+            db.execute("BEGIN")     # one snapshot for the look and the query; in WAL no write waits
+            kept = db.execute("SELECT 1 FROM pragma_table_info('turn_usage') "
+                              "WHERE name = 'listed_usd'").fetchone()
+            return db.execute(query.format(kept="listed_usd" if kept else "NULL"), args).fetchall()
     except (OSError, sqlite3.Error):
         return []
 
