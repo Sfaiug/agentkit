@@ -5,6 +5,7 @@ a temporary HOME, git answers from a table, and nothing is really started.
 """
 
 from contextlib import ExitStack
+import json
 import os
 from pathlib import Path
 import sys
@@ -159,9 +160,14 @@ class WaitsForLastingLogins(unittest.TestCase):
         self.assertEqual(self.upgrade_tick(T + 3 * TICK), [])
 
     def test_a_release_a_login_held_before_found_was_recorded_starts_once_it_lasts(self):
-        (config.STATE / "harness-latest.json").write_text('{"acme": {"waits": "2.0.0"}}')
+        (config.STATE / "harness-latest.json").write_text(
+            json.dumps({"acme": {"asked": T - TICK, "waits": "2.0.0"}}))
+        self.write(ends=int(T + 60))
+        self.assertEqual(self.upgrade_tick(T), [waits("acme's upgrade", T + 60)])
+        self.upgrades.assert_not_called()
         self.write(ends=int(T + 86400))
-        self.assertEqual(self.upgrade_tick(T), [UPGRADING])
+        self.assertEqual(self.upgrade_tick(T + TICK), [UPGRADING])
+        self.upgrades.assert_called_once_with("acme")
         self.assertEqual(self.read("asks"), [])
 
     def test_the_margin_follows_the_last_pass_doubled_and_capped(self):

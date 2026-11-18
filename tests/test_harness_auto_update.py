@@ -4,8 +4,9 @@ The tick asks each harness's `[update] latest` at most hourly; one this host has
 the release two asks in a row found is upgraded through `ak update`'s own gated path -- the
 upgrade, both gates, the revert -- while sessions work, one upgrade at a time host-wide.  A
 failed gate puts it back and is said once in the tick's log, and that release is tried again a
-day after its last start, a newer one at the second ask that finds it.  A checkout that is somebody's work holds it unstarted: a half-moved ~/agentkit
-failed a fresh-install gate, and the harness was put back for nothing it did.
+day after its last start, a newer one at the second ask that finds it.  A checkout that is
+somebody's work holds it unstarted: a half-moved ~/agentkit failed a fresh-install gate, and the
+harness was put back for nothing it did.
 
 Offline throughout: `acme` is a fake harness whose manifest, binary and release source live
 under a temporary HOME, the checkout the tick runs from is a throwaway directory holding two
