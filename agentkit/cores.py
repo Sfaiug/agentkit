@@ -69,11 +69,16 @@ def holding(state):
     """[(seat, seconds)] of each seat whose scope the tick's last reading (`tell`) found holding
     a core, `since` when, and how long it had by then, longest first.  A respawn's new scope may
     sit beside its old one: a seat holding a core in both is named once, with the longest."""
-    held = {}
+    launched = {}
     for scope, seen in (state.get("seat_cores") or {}).items():
         if "since" in seen:
-            seat = front.seat_now(front.SEAT_SCOPE.fullmatch(scope)[1])
-            held[seat] = max(held.get(seat, 0), seen["at"] - seen["since"])
+            name = front.SEAT_SCOPE.fullmatch(scope)[1]
+            launched[name] = max(launched.get(name, 0), seen["at"] - seen["since"])
+    held = {}
+    for name, seconds in launched.items():
+        # asked once for a launch name: a rename between two askings named one seat twice
+        seat = front.seat_now(name)
+        held[seat] = max(held.get(seat, 0), seconds)
     return sorted(held.items(), key=lambda seat: -seat[1])
 
 
