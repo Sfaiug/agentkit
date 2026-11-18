@@ -1566,10 +1566,12 @@ def keep_current(log, now=None):
 
     Only the checkout this tick runs from does it, as with `go_live`, so a tick from a
     worktree -- a test's above all -- never upgrades this host's harnesses.  A harness this
-    host has is asked its `[update] latest` at most once an hour; one behind it is upgraded by
-    `background`, one at a time.  A failed gate or install has put the harness back and said
-    so; that release is started again once `RETRY_AFTER` has passed since its last start, and a
-    newer one at once. Its second red in a row, gate or install, is handed back once until its
+    host has is asked its `[update] latest` at most once an hour; one behind the release two
+    asks in a row found is upgraded by `background`, one at a time: a registry names a release
+    before all its packages are there, so the ask that first finds one only records it.  A
+    failed gate or install has put the harness back and said so; that release is started again
+    once `RETRY_AFTER` has passed since its last start, and a newer one at the second ask that
+    finds it.  Its second red in a row, gate or install, is handed back once until its
     gates pass, and the fresh gate's standing faults once (`fresh_standing`), retrying delivery
     on later ticks while no seat can receive it.  A checkout that is somebody's work
     (`left_as_is`) holds it, unstarted, until an ask finds it main again: its gates test that
@@ -1618,13 +1620,15 @@ def keep_current(log, now=None):
                 or not waited and now - entry.get("asked", 0) < ASK_EVERY):
             continue
         installed, newest = version(harness), waited or latest(harness)
-        # behind: both name a release, and the installed one is the lower
-        go = bool(installed) and _downgrade(newest, installed) and (
-            entry.get("tried") != newest or now - entry.get("started", 0) >= RETRY_AFTER)
+        # behind: both name a release, the installed one is the lower, and it is the one a login
+        # holds, which an ask found, or else the one the last ask found
+        go = (bool(installed) and _downgrade(newest, installed)
+              and (waited or entry.get("found")) == newest
+              and (entry.get("tried") != newest or now - entry.get("started", 0) >= RETRY_AFTER))
         held = go and left_as_is()
         waits = go and not held and _waits_for_login(
             "upgrade", f"{name}'s upgrade", margin("live") + margin("fresh"), log, now)
-        asked[name] = {**entry, "asked": now, "waits": newest if waits else "",
+        asked[name] = {**entry, "asked": now, "found": newest, "waits": newest if waits else "",
                        **({"tried": newest, "started": now} if go and not (held or waits) else {})}
         record.write_text(json.dumps(asked))
         if waits:

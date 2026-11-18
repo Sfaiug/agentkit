@@ -72,6 +72,8 @@ class WaitsForLastingLogins(unittest.TestCase):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         config.ensure_dirs()
+        # the ask before each test's first found 2.0.0, so that first tick's ask is the second
+        (config.STATE / "harness-latest.json").write_text('{"acme": {"found": "2.0.0"}}')
         stack.enter_context(patch.object(config, "REPO", root / "agentkit"))
         cfg = {"models": {"acme-model": {"harness": "acme", "provider": "acme"}},
                "providers": {"acme": {}}}
@@ -155,6 +157,12 @@ class WaitsForLastingLogins(unittest.TestCase):
         self.upgrades.assert_called_once_with("acme")
         self.assertEqual(self.read("asks"), ["asked"])      # the hour's one ask found the release
         self.assertEqual(self.upgrade_tick(T + 3 * TICK), [])
+
+    def test_a_release_a_login_held_before_found_was_recorded_starts_once_it_lasts(self):
+        (config.STATE / "harness-latest.json").write_text('{"acme": {"waits": "2.0.0"}}')
+        self.write(ends=int(T + 86400))
+        self.assertEqual(self.upgrade_tick(T), [UPGRADING])
+        self.assertEqual(self.read("asks"), [])
 
     def test_the_margin_follows_the_last_pass_doubled_and_capped(self):
         self.assertEqual((update.margin("live"), update.margin("fresh")),

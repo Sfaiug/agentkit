@@ -1,15 +1,15 @@
 """The tick from ak's own install keeps each harness on its latest release; no other tick does.
 
-A harness the host has is asked its `[update] latest` at most once an hour, and one behind it is
-upgraded in the background, one at a time.  A red puts the harness back and says so, and that
-release starts again once a day has passed since its start, a newer one at once.  A tick from any
-other checkout, a test's above all, neither asks nor upgrades.  Black-box: every tick is
-`AK_BIN watch` itself, through tests/fixtures/akbin.py, in an offline box where HOME/agentkit is
-the checkout the program runs from, a copy of it as it stands mounted over it, or for another
-checkout's tick that copy beside it; claude and codex are fakes keeping their installed release
-and their channel's in files, npm answers for both, and tests/fixtures/akgates.py stands in for
-the gates; an hour or a day goes by as the record of each ask and start is set back.  This test
-fails against `/bin/false`.
+A harness the host has is asked its `[update] latest` at most once an hour, and one behind the
+release two asks in a row found is upgraded in the background, one at a time.  A red puts the
+harness back and says so, and that release starts again once a day has passed since its start, a
+newer one at the second ask that finds it.  A tick from any other checkout, a test's above all,
+neither asks nor upgrades.  Black-box: every tick is `AK_BIN watch` itself, through
+tests/fixtures/akbin.py, in an offline box where HOME/agentkit is the checkout the program runs
+from, a copy of it as it stands mounted over it, or for another checkout's tick that copy beside
+it; claude and codex are fakes keeping their installed release and their channel's in files, npm
+answers for both, and tests/fixtures/akgates.py stands in for the gates; an hour or a day goes by
+as the record of each ask and start is set back.  This test fails against `/bin/false`.
 """
 
 from collections import Counter
@@ -83,8 +83,10 @@ def program():
                      ran.parents[1])
 
 
-@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
-class KeepsHarnessesCurrent(unittest.TestCase):
+class Harnesses:
+    """A TestCase's install, fakes, gates and ticks, as each test of the ticks keeping harnesses
+    current stands on them."""
+
     def setUp(self):
         self.home = home = Home()
         self.addCleanup(home.close)
@@ -166,11 +168,21 @@ class KeepsHarnessesCurrent(unittest.TestCase):
             said += self.tick()
         return said
 
+
+@unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
+class KeepsHarnessesCurrent(Harnesses, unittest.TestCase):
+    def released(self, **latest):
+        """Each channel named moves to its release, which one ask finds and a second, an hour
+        later, finds again: what that second tick said."""
+        self.write(**{f"{name}.latest": release for name, release in latest.items()})
+        self.tick()
+        self.passes(ASK_EVERY)
+        return self.tick()
+
     def red(self):
         """claude 2.2.0 started, failed by its gate and put back: what the ticks said."""
-        self.write(**{"claude.latest": "2.2.0"})
         self.gates.exit("live", 1)
-        said = self.tick()
+        said = self.released(claude="2.2.0")
         self.assertIn(starts("claude", "2.1.0", "2.2.0"), said)
         said += self.told("claude")
         self.gates.reset()
@@ -188,8 +200,8 @@ class KeepsHarnessesCurrent(unittest.TestCase):
         self.assertEqual(self.installs(), [])
 
     def test_one_behind_is_upgraded_in_the_background_one_at_a_time(self):
-        self.write(hold="", **{"claude.latest": "2.2.0", "codex.latest": "0.2.0"})
-        said = self.tick()
+        self.write(hold="")
+        said = self.released(claude="2.2.0", codex="0.2.0")
         self.assertIn(starts("claude", "2.1.0", "2.2.0"), said)
         self.assertNotIn(starts("codex", "0.1.0", "0.2.0"), said)
         deadline = time.monotonic() + 120
@@ -207,7 +219,7 @@ class KeepsHarnessesCurrent(unittest.TestCase):
                                            "npm i -g @openai/codex@latest"])
         self.assertEqual((self.installed("claude"), self.installed("codex")),
                          ("2.2.0 (Claude Code)", "0.2.0"))
-        self.assertEqual(self.asks(), {"claude": 1, "codex": 1})
+        self.assertEqual(self.asks(), {"claude": 2, "codex": 2})
 
     def test_a_red_is_put_back_and_said(self):
         said = self.red()
@@ -220,18 +232,17 @@ class KeepsHarnessesCurrent(unittest.TestCase):
         self.red()
         self.passes(RETRY_AFTER - ASK_EVERY)
         self.tick()
-        self.assertEqual(self.asks()["claude"], 2)
+        self.assertEqual(self.asks()["claude"], 3)
         self.assertEqual(len(self.installs()), 2)
         self.passes(ASK_EVERY)
         self.assertIn(starts("claude", "2.1.0", "2.2.0"), self.tick())
         self.told("claude")
         self.assertEqual(self.installed("claude"), "2.2.0 (Claude Code)")
 
-    def test_a_newer_release_starts_at_once_after_a_red(self):
+    def test_a_newer_release_starts_at_its_second_ask_after_a_red(self):
         self.red()
-        self.write(**{"claude.latest": "2.3.0"})
         self.passes(ASK_EVERY)
-        self.assertIn(starts("claude", "2.1.0", "2.3.0"), self.tick())
+        self.assertIn(starts("claude", "2.1.0", "2.3.0"), self.released(claude="2.3.0"))
         self.told("claude")
         self.assertEqual(self.installed("claude"), "2.3.0 (Claude Code)")
 
@@ -239,9 +250,9 @@ class KeepsHarnessesCurrent(unittest.TestCase):
         self.write(**{"claude.latest": "2.2.0", "codex.latest": "0.2.0"})
         self.tick(own=False)
         self.assertEqual((self.asks(), self.installs()), (Counter(), []))
-        # the install's own tick, on the same home, does both
-        self.assertIn(starts("claude", "2.1.0", "2.2.0"), self.tick())
-        self.assertEqual(self.asks(), {"claude": 1})
+        # the install's own ticks, on the same home, do both
+        self.assertIn(starts("claude", "2.1.0", "2.2.0"), self.released())
+        self.assertEqual(self.asks(), {"claude": 2, "codex": 1})
 
 
 if __name__ == "__main__":

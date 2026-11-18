@@ -146,6 +146,8 @@ class HarnessLatest(unittest.TestCase):
         start.assert_not_called()                   # on the channel's build: nothing to do
         self.write(answer=MUSE_CHANNEL % ("1.4.1-R4600.1", "1.4.1-R4600.1"))
         update.keep_current(lambda line: None, now=1_000_000.0 + update.ASK_EVERY)
+        start.assert_not_called()                   # found first: started at the next ask
+        update.keep_current(lambda line: None, now=1_000_000.0 + 2 * update.ASK_EVERY)
         start.assert_called_once_with("muse")
 
 
