@@ -39,8 +39,8 @@ def opened(screen, name):
 
 def bar(name):
     """A test of a seat's screen: its bar names `name` and its line two holds both tasks'
-    squares, one building and one in review, after its crew."""
-    two = re.compile(rf"^ *{re.escape(CREW)}   ■□□  ■■□ +{re.escape(KEY)}$")
+    squares, one building and one in review, before its crew."""
+    two = re.compile(rf"^ *■□□  ■■□   {re.escape(CREW)} +{re.escape(KEY)}$")
 
     def holds(screen):
         lines = ["", *screen.rstrip("\n").split("\n")]

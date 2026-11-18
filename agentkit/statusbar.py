@@ -10,9 +10,9 @@ lets it be.  Its right end, while another seat on ak's own server needs you, say
 the left part the line narrows, then it folds to `! 2 need you`, and only then is the left part
 cut.  Line two shows what the seat needs you for where its chat cannot: an expired login, a
 parked run, a failed move.  Its question is the chat's last message or card, so there line two
-is who builds and who reviews, and each task in flight as its squares
-(`whys`), with the one key at its right end, `Ctrl-b m  menu`, whatever the seat's word: the
-bar is in the seat, where `x` is a letter typed.  It never moves: the seat is where the owner reads and types.
+is each task in flight as its squares, then who builds and who reviews (`whys`), with the one
+key at its right end, `Ctrl-b m  menu`, whatever the seat's word: the bar is in the seat, where
+`x` is a letter typed.  It never moves: the seat is where the owner reads and types.
 
 The bar is in the theme in force as it is drawn (`layout`), as a screen is, never tmux's green:
 its text on the theme's surface, a state's chip on its colour, so each write after `c` chooses
@@ -53,9 +53,9 @@ CLICK = ("bind-key", "-n", "MouseDown1StatusRight", "if-shell", "-F", "#{E:" + H
 CELLS = 36                         # a working seat's progress line and its count
 BARS = (CELLS, 2 * CELLS // 3, CELLS // 3)   # ... and narrower, where line one is short of room
 TOPS = (TOP, *(f"{TOP}{n}" for n in range(1, len(BARS))))   # line one's left part at each
-# Line two: who builds and reviews and every task's squares, then the squares cut to six, then
-# the squares alone, then cut to six, then to one (`whys`).
-WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 5)))
+# Line two: every task's squares and who builds and reviews, then those squares alone; again
+# with them cut to six, then to one (`whys`).
+WHYS = (WHY, *(f"{WHY}{n}" for n in range(1, 6)))
 
 
 def _cut(option, room):
@@ -78,24 +78,25 @@ def _line_one():
     return found
 
 
-def _first_fitting(options, room):
-    """The first of `options` whose text fits in `room` cells, drawn whole, else the last cut
-    to it."""
-    found = _cut(options[-1], room)
-    for option in reversed(options):
-        found = "#{?#{e|<=:#{w:" + option + "}," + room + "},#{" + option + "}," + found + "}"
-    return found
+def _line_two():
+    """Line two a space short of the key, so the key stays whole on every client, a phone's
+    included: the most squares that fit, then the crew -- whole where it fits, else cut where
+    the three cells after the squares and one of its own fit, so its `…` never reads as a cut
+    square, else not drawn; the fewest squares cut where not even they fit."""
+    room = "#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}"
+    found = _cut(WHYS[-1], room)
+    for crewed, alone in reversed(list(zip(WHYS[::2], WHYS[1::2]))):
+        found = ("#{?#{e|<=:#{w:" + crewed + "}," + room + "},#{" + crewed + "},"
+                 "#{?#{e|<:#{e|+:#{w:" + alone + "},3}," + room + "}," + _cut(crewed, room) + ","
+                 "#{?#{e|<=:#{w:" + alone + "}," + room + "},#{" + alone + "}," + found + "}}}")
+    return "#[align=left]" + found + " #[align=right]#{" + KEY + "}"
 
 
 # Each line as tmux draws it from those options, cut with one `…` where it would run off the
-# client drawing it -- line one's (`_line_one`) beside the other seats; line two's the first
-# version that fits a space short of the key, so the key stays whole on every client, a phone's
-# included.  tmux cuts by cells and steps over the styles.  An option is drawn as it is and never
-# expanded again, so its doubled `#` is one escape: a second pass would halve `##` again and
-# draw `## heading` as `# heading`.
-FORMATS = (_line_one(),
-           "#[align=left]" + _first_fitting(WHYS, "#{e|-:#{client_width},#{e|+:#{w:" + KEY + "},2}}")
-           + " #[align=right]#{" + KEY + "}")
+# client drawing it (`_line_one`, `_line_two`).  tmux cuts by cells and steps over the styles.
+# An option is drawn as it is and never expanded again, so its doubled `#` is one escape: a
+# second pass would halve `##` again and draw `## heading` as `# heading`.
+FORMATS = (_line_one(), _line_two())
 
 
 def layout():
@@ -144,20 +145,19 @@ def lines(name, model, word=None, last="", why=""):
 
 
 def whys(info):
-    """Line two, one version for each of `WHYS`: a needs-you reason no chat shows, otherwise
-    who builds and reviews (`menu.crew`) and every task's squares (`menu.squares`), then cut to
-    six, then the squares alone, then cut to six, then to one and the count of the rest, so a
-    narrow client still sees its tasks; as tmux text.  A question is not repeated: a stop shows
-    `needs you` only once it is the agent's last message, or its card is up (owner, 23 Oct
-    2026: "if we dont need it, lets remove it")."""
+    """Line two, one version for each of `WHYS`, as tmux text: a needs-you reason no chat shows,
+    alone; otherwise every task's squares (`menu.squares`), then who builds and reviews
+    (`menu.crew`), then those squares alone -- and again with them cut to six, then to one and
+    the count of the rest, so a narrow client still sees its tasks (`_line_two`).  The owner
+    picked the squares first, 17 Nov 2026.  A question is not repeated: a stop shows `needs
+    you` only once it is the agent's last message, or its card is up (owner, 23 Oct 2026: "if
+    we dont need it, lets remove it")."""
     if info.get("word") == "needs you" and not info.get("question"):
         return [orch.tmux_text(terminal.plain(info.get("sentence") or ""))] * len(WHYS)
-    who, tasks = menu.crew(info, tmux=True), info.get("tasks") or []
-    if not tasks:
-        return [who] * len(WHYS)
+    crew, tasks = menu.crew(info, tmux=True), info.get("tasks") or []
     every, few, least = (menu.squares(tasks, tmux=True, most=most) for most in (None, 6, 1))
-    return [f"{who}   {every}" if who else every, f"{who}   {few}" if who else few,
-            every, few, least]
+    return [version for squares in (every, few, least)
+            for version in ("   ".join(filter(None, (squares, crew))), squares)]
 
 
 def sessions():

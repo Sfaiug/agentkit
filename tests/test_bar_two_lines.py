@@ -3,8 +3,8 @@
 Line one: its word as a chip, on its colour in the text that reads on it, bold for `! needs you`
 -- the seat's name in bold, the model that orchestrates it, muted, and its progress
 line.  Line two: what needs you that no chat shows (an expired login, a parked run); otherwise
-who builds and who reviews and each task in flight as its squares, the key at its right end, dim,
-its word muted.  Both stand on the theme's surface, and what tmux draws of its own in the seat
+each task in flight as its squares, then who builds and who reviews, the key at its right end,
+dim, its word muted.  Both stand on the theme's surface, and what tmux draws of its own in the seat
 is in the theme too, each in the one in force as the bar is written.
 A question is the chat's last message or card, so line two never repeats it.
 The height is two on every write, so a seat dressed with one line gets its second at its next
@@ -113,9 +113,8 @@ class TwoLines(Sandbox):
         bar = menu.last_column("working", 2, 5, statusbar.CELLS, tmux=True)
         self.assertTrue(top.endswith(f"Fable 5.1 xhigh#[default]   {bar}"), top)
         self.assertEqual(drawn(top), f"  ● working    fix-api   Fable 5.1 xhigh   {drawn(bar)}")
-        # line two is its row's open line: who builds and reviews, and its task building
-        self.assertEqual(drawn(self.options[statusbar.WHY]),
-                         f"  {CREW}   ■□□")
+        # line two is its task building, then its row's open line: who builds and reviews
+        self.assertEqual(drawn(self.options[statusbar.WHY]), f"  ■□□   {CREW}")
         self.assertNotIn("going", self.options[statusbar.WHY])      # never a task's name
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api · working")
@@ -132,6 +131,7 @@ class TwoLines(Sandbox):
 
     def test_c1_what_needs_you_outside_the_chat_is_line_two_at_every_width(self):
         reason = "GitHub is logged out: run `gh auth login -p https -w`"
+        self.going()        # no squares a client keeps over it
         statusbar.redress(self.seat, {"word": "needs you", "reason": reason}, cfg=self.cfg)
         for option in statusbar.WHYS:
             self.assertEqual(drawn(self.options[option]), f"  {reason}")
