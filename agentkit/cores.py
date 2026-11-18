@@ -15,7 +15,7 @@ import os
 from pathlib import Path
 import time
 
-from . import config, front, host, orch, watch
+from . import front, host, orch, watch
 
 # Of a core: a wait that polls hard, reading a long log every second or two between short
 # sleeps, holds 0.5 to 0.8 for hours, while on 18 Nov 2026 the busiest of 19 seats at work used
@@ -76,18 +76,23 @@ def tell(state, log):
 
 def holding(state):
     """[(seat, seconds)] of each seat whose scope the tick's last reading (`tell`) found holding
-    FLOOR of a core, `since` when, and how long it had by then, longest first.  A seat holding it
-    in several scopes (a respawn's beside its old one) is named once, with the longest: each
-    keeps the name its seat launched under, and all are asked at once for the names their seats
-    go by now (`config.resolve_sessions`), as a rename between two askings named one seat twice."""
-    launched = {}
+    FLOOR of a core, `since` when, and how long it had by then, longest first.  A respawn's new
+    scope may sit beside its old one: a seat holding it in both is named once, with the longest."""
+    held = {}
     for scope, seen in (state.get("seat_cores") or {}).items():
         if "since" in seen:
             name = front.SEAT_SCOPE.fullmatch(scope)[1]
-            launched[name] = max(launched.get(name, 0), seen["at"] - seen["since"])
-    now, held = config.resolve_sessions(launched), {}
-    for name, seconds in launched.items():
-        held[now[name]] = max(held.get(now[name], 0), seconds)
+            held[name] = max(held.get(name, 0), seen["at"] - seen["since"])
+    # A scope keeps the name its seat launched under.  Each launch name is asked once for the
+    # name its seat goes by now, as a rename between two askings named one seat twice.  One
+    # between two names' askings did too, so the names found are asked once more: a rename's old
+    # name and its new one then both lead to the new one, and names found to be one seat's stay
+    # one row, whatever the files under them hold by then.
+    for _ in range(2):
+        names, held = held, {}
+        for name, seconds in names.items():
+            seat = front.seat_now(name)
+            held[seat] = max(held.get(seat, 0), seconds)
     return sorted(held.items(), key=lambda seat: -seat[1])
 
 
