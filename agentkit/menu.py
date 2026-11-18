@@ -3876,11 +3876,14 @@ def models_why(found, role, row, kept, unit, weeks):
     choices; and why each model is none (WHYS): under `shaded` each the bars of `kept` draw
     shaded at this width (models_standing), in their order, under `not shown` the rest of its
     `others`, in theirs; a page leaving its values no cell beside it folds each under its label,
-    two cells in.  Only a model's name is cut."""
-    room = terminal.layout_width() - 2
+    two cells in.  The page's margin and that fold are two cells where that leaves a line a
+    cell, else as many as do.  Only a model's name is cut."""
+    margin = min(2, terminal.layout_width() - 1)
+    room = terminal.layout_width() - margin
     width = terminal.cells("not shown")     # the design's label column: its widest label
     fold = room - width - 2 < 1
-    values = room - 2 if fold else room - width - 2
+    indent = min(2, room - 1) if fold else width + 2       # the cells before a value
+    values = room - indent
     # the best choice, else, with nothing priced to choose among, the best rated row
     top = max(found["choices"] or found["rated"], key=lambda one: one["quality"])
     measures = {column: one for column, *_ in quality.ROLES[role]
@@ -3928,11 +3931,11 @@ def models_why(found, role, row, kept, unit, weeks):
             hang = 2 * (label in kinds)
             flowing = [line for part in parts for line in flowed(part, values, hang)]
             if fold:
-                lines += terminal.wrap(label, room) + ["  " + line for line in flowing]
+                lines += terminal.wrap(label, room) + [" " * indent + line for line in flowing]
             else:
                 lines += [f"{terminal.pad(label if n == 0 else '', width)}  {line}"
                           for n, line in enumerate(flowing)]
-    return ["  " + line if line else line for line in lines]
+    return [" " * margin + line if line else line for line in lines]
 
 
 @terminal.clicks_its_own

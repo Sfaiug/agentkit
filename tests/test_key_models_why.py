@@ -313,6 +313,15 @@ class ModelsWhy(unittest.TestCase):
         self.assertEqual(why[why.index("    most"):why.index("    most") + 3],
                          ["    most", "  not shown", "    Hol…"])
 
+    def test_on_4_cells_each_value_folds_as_far_in_as_leaves_it_a_cell(self):
+        # the margin's two cells leave the fold one: two would push each value cell past the
+        # edge, onto a row of its own
+        self.write(TWO, ["crux"])
+        term = self.models()
+        self.why(term)
+        term.resize(4, 60)
+        term.wait("\n  qu\n  al\n  it\n  y\n   9\n   3\n   .\n   2\n   g\n   i\n   v\n")
+
     def test_an_others_line_that_wraps_hangs_under_its_first_line(self):
         self.write(TWO[:-1], ["crux"])          # no Holm 1: two others, both shaded
         # each first line where `choices`'s value starts, `not shown` as wide, the rest two
