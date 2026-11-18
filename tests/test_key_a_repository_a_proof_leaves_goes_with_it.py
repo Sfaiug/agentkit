@@ -90,6 +90,27 @@ class ABeforePathInsideAProofsRepositoryStays(unittest.TestCase):
             self.assertFalse((wt / "proof-clone").exists())
             self.assertIn("probe_checkout", state)
 
+    def test_a_proofs_file_in_a_kept_repository_where_the_branch_has_one_ends_the_run_in_error(self):
+        """The owner, 18 Nov 2026: left as it is; the error goes to the run's seat."""
+        proof = "test -f lib/kept.txt && echo probe > lib/a.txt && false"
+        review = {"final": "One defect.", "hand_in": [
+            ["finding", "existing.txt:1", "old defect", "it matters later", "--run", proof],
+            ["done"]]}
+        with Home() as home:
+            rig = Rig(home, "widgets", files={"existing.txt": "before\n"})
+            akconfig.write(home, ["opus", "astra"])
+            fakeadapter.install(home, claude={**WORK, "write": {**WORK["write"], "lib/a.txt": "a\n"}},
+                                codex=review)
+            task = taskfile.write(home, rig.path, "Add retry file", done_when=(
+                "test -d lib/.git || git init -q lib; echo kept > lib/kept.txt && test -f retry.txt",))
+            done = home.ak("run", str(task), "--no-merge", timeout=300)
+            state = json.loads((taskfile.only_run(home) / "run.json").read_text())
+            wt = Path(state["worktree"])
+            self.assertNotEqual(done.code, 0)
+            self.assertEqual((wt / "lib/kept.txt").read_text(), "kept\n")
+            self.assertTrue((wt / "lib/.git").is_dir())
+            self.assertIn("probe_checkout", state)
+
     def test_a_file_a_proof_put_where_a_before_directory_was_goes(self):
         proof = "test -f out/a.txt && rm -rf out && echo x > out && false"
         review = {"final": "One defect.", "hand_in": [
