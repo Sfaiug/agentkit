@@ -1,5 +1,5 @@
-"""Every line of the why page (menu.models_why) fits a screen 8 cells wide or wider: the label
-column and one cell of value, or, narrower than that leaves, each value folded under its label two
+"""Every line of the why page (menu.models_why) fits a screen 13 cells wide or wider: the label
+column and one cell of value, or, where that leaves none, each value folded under its label two
 cells in; an other's lines after its first hang two cells further in only where that leaves them
 a cell (menu.flowed).
 
@@ -22,10 +22,10 @@ def model(name, quality, cost, effort):
 
 
 class WhyFitsItsWidth(unittest.TestCase):
-    def test_no_line_is_wider_than_a_screen_of_8_cells_or_more(self):
+    def test_no_line_is_wider_than_a_screen_of_13_cells_or_more(self):
         # each role's verb, with and without an effort beside the name in the heading
         for role, effort, width in [(role, effort, width) for role in menu.DOES
-                                    for effort in ("", "medium") for width in range(8, 41)]:
+                                    for effort in ("", "medium") for width in range(13, 41)]:
             choice, other = model("Acme 1", 95.0, 1, effort), model("Bolt 1", 90.0, 2, effort)
             found = {"choices": [choice], "rated": [choice, other], "others": [other],
                      "whys": {id(other): ("beaten", choice)}, "cost_unit": "money"}

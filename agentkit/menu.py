@@ -3929,11 +3929,12 @@ def models_why(found, role, row, kept, unit, weeks):
             by=by and priced(by), apart=points(matrix.APART), below=f"{below(one):.1f}",
             places=number(matrix.PLACES))
     behind, cost = below(row), cost_said(found, row, unit)
-    # the bars with a why are the shaded ones
+    # the bars with a why are the shaded ones; a kind with none goes unsaid
     bars = [one for one, _ in models_standing(found, kept, unit)[1]]
     drawn = {id(one) for one in bars}
-    kinds = {"shaded": [[why(one)] for one in bars if id(one) in found["whys"]],
-             "not shown": [[why(one)] for one in found["others"] if id(one) not in drawn]}
+    kinds = {label: whys for label, whys in [
+        ("shaded", [[why(one)] for one in bars if id(one) in found["whys"]]),
+        ("not shown", [[why(one)] for one in found["others"] if id(one) not in drawn])] if whys}
     said = [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
                                                    f"{number(counted)} benchmarks"],
                          [", ".join(scored(column, one) for column, one in measures.items())],

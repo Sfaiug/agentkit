@@ -290,6 +290,24 @@ class ModelsWhy(unittest.TestCase):
         self.write(TWO, ["crux"])
         self.assertEqual(self.why(self.models(22))[:3], ["  why Crux 2 low", "  orchestrates", ""])
 
+    def test_on_13_cells_each_value_folds_under_its_label_two_cells_in(self):
+        # the label column leaves its values no cell beside it; none of its bars shades
+        self.write(TWO, ["crux"])
+        term = Terminal(self.home, size=(13, 120), env=ENV)
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
+                        server=SERVER)
+        term.wait("esc leave")
+        term.keys("c")
+        term.wait("r recommend")
+        term.keys("r")
+        term.wait(f"\n  comparing\n  all {self.releases}\n  models\n")    # the answer drawn
+        why = self.why(term)
+        self.assertEqual(why[why.index("  cost"):why.index("  choices")], [
+            "  cost", "    ≈$1.00 a", "    task", "    its board", "    price", "    alone: no",
+            "    task of", "    yours", "    priced a", "    model", ""])
+        self.assertEqual(why[why.index("    most"):why.index("    most") + 3],
+                         ["    most", "  not shown", "    Hol…"])
+
     def test_an_others_line_that_wraps_hangs_under_its_first_line(self):
         self.write(TWO[:-1], ["crux"])          # no Holm 1: two others, both shaded
         # each first line where `choices`'s value starts, `not shown` as wide, the rest two
