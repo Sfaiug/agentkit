@@ -279,9 +279,10 @@ func TestAnotherBoardsRowJoinsTheReleaseItNames(t *testing.T) {
 		aaRow("acme-7-0902", "acme-7-0902", "Acme 7 0902", "", false, "", 70),
 		aaRow("bolt-3-max", "bolt-3", "Bolt 3", "max", false, "", 60),
 		aaRow("bolt-3-low", "bolt-3", "Bolt 3", "low", false, "", 55),
-		// releases with no name, which no other board's row names
+		// releases with no name, or one of no letter or digit, which no other board's row names
 		aaRow("awl-1", "awl-1", "", "", false, "", 50),
 		strings.Replace(aaRow("bevel-1", "bevel-1", "", "", false, "", 40), `"name": ""`, `"name": null`, 1),
+		aaRow("cask-1", "cask-1", " \t", "", false, "", 30),
 	)
 	other := func(model, effort string, values string) any {
 		word := "null"
@@ -314,6 +315,7 @@ func TestAnotherBoardsRowJoinsTheReleaseItNames(t *testing.T) {
 		"bolt-3/low":   `{"aa.intelligenceIndex": 55}`,
 		"awl-1/":       `{"aa.intelligenceIndex": 50}`,
 		"bevel-1/":     `{"aa.intelligenceIndex": 40}`,
+		"cask-1/":      `{"aa.intelligenceIndex": 30}`,
 	} {
 		if values[at] != want {
 			t.Errorf("%s: %s, want %s", at, values[at], want)
