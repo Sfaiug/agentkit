@@ -59,7 +59,9 @@ def _listed(ours, prices, account, since, until):
         priced += tokens or 0
     if not found:
         return None
-    return dollars + (unpriced * dollars / priced if priced else 0.0)
+    # the tokens' ratio first: dollars near a float's largest times tokens overflow where the
+    # estimate does not
+    return dollars + (dollars * (unpriced / priced) if priced else 0.0)
 
 
 def weeks(cfg, meters, windows):
