@@ -37,7 +37,8 @@ func (db *DB) share(id any, name string, session any, totals bool, began float64
 		when, _ := row.Num("began")
 		if theirs && when < began {
 			sum := kept[row["model"]]
-			for kind, count := range countsOf(row) {
+			numbers, _ := countsOf(row)
+			for kind, count := range numbers {
 				sum[kind] += count
 			}
 			kept[row["model"]] = sum
@@ -53,29 +54,41 @@ func (db *DB) share(id any, name string, session any, totals bool, began float64
 			}
 		}
 	}
+	if later == "" {
+		return nil
+	}
+	theirs := map[any][4]int64{} // the later total's counts by model, of a row knowing each
 	for _, row := range rows {
-		for _, each := range counts {
-			was, left := countsOf(row), [4]int64{}
+		if numbers, known := countsOf(row); known && row.Text("turn") == later {
+			theirs[row["model"]] = numbers
+		}
+	}
+	for _, each := range counts {
+		// a row with a count unknown keeps it unknown and stays unpriced, as spend prices no such row
+		var dollars any
+		if left, known := theirs[each.Model]; known {
 			for kind := range left {
-				left[kind] = max(0, was[kind]-each.Spent[kind])
+				left[kind] = max(0, left[kind]-each.Spent[kind])
 			}
-			if row.Text("turn") != later || !run.Equal(row["model"], each.Model) || left == was {
-				continue
-			}
-			if err := db.exec("UPDATE turn_usage SET input=?, cache_write=?, cache_read=?, output=?, listed_usd=? WHERE turn=? AND model IS ?",
-				left[0], left[1], left[2], left[3], price(each.Model, left), later, each.Model); err != nil {
-				return err
-			}
+			dollars = price(each.Model, left)
+		}
+		if err := db.exec("UPDATE turn_usage SET (input, cache_write, cache_read, output, listed_usd) = (MAX(0, input-?1), "+
+			"MAX(0, cache_write-?2), MAX(0, cache_read-?3), MAX(0, output-?4), ?7) WHERE turn=?5 AND model IS ?6 AND "+
+			"(input, cache_write, cache_read, output) IS NOT (MAX(0, input-?1), MAX(0, cache_write-?2), MAX(0, cache_read-?3), MAX(0, output-?4))",
+			each.Spent[0], each.Spent[1], each.Spent[2], each.Spent[3], later, each.Model, dollars); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-// countsOf is a turn_usage row's counts by kind.
-func countsOf(row Row) [4]int64 {
+// countsOf is a turn_usage row's counts by kind, an unknown one 0, and whether it knows each.
+func countsOf(row Row) ([4]int64, bool) {
 	var counts [4]int64
+	known := true
 	for kind, column := range []string{"input", "cache_write", "cache_read", "output"} {
-		counts[kind], _ = row[column].(int64)
+		count, ok := row[column].(int64)
+		counts[kind], known = count, known && ok
 	}
-	return counts
+	return counts, known
 }
