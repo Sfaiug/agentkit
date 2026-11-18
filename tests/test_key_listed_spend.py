@@ -4,11 +4,12 @@ it spent over the last seven days at listed prices, null where none of its rows 
 Each of the login's token rows in history.db, a seat's in `seat_usage` and a worker turn's in
 `turn_usage`, is priced per type at its model's prices on Artificial Analysis's board, those of
 its release's default effort, a cache price the release lists none of at its input price, a
-release the board gives no name found by its slug, though another nameless one of its maker's
-retires.  A row whose model lists no price, whose counts are unknown or whose cost no float holds
-costs what the login's priced rows cost a token.  A seat row is its login's under the provider of
-the harness its event names, a turn row under the provider of the harness its turn's `harness`
-receipt names; a harness running two providers' models is neither's.
+release the board gives no name, or one of no letter or digit, found by its slug, though another
+so named one of its maker's retires.  A row whose model lists no price, whose counts are unknown
+or whose cost no float holds costs what the login's priced rows cost a token.  A seat row is its
+login's under the provider of the harness its event names, a turn row under the provider of the
+harness its turn's `harness` receipt names; a harness running two providers' models is
+neither's.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py on
 tests/fixtures/meters.py's harness, copied as `chime` and `drum`, with an invented board and
@@ -127,19 +128,23 @@ class ListedSpend(unittest.TestCase):
         self.assertAlmostEqual(spent["acme", "default"], 3 + 1 + 2 + 1)
         self.assertIsNone(spent["acme", "second"])
 
-    def test_a_release_the_board_gives_no_name_is_priced_by_its_slug(self):
+    def test_a_release_the_board_names_nothing_is_priced_by_its_slug(self):
         held = board()
-        held["artificialanalysis.ai"]["rows"] += [
-            {"model": "Bevel 1", "effort": None, "maker": "Acme", "deprecated": False,
-             "slug": "bevel-1", "values": {COLUMNS["input"]: 3, COLUMNS["output"]: 6},
-             "release": {"slug": "bevel-1", "name": None, "deprecatedTo": None}},
-            {"model": "Chisel 0", "effort": None, "maker": "Acme", "deprecated": True,
-             "slug": "chisel-0", "values": {COLUMNS["input"]: 3, COLUMNS["output"]: 6},
-             "release": {"slug": "chisel-0", "name": None, "deprecatedTo": "awl-1"}}]
+        # no name, or one of no letter or digit, that a retired release of its maker also has
+        for name, current, retired in ((None, "bevel-1", "chisel-0"),
+                                       (" ... ", "dowel-1", "cask-0")):
+            held["artificialanalysis.ai"]["rows"] += [
+                {"model": current, "effort": None, "maker": "Acme", "deprecated": False,
+                 "slug": current, "values": {COLUMNS["input"]: 3, COLUMNS["output"]: 6},
+                 "release": {"slug": current, "name": name, "deprecatedTo": None}},
+                {"model": retired, "effort": None, "maker": "Acme", "deprecated": True,
+                 "slug": retired, "values": {COLUMNS["input"]: 3, COLUMNS["output"]: 6},
+                 "release": {"slug": retired, "name": name, "deprecatedTo": "awl-1"}}]
         self.home.write(".agentkit/state/boards.json", held)
         self.seat("echo", "default", "anvil-1", (1_000_000, 0, 5_000_000, 0))   # 3
         self.seat("echo", "default", "bevel-1", (1_000_000, 0, 0, 1_000_000))   # 9
-        self.assertAlmostEqual(self.spent()["acme", "default"], 3 + 9)
+        self.seat("echo", "default", "dowel-1", (1_000_000, 0, 0, 1_000_000))   # 9
+        self.assertAlmostEqual(self.spent()["acme", "default"], 3 + 9 + 9)
 
     def test_a_row_whose_cost_no_float_holds_costs_the_logins_average_a_token(self):
         self.seat("echo", "default", "anvil-1", (1_000_000, 0, 5_000_000, 0))   # 3
