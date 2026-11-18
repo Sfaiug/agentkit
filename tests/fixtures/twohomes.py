@@ -5,7 +5,7 @@ reaches every machine by its name and fails as ssh does, 255, for any other.  `h
 machine's HOME at another path in its root, as a Mac's is under /Users.  Each has ak's
 install (tests/fixtures/akinstall.py), `install`, and runs its ak: ~/agentkit, a clone of one bare
 origin, which all machines share and no machine is, so it answers while any is off; that `ssh`
-serves git's fetch of it too.
+serves git's fetch of it, and its push, too.
 
     from fixtures.twohomes import Machines
     with Machines("acme-mini", "acme-vm") as (mini, vm):
@@ -44,7 +44,7 @@ import threading
 from pathlib import Path
 
 from .akbin import _FILES, AK, REPO, SYSTEM, Home, _binds, _end, _strays, _wait_gone
-from .akinstall import FETCH, Install, make
+from .akinstall import FETCH, PUSH, Install, make
 from .installer import CRONTAB
 
 # ssh [-o OPTION | -FLAG]... NAME [COMMAND]...: NAME and COMMAND, a line however long, to the
@@ -199,9 +199,9 @@ def _sshd(listener, machines):
 
 
 def _session(peer, machines):
-    """Run what an ssh asks on the machine it names, or git's fetch of the origin on this side,
-    with its input and outputs, and answer its exit; an ssh gone before it ends ends it, as sshd
-    does."""
+    """Run what an ssh asks on the machine it names, or git's fetch or push of the origin on this
+    side, with its input and outputs, and answer its exit; an ssh gone before it ends ends it, as
+    sshd does."""
     with peer:
         asked, fds, _, _ = socket.recv_fds(peer, 1 << 16, 3)
         proc = hung = None
@@ -213,8 +213,9 @@ def _session(peer, machines):
                 asked += more
             name, command = json.loads(asked)
             machine = next((machine for machine in machines if machine.name == name), None)
-            if (name, command) == FETCH:
-                proc = subprocess.Popen(["git-upload-pack", machines[0].install.bare],
+            if (name, command) in (FETCH, PUSH):    # as GitHub runs it, where its repositories are
+                proc = subprocess.Popen(shlex.split(command),
+                                        cwd=machines[0].install.bare.parents[1],
                                         stdin=fds[0], stdout=fds[1], stderr=fds[2],
                                         env={"PATH": os.pathsep.join(SYSTEM)},
                                         start_new_session=True)

@@ -10,7 +10,9 @@ root, or takes the `origin` homes share (tests/fixtures/twohomes.py); HOME/agent
 of it on main, and `install.ak` its `bin/ak` as the home's commands find it.  Its origin reads
 as GitHub's acme/agentkit, `ORIGIN`, so a pull request merged there is on its repository: an
 `ssh` serves git's fetch of it, `FETCH`, from the bare origin, and refuses all else.
-`advance()` adds a line to `notes` in one more commit on origin's main.  `seat(name)` opens a
+`advance()` adds a line to `notes` in one more commit on origin's main.  `refs()` are the refs
+origin holds under refs/agentkit/, `commit(sha)` one as it holds it, and `set_ref` changes one,
+or deletes it, as a stranger would, from no machine.  `seat(name)` opens a
 seat of tests/fixtures/akseat.py in HOME/agentkit, at its prompt, holding a run that merged into
 acme/agentkit: the seat a tick hands agentkit's own faults back to.  The tick asks the public
 model boards over HTTP itself, so every proxy an HTTP client honours names a loopback port nobody
@@ -42,8 +44,10 @@ PROGRAM = next((folder for folder in Path(AK).resolve().parents if (folder / ".g
                Path(AK).parents[1])
 INSTALL = '#!/bin/sh\n[ "$1" != --prepare ] || exit 0\necho installed >>"$HOME/installed"\n'
 ORIGIN = "git@github.com:acme/agentkit.git"
-# git fetches over ssh by running its last word on the far end; only ORIGIN's is served.
-FETCH = ("git@github.com", "git-upload-pack 'acme/agentkit.git'")
+# git fetches, and pushes, over ssh by running its last word on the far end, where the
+# repositories are; only ORIGIN's is served.
+FETCH, PUSH = (("git@github.com", f"{program} 'acme/agentkit.git'")
+               for program in ("git-upload-pack", "git-receive-pack"))
 SSH = f"""#!/bin/sh
 case "$*" in
   *"{' '.join(FETCH)}") exec git-upload-pack {{bare}} ;;
@@ -115,6 +119,20 @@ class Install:
         with (self.seed / "notes").open("a") as notes:
             notes.write("one more line on origin\n")
         return self._push("one more line")
+
+    def refs(self):
+        """Each ref origin holds under refs/agentkit/, and the commit it names."""
+        listed = _git(self.bare, "for-each-ref", "--format=%(refname) %(objectname)",
+                      "refs/agentkit/")
+        return dict(line.split() for line in listed.splitlines())
+
+    def commit(self, sha):
+        """The commit `sha` as origin holds it."""
+        return _git(self.bare, "cat-file", "commit", sha)
+
+    def set_ref(self, ref, value):
+        """Have origin's `ref` name `value`, a commit it holds; None deletes it."""
+        _git(self.bare, "update-ref", *(("-d", ref) if value is None else (ref, value)))
 
     def seat(self, name="atoll"):
         """A seat in HOME/agentkit that merged a pull request into acme/agentkit."""
