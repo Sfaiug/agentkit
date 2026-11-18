@@ -139,7 +139,7 @@ func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	if err := os.Symlink(filepath.Join(dir, "acme"), checkout); err != nil {
 		t.Fatal(err)
 	}
-	out, why := ProjectOutput(context.Background(), `echo "${AGENTKIT_SESSION-absent} $ACME_TOKEN $PWD"`, checkout, nil, time.Second, "list")
+	out, why := ProjectOutput(context.Background(), `printf '%s %s %s\n' "${AGENTKIT_SESSION-absent}" "$ACME_TOKEN" "$PWD"`, checkout, nil, time.Second, "list")
 	if want := "absent kept " + checkout + "\n"; why != "" || string(out) != want {
 		t.Errorf("answered %q, said %q, want %q", out, why, want)
 	}
