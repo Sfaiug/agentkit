@@ -54,6 +54,11 @@ func ProjectOutput(ctx context.Context, command, checkout string, env []string, 
 	// ak has seen it start before the deadline, as starting can take past it
 	cmd := exec.Command("/bin/sh", "-s", "--", command)
 	cmd.Dir = checkout
+	if env == nil {
+		// exec's own for a nil env: ak's, at the checkout as named; one given stays as given, so
+		// Start still refuses it if malformed
+		env = cmd.Environ()
+	}
 	cmd.Env = slices.DeleteFunc(slices.Clone(env), func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
 	stop := group(cmd)
 	cmd.Cancel = nil // exec stops nothing: the stop is this goroutine's, and comes before the reap
