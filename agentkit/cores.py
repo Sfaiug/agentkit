@@ -11,11 +11,12 @@ difference over a known interval counts, so a scope new since the last tick is n
 a late tick's is spread over the time it took.
 """
 
+import functools
 import os
 from pathlib import Path
 import time
 
-from . import front, host, orch, watch
+from . import front, host, notify, orch, watch
 
 # Of a core: a wait that polls hard, reading a long log every second or two between short
 # sleeps, holds 0.5 to 0.8 for hours, while on 18 Nov 2026 the busiest of 19 seats at work used
@@ -81,19 +82,23 @@ def holding(state):
     FLOOR of a core, `since` when, and how long it had by then, longest first.  A respawn's new
     scope may sit beside its old one: a seat holding it in both is named once, with the longest.
     Each is named as that reading named it: asking here, a rename under way named one seat
-    twice, and status takes no lock.  One saved without a name (before 19 Nov 2026) is not shown."""
-    held = {}
-    for seen in (state.get("seat_cores") or {}).values():
-        if "seat" in seen:
-            held[seen["seat"]] = max(held.get(seen["seat"], 0), seen["at"] - seen["since"])
+    twice, and status takes no lock.  One saved without a name (before 19 Nov 2026) is asked
+    for, once for a launch name."""
+    held, asked = {}, functools.cache(front.seat_now)
+    for scope, seen in (state.get("seat_cores") or {}).items():
+        if "since" in seen:
+            seat = seen.get("seat") or asked(front.SEAT_SCOPE.fullmatch(scope)[1])
+            held[seat] = max(held.get(seat, 0), seen["at"] - seen["since"])
     return sorted(held.items(), key=lambda seat: -seat[1])
 
 
 def _tell(name, command, usec, seconds, log):
     """Owe that seat the line for the CPU time it held over those seconds, as the tick's log says
-    it, unless the last is still owed: two lines would each open a turn."""
+    it, unless the last is still owed: two lines would each open a turn.  Under its send lock,
+    which a rename takes too: one renamed since its reading is asked and owed under one name."""
     line = LINE.format(cores=usec / 1e6 / seconds, held=orch.span(seconds),
                        busiest=command and f"; its busiest process: `{command[:160]}`")
-    log(f"{name}: {line}")
-    if not any(owed.get("cores") for owed in watch.seat_read(name).get("owed_lines") or ()):
-        watch.owe_line(name, None, {"line": line, "cores": True})
+    with notify.session_lock(name) as seat:
+        log(f"{seat}: {line}")
+        if not any(owed.get("cores") for owed in watch.seat_read(seat).get("owed_lines") or ()):
+            watch.owe_line(seat, None, {"line": line, "cores": True})
