@@ -118,7 +118,7 @@ class DecisionLine(Sandbox):
             self.assertIn(text, why)
         (directory / "result.md").unlink()
         handback.save_result(directory, notices=("Saved delivery details.",))
-        handback.decision_line(state, directory, self.cfg)
+        handback.decision_line(state, directory)
         handback.record_result(directory, {**state, "worktree": None}, cfg=self.cfg)
         self.assertIn("\n## Seat notice\n\nSaved delivery details.", (directory / "result.md").read_text())
 
@@ -172,7 +172,7 @@ class DecisionLine(Sandbox):
         for name, extra in (("acme-merged", {"merged": True, "pr": "https://github.com/a/b/pull/1"}),
                             ("acme-stopped", {"state": "stopped"})):
             directory, state = self.ending(name, **extra)
-            self.assertIsNone(handback.decision_line(state, directory, self.cfg))
+            self.assertIsNone(handback.decision_line(state, directory))
             word = "PASS, merged" if extra.get("merged") else "FAIL"
             self.assertEqual((directory / "result.md").read_text().splitlines()[:3],
                              [f"# {word} — Finished {name}", "", "VERDICT: PASS"])

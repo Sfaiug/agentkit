@@ -253,12 +253,12 @@ def result_opening(run_dir, state, cfg=None):
             saved = ""
         if saved.startswith("# NOT LIVE "):
             return saved.partition("\n\n")[0]
-    decided = decision_line(state, run_dir, cfg, save=False, report=True)
+    outcome = transitions.delivery(state, cfg)
+    decided = decision_line(state, run_dir, outcome, save=False, report=True)
     if decided:
         return decided
-    outcome = ("BLOCKED" if state.get("state") == "blocked"
-               else transitions.delivery(state, transitions.report_config(cfg)))
-    return f"# {outcome} — {state.get('title') or run_dir.name}"
+    heading = "BLOCKED" if state.get("state") == "blocked" else outcome
+    return f"# {heading} — {state.get('title') or run_dir.name}"
 
 
 def write_result(run_dir, state, cmds, log=None, cfg=None):
@@ -623,8 +623,8 @@ def launcher_watched(session):
         return live
 
 
-def handback_verdict(state, cfg=None):
-    """The words a hand-back line may carry about how a run ended.
+def handback_verdict(state, outcome):
+    """The words a hand-back line may carry about how a run ended, `outcome` its `transitions.delivery`.
 
     `PASS merged`, `PASS delivered`, `NOT MERGED`, `DONE`, `FAIL`, `BLOCKED`, `ERROR` -- the delivery outcome, not
     the review verdict, because what the orchestrator decides next turns on where the work
@@ -636,17 +636,18 @@ def handback_verdict(state, cfg=None):
         return "BLOCKED"
     if state.get("state") == "error":
         return "ERROR"
-    if not transitions.delivery(state, transitions.report_config(cfg)).startswith("PASS"):
+    if not outcome.startswith("PASS"):
         return "FAIL"
     return "PASS merged" if state.get("merged") else "PASS delivered" if state.get("scratch") else "NOT MERGED"
 
 
-def handback_reason(state, cfg=None, whole=False):
-    """The one line after the verdict: why it ended that way, in the run's own words.  `whole`
-    is `decision_line`'s: uncut, a FAIL's first finding alone, and none of what it says itself."""
+def handback_reason(state, outcome=None, whole=False):
+    """The one line after the verdict: why it ended that way, in the run's own words, from `outcome`,
+    its `transitions.delivery`, as the verdict was.  `whole` is `decision_line`'s: uncut, a FAIL's
+    first finding alone, and none of what it says itself."""
     most = None if whole else 300
     if state.get("state") == "not_needed":
-        return " ".join(transitions.delivery(state, cfg).split())
+        return " ".join((outcome or transitions.delivery(state)).split())
     if state.get("state") in ("blocked", "error", "waiting"):
         return " ".join((state.get("error") or "no reason was recorded").split())[:most]
     # A memory-cap death is the whole news: rounds and findings say nothing about a
@@ -660,7 +661,7 @@ def handback_reason(state, cfg=None, whole=False):
         # resumed attempt that did reach one is an ending, `recovery_pending` or not, and says
         # what every other ending says.  Its own full stop goes: the line puts one after it.
         return " ".join(transitions.recovery_reason(state).split()).rstrip(".")[:most]
-    word = transitions.delivery(state, transitions.report_config(cfg))
+    word = outcome or transitions.delivery(state)
     if word.startswith("PASS, not merged: "):
         reason = word[len("PASS, not merged: "):]
         retry = retry_command(state)
@@ -1568,14 +1569,15 @@ def decision(run_dir, state, word, why, move, save=True, report=False):
     return line
 
 
-def decision_line(state, run_dir, cfg=None, save=True, report=False):
+def decision_line(state, run_dir, outcome=None, save=True, report=False):
     """The line an ending its seat decides about is told in, else None: one delivered or stopped on
     purpose leaves nothing to decide, and one going or parked upstream has not ended, but for a provider."""
-    word = handback_verdict(state, cfg)
+    outcome = outcome or transitions.delivery(state)
+    word = handback_verdict(state, outcome)
     if (word.startswith(("PASS", "DONE")) or transitions.delivered(state) or state.get("state") in ("waiting", "stopped")
             or transitions.going(state) and not transitions.exhausted_wait(state)):
         return None
-    return decision(run_dir, state, word, handback_reason(state, cfg, whole=True),
+    return decision(run_dir, state, word, handback_reason(state, outcome, whole=True),
                     next_move(state, run_dir), save, report)
 
 
@@ -1614,15 +1616,16 @@ def handback_line(state, run_dir, cfg=None, save=True, live=False):
         return seat_notice(state["merge_handback"] + gone_live, state, run_dir,
                            f"run {run_dir.name}: the maintainer decided on its PR.",
                            "Decide the next step." + gone_live, save)
-    decided = decision_line(state, run_dir, cfg, save)
+    outcome = transitions.delivery(state, cfg)
+    decided = decision_line(state, run_dir, outcome, save)
     if decided:
         return decided
     workspace = (f" Workspace: {state['worktree']}."
                  if state.get("scratch") and state.get("worktree") else "")
-    ending = f"finished {handback_verdict(state, cfg)}"
+    ending = f"finished {handback_verdict(state, outcome)}"
     action = "Decide the next step."
     line = (f"run {run_dir.name} {ending}: "
-            f"{handback_reason(state, cfg)}. Result: {run_dir / 'result.md'}.{workspace} "
+            f"{handback_reason(state, outcome)}. Result: {run_dir / 'result.md'}.{workspace} "
             + action)
     if live:
         line += f" {live_sentence(state, run_dir)}"
