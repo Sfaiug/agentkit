@@ -245,6 +245,7 @@ class WaitsForLastingLogins(unittest.TestCase):
         self.assertEqual(self.read("auths"), [])
 
     def test_a_manual_update_starts_at_once(self):
+        (config.STATE / "harness-latest.json").unlink()
         self.write(ends=int(T + 60))
         with patch.object(update, "working_sessions", return_value=[]), \
                 patch.object(update, "upgrade", return_value=0) as upgrade, \

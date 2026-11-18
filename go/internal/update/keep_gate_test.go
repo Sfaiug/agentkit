@@ -2,6 +2,7 @@ package update
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -46,14 +47,13 @@ func TestATickWithNoLiveGateAsksItsHarnessesTheirLatestRelease(t *testing.T) {
 			}
 			err := KeepCurrent(config.Resolve(checkout), func(line string) { said = append(said, line) }, nil)
 			record, _ := os.ReadFile(path)
-			var written map[string]struct {
-				Asked float64
-				Found string
-				Waits string
-			}
+			var written map[string]map[string]any
+			err = errors.Join(err, json.Unmarshal(record, &written))
+			at, _ := written["gamma"]["asked"].(float64)
 			if got := calls(t, home); err != nil || strings.Join(got, " ") != each.calls ||
-				json.Unmarshal(record, &written) != nil || written["gamma"].Asked <= float64(asked) ||
-				written["gamma"].Found != "2.0.0" || written["gamma"].Waits != "" || !reflect.DeepEqual(said, want) {
+				at <= float64(asked) || !reflect.DeepEqual(written, map[string]map[string]any{
+				"gamma": {"asked": at, "found": "2.0.0", "waits": ""},
+			}) || !reflect.DeepEqual(said, want) {
 				t.Fatalf("gave %v, calls %q, recorded %s, said %q", err, got, record, said)
 			}
 		})
