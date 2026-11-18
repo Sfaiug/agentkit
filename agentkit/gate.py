@@ -17,8 +17,8 @@ from contextlib import ExitStack, contextmanager, nullcontext
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
-from . import config, gitcall, handback, helper, history, host, orch, stuck, suite_times
-from . import transitions, turns
+from . import config, cores, gitcall, handback, helper, history, host, orch, stuck, suite_times
+from . import terminal, transitions, turns
 from . import update
 from . import waiter
 from . import watch
@@ -114,6 +114,8 @@ def host_status_line():
     an explicit `max_gates` pins them or the slice's headroom derives them.  A
     positive `max_runs` is a gate like the others, so the first line names it:
     `at most 4 runs at once`.  Only a pinned `max_load` reads the load, so only it shows it.
+    A third names each seat holding a core (`cores.holding`), while one is: a seat's own shell
+    takes from the room `derived_heavy_limit` reads, and only that seat is told.
     """
     readings = _run_readings()
     minimum, maximum = resource_limits(readings)
@@ -153,7 +155,9 @@ def host_status_line():
     first = (f"host: {int(cpus)} cpus{signal} · "
              f"{host._g(host._reading(readings, 'free_mb', 'mem_available_mb'))} G free{segment} · "
              f"{admitted}")
-    return f"{first}\n{heavy}"
+    held = " · ".join(f"{seat} {terminal.format_age(seconds)}"
+                       for seat, seconds in cores.holding(watch.load_state()))
+    return f"{first}\n{heavy}" + (f"\nseats holding a core: {held}" if held else "")
 
 
 def slot_place(state):
