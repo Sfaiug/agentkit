@@ -144,13 +144,7 @@ def max_gates():
     derived from the slice's live headroom, never a shipped number.
     """
     path = HOME / CONFIG_NAME
-    try:
-        with path.open("rb") as fh:
-            data = tomllib.load(fh)
-    except FileNotFoundError:
-        return None
-    except (OSError, ValueError) as exc:
-        raise Error(f"{path}: {exc}") from exc
+    data = _read_toml(path) or {}
     if "max_gates" not in data:
         return None
     value = data["max_gates"]
@@ -162,13 +156,7 @@ def max_gates():
 def _count_setting(key):
     """A non-negative integer at the top of the home config file, or the shipped default."""
     path = HOME / CONFIG_NAME
-    try:
-        with path.open("rb") as fh:
-            value = tomllib.load(fh).get(key, RUN_DEFAULTS[key])
-    except FileNotFoundError:
-        return RUN_DEFAULTS[key]
-    except (OSError, ValueError) as exc:
-        raise Error(f"{path}: {exc}") from exc
+    value = (_read_toml(path) or {}).get(key, RUN_DEFAULTS[key])
     if type(value) is not int or value < 0:
         raise Error(f"{path}: {key} must be a non-negative integer")
     return value
@@ -186,13 +174,7 @@ def _resource_setting(key, environment, default):
             raise Error(f"{environment} must be a non-negative number")
         return value
     path = HOME / CONFIG_NAME
-    try:
-        with path.open("rb") as fh:
-            value = tomllib.load(fh).get(key, default)
-    except FileNotFoundError:
-        return default
-    except (OSError, ValueError) as exc:
-        raise Error(f"{path}: {exc}") from exc
+    value = (_read_toml(path) or {}).get(key, default)
     if (isinstance(value, bool) or not isinstance(value, (int, float))
             or not math.isfinite(value) or value < 0):
         raise Error(f"{path}: {key} must be a non-negative number")
@@ -224,11 +206,8 @@ def max_load_is_set():
     if os.environ.get("AK_MAX_LOAD") is not None:
         return True
     try:
-        with (HOME / CONFIG_NAME).open("rb") as fh:
-            return "max_load" in tomllib.load(fh)
-    except FileNotFoundError:
-        return False
-    except (OSError, ValueError):
+        return "max_load" in (_read_toml(HOME / CONFIG_NAME) or {})
+    except Error:
         return False
 
 
@@ -243,13 +222,7 @@ def run_memory_max_mb():
     exactly.
     """
     path = HOME / CONFIG_NAME
-    try:
-        with path.open("rb") as fh:
-            data = tomllib.load(fh)
-    except FileNotFoundError:
-        return None
-    except (OSError, ValueError) as exc:
-        raise Error(f"{path}: {exc}") from exc
+    data = _read_toml(path) or {}
     if "run_memory_max_mb" not in data:
         return None
     value = data["run_memory_max_mb"]
@@ -2041,9 +2014,8 @@ def live_host():
     (the ak coordination server), and a file reaches the live host through the repo, never a seat's
     scp/rsync/sftp."""
     try:
-        with (HOME / CONFIG_NAME).open("rb") as fh:
-            alias = tomllib.load(fh).get("live_host")
-    except (OSError, ValueError):
+        alias = (_read_toml(HOME / CONFIG_NAME) or {}).get("live_host")
+    except Error:
         return None
     return alias or None
 
@@ -2052,9 +2024,8 @@ def suite_helper():
     """The ssh alias of the machine that runs suite pieces beside this one (agentkit/helper.py),
     from `suite_helper` in config.toml, or None when the owner has named none."""
     try:
-        with (HOME / CONFIG_NAME).open("rb") as fh:
-            alias = tomllib.load(fh).get("suite_helper")
-    except (OSError, ValueError):
+        alias = (_read_toml(HOME / CONFIG_NAME) or {}).get("suite_helper")
+    except Error:
         return None
     return alias if isinstance(alias, str) and alias else None
 
