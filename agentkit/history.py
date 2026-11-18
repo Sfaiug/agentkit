@@ -890,17 +890,15 @@ def _turn_usage(connection, plugin, run_id, out, priced):
 def _listed_usd():
     """What a turn row's counts cost at the prices the stored boards list for its model, the
     boards read once at the first row priced (`spend._dollars` of `spend._prices`): None where
-    they list none, and where they cannot be read or priced, as no board fails a row's write.
-    A cost no float holds is none: a row keeps its cost for good, past the board that gave it."""
+    they list none, and where they cannot be read or priced, as no board fails a row's write."""
     from . import spend     # here, not at the top: spend reads this module as it loads
     prices = spend._pricing()
 
     def priced(model, numbers):
         try:
-            dollars = spend._dollars(prices(model), numbers)
+            return spend._dollars(prices(model), numbers)
         except Exception:   # noqa: BLE001 -- a board ak cannot read prices nothing
             return None
-        return dollars if dollars is not None and math.isfinite(dollars) else None
     return priced
 
 

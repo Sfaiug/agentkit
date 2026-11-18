@@ -4,8 +4,10 @@ cost a float holds, and keeps it while its counts do.
 - A turn counted after a later turn of its session takes its share back from that turn's rows:
   a row whose counts change is priced anew, one whose counts stay keeps its dollars, though the
   boards dropped its model since.
-- A cost no float holds, as a price near a float's largest times millions of tokens, is none:
-  the row keeps no dollars, and is priced as the boards list its model when it is read.
+- A cost no float holds, as a price near a float's largest times millions of tokens or an
+  integer price past it, which json reads whole, is none: the row keeps no dollars, and is
+  priced as the boards list its model when it is read, where that cost is none too, so the
+  login's listed spend is none, not infinite or NaN.
 
 In-process on tests/fixtures/sandbox.py's HOME, each turn a Claude `result` in its events.
 """
@@ -17,7 +19,7 @@ import sqlite3
 import unittest
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, history
+from agentkit import config, history, spend
 
 
 class KeptDollars(Sandbox):
@@ -35,6 +37,7 @@ class KeptDollars(Sandbox):
         out = config.RUNS / "fix-api" / "round-1" / name
         out.mkdir(parents=True)
         (out / "harness").write_text("claude")
+        (out / "account").write_text(config.DEFAULT_ACCOUNT)
         os.utime(out / "harness", (began, began))
         (out / "events.jsonl").write_text(json.dumps({
             "type": "result", "subtype": "success", "session_id": "session-acme",
@@ -63,9 +66,17 @@ class KeptDollars(Sandbox):
                                             "easel-2": (3_000_000, 12.0)})
 
     def test_a_cost_no_float_holds_keeps_no_dollars(self):
-        self.board("anvil-1", 1e308)
+        self.costs_none(1e308)
+
+    def test_an_integer_price_no_float_holds_keeps_no_dollars(self):
+        self.costs_none(10**400)
+
+    def costs_none(self, price):
+        """A turn on a board listing `price` keeps no dollars, and its login's spend is none."""
+        self.board("anvil-1", price)
         turn = self.turn("executor-1", 100, {"anvil-1": 2_000_000})
         self.assertEqual(self.kept(turn), {"anvil-1": (2_000_000, None)})
+        self.assertIsNone(spend.listed(self.cfg, "anthropic", None, 0, 200))
 
 
 if __name__ == "__main__":
