@@ -195,6 +195,8 @@ def _copy(alias, home, copied):
     # rsync tries each rule on each file, on each machine, and the runs' names are thousands, more
     # than one command may be given: they come on its input, in a transfer of the runs' folder
     # alone, which takes all inside a run before a name is tried on it; the rest crosses after.
+    # rsync keeps a hard link within one transfer alone: a file with names in a run and outside
+    # the runs, as a package cache links one into each checkout, crosses as two of the same bytes.
     at = config.PLACES["RUNS"]
     rules = [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
              "--filter=-p .git/", *(f"--filter=-p /{_literal(path)}" for path in unread)]
