@@ -1,9 +1,9 @@
 """The highlighted seat on the `ak` screen opens its line under its row.
 
-For a working seat the line says who builds and who reviews and draws each task in flight as its
-squares (`menu.detail`), indented under the name and lit as the row is, never a task's name; no
-other row grows, and the height kept for it means no page overflows or turns as the highlight
-moves.  Offline: fake seats and run records, the real renderer.
+For a working seat the line says who builds and who reviews (`menu.detail`), indented under the
+name and lit as the row is, never a task's squares nor its name; no other row grows, and the
+height kept for it means no page overflows or turns as the highlight moves.  Offline: fake seats
+and run records, the real renderer.
 """
 
 from contextlib import redirect_stdout
@@ -68,10 +68,10 @@ class MenuLiveLine(Sandbox):
     def test_a_the_highlighted_seat_opens_its_line_and_no_other_row_grows(self):
         lines, _ = self.draw("fix-api")
         indent = " " * (2 + 1 + 2)                     # under the name
-        self.assertEqual(self.under(lines, "fix-api"), indent + CREW + "   ■□□")
+        self.assertEqual(self.under(lines, "fix-api"), indent + CREW)
         self.assertEqual(sum(CREW in line for line in lines), 1)   # web is not highlighted
         lines, _ = self.draw("web")
-        self.assertEqual(self.under(lines, "web"), indent + CREW + "   ■■□")
+        self.assertEqual(self.under(lines, "web"), indent + CREW)
         self.assertEqual(sum(CREW in line for line in lines), 1)
         # no screen names a task
         self.assertNotIn("gh2", "\n".join(lines))
@@ -116,7 +116,7 @@ class MenuLiveLine(Sandbox):
         self.assertNotIn("\x1b[2J", out.getvalue())
         lines = screen(out.getvalue())
         self.assertEqual(self.under(lines, "fix-api").strip(),
-                         "build and review: opus Fast xhigh   ■□□")
+                         "build and review: opus Fast xhigh")
 
 
 if __name__ == "__main__":

@@ -2,10 +2,7 @@ package menu
 
 import (
 	"slices"
-	"strconv"
-	"strings"
 
-	"agentkit/internal/motion"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 )
@@ -14,8 +11,9 @@ import (
 type Task = seat.Task
 
 // detail is the lines under a seat's row (menu.detail): the text the owner left unsent, then,
-// whatever its word, who builds and who reviews and its tasks' squares, never what it said.
-func detail(s terminal.Screen, seat Seat, room int, clock *motion.Clock) []string {
+// whatever its word, who builds and who reviews alone, never what it said nor a task's squares,
+// which its row counts and its seat's bar draws.
+func detail(s terminal.Screen, seat Seat, room int) []string {
 	if seat.draft != nil {
 		return nil // the draft's crew or refusal is part of its row block
 	}
@@ -25,20 +23,11 @@ func detail(s terminal.Screen, seat Seat, room int, clock *motion.Clock) []strin
 			lines = append(lines, s.Styled(line, "amber"))
 		}
 	}
-	least := 0
-	if len(seat.Tasks) > 0 {
-		least = 3 + terminal.Cells(squares(s, seat.Tasks, 3, nil))
-	}
 	who := terminal.Crew(seat.Builds, seat.Reviews)
-	if terminal.Cells(who) > room-least {
-		who = terminal.CutSpaced(who, room-least)
+	if terminal.Cells(who) > room {
+		who = terminal.CutSpaced(who, room)
 	}
-	line := s.Styled(who, "muted")
-	left := room - terminal.Cells(who) - 3
-	if len(seat.Tasks) > 0 && left >= least-3 {
-		line += "   " + squares(s, seat.Tasks, left, clock)
-	}
-	if terminal.Plain(line) != "" {
+	if line := s.Styled(who, "muted"); terminal.Plain(line) != "" {
 		lines = append(lines, line)
 	}
 	return lines
@@ -53,36 +42,4 @@ func keepDetail(lines []string, most, room int) []string {
 		lines[most-1] = terminal.Cut(lines[most-1]+" …", room)
 	}
 	return lines
-}
-
-func squares(s terminal.Screen, tasks []Task, room int, clock *motion.Clock) string {
-	fit := len(tasks)
-	for fit > 0 {
-		size := 5*fit - 2
-		if fit < len(tasks) {
-			size += 3 + len(strconv.Itoa(len(tasks)-fit))
-		}
-		if size <= room {
-			break
-		}
-		fit--
-	}
-	full, empty := "■", "□"
-	if s.ASCII() {
-		full, empty = "#", "-"
-	}
-	var parts []string
-	for _, task := range tasks[:fit] {
-		filled := strings.Repeat(full, task.Stage+1)
-		if task.Moving {
-			filled = clock.Breathing(s, filled, "working")
-		} else {
-			filled = s.Styled(filled, "dim")
-		}
-		parts = append(parts, filled+s.Styled(strings.Repeat(empty, 2-task.Stage), "dim"))
-	}
-	if fit < len(tasks) {
-		parts = append(parts, s.Styled("+"+strconv.Itoa(len(tasks)-fit), "dim"))
-	}
-	return strings.Join(parts, "  ")
 }

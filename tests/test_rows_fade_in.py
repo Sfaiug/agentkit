@@ -82,46 +82,39 @@ class FadeIn(Sandbox):
     def test_breathing_cells_share_their_rows_fade_and_keep_breathing_afterwards(self):
         for name in NAMES:
             config.plan_path(name).write_text("- [x] a\n- [ ] b\n")
-        for page in (0, 1):
-            for light in (False, True):
-                with self.subTest(page=page, light=light), \
-                        patch.object(terminal, "THEME", terminal.WHITE if light else terminal.BLACK), \
-                        patch.object(motion.time, "monotonic", return_value=10.0) as now:
-                    self.clock = motion.Clock()
-                    _, drawn = self.draw("acme-01", height=14)
-                    cursor = drawn["turns"][1] if page else "acme-02"
-                    records = [(Path("g1"), {"run_id": "g1", "launched_session": cursor,
-                                            "started_at": 9000, "task_file": "/t/g1.md",
-                                            "state": "running", "step": "reviewer"})]
-                    now.return_value = 11.0
-                    self.draw(cursor, page=page, height=14, records=records)
-                    rows = {row for row, col in self.clock.cells if col == 1}
-                    inside = {cell: at for cell, (at, _) in self.clock.cells.items()
-                              if cell[0] in rows and cell[1] > 1}
-                    glyphs = {terminal.plain(at(11.0)) for at in inside.values()}
-                    self.assertIn("■", glyphs)
-                    if page:
-                        self.assertIn("●", glyphs)
-                        self.assertTrue(glyphs & {"━", "╸"}, glyphs)
-                    for elapsed in (0, motion.FADE / 2, motion.FADE, motion.FADE + 0.1):
-                        now.return_value = 11.0 + elapsed
-                        self.clock.frame()
-                        for cell, at in inside.items():
-                            shown = self.clock.shown[cell]
-                            if elapsed >= motion.FADE:  # as it breathes, on its row's band
-                                self.assertEqual(terminal.pointed(*cell, shown),
-                                                 terminal.pointed(*cell, at(now.return_value)))
-                                self.assertIn(cell, self.clock.cells)
-                                continue
-                            colours = [rgb for char, rgb in painted(shown) if char.strip()]
-                            back = (255 if light else 0,) * 3
-                            if elapsed == 0:
-                                self.assertEqual(colours, [back])
-                            else:
-                                [(char, full)] = painted(at(now.return_value))
-                                self.assertTrue(all(min(b, c) <= v <= max(b, c)
-                                                    for v, b, c in zip(colours[0], back, full)))
-                                self.assertNotIn(colours[0], (back, full))
+        for light in (False, True):
+            with self.subTest(light=light), \
+                    patch.object(terminal, "THEME", terminal.WHITE if light else terminal.BLACK), \
+                    patch.object(motion.time, "monotonic", return_value=10.0) as now:
+                self.clock = motion.Clock()
+                _, drawn = self.draw("acme-01", height=14)
+                now.return_value = 11.0
+                self.draw(drawn["turns"][1], page=1, height=14)
+                rows = {row for row, col in self.clock.cells if col == 1}
+                inside = {cell: at for cell, (at, _) in self.clock.cells.items()
+                          if cell[0] in rows and cell[1] > 1}
+                glyphs = {terminal.plain(at(11.0)) for at in inside.values()}
+                self.assertIn("●", glyphs)
+                self.assertTrue(glyphs & {"━", "╸"}, glyphs)
+                for elapsed in (0, motion.FADE / 2, motion.FADE, motion.FADE + 0.1):
+                    now.return_value = 11.0 + elapsed
+                    self.clock.frame()
+                    for cell, at in inside.items():
+                        shown = self.clock.shown[cell]
+                        if elapsed >= motion.FADE:  # as it breathes, on its row's band
+                            self.assertEqual(terminal.pointed(*cell, shown),
+                                             terminal.pointed(*cell, at(now.return_value)))
+                            self.assertIn(cell, self.clock.cells)
+                            continue
+                        colours = [rgb for char, rgb in painted(shown) if char.strip()]
+                        back = (255 if light else 0,) * 3
+                        if elapsed == 0:
+                            self.assertEqual(colours, [back])
+                        else:
+                            [(char, full)] = painted(at(now.return_value))
+                            self.assertTrue(all(min(b, c) <= v <= max(b, c)
+                                                for v, b, c in zip(colours[0], back, full)))
+                            self.assertNotIn(colours[0], (back, full))
 
     def test_a_highlight_move_during_a_page_fade_gets_its_full_reveal(self):
         with patch.object(motion.time, "monotonic", return_value=10.0) as now:

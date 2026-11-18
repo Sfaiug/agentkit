@@ -120,7 +120,7 @@ func Draw(view View, width, height int) Frame {
 	said := map[string][]string{}
 	opens := 0
 	for _, seat := range view.Seats {
-		said[seat.Name] = detail(s, seat, saidRoom, nil)
+		said[seat.Name] = detail(s, seat, saidRoom)
 		opens = max(opens, len(said[seat.Name]))
 	}
 	opens = min(opens, max(1, height/2))
@@ -273,7 +273,7 @@ func Draw(view View, width, height int) Frame {
 		frame.spots = append(frame.spots, each.seat)
 		if lit && !heading && view.Highlight.Open && (at+1 == len(body) || body[at+1].seat != each.seat) {
 			seat := view.Seats[slices.IndexFunc(view.Seats, func(seat Seat) bool { return seat.Name == each.seat })]
-			for _, line := range keepDetail(detail(s, seat, saidRoom, view.Motion), opens, saidRoom) {
+			for _, line := range keepDetail(detail(s, seat, saidRoom), opens, saidRoom) {
 				out = append(out, s.Band(s.Highlight(strings.Repeat(" ", 2+sized.num+2)+line, false), layout))
 				frame.spots = append(frame.spots, each.seat)
 			}

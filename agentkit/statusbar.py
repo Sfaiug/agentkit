@@ -1,6 +1,7 @@
 """A seat's status bar: what each of its two lines says, and how tmux draws them.
 
-The bar is the seat's row on the `ak` screen with the line under it always open.  Line one is
+The bar is the seat's row on the `ak` screen with the line under it always open, and its tasks'
+squares, which the `ak` screen leaves to it (`menu.detail`).  Line one is
 its state as a chip -- its glyph and word on its colour in the text that reads on it, bold for
 `! needs you` (`chip`) -- then the seat's name in bold, then its model
 and orchestrator effort, muted, then its progress line, as its menu row draws it, as wide as `BARS`

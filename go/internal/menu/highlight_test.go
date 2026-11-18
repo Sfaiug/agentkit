@@ -31,16 +31,14 @@ func TestAnOpenLongTextKeepsTheFrameAndItsPointerPlaces(t *testing.T) {
 	}
 }
 
-func TestTasksGiveWayToACountWhileTheCrewKeepsItsRoles(t *testing.T) {
+func TestTheCrewLineDrawsNoTaskSquares(t *testing.T) {
 	seat := Seat{Word: "working", Model: "Opus", Builds: []string{"Spark", "Fable"}, Reviews: []string{"Fable"},
 		Tasks: []Task{{Stage: 0, Moving: true}, {Stage: 0}, {Stage: 1, Moving: true}, {Stage: 2}}}
 	for room, want := range map[int]string{
-		80: "build: Spark, Fable   review: Fable   ■□□  ■□□  ■■□  ■■■",
-		40: "build: Spark, Fable   review: Fable   +4",
-		30: "build: Spark, Fable…   ■□□  +3",
-		5:  "   +4",
+		80: "build: Spark, Fable   review: Fable",
+		30: "build: Spark, Fable   review:…",
 	} {
-		if got := detail(terminal.Screen{}, seat, room, nil); len(got) != 1 || got[0] != want || terminal.Cells(got[0]) > room {
+		if got := detail(terminal.Screen{}, seat, room); len(got) != 1 || got[0] != want || terminal.Cells(got[0]) > room {
 			t.Errorf("room %d: %q, want %q", room, got, want)
 		}
 	}

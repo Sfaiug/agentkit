@@ -1,10 +1,11 @@
-"""A highlighted seat's line shows its models and its tasks, never what it said.
+"""A highlighted seat's line shows its models, never what it said nor its tasks' squares.
 
 The owner, 9 Nov 2026: "when the user wants to see what the session said, he can just press on
-it, I think only models and the current runs should be shown."  Whatever a seat's word, its
-highlighted row opens who builds and who reviews and each task in flight as its squares
-(`menu.detail`): never a question, what got done or an idle seat's way back in.  Text the owner
-left unsent still opens first, whole.  From a pipe every row opens its line.  Offline.
+it"; 17 Nov 2026: "on the menu screen, we never show the task status but just have the 'x task'
+indicator".  Whatever a seat's word, its highlighted row opens who builds and who reviews
+(`menu.detail`): never a question, what got done, an idle seat's way back in or its tasks in
+flight, which its row counts.  Text the owner left unsent still opens first, whole.  From a pipe
+every row opens its line.  Offline.
 """
 
 from contextlib import redirect_stdout
@@ -58,9 +59,9 @@ class RowOpens(Sandbox):
         under = itertools.takewhile(lambda line: line[:column].isspace(), lines[at + 1:])
         return [line[column:].rstrip() for line in under]
 
-    def test_a_seat_that_needs_you_opens_its_models_and_its_tasks_never_its_question(self):
+    def test_a_seat_that_needs_you_opens_its_models_never_its_tasks_or_its_question(self):
         lines = self.screen("acme-plan")
-        self.assertEqual(self.opened(lines, "acme-plan"), [f"{CREW}   ■□□  ■■□"])
+        self.assertEqual(self.opened(lines, "acme-plan"), [CREW])
         self.assertEqual(self.opened(lines, "acme-docs") + self.opened(lines, "acme-fix"), [])
         self.assertNotIn("Which schema", "\n".join(lines))
 
@@ -75,7 +76,7 @@ class RowOpens(Sandbox):
         watch.seat_write("acme-plan", unsent=UNSENT)
         under = self.opened(self.screen("acme-plan"), "acme-plan")
         self.assertEqual(" ".join(under[:-1]), f"¶ {UNSENT}")
-        self.assertEqual(under[-1], f"{CREW}   ■□□  ■■□")
+        self.assertEqual(under[-1], CREW)
 
     def test_moving_the_highlight_moves_no_other_row(self):
         heights = {len(self.screen(cursor)) for cursor in ("acme-plan", "acme-docs", "acme-fix")}
@@ -84,7 +85,7 @@ class RowOpens(Sandbox):
     def test_from_a_pipe_every_row_opens_its_line(self):
         lines = self.screen(owned=False)
         self.assertEqual([self.opened(lines, name) for name in SAID],
-                         [[f"{CREW}   ■□□  ■■□"], [CREW], [CREW]])
+                         [[CREW], [CREW], [CREW]])
         self.assertNotIn("Which schema", "\n".join(lines))
 
 

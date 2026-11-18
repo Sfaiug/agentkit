@@ -34,8 +34,8 @@ any name a rename led from, else from its unfinished jobs) while it is not at re
 waiting to land too, else empty, then whatever its word how many tasks it has in flight
 (`own_tasks`), `3 of 8 · 2 tasks`, `2 tasks` -- and `¶ unsent` after it where the owner left
 text unsent.
-What the owner left unsent, then who builds and reviews and each task's squares (`crew`,
-`squares`), open under the row (`detail`), never what a seat said.  Never two state words on a row,
+What the owner left unsent, then who builds and reviews (`crew`), open under the row
+(`detail`), never what a seat said nor a task's squares.  Never two state words on a row,
 never `N running`, and never a time estimate.
 
 `ak orch list` carries, after the word, a tally of the runs that seat launched, read from
@@ -1125,32 +1125,15 @@ def line_at(line):
 
 
 def tips(line):
-    """Plain-text offsets of the rendered progress tip and moving task-stage squares.
+    """Plain-text offset of the rendered progress tip, if one breathes.
 
-    Read their working-colour spans before highlighting: draft glyphs
-    are plain, and waiting squares are dim. At 256 colours several bar
-    cells can share the tip's colour, so only the last one breathes.
+    Read its working-colour span before highlighting: draft glyphs are plain.  At 256 colours
+    several bar cells can share the tip's colour, so only the last one breathes.
     """
     if terminal.colour_depth() <= 8:
         return []
     tip = max(line.rfind(terminal.styled(char, "working")) for char in ("━", "╸"))
-    found = [(tip, 0)] if tip >= 0 else []
-    for filled in ("■", "■■", "■■■"):
-        found += [(group.start(), len(filled) - 1)
-                  for group in re.finditer(re.escape(terminal.styled(filled, "working")), line)]
-    return [len(terminal.ANSI.sub("", line[:start])) + offset for start, offset in found]
-
-
-
-def task_cells(line, tasks):
-    """Each task `squares` drew on `line`, a line a row opens as drawn, with the cell its
-    squares start at: found by their own drawing, so glyphs in a draft are never a task."""
-    fit = next((fit for fit in range(len(tasks), 0, -1) if squares(tasks[:fit]) in line), 0)
-    at, found = line.find(squares(tasks[:fit])) if fit else 0, []
-    for task in tasks[:fit]:
-        found.append((terminal.cells(terminal.ANSI.sub("", line[:at])) + 1, task))
-        at += len(squares([task])) + 2
-    return found
+    return [len(terminal.ANSI.sub("", line[:tip]))] if tip >= 0 else []
 
 
 def squares(tasks, room=float("inf"), tmux=False, most=None):
@@ -1657,7 +1640,7 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
     """The one last column of a seat's row, and of its status bar's line one: its progress
     (`terminal.plan_bar`, a smooth line and `done of total`) in `room` cells, in its word's
     colour, while `seat_progress` finds a plan or an unfinished job and it is not at rest, its
-    work waiting in the line to land too, which its squares say (`detail`); a `working` seat
+    work waiting in the line to land too, which its bar's squares say; a `working` seat
     with neither draws that line with nothing done and `no plan yet`, a light going round it
     on the menu alone (`motion.circling`).  A seat out of usage says when it comes back,
     `back 19:20` (`back`), in its word's colour, in its progress's place; any other is empty
@@ -1689,8 +1672,8 @@ def last_column(word, done, total, room=8, narrow=False, tmux=False, unsent="", 
 
 
 def _last_text(info, room, narrow=False):
-    """The row's one last column in `room` cells (`last_column`), counting the tasks whose
-    squares open under it, so the two never disagree."""
+    """The row's one last column in `room` cells (`last_column`), counting its tasks in flight
+    (`own_tasks`), the ones its seat's bar draws as squares."""
     bar = info.get("bar")
     done, total = bar if bar and len(bar) == 2 else (0, 0)
     return last_column(info.get("word"), done, total, room, narrow, unsent=info.get("unsent"),
@@ -1700,23 +1683,21 @@ def _last_text(info, room, narrow=False):
 def detail(info, room):
     """The lines under a seat's row, in `room` cells: first `¶` and the whole text the owner left
     unsent, in the needs-you colour; then, whatever its word, who builds and who reviews (`crew`)
-    and each task in flight as its squares (`squares`), never a task's name.  Never a sentence
-    the seat, or ak about it, says: its row says its word and its progress, and the seat itself
-    what it said, for the owner to open (the owner, 9 Nov 2026).  On a terminal the highlighted
-    row alone opens them; from a pipe every row does, as there is no highlight to open one."""
+    alone.  The owner, 17 Nov 2026: "on the menu screen, we never show the task status but just
+    have the 'x task' indicator, and then when we open the seat it shows the actual task
+    status": the row counts its tasks (`last_column`), and the seat's bar draws their squares
+    (`statusbar.whys`).  Never a sentence the seat, or ak about it, says: its row says its word
+    and its progress, and the seat itself what it said, for the owner to open (the owner, 9 Nov
+    2026).  On a terminal the highlighted row alone opens them; from a pipe every row does, as
+    there is no highlight to open one."""
     if not info:
         return []
     if "born" in info:
         return born_lines(info, room)
     unsent = [terminal.styled(line, "needs you") for line in
               terminal.wrap(unsent_mark(info["unsent"]), room)] if info.get("unsent") else []
-    tasks = info.get("tasks") or []
-    # the crew gives way to the least the squares say: one task's squares, or their count
-    least = 3 + terminal.cells(squares(tasks, 3)) if tasks else 0
-    who = crew(info, room=room - least)
-    left = room - terminal.cells(who) - 3
-    line = who + ("   " + squares(tasks, left) if tasks and left >= least - 3 else "")
-    return unsent + ([line] if terminal.plain(line) else [])
+    who = crew(info, room=room)
+    return unsent + ([who] if who else [])
 
 
 def v5o_column_widths(infos, term_width):
@@ -2082,7 +2063,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         if word == "working":
             for tip in tips(line):
                 breaths.append(((len(out) + 1, terminal.cells(text[:tip]) + 1), text[tip], lit))
-        seat = seats.get(name) if name != above else None
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at, band=not at)
                    if lit else line)
@@ -2092,10 +2072,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             bars[name] = len(out), span
             if info.get("bar"):       # a line that glides to its new length as its plan moves
                 moves.append((("bar", name), info["bar"], (len(out), span), lit))
-        if seat is None and info:      # the line a row opens: its tasks
-            for column, task in task_cells(line, info.get("tasks") or []):
-                moves.append((("task", getattr(task, "run", None)), tuple(task),
-                              (len(out), column), lit))
         if word and terminal.state_text(word) in text:
             first = terminal.cells(text[:text.index(terminal.state_text(word))]) + 1
             moves.append((("word", name), word, (len(out), first), lit))
@@ -2167,13 +2143,6 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                 line(key[1], lambda cells: motion.growing(
                     cells, since, motion.GLIDE, round(len(cells) * before[0] / max(1, before[1])),
                     words.get(key[1]) or "working"), ticked and (before[0], since, motion.GLIDE))
-            elif key[0] == "task" and before:    # a task moved on a stage
-                row, column = cell
-                written = terminal.cell_texts(out[row - 1])
-                if shown[0] > before[0]:      # its open square is dim (`squares`)
-                    filled = written[column - 1 + shown[0]]
-                    clock.start([(row, column + shown[0])], *motion.halving(
-                        filled, terminal.styled(terminal.plain(filled), "dim"), since, lit))
             elif key[0] in ("opened", "page", "born", "asked"):    # what comes up
                 coming = {"opened": opened, "page": range(top + 1, top + len(body) + 1),
                           "born": range(top + min(own_rows, default=opened.start), opened.stop),

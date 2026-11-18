@@ -1,11 +1,9 @@
-"""The line a highlighted row opens: who builds and who reviews, and three squares for each task
-in flight, whatever its word.
+"""The line a highlighted row opens: who builds and who reviews, whatever its word.
 
 The owner reads a seat's state from its row and opens the one line under it with the
 highlight (the screen approved on 14 Oct 2026).  Every seat, a done one too, never saying what
-it got done (the owner, 9 Nov 2026), names each role and the models in it, then each task in
-flight as three squares, build, review and land, filled as far as it has come, furthest behind
-first: in working's colour while a model works on it, dim while it waits.  A run that ended is no
+it got done (the owner, 9 Nov 2026), names each role and the models in it, and never a task's
+squares: its row counts its tasks in flight (the owner, 17 Nov 2026), and a run that ended is no
 task in flight.  Black-box:
 the program `AK_BIN` names runs in a person's terminal (tests/fixtures/akterm.py), of eight
 colours so nothing breathes, beside tests/fixtures/akseat.py's seats and run records like those
@@ -27,7 +25,6 @@ from fixtures.akterm import Terminal
 
 OPENS = 60      # the first draw looks at every seat, which a loaded host makes slow
 UNDER = " " * 5     # an open line starts under the row's name
-SGR = re.compile(r"\x1b\[([0-9;]*)m|([^\x1b])")
 COLOURS = re.compile(r"\x1b\[[0-9;]*m")
 LIVE = Path("/proc/sys/kernel/random/boot_id")
 
@@ -55,44 +52,8 @@ def opens(name):
     return lambda screen: (opened(screen, name) or ("", ""))[1].startswith(UNDER)
 
 
-def looks(line):
-    """Each character drawn on a captured line, with its colour and whether it is dim."""
-    cells, colour, dim = [], None, False
-    for codes, char in SGR.findall(line):
-        if char:
-            cells.append((char, colour, dim))
-            continue
-        params = [int(code or 0) for code in codes.split(";")]
-        while params:
-            code = params.pop(0)
-            if code == 0:
-                colour, dim = None, False
-            elif code == 39:
-                colour = None
-            elif code in (2, 22):
-                dim = code == 2
-            elif 30 <= code <= 37 or 90 <= code <= 97:
-                colour = code
-            elif code == 38:            # 38;5;n or 38;2;r;g;b
-                size = 2 if params[:1] == [5] else 4
-                colour, params = (38, *params[:size]), params[size:]
-    return cells
-
-
-def groups(cells):
-    """The runs of squares on a line's looks, each task's own."""
-    found, run = [], []
-    first = next(n for n, cell in enumerate(cells) if cell[0] == "■")
-    for cell in cells[first:] + [(" ", None, False)]:
-        if cell[0] != " ":
-            run.append(cell)
-        elif run:
-            found, run = found + [run], []
-    return found
-
-
-# The row the owner points at (pointer or ↑/↓) opens one line under it: who builds, who reviews
-# and each task in flight as squares (build, review, land). [2, 14, 19, 23, 26 Oct, 9 Nov 2026]
+# The row the owner points at (pointer or ↑/↓) opens one line under it: who builds and who
+# reviews, and no task's squares. [2, 14, 19, 23, 26 Oct, 9, 17 Nov 2026]
 @unittest.skipUnless(REAL_TMUX and LIVE.exists(), "no tmux, or no /proc to fingerprint a run")
 class OpenLine(unittest.TestCase):
     @classmethod
@@ -133,39 +94,19 @@ class OpenLine(unittest.TestCase):
         for key, name in (("j", "fix-api"), ("j", "gamma"), ("k", "fix-api"), ("k", "beta")):
             menu.keys(key)
             cls.screens[name] = opened(menu.wait(opens(name)), name)
-            if name == "fix-api":
-                cls.coloured = menu.screen(colours=True)
 
     def test_a_done_seat_opens_who_builds_and_reviews_never_what_got_done(self):
         row, line = self.screens["beta"]
         self.assertRegex(row, r"✓ done +━+ 2 of 2$")
         self.assertEqual(line, f"{UNDER}build and review: Opus 5.5 xhigh")
 
-    def test_a_working_seat_opens_who_builds_who_reviews_and_its_tasks_squares(self):
+    def test_a_working_seat_opens_who_builds_and_who_reviews_never_its_tasks(self):
         row, line = self.screens["fix-api"]
-        # what follows the count is test_key_a_row_counts_its_tasks_going's, which Go has yet
-        # to port; this key, which Go passes, pins only the line under the row
-        self.assertRegex(row, r"● working +─+ no plan yet\b")
-        # build moving, build waiting its turn, review moving, then waiting in the landing line
+        # building, waiting its turn, in review and in the landing line; the one that passed
+        # ended
+        self.assertRegex(row, r"● working +─+ no plan yet · 4 tasks$")
         self.assertEqual(line, f"{UNDER}build: Spark 1.3 Contributor xhigh   review: Opus 5.5 "
-                               "xhigh   ■□□  ■□□  ■■□  ■■■")
-
-    # blue while a model works on it, gray while it waits, with no mark.
-    # [2, 14, 19, 23, 26 Oct 2026]
-    def test_a_square_is_working_s_colour_while_a_model_works_on_it_and_dim_while_it_waits(self):
-        lines = self.coloured.splitlines()
-        at = next(n for n, line in enumerate(lines) if "fix-api" in COLOURS.sub("", line))
-        working = next(look[1:] for look in looks(lines[at]) if look[0] == "●")
-        dim = next(look[1:] for look in looks(lines[at]) if look[0].isdigit())    # its number's
-        under = looks(lines[at + 1])
-        self.assertNotEqual(working, dim)
-        tasks = groups(under)
-        self.assertEqual(["".join(cell[0] for cell in task) for task in tasks],
-                         ["■□□", "■□□", "■■□", "■■■"])
-        for number, (task, moving) in enumerate(zip(tasks, (True, False, True, False))):
-            for char, *look in task:
-                with self.subTest(task=number, char=char):
-                    self.assertEqual(tuple(look), working if moving and char == "■" else dim)
+                               "xhigh")
 
     def test_a_seat_at_rest_opens_each_role_with_the_models_in_it(self):
         row, line = self.screens["gamma"]

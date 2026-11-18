@@ -7,7 +7,6 @@ light going round is, 2.0 s on, where it was (a wait's rule: tests/test_key_c_pa
 The screens as tests/test_moving_lights_are_the_rainbow.py drives them, on a clock of their own.
 """
 
-from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -112,17 +111,6 @@ class OneTime(Screens):
         with self.subTest("an effort stepped up on `c`"):
             seen = self.stepped()
             self.assert_takes(seen, self.cells(seen(REST)[0], "Opus 5.5"), 0.09, 0.1, clock=True)
-        with self.subTest("a task's square on the ak screen"):
-            def run(step):      # web-portal's one run: three squares on the line its row opens
-                return Path("g1"), {"run_id": "g1", "launched_session": "web-portal",
-                                    "started_at": 9000, "task_file": "/t/g1.md",
-                                    "state": "running", "step": step}
-            self.records = [run("executor")]
-            seen = self.seen([None, Key("down")] + [None] * 4 + [
-                self.news(lambda: self.records.__setitem__(0, run("reviewer"))),
-                *self.moments(0.09, 0.1, REST)])
-            self.assert_takes(seen, self.cells(seen(REST)[0], "■■□", "[■□]{3}"), 0.09, 0.1,
-                              clock=True)
 
     def test_a_light_passing_once_takes_450_ms(self):
         with self.subTest("across a seat that turned `done`"):
