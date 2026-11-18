@@ -4,7 +4,10 @@
 #   {"provider":"meta","meters":[
 #      {"name":"window","used":0,"resets_at":1788646320,"window_secs":18000},
 #      {"name":"weekly","used":72,"resets_at":1788739200,"window_secs":604800}],
-#    "error":null}
+#    "error":null,"plan":"High Usage"}
+#
+# `plan` is the name adapters/muse.toml's [tiers] gives the frame's `subscription.tier`, null for
+# a tier it does not name; an answer that read no frame (an error, a spent 429) has no `plan`.
 #
 # Mechanism (verified against Muse Code 1.0.2/1.0.3, provider meta): Meta has no usage REST
 # endpoint -- every /muse-code/{subscription,usage,quota,entitlement,billing,limits} is a 404.

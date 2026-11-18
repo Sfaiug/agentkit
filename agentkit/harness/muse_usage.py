@@ -125,6 +125,7 @@ def key_from_muse():
 
 
 def parse_frame(payload):
+    """Its meters, and the plan adapters/muse.toml's [tiers] names by the frame's tier."""
     sub = payload.get("subscription") or {}
     meters = []
     win = sub.get("window")
@@ -140,7 +141,8 @@ def parse_frame(payload):
                        "used": max(0, min(100, int(round(float(week["used_percent"]))))),
                        "resets_at": int(week.get("resets_at") or 0),
                        "window_secs": 604800})
-    return meters
+    tiers = config.manifest("muse").get("tiers", {})
+    return {"meters": meters, "plan": tiers.get(str(sub.get("tier")))}
 
 
 def exhausted(body):
@@ -190,7 +192,8 @@ def retired(text):
 
 def probe(key, origin, policy, *fallbacks):
     """Ask Meta one (model, effort) for its usage frame, and the next only where Meta no longer
-    serves that model; every ask spends the one budget `left` reads."""
+    serves that model; every ask spends the one budget `left` reads.  What it read, its meters
+    and from a frame its plan, or None, and why it has no meters."""
     model, effort = policy
     body = json.dumps({"model": model,
                        "input": "x",
@@ -216,7 +219,7 @@ def probe(key, origin, policy, *fallbacks):
             if resp.status == 429:
                 meters = exhausted(text)
                 if meters:
-                    return meters, None
+                    return {"meters": meters}, None
             return None, "responses probe returned HTTP %d" % resp.status
         for raw in resp:
             if left() <= 0:
@@ -230,9 +233,9 @@ def probe(key, origin, policy, *fallbacks):
                 continue
             if isinstance(payload, dict) and (payload.get("type") == "response.subscription_usage"
                                               or "subscription" in payload):
-                meters = parse_frame(payload)
+                frame = parse_frame(payload)
                 # the frame is terminal; nothing after it is worth waiting for
-                return (meters, None) if meters else (None, "subscription frame carried no meters")
+                return frame, None if frame["meters"] else "subscription frame carried no meters"
         return None, "no response.subscription_usage frame in the stream"
     except TimeoutError:
         return None, "responses probe timed out"
@@ -262,14 +265,16 @@ def fresh():
             return result(error=err or "could not obtain a Meta credential")
     if left() <= 0:
         return result(error="Muse usage probe timed out")
-    meters, err = probe(key, origin, *policies)
-    meters = [meter for meter in meters or [] if meter["resets_at"] > time.time()]
-    return result(meters, err or (None if meters else "no current subscription meters"))
+    said, err = probe(key, origin, *policies)
+    said = said or {}
+    meters = [meter for meter in said.pop("meters", []) if meter["resets_at"] > time.time()]
+    return result(meters, err or (None if meters else "no current subscription meters"), **said)
 
 
-def result(meters=None, error=None):
+def result(meters=None, error=None, **said):
+    """What the probe prints; `said` is what else its answer said: a frame's `plan`."""
     return {"provider": "meta", "meters": meters or [],
-            "error": "unknown: " + error if error else None}
+            "error": "unknown: " + error if error else None, **said}
 
 
 def read(path):
@@ -311,7 +316,8 @@ def cached():
         data = read(cache)
         if (0 <= now - data.get("fetched_at", 0) < CACHE_TTL
                 and isinstance(data.get("meters"), list)):
-            return {key: data.get(key) for key in ("provider", "meters", "error")}
+            data.pop("fetched_at")
+            return data
         save(cache, result(error="Muse usage probe did not complete within its budget"))
         data = fresh()
         save(cache, data)
