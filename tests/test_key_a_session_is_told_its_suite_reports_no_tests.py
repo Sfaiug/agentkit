@@ -36,7 +36,7 @@ PROJECTS = {
     "pieces": (PIECES, [("b", FINISHED, None, "landing", f"AK_SHARD=1/2 {PIECES}", 1),
                         ("b", FINISHED, None, "landing", f"AK_SHARD=2/2 {PIECES}", 0)]),
     "timed": (WHOLE, [("c", FINISHED, None, "landing", WHOLE, 0)]),
-    "behind": (WHOLE, [("k", FINISHED, None, "landing", WHOLE, 0)]),
+    "aside": (WHOLE, [("k", FINISHED, None, "landing", WHOLE, 0)]),
     "fresh": (PIECES, [("d", FINISHED, 1, "done-when", f"AK_SHARD=1/1 {PIECES}", 0),
                        ("e", FINISHED, None, "landing", f"AK_SHARD=1/2 {PIECES}", 0),
                        ("e", FINISHED, None, "landing", f"AK_SHARD=2/2 {PIECES}", None),
@@ -71,9 +71,11 @@ class Told(unittest.TestCase):
                                (run, name, end))
                     db.execute("INSERT INTO checks VALUES (?, ?, ?, 'cedar', ?, ?, 2)",
                                (run, *check))
-                if name == "behind":
-                    # its checkout is behind its default branch, on a commit that declared no suite
-                    (rig.path / "AGENTS.md").write_text("---\nhealth: none\nusers: none\n---\n")
+                if name == "aside":
+                    # Its checkout is on a branch of its own that declares no suite, called
+                    # origin/HEAD: that short name would read it, not the default branch.
+                    rig.git("checkout", "-q", "-b", "origin/HEAD")
+                    rig.commit({"AGENTS.md": "---\nhealth: none\nusers: none\n---\n"}, push=False)
         home.write(".agentkit/state/test-times-000000000002.json", {"tests/test_api.py": 3.0})
 
     def project(self, checkout, columns):
@@ -83,7 +85,7 @@ class Told(unittest.TestCase):
         return done.out.splitlines()
 
     def test_a_suite_run_whole_at_landing_with_no_times_is_told_in_one_line(self):
-        for name in ("silent", "pieces", "behind"):
+        for name in ("silent", "pieces", "aside"):
             for columns, cap in ((60, 60), (250, 120)):
                 with self.subTest(name, columns=columns):
                     lines = self.project(name, columns)

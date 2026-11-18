@@ -48,13 +48,14 @@ def unreported(repo):
     or on another branch, may declare an older one or none (17 Nov 2026: two projects whose
     suites landed whole and reported nothing read as declaring no suite)."""
     from . import gate
-    suite = gitcall.declared_suite(repo, ref="origin/HEAD")
+    # History first (sqlite, no git): `stop.untested` asks at every done seat's Stop, and the
+    # suite and the repository's ID (`handed`) are read through git.
+    checks = history.landing_checks(Path(repo).name)
+    suite = checks and gitcall.declared_suite(repo, ref=config.RULES_REF)
     if not suite:
         return False
-    # History first (sqlite, no git): `stop.untested` asks at every done seat's Stop, and
-    # `handed` reads the repository's ID through git.
     shares, whole = {}, False
-    for run, tree, command, code in history.landing_checks(Path(repo).name):
+    for run, tree, command, code in checks:
         if not gate.ran_to_end(code):
             continue
         share, _, rest = command.partition(" ")
