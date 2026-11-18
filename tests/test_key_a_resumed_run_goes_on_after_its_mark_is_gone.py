@@ -30,20 +30,25 @@ LOCKED = {"sh": "echo hello > retry.txt && git add -A && git commit -qm 'add ret
 SPENT = {"final": "You have hit your usage limit. Try again at {in 1}.", "exit": 1}
 
 
+def not_json(token):
+    raise ValueError(f"run.json holds {token}, which JSON has not")
+
+
 def record(run_dir):
-    return json.loads((run_dir / "run.json").read_text())
+    return json.loads((run_dir / "run.json").read_text(), parse_constant=not_json)
 
 
 def launched(case, turns):
     """A run of alpha building and beta reviewing, its harnesses scripted with `turns`; beta's
-    entry holds a date, a value TOML has and JSON has not."""
+    entry holds a date, inf and nan, values TOML has and JSON has not."""
     case.home = home = Home()
     case.addClassCleanup(home.close)
     case.rig = Rig(home, "widgets")
     path = akconfig.write(home, {"alpha": ALPHA, "beta": BETA}, workers=["alpha"],
                           reviewers=["beta"])
     path.write_text(path.read_text().replace('model = "beta-1"\n',
-                                             'model = "beta-1"\nadded_on = 2026-10-01\n'))
+                                             'model = "beta-1"\nadded_on = 2026-10-01\n'
+                                             'bounds = [-inf, inf, nan]\n'))
     case.fakes = fakeadapter.install(home, **turns)
     case.ran = home.ak("run", str(taskfile.write(home, case.rig.path)), "--no-merge")
     case.run_dir = taskfile.only_run(home)

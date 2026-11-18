@@ -1341,8 +1341,8 @@ def run_marks(cfg, record):
     return {"efforts": {name: efforts_of(entry)
                         for name, entry in at_efforts(cfg, record)["models"].items()
                         if isinstance(entry, dict)},
-            # TOML holds dates JSON cannot, and no entry key a run reads is one
-            "models": json.loads(json.dumps(cfg["models"], default=str))}
+            # TOML holds dates, inf and nan JSON cannot, and no entry key a run reads is one
+            "models": json.loads(json.dumps(cfg["models"], default=str), parse_constant=str)}
 
 
 def model_name(cfg, name):
