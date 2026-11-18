@@ -90,7 +90,8 @@ func release(from *held) *Release {
 }
 
 // forms is what a name matches as: its letters and digits alone, ignoring case, and so again with
-// each eight-digit date cut to its last four digits.
+// each eight-digit date cut to its last four digits; none where it holds no letter or digit, which
+// names nothing.
 func forms(name string) []string {
 	clean := func(form string) string {
 		return strings.Map(func(r rune) rune {
@@ -106,6 +107,9 @@ func forms(name string) []string {
 		}
 		return found
 	})
+	if clean(name) == "" {
+		return nil
+	}
 	return []string{clean(name), clean(cut)}
 }
 
@@ -316,10 +320,9 @@ func Current(boards *run.Object) []*Release {
 		made := release(each.from)
 		out = append(out, made)
 		// a record may give its release no name, and then no other board's row names it
-		if name, _ := made.Name.(string); name != "" {
-			for _, form := range forms(name) {
-				named[form] = append(named[form], made)
-			}
+		name, _ := made.Name.(string)
+		for _, form := range forms(name) {
+			named[form] = append(named[form], made)
 		}
 	}
 	for _, board := range names {
