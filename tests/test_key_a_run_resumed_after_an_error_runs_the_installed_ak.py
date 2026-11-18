@@ -125,6 +125,22 @@ class ARunResumedAfterAnErrorRunsTheInstalledAk(unittest.TestCase):
         self.assertEqual(after["ak_checkout"], self.installed_checkout)
         self.assertFalse(self.marker.exists())
 
+    def test_a_run_in_error_whose_resume_never_started_resumes_on_the_installed_ak(self):
+        directory = self.make_run("20261117-0140-err-refused", state="error", ak_checkout=self.other)
+        # an earlier start's claim on the run's unit, which no manager here can clear
+        unit = f"agentkit-run-{directory.name}"
+        claim = self.home.write(f".agentkit/tmp/{unit}.placed", f"{unit}.scope")
+        refused = self.home.run(self.install.ak, "run", "resume", directory.name, "--bg", timeout=120)
+        self.assertNotEqual(refused.code, 0, refused.out + refused.err)
+        self.assertEqual(json.loads((directory / "run.json").read_text())["state"], "interrupted")
+        claim.unlink()
+        done = self.home.run(self.install.ak, "run", "resume", directory.name, timeout=120)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        after = json.loads((directory / "run.json").read_text())
+        self.assertEqual(after["state"], "pass", (directory / "log.txt").read_text())
+        self.assertEqual(after["ak_checkout"], self.installed_checkout)
+        self.assertFalse(self.marker.exists())
+
     def test_a_run_in_error_retried_by_the_tick_runs_the_installed_ak(self):
         pinned = Path(self.home.env["HOME"]) / ".agentkit/versions" / self.other_commit
         directory = self.make_run("20261117-0200-err-tick", state="error", ak_checkout=pinned,
