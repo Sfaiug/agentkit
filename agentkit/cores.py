@@ -55,20 +55,26 @@ def tell(state, log):
         # its interval would be over, so it is no reading.
         last = before.get(scope.name) or {}
         seen = state["seat_cores"][scope.name] = {"at": now, "held": held, "waited": waited}
-        # Until 18 Nov 2026 a count was saved without saying whether the scope's waiting was in
-        # it: it is read as this one is.
-        was = last.get("waited", waited)
         # Where one end alone read the waiting, the count jumps by all the scope ever waited,
         # which is no part of the interval: taken out, what was used still counts, so a streak
         # and when it was told go on.  The streak's count jumps with it.
+        was = last.get("waited", waited)
         jump = (waited or 0) - (was or 0) if None in (waited, was) else 0
-        if ("held" not in last or now <= last["at"]
-                or held - last["held"] - jump < FLOOR * 1e6 * (now - last["at"])):
+        if "held" not in last or now <= last["at"]:
             continue
+        rose = held - last["held"] - jump
+        under = rose < FLOOR * 1e6 * (now - last["at"])
         if "waited" not in last:
-            # over, yet by all the scope ever waited if that was not in the count before: no
-            # streak starts or goes on from it, and when its seat was told stands
-            seen["told"] = last.get("told")
+            # Until 18 Nov 2026 a count was saved without saying whether the scope's waiting was
+            # in it: no streak starts or goes on from one, and when its seat was told stands
+            # unless the interval was under.  It is read as this reading is, but one that is all
+            # the scope has used by now was of used time alone, with none since: under.  One
+            # gone down had the waiting in it, which this reading lacks: what was held is
+            # unknown, which is not under.
+            if held - (waited or 0) != last["held"] and (rose < 0 or not under):
+                seen["told"] = last.get("told")
+            continue
+        if under:
             continue
         going = "since_held" in last
         seen.update(since=last["since"] if going else last["at"],
