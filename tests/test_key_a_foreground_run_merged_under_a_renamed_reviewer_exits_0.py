@@ -12,6 +12,7 @@ harnesses.  The first review waits for a file the test writes once the config is
 
 from pathlib import Path
 import json
+import shlex
 import sys
 import threading
 import time
@@ -33,7 +34,8 @@ class AForegroundRunMergedUnderARenamedReviewerExits0(unittest.TestCase):
         akconfig.write(home, {"opus": {}, "astra": {}, "nova": "claude"})
         codex = fakeadapter.install(home, claude="work", codex="pass")["codex"]
         reviewing, go = codex.dir / "reviewing", codex.dir / "go"
-        codex.behave({**fakeadapter.PASS, "sh": f"touch {reviewing}; while [ ! -e {go} ]; do sleep 0.1; done"},
+        codex.behave({**fakeadapter.PASS, "sh": f"touch {shlex.quote(str(reviewing))}; "
+                                                f"while [ ! -e {shlex.quote(str(go))} ]; do sleep 0.1; done"},
                      "pass")
         ended = []
         task = taskfile.write(home, rig.path)
