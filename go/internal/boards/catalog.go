@@ -222,10 +222,10 @@ func gone(found []*held) map[string]string {
 	for _, each := range found {
 		all[each.slug] = each
 		first := each.rows[0]
-		// a missing name says nothing of which releases are one model's
+		// a name that names nothing says nothing of which releases are one model's
 		key := run.Line([]any{each.slug})
-		if first.Dict("release").Truthy("name") {
-			key = run.Line([]any{first.Get("maker"), first.Dict("release").Get("name")})
+		if name := first.Dict("release").Str("name"); forms(name) != nil {
+			key = run.Line([]any{first.Get("maker"), name})
 		}
 		if series[key] == nil {
 			order = append(order, key)

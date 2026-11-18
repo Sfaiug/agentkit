@@ -150,16 +150,19 @@ class Catalog(Sandbox):
             ("acme-nova-1", "Nova 1", "acme-nova-1", "Nova 1", "Acme", True, "acme-nova-2", 16),
             ("acme-nova-2", "Nova 2", "acme-nova-2", "Nova 2", "Acme", False, None, 18),
             ("beta-nova-1", "Nova 1", "beta-nova-1", "Nova 1", "Beta", False, None, 17),
-            # a release with no name is a series alone
+            # a release with no name, or one of no letter or digit or no text, is a series alone
             ("awl-1", "Awl 1", "awl-1", None, "Acme", True, "awl-2", 1),
+            ("chisel-1", "Chisel 1", "chisel-1", 7, "Acme", True, "awl-2", 1),
             ("awl-2", "Awl 2", "awl-2", "Awl 2", "Acme", False, None, 15),
-            ("bevel-1", "Bevel 1", "bevel-1", None, "Acme", False, None, 10)]
+            ("bevel-1", "Bevel 1", "bevel-1", None, "Acme", False, None, 10),
+            ("cask-1", "Cask 1", "cask-1", " ... ", "Acme", True, "awl-2", 1),
+            ("dowel-1", "Dowel 1", "dowel-1", " ... ", "Acme", False, None, 19)]
         for records in (RECORDS + series, RECORDS + series[::-1]):
             with patch(f"{__name__}.RECORDS", records):
                 held = boards.collect(refresh=True, now=10000)
             self.assertEqual([release["slug"] for release in catalog.current(held)], [
-                "beta-3", "acme-7", "kappa-7", "acme-nova-2", "beta-nova-1", "awl-2", "nu-7",
-                "bevel-1", "zeta-1", "omega-0-fast", "xi-3", "xi-2", "delta-1", "gamma-1"])
+                "beta-3", "acme-7", "kappa-7", "dowel-1", "acme-nova-2", "beta-nova-1", "awl-2",
+                "nu-7", "bevel-1", "zeta-1", "omega-0-fast", "xi-3", "xi-2", "delta-1", "gamma-1"])
 
     def test_a_reading_an_older_build_stored_is_asked_again_once(self):
         boards.collect(now=10000, build="abc1234")

@@ -48,6 +48,9 @@ func (db *DB) share(id any, name string, session any, totals bool, began float64
 		}
 	}
 	if totals {
+		// Each model's total is measured against that model's rows alone, where Python's _less takes what
+		// they exceed it by off the others in turn: here a session counts twice what its turn reported
+		// under no model, as a result without `modelUsage` does, before a total named a model.
 		for at, each := range counts {
 			for kind, then := range kept[each.Model] {
 				counts[at].Spent[kind] = max(0, each.Spent[kind]-then)
@@ -72,6 +75,9 @@ func (db *DB) share(id any, name string, session any, totals bool, began float64
 			}
 			dollars = price(each.Model, left)
 		}
+		// The turn's path alone names its rows, as in Python: it holds its run's id, and two runs'
+		// receipts under one directory (a link from one run to the other's turn) is left so: an input
+		// no home holds is not served.
 		if err := db.exec("UPDATE turn_usage SET (input, cache_write, cache_read, output, listed_usd) = (MAX(0, input-?1), "+
 			"MAX(0, cache_write-?2), MAX(0, cache_read-?3), MAX(0, output-?4), ?7) WHERE turn=?5 AND model IS ?6 AND "+
 			"(input, cache_write, cache_read, output) IS NOT (MAX(0, input-?1), MAX(0, cache_write-?2), MAX(0, cache_read-?3), MAX(0, output-?4))",

@@ -133,30 +133,55 @@ func TestACommandIsNeverTheShellsOptions(t *testing.T) {
 func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	t.Setenv("ACME_TOKEN", "kept")
-	// absolute, as a relative TMPDIR would leave the link's target relative to the link and PWD
-	// is the checkout made absolute; and as the system has it, never by its words alone: a
-	// TMPDIR with a symlink before `..`, or `..` above a working directory named through one,
-	// is another directory once cleaned
-	dir := t.TempDir()
-	wd, err := os.Getwd()
-	if err == nil {
-		wd, err = filepath.EvalSymlinks(wd)
+	// The checkout is a link in the temp directory, and a shell keeps the PWD it is given only
+	// where that is absolute and clean and reaches its directory. So the link is made under the
+	// first name of the temp directory that holds it: the system's, then the given one cleaned
+	// where it has no `..`, which after a link is the parent of where the link leads. The
+	// system's can pass its own limit with the link added, where the given one is shorter
+	sep := string(os.PathSeparator)
+	named := t.TempDir()
+	var names []string
+	// A shell there says the system's: found from the given name part by part, it passes the
+	// limit on the way to a name within it. The shell's environment is empty, as exec's own
+	// asks for the working directory's name, and a removed one has none; and its answer is a
+	// name only where absolute, as dash prints an empty line where the system gives it none
+	shell := exec.Command("/bin/sh", "-c", "pwd -P")
+	shell.Dir, shell.Env = named, []string{}
+	if real, err := shell.Output(); err == nil && filepath.IsAbs(string(real)) {
+		names = append(names, strings.TrimSuffix(string(real), "\n"))
 	}
-	if err == nil && !filepath.IsAbs(dir) {
-		dir = wd + string(os.PathSeparator) + dir
+	// Only this process follows a name of its own (/proc/self/task/…), so it finds the system's
+	// part by part too: from the name as given and, where that is relative, from the working
+	// directory's, as either can pass the limit where the other keeps within it
+	walks := []string{named}
+	// the given one takes the working directory's name where relative, and is none without it
+	if !filepath.IsAbs(named) {
+		if wd, err := os.Getwd(); err == nil {
+			named = wd + sep + named
+			walks = append(walks, named)
+		}
 	}
-	if err == nil {
-		dir, err = filepath.EvalSymlinks(dir)
+	for _, walk := range walks {
+		if real, err := filepath.EvalSymlinks(walk); err == nil && filepath.IsAbs(real) {
+			names = append(names, real)
+		}
 	}
-	if err != nil {
-		t.Fatal(err)
+	if filepath.IsAbs(named) && !strings.Contains(named+sep, sep+".."+sep) {
+		names = append(names, filepath.Clean(named))
 	}
-	checkout := filepath.Join(dir, "acme-link")
-	if err := os.Mkdir(filepath.Join(dir, "acme"), 0o755); err != nil {
-		t.Fatal(err)
+	checkout := ""
+	for _, name := range names {
+		if checkout = filepath.Join(name, "acme-link"); os.Symlink("acme", checkout) == nil {
+			// after its link, whose longer name was the one to fit
+			if err := os.Mkdir(filepath.Join(name, "acme"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			break
+		}
+		checkout = ""
 	}
-	if err := os.Symlink(filepath.Join(dir, "acme"), checkout); err != nil {
-		t.Fatal(err)
+	if checkout == "" {
+		t.Fatalf("no name of the temp directory %q holds the checkout's link", named)
 	}
 	out, why := ProjectOutput(context.Background(), `printf '%s %s %s\n' "${AGENTKIT_SESSION-absent}" "$ACME_TOKEN" "$PWD"`, checkout, nil, time.Second, "list")
 	// the output is decoded, so a checkout's path not in UTF-8 reads as Python reads it
