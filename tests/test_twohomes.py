@@ -184,7 +184,7 @@ class TwoHomes(unittest.TestCase):
     def read(machine):
         """The refs under refs/agentkit/ that `machine` reads on its install's remote."""
         listed = machine.install.git("ls-remote", "origin", "refs/agentkit/*")
-        return {ref: sha for sha, ref in (line.split() for line in listed.splitlines())}
+        return dict(line.split("\t")[::-1] for line in listed.splitlines())   # a ref holds no tab
 
     def test_a_ref_one_pushes_is_what_the_other_and_the_key_read(self):
         install, pushed = self.machines[0].install, {}
@@ -194,7 +194,8 @@ class TwoHomes(unittest.TestCase):
             machine.install.git("push", "-q", "origin", f"{made}:{ref}")
             pushed[ref] = made
             self.assertEqual((self.read(other), install.refs()), (pushed, pushed))
-            self.assertEqual(install.commit(made), machine.install.git("cat-file", "commit", made))
+            held = machine.run("git", "-C", machine.install.at, "cat-file", "commit", made).out
+            self.assertEqual(install.commit(made), held.encode())   # whole, its last line break too
 
     def test_of_two_pushes_naming_one_old_value_one_is_refused(self):
         install, ref = self.machines[0].install, "refs/agentkit/home"

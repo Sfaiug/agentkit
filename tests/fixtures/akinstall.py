@@ -11,8 +11,8 @@ of it on main, and `install.ak` its `bin/ak` as the home's commands find it.  It
 as GitHub's acme/agentkit, `ORIGIN`, so a pull request merged there is on its repository: an
 `ssh` serves git's fetch of it, `FETCH`, from the bare origin, and refuses all else.
 `advance()` adds a line to `notes` in one more commit on origin's main.  `refs()` are the refs
-origin holds under refs/agentkit/, `commit(sha)` one as it holds it, and `set_ref` changes one,
-or deletes it, as a stranger would, from no machine.  `seat(name)` opens a
+origin holds under refs/agentkit/, `commit(sha)` the bytes it holds of one, and `set_ref` changes
+one, or deletes it, as a stranger would, from no machine.  `seat(name)` opens a
 seat of tests/fixtures/akseat.py in HOME/agentkit, at its prompt, holding a run that merged into
 acme/agentkit: the seat a tick hands agentkit's own faults back to.  The tick asks the public
 model boards over HTTP itself, so every proxy an HTTP client honours names a loopback port nobody
@@ -59,10 +59,10 @@ PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY"
 BARE = Path("remotes", "acme", "agentkit.git")
 
 
-def _git(where, *args):
+def _git(where, *args, raw=False):
     """Run git in `where` on the test's side, as no home's command, for an origin is no home's;
-    its output, stripped."""
-    done = subprocess.run(["git", "-C", str(where), *args], capture_output=True, text=True,
+    its output, stripped, or `raw`, the bytes git wrote."""
+    done = subprocess.run(["git", "-C", str(where), *args], capture_output=True, text=not raw,
                           timeout=120, env={
                               "PATH": os.pathsep.join(SYSTEM), "GIT_CONFIG_NOSYSTEM": "1",
                               "GIT_CONFIG_GLOBAL": os.devnull,
@@ -71,7 +71,7 @@ def _git(where, *args):
                               "GIT_COMMITTER_NAME": "acme",
                               "GIT_COMMITTER_EMAIL": "acme@example.com"})
     assert done.returncode == 0, f"git {' '.join(args)}: {done.stderr}"
-    return done.stdout.strip()
+    return done.stdout if raw else done.stdout.strip()
 
 
 def _push(seed, message):
@@ -121,14 +121,17 @@ class Install:
         return self._push("one more line")
 
     def refs(self):
-        """Each ref origin holds under refs/agentkit/, and the commit it names."""
-        listed = _git(self.bare, "for-each-ref", "--format=%(refname) %(objectname)",
-                      "refs/agentkit/")
-        return dict(line.split() for line in listed.splitlines())
+        """Each ref origin holds under refs/agentkit/, its name's bytes as Python names a path's,
+        and the commit it names.  A name holds no ASCII space or control byte (git
+        check-ref-format): each line is one ref, and its one space ends the commit."""
+        listed = _git(self.bare, "for-each-ref", "--format=%(objectname) %(refname)",
+                      "refs/agentkit/", raw=True)
+        return {os.fsdecode(ref): sha.decode()
+                for sha, ref in (line.split(b" ", 1) for line in listed.splitlines())}
 
     def commit(self, sha):
-        """The commit `sha` as origin holds it."""
-        return _git(self.bare, "cat-file", "commit", sha)
+        """The commit `sha`, the bytes origin holds."""
+        return _git(self.bare, "cat-file", "commit", sha, raw=True)
 
     def set_ref(self, ref, value):
         """Have origin's `ref` name `value`, a commit it holds; None deletes it."""
