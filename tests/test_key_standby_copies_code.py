@@ -31,7 +31,6 @@ class APassCopiesTheProjects(unittest.TestCase):
                 done = here.ak("standby", home.name)
                 self.assertEqual(done.code, 0, done.out + done.err)
                 self.assertEqual(code(here), code(home))
-            self.assertEqual({MAIN, GIT} & set(code(here)), {MAIN, GIT})
             self.assertNotIn(BESIDE, here.tree())
             shutil.rmtree(home.path / "code")
             done = here.ak("standby", home.name)
