@@ -48,6 +48,9 @@ func (db *DB) share(id any, name string, session any, totals bool, began float64
 		}
 	}
 	if totals {
+		// Each model's total is measured against that model's rows alone, where Python's _less takes what
+		// they exceed it by off the others in turn: here a session counts twice what its turn reported
+		// under no model, as a result without `modelUsage` does, before a total named a model.
 		for at, each := range counts {
 			for kind, then := range kept[each.Model] {
 				counts[at].Spent[kind] = max(0, each.Spent[kind]-then)
