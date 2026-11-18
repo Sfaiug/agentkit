@@ -44,7 +44,7 @@ from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
 from .transitions import (change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, drop_error_retry, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
-    invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
+    invalidate_saved_pass, judged_in_integration, landing_line, launched_session, leaves_line, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
     queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
     stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
@@ -1833,6 +1833,11 @@ def resume_run(argv):
         if state.get("review_pr"):
             return drive(cfg, run_dir, opts, log,
                          job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
+        if leaves_line(state, cfg):
+            # The config changed after it was let in as a delivery: it asks again, as work.
+            with gate.slot_lock(), run_record.recovery_lock(run_dir):
+                state.update(state="queued", slot_waiting=True)
+                run_record.save_state(run_dir, state)
         return drive(cfg, run_dir, opts, log, prior=state if wt else None)
     if not child and state.get("state") in run_record.ACTIVE:
         if run_record.process_active(state):
@@ -2029,6 +2034,10 @@ def resume_run(argv):
         # reason must not inherit any
         for key in ("waiting_for", "login_resume_at", "login_back_at"):
             state.pop(key, None)
+        if not state.get("review_pr"):      # a PR's review reads its own verdict (`review_pr`)
+            # Before it asks for a slot: a green delivery is let in past the host's gates as
+            # one that only merges (`gate.claim_slot`), which a run reviewing again is not.
+            leaves_line(state, cfg)
         # the wait this resume answers is over too: main moved, or a hand hurried it
         if not (state.get("waiting_on") or {}).get("line"):
             state.pop("waiting_on", None)
