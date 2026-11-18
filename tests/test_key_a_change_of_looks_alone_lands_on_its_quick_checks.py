@@ -8,9 +8,10 @@ merge ends with `Looks-Alone-Tree: <tree>`.  Elsewhere, and for any other change
 as any does, and what a stylesheet breaks the next whole run finds red on the target's tip.
 
 Black-box: the program `AK_BIN` names, on a busy host (AK_HOST_READINGS) where a whole suite
-waits for company, checks a landing line from outside through tests/fixtures/akline.py; the two
-runs that deliver are scripted by fakeadapter.py and merged by fakegh.py's GitHub.  The Home
-here drops the test suites' `AK_MAX_RUNS=0`, which lifts every host gate.
+measured at 40 minutes waits for company, checks a landing line from outside through
+tests/fixtures/akline.py; the two runs that deliver are scripted by fakeadapter.py and merged
+by fakegh.py's GitHub.  The Home here drops the test suites' `AK_MAX_RUNS=0`, which lifts every
+host gate.
 """
 
 import json
@@ -40,6 +41,7 @@ class AChangeOfLooksAloneLandsOnItsQuickChecks(unittest.TestCase):
         self.addCleanup(line.close)
         line.home.env.pop("AK_MAX_RUNS")
         line.home.env["AK_HOST_READINGS"] = json.dumps(BUSY)
+        line.measured(40 * 60)
         return line
 
     def join(self, line, files):
@@ -100,6 +102,7 @@ class AChangeOfLooksAloneLandsOnItsQuickChecks(unittest.TestCase):
         line = self.line()
         self.join(line, {"AGENTS.md": RULES.replace("deployed: true\n", "")})
         self.land(line, IDLE)
+        line.measured(40 * 60)      # not the seconds that check took
         self.join(line, STYLE)
         self.land(line)
         self.assertEqual(self.checked(line), (1, [True, False]), line.runs())

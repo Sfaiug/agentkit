@@ -1,7 +1,7 @@
 """On a busy host a lander starts no whole run of a suite before its line has waited: without
 room for all its pieces at once, though some fit or what takes the rest runs outside ak's
 runs, a pass starts none until the line's longest-ready member without a verdict has been in
-line two hours, then checks everyone ready
+line two hours, for a suite whose last green check took 40 minutes, then checks everyone ready
 together, so one whole run covers two hours of changes; a member the pass would not check, its
 own process still running, opens no wait however long it has been in line.  With room for all
 its pieces nothing waits, nor does a line holding a run launched `--first`, nor a project with no
@@ -11,8 +11,8 @@ host's load: no suite starts for it.
 
 Black-box: the program `AK_BIN` names checks a landing line from outside through
 tests/fixtures/akline.py, with the host's readings injected (AK_HOST_READINGS) and the clock
-moved by putting the members' joins back.  The Home here drops the test suites'
-`AK_MAX_RUNS=0`, which lifts every host gate, this one too.
+moved by putting the members' joins back, the suite's length on record where ak keeps it.  The
+Home here drops the test suites' `AK_MAX_RUNS=0`, which lifts every host gate, this one too.
 """
 
 import json
@@ -37,6 +37,7 @@ class TheSuiteRunsOnceForABatch(unittest.TestCase):
         self.line = Line({"t/ok.sh": "true\n"})
         self.addCleanup(self.line.close)
         self.line.home.env.pop("AK_MAX_RUNS")
+        self.line.measured(40 * 60)
 
     def join(self, files=(), **fields):
         """Park the next member, joined now, its branch adding `files` too and its record

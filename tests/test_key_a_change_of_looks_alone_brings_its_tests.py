@@ -57,6 +57,7 @@ class AChangeOfLooksAloneBringsItsTests(unittest.TestCase):
         self.addCleanup(line.close)
         line.home.env.pop("AK_MAX_RUNS")
         line.home.env["AK_HOST_READINGS"] = json.dumps(BUSY)
+        line.measured(40 * 60)
         line.rig.git("config", "ak.repository", "0123456789ab")
         line.home.write(".agentkit/state/test-times-0123456789ab.json", TIMES)
         return line

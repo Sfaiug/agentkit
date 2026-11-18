@@ -1658,6 +1658,23 @@ def _a_cost(value):
     return type(value) in (int, float) and math.isfinite(value) and value > 0
 
 
+def green_seconds(command, cwd):
+    """How long `command` took in the last green whole check running it (`checked_green`), 0
+    where none was measured."""
+    seconds = read_suite_cost(suite_cost(command, cwd, None)[0]).get("green_seconds")
+    return seconds if _a_cost(seconds) else 0
+
+
+def checked_green(cwd, took):
+    """Keep on each command's cost how long it took in a green whole check, `took` by command."""
+    for command, seconds in took.items():
+        try:
+            with watch.state_lock():
+                write_suite_cost(suite_cost(command, cwd, None)[0], {"green_seconds": seconds})
+        except OSError:
+            pass    # a length not kept leaves the last one
+
+
 def read_suite_cost(path):
     try:
         cost = json.loads(path.read_text())
@@ -2627,7 +2644,7 @@ def _running_commands(pid):
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
                   confirmed=None, flaky=None, checked=None, exits=None, timings=None,
-                  absent=None, known=(), blamed=False):
+                  took=None, absent=None, known=(), blamed=False):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2678,7 +2695,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     kept by the verdict that blames them on a change (`land.check_line`).
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
     until then, takes `text`, its capped form. `timings`, a dict, gets each passing command's
-    ({file: seconds}, piece count) from this pass alone, before that cap.  `absent` is
+    ({file: seconds}, piece count) from this pass alone, before that cap, and `took` its last
+    go's seconds, charged to the ceiling as they are: its waits for a turn aside.  `absent` is
     `run_suite`'s, for one command, and `known` its for every one.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
@@ -2743,6 +2761,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         absent=absent, used=ended, known=known, blamed=blamed)
                     ended["exit"] = None if killed else code
                     end = progress.tell()
+                go = left - (deadline - time.monotonic())
                 if log is not None and run_dir is not None:
                     turns.memory_cap_note(run_dir, log)
                 if heavy and code == SUITE_BUSY and not killed:
@@ -2773,6 +2792,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             ok &= code == 0
             if timings is not None and code == 0 and not killed:
                 timings[cmd] = suite_times.measured(log_path, offset), max(1, len(raw))
+            if took is not None and code == 0 and not killed:
+                took[cmd] = go
             if marks is not None:
                 marks.append(None if killed else code)
             if split(cmd):

@@ -173,6 +173,7 @@ class EveryPassMovesTheLine(fixture.LanderFixture, unittest.TestCase):
         busy = {"AK_MAX_RUNS": "1",     # the test suites' 0 lifts every host gate
                 "AK_HOST_READINGS": json.dumps({"cpus": 4, "load": 4, "free_mb": 16000})}
         with patch.dict(os.environ, busy), \
+                patch.object(gate, "green_seconds", return_value=40 * 60), \
                 patch.object(land, "CHECKED", 0):   # each as long as a check, as on a busy host
             self.checked()
             self.checked()

@@ -41,7 +41,11 @@ FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees thi
 # day unused, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
 WAKE = 10           # a blamed run waits at most this long once no run it waits on is in line
-BATCH = 2 * 3600    # on a busy host a whole suite waits at most this long for company
+BATCH = 2 * 3600    # on a busy host a whole suite waits at most this long for company,
+COMPANY = 3         # and at most this many times its last green check (`gate.green_seconds`):
+# two hours were sized on suites of some 40 minutes, and one of 94 seconds waited 2 h 02 min.
+# Waiting three times its length, a suite holds the host a quarter of the time at most, as two
+# hours held those; the owner chose "3x own check" (18 Nov 2026).
 
 
 def _trees(turn, kind="trees"):
@@ -1000,7 +1004,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                "since": wait["joined"], "line": wait["line"]}
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
     marks, pieces, confirmed = [], {}, {}
-    timings = {}
+    timings, lengths = {}, {}
     flaky = [] if flaky is None else flaky
     absent = [] if absent is None else absent
     # Tests named alone cost what a model's own test does, which takes no turn: on a host out of
@@ -1014,7 +1018,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
             flaky=flaky, checked=(directory, None, kind, identity["head_sha"]), exits=exits,
-            timings=timings, absent=absent, known=over, blamed=kind == "landing")
+            timings=timings, took=lengths, absent=absent, known=over, blamed=kind == "landing")
         took = time.monotonic() - started
     if ok and suite and kind == "landing" and not shard and not only:
         if failure := suite_times.refusal(scratch, _upstream(state), suite, timings):
@@ -1030,6 +1034,10 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
         absent.clear()      # nor one that was not there
         text += ("\n\nCheckout changed during the final check; "
                  "these commands do not verify the pinned commit.")
+    if ok and not shard and not only:
+        # Green only here: a suite's pieces end on a helper, in retries or at the deadline after
+        # the gate's own measure, and a suite that passed is refused above.
+        gate.checked_green(scratch, lengths)
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
     log_path.write_text(text)
     if not moved:
@@ -1322,18 +1330,19 @@ def _waits_for_company(turn, stacks, checks, suite, log):
     """Whether `checks`, the whole check of the last of `stacks` on those before it, wait, the
     pass then ending with none started: where they run a suite, the target's `suite` or a
     `tests:` line one of `stacks` declares (`_landing_checks`), while the host has no room
-    for all its pieces at once (`gate.fits_whole`), the line holds
-    no member launched `--first`, no repair and no held install's fix (`update.first_place`,
-    admitted as `--first` is), and its longest-ready member without a verdict, one
-    `check_line` checks, has been in line under BATCH.  Lines ran their suites whole back to
-    back, 19 to 32 runs a day a project, each for the few members that joined during the last,
-    on a host loaded over twice its processors (13 to 16 Nov 2026): one run now covers two hours
-    of changes.  A run's end left a processor idle for a minute, and 27 of a day's 65 runs
-    started in that dip for the one or two members there (16 Nov 2026): a suite takes every
-    free turn for some 40 minutes, so only room for all of it says no other work waits on it.
-    Asked of the clock, the readings and the line as they are, whatever led the pass to the
-    run, and nothing kept: the callers that retry a pass ask again.  The test suites'
-    `AK_MAX_RUNS=0` lifts it, as every host gate."""
+    for all its pieces at once (`gate.fits_whole`), the line holds no member launched
+    `--first`, no repair and no held install's fix (`update.first_place`, admitted as `--first`
+    is), and its longest-ready member without a verdict, one `check_line` checks, has been in
+    line under COMPANY times the longest any of those suites took in its last green whole check,
+    and under BATCH: a suite never measured green waits none, as its first check measures it.
+    Lines ran their suites whole back to back, 19 to 32 runs a day a project, each for the few
+    members that joined during the last, on a host loaded over twice its processors (13 to 16
+    Nov 2026): one run now covers up to two hours of changes.  A run's end left a processor idle
+    for a minute, and 27 of a day's 65 runs started in that dip for the one or two members there
+    (16 Nov 2026): a suite takes every free turn for some 40 minutes, so only room for all of it
+    says no other work waits on it.  Asked of the clock, the readings and the line as they are,
+    whatever led the pass to the run, and nothing kept: the callers that retry a pass ask again.
+    The test suites' `AK_MAX_RUNS=0` lifts it, as every host gate."""
     from . import gate
     if os.environ.get("AK_MAX_RUNS") == "0":
         return False
@@ -1342,16 +1351,18 @@ def _waits_for_company(turn, stacks, checks, suite, log):
                  if state.get("state") == "waiting" and not record.process_active(state)
                  and (state.get("review") or {}).get("verdict") == "PASS"
                  and not {"land", "fix"} & state["waiting_on"].keys()), default=0)
-    if time.time() - since >= BATCH or any(
-            state.get("first") or state.get("repair") or update.first_place(state)
-            for state in members):
+    if any(state.get("first") or state.get("repair") or update.first_place(state)
+           for state in members):
         return False
+    cwd = stacks[-1][2]
     suites = {suite, *(gitcall.declared_at(scratch, tree, "tests")
                        for _, _, scratch, tree, *_ in stacks)} & set(checks)
-    if all(gate.fits_whole(command, stacks[-1][2]) for command in suites):
+    ends = since + min(BATCH, COMPANY * max(
+        (gate.green_seconds(command, cwd) for command in suites), default=0))
+    if time.time() >= ends or all(gate.fits_whole(command, cwd) for command in suites):
         return False
     log(f"no room for all the suite's pieces at once: it runs whole for everyone in line by "
-        f"{time.strftime('%H:%M', time.localtime(since + BATCH))}")
+        f"{time.strftime('%H:%M', time.localtime(ends))}")
     return True
 
 
