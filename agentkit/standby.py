@@ -10,11 +10,15 @@ were 440 000 files, which rsync compared from the copy in 52 s at the home's bus
 copied hourly would hold the pass's lock as long as that took, or, beside the pass, write in the
 runs' folder while it does.  Before it, what a seat carrying on from the copy needs of each
 harness: its logins, every account's, and the folders its conversations start from, each at its
-path, the rest of that harness's folders this machine's own; and as one more such path ~/code
-whole, each project's `.git` folder too, so that a project and its runs' checkouts work in the
-copy: rsync compared the owner's 406 000 files in 31 s on 18 Nov.  After it, ak here moves as every
-client's does (`update.follow`), to the commit ak is at on the home once the home's move there
-is final, so the ak that takes over is the one that was live.
+path, the rest of that harness's folders this machine's own; and as one more such path ~/code,
+each project's `.git` folder too, so that a takeover finds the projects and the repositories its
+runs' checkouts name: rsync compared the owner's 406 000 files in 31 s on 18 Nov.  Not all of
+~/code crosses.  What the home's account cannot read there is left out as under ak's checkouts,
+within a `.git` folder too.  A lock in a `.git` folder is the home's git at work, and no git here
+would ever let go of its copy.  A repository that keeps git data outside ~/code, and ~/code itself
+where it is a link on the home, would cross without what it needs: each stays as the copy has it.
+After it, ak here moves as every client's does (`update.follow`), to the commit ak is at on the
+home once the home's move there is final, so the ak that takes over is the one that was live.
 
 rsync writes straight into the copy, sending what changed within each file, compressed, over the
 owner's line; each file lands whole, the old one or the new one.  A pass cut short leaves some
@@ -48,51 +52,75 @@ import time
 from . import (command_help, config, machine_turn, move, notify, pair_clock, record, terminal,
                update, versions)
 
-# This machine's own in ak's folder, which a pass neither sends nor deletes: which server it is
-# a client of, its ak install and whether its install.sh is owed, the pages it sent and owes
-# (`back` pages from here), and what each machine keeps through a move.
-KEPT = tuple(path for path in (config.STATE / "server", versions.repository(),
-                               config.HOME / versions.VERSIONS, config.STATE / update.PENDING,
-                               notify.outbox(), *move.KEPT)
-             if path.is_relative_to(config.HOME))
+# This machine's own, which a pass neither sends nor deletes where it copies: the ak that runs
+# here, which may lie under ~/code, which server it is a client of, its ak install and whether
+# its install.sh is owed, the pages it sent and owes (`back` pages from here), and what each
+# machine keeps through a move.
+KEPT = (config.REPO, config.STATE / "server", versions.repository(),
+        config.HOME / versions.VERSIONS, config.STATE / update.PENDING, notify.outbox(),
+        *move.KEPT)
 # A run's scratch, its folders of these names at any depth, which go when its turn ends: in one
 # three-minute window on 9 Nov the owner's home wrote 1.8 GB in them against 26 MB outside.
 SCRATCH = ("tmp", ".box-")
 LINKED = 3      # the ask's exit for a home whose runs' folder is a link
 # The ask of the home, each name NUL-ended: the names of its runs, each folder in its runs'
 # folder, as `record.run_dirs` lists them; a runs' folder the home lacks holds none.  Then an
-# empty name, and the path of each folder under the checkouts' folders the home's account cannot
-# list or enter, and of each regular file it cannot read, as access(2) answers for it: rsync's
-# sender exits 23 for one and deletes nothing.  The walk opens no file, of the million in them;
-# it follows no link, which rsync copies as one, and skips each `.git` folder, which no pass
-# copies.  By whatever python3 the home's ssh finds, which may be older than ak's: so it imports
-# nothing of ak's, comes on its input and is given the folders.
-ASK = f"""import os, sys
-runs, wt, work = sys.argv[1:]
+# empty name, and each path the pass leaves out.  Under ~/code and the checkouts' folders, each
+# folder the home's account cannot list or enter, and each regular file it cannot read, as
+# access(2) answers for it: rsync's sender exits 23 for one and deletes nothing.  The walk opens
+# no file, of the million in them; it follows no link, which rsync copies as one, and skips each
+# `.git` folder under the checkouts' folders, where no pass copies one.  Under ~/code, each
+# folder, or link to one, holding a `.git` whose repository keeps git data outside ~/code, as
+# the home's git names it for that `.git` alone: its own folder and the one it shares with its
+# other checkouts (`rev-parse`), and each folder it borrows objects from (`count-objects`); a
+# `.git` git reads no repository from names none.  And ~/code itself where it is a link: rsync
+# would put that link here in place of the copy's folder.  By whatever python3 the home's ssh
+# finds, which may be older than ak's: so it imports nothing of ak's, comes on its input and is
+# given the folders.
+ASK = f"""import os, subprocess, sys
+runs, code, *checkouts = map(os.fsencode, sys.argv[1:])
 if os.path.islink(runs):
     sys.exit({LINKED})
 try:
-    found = list(os.scandir(os.fsencode(runs)))
+    found = list(os.scandir(runs))
 except FileNotFoundError:
     found = []
 for run in found:
     if run.is_dir():
         sys.stdout.buffer.write(run.name + b"\\0")
 sys.stdout.buffer.write(b"\\0")
-folders = [os.fsencode(top) for top in (wt, work) if not os.path.islink(top)]
+inside, real = os.path.join(code, b""), os.path.join(os.path.realpath(code), b"")
+def outside(folder):
+    git = os.path.join(folder, b".git")
+    if not os.path.lexists(git):
+        return False
+    named = []
+    for ask, mark in ((("rev-parse", "--git-dir", "--git-common-dir"), b""),
+                      (("count-objects", "-v"), b"alternate: ")):
+        said = subprocess.run([b"git", b"--git-dir", git, *ask], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL).stdout
+        named += [line[len(mark):] for line in said.splitlines() if line.startswith(mark)]
+    return not all(os.path.realpath(path).startswith(real) for path in named)
+if os.path.islink(code):
+    sys.stdout.buffer.write(code + b"\\0")
+folders = [top for top in (code, *checkouts) if not os.path.islink(top)]
 while folders:
     try:
         found = list(os.scandir(folders.pop()))
     except FileNotFoundError:
         found = []
     for entry in found:
-        if entry.is_dir(follow_symlinks=False) and entry.name != b".git":
-            if os.access(entry.path, os.R_OK | os.X_OK):
-                folders.append(entry.path)
-            else:
-                sys.stdout.buffer.write(entry.path + b"\\0")
-        elif entry.is_file(follow_symlinks=False) and not os.access(entry.path, os.R_OK):
+        if entry.is_file(follow_symlinks=False):
+            folder, out = False, not os.access(entry.path, os.R_OK)
+        else:
+            whole = entry.path.startswith(inside)
+            folder = entry.is_dir(follow_symlinks=False) and (whole or entry.name != b".git")
+            out = folder and not os.access(entry.path, os.R_OK | os.X_OK) \\
+                or whole and outside(entry.path)
+        if out:
             sys.stdout.buffer.write(entry.path + b"\\0")
+        elif folder:
+            folders.append(entry.path)
 """.encode()
 TIMEOUT = 300   # seconds of silence from the home that fail a pass
 # This machine's own folder of the copy, in ak's tmp folder: the stamp of the last pass that ended
@@ -162,12 +190,13 @@ def _keep_job(alias):
 def _copy(alias, home, copied):
     """One pass from `alias`: `copied` under `home`, then each run of the home's or this
     machine's, then the rest of ak's folder.  Why it failed, or None."""
-    # The home's runs and what it cannot read first, so one whose runs' folder is a link fails the
-    # pass before it copies anything: rsync would put that link here in place of the runs' folder.
+    # The home's runs and what the pass leaves out first, so one whose runs' folder is a link
+    # fails the pass before it copies anything: rsync would put that link here in place of the
+    # runs' folder.
     try:
         asked = subprocess.run(
-            ["ssh", alias, shlex.join(["python3", "-I", "-", str(config.RUNS), str(config.WT),
-                                       str(config.WORK)])],
+            ["ssh", alias, shlex.join(["python3", "-I", "-", str(config.RUNS), str(config.CODE),
+                                       str(config.WT), str(config.WORK)])],
             input=ASK, stdout=subprocess.PIPE, timeout=TIMEOUT)
     except subprocess.TimeoutExpired:
         return f"what to copy was not read within {TIMEOUT} seconds"
@@ -178,7 +207,7 @@ def _copy(alias, home, copied):
     names = asked.stdout.split(b"\0")[:-1]
     gap = names.index(b"")
     runs = sorted({*map(os.fsdecode, names[:gap]), *(run.name for run in record.run_dirs())})
-    unread = [Path(os.fsdecode(path)).relative_to(config.HOME) for path in names[gap + 1:]]
+    out = [Path(os.fsdecode(path)) for path in names[gap + 1:]]
     # Each harness path a source of its own: one the home lacks is never read as a deletion.  The
     # home's rsync expands each `*` (-s), not its login shell, which as zsh fails on one matching
     # nothing.
@@ -190,20 +219,27 @@ def _copy(alias, home, copied):
     # git ignores too, and each run but its scratch.  Perishable (-p), the rules leaving out a
     # `.git` folder and a run's scratch still let rsync's delete take a checkout or run the home
     # removed, whatever it holds here.  A run is named literally, as any file is: rsync replaces a
-    # link here at a run's folder, or deletes it, and never goes past it.  Nor does what the home
-    # cannot read in its checkouts cross, each named literally too, a folder with all in it:
-    # perishable as well, what the copy holds of it stays till its checkout goes, and the pass
-    # after the home reads it again copies it.
+    # link here at a run's folder, or deletes it, and never goes past it.  Nor does what the
+    # home's answer leaves out cross, each named literally too, a folder with all in it:
+    # perishable as well, what the copy holds of it stays till the folder it is in goes, and the
+    # pass after the home reads it again, or keeps its git data in ~/code, copies it.  Each
+    # transfer keeps this machine's own and leaves out the home's by the paths under its root.
+    # A lock in a `.git` folder stays where it is, the home's there and this machine's here.
     # rsync tries each rule on each file, on each machine, and the runs' names are thousands, more
     # than one command may be given: they come on its input, in a transfer of the runs' folder
     # alone, which takes all inside a run before a name is tried on it; the rest crosses after.
     # rsync keeps a hard link within one transfer alone: a file with names in a run and outside
     # the runs, as a package cache links one into each checkout, crosses as two of the same bytes.
     at = config.PLACES["RUNS"]
-    rules = [*(f"--exclude=/{path.relative_to(config.HOME)}" for path in KEPT),
-             "--filter=-p .git/", *(f"--filter=-p /{_literal(path)}" for path in unread)]
+    def under(root):
+        return [*(f"--exclude=/{path.relative_to(root)}" for path in KEPT
+                  if path.is_relative_to(root)),
+                *(f"--filter=-p /{_literal(path.relative_to(root))}" for path in out
+                  if path.is_relative_to(root))]
+    rules = [*under(config.HOME), "--filter=-p .git/"]
     names = b"".join(os.fsencode(f"/{at}/{_literal(run)}") + b"\0" for run in runs)
-    for args, given in ((["-sR", "--no-implied-dirs", "--ignore-missing-args",
+    for args, given in ((["-sR", "--no-implied-dirs", "--ignore-missing-args", *under(home),
+                          "--filter=-p .git/**.lock",
                           *(f"{alias}:{home}/./{path}" for path in copied), f"{home}/"], None),
                         ([*rules, *(f"--filter=-p /{at}/**/{name}*/" for name in SCRATCH),
                           f"--filter=+ /{at}/*/**", "--from0", "--include-from=-",
