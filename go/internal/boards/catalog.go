@@ -16,9 +16,9 @@ import (
 // Collect holds them.  A release is one model, its efforts each a row of the board; it is current
 // while none of its rows is deprecated, and a deprecated one names the release that replaced it
 // (`deprecatedTo`), which may itself be replaced.  A series, one maker's releases of one release
-// name, whose deprecated releases name a successor takes its current variants along (gone).  The
-// record's shape stays here, and so does which release another board's model is: boards name
-// models their own way and know nothing of releases.
+// name (a nameless release alone), whose deprecated releases name a successor takes its current
+// variants along (gone).  The record's shape stays here, and so does which release another
+// board's model is: boards name models their own way and know nothing of releases.
 
 // A Release is a model as callers see it, its efforts weakest first.
 type Release struct {
@@ -218,7 +218,11 @@ func gone(found []*held) map[string]string {
 	for _, each := range found {
 		all[each.slug] = each
 		first := each.rows[0]
-		key := run.Line([]any{first.Get("maker"), first.Dict("release").Get("name")})
+		// a missing name says nothing of which releases are one model's
+		key := run.Line([]any{each.slug})
+		if first.Dict("release").Truthy("name") {
+			key = run.Line([]any{first.Get("maker"), first.Dict("release").Get("name")})
+		}
 		if series[key] == nil {
 			order = append(order, key)
 		}

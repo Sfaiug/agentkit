@@ -2,11 +2,11 @@
 `boards.collect` holds them.  A release is one model, its efforts each a row of the board; it is
 current while none of its rows is deprecated, and a deprecated one names the release that
 replaced it (`deprecatedTo`), which may itself be replaced.  A series, one maker's releases of
-one release name, whose deprecated releases name a successor takes its current variants along
-(`_gone`).  The record's shape (releases, those chains, series, the default effort being the row
-whose slug is the release's own) stays here, and
-so does which release another board's model is: boards name models their own way and know
-nothing of releases.
+one release name (a nameless release alone), whose deprecated releases name a successor takes
+its current variants along (`_gone`).  The record's shape (releases, those chains, series, the
+default effort being the row whose slug is the release's own) stays here, and so does which
+release another board's model is: boards name models their own way and know nothing of
+releases.
 """
 
 import re
@@ -115,7 +115,9 @@ def _gone(releases):
     else the ends stay and the others go, to the end when there is exactly one."""
     series = {}
     for slug, rows in releases.items():
-        series.setdefault((rows[0]["maker"], rows[0]["release"]["name"]), set()).add(slug)
+        name = rows[0]["release"]["name"]
+        # a missing name says nothing of which releases are one model's
+        series.setdefault((rows[0]["maker"], name) if name else (slug,), set()).add(slug)
     gone = {}
     for slugs in series.values():
         deprecated = [slug for slug in slugs if not _current(releases[slug])]

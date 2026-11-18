@@ -162,10 +162,11 @@ func indexOf(releases []*boards.Release) map[string][]hit {
 	return index
 }
 
-// lineup is a row per current release and effort, `name` as ak says it (config.Spoken) and
-// `board_name` as the board does, with its values as the catalog joins them and `yours`: each model of offers that found matches to this release alone, as {"harness", "model"},
-// at each effort it lists and at a row naming no effort, which is the model however it is run, or
-// at the release's default where it lists none but `none`.
+// lineup is a row per current release and effort, `name` as ak says it (config.Spoken), of its
+// slug where the board names it nothing, and `board_name` as the board does, with its values as
+// the catalog joins them and `yours`: each model of offers that found matches to this release
+// alone, as {"harness", "model"}, at each effort it lists and at a row naming no effort, which is
+// the model however it is run, or at the release's default where it lists none but `none`.
 func lineup(held *run.Object, harnesses []any, offers map[string][]listing.Model) []any {
 	releases := boards.Current(held)
 	index := indexOf(releases)
@@ -198,6 +199,9 @@ func lineup(held *run.Object, harnesses []any, offers map[string][]listing.Model
 	rows := []any{}
 	for _, release := range releases {
 		name, _ := release.Name.(string)
+		if name == "" {
+			name = release.Slug
+		}
 		for _, effort := range release.Efforts {
 			row := run.NewObject()
 			row.Set("release", release.Slug)

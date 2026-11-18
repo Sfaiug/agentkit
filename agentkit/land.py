@@ -1098,7 +1098,11 @@ def _stack_member(repo, state, top, upstream, opened, scratch=None):
     """Integrate a reviewed head in scratch, the one given put back at the head; no scratch
     means setup failed."""
     from . import roundloop, run
-    head = state["review"]["head_sha"]
+    head = (state.get("review") or {}).get("head_sha")
+    if not head:
+        # A green delivery whose review an older ak erased in the line: its resume takes it
+        # out (`transitions.leaves_line`), and the line is checked without it.
+        return None, "ERROR: no reviewed commit: the run's review is gone\n"
     if scratch:
         _put_back(scratch, head)
     else:

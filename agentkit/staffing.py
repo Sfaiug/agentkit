@@ -567,8 +567,9 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
         return pair
     if executor:
         refuse_unready(cfg, providers, executor)
+    offered = config.offered(cfg)   # a spare retired since launch has no meter to name
     reasons = [why for name in (workers if workers is not None else config.workers(cfg))
-               if (why := usage.model_exhausted(cfg, name, providers)[1])]
+               if name in offered and (why := usage.model_exhausted(cfg, name, providers)[1])]
     raise turns.QuotaDry("nothing is left to execute with a legal reviewer"
                          + (": " + "; ".join(dict.fromkeys(reasons)) if reasons else ""))
 
@@ -667,13 +668,14 @@ def exhausted_waits_for(state, providers, cfg=None, workers=None, now=None):
     now = time.time() if now is None else now
     if cfg is None:
         return None, None, True
-    if workers is None:
-        try:
-            workers = run_workers(cfg, state) or config.workers(cfg)
-        except (config.Error, KeyError, TypeError, AttributeError):
-            return None, None, True
     try:
-        names = {config.model(cfg, name)["provider"] for name in workers}
+        # the run's marks as its own resume reads them: one gone from the config since launch
+        # is a worker still where its record holds it, and waits on no window where it is not
+        cfg = config.as_launched(cfg, state)
+        if workers is None:
+            workers = run_workers(cfg, state) or config.workers(cfg)
+        offered = config.offered(cfg)
+        names = {config.model(cfg, name)["provider"] for name in workers if name in offered}
     except (config.Error, KeyError, TypeError, AttributeError):
         return None, None, True
     spent = [provider for provider in names

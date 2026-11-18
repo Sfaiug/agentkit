@@ -4,11 +4,11 @@ it spent over the last seven days at listed prices, null where none of its rows 
 Each of the login's token rows in history.db, a seat's in `seat_usage` and a worker turn's in
 `turn_usage`, is priced per type at its model's prices on Artificial Analysis's board, those of
 its release's default effort, a cache price the release lists none of at its input price, a
-release the board gives no name found by its slug.  A row whose model lists no price, whose counts
-are unknown or whose cost no float holds costs what the login's priced rows cost a token.  A seat
-row is its login's under the provider of the harness its event names, a turn row under the
-provider of the harness its turn's `harness` receipt names; a harness running two providers'
-models is neither's.
+release the board gives no name found by its slug, though another nameless one of its maker's
+retires.  A row whose model lists no price, whose counts are unknown or whose cost no float holds
+costs what the login's priced rows cost a token.  A seat row is its login's under the provider of
+the harness its event names, a turn row under the provider of the harness its turn's `harness`
+receipt names; a harness running two providers' models is neither's.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py on
 tests/fixtures/meters.py's harness, copied as `chime` and `drum`, with an invented board and
@@ -129,10 +129,13 @@ class ListedSpend(unittest.TestCase):
 
     def test_a_release_the_board_gives_no_name_is_priced_by_its_slug(self):
         held = board()
-        held["artificialanalysis.ai"]["rows"].append(
+        held["artificialanalysis.ai"]["rows"] += [
             {"model": "Bevel 1", "effort": None, "maker": "Acme", "deprecated": False,
              "slug": "bevel-1", "values": {COLUMNS["input"]: 3, COLUMNS["output"]: 6},
-             "release": {"slug": "bevel-1", "name": None, "deprecatedTo": None}})
+             "release": {"slug": "bevel-1", "name": None, "deprecatedTo": None}},
+            {"model": "Chisel 0", "effort": None, "maker": "Acme", "deprecated": True,
+             "slug": "chisel-0", "values": {COLUMNS["input"]: 3, COLUMNS["output"]: 6},
+             "release": {"slug": "chisel-0", "name": None, "deprecatedTo": "awl-1"}}]
         self.home.write(".agentkit/state/boards.json", held)
         self.seat("echo", "default", "anvil-1", (1_000_000, 0, 5_000_000, 0))   # 3
         self.seat("echo", "default", "bevel-1", (1_000_000, 0, 0, 1_000_000))   # 9
@@ -142,9 +145,13 @@ class ListedSpend(unittest.TestCase):
         self.seat("echo", "default", "anvil-1", (1_000_000, 0, 5_000_000, 0))   # 3
         self.turn("echo", "default", "forge-1", (1_000_000, 0, 0, 0))
         self.turn("echo", "second", "forge-1", (1_000_000, 0, 0, 0))
+        # priced near a float's largest, its average a token still prices the row no float holds
+        self.seat("chime", "default", "forge-1", (1, 0, 1_999_999, 0))   # 1e302 a two million
+        self.turn("chime", "default", "forge-1", (2_000_000, 0, 0, 0))
         spent = self.spent()
         self.assertAlmostEqual(spent["acme", "default"], 3 + 0.5)
         self.assertIsNone(spent["acme", "second"])
+        self.assertAlmostEqual(spent["brine", "default"] / 1e302, 2)
 
     def test_only_the_logins_rows_of_the_last_seven_days_count(self):
         self.seat("echo", "default", "anvil-1", (1_000_000, 0, 5_000_000, 0), ago=6 * DAY)  # 3

@@ -5,8 +5,9 @@ folder; a `.git` file crosses.  What the home removed of a run goes from the cop
 run the home removed or only the copy holds; what the home deleted as passes met a file
 vanishing, rsync's exit 24, goes with the next.  A link here where a run's folder was goes,
 whatever it points at, and that stays as it was.  A file beside the runs, a lock, queue or wait
-of each machine's own, neither crosses nor goes.  A pass from a home whose runs' folder is a link
-fails, saying so, before it copies anything.  Black-box, through tests/fixtures/twohomes.py.
+of each machine's own, neither crosses nor goes.  Runs whose names together pass what one command
+may be given cross too.  A pass from a home whose runs' folder is a link fails, saying so, before
+it copies anything.  Black-box, through tests/fixtures/twohomes.py.
 """
 
 import os
@@ -189,6 +190,18 @@ class APassCopiesEveryRun(unittest.TestCase):
         self.assertEqual(own(), before)
         for folder in (*OPEN, ENDED):
             self.assertCopied(folder)
+
+    def test_runs_whose_names_together_pass_what_one_command_may_be_given_cross(self):
+        home, here = self.home, self.here
+        # as long as a folder's name may be, as few as pass the limit
+        names = [f"20261117-{n:06d}-".ljust(255, "x")
+                 for n in range(os.sysconf("SC_ARG_MAX") // 255 + 1)]
+        for name in names:
+            (home.path / RUNS / name).mkdir()
+        self.standby()
+        self.assertEqual((here.path / STAMP).read_text().splitlines()[1], home.name)
+        for name in (names[0], names[-1]):
+            self.assertTrue((here.path / RUNS / name).is_dir())
 
     def test_a_pass_from_a_home_whose_runs_folder_is_a_link_fails_and_copies_nothing(self):
         home, here = self.home, self.here
