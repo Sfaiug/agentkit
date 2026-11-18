@@ -114,9 +114,14 @@ def invalidate_saved_pass(state, cfg, log):
 def leaves_line(state, cfg):
     """Whether a line member's saved PASS no longer stands, and it left its line: its place was
     the reviewed commit's.  Its rounds review the saved work again (`invalidate_saved_pass`) and
-    it joins the line anew."""
-    if (not (state.get("waiting_on") or {}).get("line") or state.get("verdict") != "PASS"
-            or review_pass(state, cfg)):
+    it joins the line anew.  So does a green delivery whose review an older ak erased in the line:
+    its delivery and the lander's stacks read that review, and its rounds resume the pending one.
+    A member under a landing fix waits there without one."""
+    from . import land  # here, not at the top: it reaches transitions
+    wait = state.get("waiting_on") or {}
+    if (not wait.get("line") or review_pass(state, cfg)
+            or (state.get("verdict") != "PASS"
+                and not (land.green_delivery(wait) and state.get("review") is None))):
         return False
     del state["waiting_on"]
     return True

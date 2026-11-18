@@ -1837,7 +1837,7 @@ def resume_run(argv):
             return drive(cfg, run_dir, opts, log,
                          job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
         if leaves_line(state, cfg):
-            # The config changed after it was let in as a delivery: it asks again, as work.
+            # Let in as a delivery, it holds no PASS that stands: it asks again, as work.
             with gate.slot_lock(), run_record.recovery_lock(run_dir):
                 state.update(state="queued", slot_waiting=True)
                 run_record.save_state(run_dir, state)
@@ -1947,13 +1947,16 @@ def resume_run(argv):
         state["rounds"] = n_rounds
     # A failed review or aborted integration carries a stale pending review. A
     # landing gate wait keeps its non-task review so recovery first updates the
-    # target, then fixes and reviews without spending another task round.
+    # target, then fixes and reviews without spending another task round.  A line member keeps
+    # the review an older ak erased its PASS for: its saved work needs that, not a fixer
+    # (`leaves_line`).
     # Its delivery note is stale in the same way -- what it says did not deliver is exactly
     # what this resume is about to do again -- so it goes too, the way `ak run merge` drops it
     # before its own retry; `note` writes a fresh one the moment anything fails again.
     if state.get("state") in ("fail", "waiting"):
         if (state.get("state") == "fail"
-                or (state.get("review_pending") or {}).get("record") is not False):
+                or not ((state.get("review_pending") or {}).get("record") is False
+                        or (state.get("waiting_on") or {}).get("line"))):
             state.pop("review_pending", None)
         state.update(merge_failed=False, merge_note=None)
     if integration_record and (state.get("review_pending") or {}).get("record") is not False:
