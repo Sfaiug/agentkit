@@ -1234,6 +1234,11 @@ def save_probe_checkout(lp, head, branch, before, label):
 
 def restore_probe_checkout(lp, head, branch, before, label):
     """Discard probe edits; keep recovery pending until the original checkout is restored."""
+    # The owner, 18 Nov 2026: this stays as it is.  Two states it cannot undo -- a repository a
+    # proof makes of a directory that was there before, and a proof's file inside a kept
+    # repository where the branch tracks one -- end the run in error, and that error goes to
+    # its seat (`transitions.tick_admission`).  Six attempts to cover them (three designs)
+    # each failed review on a rarer state, and neither has happened on a real run.
     stopped = None
     restored = False
     try:
