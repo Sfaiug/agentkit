@@ -142,21 +142,21 @@ def roles(cfg):
              for provider, logins in plans.items() for account, fit in logins.items()}
     prices = _pricing()
     providers = {name: cfg["models"][name]["provider"] for name in config.offered(cfg)}
-    did = {}    # (run, role): (model, effort, the turns of it `counted_turns` names)
-    for run, executor, effort, reviewer, reviewed, counted in _select(
+    did, kept = {}, {}  # did: (run, role): (model, effort, the turns of it `counted_turns` names)
+    # one read, as a run resumed between two would add its new turns' rows to its ended sample
+    for (run, executor, effort, reviewer, reviewed, counted, turn, role, account, model,
+         listed_usd, *counts) in _select(
             "SELECT run_id, executor, executor_effort, reviewer, (SELECT CASE WHEN "
             "COUNT(DISTINCT effort) = 1 THEN MIN(effort) END FROM reviews WHERE "
-            "reviews.run_id = runs.run_id), counted_turns FROM runs "
+            "reviews.run_id = runs.run_id), counted_turns, turn, role, account, model, "
+            f"{{kept}}, {', '.join(PRICES)} FROM runs LEFT JOIN turn_usage USING (run_id) "
             "WHERE kind = 'task' AND finished_at IS NOT NULL"):
+        if turn is not None:
+            kept.setdefault((run, role), []).append((turn, account, model, counts, listed_usd))
         who = {"executor": (executor, effort), "reviewer": (reviewer, reviewed)}
-        for turn in json.loads(counted or "[]"):
-            role = "reviewer" if Path(turn).name.startswith("reviewer") else "executor"
-            did.setdefault((run, role), (*who[role], set()))[2].add(turn)
-    kept = {}
-    for run, turn, role, account, model, listed_usd, *counts in _select(
-            f"SELECT run_id, turn, role, account, model, {{kept}}, {', '.join(PRICES)} "
-            "FROM turn_usage"):
-        kept.setdefault((run, role), []).append((turn, account, model, counts, listed_usd))
+        for name in json.loads(counted or "[]"):
+            mine = "reviewer" if Path(name).name.startswith("reviewer") else "executor"
+            did.setdefault((run, mine), (*who[mine], set()))[2].add(name)
     samples = {}
     for (run, role), (name, effort, turns) in did.items():
         rows = kept.get((run, role), [])
