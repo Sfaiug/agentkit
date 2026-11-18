@@ -117,8 +117,9 @@ def _gone(releases):
     series = {}
     for slug, rows in releases.items():
         name = rows[0]["release"]["name"]
-        # a missing name says nothing of which releases are one model's
-        series.setdefault((rows[0]["maker"], name) if name else (slug,), set()).add(slug)
+        # a name that names nothing says nothing of which releases are one model's
+        series.setdefault((rows[0]["maker"], name) if name and _names(name) else (slug,),
+                          set()).add(slug)
     gone = {}
     for slugs in series.values():
         deprecated = [slug for slug in slugs if not _current(releases[slug])]
