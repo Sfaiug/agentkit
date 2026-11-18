@@ -1,16 +1,16 @@
-"""⏎ on the models screen opens the why of the row the highlighted role uses, as the owner drew it
-on 5 Nov 2026, a label column as wide as its widest label beside values that wrap at words in
-their own: its quality give or take 1.96 standard errors, the benchmarks that scored it and how
-far below the role's best choice it is, of the two qualities as shown; its cost, `≈` against one
-no runs measured, and where that comes from -- its runs, its board price times what runs on its
-provider cost a board dollar, or on every provider at list prices at its own plan's rate, or its
-board price alone; the rule that makes the choices; and why each model is none -- beaten,
-within a point of a choice, far below the best, no room, not set up, or priced by no board
-(tests/test_key_models_why_no_cost.py) -- under `shaded` each the
-role's bars shade, in their order, under `not shown` the rest of the role's others, in theirs
-(tests/test_key_models_why_shaded.py), each one's lines after its first two cells further in, a
-label with none left out.  Esc returns with `›` where it was, and a page taller than the screen
-turns with ↓ and ↑.
+"""⏎ on the models screen opens the why of the row the highlighted role uses, else of its first
+choice, else of its first other, as the owner drew it on 5 Nov 2026, a label column as wide as
+its widest label beside values that wrap at words in their own: its quality give or take 1.96
+standard errors, the benchmarks that scored it and how far below the role's best choice it is,
+of the two qualities as shown; its cost, `≈` against one no runs measured, and where that comes
+from -- its runs, its board price times what runs on its provider cost a board dollar, or on
+every provider at list prices at its own plan's rate, or its board price alone; the rule that
+makes the choices; and why each model is none -- beaten, within a point of a choice, far below
+the best, no room, not set up, or priced by no board (tests/test_key_models_why_no_cost.py) --
+under `shaded` each the role's bars shade, in their order, under `not shown` the rest of the
+role's others, in theirs (tests/test_key_models_why_shaded.py), each one's lines after its first
+two cells further in, a label with none left out.  Esc returns with `›` where it was, and a page
+taller than the screen turns with ↓ and ↑.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
 harnesses fakes listing invented models, the boards held as just asked with invented rows, and
@@ -270,6 +270,11 @@ class ModelsWhy(unittest.TestCase):
             "             Acme Mid 5 high, 94.0: no board prices it",
             "             Bolt 3 medium, 88.0: no board prices it",
             "             Crux 2 low, 80.0: no board prices it"])
+
+    def test_with_no_row_in_use_and_no_choice_it_opens_its_first_other(self):
+        # Crux 2 orchestrates on no board, and nothing priced leaves no choice
+        self.write([row for row in DRAWN if row[0] != "crux-2"], ["max"], priced=False)
+        self.assertEqual(self.why(self.models())[0], "  why Acme Max 5 max orchestrates")
 
     def test_a_cost_from_your_runs_says_how_many_and_others_past_five_choices(self):
         self.write(FIVE, ["mid"], ["crux"], runs=True,

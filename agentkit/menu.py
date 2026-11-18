@@ -3947,7 +3947,8 @@ def models_screen(cfg, session, selected, providers):
     of 5 Nov 2026, the last row a role was shown using that is no choice staying one of its bars
     and steps; each answer made (opening, the boards landing, `p`) takes the best up to each
     price that holds (price_take), saying so under the rows.  ⏎ or a click opens the why
-    (models_why) of the row the role uses, else of its first choice, at once, drawn again with
+    (models_why) of the row the role uses, else of its first choice, else of its first other
+    (matrix.answer: every release compared is a choice or an other), at once, drawn again with
     its plans' weeks (plans_checked) once they land off the drawing thread.  `p` lists companies
     (company_list), and `u` counts every cost in the next unit (next_unit), the screen opening
     in the last one (models_unit).  The why comes up as a page does."""
@@ -4036,7 +4037,8 @@ def models_screen(cfg, session, selected, providers):
             unit = next_unit(unit)
         elif act == "enter":
             role = here[1]
-            row = used[role][2] or next(iter(answer[role]["choices"]), None)
+            row = used[role][2] or next(iter(answer[role]["choices"] + answer[role]["others"]),
+                                        None)
             key, why, page = None, ("why",), 0    # every line one row: ↑/↓ turn its pages
             # its plans' weeks take seconds to read: the page is drawn without them till they land
             weeks = []
