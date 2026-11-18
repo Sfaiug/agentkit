@@ -150,10 +150,20 @@ func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	if real, err := shell.Output(); err == nil && filepath.IsAbs(string(real)) {
 		names = append(names, strings.TrimSuffix(string(real), "\n"))
 	}
+	// Only this process follows a name of its own (/proc/self/task/…), so it finds the system's
+	// part by part too: from the name as given and, where that is relative, from the working
+	// directory's, as either can pass the limit where the other keeps within it
+	walks := []string{named}
 	// the given one takes the working directory's name where relative, and is none without it
 	if !filepath.IsAbs(named) {
 		if wd, err := os.Getwd(); err == nil {
 			named = wd + sep + named
+			walks = append(walks, named)
+		}
+	}
+	for _, walk := range walks {
+		if real, err := filepath.EvalSymlinks(walk); err == nil && filepath.IsAbs(real) {
+			names = append(names, real)
 		}
 	}
 	if filepath.IsAbs(named) && !strings.Contains(named+sep, sep+".."+sep) {
