@@ -1,8 +1,8 @@
 """`ak usage --json` gives each login under `providers.<provider>.accounts` its `plan`, as
 state/logins.json names it now, and what a week of that plan holds in listed dollars,
 `week_listed_usd`: 100 over the plan's points of a week a listed dollar takes, null where its
-rises sum to under ten points or its spend to 0, with those two sums, `plan_points` and
-`plan_listed_usd`.
+rises sum to under ten points or its spend to 0, infinite where 100 times its spend is past a
+float's largest, with those two sums, `plan_points` and `plan_listed_usd`.
 
 A plan's sums are read from the last seven days of every login of its provider: the readings
 its probes kept of its shared week, a reading with no plan its login's plan now's, grouped by
@@ -18,6 +18,7 @@ written into its Home.  Fails against /bin/false.
 
 from contextlib import closing
 import json
+import math
 from pathlib import Path
 import sqlite3
 import sys
@@ -32,15 +33,18 @@ NOW = time.time()
 HOUR, DAY = 3600, 86400
 # two weeks' resets, both far from the one the meter fixture reads now, a day off
 WEEK, LAST_WEEK = NOW + 3 * DAY, NOW - 2 * DAY
-# Anvil lists a dollar a million input tokens; Easel is on no board
+# Anvil lists a dollar a million input tokens and Forge 1e300; Easel is on no board
 BOARD = {"artificialanalysis.ai": {"asked_at": NOW, "fetched_at": NOW, "error": None, "build": "",
-                                   "rows": [{"model": "Anvil 1", "effort": "high",
+                                   "rows": [{"model": name, "effort": "high",
                                              "maker": "Acme", "deprecated": False,
-                                             "slug": "anvil-1",
-                                             "values": {"aa.price1mInputTokens": 1,
+                                             "slug": slug,
+                                             "values": {"aa.price1mInputTokens": price,
                                                         "aa.price1mOutputTokens": 5},
-                                             "release": {"slug": "anvil-1", "name": "Anvil 1",
-                                                         "deprecatedTo": None}}]}}
+                                             "release": {"slug": slug, "name": name,
+                                                         "deprecatedTo": None}}
+                                            for name, slug, price in (
+                                                ("Anvil 1", "anvil-1", 1),
+                                                ("Forge 1", "forge-1", 1e300))]}}
 SEAT_USAGE = ("CREATE TABLE seat_usage (event TEXT PRIMARY KEY, repo TEXT, at REAL, "
               "tokens INTEGER, account TEXT, model TEXT, input INTEGER, cache_write INTEGER, "
               "cache_read INTEGER, output INTEGER)")
@@ -183,6 +187,15 @@ class WeekPrice(unittest.TestCase):
         weeks = self.weeks()
         self.assertWeek(weeks["default"], "Max", None, 9, 3)
         self.assertWeek(weeks["second"], "Pro", 20, 10, 2)
+
+    def test_a_spend_within_two_digits_of_a_floats_largest_holds_an_infinite_week(self):
+        self.plans(default="Max", second="Max")
+        # 10 -> 30 for $2e306, Easel's tokens costing what Forge's do: times 100, no float holds it
+        self.read("default", 10, 40 * HOUR, WEEK, plan="Max")
+        self.spent("default", 1, 36 * HOUR, model="forge-1")
+        self.spent("default", 1_999_999, 35 * HOUR, model="easel-2")
+        self.read("default", 30, 30 * HOUR, WEEK, plan="Max")
+        self.assertWeek(self.weeks()["default"], "Max", math.inf, 20, 2e306)
 
 
 if __name__ == "__main__":
