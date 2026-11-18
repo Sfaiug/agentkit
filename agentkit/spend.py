@@ -311,6 +311,10 @@ def _dollars(prices, counts):
     or NaN, or raise."""
     if prices is None or None in counts:
         return None
+    # Multiplied before it is scaled, so a product past a float's largest prices nothing though
+    # scaled first it would: left so.  No board lists a price within hundreds of digits of
+    # that, and pricing it exactly made Python and Go differ on stored integers (three reviews
+    # of run 20261118-0942, 18 Nov 2026): an input nobody has is refused, not served.
     try:
         dollars = sum(count * price for count, price in zip(counts, prices)) / 1e6
     except OverflowError:   # json reads an integer whole, and one past a float's largest
