@@ -46,7 +46,7 @@ Words are plain and explain themselves.
 - **Ages:** ages read `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
 - **Tasks, runs and estimates:** no screen names a task or a run, nor says when work
   will finish.
-- **Progress:** every bar is a seat's progress line; a row's count ends in its tasks going:
+- **Progress:** every bar is a seat's progress line; every row ends in its tasks going:
   `━━━━╸──── 3 of 8 · 2 tasks` (owner, 11 Nov 2026; `terminal.plan_bar`,
   `terminal.share_line`).
 
