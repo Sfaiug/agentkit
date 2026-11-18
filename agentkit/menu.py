@@ -3599,8 +3599,8 @@ def models_body(said, unit, at=None):
     """The models screen's lines and {line: (("row", role), [])}: per role (models_said) its
     word, its row and what follows, under `quality` and `unit` over the first with numbers,
     `at`'s highlighted (terminal.highlight).  A row too wide beside the words goes on the lines
-    under its word, wrapped at its words, what follows it staying on the word's line: a model is
-    named in full (docs/cli-design.md)."""
+    under its word, wrapped at its words, what follows it staying on the word's line, else on a
+    line of its own under the model: a model is named in full (docs/cli-design.md)."""
     room = terminal.layout_width()
     word = max(terminal.cells(matrix.CONFIG_ROLES[role]) for role, *_ in said)
     numbers = [after for _, _, after in said if isinstance(after, tuple)]
@@ -3616,6 +3616,8 @@ def models_body(said, unit, at=None):
     tail = max(terminal.cells(follows(after)) for _, _, after in said)
     wide = 2 + word + 2 + full + tail <= room
     column = 2 + word + (2 + full if wide else 0)      # where what follows a row begins
+    beside = column + tail <= room      # else what follows takes a line of its own, two in
+    column = column if beside else 2
     lines, places, headed = [], {}, False
     for (role, row, after), model in zip(said, models):
         if isinstance(after, tuple) and not headed:     # a role with no numbers heads nothing
@@ -3625,7 +3627,10 @@ def models_body(said, unit, at=None):
         lead = "  " + terminal.pad(matrix.CONFIG_ROLES[role], word)
         own = [lead + "  " + model] if wide else [
             lead, *("    " + part for part in columned(model, room - 4))]
-        own[0] += " " * (column - terminal.cells(own[0])) + follows(after)
+        if beside:
+            own[0] += " " * (column - terminal.cells(own[0])) + follows(after)
+        elif after:
+            own.append(" " * column + follows(after))
         for number, line in enumerate(own):
             places[len(lines)] = (("row", role), [])
             lines.append(terminal.highlight(line.rstrip(), number == 0) if role == at

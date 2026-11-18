@@ -92,7 +92,7 @@ class ModelsWhyShaded(unittest.TestCase):
         return kinds(page[page.index("  why Crux 2 low builds"):-2])
 
     def test_on_a_page_too_short_for_the_bars_whys_the_same_bars_stand_and_are_shaded(self):
-        term = self.short(26)
+        term = self.short(29)
         term.keys("Down")
         found = bars(term.wait(lambda screen: drawn(screen, "executor")), "executor")
         self.assertEqual([(f"{bar['name']} {bar['effort']}", bar["why"]) for bar in found
@@ -104,8 +104,11 @@ class ModelsWhyShaded(unittest.TestCase):
         self.assertEqual(page["not shown"], ["Bolt 3 medium"])
 
     def test_a_click_on_a_role_whose_bars_are_not_drawn_opens_the_same_why(self):
-        term = self.short(27)
-        term.type(click(5, 6))          # the executor's line, the orchestrator's bars drawn
+        term = self.short(30)
+        # the executor's line, the orchestrator's bars drawn; a click counts rows from 1
+        row = 1 + next(n for n, line in enumerate(lines(term.wait("\n  executor")))
+                       if line.startswith("  executor"))
+        term.type(click(5, row))
         page = self.whole(term)
         self.assertEqual(page["shaded"], ["Crux 2 low", "Holm 1 high"])
         self.assertEqual(page["not shown"], ["Bolt 3 medium"])
