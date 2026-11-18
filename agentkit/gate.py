@@ -1900,6 +1900,11 @@ def shares(reds, others):
     return red, min(turns.OUT_CAP, (turns.PIECES_CAP - reds * red) // max(others, 1))
 
 
+def _among(test, listed):
+    """Whether `listed` names `test`, itself or as its whole file (`::` part or `#` block)."""
+    return bool(listed and {test, test.partition("::")[0], test.partition("#")[0]} & set(listed))
+
+
 def unnamed(code, only, ran, output):
     """`code`, or 1 for a run of just the tests `only` lists that exited 0 without naming each
     one as run (`AK_RAN`): a runner may skip a name it does not know and exit 0."""
@@ -1922,16 +1927,13 @@ def unfinished(given, activity, failed, start=0):
 def passes_what_it_holds(code, only, ran, failed, absent):
     """Whether a run of just the tests `only` lists, exiting `code`, passed each one its tree
     holds: it named each as run (`AK_RAN`) but those it named as not there (`AK_NOT_THERE`), as
-    a test file names a part only a later change adds, and failing, it ended as its runner ends
-    (`ran_to_end`: a test that dies of a signal takes its runner along, named as run alone) and
-    named one at least as not there and nothing else as failed (`AK_FAILED`): a file handed
-    whole fails by a part of it.  A narrowing step counts that stack as passing them
-    (land._check_tests, land._probe), and a round that run of its chosen tests as exiting 0
-    (`_run_suite`'s `absent_ok`); to a person and every other check the run exited as it did."""
+    a test file names a part only a later change adds, and failing, it named one at least as not
+    there and none of the others as failed (`AK_FAILED`).  A narrowing step counts that stack as
+    passing them (land._check_tests, land._probe); to a person and every other check the run
+    exited as it did."""
     there = [test for test in only if test not in absent]
-    return all(test in ran for test in there) and (code == 0 or (
-        ran_to_end(code) and len(there) < len(only)
-        and set(failed) <= set(only) - set(there)))
+    return all(test in ran for test in there) and (
+        code == 0 or code > 0 and len(there) < len(only) and not set(there) & set(failed))
 
 
 def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, known=(),
@@ -1955,7 +1957,7 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, known
 def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, flaky=None, named=None, checked=None, asked=None,
-              raw=None, absent=None, absent_ok=False, used=None, known=(), **kwargs):
+              raw=None, absent=None, dropped=None, used=None, known=(), **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1985,11 +1987,13 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
     `flaky`, a list, gets the tests that failed, then passed on this tree: those a command named
     so (`AK_FLAKY`), here or on the suite helper, and a red piece's named tests that passed run
     alone.  `named`, a list, gets those a failing run of the command as one piece (not split,
-    or `shard`) named as failed, confirmed or not.
+    or `shard`) named as failed, confirmed or not, among what ran (`_among`) where `dropped` is
+    non-empty.
     `raw` receives each piece's process exits by share, before checking coverage of `only`.
     `absent`, a list, gets with `shard` and `only` the tests the run named as not there where it
-    passed what its tree holds (`passes_what_it_holds`), and none otherwise; with `absent_ok`
-    that run exits 0 here, those tests said in `output`.
+    passed what its tree holds (`passes_what_it_holds`), and none otherwise; `dropped`, a list,
+    those a run ending in a failing exit named as not there and not as run, whatever else failed
+    it: what a run without them tells (`run_done_when`'s `absent_ok`).
     Every piece gets `times`, the file times recorded as the suite starts (`_record`), in the
     file AK_TIMES names: a record another suite changes meanwhile would cut a later piece's share
     differently.
@@ -2029,21 +2033,16 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
             confirmed[shard] = (unfinished(only, activity, failed, start) if stops == ["silence"]
                                 else [test for test in only if code > 0 and not killed
                                       and test in ran and test in failed])
-        excused = ([test for test in only if test in gone] if only is not None and not killed
-                   and passes_what_it_holds(code, only, ran, failed, gone) else [])
         if absent is not None and only is not None:
-            absent[:] = excused     # the last go's, as a re-run decides
+            # the last go's, as a re-run decides
+            absent[:] = ([test for test in only if test in gone] if not killed
+                         and passes_what_it_holds(code, only, ran, failed, gone) else [])
+        if dropped is not None and only is not None:
+            dropped[:] = ([test for test in only if test in gone and test not in ran]
+                          if code > 0 and not killed else [])
         if named is not None and code > 0:
-            # a runner names a test not there as failed too (tests/every_file.py): it failed none
-            named.extend(test for test in failed if test not in (gone or ()))
-        if absent_ok and excused:
-            # Counted in the exit, where a narrowing step is told beside it (`absent`): a re-run
-            # and its flaky record go by the exit alone (`run_done_when`), as does the log a
-            # resumed round settles its checks from (`roundloop.settled_gate`).
-            output.write("[not there (AK_NOT_THERE), counted as passed: "
-                         f"{' '.join(excused)}]\n".encode())
-            code = 0
-        elif ran is not None:
+            named.extend(test for test in failed if not dropped or _among(test, ran))
+        if ran is not None:
             code = unnamed(code, only, ran, output)
         if pieces is not None:
             pieces[shard] = None if killed else code
@@ -2710,7 +2709,13 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     until then, takes `text`, its capped form. `timings`, a dict, gets each passing command's
     ({file: seconds}, piece count) from this pass alone, before that cap, and `took` its last
     go's seconds, charged to the ceiling as they are: its waits for a turn aside.  `absent` is
-    `run_suite`'s, for one command, and `absent_ok` and `known` its for every one.
+    `run_suite`'s, for one command, and `known` its for every one.
+    With `absent_ok` the tests of `only` a command's first go names as not there and not as run,
+    ending in a failing exit (`run_suite`'s `dropped`), are handed to no later go of it, which
+    says so: each go's exit decides as ever, of the tests it was handed, and none passes by what
+    it named, so what failed beside a missing test fails the go without it too.  That first go
+    is the failed first one where it named as failed a test that ran and is still handed
+    (`_among`), and else no go at all: its exit may be the missing tests' alone.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2750,6 +2755,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             rest = silence - (window or 0)
             how = "failed"
             raw = {} if exits is not None or timings is not None else None
+            # the tests a go is handed, and those its first go may leave out of it (`absent_ok`)
+            handed, gone = only, [] if absent_ok else None
             while True:
                 run_record.stop_check(run_dir)
                 left = deadline - time.monotonic()
@@ -2761,6 +2768,11 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     progress.write(f"$ {cmd}\n".encode())
                     progress.flush()
                     offset = progress.tell()
+                    if handed is not only:
+                        # before the command's output, so a failing go's last line stays its own
+                        left_out = " ".join(test for test in only if test not in handed)
+                        progress.write("[not handed, named as not there (AK_NOT_THERE): "
+                                       f"{left_out}]\n".encode())
                     code, piece_text, killed = run_suite(
                         cmd, left, activity=log_path, later=window and rest,
                         silence=rest if first_span is not None else window or silence,
@@ -2768,11 +2780,10 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                         run_dir=run_dir, log=log, on_wait=waited, measure=heavy, shard=shard,
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
-                        only=only, confirmed=reds, flaky=flakes, named=named,
+                        only=handed, confirmed=reds, flaky=flakes, named=named,
                         # Whole commands retry here; their named outcomes must wait for that.
                         checked=checked if split(cmd) else None, asked=asked, raw=raw,
-                        absent=absent, absent_ok=absent_ok, used=ended, known=known,
-                        blamed=blamed)
+                        absent=absent, dropped=gone, used=ended, known=known, blamed=blamed)
                     ended["exit"] = None if killed else code
                     end = progress.tell()
                 go = left - (deadline - time.monotonic())
@@ -2786,6 +2797,15 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     deadline += busy_turn(run_dir, log_path, log)
                     continue
                 asked = time.time()
+                # The first go's alone, so no test that ran is ever left out: a later go may name
+                # as not there one an earlier go ran and failed.
+                missing, gone = gone, None
+                if missing:
+                    handed = [test for test in only if test not in missing]
+                    # what a passing re-run makes flaky ran here and is handed again (`unnamed`)
+                    named = [test for test in named if test not in missing and _among(test, handed)]
+                    if not named:
+                        continue
                 if code == 0 or first_span is not None or split(cmd):
                     break
                 if killed:
