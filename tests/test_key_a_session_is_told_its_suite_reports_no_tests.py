@@ -3,7 +3,8 @@
 A suite that ran whole to its end at landing, green or red, while ak holds no time of any of its
 tests has a runner that prints no `PASS  <file> (<seconds>s)` line, and everything ak does with
 tests by name is lost to the project: the session filing a seat there hears so in one line under
-the rest.  A project with times hears nothing, nor does one that never landed its suite whole:
+the rest, its suite read from its default branch as last fetched, whatever its checkout
+holds.  A project with times hears nothing, nor does one that never landed its suite whole:
 checked only in rounds, a piece stopped, missing, busy, lost by a helper or killed by a signal,
 one piece run alone, or its run still going, which keeps its suite's times only as the check
 ends.  Black-box: the program `AK_BIN`
@@ -35,6 +36,7 @@ PROJECTS = {
     "pieces": (PIECES, [("b", FINISHED, None, "landing", f"AK_SHARD=1/2 {PIECES}", 1),
                         ("b", FINISHED, None, "landing", f"AK_SHARD=2/2 {PIECES}", 0)]),
     "timed": (WHOLE, [("c", FINISHED, None, "landing", WHOLE, 0)]),
+    "behind": (WHOLE, [("k", FINISHED, None, "landing", WHOLE, 0)]),
     "fresh": (PIECES, [("d", FINISHED, 1, "done-when", f"AK_SHARD=1/1 {PIECES}", 0),
                        ("e", FINISHED, None, "landing", f"AK_SHARD=1/2 {PIECES}", 0),
                        ("e", FINISHED, None, "landing", f"AK_SHARD=2/2 {PIECES}", None),
@@ -69,6 +71,9 @@ class Told(unittest.TestCase):
                                (run, name, end))
                     db.execute("INSERT INTO checks VALUES (?, ?, ?, 'cedar', ?, ?, 2)",
                                (run, *check))
+                if name == "behind":
+                    # its checkout is behind its default branch, on a commit that declared no suite
+                    (rig.path / "AGENTS.md").write_text("---\nhealth: none\nusers: none\n---\n")
         home.write(".agentkit/state/test-times-000000000002.json", {"tests/test_api.py": 3.0})
 
     def project(self, checkout, columns):
@@ -78,7 +83,7 @@ class Told(unittest.TestCase):
         return done.out.splitlines()
 
     def test_a_suite_run_whole_at_landing_with_no_times_is_told_in_one_line(self):
-        for name in ("silent", "pieces"):
+        for name in ("silent", "pieces", "behind"):
             for columns, cap in ((60, 60), (250, 120)):
                 with self.subTest(name, columns=columns):
                     lines = self.project(name, columns)
