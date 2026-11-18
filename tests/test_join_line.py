@@ -407,13 +407,17 @@ class JoinLine(Sandbox):
                 with patch.object(job, "job_await", return_value=state), redirect_stdout(io.StringIO()):
                     self.assertEqual(run.follow_run(self.directory, self.cfg), expected)
 
-    def test_foreground_follow_passes_a_merge_reviewed_under_a_mark_it_never_loaded(self):
+    def test_foreground_follow_passes_a_merge_reviewed_under_a_mark_renamed_while_it_waited(self):
         state = {**self.saved(), "state": "pass", "merged": True, "reviewer": "nova"}
         state["review"] = {**state["review"], "reviewer": "nova"}
-        renamed = {**self.cfg, "models": {**self.cfg["models"], "nova": self.cfg["models"]["astra"]}}
+        models = self.cfg["models"]
+        renamed = {**self.cfg, "models": {**models, "nova": models["astra"]}}
         self.assertTrue(run.review_pass(state, renamed))
-        with patch.object(job, "job_await", return_value=state), redirect_stdout(io.StringIO()):
-            self.assertEqual(run.follow_run(self.directory, self.cfg), 0)
+        # what the terminal loaded at launch: no nova, or a nova on another provider
+        for launch in (self.cfg, {**self.cfg, "models": {**models, "nova": models["opus"]}}):
+            with self.subTest(nova=launch["models"].get("nova")), \
+                    patch.object(job, "job_await", return_value=state), redirect_stdout(io.StringIO()):
+                self.assertEqual(run.follow_run(self.directory, launch), 0)
 
     def test_job_task_exits_and_the_ladder_follows_its_line(self):
         def work(*args, **_kw):
