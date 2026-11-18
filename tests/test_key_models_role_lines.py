@@ -2,8 +2,8 @@
 effort -- the orchestrator's model, else the first mark as the pick ranks them; a board row
 naming no effort, or a harness taking none, that row -- its quality and cost, `≈` before one no
 runs measured, under `quality` and the cost unit.  ↑↓ move `›`, ⏎ opens that row's why; on
-40 and 28 cells each role's lines still show its quality and cost whole, and on 22 its quality
-over its cost where side by side they would pass the edge; `ak models` prints a seat's without `›`.
+40 and 28 cells each role's lines still show its quality and cost whole, and on 22 and 14 its
+quality over its cost where side by side they would pass the edge; `ak models` prints a seat's without `›`.
 
 Black-box: `AK_BIN` in a terminal and as `ak models`, a fake harness, the boards as
 tests/test_key_role_choices.py writes them and one measured build (test_key_role_cost_from_runs's
@@ -145,26 +145,29 @@ class ModelsRoleLines(unittest.TestCase):
             at = next(n for n, line in enumerate(shown) if word in line.split())
             self.assertEqual(shown[at + 2].split(), numbers, (word, shown))
 
-    def test_on_22_cells_each_roles_quality_stands_over_its_cost_inside_the_edge(self):
+    def test_on_22_and_14_cells_each_roles_quality_stands_over_its_cost_inside_the_edge(self):
         unit = self.home.write(".agentkit/state/models-unit", "% of a week")
         self.addCleanup(unit.unlink)
         printed = {width: self.home.ak("models", env={**ENV, "COLUMNS": str(width)})
-                   for width in (100, 22)}
+                   for width in (100, 22, 14)}
         for done in printed.values():
             self.assertEqual(done.code, 0, done.err)
+        wide = said(printed[100].out)
         # `quality  % of a week` and each role's numbers side by side take 24 cells: on 22 the
-        # heading and each role's numbers stack, every line inside the edge
-        shown = lines(printed[22].out)
-        first = next(n for n, line in enumerate(shown) if line.split() == ["quality"])
-        shown = shown[first:shown.index("", first)]
-        self.assertEqual([line.split() for line in shown[:2]], [["quality"], "% of a week".split()])
-        self.assertLessEqual(max(map(len, shown)), 22, shown)
-        for word, *_ in NEW_SEATS.values():
-            numbers = next(line.split()[-2:] for line in said(printed[100].out)
-                           if word in line.split())
-            at = next(n for n, line in enumerate(shown) if word in line.split())
-            self.assertEqual([line.split() for line in shown[at + 2:at + 4]],
-                             [[number] for number in numbers], (word, shown))
+        # heading and each role's numbers stack, on 14 `% of a week` breaks at its spaces too,
+        # every line inside the edge
+        for width in (22, 14):
+            shown = lines(printed[width].out)
+            first = next(n for n, line in enumerate(shown) if line.split() == ["quality"])
+            shown = shown[first:shown.index("", first)]
+            self.assertLessEqual(max(map(len, shown)), width, shown)
+            starts = [next(n for n, line in enumerate(shown) if line.split() == [word])
+                      for word, *_ in NEW_SEATS.values()]
+            self.assertEqual(" ".join(shown[:starts[0]]).split(), "quality % of a week".split())
+            for (word, *_), end in zip(NEW_SEATS.values(), [*starts[1:], len(shown)]):
+                numbers = next(line.split()[-2:] for line in wide if word in line.split())
+                self.assertEqual([line.split() for line in shown[end - 2:end]],
+                                 [[number] for number in numbers], (width, word, shown))
 
     def test_ak_models_prints_the_same_lines(self):
         screen = said(self.models()[1])

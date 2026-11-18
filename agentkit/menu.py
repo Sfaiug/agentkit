@@ -3663,9 +3663,12 @@ def models_body(said, unit, at=None):
         if not isinstance(after, tuple):
             return [terminal.styled(line, "dim") for line in terminal.wrap(after, space)]
         line = f"{after[0]:>{widths[0]}}  {after[1]:>{widths[1]}}"
-        # the quality over the cost where side by side they are wider, both at the wider's width
-        return [line] if terminal.cells(line) <= space else [
-            f"{part:>{max(widths)}}" for part in after]
+        if terminal.cells(line) <= space:
+            return [line]
+        # else the quality over the cost at one width, a part wider than `space` broken at its
+        # spaces and thousands (`% of a` over `week`), so no line passes the edge
+        width = max(1, min(max(widths), space))
+        return [f"{piece:>{width}}" for part in after for piece in columned(part, width, " ,")]
     # a board's name may hold control characters: none reaches the terminal (terminal.plain)
     models = [terminal.plain(row["name"] + (f" {row['effort']}" if row["effort"] else ""))
               for _, row, *_ in said]
