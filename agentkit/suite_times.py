@@ -43,15 +43,19 @@ def unreported(repo):
     """Whether a landing check of the suite the checkout `repo` declares ran whole to its end --
     the command, or each of its pieces (`AK_SHARD=<share> <suite>`) under one run on one tree --
     and the record holds no time of any test: its runner prints no `passed` line, so ak knows
-    none of its tests.  A plain row of a suite run in pieces ran one piece or some tests."""
+    none of its tests.  A plain row of a suite run in pieces ran one piece or some tests.  The
+    suite is its default branch's as last fetched, which landings ran: a checkout left behind it,
+    or on another branch, may declare an older one or none (17 Nov 2026: two projects whose
+    suites landed whole and reported nothing read as declaring no suite)."""
     from . import gate
-    suite = gitcall.declared(repo, "tests")
+    # History first (sqlite, no git): `stop.untested` asks at every done seat's Stop, and the
+    # suite and the repository's ID (`handed`) are read through git.
+    checks = history.landing_checks(Path(repo).name)
+    suite = checks and gitcall.declared_suite(repo, ref=config.RULES_REF)
     if not suite:
         return False
-    # History first (sqlite, no git): `stop.untested` asks at every done seat's Stop, and
-    # `handed` reads the repository's ID through git.
     shares, whole = {}, False
-    for run, tree, command, code in history.landing_checks(Path(repo).name):
+    for run, tree, command, code in checks:
         if not gate.ran_to_end(code):
             continue
         share, _, rest = command.partition(" ")
