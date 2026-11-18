@@ -960,7 +960,7 @@ def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=Non
     receipt = {**origin, "launched_session": session,
                **{role: list(lists[role]) for role in ("workers", "reviewers")
                   if isinstance(lists.get(role), list) and lists[role]},
-               **({"efforts": config.run_efforts(now, lists)} if now else {}),
+               **(config.run_marks(now, lists) if now else {}),
                **({"notify_sink": state["notify_sink"]} if state.get("notify_sink") else {})}
     opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
             "--no-worktree": False, "--no-merge": False, **(opts or {}), "--bg": True}
@@ -1175,8 +1175,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         groups = {"workers": workers} if workers else {}
         if "reviewers" in selection:
             groups = {role: list(selection[role]) for role in ("workers", "reviewers")}
-        if cfg is not None:     # what each of them runs at, as bound as whom (Loop)
-            groups["efforts"] = config.run_efforts(cfg, selection)
+        if cfg is not None:     # what each of them is and runs at, as bound as whom (Loop)
+            groups.update(config.run_marks(cfg, selection))
     limit = config.max_runs()
     url = (opts or {}).get("--review-pr")
     plan_line = None
@@ -1396,8 +1396,8 @@ def preflight(run_dir, opts, log):
         # a config that cannot be read refuses the launch rather than judge the PR external,
         # and a writer already on the record stays there
         # whatever the config says of its model now: only a probed writer is written down
-        is_own, orch, effort = pr_writer(config.load(), state, state.get("launched_session"),
-                                         info["author"])
+        is_own, orch, effort = pr_writer(config.as_launched(config.load(), state), state,
+                                         state.get("launched_session"), info["author"])
         state.setdefault("own_pr", is_own)
         state.setdefault("own_orchestrator", orch if is_own else None)
         state.setdefault("own_orchestrator_effort", effort if is_own else None)
@@ -1606,7 +1606,7 @@ def cmd_merge(argv):
             or not (state.get("pr") or state.get("merge_failed"))):
         raise config.Error(f"{argv[0]}: no delivery PR to merge")
     box.check()
-    cfg = config.load()
+    cfg = config.as_launched(config.load(), state)
     if not review_pass(state, cfg):
         raise config.Error(f"{argv[0]}: merge requires a successful reviewer allowed by the model policy; "
                            f"run ak run resume {argv[0]} to obtain review")
@@ -1832,7 +1832,7 @@ def resume_run(argv):
             opts.update(state.get("launch_opts") or {"--no-merge": True})
             if n_rounds is not None:
                 opts["--rounds"] = str(n_rounds)
-        cfg, log = config.load(), logger(run_dir)
+        cfg, log = config.as_launched(config.load(), state), logger(run_dir)
         if state.get("review_pr"):
             return drive(cfg, run_dir, opts, log,
                          job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
@@ -1870,7 +1870,7 @@ def resume_run(argv):
         state.pop("stall_resume_at", None)
     elif state.get("state") == "queued" and state.get("slot_waiting"):
         state["state"] = state.pop("resume_from", "interrupted")
-    cfg = config.load()
+    cfg = config.as_launched(config.load(), state)
     legacy_pass = (state.get("state") == "pass" and not state.get("merged")
                    and not state.get("review_pr") and
                    (not review_pass(state, cfg) or (state.get("repo") and
@@ -3305,7 +3305,8 @@ def main(argv):
         # a queued child runs with the options its receipt recorded, as a resume of a run that
         # never started does (`cmd_resume`): a --bg launch's own argv repeats them, and the
         # tick's launch for a seat (`launch_for_seat`) sends none
-        recorded = (run_record.read_state(Path(resumed)) or {}).get("launch_opts") or {}
+        receipt = run_record.read_state(Path(resumed)) or {}
+        cfg, recorded = config.as_launched(cfg, receipt), receipt.get("launch_opts") or {}
         flags.update({flag: recorded[flag] for flag in flags if flag in recorded})
         opts.update(recorded)
         if judge_queued(Path(resumed), opts, logger(Path(resumed)), cfg):
