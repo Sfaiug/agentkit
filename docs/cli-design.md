@@ -19,7 +19,11 @@ then `────────────────────────�
 
 ## Width and rhythm
 
-The layout is at most 120 columns wide, seat content at most 100. A project's, harness's or
+The layout is at most 120 columns wide, seat content at most 100, and drawn for 40 columns
+and wider: about a phone held upright. A narrower terminal is not promised, so a line that
+wraps or misplaces a click below 40 is no defect and gets no fix. The owner, 18 Nov 2026,
+asked whether screens should be drawn for "40 cells and wider" after reviews at 28, 20, 13
+and 1 columns each cost up to three builds: yes. A project's, harness's or
 company's name is bold, flush left over its seats, models or subscriptions
 (`+ add a subscription`'s too), two spaces in; a blank line parts projects.
 
