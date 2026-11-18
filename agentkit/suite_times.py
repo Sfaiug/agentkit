@@ -16,6 +16,9 @@ from . import config, gitcall, history
 
 PASSED = re.compile(r"PASS  (\S+) \((\d+(?:\.\d+)?)s\)$")
 LINE = 4096     # bytes read at a time: a check can print one line longer than memory holds
+# What a suite's runner does for ak to know its tests, told of every project `unreported` names
+RUNNER = ("its runner must print `PASS  <file> (<seconds>s)` for each file that passes and take "
+          "ak's files AK_ONLY, AK_RAN, AK_FAILED and AK_NOT_THERE")
 
 
 def passed(name, took):

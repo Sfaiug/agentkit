@@ -11,11 +11,12 @@ runs, notices, waits and the screen.  So the hook's two blocks a turn are two nu
 same parked run, until a different run parks or the seat has a new notice.
 """
 
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 import io
 import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 import time
@@ -25,8 +26,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import REPO, Sandbox
 from fixtures.seats import chat, cursor_row
-from agentkit import config, host, job as jobs, menu, notify, orch, questions, run, watch
-from agentkit import record
+from agentkit import (config, history, host, job as jobs, menu, notify, orch, questions, record,
+                      run, stop, suite_times, watch)
 
 SEAT, OTHER = "acme-api", "fix-api"
 HARNESSES = ("muse", "opencode")
@@ -133,10 +134,11 @@ class NudgeTurnRule(Sandbox):
         after delivering its recorded questions and sending `blocks` of its stops back already?"""
         home, sockets = self.root / "hook-home", self.root / "sockets"
         sockets.mkdir(mode=0o700, exist_ok=True)
-        for name, target in (("state", config.STATE), ("runs", config.RUNS)):
+        for name, target in (("state", config.STATE), ("runs", config.RUNS),
+                             ("history.db", history.path())):
             link = home / ".agentkit" / name
             link.parent.mkdir(parents=True, exist_ok=True)
-            if not link.is_symlink():
+            if target.exists() and not link.is_symlink():
                 link.symlink_to(target)
         (config.STATE / f"stop-{SEAT}.json").write_text(json.dumps(
             {"session": SEAT, "turn": watch.seat_read(SEAT)["turn_began"], "blocks": blocks}) + "\n")
@@ -329,6 +331,31 @@ class NudgeTurnRule(Sandbox):
                     cfg=self.cfg))
                 self.assertEqual(notify.last(self.seat["name"])["text"], question)
                 self.assertFalse(notify.resolved(notify.last(self.seat["name"])))
+
+    def test_j_a_done_plan_whose_project_reports_no_tests_goes_back_at_every_stop(self):
+        for harness in HARNESSES:
+            with self.subTest(harness=harness):
+                self.setUp()
+                self.harness = harness
+                checkout = self.root / "code" / "silent app"
+                checkout.mkdir(parents=True, exist_ok=True)
+                (checkout / "AGENTS.md").write_text(
+                    "---\ntests: bash tests/all.sh\nhealth: none\nusers: none\n---\n")
+                with closing(sqlite3.connect(history.path())) as db, db:
+                    db.execute("CREATE TABLE IF NOT EXISTS runs (run_id TEXT PRIMARY KEY, "
+                               "repo TEXT, kind TEXT, finished_at REAL)")
+                    db.execute("CREATE TABLE IF NOT EXISTS checks (run_id TEXT, round INTEGER, "
+                               "kind TEXT, tree TEXT, command TEXT, exit INTEGER, finished_at REAL)")
+                    db.execute("INSERT OR REPLACE INTO runs VALUES ('a', 'silent app', 'task', 1)")
+                    db.execute("INSERT INTO checks VALUES ('a', NULL, 'landing', 'cedar', "
+                               "'bash tests/all.sh', 0, 2)")
+                config.update_session(SEAT, repo=str(checkout))
+                config.plan_path(SEAT).write_text("- [x] the parser parses\n")
+                want = stop.UNTESTED_LINE.format(checkout=checkout, runner=suite_times.RUNNER)
+                self.assertEqual(self.judged(0), (True, [want]))
+                self.assertEqual(self.judged(2), (True, [want]))
+                config.update_session(SEAT, repo=None)
+                self.assertEqual(self.judged(0), (False, []))
 
 if __name__ == "__main__":
     unittest.main()
