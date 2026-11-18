@@ -3904,10 +3904,12 @@ def models_why(found, role, row, kept, unit, weeks):
     (SOURCES) and how far off each of `weeks` foretold (week_checked); the rule that makes the
     choices; and why each model is none (WHYS): under `shaded` each the bars of `kept` draw
     shaded at this width (models_standing), in their order, under `not shown` the rest of its
-    `others`, in theirs.  Only a model's name is cut."""
+    `others`, in theirs; a page leaving its values no cell beside it folds each under its label,
+    two cells in.  Only a model's name is cut."""
     room = terminal.layout_width() - 2
     width = terminal.cells("not shown")     # the design's label column: its widest label
-    values = room - width - 2
+    fold = room - width - 2 < 1
+    values = room - 2 if fold else room - width - 2
     # the best choice, else, with nothing priced to choose among, the best rated row
     top = max(found["choices"] or found["rated"], key=lambda one: one["quality"])
     measures = {column: one for column, *_ in quality.ROLES[role]
@@ -3927,11 +3929,12 @@ def models_why(found, role, row, kept, unit, weeks):
             by=by and priced(by), apart=points(matrix.APART), below=f"{below(one):.1f}",
             places=number(matrix.PLACES))
     behind, cost = below(row), cost_said(found, row, unit)
-    # the bars with a why are the shaded ones
+    # the bars with a why are the shaded ones; a kind with none goes unsaid
     bars = [one for one, _ in models_standing(found, kept, unit)[1]]
     drawn = {id(one) for one in bars}
-    kinds = {"shaded": [[why(one)] for one in bars if id(one) in found["whys"]],
-             "not shown": [[why(one)] for one in found["others"] if id(one) not in drawn]}
+    kinds = {label: whys for label, whys in [
+        ("shaded", [[why(one)] for one in bars if id(one) in found["whys"]]),
+        ("not shown", [[why(one)] for one in found["others"] if id(one) not in drawn])] if whys}
     said = [{"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
                                                    f"{number(counted)} benchmarks"],
                          [", ".join(scored(column, one) for column, one in measures.items())],
@@ -3952,9 +3955,12 @@ def models_why(found, role, row, kept, unit, weeks):
         lines.append("")
         for label, parts in block.items():
             hang = 2 * (label in kinds)
-            for n, line in enumerate(line for part in parts
-                                     for line in flowed(part, values, hang)):
-                lines.append(f"{terminal.pad(label if n == 0 else '', width)}  {line}")
+            flowing = [line for part in parts for line in flowed(part, values, hang)]
+            if fold:
+                lines += terminal.wrap(label, room) + ["  " + line for line in flowing]
+            else:
+                lines += [f"{terminal.pad(label if n == 0 else '', width)}  {line}"
+                          for n, line in enumerate(flowing)]
     return ["  " + line if line else line for line in lines]
 
 
