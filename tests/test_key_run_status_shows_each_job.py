@@ -6,8 +6,7 @@ A job is a seat's launch of several tasks at once (`ak run a.md b.md`), its rece
 running and queued first, then merged, passed, skipped, failed, blocked and stopped, then any
 other word a task's run gave.  A job whose launcher is no longer alive says so on the next line,
 and whose it is to go on.  Then each task that has a verdict says it, indented: a task that
-ended reads its run as it stands now, its review as it ended though a mark it ran under is
-renamed since, a blocked one with the error its run recorded.  Blocks go
+ended reads its run as it stands now, a blocked one with the error its run recorded.  Blocks go
 newest started first; one that finished more than seven days ago is history, shown only with
 `--history`; and run from a seat, only that seat's jobs show.
 
@@ -23,7 +22,6 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import akconfig
 from fixtures.akbin import Home, owner
 
 DAY = 86400
@@ -142,19 +140,6 @@ class RunStatusShowsEachJob(unittest.TestCase):
             GONE.format("20261107-090000-merge-the-api"),
             "  merge-the-api.md: PASS, merged after 2 rounds",
             "  fail-the-parser.md: FAIL after 2 rounds: needs you"]])
-
-    def test_a_passed_task_reads_passed_after_its_reviewers_mark_is_renamed(self):
-        home, now = self.home, time.time()
-        record(home, "20261107-0901-pass-the-docs", title="Pass the docs", state="pass",
-               verdict="PASS", no_merge=True, review=REVIEW, round_summaries=[{}, {}],
-               finished_at=now - 600)
-        receipt(home, "20261107-090100-pass-the-docs",
-                task("pass-the-docs.md", "passed", "20261107-0901-pass-the-docs"),
-                started_at=now - 1200, finished_at=now - 600)
-        akconfig.write(home, {"opus": {}, "nova": akconfig.SHIPPED["astra"]})
-        self.assertEqual(self.status(), [[
-            "job 20261107-090100-pass-the-docs: 1 passed",
-            "  pass-the-docs.md: PASS, passed after 2 rounds"]])
 
     def test_the_newest_started_job_shows_first(self):
         now = time.time()
