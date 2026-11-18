@@ -56,10 +56,13 @@ def tell(state, log):
         if ("held" not in last or now <= last["at"]
                 or held - last["held"] < FLOOR * 1e6 * (now - last["at"])):
             continue
-        seen.update(since=last.get("since", last["at"]),
-                    since_held=last.get("since_held", last["held"]), told=last.get("told"),
-                    ticks=host.cpu_ticks(scope))
-        if "since" in last and (seen["told"] is None or now - seen["told"] >= AGAIN):
+        # A streak goes on from one reading's time and count together: one saved with a time
+        # alone (before 18 Nov 2026) starts over, as a count read later would say less was held.
+        going = "since_held" in last
+        seen.update(since=last["since"] if going else last["at"],
+                    since_held=last["since_held"] if going else last["held"],
+                    told=last.get("told"), ticks=host.cpu_ticks(scope))
+        if going and (seen["told"] is None or now - seen["told"] >= AGAIN):
             seen["told"] = now
             # a start is read in whole ticks, rounded down: one born in the reading's own tick
             # but after it reads as that tick
