@@ -141,23 +141,22 @@ func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	sep := string(os.PathSeparator)
 	named := t.TempDir()
 	var names []string
-	real, err := filepath.EvalSymlinks(named)
+	// A shell there says the system's: found from the given name part by part, it passes the
+	// limit on the way to a name within it. The shell's environment is empty, as exec's own
+	// asks for the working directory's name, and a removed one has none; and its answer is a
+	// name only where absolute, as dash prints an empty line where the system gives it none
+	shell := exec.Command("/bin/sh", "-c", "pwd -P")
+	shell.Dir, shell.Env = named, []string{}
+	if real, err := shell.Output(); err == nil && filepath.IsAbs(string(real)) {
+		names = append(names, strings.TrimSuffix(string(real), "\n"))
+	}
+	// the given one takes the working directory's name where relative, and is none without it
 	if !filepath.IsAbs(named) {
-		wd, gone := os.Getwd()
-		if gone != nil {
-			t.Fatal(gone)
-		}
-		named = wd + sep + named
-		if err == nil && !filepath.IsAbs(real) {
-			if wd, err = filepath.EvalSymlinks(wd); err == nil {
-				real = filepath.Join(wd, real)
-			}
+		if wd, err := os.Getwd(); err == nil {
+			named = wd + sep + named
 		}
 	}
-	if err == nil {
-		names = append(names, real)
-	}
-	if !strings.Contains(named+sep, sep+".."+sep) {
+	if filepath.IsAbs(named) && !strings.Contains(named+sep, sep+".."+sep) {
 		names = append(names, filepath.Clean(named))
 	}
 	checkout := ""
