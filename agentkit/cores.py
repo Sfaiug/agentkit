@@ -45,7 +45,9 @@ def tell(state, log):
     just begun to spin has spent little of its life.  One not read then counts from nothing only
     if it began since: one moved into the scope brings the time it spent before."""
     now, before, state["seat_cores"] = _now(), state.get("seat_cores") or {}, {}
-    for scope, launched in front.scopes().items():
+    with watch.state_lock():    # a rename holds it (`orch.rename`): no seat is read half renamed
+        seats = {scope: front.seat_now(launched) for scope, launched in front.scopes().items()}
+    for scope, seat in seats.items():
         held = host.cpu_held_usec(scope)
         if held is None:
             continue
@@ -59,7 +61,7 @@ def tell(state, log):
         # A streak goes on from one reading's time and count together: one saved with a time
         # alone (before 18 Nov 2026) starts over, as a count read later would say less was held.
         going = "since_held" in last
-        seen.update(since=last["since"] if going else last["at"],
+        seen.update(seat=seat, since=last["since"] if going else last["at"],
                     since_held=last["since_held"] if going else last["held"],
                     told=last.get("told"), ticks=host.cpu_ticks(scope))
         if going and (seen["told"] is None or now - seen["told"] >= AGAIN):
@@ -70,24 +72,20 @@ def tell(state, log):
                      for process, ticks in seen["ticks"].items() if process in last["ticks"]
                      or int(process.split(" ")[1]) >= int(last["at"] * os.sysconf("SC_CLK_TCK"))}
             busiest = max(spent, key=spent.get, default="").split(" ")[0]
-            _tell(front.seat_now(launched), busiest and host.command(busiest),
+            _tell(seat, busiest and host.command(busiest),
                   held - seen["since_held"], now - seen["since"], log)
 
 
 def holding(state):
     """[(seat, seconds)] of each seat whose scope the tick's last reading (`tell`) found holding
     FLOOR of a core, `since` when, and how long it had by then, longest first.  A respawn's new
-    scope may sit beside its old one: a seat holding it in both is named once, with the longest."""
-    launched = {}
-    for scope, seen in (state.get("seat_cores") or {}).items():
-        if "since" in seen:
-            name = front.SEAT_SCOPE.fullmatch(scope)[1]
-            launched[name] = max(launched.get(name, 0), seen["at"] - seen["since"])
+    scope may sit beside its old one: a seat holding it in both is named once, with the longest.
+    Each is named as that reading named it: asking here, a rename under way named one seat
+    twice, and status takes no lock.  One saved without a name (before 19 Nov 2026) is not shown."""
     held = {}
-    for name, seconds in launched.items():
-        # asked once for a launch name: a rename between two askings named one seat twice
-        seat = front.seat_now(name)
-        held[seat] = max(held.get(seat, 0), seconds)
+    for seen in (state.get("seat_cores") or {}).values():
+        if "seat" in seen:
+            held[seen["seat"]] = max(held.get(seen["seat"], 0), seen["at"] - seen["since"])
     return sorted(held.items(), key=lambda seat: -seat[1])
 
 
