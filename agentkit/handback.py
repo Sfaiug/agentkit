@@ -758,6 +758,8 @@ def followup_report(state):
     if state.get("followups"):
         parts += ["## Follow-ups", "",
                   *("- " + item.replace("\n", "\n  ") for item in state["followups"]), ""]
+        if state.get("followup"):      # `start_followups`
+            parts += ["A fix run's follow-ups start no run and add no line to your plan.", ""]
     if state.get("followup_plan"):
         parts += ["## Follow-up plan", "", planned_followups(state).strip(), ""]
     if state.get("followup_runs"):
@@ -1319,7 +1321,12 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     """
     from . import gate, run, watch  # here, not at the top: run imports handback; the rest reach run
     session = transitions.launched_session(state)
-    if (not (repair or split or state.get("merged") and state.get("followups")) or not session
+    # One level deep, whatever model reviews: a run ak started (its `followup`) hands on none
+    # of its own, which its result says (`followup_report`).  The owner, 18 Nov 2026: old
+    # defects beside a change are worth fixing along the way, but a reviewer must not be
+    # "adding task after task and making sessions run forever".
+    handing = state.get("merged") and state.get("followups") and not state.get("followup")
+    if (not (repair or split or handing) or not session
             or not state.get("repo") or state.get("scratch")
             or (state.get("review_pr") and not state.get("own_pr"))):
         return None
