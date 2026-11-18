@@ -1,4 +1,4 @@
-"""A seat that holds a core is told.
+"""A seat that holds `FLOOR` of a core is told.
 
 ak weighed its runs' use and never a seat's own shell's: from 12 to 17 Nov 2026 a seat waited on
 a log with `read -t 20 < /dev/zero`, which never sleeps, and held a core at normal priority
@@ -17,9 +17,13 @@ import time
 
 from . import front, host, orch, watch
 
-FULL = 0.9      # of a core: one thread that never sleeps, whatever the host's size
-AGAIN = 3600    # seconds before a seat still holding one is told again
-LINE = ("This seat has held a whole CPU core for {held}{busiest}. A wait belongs in `sleep` "
+# Of a core: a wait that polls hard, reading a long log every second or two between short
+# sleeps, holds 0.5 to 0.8 for hours, while on 18 Nov 2026 the busiest of 19 seats at work used
+# 0.07 over a tick's interval and waited for 0.02 more.  A seat's own shell needs no more beside
+# more cores, so no host's size moves it.
+FLOOR = 0.5
+AGAIN = 3600    # seconds before a seat still holding FLOOR is told again
+LINE = ("This seat has held {cores:.1f} CPU cores for {held}{busiest}. A wait belongs in `sleep` "
         "inside a script, or in `ak wait`.")
 
 
@@ -32,10 +36,11 @@ def _now():
 
 
 def tell(state, log):
-    """Owe each seat whose scope used or waited for FULL a core or more over each of the last two
-    intervals a line saying so, once, and again each AGAIN while it goes on; an interval under
+    """Owe each seat whose scope used or waited for FLOOR of a core or more over each of the last
+    two intervals a line saying so, once, and again each AGAIN while it goes on; an interval under
     starts the count over.  Each scope's reading is kept in `state` for the next tick, and on one
-    whose last interval was over, `since` the core was first held and each process's CPU time:
+    whose last interval was over, `since` it was first held, what it had held by then
+    (`since_held`: the line says what it held over that time) and each process's CPU time:
     its busiest is the one that spent most of the next interval, as a shell days old that has
     just begun to spin has spent little of its life.  One not read then counts from nothing only
     if it began since: one moved into the scope brings the time it spent before."""
@@ -49,11 +54,15 @@ def tell(state, log):
         last = before.get(scope.name) or {}
         seen = state["seat_cores"][scope.name] = {"at": now, "held": held}
         if ("held" not in last or now <= last["at"]
-                or held - last["held"] < FULL * 1e6 * (now - last["at"])):
+                or held - last["held"] < FLOOR * 1e6 * (now - last["at"])):
             continue
-        seen.update(since=last.get("since", last["at"]), told=last.get("told"),
-                    ticks=host.cpu_ticks(scope))
-        if "since" in last and (seen["told"] is None or now - seen["told"] >= AGAIN):
+        # A streak goes on from one reading's time and count together: one saved with a time
+        # alone (before 18 Nov 2026) starts over, as a count read later would say less was held.
+        going = "since_held" in last
+        seen.update(since=last["since"] if going else last["at"],
+                    since_held=last["since_held"] if going else last["held"],
+                    told=last.get("told"), ticks=host.cpu_ticks(scope))
+        if going and (seen["told"] is None or now - seen["told"] >= AGAIN):
             seen["told"] = now
             # a start is read in whole ticks, rounded down: one born in the reading's own tick
             # but after it reads as that tick
@@ -61,14 +70,14 @@ def tell(state, log):
                      for process, ticks in seen["ticks"].items() if process in last["ticks"]
                      or int(process.split(" ")[1]) >= int(last["at"] * os.sysconf("SC_CLK_TCK"))}
             busiest = max(spent, key=spent.get, default="").split(" ")[0]
-            _tell(front.seat_now(launched), busiest and host.command(busiest), now - seen["since"],
-                  log)
+            _tell(front.seat_now(launched), busiest and host.command(busiest),
+                  held - seen["since_held"], now - seen["since"], log)
 
 
 def holding(state):
     """[(seat, seconds)] of each seat whose scope the tick's last reading (`tell`) found holding
-    a core, `since` when, and how long it had by then, longest first.  A respawn's new scope may
-    sit beside its old one: a seat holding a core in both is named once, with the longest."""
+    FLOOR of a core, `since` when, and how long it had by then, longest first.  A respawn's new
+    scope may sit beside its old one: a seat holding it in both is named once, with the longest."""
     launched = {}
     for scope, seen in (state.get("seat_cores") or {}).items():
         if "since" in seen:
@@ -82,10 +91,10 @@ def holding(state):
     return sorted(held.items(), key=lambda seat: -seat[1])
 
 
-def _tell(name, command, held, log):
-    """Owe that seat the line, as the tick's log says it, unless the last is still owed: two
-    lines would each open a turn."""
-    line = LINE.format(held=orch.span(held),
+def _tell(name, command, usec, seconds, log):
+    """Owe that seat the line for the CPU time it held over those seconds, as the tick's log says
+    it, unless the last is still owed: two lines would each open a turn."""
+    line = LINE.format(cores=usec / 1e6 / seconds, held=orch.span(seconds),
                        busiest=command and f"; its busiest process: `{command[:160]}`")
     log(f"{name}: {line}")
     if not any(owed.get("cores") for owed in watch.seat_read(name).get("owed_lines") or ()):

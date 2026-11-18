@@ -1,5 +1,5 @@
 """`ak run status` names, under the host's lines, each seat the tick's last reading found holding
-a whole core (tests/test_key_a_seat_holding_a_core_is_told.py), and how long it had held it then,
+a core (tests/test_key_a_seat_holding_a_core_is_told.py), and how long it had held it then,
 longest first: `seats holding a core: fix-api 6m · parser 3m`, in a seat's own status too.  While
 none is, as on a host where none ever was, there is no such line.
 

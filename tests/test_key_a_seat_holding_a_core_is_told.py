@@ -1,14 +1,14 @@
-"""A seat whose own scope holds a core over two ticks in a row is told so once, and again each
-hour while it goes on.
+"""A seat whose own scope holds `cores.FLOOR` of a core over two ticks in a row is told so once,
+and again each hour while it goes on.
 
 From 12 to 17 Nov 2026 a seat waited on a log with `read -t 20 < /dev/zero`, which never sleeps,
 and held a core for five days that nothing saw.  Each tick reads how much CPU time each seat's
 scope used or waited for since the tick before (its `cpu.pressure`'s `some` total, where it has
-one): 0.9 core or more, averaged over the time between them, two ticks in a row, and the seat is
-typed one line at its quiet prompt naming how long, its busiest command and where a wait
-belongs; the tick's log says the same.  Only a difference over a known interval counts: a seat
-seen first, a scope new since the last tick and a late tick are no offence, and a process moved
-into a scope brings none of the CPU time it spent before.
+one): `cores.FLOOR` or more, averaged over the time between them, two ticks in a row, and the
+seat is typed one line at its quiet prompt naming how much of a core, to one decimal, how long,
+its busiest command and where a wait belongs; the tick's log says the same.  Only a difference
+over a known interval counts: a seat seen first, a scope new since the last tick and a late tick
+are no offence, and a process moved into a scope brings none of the CPU time it spent before.
 
 Black-box: the program `AK_BIN` names ticks from outside through tests/fixtures/akbin.py, on a
 stand-in cgroup tree (AK_CGROUP_ROOT, AK_CGROUP_FILE) whose CPU counters and processes the test
@@ -39,18 +39,19 @@ WAITS, SLOW = "agentkit-seat-acme-waits-3333cccc.scope", "agentkit-seat-acme-slo
 START = 1_800_000_000
 # Each tick's clock past START, and the CPU seconds each seat scope has used by then.  acme holds
 # a core from the first interval on, after five days' use before it was first seen; acme-idle
-# half of one, and a core's worth of three minutes over the late last interval; acme-once a core
+# 0.4 of one, and a core's worth of three minutes over the late last interval; acme-once a core
 # every other interval; acme-new a core in the interval before its scope was made again, at once
-# holding more than its old one did; acme-waits and acme-slow 0.8 of one.  The last tick is over
-# an hour after acme was first told.
+# holding more than its old one did; acme-waits 0.45 of one, and 0.85 over the late last interval;
+# acme-slow 0.4.  The last tick is over an hour after acme was first told.
 TICKS = [(0, {ACME: 432_000, IDLE: 0, ONCE: 0, OLD: 0, WAITS: 0, SLOW: 0}),
-         (180, {ACME: 432_180, IDLE: 90, ONCE: 180, OLD: 180, WAITS: 144, SLOW: 144}),
-         (360, {ACME: 432_360, IDLE: 180, ONCE: 190, NEW: 1_000, WAITS: 288, SLOW: 288}),
-         (540, {ACME: 432_540, IDLE: 270, ONCE: 370, NEW: 1_180, WAITS: 432, SLOW: 432}),
-         (4_000, {ACME: 436_000, IDLE: 450, ONCE: 470, NEW: 1_180, WAITS: 3_200, SLOW: 3_200})]
+         (180, {ACME: 432_180, IDLE: 72, ONCE: 180, OLD: 180, WAITS: 81, SLOW: 72}),
+         (360, {ACME: 432_360, IDLE: 144, ONCE: 190, NEW: 1_000, WAITS: 162, SLOW: 144}),
+         (540, {ACME: 432_540, IDLE: 216, ONCE: 370, NEW: 1_180, WAITS: 243, SLOW: 216}),
+         (4_000, {ACME: 436_000, IDLE: 396, ONCE: 470, NEW: 1_180, WAITS: 3_184, SLOW: 1_600})]
 # The CPU seconds by each tick in which a task of a scope with a `cpu.pressure` was ready and had
-# none: acme-waits waits 0.15 of a core, while another of its threads runs (`full` stays 0), and
-# acme-slow none since it was first seen.
+# none: acme-waits waits 0.15 of a core while another of its threads runs (`full` stays 0), 0.6
+# with what it uses and a core over the last interval, 0.946 since it was first seen; acme-slow
+# none since it was first seen.
 WAITED = [{WAITS: 0, SLOW: 60}, {WAITS: 27, SLOW: 60}, {WAITS: 54, SLOW: 60},
           {WAITS: 81, SLOW: 60}, {WAITS: 600, SLOW: 60}]
 TOLD = [0, 0, 1, 1, 2]      # the lines acme and acme-waits have taken by the end of each tick
@@ -162,15 +163,17 @@ class ASeatHoldingACoreIsTold(unittest.TestCase):
         self.assertIn("acme-busy-wait", heard[1])
         self.assertIn(heard[1], self.ticks[-1][0].out)
 
-    def test_a_seat_given_less_than_a_core_and_waiting_for_the_rest_is_told(self):
+    def test_a_seat_given_less_than_the_floor_and_waiting_past_it_is_told_how_much_it_held(self):
         heard = self.lines("acme-waits")
         self.assertEqual([len(lines) for lines in heard], TOLD, heard)
+        self.assertIn("0.6", heard[2][0])
         self.assertIn(heard[2][0], self.ticks[2][0].out)
+        self.assertIn("0.9", heard[-1][1])      # what it held since it was first seen
 
-    def test_a_seat_using_less_than_a_core_and_waiting_for_none_hears_nothing(self):
+    def test_a_seat_using_less_than_the_floor_and_waiting_for_none_hears_nothing(self):
         self.assertEqual(self.lines("acme-slow"), [[]] * len(TICKS))
 
-    def test_a_seat_under_a_core_hears_nothing_however_late_a_tick(self):
+    def test_a_seat_under_the_floor_hears_nothing_however_late_a_tick(self):
         self.assertEqual(self.lines("acme-idle"), [[]] * len(TICKS))
 
     def test_a_seat_over_a_core_for_single_ticks_hears_nothing(self):
