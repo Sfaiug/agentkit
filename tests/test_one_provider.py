@@ -515,6 +515,18 @@ class OneProvider(unittest.TestCase):
         self.cfg["models"]["beta"]["provider"] = "b"
         self.assertFalse(run.review_pass(moved, self.cfg))
 
+    def test_a_settled_job_task_reads_as_it_ended_after_its_reviewer_is_renamed(self):
+        state = {**self.evidence(), "run_id": "acme-widget"}
+        job = {"tasks": [{"name": "widget", "run_id": "acme-widget", "state": "passed"}]}
+        self.cfg["models"]["nova"] = self.cfg["models"].pop("beta")
+        with patch.object(handback, "reap", return_value=state):
+            self.assertEqual(jobs.job_now(job, False, self.cfg)["tasks"][0]["state"], "passed")
+        # one that crashed after its review delivered nothing, whatever its verdict
+        self.assertEqual(jobs.job_classify({**state, "state": "error"}, self.cfg), "failed")
+        # a mark still defined is compared with the record as before
+        self.cfg["models"]["alpha"]["provider"] = "b"
+        self.assertEqual(jobs.job_classify(state, self.cfg), "failed")
+
     def test_usage_text_prints_the_pair_after_the_order(self):
         with patch.object(terminal, "width", return_value=100):
             self.providers = self.meters(b=100)

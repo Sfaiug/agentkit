@@ -315,7 +315,8 @@ def job_classify(run_state, cfg):
     if run_state.get("merged"):
         # delivered: a fact no later config -- a model removed since -- can take back
         return "merged"
-    if transitions.review_pass(run_state, cfg):
+    # a PASS verdict outlives a crash after review: only a run that ended `pass` delivered
+    if run_state.get("state") == "pass" and transitions.review_pass(run_state, cfg, ended=True):
         if run_state.get("no_merge") or run_state.get("scratch") or run_state.get("on_target"):
             return "passed"
         if str(run_state.get("target") or "").lower() == "none":
