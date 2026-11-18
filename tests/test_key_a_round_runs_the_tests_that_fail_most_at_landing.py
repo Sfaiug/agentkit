@@ -6,8 +6,9 @@ handed in the same run, named as
 the record spells them, and its failing exit sends the round back.  Left out are a test red only
 before then, one the record times not, one whose file is gone and one the target is red on now by
 its landing line's record; one the target was red on and repaired runs, as that one does once the
-target has moved past its red.  A part the record times and its file no longer holds is handed,
-and the run naming it as not there (`AK_NOT_THERE`) passes the round where the others pass.
+target has moved past its red.  A part the record times and its file no longer holds is handed:
+the run names it as not there (`AK_NOT_THERE`), the others run again without it, and that exit
+is the check's.
 
 Owner, 16 Nov 2026: "Yes, this small set … And make sure this also happens for new repos we work
 on".
@@ -155,10 +156,11 @@ class ThreeRuns(unittest.TestCase):
     def test_a_red_test_runs_most_first_and_its_failing_exit_sends_the_round_back(self):
         # A suite the target runs uncut fits all, though it once ran in pieces: failing, its
         # re-run failing, then passing after the fixer's turn, the test the target is red on now
-        # left out; the removed part's failing exit is run again as any is, and passes.
+        # left out; each go, handed the removed part, runs again without it.
         self.assertEqual(self.notes["two"],
                          ["suite ./tests/parts.sh::removed ./tests/often.sh ./tests/sometimes.sh "
-                          "./tests/repaired.sh"] * 4
+                          "./tests/repaired.sh",
+                          "suite ./tests/often.sh ./tests/sometimes.sh ./tests/repaired.sh"] * 3
                          + ["review", "suite whole"])
         self.assertEqual([run["role"] for run in self.fakes["claude"].runs()],
                          ["executor", "executor", "fixer", "executor"])
@@ -169,8 +171,8 @@ class ThreeRuns(unittest.TestCase):
     def test_of_more_than_fit_one_piece_the_most_often_red_run(self):
         # held.sh too, the target moved past its red; landing then runs the suite's pieces
         self.assertEqual(self.notes["three"][:3], [
-            "suite ./tests/parts.sh::removed ./tests/held.sh ./tests/often.sh "
-            "./tests/repaired.sh"] * 2 + ["review"])
+            "suite ./tests/parts.sh::removed ./tests/held.sh ./tests/often.sh ./tests/repaired.sh",
+            "suite ./tests/held.sh ./tests/often.sh ./tests/repaired.sh", "review"])
 
 
 if __name__ == "__main__":

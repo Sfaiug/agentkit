@@ -1924,8 +1924,8 @@ def passes_what_it_holds(code, only, ran, failed, absent):
     holds: it named each as run (`AK_RAN`) but those it named as not there (`AK_NOT_THERE`), as
     a test file names a part only a later change adds, and failing, it named one at least as not
     there and none of the others as failed (`AK_FAILED`).  A narrowing step counts that stack as
-    passing them (land._check_tests, land._probe), and a round its own tests
-    (roundloop.verify_work); to a person and every other check the run exited as it did."""
+    passing them (land._check_tests, land._probe); to a person and every other check the run
+    exited as it did."""
     there = [test for test in only if test not in absent]
     return all(test in ran for test in there) and (
         code == 0 or code > 0 and len(there) < len(only) and not set(there) & set(failed))
@@ -1985,7 +1985,10 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
     or `shard`) named as failed, confirmed or not.
     `raw` receives each piece's process exits by share, before checking coverage of `only`.
     `absent`, a list, gets with `shard` and `only` the tests the run named as not there where it
-    passed what its tree holds (`passes_what_it_holds`), and none otherwise.
+    passed what its tree holds (`passes_what_it_holds`), and none otherwise.  Without it a run
+    that would give any, and named no other test as failed, goes again at once, in the same go,
+    with only the others, whose exit decides; none left, it is green, as its tree holds none it
+    was handed.
     Every piece gets `times`, the file times recorded as the suite starts (`_record`), in the
     file AK_TIMES names: a record another suite changes meanwhile would cut a later piece's share
     differently.
@@ -2008,27 +2011,44 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
                 "(pinned piece)")
         output.write(f"--- AK_SHARD={label} ---\n".encode())
         output.flush()
-        ran, failed, gone = (None, [], None) if only is None else ([], [], [])
-        start, stops, timeout = output.tell(), [], kwargs.pop("on_timeout", None)
+        stops, timeout, deadline = [], kwargs.pop("on_timeout", None), time.monotonic() + limit
 
         def stopped(why, pid):
             stops.append(why)
             if timeout is not None:
                 timeout(why, pid)
 
-        code, text, killed = worker.boxed(
-            ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
-            env={**env, "AK_SHARD": share}, times=times, only=only, ran=ran, failed=failed,
-            absent=gone, flaky=flaky, used=used, on_timeout=stopped, **kwargs)
-        observed(shard, code, killed)
+        while True:
+            ran, failed, gone = (None, [], None) if only is None else ([], [], [])
+            start = output.tell()
+            code, text, killed = worker.boxed(
+                ["bash", "-c", command], deadline - time.monotonic(), cwd=str(cwd),
+                activity=activity, output=output, env={**env, "AK_SHARD": share}, times=times,
+                only=only, ran=ran, failed=failed, absent=gone, flaky=flaky, used=used,
+                on_timeout=stopped, **kwargs)
+            observed(shard, code, killed)
+            lacks = ([test for test in only if test in gone] if only is not None and not killed
+                     and passes_what_it_holds(code, only, ran, failed, gone) else [])
+            # Nobody takes them for a round's check, handed a part the time record still times
+            # and its file no longer holds, which no change can fix (18 Nov 2026: one removed on
+            # 7 Nov failed every round of every run).  A run that named another failure is the
+            # failed go it is; one that named none may still have failed by more than them, as
+            # by a command after the runner, so the others' own run says, below its output.
+            if absent is not None or not lacks or set(failed) - set(lacks):
+                break
+            only = [test for test in only if test not in lacks]
+            output.write("[the others run alone, these not there (AK_NOT_THERE): "
+                         f"{' '.join(lacks)}]\n".encode())
+            output.flush()
+            if not only:
+                code = 0
+                break
         if confirmed is not None and only is not None:
             confirmed[shard] = (unfinished(only, activity, failed, start) if stops == ["silence"]
                                 else [test for test in only if code > 0 and not killed
                                       and test in ran and test in failed])
         if absent is not None and only is not None:
-            # the last go's, as a re-run decides
-            absent[:] = ([test for test in only if test in gone] if not killed
-                         and passes_what_it_holds(code, only, ran, failed, gone) else [])
+            absent[:] = lacks       # the last go's, as a re-run decides
         if named is not None and code > 0:
             named.extend(failed)
         if ran is not None:
