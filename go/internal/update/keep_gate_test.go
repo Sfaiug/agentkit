@@ -1,6 +1,9 @@
 package update
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,19 +15,47 @@ import (
 )
 
 func TestATickWithNoLiveGateAsksItsHarnessesTheirLatestRelease(t *testing.T) {
-	home, _ := harnessHome(t)
-	checkout := filepath.Join(home, "agentkit") // ~/agentkit's own tick, with no live gate
-	// somebody's work: the upgrade the ask finds behind is held, not started
-	if out, err := exec.Command("git", "init", "-q", "-b", "fix-api", checkout).CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, out)
-	}
-	var said []string
-	err := KeepCurrent(config.Resolve(checkout), func(line string) { said = append(said, line) }, nil)
-	record, _ := os.ReadFile(filepath.Join(home, ".agentkit", "state", "harness-latest.json"))
-	want := []string{"gamma 1.0.0 is behind 2.0.0: upgraded once " + checkout +
-		" is main as origin left it, not on fix-api, not main: its gates test it"}
-	if got := calls(t, home); err != nil || strings.Join(got, " ") != "--version latest" ||
-		!strings.HasPrefix(string(record), `{"gamma": {"asked": `) || !reflect.DeepEqual(said, want) {
-		t.Fatalf("gave %v, calls %q, recorded %s, said %q", err, got, record, said)
+	asked := int64(now()) - 60
+	for _, each := range []struct {
+		name, record, calls string
+		behind              bool
+	}{
+		// the first ask records 2.0.0 and neither starts nor holds it
+		{"first", "", "--version latest", false},
+		// the ask before found 2.0.0, so this one finds it behind
+		{"found", `{"gamma": {"found": "2.0.0"}}`, "--version latest", true},
+		// a login held 2.0.0, which an ask found, before `found` was recorded: no ask until it lasts
+		{"waits", fmt.Sprintf(`{"gamma": {"asked": %d, "waits": "2.0.0"}}`, asked), "--version", true},
+	} {
+		t.Run(each.name, func(t *testing.T) {
+			home, _ := harnessHome(t)
+			checkout := filepath.Join(home, "agentkit") // ~/agentkit's own tick, with no live gate
+			// somebody's work: the upgrade the ask finds behind is held, not started
+			if out, err := exec.Command("git", "init", "-q", "-b", "fix-api", checkout).CombinedOutput(); err != nil {
+				t.Fatalf("git init: %v: %s", err, out)
+			}
+			path := filepath.Join(home, ".agentkit", "state", "harness-latest.json")
+			if each.record != "" {
+				if err := os.WriteFile(path, []byte(each.record), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var said, want []string
+			if each.behind {
+				want = []string{"gamma 1.0.0 is behind 2.0.0: upgraded once " + checkout +
+					" is main as origin left it, not on fix-api, not main: its gates test it"}
+			}
+			err := KeepCurrent(config.Resolve(checkout), func(line string) { said = append(said, line) }, nil)
+			record, _ := os.ReadFile(path)
+			var written map[string]map[string]any
+			err = errors.Join(err, json.Unmarshal(record, &written))
+			at, _ := written["gamma"]["asked"].(float64)
+			if got := calls(t, home); err != nil || strings.Join(got, " ") != each.calls ||
+				at <= float64(asked) || !reflect.DeepEqual(written, map[string]map[string]any{
+				"gamma": {"asked": at, "found": "2.0.0", "waits": ""},
+			}) || !reflect.DeepEqual(said, want) {
+				t.Fatalf("gave %v, calls %q, recorded %s, said %q", err, got, record, said)
+			}
+		})
 	}
 }

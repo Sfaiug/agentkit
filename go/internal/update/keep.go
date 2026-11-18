@@ -32,8 +32,10 @@ const (
 // above all, never upgrades this host's harnesses: it says what the last background upgrade said,
 // then, while no upgrade runs, tells each red's line still owed through deliver, under the
 // upgrade lock (handBack), asks each harness this host has its `[update] latest` at most once an
-// hour and starts the first one behind it in the background (Background).  A red release starts
-// again once retryAfter has passed since its last start, a newer one at once.  A checkout that is
+// hour and starts the first one behind the release two asks in a row found in the background
+// (Background): a registry names a release before all its packages are there, so the ask that
+// first finds one only records it.  A red release starts again once retryAfter has passed since
+// its last start, a newer one at the second ask that finds it.  A checkout that is
 // somebody's work holds the upgrade unstarted, saying so, and a login its gates would not outlast
 // holds it with no ask until the first tick that one lasts.  ErrPython before the ask of an
 // installed harness movable says Go cannot move, and deliver's error at the line it gave.  A
@@ -105,13 +107,17 @@ func KeepCurrent(repo string, say func(string), deliver Deliver) error {
 		if installed != "" && !movable([]plan{each}) {
 			return ErrPython
 		}
-		newest := entry.Str("waits")
+		waited := entry.Str("waits")
+		newest := waited
 		if newest == "" {
 			newest = latest(each, env)
 		}
 		tried, _ := entry.Get("tried").(string)
 		started, _ := entry.Num("started")
-		behind := installed != "" && downgrade(newest, installed) && (tried != newest || at-started >= retryAfter)
+		// behind: both name a release, the installed one is the lower, and it is the one a login
+		// holds, which an ask found, or else the one the last ask found
+		behind := installed != "" && downgrade(newest, installed) && cmp.Or(waited, entry.Str("found")) == newest &&
+			(tried != newest || at-started >= retryAfter)
 		left := ""
 		if behind {
 			left = leftAsIs(env, checkout)
@@ -120,6 +126,7 @@ func KeepCurrent(repo string, say func(string), deliver Deliver) error {
 		waits := begins && waitsForLogin("upgrade", each.name+"'s upgrade",
 			margin("live", liveCap)+margin("fresh", freshCap.Seconds()), at, say)
 		entry.Set("asked", at)
+		entry.Set("found", newest)
 		entry.Set("waits", "")
 		if waits {
 			entry.Set("waits", newest)

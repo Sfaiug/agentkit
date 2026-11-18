@@ -1,11 +1,12 @@
 """Every harness keeps itself on its latest release, in the background.
 
 The tick asks each harness's `[update] latest` at most hourly; one this host has that is behind
-it is upgraded through `ak update`'s own gated path -- the upgrade, both gates, the revert --
-while sessions work, one upgrade at a time host-wide.  A failed gate puts it back and is said
-once in the tick's log, and that release is tried again a day after its last start, a newer
-one at once.  A checkout that is somebody's work holds it unstarted: a half-moved ~/agentkit
-failed a fresh-install gate, and the harness was put back for nothing it did.
+the release two asks in a row found is upgraded through `ak update`'s own gated path -- the
+upgrade, both gates, the revert -- while sessions work, one upgrade at a time host-wide.  A
+failed gate puts it back and is said once in the tick's log, and that release is tried again a
+day after its last start, a newer one at the second ask that finds it.  A checkout that is
+somebody's work holds it unstarted: a half-moved ~/agentkit failed a fresh-install gate, and the
+harness was put back for nothing it did.
 
 Offline throughout: `acme` is a fake harness whose manifest, binary and release source live
 under a temporary HOME, the checkout the tick runs from is a throwaway directory holding two
@@ -78,6 +79,8 @@ class HarnessAutoUpdate(unittest.TestCase):
         for name in ("RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, name, config.HOME / name.lower()))
         config.ensure_dirs()
+        # the ask before each test's first found 2.0.0, so that first tick's ask is the second
+        (config.STATE / "harness-latest.json").write_text('{"acme": {"found": "2.0.0"}}')
         # the tick moves only from the checkout it runs from: here, the throwaway one
         self.stack.enter_context(patch.object(config, "REPO", root / "agentkit"))
         cfg = {"models": {"acme-model": {"harness": "acme", "provider": "acme"}},
@@ -148,9 +151,10 @@ class HarnessAutoUpdate(unittest.TestCase):
         self.assertEqual(self.tick(day + 180)[0], "WARN the background upgrade of acme failed:")
         self.assertEqual(self.tick(day + update.ASK_EVERY), [])
         self.assertEqual(self.read("calls"), ["upgrade", "install 1.0.0"] * 2)
-        # a newer release is tried at once, and passes
+        # a newer release is tried at the second ask that finds it, and passes
         self.write(released="2.1.0", live="0")
-        self.assertEqual(self.tick(day + 2 * update.ASK_EVERY),
+        self.assertEqual(self.tick(day + 2 * update.ASK_EVERY), [])
+        self.assertEqual(self.tick(day + 3 * update.ASK_EVERY),
                          ["acme 1.0.0 is behind 2.1.0: upgrading it in the background"])
         self.assertEqual(self.read("installed"), ["2.1.0"])
 
