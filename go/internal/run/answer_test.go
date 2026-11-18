@@ -133,7 +133,12 @@ func TestACommandIsNeverTheShellsOptions(t *testing.T) {
 func TestGivenNoEnvironmentTheCommandCarriesAksOwnButNoSeatsName(t *testing.T) {
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	t.Setenv("ACME_TOKEN", "kept")
-	dir := t.TempDir()
+	// absolute, as a relative TMPDIR would leave the link's target relative to the link and PWD
+	// is the checkout made absolute
+	dir, err := filepath.Abs(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	checkout := filepath.Join(dir, "acme-link")
 	if err := os.Mkdir(filepath.Join(dir, "acme"), 0o755); err != nil {
 		t.Fatal(err)
