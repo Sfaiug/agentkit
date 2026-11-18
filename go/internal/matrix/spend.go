@@ -2,7 +2,6 @@ package matrix
 
 import (
 	"cmp"
-	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,23 +29,20 @@ const (
 	SpentOver = 7 * 86400 // what a login's spend is priced over, and its plan's week fitted
 )
 
-// counts are the types of token a row keeps, and listed the column of a release's values listing
-// its price a million tokens of each.
+// counts are the types of token a row keeps.
 const counts = "input, cache_write, cache_read, output"
-
-var listed = []string{"aa.price1mInputTokens", "aa.cacheWritePrice", "aa.cacheHitPrice", "aa.price1mOutputTokens"}
 
 // A spend reads one history at the listed prices of one set of boards.
 type spend struct {
 	db     *history.DB
-	index  map[string][]hit
+	index  boards.Index
 	prices map[string][]float64 // by model, nil where it lists none
 	ours   map[[2]string]bool   // whether a harness runs models of a provider alone
 }
 
 // spending is a spend of history.db, through a connection that cannot write, at held's prices.
 func spending(held *run.Object) *spend {
-	return &spend{db: history.Look(), index: indexOf(boards.Current(held)), prices: map[string][]float64{}, ours: map[[2]string]bool{}}
+	return &spend{db: history.Look(), index: boards.IndexOf(boards.Current(held)), prices: map[string][]float64{}, ours: map[[2]string]bool{}}
 }
 
 // A spent row is one of a login's rows: its harness ("" where unknown), model, tokens and counts,
@@ -397,59 +393,18 @@ func (s *spend) runsAlone(harness, provider string) bool {
 }
 
 // dollars is what a row cost, Python's spend._cost: those it kept, else what its counts cost at
-// its model's listed prices now, a million tokens of each, false where either is unknown or the
-// cost is no float's, as a board listing an infinite price or one near a float's largest: summed,
-// it would leave every cost it joins infinite or NaN, Python's spend._dollars.
+// its model's listed prices now (boards.Dollars), false where either is unknown.
 func (s *spend) dollars(row spent) (float64, bool) {
 	if row.saved {
 		return row.kept, true
 	}
-	prices := s.listedPrices(row.model)
-	if prices == nil || !row.known {
+	if !row.known {
 		return 0, false
 	}
-	costs := make([]float64, len(prices))
-	for i, price := range prices {
-		costs[i] = row.counts[i] * price
+	prices, asked := s.prices[row.model]
+	if !asked {
+		prices = s.index.Prices(row.model)
+		s.prices[row.model] = prices
 	}
-	dollars := quality.Sum(costs) / 1e6
-	return dollars, !math.IsInf(dollars, 0) && !math.IsNaN(dollars)
-}
-
-// listedPrices is a model's listed price a million tokens of each type, nil where it has none,
-// Python's spend._prices: its release's, the one found finds alone, at the release's default
-// effort, else its first; a cache price it lists none of is its input price, and one listing no
-// input or output price has none.
-func (s *spend) listedPrices(model string) []float64 {
-	if prices, asked := s.prices[model]; asked {
-		return prices
-	}
-	s.prices[model] = nil
-	if model == "" {
-		return nil
-	}
-	var release *boards.Release
-	for _, one := range found(s.index, model) {
-		if release != nil && release.Slug != one.release.Slug {
-			return nil
-		}
-		release = one.release
-	}
-	if release == nil || len(release.Efforts) == 0 {
-		return nil
-	}
-	values := release.Efforts[max(0, slices.IndexFunc(release.Efforts, func(effort *boards.Effort) bool { return effort.Default }))].Values
-	fresh, priced := values.Num(listed[0])
-	if !priced || !values.Has(listed[len(listed)-1]) {
-		return nil
-	}
-	prices := make([]float64, len(listed))
-	for i, column := range listed {
-		prices[i] = fresh
-		if price, ok := values.Num(column); ok {
-			prices[i] = price
-		}
-	}
-	s.prices[model] = prices
-	return prices
+	return boards.Dollars(prices, row.counts)
 }
