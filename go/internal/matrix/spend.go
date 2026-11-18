@@ -123,15 +123,26 @@ func measures(held *run.Object) (*Measures, error) {
 		said         bool // whether it names an effort
 		turns        map[string]bool
 	}
+	type kept struct {
+		turn, account string
+		spent
+	}
 	var tasks []task
 	dids := map[task]*did{}
+	rows := map[task][]kept{}
 	// each role's model and effort, by their columns
 	who := map[string][2]string{"executor": {"executor", "executor_effort"}, "reviewer": {"reviewer", "reviewed"}}
+	// one read, as a run resumed between two would add its new turns' rows to its ended sample
 	for _, row := range s.db.Select("SELECT run_id, executor, executor_effort, reviewer, (SELECT CASE WHEN " +
 		"COUNT(DISTINCT effort) = 1 THEN MIN(effort) END FROM reviews WHERE reviews.run_id = runs.run_id) AS reviewed, " +
-		"counted_turns FROM runs WHERE kind = 'task' AND finished_at IS NOT NULL") {
-		counted, _ := run.Decode([]byte(cmp.Or(row.Text("counted_turns"), "[]")))
-		turns, _ := counted.([]any)
+		"counted_turns, turn, role, account, model, " + counts + " FROM runs LEFT JOIN turn_usage USING (run_id) " +
+		"WHERE kind = 'task' AND finished_at IS NOT NULL") {
+		if row["turn"] != nil {
+			key := task{row.Text("run_id"), row.Text("role")}
+			rows[key] = append(rows[key], kept{row.Text("turn"), row.Text("account"), counted(row, "", 0)})
+		}
+		named, _ := run.Decode([]byte(cmp.Or(row.Text("counted_turns"), "[]")))
+		turns, _ := named.([]any)
 		for _, each := range turns {
 			turn, _ := each.(string)
 			role := "executor"
@@ -145,15 +156,6 @@ func measures(held *run.Object) (*Measures, error) {
 			}
 			dids[key].turns[turn] = true
 		}
-	}
-	type kept struct {
-		turn, account string
-		spent
-	}
-	rows := map[task][]kept{}
-	for _, row := range s.db.Select("SELECT run_id, turn, role, account, model, " + counts + " FROM turn_usage") {
-		key := task{row.Text("run_id"), row.Text("role")}
-		rows[key] = append(rows[key], kept{row.Text("turn"), row.Text("account"), counted(row, "", 0)})
 	}
 	type sample struct{ name, effort, role string }
 	var order []sample
