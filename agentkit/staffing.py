@@ -9,7 +9,7 @@ or an exhausted provider shows.
 import json
 import time
 
-from . import config, record, transitions, turns, update
+from . import config, matrix, record, transitions, turns, update
 
 
 def collect_usage(cfg):
@@ -89,28 +89,44 @@ def replace_reviewer(state, reviewer):
             state["review_pending"]["handed"] = True
 
 
-def ready_order(cfg, providers, workers=None, log=None, **kwargs):
+def ready_order(cfg, providers, workers=None, log=None, writers=None, **kwargs):
     """`usage.pick_order` over the workers whose harness can run a turn here.
 
     Every pick a run makes -- executor, reviewer, spare, handover, the fixer's -- comes
     through here.  A worker whose harness is not installed or not logged in is left out
     before any budget rule reads the list, so a subscription nobody can run keeps no payg
     provider out; `log`, on the one call of a pick that gives a role, says so in one line.
+
+    A reviewer's pick given `writers`, every model that wrote part of the work, leaves out
+    the same way every reviewer sharing a provider with one of them while another that is
+    not off, unready or barred shares none (`pair_tier` 0).  The owner, 18 Nov 2026: "same
+    provider or model for both roles should still be allowed if only picked, but if multiple
+    picked then from different."  So that one is waited for while spent, and a subscription
+    on a writer's provider keeps no payg reviewer on another out.
     """
     from . import usage  # here, not at the top: usage imports staffing
+    role = kwargs.get("role", "executor")
+    offered = config.offered(cfg)
+    listed = usage.marked(cfg, workers, role, kwargs.get("reviewers"))
     skip = {}
     if getattr(providers, "harnesses", None):
-        skip = {name: usage.unready(cfg, name, providers) for name in config.offered(cfg)}
+        skip = {name: usage.unready(cfg, name, providers) for name in offered}
         skip = {name: why for name, why in skip.items() if why}
-    if kwargs.get("role") == "reviewer":
-        skip.update((name, why) for name in config.offered(cfg) if (why := barred_reviewer(cfg, name)))
-    if log and skip:
-        listed = (config.reviewers(cfg) if kwargs.get("role") == "reviewer"
-                  else config.workers(cfg)) if workers is None else workers
+    if role == "reviewer":
+        skip.update((name, why) for name in offered if (why := barred_reviewer(cfg, name)))
+    if role == "reviewer" and (writers := known(cfg, writers)):
+        off = matrix.off(cfg)
+        ready = [name for name in listed if name in offered and name not in skip and name not in off]
+        far = [name for name in ready if all(pair_tier(cfg, writer, name) == 0 for writer in writers)]
+        if far:
+            why = (f"a reviewer on another provider than {', '.join(writers)} is marked: "
+                   f"{', '.join(far)}")
+            skip.update((name, why) for name in ready if name not in far)
+    if log:
         for name in listed:
             if name in skip:
                 log(f"skipped {name}: {skip[name]}")
-    return usage.pick_order(cfg, providers, workers, skip=skip, **kwargs)
+    return usage.pick_order(cfg, providers, listed, skip=skip, **kwargs)
 
 
 def barred_reviewer(cfg, name):
@@ -274,25 +290,29 @@ def same_model(cfg, first, second):
     return one["provider"] == two["provider"] and one["model"] == two["model"]
 
 
+def known(cfg, names):
+    """Those of `names`, one name or a list, the config has a model for.  A writer since
+    removed from the config, as a handover's earlier executor, holds no reviewer back: it is
+    no model a reviewer could be."""
+    def model(name):
+        try:
+            return config.model(cfg, name)
+        except config.Error:
+            return None
+
+    return [name for name in ([names] if isinstance(names, str) else names or [])
+            if name and model(name)]
+
+
 def reviewer_order(cfg, writers, order):
     """The order given, by each reviewer's worst `pair_tier` beside the writers.  `writers`
     is the model that wrote the work, or every model that wrote part of it: a PR's
     orchestrator and the fixer its fix was handed to.  A model tends to miss the mistakes it
     makes, so its own review is the last choice -- but only a choice, never a refusal: one
     worker reviews itself."""
-    def known(name):
-        try:
-            config.model(cfg, name)
-        except config.Error:
-            return False
-        return True
-
-    # a writer since removed from the config, as a handover's earlier executor, holds no
-    # reviewer back: it is no model a reviewer could be
-    names = [name for name in ([writers] if isinstance(writers, str) else writers or [])
-             if name and known(name)]
+    names = known(cfg, writers)
     tiered = [(max((pair_tier(cfg, each, name) for each in names), default=0), name)
-              for name in order if known(name)]
+              for name in known(cfg, order)]
     return [name for _, name in sorted(tiered, key=lambda each: each[0])]
 
 
