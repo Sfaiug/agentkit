@@ -58,6 +58,17 @@ func TestYoursIsEachModelOfAHarnessAtTheEffortsItLists(t *testing.T) {
 	}
 }
 
+func TestAReleaseWhoseNameSaysNothingIsLabelledByItsSlug(t *testing.T) {
+	t.Setenv("AGENTKIT_ADAPTER_DIR", t.TempDir())
+	for _, raw := range []string{"null", "7", `"  \n"`, `"\u001f"`, `"---"`} {
+		held := heldBoards(t, `{"model": "x", "effort": null, "slug": "acme-bevel-1", "maker": "Acme", "deprecated": false, "values": {}, "release": {"slug": "acme-bevel-1", "name": `+raw+`, "deprecatedTo": null}}`)
+		row := lineup(held, nil, nil)[0].(*run.Object)
+		if got := row.Str("name"); got != "Acme Bevel 1" {
+			t.Errorf("name %s: got %q, want Acme Bevel 1", raw, got)
+		}
+	}
+}
+
 // home is a config whose one harness counts its listings and a board fresh enough to ask nothing.
 func home(t *testing.T) (state string, listings func() int) {
 	t.Helper()
