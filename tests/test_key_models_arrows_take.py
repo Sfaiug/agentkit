@@ -164,7 +164,9 @@ class ArrowsTake(unittest.TestCase):
                                   and "  × Restart" in lines(screen))
                 self.assertTrue(shown.startswith("agentkit"), shown)
                 self.assertIn("esc back", key_line(shown))
-                self.assertIn("› orchestrator", shown)
+                # the role asked about under the card, which has the one highlight
+                self.assertIn("\n  orchestrator", shown)
+                self.assertEqual(shown.count("›"), 1, shown)
                 self.assertEqual(self.path(SEAT).read_bytes(), before)
                 term.keys("Enter")              # Keep, the answer highlighted
                 term.wait(lambda screen: "orchestrator · three choices" in screen
@@ -187,7 +189,7 @@ class ArrowsTake(unittest.TestCase):
                 shown = lines(term.wait(lambda screen: asked(screen, SEAT)
                                         and "  × Restart" in lines(screen)))
                 at = next(number for number, line in enumerate(shown)
-                          if line.startswith("› orchestrator"))
+                          if line.startswith("  orchestrator"))
                 self.assertTrue(shown[0].startswith("agentkit"), "\n".join(shown))
                 self.assertEqual([line.split()[:1] for line in shown[2:at]], heading,
                                  "\n".join(shown))

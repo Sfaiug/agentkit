@@ -858,6 +858,7 @@ _PRESSED = False   # the left button went down and has not been read coming up
 _ASKED = False     # a resize or a return from ^Z asked for a draw (`asked_again`)
 _POINTER = None    # where the pointer is, a `point` or a click; None until it moves, after a key
 _AWAY = False      # ... on no row of a screen that has rows: the keys' highlight not drawn
+_CARD = False      # a card asks (`confirm`): the highlight is its answers', not its screen's
 _UNSEEN = False    # the key read last was pressed while it was (`unseen`)
 _SPOTS = {}        # what the screen up has where (`lit`), the pointer read against it
 _SHOWN = []        # ... its lines as drawn, and with the pointer's light (`relight`)
@@ -879,14 +880,20 @@ def taken():
 
 
 def away():
+    """Whether the screen up draws no row or cell the keys' highlight is on: the pointer is off its
+    rows (`off_rows`), or a card asks on it (`confirm`), its answers having it until it closes."""
+    return _AWAY or _CARD
+
+
+def off_rows():
     """Whether the pointer moved off every row of the screen up -- onto a key-line item, a header
-    or blank space -- which then draws no row or cell the keys' highlight is on: it lost it when
-    the pointer left, and a key brings it back where it was, the keys going on from there."""
+    or blank space -- which lost the keys' highlight when it left: a key brings it back where it
+    was, the keys going on from there."""
     return _AWAY
 
 
 def unseen():
-    """Whether the key read last was pressed while the keys' highlight was not drawn (`away`), and
+    """Whether the key read last was pressed while the pointer was off every row (`off_rows`), and
     is no click on a row, which names its own: a key acting on what the highlight is on then only
     brings it back -- Enter and space, typed or clicked on the key line, which `read_key` answers
     as a draw, and a screen's own, such as the menu's `x`."""
@@ -1803,7 +1810,9 @@ def confirm(question, meaning, answer, around, wait=None):
     returns the row the first line goes on, above the screen where its top gives way, or None
     where both answers have none; it is called again on a resize, the card wrapped anew, and
     whenever `wait` answers None: a `meaning` that is a function is asked again on each draw.
+    While it asks, the highlight is the card's alone: the screen draws none of its own (`away`).
     """
+    global _CARD
     keep, act = f"{glyph('done')} Keep", f"{glyph('FAIL')} {answer}"
 
     def asked():
@@ -1815,7 +1824,11 @@ def confirm(question, meaning, answer, around, wait=None):
     def drawn(lines, lit):
         enter = (answer if lit == act else "Keep").lower()
         return around([*lines, ""], keys("esc back", enter=enter))
-    return choose([keep, act], keep, around=drawn, wait=wait, warn=act, above=asked) == act
+    _CARD = True
+    try:
+        return choose([keep, act], keep, around=drawn, wait=wait, warn=act, above=asked) == act
+    finally:
+        _CARD = False
 
 
 def _read(prompt):

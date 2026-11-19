@@ -72,15 +72,15 @@ Every screen reads the same keys, one at a time, with no Enter.
 
 - **Arrows, Space and Enter:** arrows move the highlight, on selection: a row whole, a cell
   over its width, its row bold (`terminal.highlight`, `terminal.selected`). Space marks what it
-  is on; Enter goes forward (`terminal.keys`).
+  is on; Enter goes forward (`terminal.keys`). A card asking has the highlight.
 - **Esc:** goes back; on the main screen it leaves.
-- **A screen's own keys:** its key line (`terminal.keys`) names them after the shared ones.
+- **A screen's own keys:** its key line names them after the shared ones.
 - **Digits:** a digit opens that seat.
 - **Pointer:** a click does what the key does. The pointer lights what a click acts on,
   never a second highlight. A meter opens its subscription.
 
 A key that does nothing says nothing. Every key is answered within 100 ms.
-From a pipe or file the menu reads a line at a time: a key, then Enter. Helpers:
+From a pipe or file the menu reads a key, then Enter. Helpers:
 `terminal.Keyboard`, `terminal.read_key`, `terminal.choose`, `terminal.field`,
 `terminal.under`.
 
