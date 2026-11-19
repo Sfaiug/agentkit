@@ -38,6 +38,9 @@ That is all a pass keeps: one that fails, however it fails, writes nothing and m
 final, for it cannot tell a silent home from code that is broken, and `ak standby`, which reads
 the copy's age from the stamp, shows passes failing as an age that goes on growing.  A pass's
 exit is its copy's alone: the copy is what a takeover needs first.
+
+A home keeps a record of each machine that says it copied it (`_keep`), which `ak standby` lists
+there (`_copies`): no pass says so yet.
 """
 
 import fcntl
@@ -49,6 +52,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 
 from . import (command_help, config, machine_turn, move, notify, pair_clock, record, terminal,
@@ -110,6 +114,14 @@ TIMEOUT = 300   # seconds of silence from the home that fail a pass
 # Names, not paths: each follows HOME, as config's places do.  install.sh keeps the runs, checkouts
 # and work of a client with this folder, a standby.
 FOLDER, COPIED, LOCK = "standby", "copied", "lock"
+# A home's own, in ak's tmp folder, which no pass copies, beside FOLDER and never in it, as FOLDER
+# there is what makes a client a standby: a record of each machine that says it copied this one,
+# named by its host name.
+COPIES = "copies"
+# The words of `ak standby --copied HOST SECONDS yes|no`, each matched whole: a host name of at
+# most 64 characters, as Linux's, whole seconds since its pass began, and whether it takes over.
+HOST = "[A-Za-z0-9][A-Za-z0-9.-]{0,63}"
+SAID = (HOST, "[0-9]{1,9}", "yes|no")
 TAG = b"# agentkit standby"     # what the job's line in the crontab ends in
 
 
@@ -241,6 +253,58 @@ def _copy(alias, home, copied):
     return None
 
 
+def _keep(host, seconds, takes):
+    """Keep `host`'s record, whole or not at all: this machine's stamp now, both clocks set back by
+    `seconds`, when the copy was taken by this machine's clocks alone, a wall clock off there
+    changing nothing, and whether it `takes` over.  0, or 1 for a record that cannot be written."""
+    now, ago, folder = pair_clock.now(), int(seconds), config.TMP / COPIES
+    began = now._replace(wall=now.wall - ago, since=now.since - ago)
+    new = None
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        # a name no host name is, as none begins with a dot, so no listing shows one
+        handle, new = tempfile.mkstemp(dir=folder, prefix=".")
+        with open(handle, "w") as record:
+            record.write(f"{began.line()}\n{takes}\n")
+        os.replace(new, folder / host)
+    except OSError as error:
+        if new:
+            Path(new).unlink(missing_ok=True)
+        print(f"ak standby: the record of {host} could not be written: {error.strerror}",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
+def _age(stamp):
+    """How old the copy taken at `stamp` is, by the older of the two clocks: one set back never
+    makes a copy look younger."""
+    age = stamp.age_at_most()
+    return f"{terminal.format_age(age)} old" if age < math.inf else "from before this boot"
+
+
+def _copies():
+    """Show each machine that says it copied this one, from its record: how old its copy is and
+    whether it takes over when this one stops; or that none does."""
+    folder = config.TMP / COPIES
+    try:
+        hosts = sorted(name for name in os.listdir(folder) if re.fullmatch(HOST, name))
+    except FileNotFoundError:
+        hosts = []
+    if not hosts:
+        print("no machine copies this one")
+    for host in hosts:
+        try:
+            line, takes = (folder / host).read_text().splitlines()
+        except (OSError, ValueError):     # one that may not be read, or not two lines of text
+            line = takes = None
+        stamp = pair_clock.read(line) if takes in ("yes", "no") else None
+        over = ", and it takes over as home when this one stops" * (takes == "yes")
+        said = f"its copy is {_age(stamp)}{over}" if stamp else "its record cannot be read"
+        print(f"{host} copies this machine: {said}")
+    return 0
+
+
 def _stamp(own, *lines):
     """The stamp of a pass that ended well, whole or not at all: a write cut short leaves the
     last."""
@@ -251,11 +315,10 @@ def _stamp(own, *lines):
 
 def _shown():
     """Show the home this machine copies and the copy's age, from the stamp of the last pass
-    that ended well: 0 only for a stamp of that home."""
+    that ended well: 0 only for a stamp of that home.  On no home's client, what copies it."""
     alias = config.server_alias()
     if not alias:
-        print("ak standby: this machine is no home's client, so it keeps no copy", file=sys.stderr)
-        return 1
+        return _copies()
     try:
         line, of, *stayed = (config.TMP / FOLDER / COPIED).read_text().splitlines()
     except (OSError, ValueError):     # none yet, or one cut short
@@ -264,10 +327,7 @@ def _shown():
     if not stamp:
         print(f"this machine copies {alias}: no pass from it has ended well yet")
         return 1
-    # the older of the two clocks' ages: one set back never makes the copy look younger
-    age = stamp.age_at_most()
-    print(f"this machine copies {alias}: the copy is "
-          + (f"{terminal.format_age(age)} old" if age < math.inf else "from before this boot"))
+    print(f"this machine copies {alias}: the copy is {_age(stamp)}")
     for why in stayed:
         print(f"ak here does not follow {alias} yet: {why}")
     return 0
@@ -278,6 +338,9 @@ def main(argv):
         return 0
     if not argv:
         return _shown()
+    flag, *said = argv
+    if flag == "--copied" and len(said) == len(SAID) and all(map(re.fullmatch, SAID, said)):
+        return _keep(*said)
     if len(argv) != 1 or argv[0].startswith("-"):
         raise config.Error(command_help.COMMANDS["standby"][0])
     alias, home = argv[0], Path.home()
