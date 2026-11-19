@@ -76,14 +76,17 @@ def read_state(run_dir, shared=False):
         return None
 
 
+# The numbers a run's record held when records began to keep them (`run.prepare`).
+FIRST_KEPT = ("review_rounds", "executor_lines", "orchestrator_lines")
+
+
 def policy_of(state):
     """The numbers a run holds to: those read as its directory was made (`run.prepare`), kept on
     its record because they do not change while it runs; a record from before that keeps none,
-    and stays on the host's it was launched under, and one from before a number was added holds
-    ak's default of it."""
-    kept = state.get("policy")
-    if not kept:
-        return config.policy()
+    and stays on the host's it was launched under for FIRST_KEPT.  A number a record is from
+    before holds ak's default."""
+    kept = state.get("policy") or {key: value for key, value in config.policy().items()
+                                   if key in FIRST_KEPT}
     return {**{key: default for key, (default, *_) in config.POLICY.items()}, **kept}
 
 
