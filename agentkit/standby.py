@@ -274,8 +274,7 @@ def _keep(host, seconds, takes):
                 os.unlink(new)
             raise
     except OSError as error:
-        where = f" ({config.tilde(error.filename)})" if error.filename else ""
-        print(f"ak standby: the record of {host} could not be written: {error.strerror}{where}",
+        print(f"ak standby: the record of {host} could not be written: {error.strerror}",
               file=sys.stderr)
         return 1
     return 0
@@ -284,10 +283,7 @@ def _keep(host, seconds, takes):
 def _age(stamp):
     """How old the copy taken at `stamp` is, by the older of the two clocks: one set back never
     makes a copy look younger."""
-    try:
-        age = stamp.age_at_most()
-    except OSError:     # no age is read across a boot Linux cannot say
-        return "of an age unknown here, as this boot cannot be read"
+    age = stamp.age_at_most()
     return f"{terminal.format_age(age)} old" if age < math.inf else "from before this boot"
 
 
@@ -302,14 +298,20 @@ def _copies():
     if not hosts:
         print("no machine copies this one")
     for host in hosts:
-        try:    # its first KiB alone: ak's are under 100 bytes, a damaged one any size
+        # A MiB at most, more than any record ak writes, whose boot from AK_NOW Linux keeps under
+        # 128 KiB: a damaged one may be any size.
+        try:
             with open(folder / host, "rb") as record:
-                line, takes = record.read(1024).decode().splitlines()
+                held = record.read(2**20 + 1)
+            line, takes = held.decode().splitlines() if len(held) <= 2**20 else (None, None)
         except (OSError, ValueError):     # one that may not be read, or not two lines of text
             line = takes = None
         stamp = pair_clock.read(line) if takes in ("yes", "no") else None
         over = ", and it takes over as home when this one stops" * (takes == "yes")
-        said = f"its copy is {_age(stamp)}{over}" if stamp else "its record cannot be read"
+        try:
+            said = f"its copy is {_age(stamp)}{over}" if stamp else "its record cannot be read"
+        except OSError:     # no age is read across a boot Linux cannot say
+            said = f"its copy is of an age unknown here, as this boot cannot be read{over}"
         print(f"{host} copies this machine: {said}")
     return 0
 
