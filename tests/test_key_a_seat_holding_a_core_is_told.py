@@ -9,6 +9,7 @@ seat is typed one line at its quiet prompt naming how much of a core, to one dec
 its busiest command and where a wait belongs; the tick's log says the same.  Only a difference
 over a known interval counts: a seat seen first, a scope new since the last tick and a late tick
 are no offence, and a process moved into a scope brings none of the CPU time it spent before.
+A `cpu.pressure` unread for one tick is not covered: the owner accepted it (`cores.tell`).
 
 Black-box: the program `AK_BIN` names ticks from outside through tests/fixtures/akbin.py, on a
 stand-in cgroup tree (AK_CGROUP_ROOT, AK_CGROUP_FILE) whose CPU counters and processes the test

@@ -50,7 +50,10 @@ def tell(state, log):
         if held is None:
             continue
         # A reading under `usec` counted used time alone: against one with a lifetime's waiting
-        # its interval would be over, so it is no reading.
+        # its interval would be over, so it is no reading.  A scope's waiting unread for one
+        # tick and read at the next does the same once, and its seat may hear a line for
+        # nothing: the owner accepted that (19 Nov 2026), three fixes having failed review on 21
+        # points, each drawing more than the last, for a case only a review built.
         last = before.get(scope.name) or {}
         seen = state["seat_cores"][scope.name] = {"at": now, "held": held}
         if ("held" not in last or now <= last["at"]
@@ -85,7 +88,10 @@ def holding(state):
             launched[name] = max(launched.get(name, 0), seen["at"] - seen["since"])
     held = {}
     for name, seconds in launched.items():
-        # asked once for a launch name: a rename between two askings named one seat twice
+        # asked once for a launch name: a rename between two askings named one seat twice.
+        # Scopes of two launch names can still name one seat twice in one reading, renamed in
+        # that instant: the owner accepted that (19 Nov 2026), four fixes (a lock twice, the
+        # tick keeping names, seats told apart by their record) having failed review on 24 points.
         seat = front.seat_now(name)
         held[seat] = max(held.get(seat, 0), seconds)
     return sorted(held.items(), key=lambda seat: -seat[1])

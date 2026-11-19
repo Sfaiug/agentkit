@@ -4,7 +4,8 @@ scopes, not under both names.
 
 Black-box: the seat's state file is a pipe, so the test knows when the program reads it, and
 puts the renamed seat's file in its place before that reading gets what the file held until
-then.  A program asking for one seat's name twice gets both.  No wait is real.
+then.  A program asking for one seat's name twice gets both.  No wait is real.  Scopes of two
+launch names are not covered: the owner accepted that one (`cores.holding`).
 """
 
 import json
