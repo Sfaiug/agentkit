@@ -2047,16 +2047,14 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
         body = body[:at] + [(line, None) for line in asked] + body[at:]
     else:
         at = 0
-    # the meter the pointer, else the highlight, is on; a question under a row has the keys and
-    # the rows, and nothing is explained while it asks
+    # the meter the pointer, else the highlight, is on
     usage_spots = meter_spots(layout, len(rows), grid) if grid else {}
-    on = None if asked or terminal.away() else terminal.pointer_spot(usage_spots).what or cursor
+    on = None if terminal.away() else terminal.pointer_spot(usage_spots).what or cursor
     pointed = on[1] if on in reach else None
     seats = {info["name"]: info for info in infos}
     breaths = []    # what breathes while a model works: (cell, character, highlighted)
     bars = {}       # each progress line's screen row and slice of terminal.cell_texts
     for line, name in body:
-        # while a question is up its first answer carries the mark, and the seat only its light;
         # a heading is flush left, so its mark goes in front of it
         lit = owned and name is not None and name == cursor and not terminal.away()
         text, word = terminal.ANSI.sub("", line), words.get(name)
@@ -2064,8 +2062,7 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
             for tip in tips(line):
                 breaths.append(((len(out) + 1, terminal.cells(text[:tip]) + 1), text[tip], lit))
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
-                                      mark=name != above and not at, band=not at)
-                   if lit else line)
+                                      mark=name != above) if lit else line)
         above = name
         info = seats.get(name)
         if info and name not in bars and (span := line_at(line)):
@@ -4014,18 +4011,18 @@ def models_screen(cfg, session, selected, providers):
         keys = terminal.keys(f"{cheaper} cheaper", f"better {better}", "p models", "u unit",
                              "esc back", enter="why", move=("role",))
 
-        def laid(at, under, keys):    # (over, role lines, places) at this draw's size, `at` lit
+        def laid(under, keys):    # (over, role lines, places) at this draw's size, `here` lit
             # the heading, the line that is no role's, wherever a role with no numbers leaves
             # it, stays over the role lines where a page too short for every role follows the
             # highlight (matrix_page), the screen's and a card's: its numbers never stand unnamed
             # while it leaves the page a line, else it scrolls with them, as the frame outgrowing
             # the terminal would scroll the header off
-            lines, places = models_body(said, unit, at)
+            lines, places = models_body(said, unit, None if terminal.away() else here[1])
             over = [line for number, line in enumerate(lines) if number not in places]
             if page_room(under, keys, over) < 1:
                 return [], lines, places
             return over, [lines[number] for number in places], dict(enumerate(places.values()))
-        over, body, places = laid(None if terminal.away() else here[1], note_lines(note), keys)
+        over, body, places = laid(note_lines(note), keys)
         read = ["", *models_read(compared, total, held.get("fetched_at"))]
         price = price_held(session, here[1], used[here[1]], answer[here[1]])
         # where one-cell bars leave too little room these give way whole, in turn: the comparing
@@ -4046,7 +4043,7 @@ def models_screen(cfg, session, selected, providers):
         note = ""
 
         def around(card, keys):   # the role lines the card leaves room for, the question under them
-            over, lines, places = laid(here[1], card, keys)
+            over, lines, places = laid(card, keys)
             first, room = matrix_page(lines, places, here, top, card, keys, over)
             shown = [*over, *lines[first:first + room]]
             return framed(clock, title, [*shown, *card], len(shown), card, keys)
@@ -4851,7 +4848,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
 
         def around(card, keys):   # the matrix laid out at this draw's size, the question under it
             over, _, body, places, _ = meters_led(config_meters(cfg), *config_body(
-                cfg, here, column, as_drawn, providers, scope=scope, rows=under), card, keys)
+                cfg, None if terminal.away() else here, column, as_drawn, providers, scope=scope,
+                rows=under), card, keys)
             first, room = matrix_page(body, places, here, top, card, keys, over, keyed=column)
             shown = [*over, *body[first:first + room]]
             return framed(clock, title, [*shown, *card], len(shown), card, keys)
@@ -6919,9 +6917,10 @@ def past_body(past, at=None, room=None, said=None, now=None):
     page = next((n for n, lines in enumerate(pages) if any(seat == at for _, seat in lines)), 0)
     shown = pages[page]
     where = max((n for n, (_, seat) in enumerate(shown, 1) if seat == at), default=0)
-    told = opened.get(at, []) if lit and where else []
-    shown = shown[:where] + [(terminal.highlight(indent + line, mark=False), at)
-                             for line in told] + shown[where:]
+    # under a card the row stays open, unlit: the card and its answers where they were
+    told = opened.get(at, []) if where and not terminal.off_rows() else []
+    shown = shown[:where] + [(terminal.highlight(indent + line, mark=False) if lit
+                              else indent + line, at) for line in told] + shown[where:]
     moves = [(n, ("page",), page, motion.fading(line))
              for n, (line, _) in enumerate(shown)]
     moves += [(n, ("opened",), at, motion.fading(shown[n][0]))
