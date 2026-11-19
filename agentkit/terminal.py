@@ -217,11 +217,22 @@ def fade(text, amount):
 
 
 def width():
-    return max(1, shutil.get_terminal_size((100, 24)).columns - 2 * _PAD)
+    return max(1, _size().columns - 2 * _PAD)
 
 
 def height():
-    return max(1, shutil.get_terminal_size((100, 24)).lines - 2 * _PAD)
+    return max(1, _size().lines - 2 * _PAD)
+
+
+def _size():
+    """The terminal's columns and lines: its own where a `Keyboard` has it and it says any, as a
+    screen laid out for an exported COLUMNS or LINES is written, and pointed at, on rows the
+    terminal has not got.  Otherwise as Python asks (shutil): those two, stdout, then 100 by 24."""
+    try:
+        size = os.get_terminal_size(_TAKEN.out)
+    except (AttributeError, OSError):       # no `Keyboard` has one
+        size = (0, 0)
+    return size if all(size) else shutil.get_terminal_size((100, 24))
 
 
 class _Screen:
@@ -1038,7 +1049,7 @@ def hand_on():
     the look is the new program's to find."""
     try:
         size = f"{width()} {height()}"
-        if not _UP or select.select([_TAKEN.again[0]], [], [], 0)[0]:
+        if not _UP or _resized():
             return {}
         return warm.cross(FRAME, "\n".join([size, *_PAINTED]).encode())
     except Exception:
@@ -1388,9 +1399,18 @@ def under(key, spots):
 
 
 def _scrolled():
-    """Whether the screen up (`lit`) has as many lines as `height` and its padding, or more: it
-    was scrolled off the rows counted for them as it was written, and the pointer is on nothing."""
-    return len(_PAINTED) >= height() + _PAD
+    """Whether the screen up (`lit`) is, or may be, off the rows counted for its lines, the pointer
+    on nothing: it has as many lines as `height` and its padding, or more, and scrolled as it was
+    written; or the terminal, which moves what it holds as it likes when its size changes, is to
+    be drawn again (`_resized`): until `read_key` reads that, its size is not the one the screen
+    up was laid out for."""
+    return len(_PAINTED) >= height() + _PAD or _resized()
+
+
+def _resized():
+    """Whether a resize or a return from ^Z has asked for a draw `read_key` has not read yet."""
+    again = _TAKEN.again[0] if _TAKEN is not None else None
+    return again is not None and bool(select.select([again], [], [], 0)[0])
 
 
 def pointer():

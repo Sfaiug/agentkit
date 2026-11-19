@@ -29,6 +29,8 @@ from agentkit.terminal import Key
 
 
 class Keyboard:
+    again = (None, None)     # no resize to read: every position is read on the screen up
+
     def take(self):
         return True
 

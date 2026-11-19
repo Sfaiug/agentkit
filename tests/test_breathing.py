@@ -42,6 +42,8 @@ WORDS = {"fix-api": "working", "tidy-docs": "working", "web-portal": "needs you"
 class Keyboard:
     """A terminal the menu has taken, so keys are `terminal.Key`s and the screen is written over."""
 
+    again = (None, None)     # no resize to read: every position is read on the screen up
+
     def take(self):
         return True
 
