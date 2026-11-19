@@ -2,7 +2,8 @@
 file timed it (`<file>::<part>`, tests/every_file.py).
 
 A suite's box throws its HOME writes away, so the times live in ak's state instead: every check,
-the lander's among them, keeps those its pieces printed (`passed`, wherever each piece ran), and
+the lander's among them, keeps those its pieces printed (`passed`, wherever each piece ran), but a
+round's of the tests it chose from this record (`gate.run_done_when`'s `chosen`), and
 every piece of a suite gets one copy, taken as the suite starts, in the file AK_TIMES names, so
 all of them cut the same shares (tests/every_file.py)."""
 

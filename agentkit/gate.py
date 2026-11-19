@@ -1952,7 +1952,7 @@ def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, known
 def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, flaky=None, named=None, checked=None, asked=None,
-              raw=None, absent=None, used=None, known=(), **kwargs):
+              raw=None, absent=None, lacked=None, used=None, known=(), **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1985,7 +1985,8 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
     or `shard`) named as failed, confirmed or not.
     `raw` receives each piece's process exits by share, before checking coverage of `only`.
     `absent`, a list, gets with `shard` and `only` the tests the run named as not there where it
-    passed what its tree holds (`passes_what_it_holds`), and none otherwise.
+    passed what its tree holds (`passes_what_it_holds`), and none otherwise; `lacked`, a list,
+    those it named as not there and not as run, however it ended.
     Every piece gets `times`, the file times recorded as the suite starts (`_record`), in the
     file AK_TIMES names: a record another suite changes meanwhile would cut a later piece's share
     differently.
@@ -2029,6 +2030,8 @@ def _run_suite(command, limit, *, cwd, activity, output, times, run_dir=None, lo
             # the last go's, as a re-run decides
             absent[:] = ([test for test in only if test in gone] if not killed
                          and passes_what_it_holds(code, only, ran, failed, gone) else [])
+        if lacked is not None and only is not None:
+            lacked[:] = [test for test in only if test in gone and test not in ran]
         if named is not None and code > 0:
             named.extend(failed)
         if ran is not None:
@@ -2645,7 +2648,7 @@ def _running_commands(pid):
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
                   confirmed=None, flaky=None, checked=None, exits=None, timings=None,
-                  took=None, absent=None, known=(), blamed=False):
+                  took=None, absent=None, known=(), blamed=False, chosen=False):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2699,6 +2702,14 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     ({file: seconds}, piece count) from this pass alone, before that cap, and `took` its last
     go's seconds, charged to the ceiling as they are: its waits for a turn aside.  `absent` is
     `run_suite`'s, for one command, and `known` its for every one.
+    With `chosen`, a round's (`roundloop.verify_work`), `only` lists the tests it chose from the
+    time record (`round_tests.chosen`), which holds while the round goes: the check keeps no
+    times, as a resumed round chooses from it again, and the re-run of a `shard` is handed them
+    less those its first go named as not there and not as run, as the record keeps a part while
+    its file exists and no change fixes one its file lost.  Its `flaky:` record names what the
+    first go lacked, and no lacked part is a flaky test.  A lander's check runs without it: it
+    reads a red go and a green one as a flake that blames nobody, and counts a part not there by
+    its own rule (`passes_what_it_holds`).
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2737,6 +2748,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             window = quiet_window(cmd, cwd, run_dir, silence) if heavy else None
             rest = silence - (window or 0)
             how = "failed"
+            handed = only
+            lacked = [] if chosen else None
             raw = {} if exits is not None or timings is not None else None
             while True:
                 run_record.stop_check(run_dir)
@@ -2756,10 +2769,10 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                         run_dir=run_dir, log=log, on_wait=waited, measure=heavy, shard=shard,
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
-                        only=only, confirmed=reds, flaky=flakes, named=named,
+                        only=handed, confirmed=reds, flaky=flakes, named=named,
                         # Whole commands retry here; their named outcomes must wait for that.
                         checked=checked if split(cmd) else None, asked=asked, raw=raw,
-                        absent=absent, used=ended, known=known, blamed=blamed)
+                        absent=absent, lacked=lacked, used=ended, known=known, blamed=blamed)
                     ended["exit"] = None if killed else code
                     end = progress.tell()
                 go = left - (deadline - time.monotonic())
@@ -2781,6 +2794,10 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     how = f"was stopped after {window / 60:g} min of silence"
                     del reason[:], running[:]     # a stop of its second go is the one to name
                 first_span, first, named = (offset, end), named, []
+                if lacked:
+                    handed = [test for test in only if test not in lacked]
+                    first = [test for test in first if test not in lacked]
+                    how += f", lacking {' '.join(lacked)}"
             if exits is not None:
                 exits.extend(raw.values())
             if left <= 0 and first_span is None:
@@ -2850,7 +2867,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         if log is not None:
             log(stopped_line)
     text = "\n\n".join(chunks)
-    suite_times.keep(cwd, log_path)
+    if not chosen:
+        suite_times.keep(cwd, log_path)
     log_path.write_text(text)
     # The gate is over and its children are not the round's: a command that exited 0 may
     # still have left processes behind, and they die with the gate, however detached.
