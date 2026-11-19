@@ -487,13 +487,13 @@ def off(cfg):
     if not makers and not turned:
         return set()
     gone = set(makers) - compared(cfg) | turned
-    runs = {(one["harness"], one["model"]): row["release"]
-            for row in lineup for one in row["yours"]}
     named = _release_index({"slug": slug, "name": None} for slug in turned)
 
     def is_off(entry):
-        key = entry["harness"], config.model_id(entry)
-        return runs[key] in gone if key in runs else bool(key[1] and found(named, key[1]))
+        mine = {"harness": entry["harness"], "model": entry.get("model")}
+        held = [row["release"] for row in lineup if mine in row["yours"]]
+        own = config.model_id(entry)
+        return held[0] in gone if held else bool(own and found(named, own))
     return {name for name in config.offered(cfg) if is_off(cfg["models"][name])}
 
 
