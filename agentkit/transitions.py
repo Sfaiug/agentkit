@@ -168,12 +168,13 @@ def history_start(state, log=None):
 
     A test suite's run -- launched under the suites' notify sink, which run.json keeps -- is
     never recorded: every later write finds no row.  The row names the model the launching
-    seat's orchestrator runs.
+    seat's orchestrator runs, and the effort the receipt ran that model at orchestrating.
     """
     if state.get("notify_sink"):
         return
     session = launched_session(state)
     record = config.session_records().get(session) if session else None
+    orchestrator = record.get("orchestrator") if record else None
     history.start_run(state.get("run_id"), repo=state.get("repo"),
                       executor=state.get("executor"), reviewer=state.get("reviewer"),
                       rounds_used=len(state.get("round_summaries") or []),
@@ -181,7 +182,9 @@ def history_start(state, log=None):
                       session=session, task_words=state.get("task_words"),
                       task_points=state.get("task_points"),
                       task_checks=state.get("task_checks"),
-                      orchestrator=record.get("orchestrator") if record else None,
+                      orchestrator=orchestrator,
+                      orchestrator_effort=config.launched_effort(state, orchestrator,
+                                                                 "orchestrator"),
                       change=change_name(state), kind=run_kind(state),
                       plan_line=state.get("plan_line"), no_review=int(run_record.no_review(state)), log=log)
 

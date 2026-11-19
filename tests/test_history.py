@@ -49,6 +49,26 @@ class HistoryTests(unittest.TestCase):
             transitions.history_start({**state, "plan_line": later})
             self.assertEqual(history.get("r1")["plan_line"], line)
 
+    def test_the_orchestrator_effort_is_the_receipt_s_as_the_row_started(self):
+        state = self.home / "state"
+        state.mkdir()
+        (state / "session-seat.json").write_text(json.dumps({"orchestrator": "fable"}))
+        receipt = {"run_id": "r1", "launched_session": "seat",
+                   "efforts": {"fable": {"effort": "max", "exec_effort": "low"}}}
+        with patch.object(config, "STATE", state):
+            transitions.history_start(receipt)
+            self.assertEqual(history.get("r1")["orchestrator_effort"], "max")
+            transitions.history_start({**receipt, "efforts": {"fable": {"effort": "low"}}})
+            self.assertEqual(history.get("r1")["orchestrator_effort"], "max")   # a resume leaves it
+            # no seat, so no orchestrator; none held for it; none held as a word
+            for n, held in enumerate(({"launched_session": None}, {"efforts": {}},
+                                      {"efforts": {"opus": {"effort": "max"}}},
+                                      {"efforts": {"fable": {"exec_effort": "max"}}},
+                                      {"efforts": {"fable": {"effort": ["max"]}}},
+                                      {"efforts": ["fable"]})):
+                transitions.history_start({**receipt, "run_id": f"r{n + 2}", **held})
+                self.assertIsNone(history.get(f"r{n + 2}")["orchestrator_effort"], held)
+
     def test_launch_kind_follows_the_origin_before_review_ownership(self):
         pr = {"review_pr": "https://github.com/acme/widgets/pull/1", "own_pr": True}
         followup = {"followup": {"run": "earlier"}}
