@@ -21,6 +21,7 @@ from agentkit import config, lend, orch, update
 
 T = 1_000_000.0     # the first tick's clock
 TICK = 180
+HOUR = update.ASK_EVERY
 TIP, HEAD, OLD = "a" * 40, "b" * 40, "c" * 40
 MANIFEST = """version = 1
 [worker]
@@ -151,24 +152,41 @@ class WaitsForLastingLogins(unittest.TestCase):
         update._note_pass("fresh", T - 210, T - 10)         # 200 + 400
         self.write(ends=int(T + 599))                       # past the live margin alone
         self.assertEqual(self.upgrade_tick(T), [waits("acme's upgrade", T + 599)])
-        self.assertEqual(self.upgrade_tick(T + TICK), [])   # said once
+        self.assertEqual(self.upgrade_tick(T + HOUR), [])   # asked, held again, said once
         self.upgrades.assert_not_called()
-        self.write(ends=int(T + 2 * TICK + 600))            # the first tick it lasts, not an hour on
-        self.assertEqual(self.upgrade_tick(T + 2 * TICK), [UPGRADING])
+        self.write(ends=int(T + 2 * HOUR + 600))            # lasts no sooner than both margins
+        self.assertEqual(self.upgrade_tick(T + 2 * HOUR), [UPGRADING])
         self.upgrades.assert_called_once_with("acme")
-        self.assertEqual(self.read("asks"), ["asked"])      # the hour's one ask found the release
-        self.assertEqual(self.upgrade_tick(T + 3 * TICK), [])
+        self.assertEqual(self.read("asks"), ["asked"] * 3)
+        self.assertEqual(self.upgrade_tick(T + 2 * HOUR + TICK), [])
 
-    def test_a_release_a_login_held_before_found_was_recorded_starts_once_it_lasts(self):
+    def test_a_release_a_login_held_is_started_by_the_next_hourly_ask_that_finds_it(self):
+        # as today's homes keep it, in `waits` too, which nothing reads
         (config.STATE / "harness-latest.json").write_text(
-            json.dumps({"acme": {"asked": T - TICK, "waits": "2.0.0"}}))
-        self.write(ends=int(T + 60))
-        self.assertEqual(self.upgrade_tick(T), [waits("acme's upgrade", T + 60)])
-        self.upgrades.assert_not_called()
+            json.dumps({"acme": {"asked": T - TICK, "found": "2.0.0", "waits": "2.0.0"}}))
         self.write(ends=int(T + 86400))
-        self.assertEqual(self.upgrade_tick(T + TICK), [UPGRADING])
-        self.upgrades.assert_called_once_with("acme")
+        self.assertEqual(self.upgrade_tick(T), [])                  # its hour is not up
         self.assertEqual(self.read("asks"), [])
+        self.assertEqual(self.upgrade_tick(T - TICK + HOUR), [UPGRADING])
+        self.upgrades.assert_called_once_with("acme")
+        self.assertEqual(self.read("asks"), ["asked"])
+
+    def test_a_release_a_login_held_before_found_was_recorded_is_asked_as_any_other(self):
+        # today's homes may hold it in `waits` alone, which nothing reads: the next ask's record
+        # drops it, from an entry not asked too
+        record = config.STATE / "harness-latest.json"
+        record.write_text(json.dumps({"acme": {"asked": T - TICK, "waits": "2.0.0"},
+                                      "beta": {"asked": T, "found": "1.1.0", "waits": "1.1.0"}}))
+        self.write(ends=int(T + 86400))
+        self.assertEqual(self.upgrade_tick(T), [])                  # its hour is not up
+        self.assertEqual(self.read("asks"), [])
+        self.assertEqual(self.upgrade_tick(T - TICK + HOUR), [])    # the first ask to find it
+        self.assertEqual(json.loads(record.read_text()),
+                         {"acme": {"asked": T - TICK + HOUR, "found": "2.0.0"},
+                          "beta": {"asked": T, "found": "1.1.0"}})
+        self.assertEqual(self.upgrade_tick(T - TICK + 2 * HOUR), [UPGRADING])
+        self.upgrades.assert_called_once_with("acme")
+        self.assertEqual(self.read("asks"), ["asked"] * 2)
 
     def test_the_margin_follows_the_last_pass_doubled_and_capped(self):
         self.assertEqual((update.margin("live"), update.margin("fresh")),

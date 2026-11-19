@@ -1576,8 +1576,9 @@ def keep_current(log, now=None):
     on later ticks while no seat can receive it.  A checkout that is somebody's work
     (`left_as_is`) holds it, unstarted, until an ask finds it main again: its gates test that
     checkout, and refused a half-moved ~/agentkit, a red that reverted a harness for nothing it
-    did.  A login its gates would not outlast (`_waits_for_login`) holds it too, with no ask until
-    the first tick that one lasts: that tick starts the release it found.
+    did.  A login its gates would not outlast (`_waits_for_login`) holds it the same way, till an
+    ask finds it again with that login lasting: an installer takes what its channel holds then,
+    which only such an ask has just read.
     """
     if agentkit_dir().resolve() != config.REPO:
         return
@@ -1612,23 +1613,23 @@ def keep_current(log, now=None):
     except (OSError, ValueError):
         asked = {}
     asked = asked if isinstance(asked, dict) else {}
+    for entry in asked.values():
+        if isinstance(entry, dict):
+            entry.pop("waits", None)    # a release a login held, as an older ak kept it: unread
     for harness in harnesses():
         name = harness["name"]
         entry = asked.get(name) if isinstance(asked.get(name), dict) else {}
-        waited = entry.get("waits")
         if (not harness["latest"] or not config.harness_binary(harness["version"][0])
-                or not waited and now - entry.get("asked", 0) < ASK_EVERY):
+                or now - entry.get("asked", 0) < ASK_EVERY):
             continue
-        installed, newest = version(harness), waited or latest(harness)
-        # behind: both name a release, the installed one is the lower, and it is the one a login
-        # holds, which an ask found, or else the one the last ask found
-        go = (bool(installed) and _downgrade(newest, installed)
-              and (waited or entry.get("found")) == newest
+        installed, newest = version(harness), latest(harness)
+        # behind: both name a release, the installed one is the lower, and the last ask found it
+        go = (bool(installed) and _downgrade(newest, installed) and entry.get("found") == newest
               and (entry.get("tried") != newest or now - entry.get("started", 0) >= RETRY_AFTER))
         held = go and left_as_is()
         waits = go and not held and _waits_for_login(
             "upgrade", f"{name}'s upgrade", margin("live") + margin("fresh"), log, now)
-        asked[name] = {**entry, "asked": now, "found": newest, "waits": newest if waits else "",
+        asked[name] = {**entry, "asked": now, "found": newest,
                        **({"tried": newest, "started": now} if go and not (held or waits) else {})}
         record.write_text(json.dumps(asked))
         if waits:
