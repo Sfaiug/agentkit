@@ -2360,7 +2360,9 @@ def manifest_paths(names, env, cwd=None):
     values = {key: value for key, value in env.items() if value}
     values.setdefault("HOME", str(Path.home()))
     for name in names:
-        name = re.sub(r"\$\{(\w+):-([^}]*)\}", lambda m: values.get(m[1]) or m[2], name)
+        # `$$` is a dollar as written, left whole for Template: no default starts at its second
+        name = re.sub(r"\$\$|\$\{(\w+):-([^}]*)\}",
+                      lambda m: m[0] if m[1] is None else values.get(m[1]) or m[2], name)
         if name.startswith("~/"):
             name = "$HOME/" + name[2:]
         try:
