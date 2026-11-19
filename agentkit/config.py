@@ -1295,13 +1295,14 @@ def launched_effort(record, name, role):
     at_efforts runs it at; None where it holds none, or none that is a word: unlike at_efforts,
     no entry's own stands in."""
     held = record.get("efforts")
-    entry = held.get(name) if isinstance(held, dict) and isinstance(name, str) else None
-    try:
-        effort = role_effort(entry, role) if isinstance(entry, dict) else None
-    except KeyError:        # an entry holding no `effort`
+    if not name or not isinstance(held, dict):      # no model, as worker_effort; no names held
         return None
-    # a blank names no effort, and a lone surrogate is text SQLite refuses, losing the row
-    return effort if isinstance(effort, str) and effort.strip() and effort.isprintable() else None
+    try:
+        effort = role_effort(held[name], role)
+        effort.encode()     # text, and none SQLite refuses, the row with it: a lone surrogate
+    except (KeyError, TypeError, AttributeError, UnicodeEncodeError):
+        return None
+    return effort if effort.strip() else None       # a blank names no effort
 
 
 def as_launched(cfg, record):
