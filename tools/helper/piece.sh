@@ -26,15 +26,17 @@ for name in AK_TIMES AK_ONLY; do [ ! -f "/in/$name" ] || export "$name=/in/$name
 # A new network namespace holds 10 unread notes on a unix datagram socket whatever it starts in,
 # and a container's own is such a one, while a host systemd started holds 512: a suite whose
 # stand-in sent more than its test had read yet hung on 10 (17 Nov 2026). The sandbox holds what
-# it starts in, and 512 at least; where that cannot be written it holds the 10, as before.
+# it starts in, and 512 at least, or runs nothing, as under a read-only /proc/sys: the piece then
+# ends below as one the helper could not run, which ak runs here, rather than hang on the 10.
 notes=$(cat /proc/sys/net/unix/max_dgram_qlen 2>/dev/null)
 [ "${notes:-0}" -ge 512 ] || notes=512
 offline() {
   unshare --user --map-current-user --net --keep-caps sh -c \
-    'echo "$0" 2>/dev/null >/proc/sys/net/unix/max_dgram_qlen
-     ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes" "$@"
+    'echo "$0" >/proc/sys/net/unix/max_dgram_qlen
+     ip link set lo up && grep -qx "$0" /proc/sys/net/unix/max_dgram_qlen &&
+       exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes" "$@"
 }
-offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]' || fail "could not go offline"
+offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]' || fail "the sandbox did not build"
 # Kills for memory: of the piece's own cgroup where it has one, as a container on a kernel other
 # pieces share does, else of its VM's kernel.
 oom() {
