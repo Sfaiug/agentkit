@@ -3563,18 +3563,23 @@ def figures(value, many=2):
     return f"{value:,.{max(0, many - 1 - math.floor(math.log10(value)))}f}"
 
 
+def cost_in(found, row, unit):
+    """`row`'s cost in its role's answer `found` counted in `unit` (UNITS), None where it has
+    none: dollars, where no run's provider has a price (matrix._costs's `share`), and a week,
+    where it has no `points` of one (matrix._costs)."""
+    points = row["points"]
+    return {"$ a task": None if found["cost_unit"] == "share" else row["cost"],
+            "% of a week": points, "a week": 100 / points if points else None}[unit]
+
+
 def cost_said(found, row, unit):
-    """`row`'s cost in its role's answer `found` counted in `unit` (UNITS): `$0.60`, `2.00%`, in
-    whole units from 100 on, where cents tell no two rows apart, so five bars' costs side by
+    """`row`'s cost in its role's answer `found` counted in `unit` (cost_in): `$0.60`, `2.00%`,
+    in whole units from 100 on, where cents tell no two rows apart, so five bars' costs side by
     side fit 40 cells (models_bars), and under half a cent to its first figure, `$0.004`, where
     two decimals would say a model that costs something is free; or `50` a week.  `≈` before
     one no runs measured -- the owner, 3 Nov 2026: a cost on screen must never look more
-    certain than it is.  `-` where it has none in `unit`: dollars, where no run's provider has
-    a price (matrix._costs's `share`), and a week, where it has no `points` of one
-    (matrix._costs)."""
-    points = row["points"]
-    value = {"$ a task": None if found["cost_unit"] == "share" else row["cost"],
-             "% of a week": points, "a week": 100 / points if points else None}[unit]
+    certain than it is.  `-` where it has none."""
+    value = cost_in(found, row, unit)
     if value is None:
         return "-"
     about = "" if row["cost_rule"] == "measured" else "≈" if terminal.utf8() else "~"
@@ -3672,7 +3677,7 @@ def models_body(said, unit, at=None):
     return lines, places
 
 
-# The bars, the owner's design of 5 Nov 2026: the dearest TALL cells high, a column WIDE cells
+# The bars, the owner's design of 5 Nov 2026: the tallest TALL cells high, a column WIDE cells
 # wide, each at most
 TALL, WIDE = 7, 12
 COUNTS = ("no", "one", "two", "three", "four", "five")      # up to matrix.PLACES
@@ -3741,15 +3746,17 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
     """`role`'s answer `found` (matrix.answer) drawn as bars under the role lines, the owner's
     design of 5 Nov 2026: under a heading counting them and ending with the `price` the role
     keeps where one holds (price_held, price_said), those that stand (models_standing), side by
-    side, each as tall as its cost over the dearest shown, in eighths of a cell, its cost on its
-    top and under it its quality, its name (columned) and its effort.  A choice is solid, the
-    rest shaded `░`, each `why` under it led by `░`, so one too short to show its shade still
-    says it is one; `used`, the row the role uses, is in the accent colour, `━` under its name.
-    No axis line: heights and costs say which is dearer, as a shaded bar on the right is dearer,
-    not better.  On a narrow screen the two-cell gutters, then the indent, give way to the
-    labels.  Given `room` lines, the dearest stands as tall as the rest leaves room for, TALL
-    cells at most and one at least, else TALL; `marked` false leaves the `━` out, `why` false
-    the whys, their columns as wide."""
+    side, its cost in `unit` on its top (cost_said) and under it its quality, its name
+    (columned) and its effort.  Each stands as tall as the number on its top over the largest
+    shown (cost_in), in eighths of a cell, never under one carrying a smaller number, and one
+    with `-` on its top, no number, the least a bar can.  A choice is solid, the rest shaded
+    `░`, each `why` under it led by `░`, so one too short to show its shade still says it is
+    one; `used`, the row the role uses, is in the accent colour, `━` under its name.  No axis
+    line: the numbers say what the heights measure, as a shaded bar on the right is dearer, not
+    better.  On a narrow screen the two-cell gutters, then the indent, give way to the labels.
+    Given `room` lines, the tallest stands as tall as the rest leaves room for, TALL cells at
+    most and one at least, else TALL; `marked` false leaves the `━` out, `why` false the whys,
+    their columns as wide."""
     utf8, width = terminal.utf8(), terminal.layout_width()
     solid, shade, mark = GLYPHS[utf8]
     size, rows, labels, words, widths = models_standing(found, kept, unit)
@@ -3765,19 +3772,24 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
                [effort], [line for text in whys if why for line in columned(text, wide)]]
               for (row, _), (_, quality, effort), (name, *whys), wide
               in zip(rows, labels, words, widths)]
-    # the heading, the dearest's cost over it and what stands under the bars take their lines
+    # the heading, the tallest's number over it and what stands under the bars take their lines
     taken = len(lines) + 1 + sum(max(map(len, part)) for part in zip(*unders))
     tall = TALL if room is None else max(1, min(TALL, room - taken))
-    dearest = max((row["cost"] for row, _ in rows), default=0) or 1
-    kinds, columns, eighths = [], [], 0
-    for (row, fill), (cost, *_), under in zip(rows, labels, unders):
+    numbers = [cost_in(found, row, unit) for row, _ in rows]
+    largest = max(filter(None, numbers), default=0) or 1
+    # an eighth of a cell; a whole one without UTF-8, and on a shaded bar, as no glyph shades a
+    # part of a cell: its top would stand solid on its shade
+    stands, below = [1 if utf8 and fill == solid else 8 for _, fill in rows], 0
+    # in the order of their numbers, so none stands under a smaller one, which a whole shaded
+    # cell may overtake
+    for at in sorted((at for at, number in enumerate(numbers) if number is not None),
+                     key=numbers.__getitem__):
+        step = stands[at]
+        below = stands[at] = max(step, step * round(8 * tall * numbers[at] / largest / step),
+                                 -(-below // step) * step)
+    kinds, columns = [], []
+    for (row, fill), (cost, *_), under, eighths in zip(rows, labels, unders, stands):
         kinds.append("accent" if row is used else None)
-        # an eighth of a cell; a whole one without UTF-8, and on a shaded bar, as no glyph shades
-        # a part of a cell: its top would stand solid on its shade
-        step = 1 if utf8 and fill == solid else 8
-        # and never under the cheaper bar on its left, which a whole shaded cell may overtake
-        eighths = max(step, step * round(8 * tall * row["cost"] / dearest / step),
-                      -(-eighths // step) * step)
         top = -(-eighths // 8)
         columns.append([[cost if level == top + 1 else "" if level > top else
                          (fill if eighths >= 8 * level else EIGHTHS[eighths % 8]) * size

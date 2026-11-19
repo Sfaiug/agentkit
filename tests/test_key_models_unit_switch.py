@@ -1,10 +1,11 @@
 """`u` on `r recommended` on `c` counts every cost in the next unit, the owner's design of 5 Nov
 2026: dollars a task, the points of its plan's week a task takes, then how many such tasks a week
 holds, to two significant figures, and dollars again; the role lines' heading names it, and the
-role lines and the bars count in it, `≈` before a cost no run measured.  The screen opens again
-in the unit last chosen, which the config never holds.  Before any run of yours priced a model,
-the boards' prices are dollars a task too, and the other two have no week to count them in;
-a plan of no price still counts every task's week.
+role lines and the bars count in it, `≈` before a cost no run measured, each bar as tall as the
+number on its top over the largest.  The screen opens again in the unit last chosen, which the
+config never holds.  Before any run of yours priced a model, the boards' prices are dollars a task
+too, and the other two have no week to count them in; a plan of no price still counts every
+task's week.
 
 Black-box: `AK_BIN` in terminals of 100 and 40 cells, a fake harness, the boards of
 tests/test_key_models_bars.py at a dollar a million tokens, a plan's price and runs that measure
@@ -47,6 +48,11 @@ FREE = {"$ a task": (["≈$0.00", "$0.00", "$0.00"], ["≈$0.00"] * 5),
         "% of a week": (COUNTED["% of a week"][0],
                         ["≈0.42%", "≈0.63%", "≈1.26%", "≈0.84%", "≈1.68%"]),
         "a week": (COUNTED["a week"][0], ["≈240", "≈160", "≈79", "≈120", "≈60"])}
+# Per unit, the eighths of a cell the orchestrator's bars stand, left to right, each the number
+# on its top over the largest, 7 cells: Long Name's and Dear's, shaded, in whole cells, and none
+# under a smaller number.  A week holds the most tasks of the cheapest, the tallest
+HEIGHTS = {"$ a task": [14, 24, 28, 40, 56], "% of a week": [14, 24, 28, 40, 56],
+           "a week": [56, 40, 28, 16, 14]}
 # no run of yours: the boards' dollars a task, and no week in the other two
 UNRUN = {"$ a task": (["≈$4.00", "≈$8.00", "≈$2.00"],
                       ["≈$2.00", "≈$3.00", "≈$4.00", "≈$6.00", "≈$8.00"]),
@@ -152,6 +158,15 @@ class ModelsUnitSwitch(unittest.TestCase):
                 for unit in ("% of a week", "a week"):
                     term.keys("u")
                     term.wait(lambda screen: counted(screen) == want(unit, FREE))
+
+    def test_a_bar_is_as_tall_as_the_number_on_its_top(self):
+        for width in WIDTHS:
+            with self.subTest(width=width):
+                term = self.models(self.home(), width, "$ a task")
+                for unit in COUNTED:        # in the turn `u` takes
+                    term.wait(lambda screen: counted(screen) == want(unit) and [
+                        bar["eighths"] for bar in bars(screen, "orchestrator")] == HEIGHTS[unit])
+                    term.keys("u")
 
     def test_before_a_run_of_yours_the_boards_dollars_are_a_task_and_no_week_counts_them(self):
         for width in WIDTHS:
