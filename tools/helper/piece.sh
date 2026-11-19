@@ -23,9 +23,16 @@ export PATH="$PATH:/home/ak/stand-ins" SHELL=/bin/bash LANG=C.UTF-8 AK_SHARD="$s
 # Its test times and the tests to run alone, beside heads where ak sent them: a file holds any
 # length, which one argument of the command does not.
 for name in AK_TIMES AK_ONLY; do [ ! -f "/in/$name" ] || export "$name=/in/$name"; done
+# A new network namespace holds 10 unread notes on a unix datagram socket whatever it starts in,
+# and a container's own is such a one, while a host systemd started holds 512: a suite whose
+# stand-in sent more than its test had read yet hung on 10 (17 Nov 2026). The sandbox holds what
+# it starts in, and 512 at least; where that cannot be written it holds the 10, as before.
+notes=$(cat /proc/sys/net/unix/max_dgram_qlen 2>/dev/null)
+[ "${notes:-0}" -ge 512 ] || notes=512
 offline() {
   unshare --user --map-current-user --net --keep-caps sh -c \
-    'ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' - "$@"
+    'echo "$0" 2>/dev/null >/proc/sys/net/unix/max_dgram_qlen
+     ip link set lo up && exec setpriv --inh-caps=-all --ambient-caps=-all "$@"' "$notes" "$@"
 }
 offline sh -c '[ -z "$(ip -o link show | grep -v ": lo:")" ]' || fail "could not go offline"
 # Kills for memory: of the piece's own cgroup where it has one, as a container on a kernel other
