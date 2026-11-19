@@ -1287,6 +1287,36 @@ install_launch_agent(load=sys.argv[2] == "0")
 PYMACBRIDGE
 fi
 
+# --- the kernel writes changed data out sooner --------------------------------
+# The kernel keeps changed file data in memory for 30 seconds, looked at every 5, before it
+# writes it to its place, and a filesystem's journal frees room only once what it holds is
+# there.  Runs and test suites create and delete files fast enough to put 13 to 17 MB a second
+# through the journal: measured on 12 Nov 2026 on a host with a 1 GiB journal, at 30 seconds,
+# and at 300, it stood full and 30 to 75 threads at a time waited for room in it; at 10, looked
+# at every 2, it did not.  The ceilings do not keep every journal from filling: one smaller, or
+# under a higher load, still fills.
+PROC_SYS_VM="${AK_PROC_SYS_VM:-/proc/sys/vm}"
+stays=""
+for dirty in "dirty_expire_centisecs 1000 changed data is old enough to write out at ten seconds" \
+             "dirty_writeback_centisecs 200 the kernel looks for old changed data every two seconds"; do
+  read -r key ceiling why <<<"$dirty"
+  # a client and a sandbox touch no host, one with no value to read (a Mac) has none to set, and
+  # one that reads no number above the ceiling, an empty one included, is left as it is
+  if [ "$ROLE" != server ] || [ "$SANDBOX" = 1 ] ||
+     ! dirty_now=$(cat -- "$PROC_SYS_VM/$key" 2>/dev/null) ||
+     ! [ "$dirty_now" -gt $ceiling ] 2>/dev/null; then
+    :
+  elif ! have sudo || ! sudo -n true 2>/dev/null; then
+    stays+=", vm.$key stays $dirty_now"
+  elif sysctl_set "$PROC_SYS_VM/$key" vm.$key $ceiling $key "$why"; then
+    echo "changed data: sysctl_set answered yes for vm.$key = $ceiling"
+  else
+    note "changed data: sysctl_set answered no for vm.$key = $ceiling; see $SYSCTL_D"
+  fi
+done
+[ -z "$stays" ] ||
+  note "changed data: no passwordless sudo, so ${stays#, }; run \`sudo -v\` and re-run ./install.sh"
+
 # --- every session has room for its inotify instances ------------------------
 # Each harness process holds an inotify instance or two, and the kernel allows one user 128
 # whatever the host's size: 30 seats and 33 runs once held 99, and past the limit a harness's
