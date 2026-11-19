@@ -230,7 +230,8 @@ signatures = [
 # Each plan `login-end` names, at its list price in US dollars a month as read in November 2026.
 # Google sells AI Ultra in two sizes, 5x at $99.99 and 20x at $199.99, and a login names both
 # `Google AI Ultra`, so the owner was asked what that login costs, 19 Nov 2026: "$99.99 (Ultra
-# 5x)".  A login on the other size says its `price` on its provider's table.
+# 5x)".  A `price` on the provider's table in config.toml replaces it, for every login of that
+# provider.
 [plans]
 "Google AI Pro" = 19.99
 "Google AI Ultra" = 99.99

@@ -57,8 +57,8 @@ reset = true
 
 # Each plan `login-end` names, at its list price in US dollars a month as read in November 2026.
 # Pro is sold at $100, $200 and $500 a month and a login names each `pro`, so the owner was asked
-# what that login costs, 19 Nov 2026: "$200".  A login on another size says its `price` on its
-# provider's table.
+# what that login costs, 19 Nov 2026: "$200".  A `price` on the provider's table in config.toml
+# replaces it, for every login of that provider.
 [plans]
 plus = 20
 pro = 200
