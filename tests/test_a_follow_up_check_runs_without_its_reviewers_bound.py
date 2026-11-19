@@ -1,7 +1,7 @@
 """A follow-up's check is its proof without the `timeout N` its reviewer began it with: on a
-loaded host a right fix ran past that bound and its fix run ended blocked, while a plan line
-and a fix run's done-when each have a bound of ak's own.  A proof that ended in 124, the bound
-itself failing, keeps it.
+loaded host a right fix ran past that bound and its fix run ended blocked, while a fix run's
+done-when has a bound of ak's own.  A proof that ended in 124, the bound itself failing, keeps
+it.
 """
 
 from pathlib import Path

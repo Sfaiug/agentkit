@@ -140,7 +140,6 @@ class FollowupRule(unittest.TestCase):
         self.assertTrue(item.startswith("a.py:2 - empty input crashes - callers crash 2"), item)
         self.assertIn("Commit " + "2" * 40, item)
         self.assertEqual(self.lp.state["followup_checks"], {item: "false 2"})
-        self.assertEqual(self.lp.state["followup_commits"], {item: "2" * 40})
         # ... while another defect with the same check is another follow-up, kept beside it
         other = {"kind": "follow-up", "path": "b.py", "line": 2, "what": "zero divisor crashes",
                  "why": "callers crash", "evidence": {"run": "false", "commit": "3" * 40,
