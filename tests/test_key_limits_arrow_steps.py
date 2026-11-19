@@ -1,12 +1,13 @@
 """On `config · limits`, ← and → move the limit the pointer is on one step down or up, saved to
-config.toml at once: `Review rounds` 0 to 5, `Max lines per executor task` 0 to 1000 in
-hundreds then `no limit`, `Max lines per orchestrator task` 0 to 200 in 25s then `no limit`.  A
-value between steps, as written by hand, moves to the next step in the arrow's direction, and
-neither arrow moves past an end.  The pointed row shows its value as `◂ value ▸`, a side's arrow
-left out at that end, a click on one moving it as its key does, and the key line reads
-`↑↓ limit   ←→ value   esc back`.  With the pointer off every row, the first ← or → only
-brings the highlight back, as Enter and Space do.  A pointed value too wide beside its label, as
-on 40 cells, folds under it whole, never an arrow parted from it.
+config.toml at once: `Review rounds` 0 to 5, `Max lines per executor task` 0 to 1000 in hundreds
+then `no limit`, `Max lines per orchestrator task` 0 to 200 in 25s then `no limit`,
+`Extra rounds with one finding left` 0 to 3.  A value between steps, as written by hand, moves
+to the next step in the arrow's direction, and neither arrow moves past an end.  The pointed row
+shows its value as `◂ value ▸`, a side's arrow left out at that end, a click on one moving it as
+its key does, and the key line reads `↑↓ limit   ←→ value   esc back`.  With the pointer off
+every row, the first ← or → only brings the highlight back, as Enter and Space do.  A pointed
+value too wide beside its label, as on 40 cells, folds under it whole, never an arrow parted
+from it.
 
 The owner's design of 5 Nov 2026.  Black-box: the program `AK_BIN` names, in a person's
 terminal (tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py,
@@ -29,7 +30,8 @@ MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
 LIMITS = {"Review rounds": ("review_rounds", list(range(6)), 3),
           "Max lines per executor task": ("executor_lines", [*range(0, 1001, 100), "no limit"], 300),
           "Max lines per orchestrator task": ("orchestrator_lines", [*range(0, 201, 25), "no limit"],
-                                              50)}
+                                              50),
+          "Extra rounds with one finding left": ("extra_rounds", list(range(4)), 2)}
 NAMES = list(LIMITS)
 WIDE = max(map(len, NAMES))
 KEY_LINE = "  ↑↓ limit   ←→ value   esc back"
@@ -87,12 +89,14 @@ class ArrowSteps(unittest.TestCase):
         term = self.limits()
         shown = self.pointed(term, NAMES[0], 3)
         self.assertEqual([line for line in shown if any(name in line for name in NAMES)],
-                         [row(NAMES[0], 3, on=True), row(NAMES[1], 300), row(NAMES[2], 50)])
+                         [row(NAMES[0], 3, on=True), row(NAMES[1], 300), row(NAMES[2], 50),
+                          row(NAMES[3], 2)])
         self.assertIn(KEY_LINE, shown)
         term.keys("j")
         shown = self.pointed(term, NAMES[1], 300)
         self.assertEqual([line for line in shown if any(name in line for name in NAMES)],
-                         [row(NAMES[0], 3), row(NAMES[1], 300, on=True), row(NAMES[2], 50)])
+                         [row(NAMES[0], 3), row(NAMES[1], 300, on=True), row(NAMES[2], 50),
+                          row(NAMES[3], 2)])
         self.assertIn(KEY_LINE, shown)
 
     def test_each_limit_walks_its_steps_from_0_up_and_back_each_saved_at_once(self):
@@ -145,13 +149,13 @@ class ArrowSteps(unittest.TestCase):
                                   if line.startswith(f"› {name}"))
                     column = shown[row_at - 1].index(arrow) + 1
                     term.type(f"\x1b[<0;{column};{row_at}M\x1b[<0;{column};{row_at}m")
-                    self.pointed(term, name, value)
+                    self.pointed(term, name, value, up=value != steps[-1])
                 term.keys("j")
 
     def test_on_40_cells_a_value_too_wide_beside_its_label_folds_under_it_whole(self):
         # five cells beside the label once held `◂ 300`, its `▸` alone on the line under it
         term = self.limits(width=40)
-        for name, value in ((NAMES[1], "◂ 300 ▸"), (NAMES[2], "◂ 50 ▸")):
+        for name, value in ((NAMES[1], "◂ 300 ▸"), (NAMES[2], "◂ 50 ▸"), (NAMES[3], "◂ 2 ▸")):
             with self.subTest(name=name):
                 term.keys("j")
                 shown = lines(term.wait(f"› {name}"))

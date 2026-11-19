@@ -1,9 +1,10 @@
-"""`c` shows `review_rounds`, `executor_lines` and `orchestrator_lines` on one `Limits` row, at a glance, and
-Enter there opens `config · limits`: a row each under a plain name, its value and `default N`
-where that is not ak's default, and under the rows the pointed one's meaning, its chart and
-what its runs would have done at its value, in that order; off says what it does with no run
-too.  ← and → move the pointed one a step (tests/test_key_limits_arrow_steps.py), saved to
-config.toml at once, every other key kept; both line limits end with `no limit`, and a save that
+"""`c` shows `review_rounds`, `executor_lines`, `orchestrator_lines` and `extra_rounds` on one
+`Limits` row, at a glance, and Enter there opens `config · limits`: a row each under a plain
+name, its value and `default N` where that is not ak's default, and under the rows the pointed
+one's meaning, its chart and what its runs would have done at its value, in that order,
+`extra_rounds` its meaning alone; off says what it does with no run too.  ← and → move the
+pointed one a step (tests/test_key_limits_arrow_steps.py), saved to config.toml at once, every
+other key kept; both line limits end with `no limit`, and a save that
 fails changes nothing and says why.
 
 The owner's ask of 3 Nov 2026: the keys' names were unclear to users.  Black-box: history.db's
@@ -26,7 +27,10 @@ from fixtures.akterm import SERVER, Terminal
 
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
           "astra": {"harness": "codex", "effort": "high"}}
-NAMES = ("Review rounds", "Max lines per executor task", "Max lines per orchestrator task")
+NAMES = ("Review rounds", "Max lines per executor task", "Max lines per orchestrator task",
+         "Extra rounds with one finding left")
+EXTRA = ("The further review rounds a change has while its last review left exactly one blocking "
+         "finding.")
 WIDE = max(map(len, NAMES))
 FIRST, DAY = calendar.timegm((2026, 10, 1, 12, 0, 0)), 86400
 COLUMNS = ("run_id", "repo", "change", "kind", "own_orchestrator", "final_state", "rounds_used",
@@ -172,19 +176,26 @@ class LimitsPage(unittest.TestCase):
             with self.subTest(key=key):
                 self.reads(self.pointed(key, 0), key, 0, UNRUN)
 
-    def test_c_shows_one_limits_row_with_the_three_values(self):
+    def test_extra_rounds_says_what_it_means_and_shows_no_chart(self):
+        term = self.c({"extra_rounds": 1})
+        self.limits(term)
+        term.keys(*["j"] * NAMES.index(NAMES[3]))
+        shown = flat(term.wait(lambda screen: EXTRA in flat(screen)))
+        self.assertIn(f"› {NAMES[3]} ◂ 1 ▸ default 2 {EXTRA} ↑↓ limit", shown)
+
+    def test_c_shows_one_limits_row_with_the_four_values(self):
         shown = lines(self.c().wait("Limits"))
         self.assertIn("  Limits      review 3 rounds · executor 300 lines · orchestrator 50 "
-                      "lines", shown)
-        for gone in ("review_rounds", "executor_lines", "orchestrator_lines"):
+                      "lines · extra 2 rounds", shown)
+        for gone in ("review_rounds", "executor_lines", "orchestrator_lines", "extra_rounds"):
             self.assertFalse([line for line in shown if line.split()[:1] == [gone]], shown)
 
-    def test_enter_on_limits_opens_the_page_with_the_three_plain_names(self):
+    def test_enter_on_limits_opens_the_page_with_the_four_plain_names(self):
         shown = lines(self.limits(self.c({"orchestrator_lines": 0})))
         self.assertIn("agentkit · config · limits", shown[0])
         self.assertEqual([line for line in shown if any(name in line for name in NAMES)],
                          [row(NAMES[0], "◂ 3 ▸", on=True), row(NAMES[1], "300"),
-                          row(NAMES[2], "off default 50")])
+                          row(NAMES[2], "off default 50"), row(NAMES[3], "2")])
         self.assertEqual(akconfig.read(self.home)["orchestrator_lines"], 0)
 
     def test_the_pointer_off_every_row_takes_its_lines_away(self):
@@ -195,12 +206,12 @@ class LimitsPage(unittest.TestCase):
         term.wait(lambda screen: SAYS["review_rounds"][0] not in flat(screen))
 
     def test_on_a_narrow_terminal_each_value_folds_under_its_name_never_cut(self):
-        shown = lines(self.limits(self.c(
-            {"review_rounds": 4, "executor_lines": 1000, "orchestrator_lines": 0}, size=(40, 50))))
+        shown = lines(self.limits(self.c({"review_rounds": 4, "executor_lines": 1000,
+                                          "orchestrator_lines": 0, "extra_rounds": 3}, size=(40, 50))))
         at = shown.index(f"› {NAMES[0]}")
-        self.assertEqual(shown[at:at + 6], [
+        self.assertEqual(shown[at:at + 8], [
             f"› {NAMES[0]}", "    ◂ 4 ▸ default 3", f"  {NAMES[1]}", "    1000 default 300",
-            f"  {NAMES[2]}", "    off default 50"])
+            f"  {NAMES[2]}", "    off default 50", f"  {NAMES[3]}", "    3 default 2"])
 
     def test_moving_to_1000_lines_per_executor_task_saves_it(self):
         term = self.c({"executor_lines": 900, "max_runs": 7, "custom_flag": True})

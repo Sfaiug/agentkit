@@ -1,4 +1,4 @@
-"""A project's three numbers come from one read of its AGENTS.md on the default branch: one git
+"""A project's numbers come from one read of its AGENTS.md on the default branch: one git
 started by `config.policy`, which every prompt of every seat asks, and so no fetch moving the
 branch between reads to combine two commits' numbers into a pair neither declared."""
 
@@ -15,8 +15,8 @@ from fixtures.gitrig import Rig
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from agentkit import config, gitcall
 
-FIRST = {"review_rounds": 3, "executor_lines": 100, "orchestrator_lines": 50}
-SECOND = {"review_rounds": 3, "executor_lines": 300, "orchestrator_lines": 200}
+FIRST = {"review_rounds": 3, "executor_lines": 100, "orchestrator_lines": 50, "extra_rounds": 1}
+SECOND = {"review_rounds": 3, "executor_lines": 300, "orchestrator_lines": 200, "extra_rounds": 0}
 
 
 def front(numbers):

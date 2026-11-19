@@ -109,11 +109,15 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on one before the one
 # as often as workers from the handoff size up, with mostly unrelated context (14 days).
 # Added lines only, generated files and unchanged moves aside (`transitions.diff_lines`,
 # `transitions.carried_lines`): past either limit, write a smaller task.
+# Owner, 18 Nov 2026: the extra rounds of a change with one blocking finding left "should also
+# be editable in the config limits section".
 POLICY = {
     "review_rounds": (3, 0, "the review rounds a change has before it goes back to its orchestrator "
                      "to split or re-scope"),
     "executor_lines": (300, 0, "the most added lines a first review reads"),
     "orchestrator_lines": (50, 0, "the most added lines an orchestrator builds"),
+    "extra_rounds": (2, 0, "the further review rounds a change has while its last review left "
+                    "exactly one blocking finding"),
 }
 POLICY_RENAMES = {"rounds": "review_rounds", "review_lines": "executor_lines",
                   "seat_lines": "orchestrator_lines"}

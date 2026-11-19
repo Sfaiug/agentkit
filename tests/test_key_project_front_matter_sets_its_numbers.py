@@ -1,4 +1,5 @@
-"""A project's AGENTS.md front matter sets its own `review_rounds`, `executor_lines` and `orchestrator_lines`.
+"""A project's AGENTS.md front matter sets its own `review_rounds`, `executor_lines`, `orchestrator_lines`
+and `extra_rounds`.
 
 A run holds to what was read when its directory was made, and a bad number refuses the launch
 before one is.  A review of a project with no checkout here runs on the host's.
@@ -139,9 +140,11 @@ class ReviewWithNoCheckout(unittest.TestCase):
 class Refused(unittest.TestCase):
     def test_a_number_nobody_could_mean_refuses_the_launch_with_no_run_directory(self):
         review, seat = "the most added lines a first review reads", "the most added lines an orchestrator builds"
+        extra = "the further review rounds a change has while its last review left exactly one blocking finding"
         for numbers, why in (
                 ({"executor_lines": "abc"}, f'executor_lines must be a whole number of at least 0 or "no limit", {review} (got \'abc\')'),
-                ({"orchestrator_lines": "abc"}, f'orchestrator_lines must be a whole number of at least 0 or "no limit", {seat} (got \'abc\')')):
+                ({"orchestrator_lines": "abc"}, f'orchestrator_lines must be a whole number of at least 0 or "no limit", {seat} (got \'abc\')'),
+                ({"extra_rounds": "abc"}, f"extra_rounds must be a whole number of at least 0, {extra} (got 'abc')")):
             with self.subTest(numbers=numbers):
                 rig = host(self, "widgets", **numbers)
                 done = self.home.ak("run", str(taskfile.write(self.home, rig.path)), timeout=60)

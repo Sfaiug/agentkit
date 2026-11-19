@@ -3082,7 +3082,8 @@ LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6
                "executor_lines": ("Max lines per executor task", "executor", "lines",
                                   (*range(0, 1001, 100), "no limit")),
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
-                                      (*range(0, 201, 25), "no limit"))}
+                                      (*range(0, 201, 25), "no limit")),
+               "extra_rounds": ("Extra rounds with one finding left", "extra", "rounds", range(0, 4))}
 # What a subscription offers on its row of `Subscriptions`, each where it applies
 # (subscription_acts), and without UTF-8.
 # The second is one act for each kind of reset it can spend now, named after it (`spend a
@@ -6396,30 +6397,30 @@ def lines_said(key, runs, held):
 def config_limits(cfg):
     """`Limits`: each of config.POLICY's numbers a row (config_page) under its name
     (LIMIT_NAMES), its value and `default N` where that is not ak's default, then under each
-    what it means, how its runs did (rounds_chart, size_chart) and what they would have done at
-    its value (rounds_said, lines_said), read as the page opens and said again as the value
-    moves: each explanation before its evidence.  ← and → move the pointed one a step
-    (limit_step), saved to config.toml at once where config.host_policy takes it.  The owner's
-    design of 5 Nov 2026."""
+    what it means and, where it has them, how its runs did (rounds_chart, size_chart) and what
+    they would have done at its value (rounds_said, lines_said), read as the page opens and
+    said again as the value moves: each explanation before its evidence.  ← and → move the
+    pointed one a step (limit_step), saved to config.toml at once where config.host_policy takes
+    it.  The owner's design of 5 Nov 2026."""
     ended = history.round_endings()
     builds, own = history.first_review_sizes()
-    sized = {"executor_lines": builds, "orchestrator_lines": own}
-    charts = {"review_rounds": lambda _: rounds_chart(ended),
-              "executor_lines": lambda limit: size_chart(
-                  builds, limit, 100, "how often a build passed its first review, by size",
-                  "build"),
-              "orchestrator_lines": lambda limit: size_chart(
-                  own, limit, 25, "how often an orchestrator's own pull request merged in its "
-                  "first round, by size")}
+    # each number's chart and what its runs would have done at `held`; one no run records how
+    # it did yet has neither
+    evidence = {"review_rounds": lambda held: (rounds_chart(ended), rounds_said(ended, held)),
+                "executor_lines": lambda held: (size_chart(
+                    builds, held, 100, "how often a build passed its first review, by size",
+                    "build"), lines_said("executor_lines", builds, held)),
+                "orchestrator_lines": lambda held: (size_chart(
+                    own, held, 25, "how often an orchestrator's own pull request merged in its "
+                    "first round, by size"), lines_said("orchestrator_lines", own, held))}
 
     def under(key, held):      # what the row means, its chart, what its runs would have done
         meaning = config.POLICY[key][2]
-        said = (rounds_said(ended, held) if key == "review_rounds"
-                else lines_said(key, sized[key], held))
+        chart, said = evidence.get(key, lambda _: ([], None))(held)
         room = terminal.layout_width() - 2
         told = lambda text: (["", *("  " + part for part in terminal.wrap(text, room))]
                              if text else [])
-        return [*told(f"{meaning[0].upper()}{meaning[1:]}."), *charts[key](held), *told(said)]
+        return [*told(f"{meaning[0].upper()}{meaning[1:]}."), *chart, *told(said)]
 
     def take(key, value):
         try:
