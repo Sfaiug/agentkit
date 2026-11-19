@@ -553,9 +553,10 @@ def seat_token_usage(entry, cursor):
                 model if isinstance(model, str) else None, counts)
     record = run_event(entry, "goal_usage_attribution").get("record") or {}
     tokens = provider_tokens(record)
-    owner = record.get("owner") or {}
-    own = (owner.get("requester_kind"), owner.get("session_id"))
-    if tokens is not None and own != ("main", (entry.get("stream") or {}).get("id")):
+    owner, session = record.get("owner") or {}, (entry.get("stream") or {}).get("id")
+    own = (owner.get("requester_kind") == "main" and session is not None
+           and owner.get("session_id") == session)
+    if tokens is not None and not own:
         return entry["recorded_at"] / 1_000_000, entry.get("id"), tokens, None, None
 
 
