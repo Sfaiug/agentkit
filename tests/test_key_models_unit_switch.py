@@ -49,10 +49,19 @@ FREE = {"$ a task": (["≈$0.00", "$0.00", "$0.00"], ["≈$0.00"] * 5),
                         ["≈0.42%", "≈0.63%", "≈1.26%", "≈0.84%", "≈1.68%"]),
         "a week": (COUNTED["a week"][0], ["≈240", "≈160", "≈79", "≈120", "≈60"])}
 # Per unit, the eighths of a cell the orchestrator's bars stand, left to right, each the number
-# on its top over the largest, 7 cells: Long Name's and Dear's, shaded, in whole cells, and none
-# under a smaller number.  A week holds the most tasks of the cheapest, the tallest
-HEIGHTS = {"$ a task": [14, 24, 28, 40, 56], "% of a week": [14, 24, 28, 40, 56],
+# on its top over the largest, 7 cells, $0.13 of $0.50 14.56 eighths: Long Name's and Dear's,
+# shaded, in whole cells, and none under a smaller number.  A week holds the most tasks of the
+# cheapest, the tallest
+HEIGHTS = {"$ a task": [15, 24, 28, 40, 56], "% of a week": [14, 24, 28, 40, 56],
            "a week": [56, 40, 28, 16, 14]}
+# Top building and Base reviewing in 20,000 tokens each, 0.02 points, so a board dollar is 0.004
+# points, $0.0012: costs as COUNTED has them, and the bars as HEIGHTS, each of two carrying one
+# number as tall, the solid one standing its shaded one's whole cells
+TIED = {"$ a task": (["≈$0.005", "$0.01", "$0.01"],
+                     ["≈$0.002", "≈$0.004", "≈$0.005", "≈$0.01", "≈$0.01"]),
+        "% of a week": (["≈0.02%", "0.02%", "0.02%"],
+                        ["≈0.01%", "≈0.01%", "≈0.02%", "≈0.02%", "≈0.03%"])}
+TIED_HEIGHTS = {"$ a task": [11, 24, 28, 56, 56], "% of a week": [16, 16, 40, 40, 56]}
 # no run of yours: the boards' dollars a task, and no week in the other two
 UNRUN = {"$ a task": (["≈$4.00", "≈$8.00", "≈$2.00"],
                       ["≈$2.00", "≈$3.00", "≈$4.00", "≈$6.00", "≈$8.00"]),
@@ -102,17 +111,19 @@ def planned(home, price):
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ModelsUnitSwitch(unittest.TestCase):
-    def home(self, runs=True, price=PRICE):
-        """A Home planned at `price`, its runs where `runs`."""
+    def home(self, runs=(2e6, .1e6), price=PRICE):
+        """A Home planned at `price`, its `runs` the tokens Top builds in and Base reviews in,
+        else none."""
         home = Home()
         self.addCleanup(home.close)
         history = planned(home, price)
         if runs:
+            built, reviewed = runs
             # a listed week of $100 at a dollar a million tokens: a million tokens is a point
             history.week("anthropic", "default", "claude", "acme-top-1", 50e6, 50)
-            history.run(("top", "high"), built=[[("default", "acme-top-1", (2e6, 0, 0, 0))]])
+            history.run(("top", "high"), built=[[("default", "acme-top-1", (built, 0, 0, 0))]])
             history.run(None, "base", ["high"],
-                        reviewed=[[("default", "acme-base-1", (.1e6, 0, 0, 0))]])
+                        reviewed=[[("default", "acme-base-1", (reviewed, 0, 0, 0))]])
         history.save()
         return home
 
@@ -161,12 +172,15 @@ class ModelsUnitSwitch(unittest.TestCase):
 
     def test_a_bar_is_as_tall_as_the_number_on_its_top(self):
         for width in WIDTHS:
-            with self.subTest(width=width):
-                term = self.models(self.home(), width, "$ a task")
-                for unit in COUNTED:        # in the turn `u` takes
-                    term.wait(lambda screen: counted(screen) == want(unit) and [
-                        bar["eighths"] for bar in bars(screen, "orchestrator")] == HEIGHTS[unit])
-                    term.keys("u")
+            for runs, counts, heights in (((2e6, .1e6), COUNTED, HEIGHTS),
+                                          ((2e4, 2e4), TIED, TIED_HEIGHTS)):
+                with self.subTest(width=width, runs=runs):
+                    term = self.models(self.home(runs), width, "$ a task", counts)
+                    for unit in heights:        # in the turn `u` takes
+                        term.wait(lambda screen: counted(screen) == want(unit, counts) and [
+                            bar["eighths"] for bar in bars(screen, "orchestrator")]
+                                  == heights[unit])
+                        term.keys("u")
 
     def test_before_a_run_of_yours_the_boards_dollars_are_a_task_and_no_week_counts_them(self):
         for width in WIDTHS:

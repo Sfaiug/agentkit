@@ -3564,29 +3564,36 @@ def figures(value, many=2):
 
 
 def cost_in(found, row, unit):
-    """`row`'s cost in its role's answer `found` counted in `unit` (UNITS), None where it has
-    none: dollars, where no run's provider has a price (matrix._costs's `share`), and a week,
-    where it has no `points` of one (matrix._costs)."""
+    """`row`'s cost in its role's answer `found` counted in `unit` (UNITS), rounded as the
+    screen says it (cost_said), so a bar stands as tall as the number on its top (models_bars):
+    a week to two significant figures, else to cents, to whole units from 100 on, where cents
+    tell no two rows apart, so five bars' costs side by side fit 40 cells, and under half a
+    cent to its first figure, where two decimals would say a model that costs something is
+    free.  None where it has none: dollars, where no run's provider has a price
+    (matrix._costs's `share`), and a week, where it has no `points` of one (matrix._costs)."""
     points = row["points"]
-    return {"$ a task": None if found["cost_unit"] == "share" else row["cost"],
-            "% of a week": points, "a week": 100 / points if points else None}[unit]
+    value = {"$ a task": None if found["cost_unit"] == "share" else row["cost"],
+             "% of a week": points, "a week": 100 / points if points else None}[unit]
+    if value is None:
+        return None
+    if unit == "a week":
+        return float(f"{value:.2g}")
+    return (float(f"{value:.1g}") if 0 < value < .005 else
+            round(value, 2 if round(value, 2) < 100 else 0))
 
 
 def cost_said(found, row, unit):
-    """`row`'s cost in its role's answer `found` counted in `unit` (cost_in): `$0.60`, `2.00%`,
-    in whole units from 100 on, where cents tell no two rows apart, so five bars' costs side by
-    side fit 40 cells (models_bars), and under half a cent to its first figure, `$0.004`, where
-    two decimals would say a model that costs something is free; or `50` a week.  `≈` before
-    one no runs measured -- the owner, 3 Nov 2026: a cost on screen must never look more
-    certain than it is.  `-` where it has none."""
+    """`row`'s cost in its role's answer `found` as cost_in rounds it: `$0.60`, `2.00%`,
+    `$0.004`, `50` a week.  `≈` before one no runs measured -- the owner, 3 Nov 2026: a cost on
+    screen must never look more certain than it is.  `-` where it has none."""
     value = cost_in(found, row, unit)
     if value is None:
         return "-"
     about = "" if row["cost_rule"] == "measured" else "≈" if terminal.utf8() else "~"
     if unit == "a week":
         return about + figures(value)
-    cost = (figures(value, 1) if 0 < value < .005 else
-            f"{value:.{2 if round(value, 2) < 100 else 0}f}")
+    # under a cent, as no cents rounding leaves one, a cost cost_in took to its first figure
+    cost = figures(value, 1) if 0 < value < .01 else f"{value:.{2 if value < 100 else 0}f}"
     return about + (f"{cost}%" if unit == "% of a week" else f"${cost}")
 
 
@@ -3748,15 +3755,15 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
     keeps where one holds (price_held, price_said), those that stand (models_standing), side by
     side, its cost in `unit` on its top (cost_said) and under it its quality, its name
     (columned) and its effort.  Each stands as tall as the number on its top over the largest
-    shown (cost_in), in eighths of a cell, never under one carrying a smaller number, and one
-    with `-` on its top, no number, the least a bar can.  A choice is solid, the rest shaded
-    `░`, each `why` under it led by `░`, so one too short to show its shade still says it is
-    one; `used`, the row the role uses, is in the accent colour, `━` under its name.  No axis
-    line: the numbers say what the heights measure, as a shaded bar on the right is dearer, not
-    better.  On a narrow screen the two-cell gutters, then the indent, give way to the labels.
-    Given `room` lines, the tallest stands as tall as the rest leaves room for, TALL cells at
-    most and one at least, else TALL; `marked` false leaves the `━` out, `why` false the whys,
-    their columns as wide."""
+    shown (cost_in), in eighths of a cell, as tall as any carrying the same and never under one
+    carrying a smaller, and one with `-` on its top, no number, the least a bar can.  A choice
+    is solid, the rest shaded `░`, each `why` under it led by `░`, so one too short to show its
+    shade still says it is one; `used`, the row the role uses, is in the accent colour, `━`
+    under its name.  No axis line: the numbers say what the heights measure, as a shaded bar on
+    the right is dearer, not better.  On a narrow screen the two-cell gutters, then the indent,
+    give way to the labels.  Given `room` lines, the tallest stands as tall as the rest leaves
+    room for, TALL cells at most and one at least, else TALL; `marked` false leaves the `━` out,
+    `why` false the whys, their columns as wide."""
     utf8, width = terminal.utf8(), terminal.layout_width()
     solid, shade, mark = GLYPHS[utf8]
     size, rows, labels, words, widths = models_standing(found, kept, unit)
@@ -3779,14 +3786,15 @@ def models_bars(found, role, used, kept, unit, room=None, marked=True, why=True,
     largest = max(filter(None, numbers), default=0) or 1
     # an eighth of a cell; a whole one without UTF-8, and on a shaded bar, as no glyph shades a
     # part of a cell: its top would stand solid on its shade
-    stands, below = [1 if utf8 and fill == solid else 8 for _, fill in rows], 0
-    # in the order of their numbers, so none stands under a smaller one, which a whole shaded
-    # cell may overtake
-    for at in sorted((at for at, number in enumerate(numbers) if number is not None),
-                     key=numbers.__getitem__):
-        step = stands[at]
-        below = stands[at] = max(step, step * round(8 * tall * numbers[at] / largest / step),
-                                 -(-below // step) * step)
+    steps = [1 if utf8 and fill == solid else 8 for _, fill in rows]
+    # each number in turn, smallest first, at the coarsest step of the bars carrying it, so it
+    # stands as tall on each and never under a smaller one, which a whole shaded cell may overtake
+    heights, below = {}, 0
+    for number in sorted(set(numbers) - {None}):
+        step = max(one for one, its in zip(steps, numbers) if its == number)
+        below = heights[number] = max(step, step * round(8 * tall * number / largest / step),
+                                      -(-below // step) * step)
+    stands = [step if number is None else heights[number] for number, step in zip(numbers, steps)]
     kinds, columns = [], []
     for (row, fill), (cost, *_), under, eighths in zip(rows, labels, unders, stands):
         kinds.append("accent" if row is used else None)
