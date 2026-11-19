@@ -325,6 +325,13 @@ def head_writers(state):
     return list(dict.fromkeys(name for name in names if name))
 
 
+def review_writers(state):
+    """The writers a parked review's reviewer is picked beside (`ready_order`): a task run's
+    `head_writers`; none for a pull request's review, whose reviewer `run.review_pr` picks
+    again by its own rules."""
+    return [] if state.get("review_pr") else head_writers(state)
+
+
 def pair_tier(cfg, executor, reviewer):
     """This pair's tier, in the owner's order of 21 Oct
     (tests/test_key_reviewer_other_provider_first.py): 0 a model on another provider,
@@ -560,10 +567,13 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
             executor = None
         return pick_models(cfg, providers, executor, False, log, resuming=True,
                            quiet=True, repo=repo, workers=workers)
+    # a resume that needs no executor keeps it, so the reviewer is picked beside its writers
+    needs = resume_needs_executor(state)
     review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
-                               role="reviewer", quiet=True, repo=repo)
+                               role="reviewer", quiet=True, repo=repo,
+                               writers=None if needs else review_writers(state))
     executor, reviewer = state.get("executor"), state.get("reviewer")
-    if not resume_needs_executor(state):
+    if not needs:
         order = reviewer_order(cfg, executor, review_order) if executor else review_order
         if order:
             return executor, reviewer if reviewer in order else order[0]
@@ -635,7 +645,7 @@ def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None)
     return available
 
 
-def reviewable_models(cfg, providers, workers, now, executor=None):
+def reviewable_models(cfg, providers, workers, now, executor=None, writers=None):
     """(model, provider) pairs that can review now, in pick order.
 
     The reviewer's half of `executable_models`, under the same rule: kept by the
@@ -643,12 +653,12 @@ def reviewable_models(cfg, providers, workers, now, executor=None):
     saved executor is checked too -- a spare the policy forbids beside this executor is
     no reviewer to resume for, and the loop would only park the run again.  Without an
     executor the legality check has nothing to check against, so every available model
-    counts.
+    counts.  `writers` narrow the pick as `ready_order`'s do.
     """
     from . import usage  # here, not at the top: usage imports staffing
     try:
         order = ready_order(cfg, providers, workers=workers, role="reviewer",
-                            quiet=True)
+                            quiet=True, writers=writers)
     except (config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
         return []
     if executor:
