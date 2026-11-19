@@ -25,7 +25,7 @@ from fixtures.gitrig import Rig
 
 BOUND = 300     # one `ak run` of scripted turns, on a loaded host
 CHECK = "test -f sturdy.txt"
-OUTCOME = "Fix AGENTS.md:1 - flimsy widget - it breaks later"
+ITEM = "AGENTS.md:1 - flimsy widget - it breaks later"
 REVIEW = {"final": "One more defect.", "hand_in": [
     ["follow-up", "AGENTS.md:1", "flimsy widget", "it breaks later", "--run", CHECK], ["done"]]}
 # the follow-up's fix run, launched by the first merge, holds its turn till the Home ends: its
@@ -84,8 +84,9 @@ class EndingWaitsForNoVerification(unittest.TestCase):
                    if (run / "task.md").read_text().startswith(task.read_text()))
         state = json.loads((run / "run.json").read_text())
         self.assertTrue(state.get("merged"), state)
-        self.assertEqual([entry.get("outcome") for entry in state.get("followup_plan") or []],
-                         [OUTCOME], state)
+        self.assertEqual([item.splitlines()[0] for item in state.get("followups") or []],
+                         [ITEM], state)
+        self.assertIn("followup_runs", state)      # handed on
         return state
 
     def test_runs_merged_while_the_plan_verifies_end_at_once_and_their_merges_are_checked(self):

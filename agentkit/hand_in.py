@@ -48,19 +48,18 @@ def proof_failed(proof):
 
 
 def plan_check(command, root=None):
-    """Whether `command` can check a follow-up: its seat's plan line and its fix run's done-when
-    run it on a fresh checkout of the default branch, as one shell command on one line, without
-    backticks or this checkout's path (`root`)."""
+    """Whether `command` can check a follow-up: its fix run's done-when runs it on a fresh
+    checkout of the default branch, as one shell command on one line, without backticks or this
+    checkout's path (`root`)."""
     return (len(command.strip().splitlines()) == 1 and "`" not in command
             and not (root and str(root) in command))
 
 
 def unbounded(evidence):
     """`evidence`'s command as a follow-up's check, without the `timeout N` its reviewer began it
-    with: a plan line and a fix run's done-when each bound it themselves, and on a loaded host a
-    right fix ran past the reviewer's 120 s (213 s at load 240, 4 s idle; 12 Nov 2026), which
-    ended its fix run blocked.  A proof that ended in 124 keeps its bound: there the bound is
-    what fails."""
+    with: a fix run's done-when bounds it itself, and on a loaded host a right fix ran past the
+    reviewer's 120 s (213 s at load 240, 4 s idle; 12 Nov 2026), which ended its fix run
+    blocked.  A proof that ended in 124 keeps its bound: there the bound is what fails."""
     bound = re.match(r"timeout\s+\d+(?:\.\d+)?[smhd]?\s+(?=\S)", evidence["run"])
     return evidence["run"][bound.end():] if bound and evidence["returncode"] != 124 else evidence["run"]
 
@@ -171,19 +170,12 @@ class Review:
     @property
     def followup_checks(self):
         """Each follow-up's failing command by its text, without its reviewer's bound
-        (`unbounded`): the check of its seat's plan line.  A finding ak made a follow-up, its
+        (`unbounded`): its fix run's done-when.  A finding ak made a follow-up, its
         defect older than the task, may carry a proof that cannot be one (`plan_check`): its fix
         run writes a regression test of its own instead."""
         return {item_text(row): unbounded(row["evidence"]) for row in self.records
                 if row["kind"] == "follow-up" and "run" in row["evidence"]
                 and plan_check(row["evidence"]["run"])}
-
-    @property
-    def followup_commits(self):
-        """Each follow-up's text with the commit its command was proven to fail on, which its plan
-        line names: the base for one handed in with --before, the reviewed commit otherwise."""
-        return {item_text(row): row["evidence"]["commit"] for row in self.records
-                if row["kind"] == "follow-up" and "commit" in row["evidence"]}
 
     @property
     def followup_defects(self):
@@ -350,7 +342,7 @@ def checked(argv, workspace, role="reviewer", findings=(), disputes=()):
     command = flags.get("--run")
     if kind == "follow-up" and command and not plan_check(command, root):
         raise config.Error("write a follow-up's --run as one shell command, without backticks, "
-                           "line breaks or this checkout's path: it becomes a plan check")
+                           "line breaks or this checkout's path: it becomes its fix run's done-when")
     guard = command and exit_guard(command)
     if guard:
         raise config.Error(f"`{guard}` makes the command pass whatever the code does, so its replay "

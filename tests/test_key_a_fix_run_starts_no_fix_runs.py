@@ -1,10 +1,10 @@
 """A fix run's review starts no further fix runs: follow-ups go one level deep.
 
-A task's run whose review hands in a follow-up merges, and its seat gets the follow-up as a
-deferred line in its plan and a fix run of its own, as `test_key_followup_plan_line` proves.
-That fix run is reviewed too, and its review hands in a follow-up of its own; the fix run
-merges, its line is ticked done, and nothing more: the seat's plan holds no line for the new
-follow-up, no run starts for it, and the fix run's result lists it and says it starts no run.
+A task's run whose review hands in a follow-up merges, and its seat gets a fix run of its own
+for the follow-up, as `test_key_a_follow_up_is_no_plan_line` proves.  That fix run is reviewed
+too, and its review hands in a follow-up of its own; the fix run merges, and nothing more: the
+seat's plan holds no line for the new follow-up, no run starts for it, and the fix run's result
+lists it and says it starts no run.
 A chain of fix runs, each starting more, would keep a seat's work from ever ending.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, from a
 seat of akseat.py, against the origin of gitrig.py and the GitHub of fakegh.py, with scripted
@@ -94,14 +94,12 @@ class AFixRunStartsNoFixRuns(unittest.TestCase):
         text = (cls.home.path / ".agentkit/state/plan-acme.md").read_text()
         return text.replace(PLAN_LINE + "\n", "", 1)
 
-    def test_the_task_s_follow_up_gets_its_plan_line_and_its_fix_run_as_today(self):
+    def test_the_task_s_follow_up_gets_its_fix_run(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         parent = state(self.parent_dir)
         self.assertEqual((parent["state"], parent["merged"]), ("pass", True))
         self.assertIsNotNone(self.fix_dir, taskfile.runs(self.home))
         self.assertEqual(parent.get("followup_runs"), [self.fix_dir.name])
-        self.assertEqual([entry.get("deferred") for entry in parent.get("followup_plan") or []],
-                         [True])
         self.assertIn(f"## Done when\n```bash\n{CHECK}\n```",
                       (self.fix_dir / "task.md").read_text())
 
@@ -115,10 +113,7 @@ class AFixRunStartsNoFixRuns(unittest.TestCase):
 
     def test_its_follow_up_writes_no_plan_line_and_starts_no_run(self):
         self.assertTrue(self.ended, state(self.fix_dir) if self.fix_dir else None)
-        lines = [line for line in self.plan().splitlines() if line.strip()]
-        self.assertEqual(len(lines), 1, self.plan())
-        self.assertTrue(lines[0].startswith("- [x] Fix retry.txt:1"), self.plan())
-        self.assertNotIn(AGAIN, self.plan())
+        self.assertEqual(self.plan(), "")
         self.assertEqual(taskfile.runs(self.home), sorted([self.parent_dir, self.fix_dir]))
         self.assertFalse(state(self.fix_dir).get("followup_runs"))
 

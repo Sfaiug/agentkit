@@ -147,23 +147,6 @@ def followups_handed(run_dir, state, handed):
     save_result(run_dir, notices=(followup_report(state),))
 
 
-def plan_followup(session, repo, item, check, proven, log, deferred=True):
-    """Write one review follow-up into the seat's plan, unless an open line already holds its
-    check in this project; the entry the run's ending names it by, or why the plan refused it.
-    `proven` is the commit the check failed on, which the line names; the line is `deferred`
-    where a fix run has it.  The entry says how the plan holds the line: an open line that
-    already held the check is kept, deferred or the seat's own as this merge finds it."""
-    outcome = "Fix " + item.splitlines()[0].replace("·", "-")
-    try:
-        line = plan.add(session, outcome, check, repo, proven=proven, deferred=deferred)
-        entry = {"outcome": outcome, "deferred": plan.deferred(line)}
-    except (config.Error, OSError) as exc:
-        entry = {"outcome": outcome, "refused": str(exc)}
-    log(f"follow-up for {session}: {outcome}" + (f" (not planned: {entry['refused']})"
-                                                if "refused" in entry else " (in its plan)"))
-    return entry
-
-
 def retry_command(state):
     """The one command that finishes a PASS whose delivery failed, or None.
 
@@ -1293,19 +1276,16 @@ def park_stalled(run_dir, state, entry):
 def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     """A merge hands its follow-ups on, once, under the same lock that closes the seat.
 
-    A review follow-up becomes a line in the seat's own plan, checked by its failing command,
-    and a fix run of its own with that command as its done-when: every planned item's line is
-    written in one place, once the runs are settled, however the loop ended -- deferred,
-    holding no done, where a run has the item (started here, or open with that check from
-    an earlier merge), and the seat's own to build where none does: the session marks no
-    executor, the launch failed, or a stop cut the loop short; a line an earlier merge wrote
-    is kept, its mark following.  Anything else on the list (a flaky check's
-    evidence) starts an ordinary run with a regression test of its own.  The receipt is
-    written once the list is handed
-    on: a process cut off before that hands it on again, and each item finds what the cut-off
-    one already did -- its open plan line, the fix run it started.  A fix run waits for its slot
-    from its first record on, so one the cut left before its launch is a slot wait the tick
-    resumes.  There is no collector or backlog: this ending alone gets to hand on its list.
+    A review follow-up starts a fix run of its own with its failing command as its done-when;
+    anything else on the list (a flaky check's evidence) starts an ordinary run with a
+    regression test of its own.  The fix run's record is where a follow-up lives: one no run
+    started for -- the session marks no executor, the launch failed, or a stop cut the loop
+    short -- is listed in the result (`followup_report`) and nothing more.  The receipt is
+    written once the list is handed on: a process cut off before that hands it on again, and
+    each item finds the fix run the cut-off one already started, listed even once the session
+    marks no executor.  A fix run waits for its slot from its first record on, so one the cut
+    left before its launch is a slot wait the tick resumes.  There is no collector or backlog:
+    this ending alone gets to hand on its list.
 
     A target failing a check on its own tip starts one the same way, before any merge:
     `repair` is what `target_fails` saw -- the `command`, its done-when `check` line, the
@@ -1321,10 +1301,11 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
     """
     from . import gate, run, watch  # here, not at the top: run imports handback; the rest reach run
     session = transitions.launched_session(state)
-    # One level deep, whatever model reviews: a run ak started (its `followup`) hands on none
-    # of its own, which its result says (`followup_report`).  The owner, 18 Nov 2026: old
-    # defects beside a change are worth fixing along the way, but a reviewer must not be
-    # "adding task after task and making sessions run forever".
+    # One level deep, whatever model reviews, and no line in the seat's plan, which a seat
+    # cannot finish while one is open: a run ak started (its `followup`) hands on none of its
+    # own, which its result says (`followup_report`).  The owner, 18 Nov 2026: old defects
+    # beside a change are worth fixing along the way, but a reviewer must not be "adding task
+    # after task and making sessions run forever".
     handing = state.get("merged") and state.get("followups") and not state.get("followup")
     if (not (repair or split or handing) or not session
             or not state.get("repo") or state.get("scratch")
@@ -1343,51 +1324,32 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             return None
         request = repair or split
         checks = {} if request else state.get("followup_checks") or {}
-        commits = {} if request else state.get("followup_commits") or {}
         items = [request["text"]] if request else state["followups"]
-        planned = [item for item in items if item in checks]   # the seat's own, executors or not
-        repo = gitcall.main_checkout(Path(state["repo"])) if planned else None
         record = config.session_records().get(config.resolve_session(session), {})
-        fixers = record.get("workers") != []      # a run can take a line; else the seat does
-        handed = {"followup_runs": [], "followup_plan": []}
-        taken = set()       # the items a run has: started here, or already open with the check
-
-        def plan_lines():
-            """Every planned item's line, once, however the loop ended: deferred where a run
-            has it (taken here, or open with its check from an earlier merge, which a stop
-            or a seat with no executor never asked), the seat's own to build otherwise."""
-            handed["followup_plan"] = [
-                plan_followup(session, repo, item, checks[item],
-                              commits.get(item) or state.get("base_sha"), log,
-                              deferred=item in taken or bool(open_followup(
-                                  {**state, "repo": str(repo)}, item, check=checks[item])))
-                for item in planned]
-
+        executors = record.get("workers") != []      # a seat that marks none gets no new run
+        handed, repo = {"followup_runs": []}, None
         cfg = transitions.report_config(cfg)
-        if not fixers:
-            plan_lines()
-            return None if request else followups_handed(run_dir, state, handed)
-        repo = repo or gitcall.main_checkout(Path(state["repo"]))
         target = (state.get("target") or state["base"]).removeprefix("origin/")
-        if split:
-            previous = gate.read_suite_cost(Path(split["cost"])).get("split_run")
-            if previous:
-                return previous
         key = repair and {"target": target, "command": repair["command"],
                           **{kind: repair[kind] for kind in ("flaky", "revert") if kind in repair}}
         for item in items:
             started = None if request else started_by(run_dir, item)
             if started:
                 handed["followup_runs"].append(started)
-                taken.add(item)
                 continue
+            if not executors:
+                continue
+            previous = split and gate.read_suite_cost(Path(split["cost"])).get("split_run")
+            if previous:
+                return previous
+            # found once, for the first run to start: a worktree it names may go meanwhile
+            repo = repo or gitcall.main_checkout(Path(state["repo"]))
             source = {**state, "repo": str(repo)}
             opened = open_followup(source, item, key, repair and repair["sha"],
                                    split and split["command"], check=checks.get(item))
             if opened and request:
                 return opened
             if opened:
-                taken.add(item)
                 continue
             title = ("Split the slow test suite" if split else
                      f"Revert broken release {repair['sha'][:7]}" if repair and repair.get("revert") else
@@ -1447,10 +1409,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                     "repo": str(repo)}, cfg, opts={"--first": True} if request else {})
             except run_record.StopRequested as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
-                if request:
-                    return None
-                plan_lines()        # the lines of every item, this one and the rest owed
-                return followups_handed(run_dir, state, handed)
+                break
             except (config.Error, OSError) as exc:
                 log(f"follow-up {directory.name} could not start: {exc}")
                 if split:
@@ -1464,9 +1423,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             if request:
                 return directory.name
             handed["followup_runs"].append(directory.name)
-            taken.add(item)
         if not request:
-            plan_lines()
             return followups_handed(run_dir, state, handed)
 
 

@@ -166,8 +166,8 @@ var (
 
 // ManifestPaths is each of a manifest's paths resolved for env, the environment the harness
 // runs in, as Python's config.manifest_paths: `~/` is its home, `$VARIABLE` and
-// `${VARIABLE:-default}` its variables, and a relative path is under cwd.  A path naming a
-// variable that is unset or empty, with no default, is left out.
+// `${VARIABLE:-default}` its variables, a value taken as written, and a relative path is under
+// cwd.  A path naming a variable that is unset or empty, with no default, is left out.
 func ManifestPaths(names []string, env map[string]string, cwd string) []string {
 	values := map[string]string{}
 	for key, value := range env {
@@ -185,8 +185,8 @@ func ManifestPaths(names []string, env map[string]string, cwd string) []string {
 				return match
 			}
 			parts := defaulted.FindStringSubmatch(match)
-			if value := values[parts[1]]; value != "" {
-				return value
+			if value := values[parts[1]]; value != "" { // escaped, so it stays as written, as `$NAME`'s does
+				return strings.ReplaceAll(value, "$", "$$")
 			}
 			return parts[2]
 		})

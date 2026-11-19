@@ -47,7 +47,7 @@ var entries = map[string]entry{
 	},
 	"hand-in follow-up": {
 		"usage: ak hand-in follow-up PATH:LINE \"WHAT\" \"WHY IT MATTERS\" (--run COMMAND | --quote LINES) [--before PROOF]",
-		"Hand in a defect that existed before the task, to fix after the merge (--before proves it);\nwithout --before, --run must fail on the reviewed commit, and one passing on base is weighed as a finding, since this change caused it.\nIts command becomes the check of a line in the owning session's plan, deferred once a fix run of its own has it.",
+		"Hand in a defect that existed before the task, to fix after the merge (--before proves it);\nwithout --before, --run must fail on the reviewed commit, and one passing on base is weighed as a finding, since this change caused it.\nIts command becomes the done-when of a fix run of its own.",
 		"ak hand-in follow-up api.py:12 \"Wrong result\" \"Breaks callers\" --run \"python3 reproduce.py\" --before \"return None\"",
 	},
 	"hand-in dispute": {

@@ -20,7 +20,7 @@ from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
-from test_key_followup_plan_line import alive, held, wait_for
+from test_key_a_follow_up_is_no_plan_line import alive, held, wait_for
 
 ALPHA, STARRED = "alpha*/api.py:1", "*alpha*/api.py:1"
 
