@@ -459,9 +459,11 @@ def listed():
         return [], {}
 
 
-def ours(cfg):
-    """The listed releases of your companies (`companies`): what the models screen counts."""
-    lineup, found = listed()
+def ours(cfg, reading=None):
+    """The listed releases of your companies (`companies`): what the models screen counts.  Off
+    `reading`, `listed`'s pair, where the caller read one: a refresh between two reads would mix
+    two lineups."""
+    lineup, found = reading or listed()
     makers = companies(cfg, lineup)
     return {slug for slug, maker in found.items() if maker in makers}
 
@@ -486,7 +488,7 @@ def off(cfg):
     turned = set(cfg.get("models_off") or ())
     if not makers and not turned:
         return set()
-    gone = set(makers) - compared(cfg) | turned
+    gone = set(makers) - ours(cfg, (lineup, makers)) | turned
     named = _release_index({"slug": slug, "name": None} for slug in turned)
 
     def is_off(entry):
