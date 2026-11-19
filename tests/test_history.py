@@ -49,6 +49,40 @@ class HistoryTests(unittest.TestCase):
             transitions.history_start({**state, "plan_line": later})
             self.assertEqual(history.get("r1")["plan_line"], line)
 
+    def test_the_orchestrator_effort_is_the_receipt_s_as_the_row_started(self):
+        state = self.home / "state"
+        state.mkdir()
+        (state / "session-seat.json").write_text(json.dumps({"orchestrator": "fable"}))
+        (state / "session-numbered.json").write_text(json.dumps({"orchestrator": 1}))
+        (state / "session-unnamed.json").write_text(json.dumps({"orchestrator": ""}))
+        receipt = {"run_id": "r1", "launched_session": "seat",
+                   "efforts": {"fable": {"effort": "max", "exec_effort": "low"}}}
+        with patch.object(config, "STATE", state):
+            transitions.history_start(receipt)
+            self.assertEqual(history.get("r1")["orchestrator_effort"], "max")
+            transitions.history_start({**receipt, "efforts": {"fable": {"effort": "low"}}})
+            self.assertEqual(history.get("r1")["orchestrator_effort"], "max")   # a resume leaves it
+            # an adapter's effort word is kept as written, a joiner and all; none where there
+            # is no seat, so no orchestrator; none held for it; none held as a word; none held
+            # by name: each still a row naming its orchestrator
+            word = "فوق\u200cالعاده"
+            for n, (held, orchestrator, effort) in enumerate((
+                    ({"efforts": {"fable": {"effort": word}}}, "fable", word),
+                    ({"launched_session": None}, None, None), ({"efforts": {}}, "fable", None),
+                    ({"efforts": {"opus": {"effort": "max"}}}, "fable", None),
+                    ({"efforts": {"fable": {"exec_effort": "max"}}}, "fable", None),
+                    *(({"efforts": {"fable": {"effort": effort}}}, "fable", None)
+                      for effort in (["max"], "", " ", "\ud800")),
+                    ({"efforts": ["fable"]}, "fable", None),
+                    *(({"launched_session": "numbered", "efforts": efforts}, "1", None)
+                      for efforts in ([], [{}, {"effort": "high"}])),
+                    ({"launched_session": "unnamed", "efforts": {"": {"effort": "high"}}}, "",
+                     None))):
+                transitions.history_start({**receipt, "run_id": f"r{n + 2}", **held})
+                row = history.get(f"r{n + 2}")
+                self.assertEqual((row["orchestrator"], row["orchestrator_effort"]),
+                                 (orchestrator, effort), held)
+
     def test_launch_kind_follows_the_origin_before_review_ownership(self):
         pr = {"review_pr": "https://github.com/acme/widgets/pull/1", "own_pr": True}
         followup = {"followup": {"run": "earlier"}}
