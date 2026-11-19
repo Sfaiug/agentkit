@@ -160,7 +160,7 @@ func Words(harness, section, key string) ([]string, error) {
 }
 
 var (
-	defaulted   = regexp.MustCompile(`\$\{(\w+):-([^}]*)\}`)
+	defaulted   = regexp.MustCompile(`\$\$|\$\{(\w+):-([^}]*)\}`)
 	placeholder = regexp.MustCompile(`(?i)\$(?:(\$)|([_a-z][_a-z0-9]*)|\{([_a-z][_a-z0-9]*)\}|)`)
 )
 
@@ -181,6 +181,9 @@ func ManifestPaths(names []string, env map[string]string, cwd string) []string {
 	var paths []string
 	for _, name := range names {
 		name = defaulted.ReplaceAllStringFunc(name, func(match string) string {
+			if match == "$$" { // a dollar as written, left whole for placeholder
+				return match
+			}
 			parts := defaulted.FindStringSubmatch(match)
 			if value := values[parts[1]]; value != "" {
 				return value
