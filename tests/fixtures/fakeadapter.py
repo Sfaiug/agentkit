@@ -204,8 +204,10 @@ def install(home, **harnesses):
         kept = "".join(re.findall(r"(?m)^(?:sessions|lent_for) = .*\n", text))
         text = re.sub(r"(?ms)^\[worker\]\n.*?(?=^\[|\Z)", "", text).rstrip()
         # read back as templates (`config.manifest_paths`), where `$$` is a dollar as written
+        # unescaped: TOML refuses the surrogate pair JSON escapes a character past U+FFFF into
         state = json.dumps([str(path).replace("$", "$$")
-                            for path in (directory, Path(AK).parent)])     # a turn hands in through AK
+                            for path in (directory, Path(AK).parent)],     # a turn hands in through AK
+                           ensure_ascii=False)
         fake.manifest.write_text(f"{text}\n\n[worker]\nstate = {state}\n{kept}")
     return fakes
 
