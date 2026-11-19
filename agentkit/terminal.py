@@ -1168,7 +1168,7 @@ def read_key(timeout=None, wake=None):
                 return None
         key = _key(fd)
         if key is None:            # the button went down: the click is when it comes up
-            _PRESSED = True
+            _PRESSED = not _scrolled()     # down on a screen scrolled off its rows, it is none
         elif key.name.startswith("wheel"):
             key = _notches(key, fd)
         elif key.name == "answer":     # the terminal's, to `sense`, and no key at all
@@ -1211,7 +1211,7 @@ def _point(key):
     """The pointer at `key`, a move or a click: on no row of a screen that has rows, lines or
     cells that are rows of their own (`under`), it puts out the highlight (`away`)."""
     global _POINTER, _AWAY
-    _POINTER, _AWAY = key, under(key, _SPOTS).what is None and any(
+    _POINTER, _AWAY = key, not _scrolled() and under(key, _SPOTS).what is None and any(
         what is not None or any(own for _, _, _, *own in places)
         for what, places, *_ in _SPOTS.values())
 
@@ -1375,13 +1375,22 @@ def under(key, spots):
     from its first column to the layout's last, as its band is drawn (`highlight`).  On a row
     with such cells -- a model's marks on `c` -- the rest is on nothing; a cell of None is that
     row itself, over its columns.
+    On a screen up that was `_scrolled`, every position is on nothing.
     """
+    if _scrolled():
+        return Spot()
     what, places = spots.get(key.row, (None, ()))
     for first, last, cell, *own in places:
         if first <= key.col <= last:
             return Spot(own[0] if own else what, cell, first, last)
     whole = what is not None and all(isinstance(cell, tuple) for _, _, cell, *_ in places)
     return Spot(what) if whole and 1 <= key.col <= layout_width() else Spot()
+
+
+def _scrolled():
+    """Whether the screen up (`lit`) has as many lines as `height` and its padding, or more: it
+    was scrolled off the rows counted for them as it was written, and the pointer is on nothing."""
+    return len(_PAINTED) >= height() + _PAD
 
 
 def pointer():
