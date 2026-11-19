@@ -24,9 +24,10 @@ machine.  akbin's `boxable()` says whether bubblewrap can build the machines her
 
 A key holds one machine: `vm.client_of(mini)` makes it the other's client, as install.sh records
 it; `mini.silence()` turns it off and `mini.hang()` has it take ssh and answer nothing, till
-`mini.answer()`.  Each machine's crontab is installer.py's, its table `root / "crontab"` on the
-test's side, and `vm.copy()` is its `tree` but ak's tmp folder, each machine's own: what a
-standby's pass copies, or leaves as it was.
+`mini.answer()`.  `machines.break_remote(how)` breaks their origin for the machines it names, or
+all, till `machines.mend_remote()`.  Each machine's crontab is installer.py's, its table
+`root / "crontab"` on the test's side, and `vm.copy()` is its `tree` but ak's tmp folder, each
+machine's own: what a standby's pass copies, or leaves as it was.
 """
 
 import contextlib
@@ -77,6 +78,9 @@ class Machine(Home):
             self.env["HOME"] = str(self.at / home)
         self.name = name
         self.down = None    # how ssh to it fails: "silent", or "hang"
+        self.remote = (None, None)      # how its git calls to the origin fail: `break_remote`
+        self._faulting = threading.Lock()   # while a call takes its fault: a write's, one push's
+        self.held = threading.Semaphore(0)      # released for each call the origin holds silent
         self._starting, self._started = threading.Lock(), []
         self.sshd = self.tmux_dir / "sshd.sock"     # short, as a socket's path must be
         # ak's cgroups beside its home, never in it: a copy of a home carries none to another
@@ -167,7 +171,8 @@ class Machines(tuple):
         machines.sshds = []
         for machine in machines:
             listener = socket.create_server(str(machine.sshd), family=socket.AF_UNIX)
-            thread = threading.Thread(target=_sshd, args=(listener, machines), daemon=True)
+            thread = threading.Thread(target=_sshd, args=(listener, machine, machines),
+                                      daemon=True)
             thread.start()
             machines.sshds.append((listener, thread))
         return machines
@@ -177,6 +182,22 @@ class Machines(tuple):
 
     def __exit__(self, *_exc):
         self.close()
+
+    def break_remote(self, how, *machines, refs=None):
+        """Have the origin fail `machines`, or else all, `how`, till `mend_remote`: "unreachable",
+        every git call to it failing; "silent", each taken and never answered, mended meanwhile
+        or not, till its caller ends it, a machine's `held` released for each; "lost", each push
+        taken whole and its answer lost, its writer told no more than the refs the origin held
+        and that the connection broke; "between", the next push of each finding `refs`, each
+        named with a commit origin holds or None, on the origin in the place of the values it
+        expected, as when another machine wrote between this one's read and its push."""
+        for machine in machines or self:
+            with machine._faulting:     # never between a push taking its write and clearing it
+                machine.remote = (how, dict(refs or {}))
+
+    def mend_remote(self, *machines):
+        """Have the origin answer `machines`, or else all, again."""
+        self.break_remote(None, *machines)
 
     def close(self):
         sshds, self.sshds = self.sshds, []      # each ended once, however often `close` runs
@@ -188,23 +209,23 @@ class Machines(tuple):
             machine.close()
 
 
-def _sshd(listener, machines):
-    """Take each ssh's call on `listener` until it is shut down."""
+def _sshd(listener, caller, machines):
+    """Take each ssh's call on `listener`, `caller`'s sshd, until it is shut down."""
     while True:
         try:
             peer = listener.accept()[0]
         except OSError:
             return
-        threading.Thread(target=_session, args=(peer, machines), daemon=True).start()
+        threading.Thread(target=_session, args=(peer, caller, machines), daemon=True).start()
 
 
-def _session(peer, machines):
-    """Run what an ssh asks on the machine it names, or git's fetch or push of the origin on this
-    side, with its input and outputs, and answer its exit; an ssh gone before it ends ends it, as
-    sshd does."""
+def _session(peer, caller, machines):
+    """Run what an ssh on `caller` asks on the machine it names, or git's fetch or push of the
+    origin on this side, as `caller`'s remote fails, with its input and outputs, and answer its
+    exit; an ssh gone before it ends ends it, as sshd does."""
     with peer:
         asked, fds, _, _ = socket.recv_fds(peer, 1 << 16, 3)
-        proc = hung = None
+        proc = hung = lost = None
         try:     # whatever it asks, its input and outputs are this side's no longer
             while not asked.endswith(b"\n"):     # the rest of its line
                 more = peer.recv(1 << 16)
@@ -214,11 +235,31 @@ def _session(peer, machines):
             name, command = json.loads(asked)
             machine = next((machine for machine in machines if machine.name == name), None)
             if (name, command) in (FETCH, PUSH):    # as GitHub runs it, where its repositories are
-                proc = subprocess.Popen(shlex.split(command),
-                                        cwd=machines[0].install.bare.parents[1],
-                                        stdin=fds[0], stdout=fds[1], stderr=fds[2],
-                                        env={"PATH": os.pathsep.join(SYSTEM)},
-                                        start_new_session=True)
+                with caller._faulting:
+                    how, refs = caller.remote
+                    if how == "between" and (name, command) == PUSH:     # its next push alone
+                        caller.remote = (None, None)
+                        for ref, value in refs.items():
+                            machines[0].install.set_ref(ref, value)
+                lost = how == "lost" and (name, command) == PUSH
+                if how == "unreachable":
+                    os.write(fds[2], "ssh: connect to host github.com port 22: "
+                                     f"{os.strerror(errno.EHOSTUNREACH)}\n".encode())
+                elif how == "silent":
+                    hung = True
+                    caller.held.release()
+                else:
+                    out = fds[1]
+                    if lost:
+                        answers, out = os.pipe()
+                        fds.append(out)     # closed with the rest once receive-pack holds it
+                        threading.Thread(target=_advertise, args=(answers, os.dup(fds[1])),
+                                         daemon=True).start()
+                    proc = subprocess.Popen(shlex.split(command),
+                                            cwd=machines[0].install.bare.parents[1],
+                                            stdin=fds[0], stdout=out, stderr=fds[2],
+                                            env={"PATH": os.pathsep.join(SYSTEM)},
+                                            start_new_session=True)
             elif machine is None:
                 os.write(fds[2], f"ssh: Could not resolve hostname {name}: "
                                  "Name or service not known\n".encode())
@@ -245,4 +286,17 @@ def _session(peer, machines):
                 return _end(proc)
             code = proc.wait()
         with contextlib.suppress(OSError):      # gone meanwhile
-            peer.sendall(b"%d" % (code if code >= 0 else 255))     # killed: 255, as ssh says
+            # killed, or its answer lost once the push is whole: 255, as ssh says
+            peer.sendall(b"%d" % (255 if lost or code < 0 else code))
+
+
+def _advertise(answers, writer):
+    """Pass receive-pack's `answers` to `writer` through the flush ending its advertisement of the
+    refs, git's pkt-lines, and drop the rest: what it tells of the push never reaches its writer."""
+    with open(answers, "rb") as told:
+        with contextlib.suppress(OSError), open(writer, "wb") as sent:     # gone meanwhile
+            while (size := told.read(4)) not in (b"", b"0000"):
+                sent.write(size + told.read(int(size, 16) - 4))
+            sent.write(size)
+        while told.read(1 << 16):
+            pass

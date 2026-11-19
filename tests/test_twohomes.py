@@ -3,17 +3,19 @@ alike, each with a host name, a home at the other's path, a /tmp, fakes, variabl
 root and an ak install of its own, and each reaching the other by ssh as the key and the tick
 reach it; a third where a key names one; one a key holds made the other's client, silent or
 hanging; and their installs' one origin, which a fetch reaches from either, the other silent,
-and a push of a ref under refs/agentkit/ too, by compare-and-swap, which a key reads and writes."""
+and a push of a ref under refs/agentkit/ too, by compare-and-swap, which a key reads and writes;
+and that origin broken, for one machine or both, each way a remote fails, and mended."""
 
 from concurrent.futures import ThreadPoolExecutor
 import os
+import subprocess
 import sys
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import boxable
+from fixtures.akbin import _end, boxable
 from fixtures.akinstall import ORIGIN, agentkit_refs
 from fixtures.twohomes import Machines
 
@@ -186,6 +188,13 @@ class TwoHomes(unittest.TestCase):
         `--refs` lists no peeled `^{}` line beside a tag's."""
         return agentkit_refs(machine.install.git("ls-remote", "--refs", "origin", raw=True))
 
+    @staticmethod
+    def push(machine, ref, old, value):
+        """Push `value` to `ref` from `machine`'s install if the remote's `ref` names `old`, None
+        when absent, as a machine takes a lease."""
+        return machine.run("git", "-C", machine.install.at, "push", "-q",
+                           f"--force-with-lease={ref}:{old or ''}", "origin", f"{value}:{ref}")
+
     def test_a_ref_one_pushes_is_what_the_other_and_the_key_read(self):
         install, pushed = self.machines[0].install, {}
         for machine, other in self.pairs:
@@ -203,14 +212,10 @@ class TwoHomes(unittest.TestCase):
         install.set_ref(ref, old)
         self.addCleanup(install.set_ref, ref, None)
         made = {machine.name: self.commit_on(machine) for machine in self.machines}
-
-        def push(machine):     # both at once, as two machines taking one lease would
-            return machine.run("git", "-C", machine.install.at, "push", "-q",
-                               f"--force-with-lease={ref}:{old}", "origin",
-                               f"{made[machine.name]}:{ref}").code
-
-        with ThreadPoolExecutor() as pool:
-            codes = dict(zip(made, pool.map(push, self.machines)))
+        with ThreadPoolExecutor() as pool:      # both at once, as two machines taking one lease
+            codes = dict(zip(made, pool.map(
+                lambda machine: self.push(machine, ref, old, made[machine.name]).code,
+                self.machines)))
         self.assertEqual(sorted(code == 0 for code in codes.values()), [False, True], codes)
         won = next(name for name, code in codes.items() if code == 0)
         self.assertEqual(install.refs(), {ref: made[won]})
@@ -223,6 +228,68 @@ class TwoHomes(unittest.TestCase):
         for value, read in ((install.origin(), {ref: install.origin()}), (None, {})):
             install.set_ref(ref, value)
             self.assertEqual([self.read(machine) for machine in self.machines], [read] * 2)
+
+    def broken(self, how, *machines, between=None):
+        """The origin broken `how` for `machines`, or both, till the test ends, a write that comes
+        between putting `between` on the one ref the test reads and writes there, absent at its
+        end too; the install that reads the origin, and that ref."""
+        install, ref = self.machines[0].install, "refs/agentkit/home"
+        self.addCleanup(install.set_ref, ref, None)
+        self.addCleanup(self.machines.mend_remote)
+        self.machines.break_remote(how, *machines, refs={ref: between})
+        return install, ref
+
+    def test_an_unreachable_remote_fails_each_way_for_its_machine_alone_till_mended(self):
+        mini, vm = self.machines
+        _, ref = self.broken("unreachable", mini)
+        # a read, then a push of a fresh commit naming the value read, each saying it got through
+        line = (f'cd "$HOME/agentkit"; read=$(git ls-remote origin {ref}) && echo read; '
+                f'git push -q "--force-with-lease={ref}:${{read%%[[:space:]]*}}" origin '
+                f'"$(git commit-tree -m "after $read" "HEAD^{{tree}}"):{ref}" && echo pushed')
+        self.assertEqual(self.each_way(mini, vm, line), [""] * 3)
+        self.assertEqual(self.each_way(vm, mini, line), ["read\npushed\n"] * 3)
+        self.machines.mend_remote()
+        for machine, other in self.pairs:
+            self.assertEqual(self.each_way(machine, other, line), ["read\npushed\n"] * 3)
+
+    def test_a_silent_remote_holds_a_push_past_its_mend_till_the_test_ends_it(self):
+        mini, _ = self.machines
+        install, ref = self.broken("silent")
+        made = self.commit_on(mini)
+        argv = ["git", "-C", mini.install.at, "push", "-q", f"--force-with-lease={ref}:",
+                "origin", f"{made}:{ref}"]
+        waiting = mini._popen(argv, None, None, stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(_end, waiting)
+        self.assertTrue(mini.held.acquire(timeout=60), "the remote took no call")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            waiting.wait(timeout=2)
+        self.assertEqual(install.refs(), {})
+        self.machines.mend_remote()
+        done = self.push(mini, ref, None, made)
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(install.refs(), {ref: made})
+        self.assertIsNone(waiting.poll())
+
+    def test_a_lost_answer_fails_a_push_the_remote_keeps(self):
+        mini, _ = self.machines
+        install, ref = self.broken("lost")
+        made = self.commit_on(mini)
+        self.assertNotEqual(self.push(mini, ref, None, made).code, 0)
+        self.assertEqual(install.refs(), {ref: made})
+
+    def test_a_write_that_comes_between_refuses_that_machines_next_push_alone(self):
+        mini, vm = self.machines
+        between = mini.install.origin()
+        install, ref = self.broken("between", mini, between=between)
+        theirs, mine = self.commit_on(vm), self.commit_on(mini)
+        self.assertEqual(self.push(vm, ref, None, theirs).code, 0)    # vm's push meets none
+        read = self.read(mini)[ref]
+        self.assertNotEqual(self.push(mini, ref, read, mine).code, 0)
+        self.assertEqual(install.refs(), {ref: between})
+        done = self.push(mini, ref, between, mine)
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(install.refs(), {ref: mine})
 
     def test_a_tick_moves_the_install_it_runs_from_alone(self):
         with Machines("acme-mini", "acme-vm") as (mini, vm):
