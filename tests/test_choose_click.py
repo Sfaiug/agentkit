@@ -1,6 +1,6 @@
 """A chooser's Enter and Esc answer as their keys do; a click on nothing does nothing, nor
 does any click on a screen its terminal scrolled, where the pointer's move leaves Enter its
-answer.
+answer, on one a resize asks to be drawn again, or on one written with no carriage returned.
 
 Read real SGR mouse reports from a pipe against the frame's rendered key line, without
 taking a terminal or reading any user state.
@@ -32,15 +32,15 @@ def action(spots, key):
 
 class ChooseClick(unittest.TestCase):
     def pick(self, events, keyline="↑↓←→ move   ⏎ add   esc back", rows=24, pad=0, places=None,
-             **options):
+             again=(None, None), **options):
         """What the list, a screen of seven lines, answers to `events` on a terminal of `rows`
         rows with `pad` cells blank in from each edge, `places` what else its body has
-        (`terminal.frame`)."""
+        (`terminal.frame`), `again` the pipe a resize asks for a draw on (`terminal.Keyboard`)."""
         read, write = os.pipe()
         with os.fdopen(read, "rb", buffering=0) as stdin, \
                 os.fdopen(write, "wb", buffering=0) as writer, \
                 patch.object(sys, "stdin", stdin), redirect_stdout(io.StringIO()), \
-                patch.multiple(terminal, _TAKEN=types.SimpleNamespace(again=(None, None)),
+                patch.multiple(terminal, _TAKEN=types.SimpleNamespace(again=again),
                                _KEYED=b"", _PRESSED=False, _POINTER=None, _SPOTS={},
                                _POINTED=terminal.Spot(), _NEXT=None, _HELD=None,
                                _MOVED=0.0, _AWAY=False, _UNSEEN=False, _ASKED=False,
@@ -88,6 +88,26 @@ class ChooseClick(unittest.TestCase):
         demo = click(6, 6)                     # `Demo`, the padding's cell further in each way
         self.assertEqual(self.pick(lambda spots: demo, rows=9, pad=1), "Demo")
         self.assertEqual(self.pick(lambda spots: demo + b"\x1b[B\r", rows=8, pad=1), "Example")
+
+    def test_a_screen_a_resize_asks_to_be_drawn_again_takes_no_click(self):
+        again = os.pipe()
+        for end in again:
+            self.addCleanup(os.close, end)
+
+        def events(spots):
+            os.write(again[1], b".")       # a resize as the frame goes out, its fit not asked yet
+            return click(5, 5) + b"\x1b[B\r"
+
+        self.assertEqual(self.pick(events, again=again), "Example")
+
+    def test_a_screen_written_with_no_carriage_returned_takes_no_click_until_written_again(self):
+        # whether each line begins in its column is as all of them go out: once on a taken
+        # keyboard, which then writes what differs, and at every draw with none
+        for up, picked in (([], "Example"), (None, "Demo")):
+            returned = iter([False])       # not as the first goes out, and ever after
+            with self.subTest(up=up), patch.multiple(
+                    terminal, _UP=up, _BEGUN=True, _begins=lambda: next(returned, True)):
+                self.assertEqual(self.pick(lambda spots: click(5, 5) * 2 + b"\x1b[B\r"), picked)
 
     def test_the_pointer_off_every_row_of_a_scrolled_screen_leaves_enter_its_answer(self):
         # off every row the pointer puts the highlight out, Enter only bringing it back; a

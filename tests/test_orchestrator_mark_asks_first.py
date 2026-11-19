@@ -29,6 +29,8 @@ from agentkit.terminal import Key
 
 
 class Keyboard:
+    again = (None, None)                    # no resize asks it for a draw
+
     def take(self):
         return True
 

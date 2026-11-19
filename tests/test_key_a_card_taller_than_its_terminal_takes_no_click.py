@@ -5,8 +5,10 @@ screen of eleven lines at forty columns, so a terminal of eight rows scrolls it,
 19 Nov a click on a blank row under `× Remove` removed the subscription.  The pointer answers
 nothing there now (terminal.choose): no click does, the pointer on the highlighted answer
 leaves Enter its answer, and a button that went down there is no click once the terminal is
-tall enough.  Down and Enter remove as always.  The rows and columns are the terminal's own:
-LINES or COLUMNS, exported at the size it had, say nothing of the one it has.
+tall enough, where a click answers again.  Down and Enter remove as always.  The rows and
+columns are the terminal's own: LINES or COLUMNS, exported at the size it had, say nothing of
+the one it has, and one that says no rows has none for the card.  Nor does a click answer
+where a newline returns no carriage, each line begun where the last ended.
 
 Black-box: `− remove` under `Claude III` on tests/test_key_removed_subscription_signs_out.py's
 terminal, made forty columns wide before the card is asked.  Judged by what the terminal shows
@@ -15,10 +17,12 @@ and config.toml under a temporary HOME; Go's ak does not claim this file yet (go
 
 from pathlib import Path
 import sys
+import termios
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
+from fixtures.akterm import SERVER
 from test_key_removed_subscription_signs_out import Subscriptions
 
 
@@ -28,12 +32,27 @@ class Card(Subscriptions):
     def accounts(self):
         return akconfig.read(self.home)["providers"]["anthropic"]["accounts"]
 
+    def tell(self, tty):
+        """What the terminal, resized, is told of itself before the card is asked: nothing."""
+
     def ask(self):
         self.term.wait(lambda screen: "add a subscription" in screen)
         self.to("Claude III")
         self.term.resize(40, self.height)  # ak reads the size as it draws the card
+        tty = self.home.tmux("display", "-p", "-t", self.term.pane, "#{pane_tty}", server=SERVER)
+        with open(tty.out.strip(), "wb", buffering=0) as tty:
+            self.term.wait(lambda _: termios.tcgetwinsize(tty) == (self.height, 40))
+            self.tell(tty)
         self.term.keys("Right", "Right", "Enter")          # `− remove`, last on its line
         self.term.wait(lambda screen: "› ✓ Keep" in screen and "esc back" in screen)
+
+    def grown(self, answer):
+        """The row `answer` is on once the terminal, made eighteen rows, shows the card whole:
+        its eleven lines from the first row, the keys' the last to be written."""
+        self.term.resize(40, 18)
+        shown = self.term.wait(lambda screen: "Claude III" in screen.split("\n")[0]
+                               and "esc back" in screen.split("\n")[10]).split("\n")
+        return next(number for number, line in enumerate(shown, 1) if answer in line)
 
     def click_every_row(self):
         for row in range(self.height, 0, -1):
@@ -66,14 +85,18 @@ class ACardTallerThanItsTerminal(Card):
         self.term.type("\x1b[<0;3;8M")     # down on the blank row under the card
         self.term.keys("Down")
         self.term.wait("› × Remove")       # a key read after it
-        self.term.resize(40, 18)
-        shown = self.term.wait(lambda screen: "Claude III" in screen.split("\n")[0]
-                               and "› × Remove" in screen).split("\n")
-        row = next(number for number, line in enumerate(shown, 1) if "› × Remove" in line)
+        row = self.grown("› × Remove")
         self.term.type(f"\x1b[<0;3;{row}m")                # and up on `× Remove`
         self.term.keys("Escape")
         self.term.wait(lambda screen: "Keep" not in screen)
         self.assertEqual(self.accounts(), ["default", "a1", "b2"])
+
+    def test_a_click_answers_it_once_the_terminal_is_tall_enough(self):
+        self.ask()
+        row = self.grown("× Remove")
+        self.term.type(f"\x1b[<0;3;{row}M\x1b[<0;3;{row}m")
+        self.term.wait(lambda screen: "Keep" not in screen)
+        self.assertEqual(self.accounts(), ["default", "a1"])
 
 
 class ACardOnFewerRowsThanLinesSays(Card):
@@ -91,6 +114,23 @@ class ACardOnFewerColumnsThanColumnsSays(ACardOnFewerRowsThanLinesSays):
     # its columns as ak started: laid out a hundred wide the screen is ten lines, which twelve
     # rows would hold, and the terminal wraps them onto more
     exported, height = {"COLUMNS": "100"}, 12
+
+
+class ACardOnATerminalSayingNoRows(ACardOnFewerRowsThanLinesSays):
+    exported = {}       # nothing says its rows: ak lays the card out for twenty-four, a guess
+
+    def tell(self, tty):
+        termios.tcsetwinsize(tty, (0, 40))
+
+
+class ACardOnATerminalReturningNoCarriage(ACardOnFewerRowsThanLinesSays):
+    # rows for the screen's eleven lines, were each begun in the first column
+    exported, height = {}, 12
+
+    def tell(self, tty):
+        told = termios.tcgetattr(tty)
+        told[1] &= ~termios.ONLCR          # a newline only moves down a row
+        termios.tcsetattr(tty, termios.TCSANOW, told)
 
 
 if __name__ == "__main__":

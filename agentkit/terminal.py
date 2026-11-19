@@ -867,6 +867,7 @@ TICK = 10.0        # the longest any row goes unwritten: a stray write, a child'
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
                    # one written over since (`over`); empty, nothing on it is known
 _UP_OF, _WHOLE = None, 0.0     # ... the screen and theme they are of, and when all went last
+_BEGUN = True      # ... and whether each line then began in its column (`_begins`)
 _MOVED = 0.0       # when a move of the pointer was last answered
 _HELD = None       # a move read and not answered yet, and when the first of them was
 _NEXT = None       # a key read past a move, answered after it
@@ -1022,6 +1023,12 @@ class Keyboard:
             pass
 
 
+def _wants_drawing():
+    """Whether a resize or a return from ^Z has asked for a draw `read_key` has yet to read."""
+    again = _TAKEN.again[0] if _TAKEN is not None else None
+    return again is not None and bool(select.select([again], [], [], 0)[0])
+
+
 def hand_on():
     """What to add to the environment for the program an exec makes of this one to write the frame
     up as it takes the terminal (`_last_frame`): plain bytes, as another version of the code reads
@@ -1031,7 +1038,7 @@ def hand_on():
     the look is the new program's to find."""
     try:
         size = f"{width()} {height()}"
-        if not _UP or select.select([_TAKEN.again[0]], [], [], 0)[0]:
+        if not _UP or _wants_drawing():
             return {}
         return warm.cross(FRAME, "\n".join([size, *_PAINTED]).encode())
     except Exception:
@@ -1422,17 +1429,21 @@ def on_screen():
 
 
 def fits():
-    """Whether the terminal holds the screen up on the rows counted for its lines: it wraps a
-    line wider than it is, and scrolls where they leave the cursor no row under them
-    (`written`).  The size is the terminal's own, the padding in it, where stdout is one that
-    says it: an exported COLUMNS or LINES (`width`, `height`) is the size before a resize."""
+    """Whether the screen up is on the rows counted for its lines, as far as its terminal says:
+    it has rows for them and one under them, scrolling where they leave the cursor none
+    (`written`), and columns for each, wrapping a wider one; it began each in its column when
+    all went last (`_begins`); and no draw asked for is still to be read (`_wants_drawing`),
+    a resize leaving what is up laid out for the size before it.  One that says no rows or
+    columns has none for them, and an exported COLUMNS or LINES is the size before a resize:
+    what the screen is laid out for (`width`, `height`) is the size only where stdout is no
+    terminal."""
     try:
         columns, lines = os.get_terminal_size(sys.stdout.fileno())
     except (AttributeError, OSError, ValueError):
-        columns = lines = 0
-    columns, lines = columns or width() + 2 * _PAD, lines or height() + 2 * _PAD
-    return _PAD + len(_PAINTED) < lines and all(_PAD + cells(line) <= columns
-                                                 for line in _PAINTED)
+        columns, lines = width() + 2 * _PAD, height() + 2 * _PAD
+    # asked after the size: a resize that the size shows has asked for its draw by then
+    return (_BEGUN and not _wants_drawing() and _PAD + len(_PAINTED) < lines
+            and all(_PAD + cells(line) <= columns for line in _PAINTED))
 
 
 def lights():
@@ -1615,6 +1626,17 @@ def _differing(rows):
                    if not _UP or row > len(_UP) or line != _UP[row - 1])
 
 
+def _begins():
+    """Whether a line written after a newline begins in its column: by the padding's own move
+    there (`_Screen`), else by the terminal returning the carriage on a newline, which a
+    stdout that is no terminal is taken to do."""
+    try:
+        returned = termios.OPOST | termios.ONLCR
+        return bool(_PAD) or termios.tcgetattr(sys.stdout.fileno())[1] & returned == returned
+    except (AttributeError, OSError, ValueError, termios.error):
+        return True
+
+
 def whole_in():
     """Seconds until the next draw writes every row again; a wait for one ends by then."""
     return _WHOLE + TICK - time.monotonic() if _UP else float("inf")
@@ -1638,11 +1660,11 @@ def written(lines, frame="", rising=False, screen=None):
     reads the same in another theme is painted anew.  The cursor ends under them, where a
     prompt goes.  `frame` goes in the same update (`over`); lines `rising` are its to write, never
     first as they are, on a cleared screen."""
-    global _UP, _UP_OF, _WHOLE
+    global _UP, _UP_OF, _WHOLE, _BEGUN
     starts, screen = _starts(lines), (screen, theme())
     if (rising or not _UP or screen != _UP_OF or len(lines) >= height()
             or time.monotonic() >= _WHOLE + TICK):
-        _WHOLE, text = time.monotonic(), "\033[H" + "".join(
+        _WHOLE, _BEGUN, text = time.monotonic(), _begins(), "\033[H" + "".join(
             _cleared(line) + "\n" for line in (() if rising else starts.values())) + "\033[J"
     else:
         text = _differing(starts.items())
@@ -1752,8 +1774,8 @@ def choose(choices, default=None, around=None, wait=None, warn=None, above=list)
     and a click on nothing is let go; a button that went down before the list moved is no click.
     The pointer on a choice moves the highlight to it, and its screen is drawn again for what
     else it lights.
-    A screen the terminal does not hold on the rows counted for its lines (`fits`), when drawn
-    or when the pointer is read, takes no click and no move of the pointer.
+    A screen not on the rows counted for its lines as far as its terminal says (`fits`), when
+    drawn or when the pointer is read, takes no click and no move of the pointer.
     `wait`, where given, reads the key in `read_key`'s place, or None for a draw: the menu's own
     (`menu.moving`) keeps its dots breathing while the list is asked.  `warn` is a choice drawn
     in the warn colour: the one of `confirm`'s that ends something.
