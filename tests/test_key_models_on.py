@@ -6,7 +6,8 @@ model running a listed release that is off is never picked, as `ak usage` shows 
 and review pair, nor does a seat start on it; with every model off `ak orch` refuses, naming
 the model list, as `ak worker` and `ak orch --model` do one named outright, reaching no harness.
 A model running a release without a score is not the list's to turn off, but for one
-`models_off` holds: that stays off once the board takes its scores, or its row.
+`models_off` holds: that stays off once the board takes its scores, or its row, as one on stays
+on.
 
 Black-box: the program `AK_BIN` names runs from outside (tests/fixtures/akbin.py), its
 harnesses fakes listing invented models and the boards held as just asked with the invented
@@ -40,6 +41,10 @@ def boards():
     for row in rows:
         row["maker"] = row["model"].split()[0]
     return held
+
+
+# Bolt 3's rows day after day as the boards retire it: kept, without scores, gone
+RETIRING = (lambda row: row, lambda row: {**row, "values": {}}, lambda row: None)
 
 
 class ModelsOn(unittest.TestCase):
@@ -113,15 +118,27 @@ class ModelsOn(unittest.TestCase):
         done = self.ak("orch", "fix-api", "--model", "crux", "--dry-run", code=2)
         self.assertIn("model list", done.err)
 
-    def test_a_model_turned_off_stays_off_when_the_boards_list_it_no_more(self):
-        # bolt runs Bolt 3, which you turned off: the boards take its scores, then its rows
+    def retire_bolt(self):
+        """Store the boards each day of `RETIRING`, read anew: `ak models` stores them."""
         held = boards()
-        for day, kept in enumerate((lambda row: {**row, "values": {}}, lambda row: None), 1):
+        for day, kept in enumerate(RETIRING, 1):
             for board in held.values():
                 board["rows"] = [one for row in board["rows"]
                                  for one in [kept(row) if row["model"] == "Bolt 3" else row] if one]
-                board["fetched_at"] = NOW + day * 86400     # read anew: `ak models` stores it
+                board["fetched_at"] = NOW + day * 86400
             self.home.write(".agentkit/state/boards.json", held)
+            yield
+
+    def test_a_model_on_stays_on_when_the_boards_list_it_no_more(self):
+        # bolt runs Bolt 3, a release of yours on: picked as the boards take its scores, its rows
+        for _ in self.retire_bolt():
+            self.configure(workers=["mid", "bolt"], companies=["Acme", "Bolt"])
+            answer = json.loads(self.ak("usage", "--json").out)
+            self.assertEqual(sorted(answer["pick_order"]), ["bolt", "mid"])
+
+    def test_a_model_turned_off_stays_off_when_the_boards_list_it_no_more(self):
+        # bolt runs Bolt 3, which you turned off: the boards take its scores, then its rows
+        for _ in self.retire_bolt():
             self.configure(orchestrator="bolt", workers=["mid", "bolt"],
                            reviewers=["bolt", "mid"], companies=["Acme", "Bolt"],
                            models_off=["bolt-3"])
