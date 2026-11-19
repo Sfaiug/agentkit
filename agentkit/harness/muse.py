@@ -541,9 +541,32 @@ def seat_token_sources(record):
 
 
 def seat_token_usage(entry, cursor):
-    tokens = provider_tokens(run_event(entry, "goal_usage_attribution").get("record") or {})
-    if tokens is not None:
+    """A request of the log's own session is filed from the `model_completed` Muse writes right
+    after attributing it, the one line naming its model beside its counts, and its attribution
+    is no row -- whoever asked: a child's own log attributes its requests asking as `reminder`,
+    and completes them as well.  A parent's log also attributes its reminder children's requests
+    and completes none: each of those is filed by itself, its tokens and no model."""
+    completed = run_event(entry, "model_completed")
+    if isinstance(completed.get("usage"), dict):
+        model, counts = completed.get("model"), by_type(completed["usage"])
+        return (entry["recorded_at"] / 1_000_000, entry.get("id"), sum(counts),
+                model if isinstance(model, str) else None, counts)
+    record = run_event(entry, "goal_usage_attribution").get("record") or {}
+    tokens = provider_tokens(record)
+    owner = (record.get("owner") or {}).get("session_id")
+    if tokens is not None and (owner is None or owner != (entry.get("stream") or {}).get("id")):
         return entry["recorded_at"] / 1_000_000, entry.get("id"), tokens, None, None
+
+
+def by_type(quantity):
+    """A Muse record's counts in `TOKEN_TYPES` order, a count it leaves out 0.  Its input holds
+    its cached prefix, which it says apart as `cached_tokens` where it does, and its output its
+    reasoning; Muse reports no cache write."""
+    spent_in, spent_out, hit = (
+        value if type(value := quantity.get(key)) is int and value >= 0 else 0
+        for key in ("input_tokens", "output_tokens", "cached_tokens"))
+    hit = min(hit, spent_in)
+    return [spent_in - hit, 0, hit, spent_out]
 
 
 def provider_tokens(record):
@@ -791,25 +814,15 @@ def tokens(out):
 
 
 def turn_usage(out):
-    """The turn's own counts, the sum of its records' (`_records`), under the model the worker
-    launched it with (`launched_model`), as `Harness.turn_usage` gives them: none where it has
-    no record.
-
-    A record's input holds its cached prefix, which it says apart as `cached_tokens` where it
-    does, and its output its reasoning; Muse reports no cache write.
-    """
+    """The turn's own counts, the sum of its records' (`_records`, `by_type`), under the model
+    the worker launched it with (`launched_model`), as `Harness.turn_usage` gives them: none
+    where it has no record."""
     from . import launched_model
     records = _records(out)
     if not records:
         return None
-    fresh = cached = output = 0
-    for record in records:
-        spent_in, spent_out, hit = (
-            value if type(value := record["quantity"].get(key)) is int and value >= 0 else 0
-            for key in ("input_tokens", "output_tokens", "cached_tokens"))
-        hit = min(hit, spent_in)
-        fresh, cached, output = fresh + spent_in - hit, cached + hit, output + spent_out
-    return None, False, {launched_model(out): (fresh, 0, cached, output)}
+    counts = zip(*(by_type(record["quantity"]) for record in records))
+    return None, False, {launched_model(out): tuple(map(sum, counts))}
 
 
 def _records(out):
