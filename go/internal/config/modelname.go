@@ -66,7 +66,7 @@ func Spoken(name string) string {
 			spelled[i] = '.'
 		}
 	}
-	words := strings.Fields(strings.ReplaceAll(string(spelled), "-", " "))
+	words := strings.FieldsFunc(strings.ReplaceAll(string(spelled), "-", " "), Space)
 	for i, word := range words {
 		if strings.ToLower(word) == word && strings.ToUpper(word) != word {
 			first, size := utf8.DecodeRuneInString(word)
