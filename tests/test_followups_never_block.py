@@ -3,7 +3,7 @@
 A reviewer hands one in with `--before` for a defect from before the task, or without it
 with a `--run` failing on the reviewed commit, where ak re-proves it. Passing on base
 makes it a finding; failing there too keeps it a follow-up. The run keeps every round's
-follow-ups, for the plan lines a merge writes (tests/test_followup_runs.py).
+follow-ups, for the fix runs a merge starts (tests/test_followup_runs.py).
 Offline: a real repository; proofs run in a clone of the reviewed commit.
 """
 
@@ -127,13 +127,12 @@ class Weighed(unittest.TestCase):
         self.assertNotIn("before", row)
         self.assertEqual(submitted.followups, [])
         self.assertEqual(submitted.followup_checks, {})
-        self.assertEqual(submitted.followup_commits, {})
         self.assertEqual(submitted.preexisting, [])
         # one failing on base too is from before the task, whatever the reviewer said
         submitted, row = self.weigh(followup("api.py:1", "mode is wrong", probe('api.mode == "fixed"')))
         self.assertEqual(row["kind"], "follow-up")
         self.assertEqual(row["before"], f"base {self.base}: the proof fails there too")
-        self.assertEqual(submitted.followup_commits, {hand_in.item_text(row): self.head})
+        self.assertEqual(row["evidence"]["commit"], self.head)
         self.assertEqual(submitted.preexisting, [row])
         # one whose command passes on the reviewed commit proves nothing: a note, dropped
         submitted, row = self.weigh(followup("api.py:1", "mode is wrong", probe('api.mode == "branch"')))
@@ -146,7 +145,6 @@ class Weighed(unittest.TestCase):
         self.assertEqual(row["kind"], "follow-up")
         self.assertEqual(row["evidence"]["commit"], self.base)
         self.assertIn("Before the task", hand_in.item_text(row))
-        self.assertEqual(submitted.followup_commits, {hand_in.item_text(row): self.base})
         self.assertEqual(submitted.preexisting, [row])
 
     def test_later_rounds_keep_new_caused_follow_ups_outside_the_fix_delta_as_notes(self):

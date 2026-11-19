@@ -56,7 +56,7 @@ COMMANDS = {
     "hand-in follow-up": (f"usage: {HAND_IN_FOLLOWUP}",
                           "Hand in a defect that existed before the task, to fix after the merge (--before proves it);\n"
                           "without --before, --run must fail on the reviewed commit, and one passing on base is weighed as a finding, since this change caused it.\n"
-                          "Its command becomes the check of a line in the owning session's plan, deferred once a fix run of its own has it.",
+                          "Its command becomes the done-when of a fix run of its own.",
                           'ak hand-in follow-up api.py:12 "Wrong result" "Breaks callers" --run "python3 reproduce.py" --before "return None"'),
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",
                         "Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",

@@ -1524,15 +1524,14 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         lp.log(f"WARN {overridden}; overriding to FAIL")
     prompts.record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
-    # kept whatever the verdict, every round's, with the commit each was proven on for its plan
-    # line; each defect once, as the last review to hand it in put it: its text, command and
-    # commit take the earlier one's place, proven on the head nearest to what merges
+    # kept whatever the verdict, every round's; each defect once, as the last review to hand it
+    # in put it: its text and command take the earlier one's place, proven on the head nearest
+    # to what merges
     known = lp.state.get("followup_defects") or {}
     kept = {known.get(item, item): item for item in lp.state.get("followups") or []}
     kept.update({defect: item for item, defect in submitted.followup_defects.items()})
     lp.state["followups"] = list(kept.values())
     for key, found in (("followup_checks", submitted.followup_checks),
-                       ("followup_commits", submitted.followup_commits),
                        ("followup_defects", submitted.followup_defects)):
         held = {**(lp.state.get(key) or {}), **found}
         lp.state[key] = {item: held[item] for item in lp.state["followups"] if item in held}

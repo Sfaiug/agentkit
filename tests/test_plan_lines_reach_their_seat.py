@@ -4,9 +4,9 @@ The tick once wrote a proven switch's line into the plan of a seat at rest (20 O
 nothing told the seat, so it read `needs you` with nothing asked until the owner came to ask
 why.  Only `plan.add` appends a line to a plan, and each of its callers says here how the seat
 hears of the line, each way held by its own tests and alike on every harness: the seat wrote
-it itself; a run's ending names it and is typed into the seat; or it goes only to a seat at
-work, whose turn's end sends it to its open line.  A new writer fails here until it says how
-its seat hears of the line, and one that is gone fails until its entry goes too.
+it itself, or it goes only to a seat at work, whose turn's end sends it to its open line.  A
+new writer fails here until it says how its seat hears of the line, and one that is gone fails
+until its entry goes too.
 """
 
 import ast
@@ -18,9 +18,6 @@ REPO = Path(__file__).resolve().parent.parent
 
 WRITERS = {
     ("plan", "main"): "the seat's own `ak plan add`",
-    ("handback", "plan_followup"): "a review follow-up: named by the run ending typed into "
-                                   "the seat, or held by a fix run until that run's own ending "
-                                   "is (test_followup_lines, test_followup_runs)",
     ("retire", "hand"): "a proven switch: only to a seat at work or one whose plan names it "
                         "(test_switch_retirement)",
 }

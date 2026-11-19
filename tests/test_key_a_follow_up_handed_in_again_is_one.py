@@ -3,10 +3,10 @@
 A follow-up names its defect by its file and what is wrong there.  A reviewer meeting it again
 on the next round's head hands it in in other words: another line, another why, another failing
 command.  The run keeps it once, as that last round proved it on the head nearest to what
-merges, so the merge writes one line in the seat's plan, checked by the last round's command,
-and starts one fix run, with that command as its done-when.  Black-box: the program `AK_BIN`
-names runs from outside through tests/fixtures/akbin.py, from a seat of akseat.py, against the
-origin of gitrig.py and the GitHub of fakegh.py, with scripted harnesses from fakeadapter.py.
+merges, so the merge starts one fix run, with that command as its done-when.  Black-box: the
+program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, from a seat of
+akseat.py, against the origin of gitrig.py and the GitHub of fakegh.py, with scripted harnesses
+from fakeadapter.py.
 """
 
 import json
@@ -17,10 +17,10 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import REAL_TMUX, Home
-from fixtures.akseat import PLAN_LINE, Seat
+from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
-from test_key_followup_plan_line import LINE, alive, held, wait_for
+from test_key_a_follow_up_is_no_plan_line import alive, held, wait_for
 
 FIRST, LAST = "test -f sturdy.txt", "test -s sturdy.txt"
 ITEM = "caller.txt:2 - flimsy widget - it breaks under load"
@@ -57,8 +57,6 @@ class AFollowUpHandedInAgainIsOne(unittest.TestCase):
                             codex=[*REVIEWS, "pass"])
         task = taskfile.write(cls.home, rig.path, "Add feature", done_when=("test -f feature.txt",))
         cls.done = cls.home.ak("run", str(task), env={"AGENTKIT_SESSION": "acme"}, timeout=600)
-        plan = cls.home.path / ".agentkit/state/plan-acme.md"
-        cls.plan = plan.read_text().replace(PLAN_LINE + "\n", "", 1) if plan.exists() else ""
         cls.parent_dir, *cls.fixes = taskfile.runs(cls.home)
         cls.parent = json.loads((cls.parent_dir / "run.json").read_text())
         cls.addClassCleanup(cls.settle)
@@ -77,15 +75,6 @@ class AFollowUpHandedInAgainIsOne(unittest.TestCase):
         self.assertEqual([row["verdict"] for row in self.parent["round_summaries"]], ["FAIL", "PASS"])
         [item] = self.parent["followups"]
         self.assertEqual(item.splitlines()[:2], [ITEM, f"$ {LAST}"])
-
-    def test_the_seat_s_plan_has_one_line_for_it_checked_by_the_last_round_s_command(self):
-        lines = [line for line in self.plan.splitlines() if line.strip()]
-        self.assertEqual(len(lines), 1, self.plan)
-        found = LINE.fullmatch(lines[0])
-        self.assertIsNotNone(found, lines[0])
-        self.assertEqual((found["what"], found["check"]), (f"Fix {ITEM}", LAST))
-        # the commit that command was proven failing on: the last one reviewed
-        self.assertEqual(found["base"], self.parent["review"]["head_sha"][:12])
 
     def test_one_fix_run_starts_with_the_last_round_s_command_as_its_done_when(self):
         self.assertEqual(len(self.fixes), 1, [path.name for path in self.fixes])
