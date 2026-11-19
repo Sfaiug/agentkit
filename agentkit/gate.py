@@ -2648,7 +2648,7 @@ def _running_commands(pid):
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
                   confirmed=None, flaky=None, checked=None, exits=None, timings=None,
-                  took=None, absent=None, known=(), blamed=False, rerun_held=False):
+                  took=None, absent=None, known=(), blamed=False, chosen=False):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2702,12 +2702,14 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     ({file: seconds}, piece count) from this pass alone, before that cap, and `took` its last
     go's seconds, charged to the ceiling as they are: its waits for a turn aside.  `absent` is
     `run_suite`'s, for one command, and `known` its for every one.
-    With `rerun_held`, a round's (`roundloop.verify_work`), the re-run of a `shard` given `only`
-    is handed them less those its first go named as not there and not as run: the time record
-    keeps a part while its file exists, and no change fixes one its file lost.  Its `flaky:`
-    record names what the first go lacked, and no lacked part is a flaky test.  A lander's check
-    runs without it: it reads a red go and a green one as a flake that blames nobody, and counts
-    a part not there by its own rule (`passes_what_it_holds`).
+    With `chosen`, a round's (`roundloop.verify_work`), `only` lists the tests it chose from the
+    time record (`round_tests.chosen`), which holds while the round goes: the check keeps no
+    times, as a resumed round chooses from it again, and the re-run of a `shard` is handed them
+    less those its first go named as not there and not as run, as the record keeps a part while
+    its file exists and no change fixes one its file lost.  Its `flaky:` record names what the
+    first go lacked, and no lacked part is a flaky test.  A lander's check runs without it: it
+    reads a red go and a green one as a flake that blames nobody, and counts a part not there by
+    its own rule (`passes_what_it_holds`).
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2747,7 +2749,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             rest = silence - (window or 0)
             how = "failed"
             handed = only
-            lacked = [] if rerun_held else None
+            lacked = [] if chosen else None
             raw = {} if exits is not None or timings is not None else None
             while True:
                 run_record.stop_check(run_dir)
@@ -2865,7 +2867,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
         if log is not None:
             log(stopped_line)
     text = "\n\n".join(chunks)
-    suite_times.keep(cwd, log_path)
+    if not chosen:
+        suite_times.keep(cwd, log_path)
     log_path.write_text(text)
     # The gate is over and its children are not the round's: a command that exited 0 may
     # still have left processes behind, and they die with the gate, however detached.
