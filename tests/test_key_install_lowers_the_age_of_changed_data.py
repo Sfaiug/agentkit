@@ -78,8 +78,9 @@ class ChangedDataAge(unittest.TestCase):
         self.assertEqual(len(self.entries(AGE)), 1)
         self.assertEqual(len(self.entries(INTERVAL)), 1)
         self.assertEqual(len(list(self.sysctl_d.iterdir())), 2)
-        self.assertIn(f"{AGE} = 1000", result.stdout)
-        self.assertIn(f"{INTERVAL} = 200", result.stdout)
+        # the screen says each change in plain words: the value, what it was and is, and why
+        self.assertIn(f"{AGE} lowered from 3000 to 1000: changed data is old", result.stdout)
+        self.assertIn(f"{INTERVAL} lowered from 500 to 200: the kernel looks", result.stdout)
         # every write went under the temporary root
         for argv in self.sudo_calls():
             if {"tee", "mkdir", "rm"} & set(argv):
