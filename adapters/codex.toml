@@ -56,6 +56,9 @@ x86_64 = "https://github.com/openai/codex/releases/download/rust-v{version}/code
 reset = true
 
 # Each plan `login-end` names, at its list price in US dollars a month as read in November 2026.
+# Pro is sold at $100, $200 and $500 a month and a login names each `pro`, so the owner was asked
+# what that login costs, 19 Nov 2026: "$200".  A login on another size says its `price` on its
+# provider's table.
 [plans]
 plus = 20
 pro = 200

@@ -98,7 +98,7 @@ class PlanPrices(unittest.TestCase):
         self.plans[("google", "default")] = "Google AI Ultra"
         got = self.usage()
         self.assertEqual(got[("anthropic", "default")], (100, "100"))
-        self.assertEqual(got[("google", "default")], (249.99, "249.99"))
+        self.assertEqual(got[("google", "default")], (99.99, "99.99"))
 
 
 if __name__ == "__main__":
