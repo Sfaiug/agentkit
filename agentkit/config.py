@@ -1318,18 +1318,25 @@ def run_marks(cfg, record):
             "models": json.loads(json.dumps(cfg["models"], default=str), parse_constant=str)}
 
 
+def model_id(entry):
+    """The model id of its own the [models.*] entry `entry` runs: None where it is no entry or
+    names none, no text or `default`, as the harness picks."""
+    model = entry.get("model") if isinstance(entry, dict) else None
+    return model if isinstance(model, str) and model not in ("", DEFAULT_MODEL) else None
+
+
 def model_name(cfg, name):
     """The full name every screen shows the configured model `name` by: `Opus 5.5` for one
     running `claude-opus-5-5`, `Nova 7.1` for `claude-nova-7-1` (model_label, off the entry's own
     `label` where it has one, model_entry, else its id, so no draw waits on a listing).  `name`
-    itself where it is no entry or names no id of its own (`default`: the harness picks).
+    itself where it names no id of its own (`model_id`).
     """
     entry = (cfg.get("models") or {}).get(name)
-    if not isinstance(entry, dict) or entry.get("model") in (None, "", DEFAULT_MODEL):
+    model = model_id(entry)
+    if model is None:
         return name
     label = entry.get("label")
-    return model_label(entry.get("harness") or "", entry["model"],
-                       label if isinstance(label, str) else "")
+    return model_label(entry.get("harness") or "", model, label if isinstance(label, str) else "")
 
 
 def model_entry(harness, model, label, **fields):

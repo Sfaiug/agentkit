@@ -478,8 +478,9 @@ def off(cfg):
     one `models_off` holds however the boards list it, as its owner said of a model off: "ak
     never uses it".  The release a model runs is the one whose rows of the lineup last stored, as
     `rank` reads it, hold its harness and model in their `yours`, scored or not; else, once no
-    row holds it, a slug of `models_off` its own id names (`found`).  A model running an
-    unlisted release nobody turned off, or none, is not the list's to turn off.  The picks
+    row holds it, a slug of `models_off` its own id (`config.model_id`) names (`found`).  A
+    model running an unlisted release nobody turned off, or none, is not the list's to turn
+    off.  The picks
     leave them out (usage.pick_order, usage.unready, orch.in_order), and a turn or a seat named
     on one outright is refused (`refuse_off`)."""
     lineup, makers = listed()
@@ -492,8 +493,8 @@ def off(cfg):
     named = _release_index({"slug": slug, "name": None} for slug in turned)
 
     def is_off(entry):
-        held = runs.get((entry["harness"], entry["model"]))
-        return held in gone if held else bool(found(named, entry["model"]))
+        key = entry["harness"], config.model_id(entry)
+        return runs[key] in gone if key in runs else bool(key[1] and found(named, key[1]))
     return {name for name in config.offered(cfg) if is_off(cfg["models"][name])}
 
 

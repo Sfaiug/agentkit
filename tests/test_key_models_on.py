@@ -127,7 +127,8 @@ class ModelsOn(unittest.TestCase):
                            models_off=["bolt-3"])
             answer = json.loads(self.ak("usage", "--json").out)
             self.assertEqual(answer["pick_order"], ["mid"])
-            self.assertEqual(answer["review"]["reviewer"], "mid")
+            self.assertEqual((answer["review"]["executor"], answer["review"]["reviewer"]),
+                             ("mid", "mid"))
             shown = self.ak("orch", "fix-api", "--dry-run").out.splitlines()
             self.assertEqual(next(line.split()[1] for line in shown if line.startswith("orch: ")),
                              "mid")
