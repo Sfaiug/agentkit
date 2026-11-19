@@ -879,10 +879,13 @@ TICK = 10.0        # the longest any row goes unwritten: a stray write, a child'
 _UP = None         # while a `Keyboard` has the terminal, its rows as written, top down, None for
                    # one written over since (`over`); empty, nothing on it is known
 _UP_OF, _WHOLE = None, 0.0     # ... the screen and theme they are of, and when all went last
+_UP_AT = None      # ... and the terminal's size as all did; None once a resize is read (`_resized`)
+_REPLIES = None    # whether the terminal said its attributes when first asked; None, not yet
 _MOVED = 0.0       # when a move of the pointer was last answered
 _HELD = None       # a move read and not answered yet, and when the first of them was
 _NEXT = None       # a key read past a move, answered after it
 _REPORT = re.compile(r"\x1b\[<\d+;\d+;\d+[Mm]")   # a mouse report, as mode 1006 sends one
+_SENT = re.compile(rb"\x1b\[<(\d+);\d+;\d+[Mm]")  # ... as the keyboard sends it, its button first
 
 
 def taken():
@@ -957,13 +960,14 @@ class Keyboard:
 
     def take(self):
         """Keys one at a time from here on; True when there is a terminal to take at all."""
-        global _TAKEN, _UP, _GIVEN
+        global _TAKEN, _UP, _UP_AT, _GIVEN
         if self.fd is None:
             return False
         if _TAKEN is self:
             return True
         self.saved = termios.tcgetattr(self.fd)
         _TAKEN, _UP = self, []   # before anything changes, so a signal from here on gives it back
+        _UP_AT = width(), height()     # nothing of this one's is up yet for a resize to move
         _GIVEN = not self.sequences[0]
         self._handle()
         attrs = termios.tcgetattr(self.fd)
@@ -1084,7 +1088,7 @@ def sense():
     `read_key`, and one that comes later is `_sequence`'s.  Then the frame a restart left up goes
     back up in what it found (`_last_frame`), the hold it was given back under hiding the wait.
     """
-    global _RGB, THEME, _KEYED
+    global _RGB, THEME, _KEYED, _REPLIES
     features = os.environ.get(FEATURES_ENV)
     if features is None and os.environ.get("TMUX"):
         try:
@@ -1095,8 +1099,24 @@ def sense():
         except (OSError, subprocess.SubprocessError):
             pass
     _RGB = bool({"RGB", "Tc"} & set((features or "").strip().split(",")))
+    heard, _REPLIES = _attributes(b"\033]11;?\033\\")
+    found = _ANSWER.search(heard)
+    _KEYED = (heard[:found.start()] + heard[found.end():] if found else heard) + _KEYED
+    colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
+                      found.group(1)) if found else None
+    red, green, blue = ([int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
+                        if colour else (0, 0, 0))
+    THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK   # its luma
+    _last_frame()
+
+
+def _attributes(asked=b""):
+    """The terminal asked for its attributes (DA1), after `asked`: what the keyboard sent until
+    its answer or for a second, that answer taken out, and whether it came.  A terminal answers
+    in turn, so what it sent before the answer it sent before it had read all that was written
+    before the question."""
     fd = sys.stdin.fileno()
-    os.write(sys.stdout.fileno(), b"\033]11;?\033\\\033[c")
+    os.write(sys.stdout.fileno(), asked + b"\033[c")
     heard, until = b"", time.monotonic() + 1     # a busy host takes most of one to pass it on
     while not _ATTRIBUTES.search(heard):
         left = until - time.monotonic()
@@ -1106,15 +1126,7 @@ def sense():
         if not byte:
             break
         heard += byte
-    found = _ANSWER.search(heard)
-    rest = heard[:found.start()] + heard[found.end():] if found else heard
-    _KEYED = _ATTRIBUTES.sub(b"", rest, count=1) + _KEYED
-    colour = re.match(rb"rgba?:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)",
-                      found.group(1)) if found else None
-    red, green, blue = ([int(part, 16) / (16 ** len(part) - 1) for part in colour.groups()]
-                        if colour else (0, 0, 0))
-    THEME = WHITE if 0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.5 else BLACK   # its luma
-    _last_frame()
+    return _ATTRIBUTES.subn(b"", heard, count=1)
 
 
 def _byte(fd, wait=None):
@@ -1140,7 +1152,8 @@ def read_key(timeout=None, wake=None):
     button comes up, not when it goes down, so whatever the click opens is never handed the
     rest of it.  Waiting for it keeps to `timeout` like any other wait, and a key pressed
     while the button is down is answered at once; should that key give the terminal away,
-    the rest of the click is no click (`Keyboard.give`).
+    the rest of the click is no click (`Keyboard.give`).  A press, a release or a move read on
+    a terminal `_resized` is let go.
 
     The pointer is answered, `point`, only once it is on another spot of the screen up than it
     was when that was drawn (`lit`): another row, another cell, or off what it was on; a move
@@ -1154,7 +1167,7 @@ def read_key(timeout=None, wake=None):
     again, and Enter or space -- a click on its key-line item too -- while the pointer is on
     no row (`away`) only brings it back, answered as a draw.
     """
-    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN, _UP
+    global _PRESSED, _ASKED, _POINTER, _MOVED, _NEXT, _HELD, _AWAY, _UNSEEN, _UP, _UP_AT
     key, _NEXT = _NEXT, None
     fd = sys.stdin.fileno()
     until = None if timeout is None else time.monotonic() + timeout
@@ -1171,14 +1184,16 @@ def read_key(timeout=None, wake=None):
                 if _HELD is not None and time.monotonic() >= _MOVED + motion.FRAME:
                     break
                 if again is not None and again in ready:
-                    _ASKED, _UP = True, _UP and []
+                    _ASKED, _UP, _UP_AT = True, _UP and [], None
                     try:
                         os.read(again, 4096)
                     except OSError:
                         pass
                 return None
         key = _key(fd)
-        if key is None:            # the button went down: the click is when it comes up
+        if (key is None or key.name in ("click", "point")) and _resized():
+            key, _PRESSED = None, False    # sent where the terminal may hold another line: let go
+        elif key is None:          # the button went down: the click is when it comes up
             _PRESSED = not _scrolled()     # down on a screen scrolled off its rows, it is none
         elif key.name.startswith("wheel"):
             key = _notches(key, fd)
@@ -1308,7 +1323,7 @@ def _notches(key, fd):
             raw += byte
             if raw[:1] != b"\x1b" or byte in b"Mm" or raw[1:] and byte not in b"[<0123456789;":
                 break
-        report = re.fullmatch(rb"\x1b\[<(\d+);\d+;\d+[Mm]", raw)
+        report = _SENT.fullmatch(raw)
         if not report or not int(report[1]) & 64:
             _KEYED = raw + _KEYED          # the next key's, as it was sent
             return notches and Key("wheel-down" if notches > 0 else "wheel-up",
@@ -1399,18 +1414,19 @@ def under(key, spots):
 
 
 def _scrolled():
-    """Whether the screen up (`lit`) is, or may be, off the rows counted for its lines, the pointer
-    on nothing: it has as many lines as `height` and its padding, or more, and scrolled as it was
-    written; or the terminal, which moves what it holds as it likes when its size changes, is to
-    be drawn again (`_resized`): until `read_key` reads that, its size is not the one the screen
-    up was laid out for."""
-    return len(_PAINTED) >= height() + _PAD or _resized()
+    """Whether the screen up (`lit`) has as many lines as `height` and its padding, or more: it
+    was scrolled off the rows counted for them as it was written, and the pointer is on nothing."""
+    return len(_PAINTED) >= height() + _PAD
 
 
 def _resized():
-    """Whether a resize or a return from ^Z has asked for a draw `read_key` has not read yet."""
+    """Whether the terminal a `Keyboard` has says it was resized since all of the screen up was
+    written (`written`), when it moves what it holds as it likes, off the rows counted for it: a
+    resize or a return from ^Z has asked for a draw, read (`read_key`) or not, or its size is
+    another, which a warm menu sees before it is told (warm.py)."""
     again = _TAKEN.again[0] if _TAKEN is not None else None
-    return again is not None and bool(select.select([again], [], [], 0)[0])
+    return again is not None and ((width(), height()) != _UP_AT
+                                  or bool(select.select([again], [], [], 0)[0]))
 
 
 def pointer():
@@ -1656,15 +1672,20 @@ def over(frame, rows=""):
 def written(lines, frame="", rising=False, screen=None):
     """`lines`, a screen from its first row, over the one up: the rows that differ from what the
     terminal holds; all of them, what is below cleared, when `screen` is not the one up, nor in
-    the theme in force, or what is up not known, `lines` could scroll, and every TICK: a row that
-    reads the same in another theme is painted anew.  The cursor ends under them, where a
-    prompt goes.  `frame` goes in the same update (`over`); lines `rising` are its to write, never
-    first as they are, on a cleared screen."""
-    global _UP, _UP_OF, _WHOLE
-    starts, screen = _starts(lines), (screen, theme())
-    if (rising or not _UP or screen != _UP_OF or len(lines) >= height()
+    the theme in force, or what is up not known or moved by a resize (`_resized`), `lines` could
+    scroll, and every TICK: a row that reads the same in another theme is painted anew.  The
+    cursor ends under them, where a prompt goes.  `frame` goes in the same update (`over`); lines
+    `rising` are its to write, never first as they are, on a cleared screen.
+
+    Written on a terminal `_resized`, they are not what it held as it sent what is still to be
+    read: it is asked for its attributes, unless it left them unsaid when first asked, and of
+    that no press, release or move it sent before its answer is kept (`_attributes`); a key and
+    the wheel are."""
+    global _UP, _UP_OF, _UP_AT, _WHOLE, _KEYED, _REPLIES
+    starts, screen, moved = _starts(lines), (screen, theme()), _resized()
+    if (rising or moved or not _UP or screen != _UP_OF or len(lines) >= height()
             or time.monotonic() >= _WHOLE + TICK):
-        _WHOLE, text = time.monotonic(), "\033[H" + "".join(
+        _WHOLE, _UP_AT, text = time.monotonic(), (width(), height()), "\033[H" + "".join(
             _cleared(line) + "\n" for line in (() if rising else starts.values())) + "\033[J"
     else:
         text = _differing(starts.items())
@@ -1673,6 +1694,11 @@ def written(lines, frame="", rising=False, screen=None):
     _UP = None if _UP is None else [starts.get(row) for row in range(1, len(lines) + 1)]
     _UP_OF = screen
     over(frame, text)
+    if moved and (_REPLIES is None or _REPLIES):
+        heard, came = _attributes()
+        _REPLIES, _KEYED = _REPLIES or came, _KEYED + heard
+        if _REPLIES:
+            _KEYED = _SENT.sub(lambda sent: sent[0] if int(sent[1]) & 64 else b"", _KEYED)
 
 
 def show(lines, spots, drawn=None, screen=None):
