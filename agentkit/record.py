@@ -79,8 +79,12 @@ def read_state(run_dir, shared=False):
 def policy_of(state):
     """The numbers a run holds to: those read as its directory was made (`run.prepare`), kept on
     its record because they do not change while it runs; a record from before that keeps none,
-    and stays on the host's it was launched under."""
-    return state.get("policy") or config.policy()
+    and stays on the host's it was launched under, and one from before a number was added holds
+    ak's default of it."""
+    kept = state.get("policy")
+    if not kept:
+        return config.policy()
+    return {**{key: default for key, (default, *_) in config.POLICY.items()}, **kept}
 
 
 def review_off(state):
