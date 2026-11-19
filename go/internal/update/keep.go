@@ -37,8 +37,9 @@ const (
 // first finds one only records it.  A red release starts again once retryAfter has passed since
 // its last start, a newer one at the second ask that finds it.  A checkout that is
 // somebody's work holds the upgrade unstarted, saying so, and a login its gates would not outlast
-// holds it with no ask until the first tick that one lasts.  ErrPython before the ask of an
-// installed harness movable says Go cannot move, and deliver's error at the line it gave.  A
+// holds it the same way, till an ask finds it again with that login lasting: an installer takes
+// what its channel holds then, which only such an ask has just read.  ErrPython before the ask of
+// an installed harness movable says Go cannot move, and deliver's error at the line it gave.  A
 // checkout with no live gate asks and starts all the same, as Python's does: the background
 // refuses the upgrade and says why.
 func KeepCurrent(repo string, say func(string), deliver Deliver) error {
@@ -91,11 +92,16 @@ func KeepCurrent(repo string, say func(string), deliver Deliver) error {
 			}
 		}
 	}
+	for _, name := range asked.Keys() {
+		if entry := asked.Dict(name); entry != nil {
+			entry.Delete("waits") // a release a login held, as an older ak kept it: unread
+		}
+	}
 	checkout, at := filepath.Join(config.UserHome(), "agentkit"), now()
 	for _, each := range plans {
 		entry := cmp.Or(asked.Dict(each.name), run.NewObject())
 		last, _ := entry.Num("asked")
-		if each.latest == nil || harness.Binary(each.version[0]) == "" || !entry.Truthy("waits") && at-last < askEvery {
+		if each.latest == nil || harness.Binary(each.version[0]) == "" || at-last < askEvery {
 			continue
 		}
 		installed, err := version(each, env)
@@ -107,16 +113,11 @@ func KeepCurrent(repo string, say func(string), deliver Deliver) error {
 		if installed != "" && !movable([]plan{each}) {
 			return ErrPython
 		}
-		waited := entry.Str("waits")
-		newest := waited
-		if newest == "" {
-			newest = latest(each, env)
-		}
+		newest := latest(each, env)
 		tried, _ := entry.Get("tried").(string)
 		started, _ := entry.Num("started")
-		// behind: both name a release, the installed one is the lower, and it is the one a login
-		// holds, which an ask found, or else the one the last ask found
-		behind := installed != "" && downgrade(newest, installed) && cmp.Or(waited, entry.Str("found")) == newest &&
+		// behind: both name a release, the installed one is the lower, and the last ask found it
+		behind := installed != "" && downgrade(newest, installed) && entry.Str("found") == newest &&
 			(tried != newest || at-started >= retryAfter)
 		left := ""
 		if behind {
@@ -127,10 +128,7 @@ func KeepCurrent(repo string, say func(string), deliver Deliver) error {
 			margin("live", liveCap)+margin("fresh", freshCap.Seconds()), at, say)
 		entry.Set("asked", at)
 		entry.Set("found", newest)
-		entry.Set("waits", "")
-		if waits {
-			entry.Set("waits", newest)
-		} else if begins {
+		if begins && !waits {
 			entry.Set("tried", newest)
 			entry.Set("started", at)
 		}
